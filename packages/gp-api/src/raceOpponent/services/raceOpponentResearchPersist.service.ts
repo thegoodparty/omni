@@ -13,6 +13,8 @@ import {
 } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   assertPublicHostname,
   ssrfSafeLookup,
@@ -79,6 +81,7 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
   constructor(
     private readonly s3: S3Service,
     private readonly experimentRuns: ExperimentRunsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -104,7 +107,11 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
 
     const research = await this.model.findFirst({
       where: { runId: run.runId, kind },
-      select: { id: true },
+      select: {
+        id: true,
+        campaignId: true,
+        campaign: { select: { userId: true } },
+      },
     })
     if (!research) return
 
@@ -126,6 +133,21 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
       const reachable = await this.dropUnreachable(findings)
 
       await this.replaceFindings(research.id, reachable)
+
+      // Self-research completion is server truth (the browser only sees the job
+      // start), so fire it here after the pass is persisted completed. Opponent
+      // runs reach completed through this same path but are not the funnel's
+      // self-research step, so they don't fire it. Fire-and-forget telemetry: a
+      // Segment hiccup must not fail the persist or requeue the message.
+      if (kind === RaceOpponentFindingKind.self) {
+        void this.analytics
+          .track(
+            research.campaign.userId,
+            EVENTS.RaceOpponent.SelfResearchCompleted,
+            { campaignId: research.campaignId, findingCount: reachable.length },
+          )
+          .catch(() => undefined)
+      }
     } catch (error) {
       await this.safeMarkResearchFailed(run.runId, kind)
       await this.experimentRuns.markFailed(

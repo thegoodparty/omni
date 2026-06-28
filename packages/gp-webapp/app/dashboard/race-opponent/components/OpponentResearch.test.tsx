@@ -4,12 +4,19 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type {
   OpponentProfileResponse,
   RaceOpponentActivityResponse,
   StartOpponentResearchRequest,
 } from 'gpApi/api-endpoints'
 import OpponentResearch from './OpponentResearch'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
 
 const activityWithFinding = (): RaceOpponentActivityResponse => ({
   findings: [
@@ -343,5 +350,97 @@ describe('<OpponentResearch>', () => {
     // refresh.status defaults to 'running' with no run, but researchStatus is
     // authoritative: no row means show the confirm gate, not a spinner.
     expect(screen.getByText('Confirm your opponent')).toBeInTheDocument()
+  })
+
+  it('fires the profile view event when the Handbook renders', () => {
+    render(
+      <OpponentResearch
+        opponentNames={['Jane Doe']}
+        initialProfile={completedProfile('Jane Doe')}
+        initialActivity={null}
+      />,
+    )
+
+    expect(
+      screen.getByText('Voted against the transit bond'),
+    ).toBeInTheDocument()
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.RaceOpponent.OpponentProfileViewed,
+      expect.any(Object),
+    )
+  })
+
+  it('fires the activity view event when the activity stream renders', () => {
+    // A completed pass seeded from the activity stream renders both the Handbook
+    // and the What's-new feed, so both view events fire once.
+    render(
+      <OpponentResearch
+        opponentNames={['Jane Doe']}
+        initialProfile={null}
+        initialActivity={activityWithFinding()}
+      />,
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.RaceOpponent.OpponentActivityViewed,
+      expect.any(Object),
+    )
+  })
+
+  it('does not fire the view events on the confirm gate', () => {
+    render(
+      <OpponentResearch
+        opponentNames={['Jane Doe']}
+        initialProfile={null}
+        initialActivity={null}
+      />,
+    )
+
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.RaceOpponent.OpponentProfileViewed,
+      expect.anything(),
+    )
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.RaceOpponent.OpponentActivityViewed,
+      expect.anything(),
+    )
+  })
+
+  it('fires the profile view event once across poll ticks, not on every tick', async () => {
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent/opponents/profile', [
+      { status: 200, data: completedProfile('Jane Doe') },
+      { status: 200, data: completedProfile('Jane Doe') },
+    ])
+    api.mock('GET /v1/campaigns/mine/race-opponent/opponents/activity', {
+      status: 200,
+      data: activityWithFinding(),
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <OpponentResearch
+          opponentNames={['Jane Doe']}
+          initialProfile={queuedProfile('Jane Doe')}
+          initialActivity={null}
+        />,
+      )
+
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(
+          screen.getAllByText('Voted against the transit bond').length,
+        ).toBeGreaterThan(0),
+      )
+      const profileCalls = vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.RaceOpponent.OpponentProfileViewed,
+        )
+      expect(profileCalls).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

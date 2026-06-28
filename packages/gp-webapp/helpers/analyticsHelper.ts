@@ -30,6 +30,16 @@ export const EVENTS = {
     RewriteDiscarded: 'Campaign Story - Rewrite Discarded',
     RewriteLimitReached: 'Campaign Story - Rewrite Limit Reached',
   },
+  // Know Your Opponent (Win). Both are browser-observed views the candidate
+  // navigates to: OpponentProfileViewed fires when the sourced opponent
+  // Handbook renders, OpponentActivityViewed when the "what's new" activity
+  // stream renders. Together they measure how far candidates get through the
+  // opponent surfaces. The self-research-completion and contrast events are
+  // server-truth and fire from gp-api, not here.
+  RaceOpponent: {
+    OpponentProfileViewed: 'Win - Opponent Profile Viewed',
+    OpponentActivityViewed: 'Win - Opponent Activity Viewed',
+  },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
     issueDetailsViewed: 'Polls - Poll Results Issue Details Viewed',

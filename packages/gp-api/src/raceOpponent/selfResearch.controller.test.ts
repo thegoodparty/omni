@@ -4,6 +4,8 @@ import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { SelfResearchService } from '@/raceOpponent/services/selfResearch.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { RaceOpponentResearch } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
@@ -103,6 +105,11 @@ const stubReachability = () =>
     .mockImplementation((url: string) =>
       Promise.resolve(url === REACHABLE ? new Date() : null),
     )
+
+const stubTrack = () =>
+  vi
+    .spyOn(service.app.get(AnalyticsService), 'track')
+    .mockResolvedValue(undefined as never)
 
 const validFinding = (overrides: Record<string, unknown> = {}) => ({
   category: 'record',
@@ -407,6 +414,7 @@ describe('Self-research dispatch + persist + opponent gate', () => {
       const run = await seedRun('run-a', ExperimentRunStatus.COMPLETED)
       stubArtifact([validFinding()])
       stubReachability()
+      const track = stubTrack()
 
       await service.app
         .get(RaceOpponentResearchPersistService)
@@ -427,6 +435,33 @@ describe('Self-research dispatch + persist + opponent gate', () => {
       )
       expect(finding.sourceUrl).toBe(REACHABLE)
       expect(finding.sourceReachableAt).not.toBeNull()
+
+      // Self-research completion is the funnel's first server-truth step.
+      expect(track).toHaveBeenCalledWith(
+        service.user.id,
+        EVENTS.RaceOpponent.SelfResearchCompleted,
+        expect.objectContaining({ campaignId, findingCount: 1 }),
+      )
+    })
+
+    it('does not fire Self Research Completed when the run failed', async () => {
+      await seedSelfResearch(
+        campaignId,
+        RaceOpponentResearchStatus.running,
+        'run-fail-track',
+      )
+      const run = await seedRun('run-fail-track', ExperimentRunStatus.FAILED)
+      const track = stubTrack()
+
+      await service.app
+        .get(RaceOpponentResearchPersistService)
+        .onExperimentRunCompleted(run)
+
+      expect(track).not.toHaveBeenCalledWith(
+        expect.anything(),
+        EVENTS.RaceOpponent.SelfResearchCompleted,
+        expect.anything(),
+      )
     })
 
     it('drops a finding whose source_url is unreachable, keeps reachable ones', async () => {

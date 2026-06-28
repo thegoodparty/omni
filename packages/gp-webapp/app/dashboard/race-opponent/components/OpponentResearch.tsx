@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, LoaderCircleIcon, TriangleAlertIcon } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import type {
   OpponentProfileResponse,
   RaceOpponentActivityResponse,
@@ -30,6 +32,7 @@ const OpponentResearch = ({
   initialActivity,
 }: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
+  const [campaign] = useCampaign()
 
   // The opponent the candidate has confirmed for research. Defaults to the
   // already-researched opponent if its name is known. When only the activity
@@ -66,6 +69,11 @@ const OpponentResearch = ({
   // closure until React re-renders, so without this a double-click could fire a
   // second paid run before the button disables.
   const startingRef = useRef(false)
+  // Fire each view event once per mount, not on every poll/re-render. The
+  // surfaces appear together once research completes, so without a one-shot
+  // guard a 5s poll would re-fire them on every tick.
+  const profileViewedRef = useRef(false)
+  const activityViewedRef = useRef(false)
 
   const loadProfile = useCallback(
     async (name: string): Promise<RaceOpponentResearchStatus> => {
@@ -186,6 +194,28 @@ const OpponentResearch = ({
       setActivityLoaded(true)
     })
   }, [status, activityLoaded, loadActivity])
+
+  // The opponent Handbook is on screen once research completes and findings are
+  // loaded. Track the profile view once it first renders.
+  useEffect(() => {
+    if (status !== 'completed' || findings === null) return
+    if (profileViewedRef.current) return
+    profileViewedRef.current = true
+    trackEvent(EVENTS.RaceOpponent.OpponentProfileViewed, {
+      campaignId: campaign?.id,
+    })
+  }, [status, findings, campaign?.id])
+
+  // The "what's new" activity stream renders inside the completed view once the
+  // activity payload has loaded. Track that view once it first renders.
+  useEffect(() => {
+    if (status !== 'completed' || activity === null) return
+    if (activityViewedRef.current) return
+    activityViewedRef.current = true
+    trackEvent(EVENTS.RaceOpponent.OpponentActivityViewed, {
+      campaignId: campaign?.id,
+    })
+  }, [status, activity, campaign?.id])
 
   const isGenerating = status === 'queued' || status === 'running'
   // Confirm only when there is genuinely no pass yet: null (no activity loaded)
