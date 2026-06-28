@@ -153,12 +153,38 @@ export class OpponentResearchService extends createPrismaBase(
     if (!row.opponentName) return false
     if (row.attempts >= MAX_OPPONENT_RESEARCH_ATTEMPTS) return false
 
+    // Build params before claiming so a params failure can't leave a claimed
+    // row stranded in queued (mirrors the user start() ordering).
+    const params = await this.buildParams(campaign, row.opponentName)
+
+    // Atomic settled->queued claim. The cron's hasInFlightRun check reads the
+    // ExperimentRun table, but a concurrent user start() flips the row to
+    // queued (runId still null) BEFORE its dispatchRun creates an ExperimentRun
+    // — so a read-then-write re-check would still race and double-dispatch.
+    // Making the status transition itself the guard (updateMany WHERE
+    // status IN (completed, failed)) means exactly one path can move the row out
+    // of settled; if count===0 another path already claimed it, so we skip.
+    const { count } = await this.model.updateMany({
+      where: {
+        id: row.id,
+        status: {
+          in: [
+            RaceOpponentResearchStatus.completed,
+            RaceOpponentResearchStatus.failed,
+          ],
+        },
+      },
+      data: {
+        status: RaceOpponentResearchStatus.queued,
+        runId: null,
+        attempts: { increment: 1 },
+        completedAt: null,
+      },
+    })
+    if (count === 0) return false
+
     try {
-      await this.claimAndDispatch(campaign, clerkUserId, {
-        existing: row,
-        opponentName: row.opponentName,
-        electionCandidacyId: row.electionCandidacyId,
-      })
+      await this.dispatchAndBind(campaign, clerkUserId, row.id, params)
       return true
     } catch (error) {
       this.logger.error(
@@ -222,6 +248,20 @@ export class OpponentResearchService extends createPrismaBase(
       }
     }
 
+    return this.dispatchAndBind(campaign, clerkUserId, claimed.id, params)
+  }
+
+  // Dispatch the agent run for an already-claimed row, then bind its runId.
+  // Both the user start() claim and the cron's atomic settled->queued claim
+  // feed into this so the dispatch/bind/rollback ordering stays single-sourced.
+  // On any dispatch or bind failure the claim is rolled back (scoped to this
+  // row id) so it never sits queued-with-null-runId.
+  private async dispatchAndBind(
+    campaign: CampaignWith<'user'>,
+    clerkUserId: string,
+    claimedId: number,
+    params: OpponentResearchInput,
+  ): Promise<RaceOpponentResearchRow> {
     let run: Awaited<ReturnType<typeof this.experimentRuns.dispatchRun>>
     try {
       run = await this.experimentRuns.dispatchRun({
@@ -231,12 +271,12 @@ export class OpponentResearchService extends createPrismaBase(
         params,
       })
     } catch (error) {
-      await this.rollbackClaim(claimed.id)
+      await this.rollbackClaim(claimedId)
       throw error
     }
 
     if (!run) {
-      await this.rollbackClaim(claimed.id)
+      await this.rollbackClaim(claimedId)
       throw new BadRequestException(
         'Opponent research is not available in this environment.',
       )
@@ -248,11 +288,11 @@ export class OpponentResearchService extends createPrismaBase(
     // re-trigger — the row is never left queued-with-null-runId.
     try {
       return await this.model.update({
-        where: { id: claimed.id },
+        where: { id: claimedId },
         data: { runId: run.runId },
       })
     } catch (error) {
-      await this.rollbackClaim(claimed.id)
+      await this.rollbackClaim(claimedId)
       throw error
     }
   }

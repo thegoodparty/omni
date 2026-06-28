@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
+import { OpponentResearchService } from '@/raceOpponent/services/opponentResearch.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
   ExperimentRunStatus,
@@ -34,15 +35,22 @@ const seedOpponentRow = (
   campaignId: number,
   status: RaceOpponentResearchStatus,
   runId: string,
+  opponentName: string = OPPONENT,
 ) =>
   service.prisma.raceOpponentResearch.create({
     data: {
       campaignId,
       kind: RaceOpponentFindingKind.opponent,
-      opponentName: OPPONENT,
+      opponentName,
       status,
       runId,
     },
+  })
+
+const campaignWithUser = (id: number) =>
+  service.prisma.campaign.findUniqueOrThrow({
+    where: { id },
+    include: { user: true },
   })
 
 const seedRun = (runId: string, status: ExperimentRunStatus) =>
@@ -125,6 +133,76 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
     expect(row.runId).toBe('r2')
     expect(row.status).toBe(RaceOpponentResearchStatus.queued)
     expect(row.attempts).toBe(1)
+  })
+
+  it('does not re-dispatch a row already moved to queued by a concurrent path', async () => {
+    const campaign = await seedCampaign()
+    // A settled row that a concurrent user start() will have moved to queued.
+    await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'settled-1',
+      'Jane Rival',
+    )
+    await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.queued,
+      'already-queued',
+      'Bob Other',
+    )
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'fresh' } as never)
+
+    await service.app
+      .get(OpponentResearchScheduleService)
+      .refreshOpponentResearch()
+
+    // Only the genuinely-settled row is re-dispatched; the queued one is not.
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          opponent: expect.objectContaining({ full_name: 'Jane Rival' }),
+        }),
+      }),
+    )
+  })
+
+  it('atomic claim skips a row whose status is no longer settled', async () => {
+    const seeded = await seedCampaign()
+    const campaign = await campaignWithUser(seeded.id)
+    // The cron selected this row as completed, but a concurrent start() flipped
+    // it to queued before the cron's claim. The atomic settled->queued claim
+    // must find count===0 and skip — no second dispatch, runId untouched.
+    const staleSelection = await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'concurrent-bind',
+    )
+    await service.prisma.raceOpponentResearch.update({
+      where: { id: staleSelection.id },
+      data: {
+        status: RaceOpponentResearchStatus.queued,
+        runId: 'concurrent-bind',
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    const dispatched = await service.app
+      .get(OpponentResearchService)
+      .redispatchForRow(campaign, staleSelection)
+
+    expect(dispatched).toBe(false)
+    expect(dispatchRun).not.toHaveBeenCalled()
+    const row = await service.prisma.raceOpponentResearch.findUniqueOrThrow({
+      where: { id: staleSelection.id },
+    })
+    expect(row.runId).toBe('concurrent-bind')
+    expect(row.attempts).toBe(0)
   })
 
   it('skips a row whose org already has an in-flight run', async () => {
