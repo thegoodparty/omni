@@ -32,18 +32,16 @@ export default async function Page(): Promise<React.JSX.Element> {
   )
 
   // Contrasts are gated server-side on a completed self-research pass: the
-  // endpoint 403s until then. That's an expected state, not an error, so a
-  // failed fetch falls back to an empty list rather than crashing the page.
-  let contrasts: ContrastRecord[] = []
-  try {
-    const { data: contrastData } = await serverRequest(
-      'GET /v1/campaigns/mine/race-opponent/contrasts',
-      {},
-    )
-    contrasts = contrastData.contrasts
-  } catch {
-    contrasts = []
-  }
+  // endpoint 403s until then. serverRequest returns { ok: false } on non-2xx
+  // (it does not throw), so guard on .ok — accessing .contrasts on the error
+  // body would be undefined and crash ContrastList's filter.
+  const contrastResult = await serverRequest(
+    'GET /v1/campaigns/mine/race-opponent/contrasts',
+    {},
+  )
+  const contrasts: ContrastRecord[] = contrastResult.ok
+    ? contrastResult.data.contrasts
+    : []
 
   return (
     <DashboardLayout
