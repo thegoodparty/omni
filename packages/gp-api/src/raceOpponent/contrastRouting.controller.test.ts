@@ -23,7 +23,7 @@ const flagOn = () =>
     .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
     .mockResolvedValue(true)
 
-const seedCampaign = async (slug: string) => {
+const seedCampaign = async (slug: string, isPro = true) => {
   await service.prisma.organization.create({
     data: { slug, ownerId: service.user.id },
   })
@@ -32,7 +32,7 @@ const seedCampaign = async (slug: string) => {
       userId: service.user.id,
       slug: `${slug}-campaign`,
       organizationSlug: slug,
-      isPro: true,
+      isPro,
     },
   })
 }
@@ -234,6 +234,69 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
 
     expect(result.status).toBe(403)
     // The gate fired before any write — nothing routed.
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
+    expect(row.routedStoryId).toBeNull()
+  })
+
+  it('routes an approved contrast (approved is routable)', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.approved,
+    )
+    flagOn()
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(201)
+    expect(result.data.routedStoryId).toBeGreaterThan(0)
+    expect(result.data.contrast.status).toBe(RaceOpponentContrastStatus.used)
+
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.used)
+    expect(row.routedStoryId).toBe(result.data.routedStoryId)
+  })
+
+  it('403s route for a non-Pro campaign', async () => {
+    const campaign = await seedCampaign(SLUG, false)
+    await seedCompletedSelfPass(campaign.id)
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(403)
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
+    expect(row.routedStoryId).toBeNull()
+  })
+
+  it('403s route when the feature flag is off', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(false)
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(403)
     const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
       where: { id: contrast.id },
     })
