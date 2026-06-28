@@ -153,6 +153,10 @@ export interface AgentJobContracts {
     Input: OpponentDataCollectionInputParams
     Output: OpponentDataCollectionArtifact
   }
+  race_opponent_summary: {
+    Input: OpponentSummaryInputParams
+    Output: OpponentSummaryArtifact
+  }
   self_research: {
     Input: SelfResearchInputParams
     Output: SelfResearchArtifact
@@ -6060,6 +6064,183 @@ export interface OpponentDataCollectionArtifact {
      */
     source_url: string
   }[]
+}
+export interface OpponentSummaryInputParams {
+  /**
+   * The opponents to structure, with the already-collected per-source text gp-api hydrated from race_opponent.content.text (Phase 0). This is the ONLY text the agent works from — there is no fetching or discovery.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    },
+    ...{
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    }[],
+  ]
+  /**
+   * The race the opponents are running in, hydrated by gp-api. Light context for phrasing only (office / jurisdiction). The agent does NOT reason over it to add facts and never cites it.
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name?: string | null
+    /**
+     * 2-letter state code (e.g. NC), or null.
+     */
+    state?: string | null
+    [k: string]: unknown
+  }
+}
+export interface OpponentSummaryArtifact {
+  generated_at: string
+  /**
+   * One entry per input opponent, in input order. opponent_name echoes the input verbatim. Every non-null section / position item carries at least one source_url drawn from that opponent's input sources; a section with nothing groundable in the provided text is null (overview/background) or omitted (key_positions item), never invented.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
+       */
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
+       */
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
+       */
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+    },
+    ...{
+      /**
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
+       */
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
+       */
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
+       */
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+    }[],
+  ]
 }
 export interface SelfResearchInputParams {
   /**
