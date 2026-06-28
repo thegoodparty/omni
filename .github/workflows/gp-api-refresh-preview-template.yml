@@ -55,15 +55,20 @@ jobs:
           TASK_DEF_FAMILY="gp-develop-fargateCluster-gp-api-develop"
 
           echo "Running refresh-preview-template against ${CLUSTER_ENDPOINT}..."
+          # Unlike the drop tasks (cluster access only), the refresh runs
+          # seed/seed.ts, which needs public-internet egress (Contentful, etc.).
+          # The private subnets have no NAT route, so use the public subnets +
+          # assignPublicIp=ENABLED exactly like the ECS service does; the app SG
+          # still reaches the shared cluster over the VPC.
           TASK_ARN=$(aws ecs run-task \
             --cluster "$ECS_CLUSTER" \
             --task-definition "$TASK_DEF_FAMILY" \
             --launch-type FARGATE \
             --network-configuration \
               "awsvpcConfiguration={
-                subnets=[subnet-053357b931f0524d4,subnet-0bb591861f72dcb7f],
+                subnets=[subnet-07984b965dabfdedc,subnet-01c540e6428cdd8db],
                 securityGroups=[sg-01de8d67b0f0ec787],
-                assignPublicIp=DISABLED
+                assignPublicIp=ENABLED
               }" \
             --overrides "{
               \"containerOverrides\": [{
