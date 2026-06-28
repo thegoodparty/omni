@@ -214,7 +214,10 @@ export class SelfResearchService extends createPrismaBase(
     await this.model
       .update({
         where: { id },
-        data: { status: RaceOpponentResearchStatus.failed },
+        data: {
+          status: RaceOpponentResearchStatus.failed,
+          attempts: { decrement: 1 },
+        },
       })
       .catch((err: unknown) => {
         this.logger.error(

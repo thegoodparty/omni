@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import { z } from 'zod'
 import {
   IdentifyOpponentsResponse,
@@ -228,7 +232,7 @@ export class OpponentResearchService extends createPrismaBase(
     })
 
     if (!row) {
-      throw new BadRequestException('No opponent-research pass found.')
+      throw new NotFoundException('No opponent-research pass found.')
     }
 
     return {
@@ -257,7 +261,10 @@ export class OpponentResearchService extends createPrismaBase(
     await this.model
       .update({
         where: { id },
-        data: { status: RaceOpponentResearchStatus.failed },
+        data: {
+          status: RaceOpponentResearchStatus.failed,
+          attempts: { decrement: 1 },
+        },
       })
       .catch((err: unknown) => {
         this.logger.error(
