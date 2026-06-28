@@ -1,6 +1,16 @@
 #!/bin/sh
 set -e
 
+# When invoked with a command (e.g. an ECS containerOverrides.command for the
+# preview DB-maintenance tasks: refresh-preview-template, drop-preview-db,
+# drop-orphaned-preview-dbs), exec it directly and skip the app-start flow.
+# ENTRYPOINT is exec-form with no CMD and the service task definition sets no
+# command, so normal startup (no args) is unaffected. Must run before the env
+# guards below — those tasks intentionally do not set DB_NAME / VOTER_DB_*.
+if [ "$#" -gt 0 ]; then
+  exec "$@"
+fi
+
 if [ -z "$DB_HOST" ] || [ -z "$DB_PASSWORD" ] || [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
   echo "One or more required DB environment variables are not set"
   exit 1
