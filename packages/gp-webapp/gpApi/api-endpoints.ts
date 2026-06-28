@@ -812,6 +812,32 @@ export type APIEndpoints = {
     Request: { target: ContrastRouteTarget }
     Response: RouteContrastResponse
   }
+
+  // Opponent identify/research/profile/activity. All hard-gated server-side on a
+  // completed self-research pass — they 403 until self-research is done. identify
+  // defaults the opponent set from the election-api roster; research requires a
+  // candidate-confirmed opponentName in the body (never auto-run on a namesake).
+  'POST /v1/campaigns/mine/race-opponent/opponents/identify': {
+    Request: {}
+    Response: IdentifyOpponentsResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/opponents/research': {
+    Request: StartOpponentResearchRequest
+    Response: StartOpponentResearchResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/opponents/profile': {
+    Request: { opponentName: string }
+    Response: OpponentProfileResponse
+  }
+
+  // Viewing the activity stream advances lastViewedAt server-side, so a fresh GET
+  // re-flags only findings that landed after this read.
+  'GET /v1/campaigns/mine/race-opponent/opponents/activity': {
+    Request: {}
+    Response: RaceOpponentActivityResponse
+  }
 }
 
 // Wire shapes for the self-research routes. Mirror the contract schemas in
@@ -859,6 +885,51 @@ export type SelfResearchStatusResponse = {
 
 export type SelfResearchReportResponse = {
   research: SelfResearchRecord & { findings: SelfResearchFinding[] }
+}
+
+// Opponent identify returns roster-defaulted candidate names; the candidate
+// confirms a match before research is dispatched. Mirrors
+// IdentifyOpponentsResponseSchema in @goodparty_org/contracts.
+export type IdentifyOpponentsResponse = {
+  opponentNames: string[]
+}
+
+// Mirrors StartOpponentResearchRequestSchema. opponentName is the confirmed
+// match (required); electionCandidacyId is an optional roster reference.
+export type StartOpponentResearchRequest = {
+  opponentName: string
+  electionCandidacyId?: string | null
+}
+
+export type StartOpponentResearchResponse = {
+  research: SelfResearchRecord
+}
+
+// The opponent Handbook: the research row plus its sourced findings. Same wire
+// shape as the self-research report (dates as ISO strings over JSON); reuses
+// SelfResearchFinding for the finding leaves.
+export type OpponentProfileResponse = {
+  research: SelfResearchRecord & { findings: SelfResearchFinding[] }
+}
+
+// One "what's new" item: an opponent finding flagged with whether it landed
+// after the candidate last viewed the stream.
+export type RaceOpponentActivityItem = SelfResearchFinding & {
+  newSinceLastVisit: boolean
+}
+
+// Mirrors RaceOpponentActivityResponseSchema. `researchStatus` is the
+// authoritative opponent-research lifecycle from the persisted row (not_started
+// when none exists); the UI drives its initial view off it. The `refresh`
+// envelope matches the community-issues feed shape exactly so the activity feed
+// renders from the same pattern.
+export type RaceOpponentActivityResponse = {
+  findings: RaceOpponentActivityItem[]
+  researchStatus: RaceOpponentResearchStatus
+  refresh: {
+    status: 'running' | 'completed' | 'failed'
+    lastCompletedAt: string | null
+  }
 }
 
 // Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors

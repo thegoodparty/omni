@@ -9,6 +9,7 @@ import {
   ExperimentRunStatus,
   Prisma,
   RaceOpponentFindingKind,
+  RaceOpponentResearchStatus,
   RaceOpponentFinding as RaceOpponentFindingRow,
 } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
@@ -63,11 +64,20 @@ export class RaceOpponentActivityService extends createPrismaBase(
         campaignId: campaign.id,
         kind: RaceOpponentFindingKind.opponent,
       },
+      orderBy: { updatedAt: Prisma.SortOrder.desc },
       select: {
+        status: true,
         lastViewedAt: true,
         findings: true,
       },
     })
+
+    // Authoritative lifecycle from the persisted row, not the ExperimentRun-
+    // derived refresh.status (which reports 'running' even when no run exists).
+    // With multiple opponent rows, the most-recently-updated one is the active
+    // pass the UI cares about; no row at all means research hasn't started.
+    const researchStatus: RaceOpponentResearchStatus =
+      rows[0]?.status ?? RaceOpponentResearchStatus.not_started
 
     // The stream is campaign-wide across every opponent row, so the "last
     // visit" reference is the most recent view across them all; the next read's
@@ -98,7 +108,7 @@ export class RaceOpponentActivityService extends createPrismaBase(
       )
     }
 
-    return { findings, refresh }
+    return { findings, researchStatus, refresh }
   }
 
   // occurredAt is the primary key (when the event happened); a missing
