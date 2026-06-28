@@ -136,6 +136,18 @@ export const EditContrastRequestSchema = z.object({
 })
 export type EditContrastRequest = z.infer<typeof EditContrastRequestSchema>
 
+// Where an approved contrast is routed as a draft. `story` writes the contrast
+// into the Campaign Story narrative; `texting` writes it as a pre-send draft
+// Outreach. Neither sends — the candidate's own later action does that.
+export const ROUTE_CONTRAST_TARGET_VALUES = ['story', 'texting'] as const
+export const RouteContrastTargetSchema = z.enum(ROUTE_CONTRAST_TARGET_VALUES)
+export type RouteContrastTarget = z.infer<typeof RouteContrastTargetSchema>
+
+export const RouteContrastRequestSchema = z.object({
+  target: RouteContrastTargetSchema,
+})
+export type RouteContrastRequest = z.infer<typeof RouteContrastRequestSchema>
+
 export const RouteContrastToStoryResponseSchema = z.object({
   contrast: RaceOpponentContrastSchema,
   routedStoryId: z.number(),
@@ -151,6 +163,15 @@ export const RouteContrastToTextingResponseSchema = z.object({
 export type RouteContrastToTextingResponse = z.infer<
   typeof RouteContrastToTextingResponseSchema
 >
+
+// The route endpoint returns one of the two channel-specific shapes depending
+// on the target: a story route carries routedStoryId, a texting route carries
+// routedOutreachId.
+export const RouteContrastResponseSchema = z.union([
+  RouteContrastToStoryResponseSchema,
+  RouteContrastToTextingResponseSchema,
+])
+export type RouteContrastResponse = z.infer<typeof RouteContrastResponseSchema>
 
 export const ContrastResponseSchema = z.object({
   contrast: RaceOpponentContrastSchema,

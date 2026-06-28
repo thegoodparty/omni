@@ -18,6 +18,7 @@ import { OpponentResearchScheduleService } from './services/opponentResearchSche
 import { ContrastToneService } from './services/contrastTone.service'
 import { ContrastEngineService } from './services/contrastEngine.service'
 import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.service'
+import { ContrastRoutingService } from './services/contrastRouting.service'
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.s
     ContrastToneService,
     ContrastEngineService,
     ContrastReviewVerdictService,
+    ContrastRoutingService,
   ],
   exports: [
     RaceOpponentPersistService,

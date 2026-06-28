@@ -92,6 +92,13 @@ export const EVENTS = {
     ResponseCompleted: 'AI Assistant - Response Completed',
     ResponseFailed: 'AI Assistant - Response Failed',
   },
+  // Know Your Opponent (Win). Fired server-side when a candidate routes an
+  // approved contrast into their Campaign Story or a draft texting Outreach.
+  // The route writes a DRAFT only — this event marks intent to use a contrast,
+  // not a send.
+  RaceOpponent: {
+    ContrastUsed: 'Win - Contrast Used',
+  },
   // Community issues (Serve). The agent jobs generate the feed server-side; the
   // browser only sees a job *start*. These fire on job completion and carry the
   // issue headline + summary so a downstream email (HubSpot) can render them.

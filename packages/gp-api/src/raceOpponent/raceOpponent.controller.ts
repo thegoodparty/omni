@@ -31,6 +31,10 @@ import {
   RaceOpponentResponseSchema,
   RaceOpponentReview,
   RaceOpponentReviewSchema,
+  RouteContrastRequest,
+  RouteContrastRequestSchema,
+  RouteContrastResponse,
+  RouteContrastResponseSchema,
   SetArtifactReviewVerdictRequest,
   SetArtifactReviewVerdictRequestSchema,
   StartOpponentResearchRequest,
@@ -56,6 +60,7 @@ import { OpponentResearchService } from './services/opponentResearch.service'
 import { RaceOpponentActivityService } from './services/raceOpponentActivity.service'
 import { ContrastEngineService } from './services/contrastEngine.service'
 import { ContrastReviewVerdictService } from './services/contrastReviewVerdict.service'
+import { ContrastRoutingService } from './services/contrastRouting.service'
 import {
   RaceOpponentCollectResponse,
   RaceOpponentCollectResponseSchema,
@@ -73,6 +78,7 @@ export class RaceOpponentController {
     private readonly activity: RaceOpponentActivityService,
     private readonly contrastEngine: ContrastEngineService,
     private readonly contrastReviewVerdict: ContrastReviewVerdictService,
+    private readonly contrastRouting: ContrastRoutingService,
   ) {}
 
   // collect is the functional opponent trigger (it dispatches opponent
@@ -201,6 +207,28 @@ export class RaceOpponentController {
   ): Promise<ListContrastsResponse> {
     await this.raceOpponent.assertAccess(campaign)
     return this.contrastEngine.list(campaign.id)
+  }
+
+  // Route an approved contrast into Campaign Story or a draft texting Outreach.
+  // DRAFT only — the route never sends; the candidate's own later action does.
+  // Same Pro+flag+self-research gate and owner scope as the rest of the module.
+  @Post('contrasts/:id/route')
+  @ResponseSchema(RouteContrastResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async routeContrast(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Param('id', ParseIntPipe) id: number,
+    @Body(new ZodValidationPipe(RouteContrastRequestSchema))
+    body: RouteContrastRequest,
+  ): Promise<RouteContrastResponse> {
+    await this.raceOpponent.assertAccess(campaign)
+    await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
+    return this.contrastRouting.route(
+      campaign.id,
+      campaign.userId,
+      id,
+      body.target,
+    )
   }
 
   // Reviewer (Campaign Success) applies the fair-line verdict. Admin-human-only
