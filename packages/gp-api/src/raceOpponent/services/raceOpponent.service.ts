@@ -214,6 +214,29 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     const opponents = this.groupSourcesForSummary(rows)
     if (opponents.length === 0) return
 
+    // Reuse an already-in-flight summary run instead of dispatching a second:
+    // a collection that completes while a prior summary run is still going
+    // would otherwise spawn a duplicate whose replaceSummaries (delete-then-
+    // insert) races the first's, leaving a non-deterministic final state.
+    // Mirrors dispatchCollection's in-flight dedup; not a hard claim, but it
+    // closes the common chained-retry case.
+    const inFlight = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: RACE_OPPONENT_SUMMARY,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { runId: true },
+    })
+    if (inFlight) return
+
     await this.experimentRuns.dispatchRun({
       type: RACE_OPPONENT_SUMMARY,
       organizationSlug: campaign.organizationSlug,
@@ -281,11 +304,14 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     }
   }
 
-  // The persisted structured summaries (one row per opponent), keyed by
-  // opponentName so groupByOpponent can attach each opponent's summary. The
-  // persist path already validated sections against the contract before
-  // writing, so a stored row re-parses cleanly; a row that somehow doesn't is
-  // dropped rather than 500-ing the whole read.
+  // The persisted structured summaries (one row per opponent). Keyed by the
+  // NORMALIZED opponent name (trim + lowercase, same as the roster lookup):
+  // the summary row and the race_opponent rows come from two separate LLM
+  // runs, so their casing/whitespace can differ — a raw-key match would
+  // silently drop the summary from the response. The persist path already
+  // validated sections against the contract before writing, so a stored row
+  // re-parses cleanly; a row that somehow doesn't is dropped rather than
+  // 500-ing the whole read.
   private async loadSummaries(
     campaignId: number,
   ): Promise<Map<string, RaceOpponentSummary>> {
@@ -296,7 +322,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     for (const summary of summaries) {
       const parsed = RaceOpponentSummarySchema.safeParse(summary.sections)
       if (parsed.success) {
-        byName.set(summary.opponentName, parsed.data)
+        byName.set(summary.opponentName.trim().toLowerCase(), parsed.data)
       } else {
         this.logger.warn(
           { campaignId, opponentName: summary.opponentName },
@@ -419,7 +445,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         party: match?.party ?? null,
         isIncumbent: match?.isIncumbent ?? null,
         items,
-        summary: summaries.get(opponentName) ?? null,
+        summary: summaries.get(opponentName.trim().toLowerCase()) ?? null,
       }
     })
   }

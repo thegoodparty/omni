@@ -1048,6 +1048,28 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
+  it('dispatchSummary skips when a summary run is already in flight', async () => {
+    await seedCollectedRow()
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-inflight',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchSummary(await loadCampaign())
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
   it('chains a summary dispatch when a collection run completes', async () => {
     await seedCollectedRow()
     const collectionRun = await service.prisma.experimentRun.create({
@@ -1141,6 +1163,42 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       (o: { opponentName: string }) => o.opponentName === JANE,
     )
     expect(opponent.summary).toBeNull()
+  })
+
+  it('resolves a summary onto its opponent despite a name casing/whitespace mismatch', async () => {
+    // The collected row carries 'Jane Rival'; the summary row (a separate LLM
+    // run) stored it as '  jane rival  '. Normalized matching must still pair
+    // them so the stored summary surfaces on the read endpoint.
+    await seedCollectedRow({ opponentName: JANE })
+    await service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: 'summary-cased',
+        opponentName: `  ${JANE.toLowerCase()}  `,
+        sections: {
+          opponentName: JANE,
+          overview: {
+            text: 'who they are',
+            sources: [
+              { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+            ],
+          },
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-06-28T00:00:00.000Z',
+        },
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary).not.toBeNull()
+    expect(opponent.summary.overview.text).toBe('who they are')
   })
 
   it('idempotently replaces summaries on re-run (no dupes)', async () => {
