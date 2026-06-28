@@ -74,6 +74,19 @@ const completedProfile = (opponentName: string): OpponentProfileResponse => ({
   },
 })
 
+const failedProfile = (opponentName: string): OpponentProfileResponse => ({
+  research: {
+    ...queuedResearch(opponentName).research,
+    status: 'failed',
+    findings: [],
+  },
+})
+
+const activityFailedEmpty = (): RaceOpponentActivityResponse => ({
+  findings: [],
+  refresh: { status: 'failed', lastCompletedAt: null },
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(useSnackbar).mockReturnValue({
@@ -183,6 +196,65 @@ describe('<OpponentResearch>', () => {
       screen.queryByRole('button', { name: /confirm and research/i }),
     ).not.toBeInTheDocument()
     expect(researchCall).not.toHaveBeenCalled()
+  })
+
+  it('renders the failure UI (not the confirm gate) for a failed-returning candidate', () => {
+    const researchCall = vi.fn()
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/opponents/research',
+      (req) => {
+        researchCall((req.body as StartOpponentResearchRequest).opponentName)
+        return { status: 200, data: queuedResearch('Jane Doe') }
+      },
+    )
+
+    render(
+      <OpponentResearch
+        opponentNames={['Jane Doe']}
+        initialProfile={null}
+        initialActivity={activityFailedEmpty()}
+      />,
+    )
+
+    // A failed run is unambiguous existing research: show the failure UI, never
+    // the confirm gate, and never auto-fire a new run.
+    expect(
+      screen.getByText(/opponent research didn.t complete/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Confirm your opponent')).not.toBeInTheDocument()
+    expect(researchCall).not.toHaveBeenCalled()
+  })
+
+  it('retries research for the confirmed opponent, not opponentNames[0]', async () => {
+    const researchCall = vi.fn()
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/opponents/research',
+      (req) => {
+        researchCall((req.body as StartOpponentResearchRequest).opponentName)
+        return { status: 200, data: queuedResearch('Jane Smith') }
+      },
+    )
+    const user = userEvent.setup()
+
+    // John Doe is the roster default (opponentNames[0]); the failed pass was for
+    // Jane Smith. Retry must target Jane Smith.
+    render(
+      <OpponentResearch
+        opponentNames={['John Doe', 'Jane Smith']}
+        initialProfile={failedProfile('Jane Smith')}
+        initialActivity={null}
+      />,
+    )
+
+    expect(
+      screen.getByText(/opponent research didn.t complete/i),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+
+    await waitFor(() => expect(researchCall).toHaveBeenCalledWith('Jane Smith'))
+    expect(researchCall).not.toHaveBeenCalledWith('John Doe')
+    expect(researchCall).toHaveBeenCalledTimes(1)
   })
 
   it('shows the confirm gate when a completed run exists but found nothing', () => {

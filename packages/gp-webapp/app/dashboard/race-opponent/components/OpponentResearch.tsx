@@ -24,18 +24,35 @@ type Props = {
   initialActivity: RaceOpponentActivityResponse | null
 }
 
-// A returning candidate must land on their Handbook, not the confirm gate — and
-// must never be nudged to re-fire research on a pass that already exists. The
-// activity stream the page already fetches is the signal: findings present, or a
-// completed scheduled run, both mean a pass has run. (A bare refresh.status of
-// 'running' is NOT a signal — gp-api defaults to 'running' when there's no run at
-// all, so it can't distinguish a brand-new candidate from a genuine in-flight
-// run; only the unambiguous signals below count as existing research.)
+// A returning candidate must land on their Handbook (or the failure UI), not the
+// confirm gate — and must never be nudged to re-fire research on a pass that
+// already exists. The activity stream the page already fetches is the signal:
+// findings present, or a settled (completed/failed) scheduled run, all mean a
+// pass has run. (A bare refresh.status of 'running' is NOT a signal — gp-api
+// defaults to 'running' when there's no run at all, so it can't distinguish a
+// brand-new candidate from a genuine in-flight run; only the unambiguous signals
+// below count as existing research.)
 const hasExistingResearch = (
   activity: RaceOpponentActivityResponse | null,
 ): boolean => {
   if (!activity) return false
-  return activity.findings.length > 0 || activity.refresh.status === 'completed'
+  return (
+    activity.findings.length > 0 ||
+    activity.refresh.status === 'completed' ||
+    activity.refresh.status === 'failed'
+  )
+}
+
+// Seed the research status for a returning candidate from the activity refresh
+// status: a settled completed/failed run maps straight through; findings without
+// a settled status (a completed run that just isn't reported settled) still mean
+// the Handbook should show, so default to completed.
+const seededStatus = (
+  activity: RaceOpponentActivityResponse | null,
+): RaceOpponentResearchStatus | null => {
+  if (!hasExistingResearch(activity)) return null
+  if (activity?.refresh.status === 'failed') return 'failed'
+  return 'completed'
 }
 
 const OpponentResearch = ({
@@ -50,18 +67,19 @@ const OpponentResearch = ({
   // The opponent the candidate has confirmed for research. Defaults to the
   // already-researched opponent if its name is known. When only the activity
   // stream tells us a pass exists (no name on hand), confirmedName stays null but
-  // the existing-research path still renders the Handbook past the confirm gate.
+  // the existing-research path still renders the Handbook/failure UI past the
+  // confirm gate.
   const [confirmedName, setConfirmedName] = useState<string | null>(
     initialProfile?.research.opponentName ?? null,
   )
   const [selectedName, setSelectedName] = useState<string>(
     opponentNames[0] ?? '',
   )
-  // Seed status/findings from existing research so the Handbook renders on first
-  // paint without a round-trip. The activity findings are a superset of the
-  // Handbook's finding shape, so they render directly.
+  // Seed status/findings from existing research so the Handbook (or failure UI)
+  // renders on first paint without a round-trip. The activity findings are a
+  // superset of the Handbook's finding shape, so they render directly.
   const [status, setStatus] = useState<RaceOpponentResearchStatus | null>(
-    initialProfile?.research.status ?? (existedAtMount ? 'completed' : null),
+    initialProfile?.research.status ?? seededStatus(initialActivity),
   )
   const [findings, setFindings] = useState<SelfResearchFinding[] | null>(
     initialProfile?.research.findings ??
@@ -97,28 +115,52 @@ const OpponentResearch = ({
     setActivity(data)
   }, [])
 
+  // Dispatch research for an EXPLICIT opponent name. Both the confirm step and
+  // the failure retry route through here so the dispatched name is always the one
+  // the candidate chose — never a positional default like opponentNames[0].
+  const dispatchResearch = useCallback(
+    async (rawName: string): Promise<void> => {
+      if (startingRef.current) return
+      const name = rawName.trim()
+      if (name.length === 0) return
+      startingRef.current = true
+      setStarting(true)
+      try {
+        const { data } = await clientRequest(
+          'POST /v1/campaigns/mine/race-opponent/opponents/research',
+          { opponentName: name },
+        )
+        setConfirmedName(name)
+        setStatus(data.research.status)
+      } catch {
+        errorSnackbar('Could not start opponent research. Please try again.')
+      } finally {
+        startingRef.current = false
+        setStarting(false)
+      }
+    },
+    [errorSnackbar],
+  )
+
   // Confirmation gate: research never starts until the candidate explicitly
   // confirms a match. We never auto-dispatch on a roster namesake.
-  const confirm = useCallback(async (): Promise<void> => {
-    if (startingRef.current) return
-    const name = selectedName.trim()
-    if (name.length === 0) return
-    startingRef.current = true
-    setStarting(true)
-    try {
-      const { data } = await clientRequest(
-        'POST /v1/campaigns/mine/race-opponent/opponents/research',
-        { opponentName: name },
-      )
-      setConfirmedName(name)
-      setStatus(data.research.status)
-    } catch {
-      errorSnackbar('Could not start opponent research. Please try again.')
-    } finally {
-      startingRef.current = false
-      setStarting(false)
+  const confirm = useCallback(
+    (): Promise<void> => dispatchResearch(selectedName),
+    [dispatchResearch, selectedName],
+  )
+
+  // Retry a failed pass for the SAME confirmed opponent. When the name isn't
+  // known (a failed-returning candidate seeded from the activity stream, which
+  // doesn't carry the name), don't dispatch blind — route back to the confirm
+  // step so the candidate re-picks rather than silently researching the wrong
+  // (positional-default) opponent.
+  const retry = useCallback((): void => {
+    if (confirmedName) {
+      void dispatchResearch(confirmedName)
+      return
     }
-  }, [selectedName, errorSnackbar])
+    setStatus(null)
+  }, [confirmedName, dispatchResearch])
 
   // Poll the profile while the pass is queued or running. On completion, the
   // profile response already carries the findings, so no extra fetch is needed.
@@ -243,14 +285,13 @@ const OpponentResearch = ({
           </p>
           <p className="text-sm text-muted-foreground">
             Something went wrong while researching{' '}
-            {confirmedName ?? 'your opponent'}. Try again.
+            {confirmedName ?? 'your opponent'}.{' '}
+            {confirmedName
+              ? 'Try again.'
+              : 'Pick your opponent again to retry.'}
           </p>
-          <Button
-            onClick={() => void confirm()}
-            loading={starting}
-            loadingText="Starting…"
-          >
-            Try again
+          <Button onClick={retry} loading={starting} loadingText="Starting…">
+            {confirmedName ? 'Try again' : 'Choose opponent'}
           </Button>
         </div>
       )}
