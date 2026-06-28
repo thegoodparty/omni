@@ -24,6 +24,20 @@ type Props = {
   initialActivity: RaceOpponentActivityResponse | null
 }
 
+// A returning candidate must land on their Handbook, not the confirm gate — and
+// must never be nudged to re-fire research on a pass that already exists. The
+// activity stream the page already fetches is the signal: findings present, or a
+// completed scheduled run, both mean a pass has run. (A bare refresh.status of
+// 'running' is NOT a signal — gp-api defaults to 'running' when there's no run at
+// all, so it can't distinguish a brand-new candidate from a genuine in-flight
+// run; only the unambiguous signals below count as existing research.)
+const hasExistingResearch = (
+  activity: RaceOpponentActivityResponse | null,
+): boolean => {
+  if (!activity) return false
+  return activity.findings.length > 0 || activity.refresh.status === 'completed'
+}
+
 const OpponentResearch = ({
   opponentNames,
   initialProfile,
@@ -31,19 +45,27 @@ const OpponentResearch = ({
 }: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
 
+  const existedAtMount = hasExistingResearch(initialActivity)
+
   // The opponent the candidate has confirmed for research. Defaults to the
-  // already-researched opponent if one exists, otherwise null until confirm.
+  // already-researched opponent if its name is known. When only the activity
+  // stream tells us a pass exists (no name on hand), confirmedName stays null but
+  // the existing-research path still renders the Handbook past the confirm gate.
   const [confirmedName, setConfirmedName] = useState<string | null>(
     initialProfile?.research.opponentName ?? null,
   )
   const [selectedName, setSelectedName] = useState<string>(
     opponentNames[0] ?? '',
   )
+  // Seed status/findings from existing research so the Handbook renders on first
+  // paint without a round-trip. The activity findings are a superset of the
+  // Handbook's finding shape, so they render directly.
   const [status, setStatus] = useState<RaceOpponentResearchStatus | null>(
-    initialProfile?.research.status ?? null,
+    initialProfile?.research.status ?? (existedAtMount ? 'completed' : null),
   )
   const [findings, setFindings] = useState<SelfResearchFinding[] | null>(
-    initialProfile?.research.findings ?? null,
+    initialProfile?.research.findings ??
+      (existedAtMount ? (initialActivity?.findings ?? []) : null),
   )
   const [activity, setActivity] = useState<RaceOpponentActivityResponse | null>(
     initialActivity,
@@ -135,6 +157,10 @@ const OpponentResearch = ({
   }, [status, activity, loadActivity])
 
   const isGenerating = status === 'queued' || status === 'running'
+  // Confirm only when there is genuinely no existing or in-flight pass. A
+  // returning candidate (status seeded from existing research) never sees it, so
+  // research can't be re-fired on a pass that already exists.
+  const showConfirm = status === null
 
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
@@ -148,7 +174,7 @@ const OpponentResearch = ({
         </p>
       </header>
 
-      {!confirmedName && (
+      {showConfirm && (
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-6">
           <div className="flex flex-col gap-1">
             <h2 className="text-base font-semibold text-foreground">
@@ -194,11 +220,13 @@ const OpponentResearch = ({
         </div>
       )}
 
-      {confirmedName && isGenerating && (
+      {!showConfirm && isGenerating && (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card p-8 text-center">
           <LoaderCircleIcon className="size-8 animate-spin text-primary" />
           <p className="text-base font-medium text-foreground">
-            Researching {confirmedName}
+            {confirmedName
+              ? `Researching ${confirmedName}`
+              : 'Researching your opponent'}
           </p>
           <p className="text-sm text-muted-foreground">
             This can take a few minutes. You can leave this page and come back —
@@ -207,14 +235,15 @@ const OpponentResearch = ({
         </div>
       )}
 
-      {confirmedName && status === 'failed' && (
+      {!showConfirm && status === 'failed' && (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive bg-destructive/5 p-8 text-center">
           <TriangleAlertIcon className="size-8 text-destructive" />
           <p className="text-base font-medium text-foreground">
             Opponent research didn&apos;t complete
           </p>
           <p className="text-sm text-muted-foreground">
-            Something went wrong while researching {confirmedName}. Try again.
+            Something went wrong while researching{' '}
+            {confirmedName ?? 'your opponent'}. Try again.
           </p>
           <Button
             onClick={() => void confirm()}
@@ -226,7 +255,7 @@ const OpponentResearch = ({
         </div>
       )}
 
-      {confirmedName && status === 'completed' && findings !== null && (
+      {!showConfirm && status === 'completed' && findings !== null && (
         <div className="flex flex-col gap-10">
           <OpponentHandbook opponentName={confirmedName} findings={findings} />
           <section className="flex flex-col gap-3">

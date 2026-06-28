@@ -5,7 +5,10 @@ import { ExternalLinkIcon } from '@styleguide/components/ui/icons'
 import type { SelfResearchFinding } from 'gpApi/api-endpoints'
 
 type Props = {
-  opponentName: string
+  // Null when a pass exists but its opponent name isn't on hand (the returning
+  // candidate path derives findings from the campaign-wide activity stream,
+  // which doesn't carry the name); falls back to a generic label.
+  opponentName: string | null
   findings: SelfResearchFinding[]
 }
 
@@ -68,17 +71,16 @@ const OpponentHandbook = ({
   findings,
 }: Props): React.JSX.Element => {
   const sourced = findings.filter(hasSourceLink)
+  const title = opponentName ?? 'Your opponent'
 
   if (sourced.length === 0) {
     return (
       <div className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold text-foreground">
-          {opponentName}
-        </h2>
+        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">
           No sourced findings yet. As we verify public information about{' '}
-          {opponentName}, it will appear here — each with the source we found it
-          in.
+          {opponentName ?? 'your opponent'}, it will appear here — each with the
+          source we found it in.
         </p>
       </div>
     )
@@ -89,9 +91,7 @@ const OpponentHandbook = ({
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-0.5">
-        <h2 className="text-lg font-semibold text-foreground">
-          {opponentName}
-        </h2>
+        <h2 className="text-lg font-semibold text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">
           Sourced findings on your opponent, grouped by topic. Every finding
           links to the source we found it in.
