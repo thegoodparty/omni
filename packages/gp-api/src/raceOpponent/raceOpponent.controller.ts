@@ -17,6 +17,8 @@ import {
   RaceOpponentReportResponseSchema,
   RaceOpponentResearchStatusResponse,
   RaceOpponentResearchStatusResponseSchema,
+  RaceOpponentActivityResponse,
+  RaceOpponentActivityResponseSchema,
   RaceOpponentResponse,
   RaceOpponentResponseSchema,
   StartOpponentResearchRequest,
@@ -35,6 +37,7 @@ import { RaceOpponentService } from './services/raceOpponent.service'
 import { SelfResearchService } from './services/selfResearch.service'
 import { SelfResearchGateService } from './services/selfResearchGate.service'
 import { OpponentResearchService } from './services/opponentResearch.service'
+import { RaceOpponentActivityService } from './services/raceOpponentActivity.service'
 import {
   RaceOpponentCollectResponse,
   RaceOpponentCollectResponseSchema,
@@ -49,6 +52,7 @@ export class RaceOpponentController {
     private readonly selfResearch: SelfResearchService,
     private readonly selfResearchGate: SelfResearchGateService,
     private readonly opponentResearch: OpponentResearchService,
+    private readonly activity: RaceOpponentActivityService,
   ) {}
 
   // collect is the functional opponent trigger (it dispatches opponent
@@ -137,5 +141,18 @@ export class RaceOpponentController {
     @Query('opponentName') opponentName: string,
   ): Promise<OpponentProfileResponse> {
     return this.opponentResearch.profile(campaign, opponentName ?? '')
+  }
+
+  // The "what's new" activity stream: opponent findings ordered by when they
+  // occurred, each flagged newSinceLastVisit. Gated identically to the other
+  // opponent paths. Viewing advances lastViewedAt so the next read's
+  // new-since-last-visit is correct — it does NOT refresh research.
+  @Get('opponents/activity')
+  @ResponseSchema(RaceOpponentActivityResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async opponentActivity(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+  ): Promise<RaceOpponentActivityResponse> {
+    return this.activity.activity(campaign)
   }
 }
