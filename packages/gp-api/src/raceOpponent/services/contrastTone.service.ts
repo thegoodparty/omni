@@ -41,7 +41,7 @@ export class ContrastToneService {
   // commas; remaining stranded punctuation and double spaces are then cleaned.
   check(sentence: string): ToneCheckResult {
     const pattern = new RegExp(
-      `\\b(?:${CONTRAST_INFLATION_TERMS.join('|')})\\b[,;:.]?`,
+      `\\b(?:${CONTRAST_INFLATION_TERMS.join('|')})\\b[,;:]?`,
       'gi',
     )
     const stripped = sentence.replace(pattern, '')

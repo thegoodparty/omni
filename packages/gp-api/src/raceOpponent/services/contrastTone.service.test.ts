@@ -56,4 +56,11 @@ describe('ContrastToneService.check', () => {
     expect(result.sentence).not.toMatch(/(^|\s)[,;:]/)
     expect(result.sentence).toBe('He has a record.')
   })
+
+  it('preserves the terminal period when an inflation term ends the sentence', () => {
+    const result = tone.check('On the record, my opponent is corrupt.')
+    expect(result.nearTheLine).toBe(true)
+    expect(result.sentence).not.toMatch(/corrupt/i)
+    expect(result.sentence).toBe('On the record, my opponent is.')
+  })
 })
