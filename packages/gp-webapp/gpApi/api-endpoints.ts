@@ -779,6 +779,40 @@ export type APIEndpoints = {
     Response: SelfResearchReportResponse
   }
 
+  // Contrasts: the candidate review/edit/route surface (ENG-10575). generate
+  // drafts contrasts from opponent findings; list returns only candidate-
+  // visible (cleared/approved/used) contrasts; PATCH edits a contrast's text;
+  // route writes a DRAFT into Campaign Story or a texting Outreach (no send).
+  'POST /v1/campaigns/mine/race-opponent/contrasts/generate': {
+    Request: {}
+    Response: GenerateContrastsResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/contrasts': {
+    Request: {}
+    Response: ListContrastsResponse
+  }
+
+  // `id` is the path param (PathParamsOf types it as string and the runtime
+  // substitutes it into the URL), so it is NOT redeclared in Request —
+  // redeclaring it as a number would intersect with the string path param to
+  // `never`.
+  // Only candidate-authored fields are editable. opponentFact/sourceUrl/
+  // issueTag/routing are sourced from the opponent finding and immutable, so
+  // they are not part of the edit request (mirrors EditContrastRequestSchema).
+  'PATCH /v1/campaigns/mine/race-opponent/contrasts/:id': {
+    Request: {
+      candidateFact?: string
+      contrastSentence?: string
+    }
+    Response: ContrastResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/contrasts/:id/route': {
+    Request: { target: ContrastRouteTarget }
+    Response: RouteContrastResponse
+  }
+
   // Opponent identify/research/profile/activity. All hard-gated server-side on a
   // completed self-research pass — they 403 until self-research is done. identify
   // defaults the opponent set from the election-api roster; research requires a
@@ -919,6 +953,60 @@ export type RaceOpponentResponse = {
   lastCollectedAt: string | null
   collectionStatus: RaceOpponentCollectionStatus
 }
+
+// Where a contrast is routed. Mirrors RaceOpponentContrastRoutingSchema in
+// @goodparty_org/contracts (the read shape, which includes 'mail') vs the
+// narrower route target (story | texting only).
+export type ContrastRouting = 'story' | 'texting' | 'mail'
+export type ContrastRouteTarget = 'story' | 'texting'
+export type ContrastStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'cleared'
+  | 'blocked'
+  | 'approved'
+  | 'used'
+  | 'discarded'
+
+// Wire shape of a contrast. Mirrors RaceOpponentContrastSchema in
+// @goodparty_org/contracts, but date leaves arrive over JSON as ISO strings
+// (the contract coerces them to Date). All six content fields are non-empty;
+// the UI additionally guards that every field is present before rendering.
+export type ContrastRecord = {
+  id: number
+  opponentFact: string
+  sourceUrl: string
+  candidateFact: string
+  contrastSentence: string
+  issueTag: string
+  routing: ContrastRouting
+  status: ContrastStatus
+  editCount: number
+  findingId: number | null
+  routedStoryId: number | null
+  routedOutreachId: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type ListContrastsResponse = {
+  contrasts: ContrastRecord[]
+}
+
+export type GenerateContrastsResponse = {
+  contrasts: ContrastRecord[]
+  routedToReviewCount: number
+}
+
+export type ContrastResponse = {
+  contrast: ContrastRecord
+}
+
+// The route endpoint returns one of two channel-specific shapes: a story route
+// carries routedStoryId, a texting route carries routedOutreachId.
+export type RouteContrastResponse =
+  | { contrast: ContrastRecord; routedStoryId: number }
+  | { contrast: ContrastRecord; routedOutreachId: number }
 
 export type CommunityIssueCard = {
   id: string

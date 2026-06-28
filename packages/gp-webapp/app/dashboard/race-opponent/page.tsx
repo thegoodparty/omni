@@ -7,6 +7,8 @@ import DashboardLayout from '../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { KNOW_YOUR_OPPONENT_FLAG_KEY } from '@shared/experiments/knowYourOpponentFlag'
 import RaceOpponentList from './components/RaceOpponentList'
+import ContrastList from './components/ContrastList'
+import type { ContrastRecord } from 'gpApi/api-endpoints'
 
 const meta = pageMetaData({
   title: 'Know your opponent | GoodParty.org',
@@ -29,6 +31,18 @@ export default async function Page(): Promise<React.JSX.Element> {
     {},
   )
 
+  // Contrasts are gated server-side on a completed self-research pass: the
+  // endpoint 403s until then. serverRequest returns { ok: false } on non-2xx
+  // (it does not throw), so guard on .ok — accessing .contrasts on the error
+  // body would be undefined and crash ContrastList's filter.
+  const contrastResult = await serverRequest(
+    'GET /v1/campaigns/mine/race-opponent/contrasts',
+    {},
+  )
+  const contrasts: ContrastRecord[] = contrastResult.ok
+    ? contrastResult.data.contrasts
+    : []
+
   return (
     <DashboardLayout
       pathname="/dashboard/race-opponent"
@@ -37,6 +51,19 @@ export default async function Page(): Promise<React.JSX.Element> {
     >
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
         <RaceOpponentList initialData={data} />
+        <section className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 pb-28">
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-xl font-semibold text-foreground">
+              Review your contrasts
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Each contrast pairs a sourced opponent fact with your position.
+              Edit the wording, then route it to your Campaign Story or Texting
+              as a draft. Nothing sends automatically.
+            </p>
+          </div>
+          <ContrastList initialContrasts={contrasts} />
+        </section>
       </FeatureFlagGuard>
     </DashboardLayout>
   )

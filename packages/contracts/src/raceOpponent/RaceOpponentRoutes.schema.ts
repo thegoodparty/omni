@@ -135,13 +135,19 @@ export const CreateContrastRequestSchema = z.object({
 })
 export type CreateContrastRequest = z.infer<typeof CreateContrastRequestSchema>
 
-export const EditContrastRequestSchema = z.object({
-  opponentFact: z.string().min(1).optional(),
-  candidateFact: z.string().min(1).optional(),
-  contrastSentence: z.string().min(1).optional(),
-  issueTag: z.string().min(1).optional(),
-  routing: RaceOpponentContrastRoutingSchema.optional(),
-})
+// Only the candidate-authored fields are editable. opponentFact, sourceUrl,
+// issueTag, and routing are sourced/derived from the opponent finding and stay
+// immutable: rewriting opponentFact would silently diverge the displayed fact
+// from its citation (sourceUrl), breaking sourced-or-silent. The refine rejects
+// an empty PATCH {} so a no-op edit can't bump editCount or fire the event.
+export const EditContrastRequestSchema = z
+  .object({
+    candidateFact: z.string().min(1).optional(),
+    contrastSentence: z.string().min(1).optional(),
+  })
+  .refine((d) => Object.values(d).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  })
 export type EditContrastRequest = z.infer<typeof EditContrastRequestSchema>
 
 // Where an approved contrast is routed as a draft. `story` writes the contrast

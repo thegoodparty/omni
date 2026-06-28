@@ -95,9 +95,11 @@ export const EVENTS = {
   // Know Your Opponent (Win). Fired server-side when a candidate routes an
   // approved contrast into their Campaign Story or a draft texting Outreach.
   // The route writes a DRAFT only — this event marks intent to use a contrast,
-  // not a send.
+  // not a send. ContrastEdited fires when the candidate edits a cleared or
+  // approved contrast's text before routing it.
   RaceOpponent: {
     ContrastUsed: 'Win - Contrast Used',
+    ContrastEdited: 'Win - Contrast Edited',
   },
   // Community issues (Serve). The agent jobs generate the feed server-side; the
   // browser only sees a job *start*. These fire on job completion and carry the
