@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { OpponentResearchService } from '@/raceOpponent/services/opponentResearch.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
@@ -91,9 +92,15 @@ const stubReachability = () =>
     )
     .mockResolvedValue(new Date())
 
+const flagOn = () =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockResolvedValue(true)
+
 describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
   beforeEach(() => {
     vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+    flagOn()
   })
   afterEach(() => {
     vi.unstubAllEnvs()
@@ -232,6 +239,29 @@ describe('OpponentResearchScheduleService.refreshOpponentResearch', () => {
       RaceOpponentResearchStatus.completed,
       'r1',
     )
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(OpponentResearchScheduleService)
+      .refreshOpponentResearch()
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('skips a settled Pro row whose know-your-opponent flag is off', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedOpponentRow(
+      campaign.id,
+      RaceOpponentResearchStatus.completed,
+      'r1',
+    )
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(false)
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',

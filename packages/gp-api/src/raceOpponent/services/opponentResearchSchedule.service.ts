@@ -9,8 +9,12 @@ import {
 } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { CronLockService } from '@/cron/services/cronLock.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { OpponentResearchService } from './opponentResearch.service'
-import { OPPONENT_RESEARCH } from '../raceOpponent.constants'
+import {
+  KNOW_YOUR_OPPONENT_FEATURE,
+  OPPONENT_RESEARCH,
+} from '../raceOpponent.constants'
 
 const CRON_JOB = 'opponent_research_refresh'
 
@@ -28,6 +32,7 @@ export class OpponentResearchScheduleService extends createPrismaBase(
   constructor(
     private readonly opponentResearch: OpponentResearchService,
     private readonly cronLock: CronLockService,
+    private readonly features: FeaturesService,
   ) {
     super()
   }
@@ -80,9 +85,21 @@ export class OpponentResearchScheduleService extends createPrismaBase(
     })
 
     for (const row of rows) {
-      if (await this.hasInFlightRun(row.campaign.organizationSlug)) continue
-
       const campaign: CampaignWith<'user'> = row.campaign
+
+      // The flag is a per-user Amplitude check, so it can't live in the Prisma
+      // where. Mirror assertAccess (same key, same user source): a Pro campaign
+      // whose know-your-opponent flag was turned off must not get paid
+      // re-dispatches. A missing user can't pass the user-path gate either.
+      if (!campaign.user) continue
+      const enabled = await this.features.isFeatureEnabled({
+        user: campaign.user,
+        feature: KNOW_YOUR_OPPONENT_FEATURE,
+      })
+      if (!enabled) continue
+
+      if (await this.hasInFlightRun(campaign.organizationSlug)) continue
+
       await this.opponentResearch.redispatchForRow(campaign, row)
     }
   }

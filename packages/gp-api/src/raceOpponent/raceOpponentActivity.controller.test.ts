@@ -41,14 +41,16 @@ const seedSelfComplete = (campaignId: number) =>
 const seedOpponentResearch = (
   campaignId: number,
   lastViewedAt: Date | null = null,
+  opponentName: string = OPPONENT,
+  runId: string = 'opp-done',
 ) =>
   service.prisma.raceOpponentResearch.create({
     data: {
       campaignId,
       kind: RaceOpponentFindingKind.opponent,
-      opponentName: OPPONENT,
+      opponentName,
       status: RaceOpponentResearchStatus.completed,
-      runId: 'opp-done',
+      runId,
       lastViewedAt,
     },
   })
@@ -145,6 +147,58 @@ describe('GET /opponents/activity', () => {
         (f: { newSinceLastVisit: boolean }) => f.newSinceLastVisit === false,
       ),
     ).toBe(true)
+  })
+
+  it('merges findings across opponent rows and uses the cross-row last-view high-water mark', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedSelfComplete(campaign.id)
+    // Two opponent rows: one never viewed (null), one viewed 2024-01-01. The
+    // cross-row high-water mark is the most recent view across them (2024-01-01),
+    // so a finding persisted before that is not new and one after it is new —
+    // regardless of which row carries it.
+    const rowA = await seedOpponentResearch(
+      campaign.id,
+      null,
+      'Jane Rival',
+      'a',
+    )
+    const rowB = await seedOpponentResearch(
+      campaign.id,
+      new Date('2024-01-01T00:00:00Z'),
+      'Bob Other',
+      'b',
+    )
+    await seedFinding(rowA.id, {
+      claim: 'from-A-old',
+      occurredAt: new Date('2019-01-01'),
+      createdAt: new Date('2023-06-01T00:00:00Z'),
+    })
+    await seedFinding(rowB.id, {
+      claim: 'from-B-fresh',
+      occurredAt: new Date('2019-02-01'),
+      createdAt: new Date('2024-06-01T00:00:00Z'),
+    })
+    flagOn()
+
+    const result = await service.client.get(ACTIVITY_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    const byClaim = new Map(
+      result.data.findings.map(
+        (f: { claim: string; newSinceLastVisit: boolean }) => [
+          f.claim,
+          f.newSinceLastVisit,
+        ],
+      ),
+    )
+    // Both rows' findings appear (flatMap, not a single-row read).
+    expect([...byClaim.keys()].sort()).toEqual(['from-A-old', 'from-B-fresh'])
+    // High-water mark is 2024-01-01 (the later of null and that date), so the
+    // pre-2024 finding is not new and the post-2024 one is.
+    expect(byClaim.get('from-A-old')).toBe(false)
+    expect(byClaim.get('from-B-fresh')).toBe(true)
   })
 
   it('does not flag a future occurredAt as new (falls back to createdAt)', async () => {

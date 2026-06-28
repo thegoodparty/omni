@@ -79,15 +79,18 @@ export class RaceOpponentActivityService extends createPrismaBase(
 
     const refresh = await this.refreshEnvelope(campaign.organizationSlug)
 
-    // Advancing the view marker is a side effect, not part of the payload. A
-    // failure here must not 500 a fully-assembled response; the worst case is
-    // the next read re-flags the same items as new. Fire-and-forget with a log.
-    void this.advanceLastViewedAt(campaign.id).catch((err: unknown) => {
+    // Advancing the view marker is a side effect, not part of the payload, so a
+    // failure must not 500 the assembled response — but it MUST commit before we
+    // return, or a rapid second GET would re-flag the same items as new
+    // (read-after-write race). So await it and swallow only its error.
+    try {
+      await this.advanceLastViewedAt(campaign.id)
+    } catch (err) {
       this.logger.error(
         { err, campaignId: campaign.id },
         'failed to advance lastViewedAt for opponent activity stream',
       )
-    })
+    }
 
     return { findings, refresh }
   }
