@@ -24,45 +24,12 @@ type Props = {
   initialActivity: RaceOpponentActivityResponse | null
 }
 
-// A returning candidate must land on their Handbook (or the failure UI), not the
-// confirm gate — and must never be nudged to re-fire research on a pass that
-// already exists. The activity stream the page already fetches is the signal:
-// findings present, or a settled (completed/failed) scheduled run, all mean a
-// pass has run. (A bare refresh.status of 'running' is NOT a signal — gp-api
-// defaults to 'running' when there's no run at all, so it can't distinguish a
-// brand-new candidate from a genuine in-flight run; only the unambiguous signals
-// below count as existing research.)
-const hasExistingResearch = (
-  activity: RaceOpponentActivityResponse | null,
-): boolean => {
-  if (!activity) return false
-  return (
-    activity.findings.length > 0 ||
-    activity.refresh.status === 'completed' ||
-    activity.refresh.status === 'failed'
-  )
-}
-
-// Seed the research status for a returning candidate from the activity refresh
-// status: a settled completed/failed run maps straight through; findings without
-// a settled status (a completed run that just isn't reported settled) still mean
-// the Handbook should show, so default to completed.
-const seededStatus = (
-  activity: RaceOpponentActivityResponse | null,
-): RaceOpponentResearchStatus | null => {
-  if (!hasExistingResearch(activity)) return null
-  if (activity?.refresh.status === 'failed') return 'failed'
-  return 'completed'
-}
-
 const OpponentResearch = ({
   opponentNames,
   initialProfile,
   initialActivity,
 }: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
-
-  const existedAtMount = hasExistingResearch(initialActivity)
 
   // The opponent the candidate has confirmed for research. Defaults to the
   // already-researched opponent if its name is known. When only the activity
@@ -75,19 +42,25 @@ const OpponentResearch = ({
   const [selectedName, setSelectedName] = useState<string>(
     opponentNames[0] ?? '',
   )
-  // Seed status/findings from existing research so the Handbook (or failure UI)
-  // renders on first paint without a round-trip. The activity findings are a
-  // superset of the Handbook's finding shape, so they render directly.
+  // Drive the initial view off the authoritative researchStatus from the
+  // activity response (the persisted opponent-research row's lifecycle), so a
+  // returning candidate lands on the right surface without a re-fire:
+  // not_started -> confirm gate; queued/running -> spinner+poll; completed ->
+  // Handbook; failed -> failure UI. (An initialProfile, when the page has one,
+  // takes precedence.)
   const [status, setStatus] = useState<RaceOpponentResearchStatus | null>(
-    initialProfile?.research.status ?? seededStatus(initialActivity),
+    initialProfile?.research.status ?? initialActivity?.researchStatus ?? null,
   )
   const [findings, setFindings] = useState<SelfResearchFinding[] | null>(
-    initialProfile?.research.findings ??
-      (existedAtMount ? (initialActivity?.findings ?? []) : null),
+    initialProfile?.research.findings ?? initialActivity?.findings ?? null,
   )
   const [activity, setActivity] = useState<RaceOpponentActivityResponse | null>(
     initialActivity,
   )
+  // Whether the activity load has settled (success OR failure). Without this a
+  // failed loadActivity() leaves `activity` null forever and the effect never
+  // re-fires, so the What's-new section would show "Loading…" indefinitely.
+  const [activityLoaded, setActivityLoaded] = useState(initialActivity !== null)
   const [starting, setStarting] = useState(false)
   // Synchronous in-flight guard. The `starting` state is stale inside the start
   // closure until React re-renders, so without this a double-click could fire a
@@ -113,6 +86,12 @@ const OpponentResearch = ({
       {},
     )
     setActivity(data)
+    setActivityLoaded(true)
+    // The activity response carries the authoritative researchStatus, so it can
+    // drive the queued/running -> completed transition for a returning candidate
+    // whose opponent name we don't have (no profile fetch possible without it).
+    setStatus(data.researchStatus)
+    setFindings(data.findings)
   }, [])
 
   // Dispatch research for an EXPLICIT opponent name. Both the confirm step and
@@ -162,16 +141,24 @@ const OpponentResearch = ({
     setStatus(null)
   }, [confirmedName, dispatchResearch])
 
-  // Poll the profile while the pass is queued or running. On completion, the
-  // profile response already carries the findings, so no extra fetch is needed.
+  // Poll while the pass is queued or running. Prefer the profile when the
+  // opponent name is known (it carries the findings on completion); fall back to
+  // the activity stream for a returning candidate whose name we don't have — its
+  // researchStatus still drives the queued/running -> completed transition.
   // After a few consecutive poll failures, stop and notify rather than spinning
   // forever on a generating screen.
   useEffect(() => {
-    if (!confirmedName) return
     if (status !== 'queued' && status !== 'running') return
     let consecutiveErrors = 0
+    const poll = async (): Promise<void> => {
+      if (confirmedName) {
+        await loadProfile(confirmedName)
+        return
+      }
+      await loadActivity()
+    }
     const id = setInterval(() => {
-      void loadProfile(confirmedName)
+      void poll()
         .then(() => {
           consecutiveErrors = 0
         })
@@ -186,23 +173,25 @@ const OpponentResearch = ({
         })
     }, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [confirmedName, status, loadProfile, errorSnackbar])
+  }, [confirmedName, status, loadProfile, loadActivity, errorSnackbar])
 
   // When the pass completes, load the activity stream once so the candidate sees
   // the monitored "what's new" feed alongside the Handbook.
   useEffect(() => {
-    if (status !== 'completed' || activity !== null) return
+    if (status !== 'completed' || activityLoaded) return
     void loadActivity().catch(() => {
       // The Handbook is the primary surface; a failed activity load is
-      // non-blocking, so leave the section empty rather than erroring the page.
+      // non-blocking. Mark settled so the section renders its empty state rather
+      // than a "Loading…" message that would never resolve.
+      setActivityLoaded(true)
     })
-  }, [status, activity, loadActivity])
+  }, [status, activityLoaded, loadActivity])
 
   const isGenerating = status === 'queued' || status === 'running'
-  // Confirm only when there is genuinely no existing or in-flight pass. A
-  // returning candidate (status seeded from existing research) never sees it, so
-  // research can't be re-fired on a pass that already exists.
-  const showConfirm = status === null
+  // Confirm only when there is genuinely no pass yet: null (no activity loaded)
+  // or the authoritative not_started. A queued/running/completed/failed pass
+  // never shows confirm, so research can't be re-fired on an existing one.
+  const showConfirm = status === null || status === 'not_started'
 
   return (
     <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
@@ -311,6 +300,11 @@ const OpponentResearch = ({
             </header>
             {activity ? (
               <OpponentActivityFeed activity={activity} />
+            ) : activityLoaded ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing new yet. As we monitor your opponent, new sourced
+                findings will appear here.
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">
                 Loading what&apos;s new&hellip;

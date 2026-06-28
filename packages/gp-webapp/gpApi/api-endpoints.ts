@@ -884,11 +884,14 @@ export type RaceOpponentActivityItem = SelfResearchFinding & {
   newSinceLastVisit: boolean
 }
 
-// Mirrors RaceOpponentActivityResponseSchema. The `refresh` envelope matches the
-// community-issues feed shape exactly so the activity feed renders from the same
-// pattern.
+// Mirrors RaceOpponentActivityResponseSchema. `researchStatus` is the
+// authoritative opponent-research lifecycle from the persisted row (not_started
+// when none exists); the UI drives its initial view off it. The `refresh`
+// envelope matches the community-issues feed shape exactly so the activity feed
+// renders from the same pattern.
 export type RaceOpponentActivityResponse = {
   findings: RaceOpponentActivityItem[]
+  researchStatus: RaceOpponentResearchStatus
   refresh: {
     status: 'running' | 'completed' | 'failed'
     lastCompletedAt: string | null

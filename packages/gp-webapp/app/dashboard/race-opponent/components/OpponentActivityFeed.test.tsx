@@ -26,6 +26,7 @@ const makeActivity = (
   findings: RaceOpponentActivityItem[],
 ): RaceOpponentActivityResponse => ({
   findings,
+  researchStatus: 'completed',
   refresh: { status: 'completed', lastCompletedAt: '2026-06-26T12:00:00.000Z' },
 })
 

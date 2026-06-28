@@ -28,6 +28,7 @@ const activityWithFinding = (): RaceOpponentActivityResponse => ({
       newSinceLastVisit: false,
     },
   ],
+  researchStatus: 'completed',
   refresh: { status: 'completed', lastCompletedAt: '2026-06-27T12:05:00.000Z' },
 })
 
@@ -84,7 +85,15 @@ const failedProfile = (opponentName: string): OpponentProfileResponse => ({
 
 const activityFailedEmpty = (): RaceOpponentActivityResponse => ({
   findings: [],
+  researchStatus: 'failed',
   refresh: { status: 'failed', lastCompletedAt: null },
+})
+
+const queuedProfile = (opponentName: string): OpponentProfileResponse => ({
+  research: {
+    ...queuedResearch(opponentName).research,
+    findings: [],
+  },
 })
 
 beforeEach(() => {
@@ -257,13 +266,14 @@ describe('<OpponentResearch>', () => {
     expect(researchCall).toHaveBeenCalledTimes(1)
   })
 
-  it('shows the confirm gate when a completed run exists but found nothing', () => {
+  it('shows the empty Handbook (not the confirm gate) when a completed run found nothing', () => {
     render(
       <OpponentResearch
         opponentNames={['Jane Doe']}
         initialProfile={null}
         initialActivity={{
           findings: [],
+          researchStatus: 'completed',
           refresh: {
             status: 'completed',
             lastCompletedAt: '2026-06-27T12:05:00.000Z',
@@ -276,5 +286,62 @@ describe('<OpponentResearch>', () => {
     // empty Handbook, not the confirm gate.
     expect(screen.queryByText('Confirm your opponent')).not.toBeInTheDocument()
     expect(screen.getByText(/no sourced findings yet/i)).toBeInTheDocument()
+  })
+
+  it('polls a queued pass and transitions spinner -> Handbook on completion', async () => {
+    // First poll still queued, second poll completed with a finding. The interval
+    // must pick up the transition and render the Handbook.
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent/opponents/profile', [
+      { status: 200, data: queuedProfile('Jane Doe') },
+      { status: 200, data: completedProfile('Jane Doe') },
+    ])
+    api.mock('GET /v1/campaigns/mine/race-opponent/opponents/activity', {
+      status: 200,
+      data: activityWithFinding(),
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <OpponentResearch
+          opponentNames={['Jane Doe']}
+          initialProfile={queuedProfile('Jane Doe')}
+          initialActivity={null}
+        />,
+      )
+
+      // Starts on the spinner (queued), not the Handbook.
+      expect(screen.getByText('Researching Jane Doe')).toBeInTheDocument()
+
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(
+          screen.getAllByText('Voted against the transit bond').length,
+        ).toBeGreaterThan(0),
+      )
+      // The spinner is gone once completed.
+      expect(screen.queryByText('Researching Jane Doe')).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the confirm gate when researchStatus is not_started', () => {
+    render(
+      <OpponentResearch
+        opponentNames={['Jane Doe']}
+        initialProfile={null}
+        initialActivity={{
+          findings: [],
+          researchStatus: 'not_started',
+          refresh: { status: 'running', lastCompletedAt: null },
+        }}
+      />,
+    )
+
+    // refresh.status defaults to 'running' with no run, but researchStatus is
+    // authoritative: no row means show the confirm gate, not a spinner.
+    expect(screen.getByText('Confirm your opponent')).toBeInTheDocument()
   })
 })
