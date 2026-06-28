@@ -23,7 +23,17 @@ import type {
 } from 'gpApi/api-endpoints'
 import type { RaceOpponentSourceType } from '@goodparty_org/contracts'
 import OpponentSection from './OpponentSection'
+import OpponentPageHeader from './OpponentPageHeader'
+import OpponentOverviewCard from './OpponentOverviewCard'
 import SourceAttribution from './SourceAttribution'
+
+const initialsFor = (name: string): string =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '?'
 
 const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   ballotpedia: 'Ballotpedia',
@@ -283,9 +293,13 @@ const POLL_INTERVAL_MS = 5000
 
 type Props = {
   initialData: RaceOpponentResponse
+  raceContext?: string
 }
 
-const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
+const RaceOpponentList = ({
+  initialData,
+  raceContext,
+}: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const [data, setData] = useState<RaceOpponentResponse>(initialData)
   const [refreshing, setRefreshing] = useState(false)
@@ -384,6 +398,26 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
 
   return (
     <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
+      <OpponentPageHeader
+        title="Know your opponent"
+        raceContext={raceContext}
+      />
+
+      {data.opponents.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {data.opponents.map((opponent) => (
+            <OpponentOverviewCard
+              key={opponent.opponentName}
+              name={opponent.opponentName}
+              initials={initialsFor(opponent.opponentName)}
+              party={opponent.party}
+              isIncumbent={opponent.isIncumbent}
+              summary={opponent.summary?.overview?.text}
+            />
+          ))}
+        </div>
+      )}
+
       <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
           <CollectionStatusIndicator status={data.collectionStatus} />
