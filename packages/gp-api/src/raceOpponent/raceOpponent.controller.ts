@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
   Post,
+  Query,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -9,12 +11,18 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import {
   IdentifyOpponentsResponse,
   IdentifyOpponentsResponseSchema,
+  OpponentProfileResponse,
+  OpponentProfileResponseSchema,
   RaceOpponentReportResponse,
   RaceOpponentReportResponseSchema,
   RaceOpponentResearchStatusResponse,
   RaceOpponentResearchStatusResponseSchema,
   RaceOpponentResponse,
   RaceOpponentResponseSchema,
+  StartOpponentResearchRequest,
+  StartOpponentResearchRequestSchema,
+  StartOpponentResearchResponse,
+  StartOpponentResearchResponseSchema,
   StartSelfResearchResponse,
   StartSelfResearchResponseSchema,
 } from '@goodparty_org/contracts'
@@ -26,6 +34,7 @@ import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interc
 import { RaceOpponentService } from './services/raceOpponent.service'
 import { SelfResearchService } from './services/selfResearch.service'
 import { SelfResearchGateService } from './services/selfResearchGate.service'
+import { OpponentResearchService } from './services/opponentResearch.service'
 import {
   RaceOpponentCollectResponse,
   RaceOpponentCollectResponseSchema,
@@ -39,6 +48,7 @@ export class RaceOpponentController {
     private readonly raceOpponent: RaceOpponentService,
     private readonly selfResearch: SelfResearchService,
     private readonly selfResearchGate: SelfResearchGateService,
+    private readonly opponentResearch: OpponentResearchService,
   ) {}
 
   // collect is the functional opponent trigger (it dispatches opponent
@@ -92,20 +102,40 @@ export class RaceOpponentController {
   }
 
   // Self-research is the front door: opponent research is hard-gated server-side
-  // on a completed self-research pass (PRD Requirement B). This identify route
-  // is the Phase-1 stub that proves the gate is enforced through a real route;
-  // ENG-10569 fills in discovery. The gate throws 403 when self-research is not
-  // yet completed.
+  // on a completed self-research pass (PRD Requirement B). identify defaults the
+  // opponent set from the election-api candidacy roster so the candidate
+  // confirms a real match before research is dispatched. The gate throws 403
+  // when self-research is not yet completed.
   @Post('opponents/identify')
   @ResponseSchema(IdentifyOpponentsResponseSchema)
   @UseCampaign({ include: { user: true } })
   async identifyOpponents(
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<IdentifyOpponentsResponse> {
-    // Same Pro+flag gate collect() enforces, then the self-research gate. A
-    // non-Pro / flag-off campaign can't reach this even with a completed pass.
-    await this.raceOpponent.assertAccess(campaign)
-    await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
-    return { opponentNames: [] }
+    return this.opponentResearch.identify(campaign)
+  }
+
+  // Dispatch requires candidate confirmation of the match: opponentName must be
+  // supplied in the body. The service never auto-dispatches on an unconfirmed
+  // namesake. Gated on Pro+flag AND a completed self-research pass.
+  @Post('opponents/research')
+  @ResponseSchema(StartOpponentResearchResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async startOpponentResearch(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Body(new ZodValidationPipe(StartOpponentResearchRequestSchema))
+    body: StartOpponentResearchRequest,
+  ): Promise<StartOpponentResearchResponse> {
+    return this.opponentResearch.start(campaign, body)
+  }
+
+  @Get('opponents/profile')
+  @ResponseSchema(OpponentProfileResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async opponentProfile(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Query('opponentName') opponentName: string,
+  ): Promise<OpponentProfileResponse> {
+    return this.opponentResearch.profile(campaign, opponentName ?? '')
   }
 }
