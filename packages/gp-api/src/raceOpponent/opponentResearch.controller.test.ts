@@ -5,6 +5,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { OpponentResearchService } from '@/raceOpponent/services/opponentResearch.service'
+import { ContrastEngineService } from '@/raceOpponent/services/contrastEngine.service'
 import { RaceOpponentResearch } from '@/generated/prisma'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import {
@@ -164,6 +165,30 @@ const opponentFinding = (overrides: Record<string, unknown> = {}) => ({
   occurred_at: '2021-06-01',
   ...overrides,
 })
+
+// A candidate position the engine can pair with an opponent finding: its issue
+// name must appear as a whole word in the finding's claim/category ('taxes'
+// matches the default opponentFinding claim).
+const seedCandidatePosition = async (
+  campaignId: number,
+  issueName: string,
+  description: string,
+) => {
+  const topIssue = await service.prisma.topIssue.create({
+    data: { name: issueName },
+  })
+  const position = await service.prisma.position.create({
+    data: { name: `${issueName} position`, topIssueId: topIssue.id },
+  })
+  await service.prisma.campaignPosition.create({
+    data: {
+      campaignId,
+      positionId: position.id,
+      topIssueId: topIssue.id,
+      description,
+    },
+  })
+}
 
 describe('Opponent research dispatch + persist', () => {
   describe('the self-research + access gates on start', () => {
@@ -544,6 +569,65 @@ describe('Opponent research dispatch + persist', () => {
         where: { research: { campaignId } },
       })
       expect(findings).toHaveLength(1)
+    })
+
+    it('auto-generates contrasts from the new findings on opponent completion', async () => {
+      await seedCandidatePosition(
+        campaignId,
+        'taxes',
+        'will freeze the property tax rate',
+      )
+      await seedOpponentResearch(
+        campaignId,
+        RaceOpponentResearchStatus.running,
+        'opp-contrast',
+      )
+      const run = await seedRun('opp-contrast', ExperimentRunStatus.COMPLETED)
+      // category must be in the contrast allowlist for the engine to pair it.
+      stubArtifact([opponentFinding({ category: 'voting_record' })])
+      stubReachability()
+
+      await service.app
+        .get(RaceOpponentResearchPersistService)
+        .onExperimentRunCompleted(run)
+
+      const contrasts = await service.prisma.raceOpponentContrast.findMany({
+        where: { campaignId },
+      })
+      expect(contrasts).toHaveLength(1)
+      expect(contrasts[0].opponentFact).toBe(opponentFinding().claim)
+    })
+
+    it('a contrast-generation failure does not fail the persist', async () => {
+      await seedOpponentResearch(
+        campaignId,
+        RaceOpponentResearchStatus.running,
+        'opp-contrast-fail',
+      )
+      const run = await seedRun(
+        'opp-contrast-fail',
+        ExperimentRunStatus.COMPLETED,
+      )
+      stubArtifact([opponentFinding()])
+      stubReachability()
+      vi.spyOn(
+        service.app.get(ContrastEngineService),
+        'generate',
+      ).mockRejectedValue(new Error('contrast engine boom'))
+
+      await expect(
+        service.app
+          .get(RaceOpponentResearchPersistService)
+          .onExperimentRunCompleted(run),
+      ).resolves.toBeUndefined()
+
+      const research =
+        await service.prisma.raceOpponentResearch.findFirstOrThrow({
+          where: { campaignId, kind: RaceOpponentFindingKind.opponent },
+          include: { findings: true },
+        })
+      expect(research.status).toBe(RaceOpponentResearchStatus.completed)
+      expect(research.findings).toHaveLength(1)
     })
 
     it('a failed run leaves zero findings and status=failed', async () => {

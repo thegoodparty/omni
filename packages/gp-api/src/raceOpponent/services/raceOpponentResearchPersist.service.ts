@@ -24,6 +24,7 @@ import {
   OPPONENT_RESEARCH,
   SELF_RESEARCH,
 } from '../raceOpponent.constants'
+import { ContrastEngineService } from './contrastEngine.service'
 
 const REACHABILITY_TIMEOUT_MS = 10_000
 
@@ -82,6 +83,7 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
     private readonly s3: S3Service,
     private readonly experimentRuns: ExperimentRunsService,
     private readonly analytics: AnalyticsService,
+    private readonly contrastEngine: ContrastEngineService,
   ) {
     super()
   }
@@ -147,6 +149,8 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
             { campaignId: research.campaignId, findingCount: reachable.length },
           )
           .catch(() => undefined)
+      } else if (kind === RaceOpponentFindingKind.opponent) {
+        await this.generateContrasts(research.campaignId)
       }
     } catch (error) {
       await this.safeMarkResearchFailed(run.runId, kind)
@@ -155,6 +159,23 @@ export class RaceOpponentResearchPersistService extends createPrismaBase(
         error instanceof Error ? error.message : String(error),
       )
       throw error
+    }
+  }
+
+  // Opponent findings just persisted; generate contrasts now so they are ready
+  // when the candidate opens the page — nothing else triggers the engine. The
+  // engine is idempotent (unique [campaignId, findingId]), so a replayed
+  // callback re-runs cleanly. Await-and-swallow: contrasts are derived from
+  // already-saved findings, so a contrast fault must not fail the persist or
+  // requeue the run (a redelivery would re-run this same idempotent path).
+  private async generateContrasts(campaignId: number): Promise<void> {
+    try {
+      await this.contrastEngine.generate(campaignId)
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId },
+        'auto contrast generation failed after opponent research',
+      )
     }
   }
 
