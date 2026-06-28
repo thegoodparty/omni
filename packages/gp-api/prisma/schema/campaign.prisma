@@ -55,6 +55,7 @@ model Campaign {
   raceOpponents            RaceOpponent[]
   raceOpponentResearch     RaceOpponentResearch[]
   raceOpponentContrasts    RaceOpponentContrast[]
+  raceOpponentSummaries    RaceOpponentSummary[]
 
   @@index([slug])
   @@map("campaign")

@@ -19,6 +19,23 @@ model RaceOpponent {
   @@map("race_opponent")
 }
 
+model RaceOpponentSummary {
+  id           Int      @id @default(autoincrement())
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId   Int      @map("campaign_id")
+  opponentName String   @map("opponent_name")
+  // Display-ready structured sections (overview/background/key_positions),
+  // each carrying its source_url(s). Shape validated by the contract (task 09)
+  // and the experiment output_schema (task 07).
+  sections     Json     @db.JsonB
+  runId        String?  @map("run_id")
+
+  @@unique([campaignId, opponentName])
+  @@map("race_opponent_summary")
+}
+
 enum RaceOpponentResearchStatus {
   not_started
   queued
