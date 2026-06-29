@@ -1,5 +1,5 @@
 import { Avatar, AvatarFallback } from '@styleguide'
-import type { RaceOpponentThreatTier } from 'gpApi/api-endpoints'
+import type { RaceOpponentThreatTier } from '@goodparty_org/contracts'
 import ThreatTierBadge from './ThreatTierBadge'
 
 type Props = {

@@ -3,7 +3,7 @@ import {
   EyeIcon,
   CircleMinusIcon,
 } from '@styleguide/components/ui/icons'
-import type { RaceOpponentThreatTier } from 'gpApi/api-endpoints'
+import type { RaceOpponentThreatTier } from '@goodparty_org/contracts'
 import OpponentBadge, { type OpponentBadgeTone } from './OpponentBadge'
 
 const TIER_CONFIG: Record<

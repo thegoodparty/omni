@@ -24,6 +24,7 @@ import {
 import type {
   CampaignStory,
   CampaignStoryRewrite,
+  RaceOpponentThreatTier,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -963,13 +964,6 @@ export type RaceOpponentSummaryKeyPosition = {
   detail: string
   sources: RaceOpponentSummarySourceRef[]
 }
-
-// Phase 3 analytical threat tier, ranked relative to the field. Optional until
-// an opponent has analysis. Mirrors RaceOpponentThreatTierSchema in contracts.
-export type RaceOpponentThreatTier =
-  | 'primary_threat'
-  | 'watch_closely'
-  | 'low_priority'
 
 export type RaceOpponentSummary = {
   opponentName: string
