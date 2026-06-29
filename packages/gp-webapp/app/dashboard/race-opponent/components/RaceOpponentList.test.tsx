@@ -246,11 +246,12 @@ describe('<RaceOpponentList>', () => {
     expect(screen.getByText(/last collected/i)).toBeInTheDocument()
   })
 
-  it('renders the empty state without crashing when there is no data', () => {
+  it('renders a clean empty state with a Collect affordance when there is no data', () => {
     render(<RaceOpponentList initialData={empty} />)
 
+    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
     expect(
-      screen.getByText(/no opponent data collected yet/i),
+      screen.getByRole('button', { name: /collect now/i }),
     ).toBeInTheDocument()
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })

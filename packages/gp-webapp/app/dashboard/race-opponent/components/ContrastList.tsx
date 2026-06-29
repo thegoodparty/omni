@@ -8,7 +8,12 @@ type Props = {
   initialContrasts: ContrastRecord[]
 }
 
-const ContrastList = ({ initialContrasts }: Props): React.JSX.Element => {
+// Contrasts are a Phase-1 surface. Per the "hidden, not placeholdered" product
+// decision, this renders nothing until real contrasts exist — no "coming soon"
+// copy and no empty-state shell.
+const ContrastList = ({
+  initialContrasts,
+}: Props): React.JSX.Element | null => {
   // Sourced-or-silent: drop any contrast missing a content field (especially
   // sourceUrl) before it ever renders. The server already hides
   // pending_review/blocked, so the list only carries cleared/approved/used.
@@ -21,12 +26,7 @@ const ContrastList = ({ initialContrasts }: Props): React.JSX.Element => {
   }
 
   if (contrasts.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No contrasts to review yet. Once your opponent research turns up sourced
-        facts, drafted contrasts will appear here.
-      </p>
-    )
+    return null
   }
 
   return (
