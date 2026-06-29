@@ -345,14 +345,48 @@ def test_reconcile_watchlist_elevates_and_proposes():
 
 def test_diff_flagged_first_run_all_new():
     flagged = [{"event_type": "A", "status": "dormant"}, {"event_type": "B", "status": "orphaned_firing"}]
-    assert eh.diff_flagged(flagged, None) == {"new": ["A", "B"], "resolved": [], "still_open": []}
+    assert eh.diff_flagged(flagged, None) == {
+        "new": ["A", "B"],
+        "resolved": [],
+        "still_open": [],
+        "escalated": [],
+    }
 
 
 def test_diff_flagged_against_prior():
     flagged = [{"event_type": "B", "status": "orphaned_firing"}, {"event_type": "C", "status": "dormant"}]
     prior = {"A": "dormant", "B": "orphaned_firing"}
     diff = eh.diff_flagged(flagged, prior)
-    assert diff == {"new": ["C"], "resolved": ["A"], "still_open": ["B"]}
+    assert diff == {"new": ["C"], "resolved": ["A"], "still_open": ["B"], "escalated": []}
+
+
+def test_diff_flagged_surfaces_status_escalation():
+    # An event flagged in both runs whose status worsened must surface, not hide in still_open.
+    flagged = [{"event_type": "B", "status": "orphaned_firing"}]
+    prior = {"B": "dormant"}
+    diff = eh.diff_flagged(flagged, prior)
+    assert diff == {"new": [], "resolved": [], "still_open": [], "escalated": ["B"]}
+
+
+# --- load_prior_state robustness ---------------------------------------------
+
+
+def test_load_prior_state_tolerates_corrupt_json(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text("{truncated mid-write")
+    assert eh.load_prior_state(p) is None
+
+
+def test_load_prior_state_missing_flagged_key(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text('{"run_date": "2026-06-29"}')
+    assert eh.load_prior_state(p) is None
+
+
+def test_load_prior_state_reads_valid_flagged(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text('{"run_date": "2026-06-29", "flagged": {"A": "dormant"}}')
+    assert eh.load_prior_state(p) == {"A": "dormant"}
 
 
 # --- metadata coverage -------------------------------------------------------
@@ -427,7 +461,7 @@ def test_render_collapses_dormant_tail_and_caps_changes():
         "proposals": [{"event_type": "Onboarding - New Step", "family": "win_onboarding", "first_seen_date": date(2026, 6, 1)}],
         "flagged": flagged,
     }
-    changes = {"new": [f"e{i}" for i in range(20)], "resolved": ["x"], "still_open": []}
+    changes = {"new": [f"e{i}" for i in range(20)], "resolved": ["x"], "still_open": [], "escalated": []}
     out = eh.render_digest_section(result, changes)
 
     assert "## 2026-06-26" in out

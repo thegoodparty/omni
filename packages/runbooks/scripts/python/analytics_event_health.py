@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 from collections import defaultdict
@@ -429,16 +430,19 @@ def diff_flagged(
 ) -> dict[str, list[str]]:
     """Diff the current flagged set against a prior ``{event_type: status}`` map.
 
-    Returns ``{"new", "resolved", "still_open"}`` lists of event_types. ``prior`` None
-    (first run) -> everything is new.
+    Returns ``{"new", "resolved", "still_open", "escalated"}`` lists of event_types.
+    ``escalated`` holds events flagged in both runs whose status changed (e.g. a dormant
+    event that started firing) — these must surface, not hide in ``still_open``. ``prior``
+    None (first run) -> everything is new.
     """
     current = {r["event_type"]: r["status"] for r in flagged}
     if prior is None:
-        return {"new": sorted(current), "resolved": [], "still_open": []}
+        return {"new": sorted(current), "resolved": [], "still_open": [], "escalated": []}
     return {
         "new": sorted(e for e in current if e not in prior),
         "resolved": sorted(e for e in prior if e not in current),
-        "still_open": sorted(e for e in current if e in prior),
+        "still_open": sorted(e for e in current if e in prior and current[e] == prior[e]),
+        "escalated": sorted(e for e in current if e in prior and current[e] != prior[e]),
     }
 
 
@@ -530,6 +534,7 @@ def render_digest_section(result: Mapping[str, Any], changes: Mapping[str, list[
         "### Changes since last run",
         "",
         _changes_line("new", changes["new"]),
+        _changes_line("escalated", changes["escalated"]),
         _changes_line("resolved", changes["resolved"]),
         f"- still open: {len(changes['still_open'])} event(s)",
     ]
@@ -602,10 +607,25 @@ def fetch_weekly(run_query: Callable[[str], Any]) -> list[dict]:
     return _records_from_df(run_query(WEEKLY_SQL))
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file + rename so a crash mid-write can't leave a truncated
+    state file that would brick every later run on JSONDecodeError."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
 def load_prior_state(path: Path | None) -> dict[str, str] | None:
     if not path or not path.exists():
         return None
-    return json.loads(path.read_text()).get("flagged")
+    # Tolerate a corrupt/truncated state file: fall back to a clean rebuild rather than
+    # crashing every run. A missing/non-dict ``flagged`` would make diff treat all as new.
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    flagged = data.get("flagged")
+    return flagged if isinstance(flagged, dict) else None
 
 
 def run_monitor(
@@ -685,7 +705,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "run_date": today.isoformat(),
             "flagged": {r["event_type"]: r["status"] for r in result["flagged"]},
         }
-        args.state.write_text(json.dumps(state, indent=2) + "\n")
+        _atomic_write(args.state, json.dumps(state, indent=2) + "\n")
     return 0
 
 
