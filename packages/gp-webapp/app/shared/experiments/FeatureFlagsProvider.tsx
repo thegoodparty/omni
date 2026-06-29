@@ -130,6 +130,14 @@ export const FeatureFlagsProvider = ({
         if (parsed.success) {
           next = parsed.data.variants
         }
+      } else if (res.type !== 'opaqueredirect') {
+        // A non-ok response that ISN'T the expected auth-expiry redirect (opaque)
+        // is a real failure (e.g. 5xx) — still fail safe to empty, but surface it.
+        // Only the redirect case is silenced.
+        reportErrorToSentry(
+          new Error(`Feature flags fetch failed: ${res.status}`),
+          { context: 'FeatureFlagsProvider.refresh' },
+        )
       }
     } catch (error) {
       reportErrorToSentry(

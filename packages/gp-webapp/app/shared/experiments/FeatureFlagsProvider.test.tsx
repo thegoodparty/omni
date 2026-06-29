@@ -400,12 +400,10 @@ describe('regression coverage', () => {
     await waitFor(() => expect(result.current.on).toBe(true))
   })
 
-  it('fails safe to empty (does not serve the prior identity) when a refresh 4xx/5xxs', async () => {
-    // An HTTP error (res.ok === false) is not a thrown network error, so it
-    // must NOT noise up Sentry — but the variants from the previous identity
-    // must not linger either. refresh() runs on the identity change without
-    // pre-clearing, so the provider has to clear to empty: an unresolvable flag
-    // reads off, never stale.
+  it('fails safe to empty AND reports a real (non-redirect) refresh 5xx', async () => {
+    // A genuine error response (5xx, not the auth-expiry redirect) must clear the
+    // previous identity's variants AND surface to Sentry. refresh() runs on the
+    // identity change without pre-clearing, so the store has to fall to empty.
     mockUser = fullUser
     serverVariants = { 'campaign-story': { value: 'on' } }
 
@@ -420,6 +418,36 @@ describe('regression coverage', () => {
     rerender()
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.on).toBe(false))
+    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+      context: 'FeatureFlagsProvider.refresh',
+    })
+  })
+
+  it('stays silent on an auth-expiry redirect (opaque response), clearing to empty', async () => {
+    // An expired session redirects to /login; with redirect:'manual' that arrives
+    // as an opaque (ok:false, type:'opaqueredirect') response. That's routine, so
+    // clear to empty WITHOUT a Sentry report.
+    mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFlagOn('campaign-story'), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.on).toBe(true))
+
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: false,
+          type: 'opaqueredirect',
+          status: 0,
+          json: async () => ({}),
+        }) as unknown as Response,
+    )
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+
     await waitFor(() => expect(result.current.on).toBe(false))
     expect(reportErrorToSentry).not.toHaveBeenCalled()
   })
