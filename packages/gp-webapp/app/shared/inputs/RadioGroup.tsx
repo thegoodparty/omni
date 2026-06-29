@@ -4,6 +4,7 @@ import React from 'react'
 import {
   RadioGroup as StyleguideRadioGroup,
   RadioGroupItem,
+  RadioCardItem,
 } from '@styleguide/components/ui/radio-group'
 
 interface RadioGroupProps {
@@ -36,5 +37,5 @@ const RadioGroup = ({
   )
 }
 
-export { RadioGroupItem }
+export { RadioGroupItem, RadioCardItem }
 export default RadioGroup

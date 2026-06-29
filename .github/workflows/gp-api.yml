@@ -21,8 +21,8 @@ env:
   WORKSPACE: packages/gp-api
 
 jobs:
-  validate:
-    name: Validate
+  checks:
+    name: Checks
     runs-on: ubuntu-latest
     services:
       shadow-db:
@@ -57,9 +57,6 @@ jobs:
       - name: Typecheck
         run: npm run types -w ${{ env.WORKSPACE }}
 
-      - name: Test
-        run: npm run test -w ${{ env.WORKSPACE }} -- --coverage
-
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}
         run: |
@@ -68,6 +65,40 @@ jobs:
             --to-schema-datamodel ./prisma/schema \
             --shadow-database-url "postgresql://prisma:prisma@localhost:5432/shadow" \
             --exit-code
+
+  test:
+    name: Test (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: gp-api
+          workspace: ${{ env.WORKSPACE }}
+          build-contracts: "true"
+          prisma-generate-script: generate:prisma:gp-api
+          route-types: "true"
+
+      - name: Test
+        run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/4
+
+  # Empty aggregation gate. The develop branch ruleset requires a status check
+  # named exactly "Validate"; this job preserves that name while the real work
+  # fans out across the checks + sharded test jobs. It is green iff all of its
+  # needs succeeded, so it gates merge on Checks plus every Test shard.
+  validate:
+    name: Validate
+    needs: [checks, test]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "checks + all test shards passed"
 
   deploy:
     name: Deploy

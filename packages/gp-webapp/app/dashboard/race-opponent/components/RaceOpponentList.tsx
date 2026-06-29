@@ -1,15 +1,81 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '@styleguide'
-import { ExternalLinkIcon, RefreshIcon } from '@styleguide/components/ui/icons'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
+import { Avatar, AvatarFallback, Button, Card, cn } from '@styleguide'
+import {
+  Building2Icon,
+  CheckCircleIcon,
+  CircleIcon,
+  ExternalLinkIcon,
+  InfoIcon,
+  Loader2Icon,
+  RefreshIcon,
+  ScaleIcon,
+  SearchIcon,
+  SwordsIcon,
+  TriangleAlertIcon,
+  UserCheckIcon,
+  XCircleIcon,
+} from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import type {
   RaceOpponentItem,
   RaceOpponentResponse,
+  RaceOpponentSummary,
+  RaceOpponentSummaryKeyPosition,
+  RaceOpponentSummarySection,
+  RaceOpponentSummarySourceRef,
 } from 'gpApi/api-endpoints'
 import type { RaceOpponentSourceType } from '@goodparty_org/contracts'
+import OpponentSection from './OpponentSection'
+import OpponentPageHeader from './OpponentPageHeader'
+import OpponentOverviewCard from './OpponentOverviewCard'
+import OpponentBadge, { partyTone } from './OpponentBadge'
+import SourceAttribution from './SourceAttribution'
+import IssueContrastCard from './IssueContrastCard'
+
+const initialsFor = (name: string): string =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '?'
+
+// party + incumbency badge row on the per-opponent detail header. Icons mirror
+// the Lovable design: party = building, incumbent/challenger = identity icons.
+const OpponentIdentityBadges = ({
+  party,
+  isIncumbent,
+}: {
+  party: string | null
+  isIncumbent: boolean | null
+}): React.JSX.Element | null => {
+  if (!party && isIncumbent === null) {
+    return null
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {party && (
+        <OpponentBadge
+          label={party}
+          tone={partyTone(party)}
+          Icon={Building2Icon}
+        />
+      )}
+      {isIncumbent === true && (
+        <OpponentBadge label="Incumbent" Icon={UserCheckIcon} />
+      )}
+      {isIncumbent === false && (
+        <OpponentBadge label="Challenger" Icon={ScaleIcon} />
+      )}
+    </div>
+  )
+}
 
 const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   ballotpedia: 'Ballotpedia',
@@ -17,14 +83,67 @@ const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   campaign_plan_db: 'Campaign plan',
 }
 
-const STATUS_LABELS: Record<RaceOpponentResponse['collectionStatus'], string> =
-  {
-    idle: 'Idle',
-    discovering: 'Discovering opponents',
-    running: 'Running',
-    completed: 'Completed',
-    failed: 'Failed',
-  }
+type CollectionStatus = RaceOpponentResponse['collectionStatus']
+
+type StatusDescriptor = {
+  label: string
+  Icon: typeof CircleIcon
+  // Container tone classes for the styled indicator pill.
+  className: string
+  spin?: boolean
+}
+
+const STATUS_DESCRIPTORS: Record<CollectionStatus, StatusDescriptor> = {
+  idle: {
+    label: 'Idle',
+    Icon: CircleIcon,
+    className: 'bg-muted text-muted-foreground border-border',
+  },
+  discovering: {
+    label: 'Discovering opponents',
+    Icon: SearchIcon,
+    className: 'bg-info-50 text-info-600 border-info-600/20',
+    spin: false,
+  },
+  running: {
+    label: 'Running',
+    Icon: Loader2Icon,
+    className: 'bg-info-50 text-info-600 border-info-600/20',
+    spin: true,
+  },
+  completed: {
+    label: 'Completed',
+    Icon: CheckCircleIcon,
+    className: 'bg-success-light text-success-dark border-success/20',
+  },
+  failed: {
+    label: 'Failed',
+    Icon: XCircleIcon,
+    className: 'bg-destructive/10 text-destructive border-destructive/20',
+  },
+}
+
+const CollectionStatusIndicator = ({
+  status,
+}: {
+  status: CollectionStatus
+}): React.JSX.Element => {
+  const { label, Icon, className, spin } = STATUS_DESCRIPTORS[status]
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
+        className,
+      )}
+    >
+      <Icon
+        className={cn('size-3.5 shrink-0', spin && 'animate-spin')}
+        aria-hidden
+      />
+      {label}
+    </span>
+  )
+}
 
 const formatTimestamp = (iso: string | null): string => {
   if (!iso) {
@@ -34,45 +153,186 @@ const formatTimestamp = (iso: string | null): string => {
   return Number.isNaN(date.getTime()) ? 'never' : date.toLocaleString()
 }
 
-const ContentBlock = ({ content }: { content: unknown }): React.JSX.Element => (
-  <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-muted p-3 text-xs text-foreground">
-    {typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
-  </pre>
+// Renders the source citations attached to a summary section/item. The contract
+// guarantees sources.min(1), so this always has at least one to show.
+const SummarySources = ({
+  sources,
+}: {
+  sources: RaceOpponentSummarySourceRef[]
+}): React.JSX.Element => (
+  <div className="flex flex-col gap-1">
+    {sources.map((source) => (
+      <SourceAttribution
+        key={`${source.sourceType}-${source.sourceUrl}`}
+        sourceUrl={source.sourceUrl}
+        sourceType={SOURCE_TYPE_LABELS[source.sourceType]}
+        label={source.sourceUrl}
+      />
+    ))}
+  </div>
 )
 
-const SourceGroup = ({
-  sourceType,
+const SummaryProseSection = ({
+  heading,
+  section,
+}: {
+  heading: string
+  section: RaceOpponentSummarySection
+}): React.JSX.Element => (
+  <section className="flex w-full min-w-0 flex-col gap-2">
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {heading}
+    </h3>
+    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+      {section.text}
+    </p>
+    <SummarySources sources={section.sources} />
+  </section>
+)
+
+const KeyPositionItem = ({
+  position,
+}: {
+  position: RaceOpponentSummaryKeyPosition
+}): React.JSX.Element => (
+  <li className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3">
+    <span className="text-sm font-semibold text-foreground">
+      {position.label}
+    </span>
+    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-muted-foreground">
+      {position.detail}
+    </p>
+    <SummarySources sources={position.sources} />
+  </li>
+)
+
+// Phase 3: the "why they matter most" callout, a tinted info block shown under
+// the opponent header. Hidden when the analysis has no whyTheyMatter.
+const WhyTheyMatterCallout = ({
+  text,
+}: {
+  text: string
+}): React.JSX.Element => (
+  <section className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-info-600/20 bg-info-50 p-4">
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-info-600">
+      Why they matter most
+    </h3>
+    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+      {text}
+    </p>
+  </section>
+)
+
+// Phase 3: the "what you need to know" takeaways list, with an item count in
+// the section header. Hidden when the list is empty/absent.
+const WhatYouNeedToKnow = ({
   items,
 }: {
-  sourceType: RaceOpponentSourceType
-  items: RaceOpponentItem[]
+  items: string[]
 }): React.JSX.Element => (
-  <section className="flex flex-col gap-2">
-    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {SOURCE_TYPE_LABELS[sourceType]}
-    </h4>
-    {items.map((item) => (
-      <div
-        key={item.id}
-        className="flex flex-col gap-2 rounded-md border border-border bg-card p-3"
-      >
-        {item.sourceUrl ? (
-          <a
-            href={item.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-sm font-semibold text-info-600 hover:underline"
-          >
-            <span className="break-all">{item.sourceUrl}</span>
-            <ExternalLinkIcon className="size-3.5 shrink-0" aria-hidden />
-          </a>
-        ) : (
-          <span className="text-sm text-muted-foreground">No source URL</span>
-        )}
-        <ContentBlock content={item.content} />
-      </div>
-    ))}
-  </section>
+  <OpponentSection
+    title="What you need to know"
+    icon={<InfoIcon className="size-4" aria-hidden />}
+    meta={`${items.length} ${items.length === 1 ? 'item' : 'items'}`}
+  >
+    <ul className="flex w-full min-w-0 list-none flex-col gap-2">
+      {items.map((item) => (
+        <li
+          key={item}
+          className="flex w-full min-w-0 items-start gap-2 text-sm text-foreground"
+        >
+          <span
+            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-info-600"
+            aria-hidden
+          />
+          <span className="w-full min-w-0 break-words">{item}</span>
+        </li>
+      ))}
+    </ul>
+  </OpponentSection>
+)
+
+// Phase 3: the "where they're soft" vulnerability list, with an openings count.
+// Relaxed sourcing — an item renders whether or not it carries a source. Hidden
+// when there are no items.
+const WhereTheySoft = ({
+  items,
+}: {
+  items: NonNullable<RaceOpponentSummary['whereSoft']>
+}): React.JSX.Element => (
+  <OpponentSection
+    title="Where they're soft"
+    icon={<TriangleAlertIcon className="size-4" aria-hidden />}
+    meta={`${items.length} ${items.length === 1 ? 'opening' : 'openings'}`}
+  >
+    <ul className="flex w-full min-w-0 list-none flex-col gap-3">
+      {items.map((item) => (
+        <li
+          key={item.text}
+          className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3"
+        >
+          <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+            {item.text}
+          </p>
+          {item.sources && item.sources.length > 0 && (
+            <SummarySources sources={item.sources} />
+          )}
+        </li>
+      ))}
+    </ul>
+  </OpponentSection>
+)
+
+const OpponentSummaryView = ({
+  summary,
+}: {
+  summary: RaceOpponentSummary
+}): React.JSX.Element => (
+  <div className="flex w-full min-w-0 flex-col gap-5">
+    {summary.overview && (
+      <SummaryProseSection heading="Overview" section={summary.overview} />
+    )}
+    {summary.whyTheyMatter && (
+      <WhyTheyMatterCallout text={summary.whyTheyMatter} />
+    )}
+    {summary.whatYouNeedToKnow && summary.whatYouNeedToKnow.length > 0 && (
+      <WhatYouNeedToKnow items={summary.whatYouNeedToKnow} />
+    )}
+    {summary.background && (
+      <SummaryProseSection heading="Background" section={summary.background} />
+    )}
+    {summary.keyPositions.length > 0 && (
+      <section className="flex w-full min-w-0 flex-col gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Key positions
+        </h3>
+        <ul className="flex w-full min-w-0 flex-col gap-2">
+          {summary.keyPositions.map((position) => (
+            <KeyPositionItem key={position.label} position={position} />
+          ))}
+        </ul>
+      </section>
+    )}
+    {summary.whereSoft && summary.whereSoft.length > 0 && (
+      <WhereTheySoft items={summary.whereSoft} />
+    )}
+    {summary.issueContrasts && summary.issueContrasts.length > 0 && (
+      <section className="flex w-full min-w-0 flex-col gap-3">
+        <div className="flex w-full min-w-0 flex-col gap-1">
+          <h3 className="text-base font-semibold text-foreground">
+            Where you contrast
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            How your positions differ from theirs on the issues voters care
+            about.
+          </p>
+        </div>
+        {summary.issueContrasts.map((contrast) => (
+          <IssueContrastCard key={contrast.issue} contrast={contrast} />
+        ))}
+      </section>
+    )}
+  </div>
 )
 
 const groupBySourceType = (
@@ -91,14 +351,139 @@ const groupBySourceType = (
     .filter((group) => group.items.length > 0)
 }
 
+// The as-collected payload is unstructured: a plain string for scraped text, or
+// an object for structured sources. Render strings as prose and objects as
+// readable key/value lines rather than a raw JSON blob.
+const RawContent = ({ content }: { content: unknown }): React.JSX.Element => {
+  if (typeof content === 'string') {
+    return (
+      <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+        {content}
+      </p>
+    )
+  }
+  if (content && typeof content === 'object') {
+    return (
+      <dl className="flex w-full min-w-0 flex-col gap-1.5">
+        {Object.entries(content).map(([key, value]) => (
+          <div key={key} className="flex w-full min-w-0 flex-col gap-0.5">
+            <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {key}
+            </dt>
+            <dd className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+              {typeof value === 'string' ? value : JSON.stringify(value)}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    )
+  }
+  return <p className="text-sm text-muted-foreground">No content collected.</p>
+}
+
+const RawSourceGroup = ({
+  sourceType,
+  items,
+}: {
+  sourceType: RaceOpponentSourceType
+  items: RaceOpponentItem[]
+}): React.JSX.Element => (
+  <section className="flex w-full min-w-0 flex-col gap-2">
+    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {SOURCE_TYPE_LABELS[sourceType]}
+    </h4>
+    {items.map((item) => (
+      <div
+        key={item.id}
+        className="flex w-full min-w-0 flex-col gap-2 rounded-md border border-border bg-card p-3"
+      >
+        {item.sourceUrl ? (
+          <a
+            href={item.sourceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm font-semibold text-info-600 hover:underline"
+          >
+            <span className="break-all">{item.sourceUrl}</span>
+            <ExternalLinkIcon className="size-3.5 shrink-0" aria-hidden />
+          </a>
+        ) : (
+          <span className="text-sm text-muted-foreground">No source URL</span>
+        )}
+        <RawContent content={item.content} />
+      </div>
+    ))}
+  </section>
+)
+
+const RawResearch = ({
+  items,
+}: {
+  items: RaceOpponentItem[]
+}): React.JSX.Element => (
+  <div className="flex w-full min-w-0 flex-col gap-4">
+    {groupBySourceType(items).map((group) => (
+      <RawSourceGroup
+        key={group.sourceType}
+        sourceType={group.sourceType}
+        items={group.items}
+      />
+    ))}
+  </div>
+)
+
+// The detail panel for the selected opponent: identity header, then the
+// structured summary (or readable raw-text fallback), with the raw scrape tucked
+// into a collapsible when a summary exists.
+const OpponentDetailCard = ({
+  opponent,
+}: {
+  opponent: RaceOpponentResponse['opponents'][number]
+}): React.JSX.Element => (
+  <Card className="w-full min-w-0 gap-5 p-6">
+    <header className="flex w-full min-w-0 items-start gap-4">
+      <Avatar size="large" className="shrink-0">
+        <AvatarFallback className="bg-info-50 font-semibold text-info-600">
+          {initialsFor(opponent.opponentName)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <h2 className="text-xl font-semibold text-foreground">
+          {opponent.opponentName}
+        </h2>
+        <OpponentIdentityBadges
+          party={opponent.party}
+          isIncumbent={opponent.isIncumbent}
+        />
+      </div>
+    </header>
+
+    {opponent.summary ? (
+      <OpponentSummaryView summary={opponent.summary} />
+    ) : (
+      <RawResearch items={opponent.items} />
+    )}
+
+    {opponent.summary && opponent.items.length > 0 && (
+      <OpponentSection title="View source research" defaultOpen={false}>
+        <RawResearch items={opponent.items} />
+      </OpponentSection>
+    )}
+  </Card>
+)
+
 // How often to poll status while discovery/collection is in flight.
 const POLL_INTERVAL_MS = 5000
 
 type Props = {
   initialData: RaceOpponentResponse
+  raceContext?: string
 }
 
-const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
+const RaceOpponentList = ({
+  initialData,
+  raceContext,
+}: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const [data, setData] = useState<RaceOpponentResponse>(initialData)
   const [refreshing, setRefreshing] = useState(false)
@@ -108,6 +493,32 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
   // the effect and a user click could both fire a (paid) collect. The ref is
   // set before the await, so any concurrent caller sees it immediately.
   const collectingRef = useRef(false)
+  // Which opponent the selector is showing. Defaults to the first; falls back to
+  // the first if the selected one disappears after a refresh (see activeName).
+  const [selectedName, setSelectedName] = useState<string | null>(
+    initialData.opponents[0]?.opponentName ?? null,
+  )
+
+  const [campaign] = useCampaign()
+
+  const activeName = useMemo<string | null>(() => {
+    const names = data.opponents.map((opponent) => opponent.opponentName)
+    if (selectedName && names.includes(selectedName)) {
+      return selectedName
+    }
+    return names[0] ?? null
+  }, [data.opponents, selectedName])
+
+  // Fire one Opponent Profile Viewed per distinct opponent detail shown. The ref
+  // set dedups so switching back to an already-viewed opponent doesn't re-fire.
+  const viewedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!activeName || viewedRef.current.has(activeName)) return
+    viewedRef.current.add(activeName)
+    trackEvent(EVENTS.RaceOpponent.OpponentProfileViewed, {
+      campaignId: campaign?.id,
+    })
+  }, [activeName, campaign?.id])
 
   const loadStatus = useCallback(async (): Promise<void> => {
     const { data: latest } = await clientRequest(
@@ -196,75 +607,144 @@ const RaceOpponentList = ({ initialData }: Props): React.JSX.Element => {
   const isBusy = status === 'running' || status === 'discovering'
 
   return (
-    <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-xl font-semibold text-foreground">
-            Know your opponent
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Raw collected research on your opponents, grouped by source.
-          </p>
+    <>
+      {/* Full-bleed white header band (title + race context + Export brief),
+          matching the Lovable design; the dev controls and the field sit below
+          on the gray content background. */}
+      <div className="border-b border-border bg-background">
+        <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
+          <OpponentPageHeader
+            title="Know your opponent"
+            raceContext={raceContext}
+            actions={
+              <Button
+                variant="outline"
+                disabled
+                title="Export brief — coming soon"
+              >
+                Export brief
+              </Button>
+            }
+          />
         </div>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <span>
-            Status:{' '}
-            <span className="font-semibold text-foreground">
-              {STATUS_LABELS[data.collectionStatus]}
-            </span>
-          </span>
-          <span>Last collected: {formatTimestamp(data.lastCollectedAt)}</span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={collect}
-            disabled={collecting || isBusy}
-            className="flex items-center gap-1.5"
-          >
-            <RefreshIcon className="size-4" aria-hidden />
-            Collect now
-          </Button>
-          <Button
-            variant="outline"
-            onClick={refresh}
-            disabled={refreshing}
-            className="flex items-center gap-1.5"
-          >
-            <RefreshIcon className="size-4" aria-hidden />
-            Refresh
-          </Button>
-        </div>
-      </header>
+      </div>
 
-      {data.opponents.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No opponent data collected yet. Click &quot;Collect now&quot; to
-          start.
-        </p>
-      ) : (
-        <div className="flex flex-col gap-6">
-          {data.opponents.map((opponent) => (
-            <section
-              key={opponent.opponentName}
-              className="flex flex-col gap-3"
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
+            <CollectionStatusIndicator status={data.collectionStatus} />
+            {data.lastCollectedAt && (
+              <span>
+                Last collected {formatTimestamp(data.lastCollectedAt)}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={collect}
+              disabled={collecting || isBusy}
+              className="flex items-center gap-1.5"
             >
-              <h2 className="text-base font-semibold text-foreground">
-                {opponent.opponentName}
-              </h2>
-              <div className="flex flex-col gap-4">
-                {groupBySourceType(opponent.items).map((group) => (
-                  <SourceGroup
-                    key={group.sourceType}
-                    sourceType={group.sourceType}
-                    items={group.items}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
+              <RefreshIcon className="size-4" aria-hidden />
+              Collect now
+            </Button>
+            <Button
+              variant="outline"
+              onClick={refresh}
+              disabled={refreshing}
+              className="flex items-center gap-1.5"
+            >
+              <RefreshIcon className="size-4" aria-hidden />
+              Refresh
+            </Button>
+          </div>
         </div>
-      )}
-    </div>
+
+        {activeName === null ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <SearchIcon className="size-6" aria-hidden />
+            </span>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold text-foreground">
+                No opponent research yet
+              </h2>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Use &quot;Collect now&quot; above to gather sourced research on
+                the candidates in your race. We&apos;ll pull what&apos;s public
+                and summarize it for you.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <Tabs.Root
+            value={activeName}
+            onValueChange={setSelectedName}
+            className="flex flex-col gap-6"
+          >
+            <section className="flex flex-col gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
+                  The field
+                </span>
+                <h2 className="text-lg font-semibold text-foreground">
+                  {data.opponents.length}{' '}
+                  {data.opponents.length === 1 ? 'candidate' : 'candidates'}{' '}
+                  filed for this seat
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Focus on the candidate most likely to take votes from you.
+                  Usually the incumbent or a party-backed challenger.
+                </p>
+              </div>
+              <Tabs.List
+                aria-label="Select an opponent to view their research"
+                className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                {data.opponents.map((opponent) => (
+                  <Tabs.Trigger
+                    key={opponent.opponentName}
+                    value={opponent.opponentName}
+                    className={cn(
+                      'flex w-full min-w-0 items-center rounded-lg border border-border bg-card p-4 text-left outline-none transition',
+                      'hover:border-info-600/40',
+                      'focus-visible:ring-2 focus-visible:ring-info-600/40',
+                      'data-[state=active]:border-info-600 data-[state=active]:ring-2 data-[state=active]:ring-info-600/20',
+                      // Emphasize the primary threat (Lovable highlights it).
+                      // The active-state variants must be re-specified for the
+                      // destructive emphasis, or the unconditional
+                      // data-[state=active]:*-info-600 rules above win on
+                      // specificity and the highlight vanishes when selected.
+                      opponent.threatTier === 'primary_threat' &&
+                        'border-destructive/40 ring-1 ring-destructive/20 hover:border-destructive/60 focus-visible:ring-destructive/40 data-[state=active]:border-destructive data-[state=active]:ring-2 data-[state=active]:ring-destructive/20',
+                    )}
+                  >
+                    <OpponentOverviewCard
+                      name={opponent.opponentName}
+                      initials={initialsFor(opponent.opponentName)}
+                      party={opponent.party}
+                      isIncumbent={opponent.isIncumbent}
+                      threatTier={opponent.threatTier}
+                    />
+                  </Tabs.Trigger>
+                ))}
+              </Tabs.List>
+            </section>
+
+            {data.opponents.map((opponent) => (
+              <Tabs.Content
+                key={opponent.opponentName}
+                value={opponent.opponentName}
+                className="outline-none"
+              >
+                <OpponentDetailCard opponent={opponent} />
+              </Tabs.Content>
+            ))}
+          </Tabs.Root>
+        )}
+      </div>
+    </>
   )
 }
 

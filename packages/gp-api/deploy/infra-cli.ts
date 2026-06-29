@@ -153,6 +153,10 @@ const setupStack = async (env: string) => {
     run(`pulumi config set prNumber ${process.env.GITHUB_PR_NUMBER}`, {
       stdio: setupStdio,
     })
+    // Previews share one always-on Aurora cluster with a per-PR database
+    // instead of provisioning their own (~5 min). Revert this line to roll
+    // back to per-PR clusters.
+    run('pulumi config set useSharedPreviewDb true', { stdio: setupStdio })
   }
   run(`pulumi config set --path aws:defaultTags.tags.Environment ${env}`, {
     stdio: setupStdio,

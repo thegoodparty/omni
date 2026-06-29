@@ -31,13 +31,21 @@ npm run infra deploy <env>     # deploy via Pulumi
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/gp-api.yml`) before opening a PR. From the repo root:
+Before opening a PR, run the full gate locally. From the repo root:
 
 ```bash
 npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
 ```
 
-CI additionally runs `prisma migrate diff ... --exit-code` against a shadow DB to assert migrations match the schema. If you touched `prisma/`, make sure there are no undeclared schema changes (see `npm run migrate:dev`).
+In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
+`Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
+against a shadow DB; a `Test` job fans the vitest suite out across 4 shards
+(`--shard=N/4`, no coverage); and an empty `Validate` gate `needs` both so the
+branch-protection-required `Validate` check is green only when all of them pass.
+The local `npm run verify` is unchanged — it runs the whole suite in one pass.
+
+If you touched `prisma/`, make sure there are no undeclared schema changes (the
+migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev`).
 
 ## Pointer table — when in doubt
 

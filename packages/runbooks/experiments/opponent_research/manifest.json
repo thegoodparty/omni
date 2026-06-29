@@ -1,0 +1,215 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "opponent_research",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 80,
+  "timeout_seconds": 1800,
+  "scope": {
+    "allowed_tables": [
+      "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
+    ],
+    "max_rows": 50000,
+    "data_required_unless": {
+      "field": "residency_data",
+      "values": ["unavailable"]
+    }
+  },
+  "runtime": {
+    "max_parallel_subagents": 5,
+    "max_thinking_tokens": 0
+  },
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opponent Research input params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "opponent",
+      "race_context"
+    ],
+    "properties": {
+      "opponent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "full_name"
+        ],
+        "description": "The named opponent to research. The lawful-use case for the L2 residency lookup on this named person has been confirmed.",
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The opponent's full name. Used for source discovery via WebSearch, to confirm a fetched page is about this person, and as the registration name to match in the L2 residency query."
+          },
+          "website_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional hint: the opponent's campaign website. When present, fetch directly; when null/absent, discover via WebSearch."
+          },
+          "social_urls": {
+            "type": "array",
+            "description": "Optional hints: the opponent's public social-media profile URLs.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "is_incumbent": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "true if known to be the incumbent, false if known not to be, null if unknown."
+          }
+        }
+      },
+      "race_context": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "The race the opponent is running in, hydrated by gp-api before dispatch. Disambiguates the right person/page during discovery (same office, jurisdiction, cycle).",
+        "required": [
+          "office_name",
+          "state"
+        ],
+        "properties": {
+          "office_name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Readable office name (e.g. 'Fayetteville City Council')."
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "2-letter state code (e.g. NC). The broker injects this as the WHERE on the L2 residency query."
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "City / jurisdiction name, or null. The broker injects this as a WHERE clause on the L2 residency query when present."
+          },
+          "election_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The election date for this race, or null. Confirms the right cycle during discovery."
+          }
+        }
+      },
+      "candidate_platform": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "description": "The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Any field may be null when unwritten.",
+        "properties": {
+          "why": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the candidate is running."
+          },
+          "background": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The candidate's background."
+          },
+          "issues": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The issues the candidate is running on."
+          }
+        }
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opponent Research artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "generated_at",
+      "residency_data",
+      "findings"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "residency_data": {
+        "type": "string",
+        "enum": ["available", "unavailable"],
+        "description": "Whether the L2 residency query returned a matching registration for the named opponent. 'available' when a row matched and a residency finding was produced; 'unavailable' when no row matched (no residency finding emitted, never fabricated). The broker's data-required gate is carved out for 'unavailable' so a web-only result can still publish."
+      },
+      "findings": {
+        "type": "array",
+        "description": "One entry per verified vulnerability in the opponent's public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url (or, for a residency finding, when an L2 registration row matched). Findings that fail verification are dropped, never invented. The array may be empty.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "claim",
+            "source_url",
+            "source_extract",
+            "category"
+          ],
+          "properties": {
+            "claim": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The vulnerability stated plainly: what the candidate could draw a contrast on, grounded in the opponent's own public conduct."
+            },
+            "source_url": {
+              "type": "string",
+              "minLength": 1,
+              "description": "For web findings: the page actually fetched (the broker's returned X-Source-URL after any redirect), matching ^https?://. For a residency finding sourced from L2 (not a fetchable URL), a stable dataset reference (e.g. 'l2:int__l2_nationwide_uniform_w_haystaq')."
+            },
+            "source_extract": {
+              "type": "string",
+              "minLength": 1,
+              "description": "For web findings: a verbatim passage from the fetched page that substantiates the claim (verified via verify_quote). For a residency finding: the matched registration fields rendered as text (e.g. registration state/date)."
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "residency",
+                "record",
+                "statements",
+                "funding",
+                "conflicts",
+                "narrative"
+              ],
+              "description": "Which vulnerability category this finding belongs to."
+            },
+            "source_title": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional human-readable title of the source page."
+            },
+            "occurred_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date",
+              "description": "Optional date the underlying event occurred (not the retrieval date), or null when undated."
+            }
+          }
+        }
+      }
+    }
+  }
+}

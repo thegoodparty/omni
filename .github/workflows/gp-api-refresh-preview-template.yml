@@ -1,0 +1,134 @@
+name: gp-api refresh preview template
+
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  # workflow_dispatch is how the template is first created — it does not exist
+  # until this workflow has run at least once.
+  workflow_dispatch:
+  push:
+    branches:
+      - develop
+    paths:
+      - "packages/gp-api/prisma/**"
+      - "packages/gp-api/seed/**"
+
+# Serialize refreshes so two runs never drop/recreate the template at once.
+concurrency:
+  group: gp-api-refresh-preview-template
+  cancel-in-progress: false
+
+jobs:
+  refresh-template:
+    # The refresh is a migrate+seed against the shared Aurora cluster, whose SG
+    # admits 5432 only from the app SG + the VPC CIDR — the GitHub runner is
+    # NOT in the VPC, so it runs in-VPC via `aws ecs run-task` on the stable
+    # dev task def (gp-develop-fargateCluster-gp-api-develop), which carries
+    # the same DB_USER (gpuser) and DB_PASSWORD secret (GP_API_DEV — the shared
+    # cluster's master password). The runner only resolves the cluster endpoint
+    # and passes it as an env override.
+    runs-on: ubuntu-latest
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+
+      - name: Refresh gpdb_preview_template in-VPC
+        run: |
+          CLUSTER_ENDPOINT=$(aws rds describe-db-clusters \
+            --db-cluster-identifier gp-api-preview-shared \
+            --query 'DBClusters[0].Endpoint' \
+            --output text 2>/dev/null || true)
+
+          if [ -z "$CLUSTER_ENDPOINT" ] || [ "$CLUSTER_ENDPOINT" = "None" ]; then
+            echo "Shared preview cluster not found; skipping template refresh."
+            exit 0
+          fi
+
+          ECS_CLUSTER="gp-develop-fargateCluster"
+          TASK_DEF_FAMILY="gp-develop-fargateCluster-gp-api-develop"
+
+          echo "Running refresh-preview-template against ${CLUSTER_ENDPOINT}..."
+          # Unlike the drop tasks (cluster access only), the refresh runs
+          # seed/seed.ts, which needs public-internet egress (Contentful, etc.).
+          # The private subnets have no NAT route, so use the public subnets +
+          # assignPublicIp=ENABLED exactly like the ECS service does; the app SG
+          # still reaches the shared cluster over the VPC.
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$TASK_DEF_FAMILY" \
+            --launch-type FARGATE \
+            --network-configuration \
+              "awsvpcConfiguration={
+                subnets=[subnet-07984b965dabfdedc,subnet-01c540e6428cdd8db],
+                securityGroups=[sg-01de8d67b0f0ec787],
+                assignPublicIp=ENABLED
+              }" \
+            --overrides "{
+              \"containerOverrides\": [{
+                \"name\": \"gp-api-develop\",
+                \"command\": [
+                  \"npx\",\"tsx\",\"scripts/refresh-preview-template.ts\"
+                ],
+                \"environment\": [
+                  {\"name\":\"DB_HOST\",\"value\":\"${CLUSTER_ENDPOINT}\"}
+                ]
+              }]
+            }" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
+            echo "run-task failed or returned no task ARN; aborting refresh."
+            exit 1
+          fi
+
+          # `aws ecs wait tasks-stopped` caps at 600s (6s x 100 attempts); a
+          # cold-start migrate + full seed of the template can exceed 10 min, so
+          # poll lastStatus with a longer ceiling instead of the fixed waiter.
+          echo "Waiting for refresh task ${TASK_ARN} to complete..."
+          DEADLINE=$(( $(date +%s) + 1800 ))
+          while true; do
+            TASK_STATUS=$(aws ecs describe-tasks \
+              --cluster "$ECS_CLUSTER" \
+              --tasks "$TASK_ARN" \
+              --query 'tasks[0].lastStatus' \
+              --output text)
+            [ "$TASK_STATUS" = "STOPPED" ] && break
+            if [ "$(date +%s)" -ge "$DEADLINE" ]; then
+              echo "Timed out after 30m waiting for task (status=$TASK_STATUS)."
+              exit 1
+            fi
+            sleep 15
+          done
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --query \
+              "tasks[0].containers[?name=='gp-api-develop'].exitCode" \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "refresh-preview-template exited ${EXIT_CODE}; check ECS logs."
+            exit 1
+          fi
+
+      # A failed refresh leaves the template stale (or missing), which makes
+      # per-PR CREATE DATABASE ... TEMPLATE copy old schema/seed — surface it.
+      - name: Notify Slack on refresh failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          fields: repo,workflow,job
+          text: >-
+            gp-api preview template refresh failed. gpdb_preview_template may be
+            stale or missing — per-PR previews could copy old schema/seed. Check
+            the run.
