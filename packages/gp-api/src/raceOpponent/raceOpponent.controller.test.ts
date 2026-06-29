@@ -1431,4 +1431,155 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       await service.prisma.raceOpponentSummary.count({ where: { campaignId } }),
     ).toBe(0)
   })
+
+  const seedWebsite = (about: PrismaJson.WebsiteContent['about']) =>
+    service.prisma.website.create({
+      data: { campaignId, vanityPath: `${SLUG}-site`, content: { about } },
+    })
+
+  const analysisOverrides = {
+    threat_tier: 'primary_threat',
+    why_they_matter: 'The only incumbent in the field.',
+    what_you_need_to_know: ['Two-term incumbent.', 'Backed by the local PAC.'],
+    where_soft: [
+      { text: 'No published water position.', sources: [BALLOTPEDIA_URL] },
+      // relaxed: an item with no source still persists
+      { text: 'Skipped the candidate survey.' },
+    ],
+    issue_contrasts: [
+      {
+        issue: 'Housing',
+        salience: 'high',
+        why_it_matters: 'Families are priced out.',
+        opponent_stance: 'Opposes new zoning.',
+        opponent_sources: [BALLOTPEDIA_URL],
+        candidate_stance: 'Supports starter homes.',
+      },
+    ],
+  }
+
+  it('dispatchSummary includes candidate_platform from Website.content.about', async () => {
+    await seedCollectedRow()
+    await seedWebsite({
+      bio: 'A lifelong resident running for council.',
+      issues: [
+        { title: 'Water security', description: 'Publish a 50-year plan.' },
+        // an issue missing a description is dropped (input requires both)
+        { title: 'Roads' },
+      ],
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'summary-cp' } as never)
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchSummary(await loadCampaign())
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        params: expect.objectContaining({
+          candidate_platform: {
+            bio: 'A lifelong resident running for council.',
+            issues: [
+              {
+                title: 'Water security',
+                description: 'Publish a 50-year plan.',
+              },
+            ],
+          },
+        }),
+      }),
+    )
+  })
+
+  it('dispatchSummary omits candidate_platform when no website bio or issues', async () => {
+    await seedCollectedRow()
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'summary-nocp' } as never)
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchSummary(await loadCampaign())
+
+    const params = dispatchRun.mock.calls[0][0].params as {
+      candidate_platform?: unknown
+    }
+    expect(params.candidate_platform).toBeUndefined()
+  })
+
+  it('persists the analytical fields and exposes them on the read endpoint', async () => {
+    await seedCollectedRow({
+      sourceType: 'ballotpedia',
+      sourceUrl: BALLOTPEDIA_URL,
+    })
+    const run = await seedSummaryRun('summary-analysis')
+    stubSummaryArtifact(summaryArtifact(analysisOverrides))
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary.threatTier).toBe('primary_threat')
+    expect(opponent.summary.whatYouNeedToKnow).toHaveLength(2)
+    // relaxed sourcing: the sourced soft spot keeps its upgraded source, the
+    // unsourced one persists with no sources key.
+    expect(opponent.summary.whereSoft).toHaveLength(2)
+    expect(opponent.summary.whereSoft[0].sources).toEqual([
+      { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+    ])
+    expect(opponent.summary.whereSoft[1].sources).toBeUndefined()
+    expect(opponent.summary.issueContrasts[0]).toMatchObject({
+      issue: 'Housing',
+      salience: 'high',
+      candidateStance: 'Supports starter homes.',
+      opponentSources: [
+        { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+      ],
+    })
+  })
+
+  it('persists a descriptive-only artifact (no analysis) without 500ing', async () => {
+    await seedCollectedRow()
+    const run = await seedSummaryRun('summary-descriptive')
+    stubSummaryArtifact(summaryArtifact())
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary.threatTier).toBeUndefined()
+    expect(opponent.summary.issueContrasts).toBeUndefined()
+  })
+
+  it('idempotently replaces analytical summaries on replay (no dupes)', async () => {
+    await seedCollectedRow()
+    const run = await seedSummaryRun('summary-analysis-replay')
+    stubSummaryArtifact(summaryArtifact(analysisOverrides))
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const stored = await service.prisma.raceOpponentSummary.findMany({
+      where: { campaignId },
+    })
+    expect(stored).toHaveLength(1)
+  })
 })

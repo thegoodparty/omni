@@ -246,9 +246,39 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         // empty-array case is filtered out above, but the type can't prove it.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
         opponents: opponents as SummaryInput['opponents'],
+        candidate_platform: await this.buildCandidatePlatform(campaign.id),
         race_context: await this.buildRaceContext(campaign),
       },
     })
+  }
+
+  // The candidate's own platform (bio + issues) for the analytical summary,
+  // read from Website.content.about — the pre-Pro-upgrade CandidateProfileStep
+  // capture, NOT CampaignStory (the self-research duplicate we avoid). Returns
+  // undefined when the campaign has no website bio or issues yet, so dispatch
+  // omits the field and the agent produces no issue contrasts.
+  private async buildCandidatePlatform(
+    campaignId: number,
+  ): Promise<SummaryInput['candidate_platform'] | undefined> {
+    const website = await this.client.website.findUnique({
+      where: { campaignId },
+      select: { content: true },
+    })
+    const about = website?.content?.about
+    if (!about) return undefined
+
+    const bio = about.bio?.trim() ? about.bio : undefined
+    const issues = (about.issues ?? []).flatMap((issue) =>
+      issue.title?.trim() && issue.description?.trim()
+        ? [{ title: issue.title, description: issue.description }]
+        : [],
+    )
+
+    if (!bio && issues.length === 0) return undefined
+    return {
+      ...(bio ? { bio } : {}),
+      ...(issues.length > 0 ? { issues } : {}),
+    }
   }
 
   // Group the flat collected rows into the summary input's per-opponent

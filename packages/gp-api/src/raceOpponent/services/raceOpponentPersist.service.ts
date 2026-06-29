@@ -53,11 +53,36 @@ const ArtifactKeyPositionSchema = z.object({
   detail: z.string(),
   sources: z.array(z.string().min(1)).min(1),
 })
+
+// Phase 3 analytical fields. Relaxed sourcing — unlike the descriptive sections
+// above, sources are optional (cite where direct), so these parse with or
+// without a sources array. Kept optional on the artifact so a summary run that
+// predates the analytical instruction still persists its descriptive sections
+// rather than failing the whole run mid-rollout.
+const ArtifactWhereSoftSchema = z.object({
+  text: z.string(),
+  sources: z.array(z.string().min(1)).optional(),
+})
+const ArtifactIssueContrastSchema = z.object({
+  issue: z.string(),
+  salience: z.enum(['high', 'medium', 'low']),
+  why_it_matters: z.string(),
+  opponent_stance: z.string(),
+  opponent_sources: z.array(z.string().min(1)).optional(),
+  candidate_stance: z.string(),
+})
 const ArtifactSummaryOpponentSchema = z.object({
   opponent_name: z.string(),
   overview: ArtifactSummarySectionSchema.nullable(),
   background: ArtifactSummarySectionSchema.nullable(),
   key_positions: z.array(ArtifactKeyPositionSchema),
+  threat_tier: z
+    .enum(['primary_threat', 'watch_closely', 'low_priority'])
+    .optional(),
+  why_they_matter: z.string().optional(),
+  what_you_need_to_know: z.array(z.string()).optional(),
+  where_soft: z.array(ArtifactWhereSoftSchema).optional(),
+  issue_contrasts: z.array(ArtifactIssueContrastSchema).optional(),
 })
 const ArtifactSummaryEnvelopeSchema = z.object({
   generated_at: z.string(),
@@ -295,6 +320,13 @@ export class RaceOpponentPersistService extends createPrismaBase(
         return sourceType ? [{ sourceType, sourceUrl: url }] : []
       })
 
+    // Relaxed sourcing for the analytical items: drop a URL the collected rows
+    // can't type (same as refs), but KEEP the item and omit the sources key
+    // entirely when none resolve — these cite where direct, they are never
+    // sourced-or-silent like the descriptive sections above.
+    const optionalRefs = (urls: string[] | undefined): SummarySourceRef[] =>
+      refs(urls ?? [])
+
     return RaceOpponentSummarySchema.parse({
       opponentName: opponent.opponent_name,
       overview: opponent.overview
@@ -315,6 +347,24 @@ export class RaceOpponentPersistService extends createPrismaBase(
         sources: refs(position.sources),
       })),
       generatedAt,
+      threatTier: opponent.threat_tier,
+      whyTheyMatter: opponent.why_they_matter,
+      whatYouNeedToKnow: opponent.what_you_need_to_know,
+      whereSoft: opponent.where_soft?.map((item) => {
+        const sources = optionalRefs(item.sources)
+        return { text: item.text, ...(sources.length > 0 ? { sources } : {}) }
+      }),
+      issueContrasts: opponent.issue_contrasts?.map((contrast) => {
+        const opponentSources = optionalRefs(contrast.opponent_sources)
+        return {
+          issue: contrast.issue,
+          salience: contrast.salience,
+          whyItMatters: contrast.why_it_matters,
+          opponentStance: contrast.opponent_stance,
+          candidateStance: contrast.candidate_stance,
+          ...(opponentSources.length > 0 ? { opponentSources } : {}),
+        }
+      }),
     })
   }
 
