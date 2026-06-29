@@ -27,7 +27,11 @@ const CampaignPlanStoryGate = ({
 }: CampaignPlanStoryGateProps): React.JSX.Element => {
   const { data: story, isError } = useCampaignStory()
   // Issues live on the website (shared with Pro-upgrade), not the story.
-  const { data: website, isLoading: websiteLoading } = useQuery({
+  const {
+    data: website,
+    isLoading: websiteLoading,
+    isError: websiteIsError,
+  } = useQuery({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
   })
@@ -37,7 +41,10 @@ const CampaignPlanStoryGate = ({
   // Only spin while genuinely loading — an errored fetch leaves data undefined
   // forever, so fall through (fail closed) to the "complete your story" prompt
   // rather than spinning indefinitely.
-  if ((story === undefined && !isError) || websiteLoading) {
+  if (
+    (story === undefined && !isError) ||
+    (websiteLoading && !websiteIsError)
+  ) {
     return (
       <div className="flex h-[40vh] items-center justify-center">
         <div className="size-8 animate-spin rounded-full border-b-2 border-primary" />
