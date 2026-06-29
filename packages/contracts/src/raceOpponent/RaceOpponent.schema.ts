@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { RaceOpponentSourceTypeSchema } from './RaceOpponentSourceType.schema'
-import { RaceOpponentSummarySchema } from './RaceOpponentSummary.schema'
+import {
+  RaceOpponentSummarySchema,
+  RaceOpponentThreatTierSchema,
+} from './RaceOpponentSummary.schema'
 
 export const RaceOpponentSchema = z.object({
   id: z.number(),
@@ -40,6 +43,10 @@ export const RaceOpponentResponseSchema = z.object({
       // null when the collected name doesn't match a roster row (don't guess).
       party: z.string().nullable(),
       isIncumbent: z.boolean().nullable(),
+      // Phase 3: surfaced on the opponent object (in addition to summary) so the
+      // roster can tier and order without opening the detail. Optional until an
+      // opponent has analysis.
+      threatTier: RaceOpponentThreatTierSchema.optional(),
       items: z.array(RaceOpponentSchema),
       // Optional + nullable: ENG-10588 wires the producer to populate this from
       // the race_opponent_summary step. Until then gp-api's get() omits the
