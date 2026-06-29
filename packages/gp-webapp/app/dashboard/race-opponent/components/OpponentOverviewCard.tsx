@@ -1,5 +1,5 @@
 import { Avatar, AvatarFallback, Card } from '@styleguide'
-import OpponentBadge, { type OpponentBadgeTone } from './OpponentBadge'
+import OpponentBadge, { partyTone } from './OpponentBadge'
 
 type Props = {
   name: string
@@ -10,17 +10,6 @@ type Props = {
   summary?: string | null
   actions?: React.ReactNode
   children?: React.ReactNode
-}
-
-const partyTone = (party: string): OpponentBadgeTone => {
-  const normalized = party.trim().toLowerCase()
-  if (normalized === 'democrat' || normalized === 'democratic') {
-    return 'democrat'
-  }
-  if (normalized === 'republican') {
-    return 'republican'
-  }
-  return 'neutral'
 }
 
 const OpponentOverviewCard = ({
