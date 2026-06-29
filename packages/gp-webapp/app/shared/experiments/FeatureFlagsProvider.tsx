@@ -74,6 +74,11 @@ export const FeatureFlagsProvider = ({
   // $exposure fires at most once per flag key per mount, matching the Amplitude
   // SDK's automatic-exposure dedup. Reset whenever the variant set is replaced.
   const exposedRef = useRef<Set<string>>(new Set())
+  // Monotonic id for identity-driven refreshes. They're fire-and-forget, so if a
+  // newer one starts (or a logout clears state) before an older fetch resolves,
+  // only the latest may commit — otherwise a slow stale response could overwrite
+  // the current identity's variants (last-to-resolve wins).
+  const refreshIdRef = useRef<number>(0)
 
   const trackExposure = useCallback((key: string, variant?: Variant): void => {
     if (exposedRef.current.has(key)) return
@@ -99,6 +104,7 @@ export const FeatureFlagsProvider = ({
   // Re-resolve through gp-api (server-side), never from Amplitude in the
   // browser — so an ad blocker or blocked network can't affect flag resolution.
   const refresh = useCallback(async (): Promise<void> => {
+    const refreshId = ++refreshIdRef.current
     // Resolve to the gp-api result, or fail safe to empty. refresh() runs on
     // identity changes without pre-clearing, so a transient failure (non-ok,
     // unparseable, or network error) must NOT leave the previous identity's
@@ -127,15 +133,20 @@ export const FeatureFlagsProvider = ({
         { context: 'FeatureFlagsProvider.refresh' },
       )
     } finally {
-      setVariants(next)
-      // Reset the exposure dedup only when we actually resolved a new variant
-      // set. Resetting on a transient failure (next === {}) would let the same
-      // key re-fire $exposure once the set is replaced on recovery — a
-      // double-count for the same session.
-      if (Object.keys(next).length > 0) {
-        exposedRef.current = new Set()
+      // Skip a stale response if a newer refresh (or a logout) has superseded
+      // this one — otherwise a slow fetch for an old identity could clobber the
+      // current store.
+      if (refreshId === refreshIdRef.current) {
+        setVariants(next)
+        // Reset the exposure dedup only when we actually resolved a new variant
+        // set. Resetting on a transient failure (next === {}) would let the same
+        // key re-fire $exposure once the set is replaced on recovery — a
+        // double-count for the same session.
+        if (Object.keys(next).length > 0) {
+          exposedRef.current = new Set()
+        }
+        setReady(true)
       }
-      setReady(true)
     }
   }, [])
 
@@ -171,6 +182,9 @@ export const FeatureFlagsProvider = ({
     if (key === resolvedKeyRef.current) return
     resolvedKeyRef.current = key
     if (!user) {
+      // Invalidate any in-flight refresh so a late response can't repopulate
+      // flags for a now-logged-out user.
+      refreshIdRef.current++
       setVariants({})
       exposedRef.current = new Set()
       setReady(true)

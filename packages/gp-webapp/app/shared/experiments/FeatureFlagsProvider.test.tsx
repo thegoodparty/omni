@@ -472,4 +472,41 @@ describe('regression coverage', () => {
     })
     expect(mockTrack).toHaveBeenCalledTimes(1)
   })
+
+  it('ignores a stale refresh that resolves after a newer identity change', async () => {
+    // Call 1 (identity A) hangs and would resolve 'on'; call 2 (identity B) uses
+    // the default mock (serverVariants → 'off'). The slower, superseded A must
+    // NOT overwrite B when it finally resolves.
+    let releaseFirst!: () => void
+    const firstInFlight = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    fetchMock.mockImplementationOnce(async () => {
+      await firstInFlight
+      return {
+        ok: true,
+        json: async () => ({ variants: { 'my-feature': { value: 'on' } } }),
+      } as unknown as Response
+    })
+    serverVariants = { 'my-feature': { value: 'off' } }
+    mockUser = fullUser
+
+    const { result, rerender } = renderHook(() => useFlagOn('my-feature'), {
+      wrapper,
+    })
+
+    // refresh A is in flight (hanging); change identity → refresh B resolves off.
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(result.current.on).toBe(false)
+
+    // Release the stale first response and flush; it must not clobber identity B.
+    await act(async () => {
+      releaseFirst()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(result.current.on).toBe(false)
+  })
 })
