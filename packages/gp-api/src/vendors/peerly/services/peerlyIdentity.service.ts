@@ -255,12 +255,14 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       email: `info@${domainName}`.substring(0, 100), // Limit to 100 characters per Peerly API docs
       ...(geography.didState !== P2P_JOB_DEFAULTS.DID_STATE
         ? {
+            // Peerly requires didNpaSubset on every jobAreas object even when
+            // empty; omitting it leaves the registration unable to load and
+            // finalize. An empty array is accepted and lets Peerly pick any
+            // area code within the state.
             jobAreas: [
               {
                 didState: geography.didState,
-                ...(geography.didNpaSubset.length > 0 && {
-                  didNpaSubset: geography.didNpaSubset,
-                }),
+                didNpaSubset: geography.didNpaSubset,
               },
             ],
           }

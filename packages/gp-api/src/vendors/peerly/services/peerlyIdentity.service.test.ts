@@ -512,7 +512,7 @@ describe('PeerlyIdentityService', () => {
       ])
     })
 
-    it('includes jobAreas with only didState when area code lookup returns empty', async () => {
+    it('includes jobAreas with didState and empty didNpaSubset when area code lookup returns empty', async () => {
       const areaCodeService = module.get(AreaCodeFromZipService)
       vi.mocked(areaCodeService.getAreaCodeFromZip).mockResolvedValue([])
 
@@ -527,11 +527,14 @@ describe('PeerlyIdentityService', () => {
         baseDomainName,
       )
 
-      // jobAreas is present with didState even when no area codes resolved
-      expect(lastSubmittedData.jobAreas).toEqual([{ didState: 'IL' }])
+      // didNpaSubset must always be present (empty array) — Peerly rejects its
+      // omission and the registration fails to load/finalize.
+      expect(lastSubmittedData.jobAreas).toEqual([
+        { didState: 'IL', didNpaSubset: [] },
+      ])
     })
 
-    it('includes jobAreas with only didState when area code lookup returns null', async () => {
+    it('includes jobAreas with didState and empty didNpaSubset when area code lookup returns null', async () => {
       const areaCodeService = module.get(AreaCodeFromZipService)
       vi.mocked(areaCodeService.getAreaCodeFromZip).mockResolvedValue(null)
 
@@ -546,7 +549,9 @@ describe('PeerlyIdentityService', () => {
         baseDomainName,
       )
 
-      expect(lastSubmittedData.jobAreas).toEqual([{ didState: 'IL' }])
+      expect(lastSubmittedData.jobAreas).toEqual([
+        { didState: 'IL', didNpaSubset: [] },
+      ])
     })
 
     it('sends state in both top-level field and jobAreas when geography is resolved', async () => {
