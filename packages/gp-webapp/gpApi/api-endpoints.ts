@@ -977,6 +977,18 @@ export type RaceOpponentSummary = {
   whatYouNeedToKnow?: string[]
   // Relaxed sourcing: an item cites a source where one is direct, else omits it.
   whereSoft?: Array<{ text: string; sources?: RaceOpponentSummarySourceRef[] }>
+  issueContrasts?: RaceOpponentIssueContrast[]
+}
+
+export type IssueSalience = 'high' | 'medium' | 'low'
+
+export type RaceOpponentIssueContrast = {
+  issue: string
+  salience: IssueSalience
+  whyItMatters: string
+  opponentStance: string
+  opponentSources?: RaceOpponentSummarySourceRef[]
+  candidateStance: string
 }
 
 export type RaceOpponentResponse = {

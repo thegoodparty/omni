@@ -34,6 +34,7 @@ import OpponentPageHeader from './OpponentPageHeader'
 import OpponentOverviewCard from './OpponentOverviewCard'
 import OpponentBadge, { partyTone } from './OpponentBadge'
 import SourceAttribution from './SourceAttribution'
+import IssueContrastCard from './IssueContrastCard'
 
 const initialsFor = (name: string): string =>
   name
@@ -312,6 +313,22 @@ const OpponentSummaryView = ({
     )}
     {summary.whereSoft && summary.whereSoft.length > 0 && (
       <WhereTheySoft items={summary.whereSoft} />
+    )}
+    {summary.issueContrasts && summary.issueContrasts.length > 0 && (
+      <section className="flex w-full min-w-0 flex-col gap-3">
+        <div className="flex w-full min-w-0 flex-col gap-1">
+          <h3 className="text-base font-semibold text-foreground">
+            Where you contrast
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            How your positions differ from theirs on the issues voters care
+            about.
+          </p>
+        </div>
+        {summary.issueContrasts.map((contrast) => (
+          <IssueContrastCard key={contrast.issue} contrast={contrast} />
+        ))}
+      </section>
     )}
   </div>
 )
