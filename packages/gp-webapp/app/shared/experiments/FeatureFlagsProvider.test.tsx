@@ -98,6 +98,29 @@ describe('server-seeded initialVariants', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('trusts an empty server seed (authed, zero flags) without refetching', async () => {
+    // getFlagVariants returns {} for an authed user with no flags assigned — an
+    // authoritative answer, not a missing seed. Trust it; don't fire a redundant
+    // /api/feature-flags fetch on every SSR render.
+    mockUser = fullUser
+    const emptySeedWrapper = ({ children }: { children: React.ReactNode }) => (
+      <FeatureFlagsProvider initialVariants={{}}>
+        {children}
+      </FeatureFlagsProvider>
+    )
+
+    const { result } = renderHook(() => useFlagOn('anything'), {
+      wrapper: emptySeedWrapper,
+    })
+
+    expect(result.current.ready).toBe(true)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(result.current.on).toBe(false)
+  })
+
   it('keeps the seed when the client reports no user (ad-blocker-degraded Clerk)', async () => {
     // The server produced the seed (it authenticated the request), but the
     // client reports no user — e.g. an ad blocker broke Clerk's client SDK so

@@ -59,7 +59,11 @@ export const FeatureFlagsProvider = ({
   children,
   initialVariants,
 }: FeatureFlagsProviderProps): React.JSX.Element => {
-  const hasSeed = !!initialVariants && Object.keys(initialVariants).length > 0
+  // getFlagVariants returns null for "no answer" (anonymous / server error) and
+  // {} for "resolved, zero flags assigned" — both authoritative. A non-null seed
+  // means trust it; requiring ≥1 key would refetch needlessly for a zero-flag
+  // authed user on every SSR render.
+  const hasSeed = initialVariants !== null && initialVariants !== undefined
   const [variants, setVariants] = useState<Record<string, Variant>>(
     initialVariants ?? {},
   )
