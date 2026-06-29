@@ -6,6 +6,7 @@ import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
+import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createService } from './components/service'
 import { createVpc } from './components/vpc'
 
@@ -22,8 +23,6 @@ export = async () => {
 
   const prNumber =
     environment === 'preview' ? config.require('prNumber') : undefined
-
-  const useSharedPreviewDb = config.getBoolean('useSharedPreviewDb') ?? false
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
   const vpcCidr = '10.0.0.0/16'
@@ -171,7 +170,7 @@ export = async () => {
     })
   }
 
-  const skipPerPrRds = environment === 'preview' && useSharedPreviewDb
+  const skipPerPrRds = environment === 'preview'
 
   // With the shared preview DB the per-PR cluster is skipped, so its security
   // group and subnet group would be orphaned — skip them too.
@@ -271,14 +270,9 @@ export = async () => {
           qa: 7,
           prod: 14,
         }),
-        // Disable these protections for preview environments -- these
-        // configs help them tear down more quickly.
-        deletionProtection: environment !== 'preview',
-        skipFinalSnapshot: environment === 'preview',
-        finalSnapshotIdentifier:
-          environment === 'preview'
-            ? undefined
-            : `gp-api-db-${stage}-final-snapshot`,
+        deletionProtection: true,
+        skipFinalSnapshot: false,
+        finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
       })
 
   const rdsInstance = skipPerPrRds
@@ -290,9 +284,22 @@ export = async () => {
         engineVersion: rdsCluster!.engineVersion,
       })
 
+  // The dev stack owns the always-on shared preview Aurora cluster. Every PR
+  // preview clones its own gpdb_pr_<n> database onto this one cluster (see
+  // docker-entrypoint.sh) instead of provisioning a cluster per PR.
+  if (environment === 'dev') {
+    createPreviewSharedCluster({
+      vpcId,
+      vpcCidr,
+      privateSubnetIds: vpcSubnetIds.private,
+      appSecurityGroupIds: vpcSecurityGroupIds,
+      dbPassword: secret.DB_PASSWORD,
+    })
+  }
+
   const sharedPreviewCluster = skipPerPrRds
     ? await aws.rds.getCluster({
-        clusterIdentifier: 'gp-api-preview-shared',
+        clusterIdentifier: 'gp-api-preview-shared-db',
       })
     : undefined
 
