@@ -778,6 +778,40 @@ describe('PeerlyIdentityService', () => {
         expect.anything(),
       )
     })
+
+    it('does not fail the operation when /finalize errors (best-effort)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi
+        .fn()
+        .mockResolvedValueOnce({ data: { profile: { status: 'pending' } } })
+        .mockRejectedValueOnce({
+          isAxiosError: true,
+          status: 502,
+          config: { url: '/v2/tdlc/peerly-final/finalize', method: 'get' },
+          response: { data: {} },
+        })
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+      // handleApiError throws in prod; finalizeBrand must swallow it so a
+      // transient /finalize failure after a successful /approve does not fail
+      // the whole operation.
+      vi.mocked(errorHandling.handleApiError).mockRejectedValue(
+        new Error('boom'),
+      )
+
+      await expect(
+        service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1'),
+      ).resolves.toBeDefined()
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
+    })
   })
 
   describe('retrieveCampaignVerifyStatus', () => {
