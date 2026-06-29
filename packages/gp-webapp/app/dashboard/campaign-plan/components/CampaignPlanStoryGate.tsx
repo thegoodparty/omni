@@ -52,7 +52,9 @@ const CampaignPlanStoryGate = ({
     )
   }
 
-  if (!isCampaignStoryComplete(story, issues.length > 0)) {
+  // Fail open on a website-fetch error: don't read it as "no issues" and block
+  // a candidate who actually has a complete story with real issues.
+  if (!isCampaignStoryComplete(story, websiteIsError || issues.length > 0)) {
     return (
       <Card className={CARD_CLASS}>
         <ScrollTextIcon className="size-8 text-primary" />
