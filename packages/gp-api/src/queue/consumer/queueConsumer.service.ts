@@ -33,6 +33,7 @@ import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.
 import { CommunityIssueService } from 'src/communityIssues/services/communityIssue.service'
 import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
 import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
+import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -139,6 +140,7 @@ export class QueueConsumerService {
     private readonly communityIssue: CommunityIssueService,
     private readonly campaignStrategy: CampaignStrategyService,
     private readonly raceOpponent: RaceOpponentPersistService,
+    private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly logger: PinoLogger,
   ) {
@@ -1064,6 +1066,11 @@ export class QueueConsumerService {
     // persist fault, no-op for other experiment types, and the persist is an
     // idempotent replace so bounded redelivery is safe.
     await this.raceOpponent.onExperimentRunCompleted(updatedRun)
+
+    // Self-research persists on COMPLETED and flips the research row to failed
+    // on FAILED, so it is called for both terminal states (not just COMPLETED).
+    // Same markFailed-then-throw + idempotent-replace contract as above.
+    await this.raceOpponentResearch.onExperimentRunCompleted(updatedRun)
 
     return true
   }

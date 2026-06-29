@@ -1,0 +1,6 @@
+name: gp-api-preview-shared
+runtime: nodejs
+description: Persistent shared Aurora cluster for all gp-api PR previews
+config:
+  aws:region:
+    value: us-west-2
