@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { zCoerceDate } from "../shared/Date.schema";
 import {
   ChatMessageRoleSchema,
   ChatMessageSegmentKindSchema,
@@ -71,7 +72,7 @@ export const ChatMessageSchema = z.object({
   id: z.string(),
   role: ChatMessageRoleSchema,
   content: z.string(),
-  createdAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
   // Present only for assistant turns that used tools (persisted display
   // structure). Absent on older messages and pure-text turns — render
   // `content` flat in that case.
@@ -92,8 +93,8 @@ export type ChatConversation = z.infer<typeof ChatConversationSchema>;
 export const ChatHistoryItemSchema = z.object({
   conversationId: z.string(),
   title: z.string().nullable(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
 });
 export type ChatHistoryItem = z.infer<typeof ChatHistoryItemSchema>;
 

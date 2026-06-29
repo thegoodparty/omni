@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '@goodparty_org/contracts'
 import { createZodDto } from 'nestjs-zod'
 import { ZDateOnly } from 'src/shared/schemas/DateOnly.schema'
 
@@ -6,7 +7,7 @@ export const ZDateOnlyOptional = ZDateOnly.optional()
 
 export const ZDateOnlyNullOptional = ZDateOnly.nullable().optional()
 
-const ZDateTimeNullOptional = z.coerce.date().nullable().optional()
+const ZDateTimeNullOptional = zCoerceDate().nullable().optional()
 
 // The serve-onboarding step checkpoint. Mirrors the frontend ServeStepId union
 // (serveOnboardingConfig.ts); kept here as a literal enum so the backend

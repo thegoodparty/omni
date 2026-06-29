@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { RaceOpponentSourceTypeSchema } from './RaceOpponentSourceType.schema'
 
 const SummarySourceRefSchema = z.object({
@@ -59,7 +60,7 @@ export const RaceOpponentSummarySchema = z.object({
   overview: SummarySectionSchema.nullable(),
   background: SummarySectionSchema.nullable(),
   keyPositions: z.array(SummaryKeyPositionSchema),
-  generatedAt: z.coerce.date().nullable(),
+  generatedAt: zCoerceDate().nullable(),
   // Phase 3: the whole analysis block may be absent for an opponent with no
   // analysis yet, so every analytical field is optional.
   threatTier: RaceOpponentThreatTierSchema.optional(),
