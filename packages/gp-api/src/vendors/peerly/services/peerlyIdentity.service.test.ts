@@ -652,9 +652,10 @@ describe('PeerlyIdentityService', () => {
       vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
         campaignFactory({ id: 7 }) as Campaign,
       )
-      httpService.get = vi
+      const getSpy = vi
         .fn()
         .mockResolvedValue({ data: { profile: { status: 'finalized' } } })
+      httpService.get = getSpy
       const postSpy = vi
         .fn()
         .mockResolvedValueOnce({ data: { submission_key: 'sk1' } })
@@ -663,8 +664,8 @@ describe('PeerlyIdentityService', () => {
 
       await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
 
-      // /submit re-opens + attaches the token; /approve then finalizes (queues
-      // MNO review). Order matters — approve 400s if the brand is still
+      // /submit re-opens + attaches the token; /approve then queues the
+      // submission. Order matters — approve 400s if the brand is still
       // finalized, so submit must run first.
       expect(postSpy).toHaveBeenNthCalledWith(
         1,
@@ -678,6 +679,9 @@ describe('PeerlyIdentityService', () => {
         '/v2/tdlc/peerly-final/approve',
         expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
       )
+      // /finalize confirms the registration so it reaches the MNOs without an
+      // email-link click.
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
     })
 
     it('uses /approve when the brand is still pending', async () => {
@@ -686,9 +690,10 @@ describe('PeerlyIdentityService', () => {
       vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
         campaignFactory({ id: 7 }) as Campaign,
       )
-      httpService.get = vi
+      const getSpy = vi
         .fn()
         .mockResolvedValue({ data: { profile: { status: 'pending' } } })
+      httpService.get = getSpy
       const postSpy = vi.fn().mockResolvedValue({ data: { status: 'pending' } })
       httpService.post = postSpy
 
@@ -698,6 +703,8 @@ describe('PeerlyIdentityService', () => {
         '/v2/tdlc/peerly-final/approve',
         expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
       )
+      // still finalizes (no /submit needed for a pending brand)
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
       expect(postSpy).not.toHaveBeenCalledWith(
         '/v2/tdlc/peerly-final/submit',
         expect.anything(),
