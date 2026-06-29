@@ -165,6 +165,48 @@ describe('<RaceOpponentList>', () => {
     ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#housing')
   })
 
+  const withAnalysis: RaceOpponentResponse = {
+    ...withSummary,
+    opponents: [
+      {
+        ...withSummary.opponents[0]!,
+        summary: {
+          ...withSummary.opponents[0]!.summary!,
+          whyTheyMatter: 'The only incumbent with party-backed funding.',
+          whatYouNeedToKnow: [
+            'Two-term incumbent with name recognition.',
+            'Backed by the county party committee.',
+          ],
+        },
+      },
+    ],
+  }
+
+  it('renders the why-they-matter callout and what-you-need-to-know list', () => {
+    render(<RaceOpponentList initialData={withAnalysis} />)
+
+    expect(screen.getByText('Why they matter most')).toBeInTheDocument()
+    expect(
+      screen.getByText('The only incumbent with party-backed funding.'),
+    ).toBeInTheDocument()
+
+    expect(screen.getByText('What you need to know')).toBeInTheDocument()
+    expect(screen.getByText('2 items')).toBeInTheDocument()
+    expect(
+      screen.getByText('Two-term incumbent with name recognition.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Backed by the county party committee.'),
+    ).toBeInTheDocument()
+  })
+
+  it('hides both sections when the analysis fields are absent', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    expect(screen.queryByText('Why they matter most')).not.toBeInTheDocument()
+    expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
+  })
+
   it('keeps the raw source research collapsed by default when a summary is present', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 

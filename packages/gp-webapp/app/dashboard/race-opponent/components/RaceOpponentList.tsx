@@ -8,6 +8,7 @@ import {
   CheckCircleIcon,
   CircleIcon,
   ExternalLinkIcon,
+  InfoIcon,
   Loader2Icon,
   RefreshIcon,
   ScaleIcon,
@@ -201,6 +202,52 @@ const KeyPositionItem = ({
   </li>
 )
 
+// Phase 3: the "why they matter most" callout, a tinted info block shown under
+// the opponent header. Hidden when the analysis has no whyTheyMatter.
+const WhyTheyMatterCallout = ({
+  text,
+}: {
+  text: string
+}): React.JSX.Element => (
+  <section className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-info-600/20 bg-info-50 p-4">
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-info-600">
+      Why they matter most
+    </h3>
+    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+      {text}
+    </p>
+  </section>
+)
+
+// Phase 3: the "what you need to know" takeaways list, with an item count in
+// the section header. Hidden when the list is empty/absent.
+const WhatYouNeedToKnow = ({
+  items,
+}: {
+  items: string[]
+}): React.JSX.Element => (
+  <OpponentSection
+    title="What you need to know"
+    icon={<InfoIcon className="size-4" aria-hidden />}
+    meta={`${items.length} ${items.length === 1 ? 'item' : 'items'}`}
+  >
+    <ul className="flex w-full min-w-0 list-none flex-col gap-2">
+      {items.map((item) => (
+        <li
+          key={item}
+          className="flex w-full min-w-0 items-start gap-2 text-sm text-foreground"
+        >
+          <span
+            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-info-600"
+            aria-hidden
+          />
+          <span className="w-full min-w-0 break-words">{item}</span>
+        </li>
+      ))}
+    </ul>
+  </OpponentSection>
+)
+
 const OpponentSummaryView = ({
   summary,
 }: {
@@ -209,6 +256,12 @@ const OpponentSummaryView = ({
   <div className="flex w-full min-w-0 flex-col gap-5">
     {summary.overview && (
       <SummaryProseSection heading="Overview" section={summary.overview} />
+    )}
+    {summary.whyTheyMatter && (
+      <WhyTheyMatterCallout text={summary.whyTheyMatter} />
+    )}
+    {summary.whatYouNeedToKnow && summary.whatYouNeedToKnow.length > 0 && (
+      <WhatYouNeedToKnow items={summary.whatYouNeedToKnow} />
     )}
     {summary.background && (
       <SummaryProseSection heading="Background" section={summary.background} />

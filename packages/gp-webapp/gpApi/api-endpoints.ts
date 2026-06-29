@@ -972,6 +972,9 @@ export type RaceOpponentSummary = {
   keyPositions: RaceOpponentSummaryKeyPosition[]
   generatedAt: string | null
   threatTier?: RaceOpponentThreatTier
+  // Phase 3 analytical fields, all optional (the analysis may be absent).
+  whyTheyMatter?: string
+  whatYouNeedToKnow?: string[]
 }
 
 export type RaceOpponentResponse = {
