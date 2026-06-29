@@ -361,6 +361,92 @@ describe('<RaceOpponentList>', () => {
     expect(trackEvent).toHaveBeenCalledTimes(2)
   })
 
+  const primaryThreatNotFirst: RaceOpponentResponse = {
+    collectionStatus: 'completed',
+    lastCollectedAt: '2026-06-20T12:00:00.000Z',
+    opponents: [
+      {
+        opponentName: 'First Challenger',
+        party: 'Democrat',
+        isIncumbent: false,
+        threatTier: 'watch_closely',
+        summary: {
+          opponentName: 'First Challenger',
+          overview: {
+            text: 'First challenger overview text.',
+            sources: [
+              {
+                sourceType: 'ballotpedia',
+                sourceUrl: 'https://ballotpedia.org/First_Challenger',
+              },
+            ],
+          },
+          background: {
+            text: 'First challenger background text.',
+            sources: [
+              {
+                sourceType: 'ballotpedia',
+                sourceUrl: 'https://ballotpedia.org/First_Challenger#bg',
+              },
+            ],
+          },
+          keyPositions: [],
+          generatedAt: '2026-06-20T12:00:00.000Z',
+        },
+        items: [],
+      },
+      {
+        opponentName: 'Main Threat',
+        party: 'Republican',
+        isIncumbent: true,
+        threatTier: 'primary_threat',
+        summary: {
+          opponentName: 'Main Threat',
+          overview: {
+            text: 'Main threat overview text.',
+            sources: [
+              {
+                sourceType: 'ballotpedia',
+                sourceUrl: 'https://ballotpedia.org/Main_Threat',
+              },
+            ],
+          },
+          background: {
+            text: 'Main threat background text.',
+            sources: [
+              {
+                sourceType: 'ballotpedia',
+                sourceUrl: 'https://ballotpedia.org/Main_Threat#bg',
+              },
+            ],
+          },
+          keyPositions: [],
+          generatedAt: '2026-06-20T12:00:00.000Z',
+        },
+        items: [],
+      },
+    ],
+  }
+
+  it('opens the primary-threat opponent on mount even when not first', () => {
+    render(<RaceOpponentList initialData={primaryThreatNotFirst} />)
+
+    // The primary-threat opponent's panel is open (its overview shows)...
+    expect(screen.getByText('Main threat overview text.')).toBeInTheDocument()
+    // ...while the first (non-threat) opponent's panel stays collapsed: only
+    // one is open, and the default is the primary threat, not opponents[0].
+    expect(
+      screen.queryByText('First challenger overview text.'),
+    ).not.toBeInTheDocument()
+
+    // Analytics fires once on mount, for the opened primary-threat opponent
+    // (driven by activeName), not the first opponent in the list.
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith('Win - Opponent Profile Viewed', {
+      campaignId: undefined,
+    })
+  })
+
   it('never renders a finance summary card', () => {
     render(<RaceOpponentList initialData={withSummary} />)
     expect(screen.queryByText(/finance|fundraising|cash on hand/i)).toBeNull()
