@@ -1,6 +1,6 @@
 import { Prisma } from '../generated/prisma'
 import { createZodDto } from 'nestjs-zod'
-import { STATE_CODES } from 'src/shared/constants/states'
+import { STATE_CODES } from '@goodparty_org/nest-common'
 import { z } from 'zod'
 
 export const placeColumns = Object.values(

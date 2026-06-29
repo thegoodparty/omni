@@ -38,6 +38,7 @@
     "@fastify/otel": "^0.16.0",
     "@fastify/static": "^9.1.3",
     "@goodparty_org/contracts": "*",
+    "@goodparty_org/nest-common": "*",
     "@nestjs/common": "^11.0.11",
     "@nestjs/core": "^11.0.11",
     "@nestjs/platform-fastify": "^11.0.11",
