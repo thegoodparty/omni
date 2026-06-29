@@ -746,6 +746,34 @@ describe('PeerlyIdentityService', () => {
         expect.anything(),
       )
     })
+
+    it('approves directly (skips profile fetch, /submit, /finalize) when peerlyIdentityId is missing', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi.fn()
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(
+        { ...tcr, peerlyIdentityId: null } as TcrCompliance,
+        'cv-token-1',
+      )
+
+      // no identity → /approve only; no profile fetch, /submit, or /finalize
+      expect(getSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/finalize'),
+      )
+      expect(postSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/submit'),
+        expect.anything(),
+      )
+    })
   })
 
   describe('retrieveCampaignVerifyStatus', () => {
