@@ -32,7 +32,7 @@ export class S2SAuthGuard implements CanActivate {
     const authHeader: string | undefined = request.headers['authorization']
     if (authHeader) {
       const [scheme, token] = authHeader.split(' ')
-      if (!/^Bearer$/i.test(scheme) || !token) {
+      if (!scheme || !/^Bearer$/i.test(scheme) || !token) {
         throw new UnauthorizedException('Invalid Authorization format')
       }
 

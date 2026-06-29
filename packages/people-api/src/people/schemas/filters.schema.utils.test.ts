@@ -111,9 +111,9 @@ describe('transformFilters', () => {
 
       const result = transformFilters(filters, mockSchemaShape)
 
-      expect(result.filterOperators.estimatedIncomeAmountInt.orRanges).toEqual([
-        { gte: undefined, lte: 24999 },
-      ])
+      expect(result.filterOperators.estimatedIncomeAmountInt?.orRanges).toEqual(
+        [{ gte: undefined, lte: 24999 }],
+      )
     })
 
     it('handles _or with null values (filters them out like regular ranges)', () => {
@@ -125,9 +125,9 @@ describe('transformFilters', () => {
 
       const result = transformFilters(filters, mockSchemaShape)
 
-      expect(result.filterOperators.estimatedIncomeAmountInt.orRanges).toEqual([
-        { gte: undefined, lte: 24999 },
-      ])
+      expect(result.filterOperators.estimatedIncomeAmountInt?.orRanges).toEqual(
+        [{ gte: undefined, lte: 24999 }],
+      )
     })
 
     it('handles _or with zero values', () => {
@@ -139,9 +139,9 @@ describe('transformFilters', () => {
 
       const result = transformFilters(filters, mockSchemaShape)
 
-      expect(result.filterOperators.estimatedIncomeAmountInt.orRanges).toEqual([
-        { gte: 0, lte: 0 },
-      ])
+      expect(result.filterOperators.estimatedIncomeAmountInt?.orRanges).toEqual(
+        [{ gte: 0, lte: 0 }],
+      )
     })
 
     it('handles _or with negative values', () => {
@@ -153,9 +153,9 @@ describe('transformFilters', () => {
 
       const result = transformFilters(filters, mockSchemaShape)
 
-      expect(result.filterOperators.estimatedIncomeAmountInt.orRanges).toEqual([
-        { gte: -100, lte: -1 },
-      ])
+      expect(result.filterOperators.estimatedIncomeAmountInt?.orRanges).toEqual(
+        [{ gte: -100, lte: -1 }],
+      )
     })
 
     it('handles _or taking precedence over gte/lte at same level', () => {
@@ -169,7 +169,7 @@ describe('transformFilters', () => {
 
       const result = transformFilters(filters, mockSchemaShape)
 
-      expect(result.filterOperators.estimatedIncomeAmountInt.operator).toBe(
+      expect(result.filterOperators.estimatedIncomeAmountInt?.operator).toBe(
         'or',
       )
     })
@@ -184,10 +184,12 @@ describe('transformFilters', () => {
 
       const result = transformFilters(filters, mockSchemaShape)
 
-      expect(result.filterOperators.estimatedIncomeAmountInt.operator).toBe(
+      expect(result.filterOperators.estimatedIncomeAmountInt?.operator).toBe(
         'is',
       )
-      expect(result.filterOperators.estimatedIncomeAmountInt.value).toBe('null')
+      expect(result.filterOperators.estimatedIncomeAmountInt?.value).toBe(
+        'null',
+      )
     })
 
     it('ignores _includeNull when false', () => {
@@ -200,7 +202,7 @@ describe('transformFilters', () => {
 
       const result = transformFilters(filters, mockSchemaShape)
 
-      expect(result.filterOperators.estimatedIncomeAmountInt.includeNull).toBe(
+      expect(result.filterOperators.estimatedIncomeAmountInt?.includeNull).toBe(
         false,
       )
     })
@@ -225,7 +227,7 @@ describe('transformFilters', () => {
       const result = transformFilters(filters, mockSchemaShape)
 
       expect(
-        result.filterOperators.estimatedIncomeAmountInt.orRanges,
+        result.filterOperators.estimatedIncomeAmountInt?.orRanges,
       ).toHaveLength(9)
     })
 
