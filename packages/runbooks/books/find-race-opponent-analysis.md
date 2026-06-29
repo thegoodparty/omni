@@ -273,7 +273,7 @@ cites collected text; threat tiers and salience carry no extract.
 
 ### Why this is the right shape for ENG-10591
 
-- **Backward compatible.** `overview` / `background` / `key_positions` are unchanged from the Phase-2 schema, so the Phase-2 page keeps rendering mid-rollout. The analytical fields are additive.
+- **Additive over Phase 2.** `overview` / `background` / `key_positions` are unchanged from the Phase-2 schema, so the Phase-2 page keeps rendering mid-rollout; the analytical fields sit alongside them. This is not a transparent superset of the *current* manifest: the `race_opponent_summary` `output_schema` declares `additionalProperties: false` on the opponent item, so emitting these five fields requires ENG-10591 to add them to that schema's `properties` (and `required`) first. "Additive" means it preserves the descriptive fields, not that the live validator already accepts the new ones.
 - **Relaxed sourcing is encoded by which fields carry sources.** `where_soft[].sources` and `issue_contrasts[].opponent_sources` are optional (cite where direct); `threat_tier`, `why_they_matter`, `what_you_need_to_know`, and `salience` are interpretive and sourceless by design.
 - **Empty `candidate_platform` degrades cleanly.** Drop `issue_contrasts` (empty array) and every other field still computes — proven by the Greg Halsey entry, which has no contrasts even with a platform present because his text is silent on every candidate issue.
 
