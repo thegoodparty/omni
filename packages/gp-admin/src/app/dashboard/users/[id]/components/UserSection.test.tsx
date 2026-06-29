@@ -21,10 +21,10 @@ const mockUser: User = {
   },
 }
 
-function renderWithUser(user: User) {
+function renderWithUser(user: User, isPro = false) {
   return render(
     <UserProvider user={user}>
-      <UserSection />
+      <UserSection isPro={isPro} />
     </UserProvider>
   )
 }

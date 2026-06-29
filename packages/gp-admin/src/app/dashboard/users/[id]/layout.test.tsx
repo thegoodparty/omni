@@ -96,13 +96,15 @@ describe('UserLayout authorization', () => {
   })
 
   it('calls notFound() when the API returns a 404 SdkError', async () => {
-    mockUsersGet.mockRejectedValue(new SdkError(status.NotFound))
+    mockUsersGet.mockRejectedValue(new SdkError(status.NotFound, 'Not Found'))
     await expect(render()).rejects.toThrow('NEXT_NOT_FOUND')
     expect(mockNotFound).toHaveBeenCalled()
   })
 
   it('re-throws non-404 errors instead of 404-ing', async () => {
-    mockUsersGet.mockRejectedValue(new SdkError(status.InternalServerError))
+    mockUsersGet.mockRejectedValue(
+      new SdkError(status.InternalServerError, 'Internal Server Error')
+    )
     await expect(render()).rejects.toThrow('SdkError 500')
     expect(mockNotFound).not.toHaveBeenCalled()
   })
