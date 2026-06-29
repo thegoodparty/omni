@@ -4,6 +4,7 @@ import {
   Campaign,
   CommitteeType,
   OfficeLevel,
+  TcrCompliance,
   User,
 } from '../../../generated/prisma'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -635,6 +636,63 @@ describe('PeerlyIdentityService', () => {
       expect(lastSubmittedData.state).toBe('IL')
       expect(lastSubmittedData.postalCode).toBe('62701')
       expect(lastSubmittedData.email).toBe('info@candidate.com')
+    })
+  })
+
+  describe('submitCampaignVerifyTokenToBrand', () => {
+    const tcr = {
+      peerlyIdentityId: 'peerly-final',
+      campaignId: 7,
+      committeeName: 'Jane for Council',
+    } as TcrCompliance
+
+    it('uses /submit when the brand is already finalized', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      httpService.get = vi
+        .fn()
+        .mockResolvedValue({ data: { profile: { status: 'finalized' } } })
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { submission_key: 'sk1' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
+
+      expect(postSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/submit', {
+        campaign_verify_token: 'cv-token-1',
+      })
+      expect(postSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/approve'),
+        expect.anything(),
+      )
+    })
+
+    it('uses /approve when the brand is still pending', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      httpService.get = vi
+        .fn()
+        .mockResolvedValue({ data: { profile: { status: 'pending' } } })
+      const postSpy = vi.fn().mockResolvedValue({ data: { status: 'pending' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
+
+      expect(postSpy).toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
+      expect(postSpy).not.toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/submit',
+        expect.anything(),
+      )
     })
   })
 
