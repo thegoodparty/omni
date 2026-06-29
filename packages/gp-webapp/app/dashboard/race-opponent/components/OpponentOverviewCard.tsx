@@ -1,4 +1,6 @@
 import { Avatar, AvatarFallback } from '@styleguide'
+import type { RaceOpponentThreatTier } from 'gpApi/api-endpoints'
+import ThreatTierBadge from './ThreatTierBadge'
 
 type Props = {
   name: string
@@ -6,6 +8,8 @@ type Props = {
   party?: string | null
   // true -> "Incumbent", false -> "Challenger", null/undefined -> omitted.
   isIncumbent?: boolean | null
+  // Phase 3 threat tier; omitted -> no badge (no placeholder).
+  threatTier?: RaceOpponentThreatTier
 }
 
 const descriptorFor = (
@@ -31,6 +35,7 @@ const OpponentOverviewCard = ({
   initials,
   party,
   isIncumbent,
+  threatTier,
 }: Props): React.JSX.Element => {
   const descriptor = descriptorFor(party, isIncumbent)
   return (
@@ -40,7 +45,7 @@ const OpponentOverviewCard = ({
           {initials}
         </AvatarFallback>
       </Avatar>
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <span className="truncate text-base font-semibold text-foreground">
           {name}
         </span>
@@ -49,6 +54,7 @@ const OpponentOverviewCard = ({
             {descriptor}
           </span>
         )}
+        {threatTier && <ThreatTierBadge tier={threatTier} className="w-fit" />}
       </div>
     </div>
   )

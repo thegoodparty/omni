@@ -964,12 +964,20 @@ export type RaceOpponentSummaryKeyPosition = {
   sources: RaceOpponentSummarySourceRef[]
 }
 
+// Phase 3 analytical threat tier, ranked relative to the field. Optional until
+// an opponent has analysis. Mirrors RaceOpponentThreatTierSchema in contracts.
+export type RaceOpponentThreatTier =
+  | 'primary_threat'
+  | 'watch_closely'
+  | 'low_priority'
+
 export type RaceOpponentSummary = {
   opponentName: string
   overview: RaceOpponentSummarySection | null
   background: RaceOpponentSummarySection | null
   keyPositions: RaceOpponentSummaryKeyPosition[]
   generatedAt: string | null
+  threatTier?: RaceOpponentThreatTier
 }
 
 export type RaceOpponentResponse = {
@@ -979,6 +987,10 @@ export type RaceOpponentResponse = {
     // when the collected name doesn't match a roster row (don't guess).
     party: string | null
     isIncumbent: boolean | null
+    // Phase 3: surfaced on the opponent object (in addition to summary) so the
+    // roster can tier and order without opening the detail. Optional until an
+    // opponent has analysis.
+    threatTier?: RaceOpponentThreatTier
     items: RaceOpponentItem[]
     // Optional + nullable: ENG-10588 wires the producer to populate this from
     // the race_opponent_summary step; until then gp-api omits the field.

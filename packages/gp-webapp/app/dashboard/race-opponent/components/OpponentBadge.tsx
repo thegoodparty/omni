@@ -1,7 +1,13 @@
 import { Badge, cn } from '@styleguide'
 import type { ScaleIcon } from '@styleguide/components/ui/icons'
 
-export type OpponentBadgeTone = 'neutral' | 'democrat' | 'republican'
+export type OpponentBadgeTone =
+  | 'neutral'
+  | 'democrat'
+  | 'republican'
+  | 'threat_primary'
+  | 'threat_watch'
+  | 'threat_low'
 
 export const partyTone = (party: string): OpponentBadgeTone => {
   const normalized = party.trim().toLowerCase()
@@ -27,6 +33,9 @@ const TONE_CLASS: Record<OpponentBadgeTone, string> = {
   neutral: 'bg-muted text-muted-foreground border-border',
   democrat: 'bg-info-50 text-info-600 border-info-600/20',
   republican: 'bg-destructive/10 text-destructive border-destructive/20',
+  threat_primary: 'bg-destructive/10 text-destructive border-destructive/20',
+  threat_watch: 'bg-info-50 text-info-600 border-info-600/20',
+  threat_low: 'bg-muted text-muted-foreground border-border',
 }
 
 const OpponentBadge = ({
