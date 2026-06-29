@@ -194,6 +194,33 @@ class TestPrimaryThreatCount:
         assert "got 2" in frag["detail"]
 
 
+class TestAnalysisSourcingRate:
+    """The relaxed-sourcing metric is observe-only (always passed:true) but must
+    be PRESENT and must count the where_soft + issue_contrasts items; a silent
+    drop or a crash in collect_analysis_items would otherwise go unnoticed."""
+
+    def test_fragment_present_and_passes_on_valid_artifact(self):
+        main = _fresh_main()
+        fragments = main.build_fragments(_valid_artifact(), _real_schema())
+        frag = _by_name(fragments, "analysis_sourcing_rate")
+        assert frag["passed"] is True
+        # The valid fixture's Jane carries 2 where_soft (1 sourced) + 1 sourced
+        # contrast = 3 analytical items, 2 of them sourced.
+        assert "2/3" in frag["detail"]
+
+    def test_not_applicable_when_no_analytical_items(self):
+        main = _fresh_main()
+        art = _valid_artifact()
+        for opp in art["opponents"]:
+            opp["where_soft"] = []
+            opp["issue_contrasts"] = []
+        frag = _by_name(
+            main.build_fragments(art, _real_schema()), "analysis_sourcing_rate"
+        )
+        assert frag["passed"] is True
+        assert "not applicable" in frag["detail"]
+
+
 class TestSchemaAbsentPath:
     def test_skipped_schema_check_reported_unverified(self):
         """When jsonschema is unavailable the schema check is skipped and must be
