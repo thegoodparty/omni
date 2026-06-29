@@ -395,6 +395,10 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
 
   // /approve only sends the finalization email; this confirms it directly so
   // the registration advances to MNO review without a manual email click.
+  // Best-effort: a transient failure here must not surface as a full failure —
+  // /approve already advanced the brand past `pending` (so the caller can't
+  // retry from scratch — /approve 400s) and the emailed link still finalizes as
+  // a fallback.
   private async finalizeBrand(
     peerlyIdentityId: string,
     campaign: Campaign,
@@ -404,7 +408,12 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         `/v2/tdlc/${peerlyIdentityId}/finalize`,
       )
     } catch (error) {
-      await this.handleApiError(error, { campaign, peerlyIdentityId })
+      // handleApiError logs + alerts, then always throws; swallow the throw so
+      // the best-effort finalize doesn't fail the whole operation.
+      await this.handleApiError(error, {
+        campaign,
+        peerlyIdentityId,
+      }).catch(() => undefined)
     }
   }
 
