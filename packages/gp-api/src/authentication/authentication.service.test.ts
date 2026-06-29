@@ -76,6 +76,11 @@ describe('AuthenticationService', () => {
         'new-password',
       )
 
+      expect(jwtService.verify).toHaveBeenCalledWith('reset-token')
+      expect(usersService.findUserByResetToken).toHaveBeenCalledWith(
+        'user@goodparty.org',
+        'reset-token',
+      )
       expect(result).toEqual({ id: 7 })
       expect(usersService.updatePassword).toHaveBeenCalledWith(
         7,
