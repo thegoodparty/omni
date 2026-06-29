@@ -161,15 +161,17 @@ This command takes no arguments — the release targets are always `omni` and `g
 
 5b. **gp-ai-projects only — deploy the control-plane Lambdas to prod.** Skip for omni. Run only if gp-ai-projects' `qa → prod` merged this run (step 5). In gp-ai-projects a merge auto-deploys the broker and runner, but the `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform and need a manual `terraform apply`; do it here — before the deploy-settle wait — so prod is fully live before you post the notes. Full procedure and rationale: the **`terraform-deploy` skill** at `$REPO_DIR/.claude/skills/terraform-deploy.md`; the steps below mirror it. Requires `terraform` and an AWS CLI authenticated to the gp-ai-projects account.
 
-   First wait for the prod image build (triggered by the merge) to finish so the runner image and the Lambdas land together:
+   First wait for the prod image build (triggered by the merge) to finish so the runner image and the Lambdas land together. **Match the run to the merge commit's SHA** — a bare `--limit 1` would return the *prior* completed build on `prod` (already `completed`/`success`) before the new run is created, exiting the poll early and deploying the Lambdas against stale images:
 
    ```bash
    cd "$REPO_DIR"
-   gh run list --workflow build-pmf-engine.yml --branch prod --limit 1 \
-     --json status,conclusion,headSha
+   EXPECTED_SHA=$(git rev-parse origin/prod)   # the merge commit just landed on prod
+   gh run list --workflow build-pmf-engine.yml --branch prod --limit 5 \
+     --json status,conclusion,headSha \
+     | jq --arg sha "$EXPECTED_SHA" '.[] | select(.headSha == $sha) | {status, conclusion}'
    ```
 
-   Poll until `status` is `completed` (budget ~15 min); if `conclusion` isn't `success`, stop and report — don't deploy the Lambdas on a failed build. Then apply in a throwaway worktree off `origin/prod` so the user's checkout is untouched (the apply zips `pmf_engine/.lambda_build` from the working tree, so it must be the released code):
+   Poll until a run **for `$EXPECTED_SHA`** appears with `status` = `completed` (budget ~15 min); if that run's `conclusion` isn't `success`, stop and report — don't deploy the Lambdas on a failed build. Then apply in a throwaway worktree off `origin/prod` so the user's checkout is untouched (the apply zips `pmf_engine/.lambda_build` from the working tree, so it must be the released code):
 
    ```bash
    cd "$REPO_DIR"

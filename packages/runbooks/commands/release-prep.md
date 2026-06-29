@@ -89,7 +89,7 @@ This command takes no arguments — the release targets are always `omni` and `g
    ```
 
    - **Both empty** → print `<repo>: no changes between qa and develop — nothing to release` and skip this repo's remaining Phase 2/3 steps (it contributes nothing to the Phase 4 message). There is nothing to prep for this repo.
-   - **`$TIP..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip the rest of Phase 2 for this repo and jump to step 8 to open the `qa → $TIP` PR, then continue.
+   - **`$TIP..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip the rest of Phase 2 for this repo and jump to **Phase 2.5** (deploy the gp-ai-projects control-plane to qa — a no-op for omni), then step 8 to open the `qa → $TIP` PR, then continue.
 
 4. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
@@ -219,16 +219,20 @@ This command takes no arguments — the release targets are always `omni` and `g
 ### Phase 2.5: Deploy gp-ai-projects control-plane to qa (gp-ai-projects only)
 
 > **Skip this phase for omni** — omni deploys entirely on merge (Vercel + ECS). It applies only to **gp-ai-projects**, and only when its develop→qa merge landed (this run, or via the step 3 shortcut). In gp-ai-projects a merge auto-deploys the broker (ECS force-new-deployment) and runner (image tag), but the `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform and need a manual `terraform apply` — without it, a control-plane change merged to `qa` is **not** live there. Full procedure and rationale live in the **`terraform-deploy` skill** at `$REPO_DIR/.claude/skills/terraform-deploy.md`; the steps below mirror it.
+>
+> **If you reached this repo via the step 3 shortcut (`$TIP..qa` was already non-empty), still run 7a–7b here before opening the step 8 PR** — the prior run merged develop→qa but may not have applied the control-plane Terraform.
 
-7a. **Wait for the qa image build to finish.** The develop→qa merge triggered `build-pmf-engine.yml` on `qa`; let the runner/broker images land first so the environment is coherent:
+7a. **Wait for the qa image build to finish.** The develop→qa merge triggered `build-pmf-engine.yml` on `qa`; let the runner/broker images land first so the environment is coherent. **Match the run to the merge commit's SHA** — a bare `--limit 1` would return the *prior* completed build on `qa` (already `completed`/`success`) before the new run is even created, so the poll would exit early and you'd deploy the Lambdas against stale images:
 
    ```bash
    cd "$REPO_DIR"
-   gh run list --workflow build-pmf-engine.yml --branch qa --limit 1 \
-     --json status,conclusion,headSha
+   EXPECTED_SHA=$(git rev-parse origin/qa)   # the merge commit just landed on qa
+   gh run list --workflow build-pmf-engine.yml --branch qa --limit 5 \
+     --json status,conclusion,headSha \
+     | jq --arg sha "$EXPECTED_SHA" '.[] | select(.headSha == $sha) | {status, conclusion}'
    ```
 
-   Poll until `status` is `completed` (budget ~15 min). If `conclusion` is not `success`, stop and report — do not deploy the Lambdas on top of a failed build.
+   Poll until a run **for `$EXPECTED_SHA`** appears with `status` = `completed` (budget ~15 min). If that run's `conclusion` is not `success`, stop and report — do not deploy the Lambdas on top of a failed build.
 
 7b. **Apply the control-plane Terraform for qa**, in a throwaway worktree off `origin/qa` so the user's checkout is untouched (the apply zips `pmf_engine/.lambda_build` from the working tree, so it must be the released code):
 
