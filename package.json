@@ -34,7 +34,7 @@
     "dev": "bash scripts/dev.sh",
     "ai-rules:update": "git submodule update --remote ai-rules",
     "postinstall": "git submodule update --init --recursive ai-rules || echo 'WARN: ai-rules submodule init failed - run: git submodule update --init --recursive ai-rules'",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
