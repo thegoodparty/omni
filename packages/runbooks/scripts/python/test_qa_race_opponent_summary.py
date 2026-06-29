@@ -60,12 +60,37 @@ def _valid_artifact() -> dict:
                         "sources": ["https://janedoe.com"],
                     }
                 ],
+                "threat_tier": "primary_threat",
+                "why_they_matter": "The only incumbent in the field.",
+                "what_you_need_to_know": ["Two-term incumbent with a base."],
+                "where_soft": [
+                    {
+                        "text": "No published water position.",
+                        "sources": ["https://ballotpedia.org/Jane_Doe"],
+                    },
+                    {"text": "Skipped the candidate survey."},
+                ],
+                "issue_contrasts": [
+                    {
+                        "issue": "Housing",
+                        "salience": "high",
+                        "why_it_matters": "Families are priced out.",
+                        "opponent_stance": "Supports affordable housing.",
+                        "opponent_sources": ["https://janedoe.com"],
+                        "candidate_stance": "Supports more starter homes.",
+                    }
+                ],
             },
             {
                 "opponent_name": "No Sources Sam",
                 "overview": None,
                 "background": None,
                 "key_positions": [],
+                "threat_tier": "low_priority",
+                "why_they_matter": "No public platform yet.",
+                "what_you_need_to_know": [],
+                "where_soft": [],
+                "issue_contrasts": [],
             },
         ],
     }

@@ -221,6 +221,29 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
         ),
     })
 
+    # The "exactly one primary_threat for a normal field" invariant the
+    # instruction states. JSON Schema draft-07 can't express a cross-item count,
+    # so this deterministic fragment is the only enforcement layer (the LLM judge
+    # scores it editorially but is not a gate).
+    primary_threat_count = sum(
+        1
+        for opp in opponents
+        if isinstance(opp, dict) and opp.get("threat_tier") == "primary_threat"
+    )
+    primary_threat_ok = primary_threat_count == 1
+    primary_frag: dict = {
+        "name": "primary_threat_count",
+        "passed": primary_threat_ok,
+        "type": "deterministic",
+    }
+    if not primary_threat_ok:
+        primary_frag["severity"] = "error"
+        primary_frag["detail"] = (
+            f"expected exactly 1 primary_threat across the field, "
+            f"got {primary_threat_count}"
+        )
+    fragments.append(primary_frag)
+
     return fragments
 
 
