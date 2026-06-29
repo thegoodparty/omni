@@ -1747,7 +1747,9 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   })
 
   it('submitCampaignVerifyToken calls Peerly when OTEL_SERVICE_ENVIRONMENT=prod', async () => {
-    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({ brand: 'ok' })
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
+      brand: 'ok',
+    })
     await withEnv('prod', async () => {
       const result = await service.submitCampaignVerifyToken(
         tcrCompliance,
@@ -1819,7 +1821,9 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         .mockResolvedValue({ profile: { status: 'pending' } }),
       retrieveCampaignVerifyStatus: vi.fn().mockResolvedValue('VERIFIED'),
       createCampaignVerifyToken: vi.fn().mockResolvedValue('cv-token-1'),
-      submitCampaignVerifyTokenToBrand: vi.fn().mockResolvedValue({ brand: 'ok' }),
+      submitCampaignVerifyTokenToBrand: vi
+        .fn()
+        .mockResolvedValue({ brand: 'ok' }),
     }
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaign) }
     mockModel = {
@@ -1916,7 +1920,9 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
 
   it('marks the record error and rethrows when approve fails (sweep stops re-alerting)', async () => {
     const approveErr = new Error('Peerly approve rejected')
-    mockPeerly.submitCampaignVerifyTokenToBrand.mockRejectedValueOnce(approveErr)
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockRejectedValueOnce(
+      approveErr,
+    )
 
     await withEnv('prod', async () => {
       await expect(submitUsecaseIfVerified(service, stuckRecord)).rejects.toBe(
