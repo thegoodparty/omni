@@ -8,7 +8,24 @@ This is the source runbook for the analysis step. It proves the workflow on real
 **scripts/.env variables**: none
 **Tools**: none beyond a JSON-capable shell. There is NO web fetch, NO Databricks, NO `verify_quote` here — the analysis re-reasons over text already collected in Phase 0 (`books/find-race-opponent.md`) plus the candidate platform.
 **Inputs**:
-- `opponents` — the whole field at once (so threat tiers are relative across it). Each `{ opponent_name, sources: [{ source_type, source_url, text }] }`, exactly the Phase-0 collected shape (`source_type` is `ballotpedia` or `opponent_website`).
+- `opponents` — the whole field at once (so threat tiers are relative across it). Each `{ opponent_name, sources: [{ source_type, source_url, text }] }` (`source_type` is `ballotpedia` or `opponent_website`). **This is the grouped shape, not raw Phase-0 output.** Phase 0 (`books/find-race-opponent.md`) emits a flat array of one record per (opponent, source): `{ opponent_name, source_type, source_url, content: { text } }`. Before this runbook, group those records by `opponent_name` into a `sources[]` sub-array and lift `content.text` to a flat `text`. In production gp-api does exactly this grouping (`groupSourcesForSummary`) when it hydrates the dispatch params; the shell below does it for the fixture:
+
+```bash
+# group flat Phase-0 records -> the grouped opponents[] this runbook expects
+python3 - <<'EOF'
+import json
+flat = json.load(open("/tmp/phase0-records.json"))  # the flat Phase-0 array
+by_name = {}
+for r in flat:
+    by_name.setdefault(r["opponent_name"], []).append({
+        "source_type": r["source_type"],
+        "source_url": r["source_url"],
+        "text": r.get("content", {}).get("text", ""),
+    })
+opponents = [{"opponent_name": n, "sources": s} for n, s in by_name.items()]
+json.dump(opponents, open("/tmp/grouped-opponents.json", "w"), indent=2)
+EOF
+```
 - `candidate_platform` — the candidate's own `{ bio?, issues?: [{ title, description }] }`, shaped exactly like `Website.content.about` (the pre-Pro-upgrade `CandidateProfileStep` capture). May be absent — then issue contrasts are simply omitted.
 - `race_context` — `{ office_name?, state?, city?, election_date? }`, phrasing context only.
 
@@ -27,8 +44,9 @@ This is the source runbook for the analysis step. It proves the workflow on real
 
 A three-opponent field that exercises the full range: a data-rich incumbent, a
 moderate-data challenger, and a thin website-only challenger (to prove graceful
-degradation). The `text` blobs below are a captured Phase-0 fixture in the exact
-shape `race_opponent.content.text` holds; the proof is *internal groundedness* —
+degradation). The `text` blobs below carry the same per-source page text Phase 0
+captures into `race_opponent.content.text`, already grouped into this runbook's
+input shape (see the grouping note above). The proof is *internal groundedness* —
 every output claim must trace back to this text.
 
 ```json
@@ -162,7 +180,7 @@ cites collected text; threat tiers and salience carry no extract.
       "threat_tier": "primary_threat",
       "why_they_matter": "The only incumbent in the field, he carries name recognition plus police-association and chamber-PAC backing and competes directly on roads and public safety.",
       "what_you_need_to_know": [
-        "Two-term-seeking incumbent with an infrastructure-and-public-safety record voters already associate with the office.",
+        "First-term incumbent (elected 2022) seeking re-election, with an infrastructure-and-public-safety record voters already associate with the office.",
         "Endorsed by the Gilbert Police Officers Association and the East Valley Chamber PAC, so he will be resourced and have an organized base.",
         "He has no published long-term water position and skipped the 2026 Ballotpedia survey, leaving water and detailed platform openings."
       ],
