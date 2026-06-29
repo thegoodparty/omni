@@ -105,6 +105,78 @@ describe('RaceOpponentSummarySchema', () => {
   })
 })
 
+const analysisFields = {
+  threatTier: 'primary_threat',
+  whyTheyMatter: 'The only incumbent in the field.',
+  whatYouNeedToKnow: ['Two-term incumbent.', 'Backed by the local PAC.'],
+  whereSoft: [
+    {
+      text: 'No published long-term water position.',
+      sources: [
+        {
+          sourceType: 'ballotpedia',
+          sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+        },
+      ],
+    },
+    // relaxed sourcing: an item with no source still parses
+    { text: 'Skipped the candidate survey.' },
+  ],
+  issueContrasts: [
+    {
+      issue: 'Housing',
+      salience: 'high',
+      whyItMatters: 'Families are being priced out.',
+      opponentStance: 'Opposes new zoning.',
+      opponentSources: [
+        {
+          sourceType: 'opponent_website',
+          sourceUrl: 'https://janedoe.example.com/about',
+        },
+      ],
+      candidateStance: 'Supports more starter homes.',
+    },
+  ],
+}
+
+describe('RaceOpponentSummarySchema analysis fields', () => {
+  it('parses a fully-populated analysis summary', () => {
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      ...analysisFields,
+    })
+    expect(result.threatTier).toBe('primary_threat')
+    expect(result.issueContrasts?.[0].salience).toBe('high')
+    expect(result.whereSoft?.[1].sources).toBeUndefined()
+  })
+
+  it('parses a summary with no analysis fields (all optional)', () => {
+    const result = RaceOpponentSummarySchema.parse(validSummary)
+    expect(result.threatTier).toBeUndefined()
+    expect(result.issueContrasts).toBeUndefined()
+  })
+
+  it('rejects an unknown threat tier', () => {
+    expect(
+      RaceOpponentSummarySchema.safeParse({
+        ...validSummary,
+        threatTier: 'existential',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects an unknown issue salience', () => {
+    expect(
+      RaceOpponentSummarySchema.safeParse({
+        ...validSummary,
+        issueContrasts: [
+          { ...analysisFields.issueContrasts[0], salience: 'critical' },
+        ],
+      }).success,
+    ).toBe(false)
+  })
+})
+
 describe('RaceOpponentResponseSchema summary field', () => {
   const baseOpponent = {
     opponentName: 'Jane Doe',
@@ -112,6 +184,21 @@ describe('RaceOpponentResponseSchema summary field', () => {
     isIncumbent: null,
     items: [],
   }
+
+  it('accepts an opponent-level threatTier and omits it cleanly', () => {
+    const withTier = RaceOpponentResponseSchema.parse({
+      opponents: [{ ...baseOpponent, threatTier: 'watch_closely' }],
+      lastCollectedAt: null,
+      collectionStatus: 'completed',
+    })
+    expect(withTier.opponents[0].threatTier).toBe('watch_closely')
+    const without = RaceOpponentResponseSchema.parse({
+      opponents: [baseOpponent],
+      lastCollectedAt: null,
+      collectionStatus: 'completed',
+    })
+    expect(without.opponents[0].threatTier).toBeUndefined()
+  })
 
   it('accepts a null summary per opponent', () => {
     const result = RaceOpponentResponseSchema.parse({
