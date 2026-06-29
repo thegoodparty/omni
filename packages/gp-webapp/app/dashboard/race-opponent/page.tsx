@@ -104,7 +104,11 @@ export default async function Page(): Promise<React.JSX.Element> {
       pathname="/dashboard/race-opponent"
       showAlert={false}
       wrapperClassName="!p-0"
-      navHeader={{ icon: 'swords', label: 'Know your opponent' }}
+      navHeader={{
+        icon: 'swords',
+        label: 'Know your opponent',
+        centered: true,
+      }}
     >
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
         <RaceOpponentList initialData={initialData} raceContext={raceContext} />
