@@ -5,12 +5,21 @@ import { render } from 'helpers/test-utils/render'
 import type { ContrastRecord, RaceOpponentResponse } from 'gpApi/api-endpoints'
 import Page from './page'
 
-const { mockCandidateAccess, mockFetchUserCampaign, mockServerRequest } =
-  vi.hoisted(() => ({
-    mockCandidateAccess: vi.fn(),
-    mockFetchUserCampaign: vi.fn(),
-    mockServerRequest: vi.fn(),
-  }))
+const {
+  mockCandidateAccess,
+  mockFetchUserCampaign,
+  mockServerRequest,
+  mockRedirect,
+} = vi.hoisted(() => ({
+  mockCandidateAccess: vi.fn(),
+  mockFetchUserCampaign: vi.fn(),
+  mockServerRequest: vi.fn(),
+  mockRedirect: vi.fn(),
+}))
+
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => mockRedirect(url),
+}))
 
 vi.mock('../shared/candidateAccess', () => ({
   default: () => mockCandidateAccess(),
@@ -164,6 +173,18 @@ describe('dashboard/race-opponent page', () => {
     expect(screen.getByTestId('regenerate')).toBeInTheDocument()
     // Only the renderable contrast survives the page-level filter.
     expect(screen.getByTestId('contrast-list')).toHaveTextContent('1')
+  })
+
+  it('redirects a non-Pro user to the pro-upgrade page', async () => {
+    mockFetchUserCampaign.mockResolvedValue({ isPro: false, details: {} })
+    wireServerRequest(
+      { ok: true, data: okRaceOpponent },
+      { ok: false, data: { error: 'forbidden' } },
+    )
+
+    await Page()
+
+    expect(mockRedirect).toHaveBeenCalledWith('/dashboard/pro-upgrade')
   })
 
   it('falls back to an empty race-opponent shape when that endpoint is not ok', async () => {
