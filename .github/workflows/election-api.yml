@@ -38,6 +38,10 @@ jobs:
 
       - name: Lint
         run: npm run lint -w ${{ env.WORKSPACE }}
+        # election-api's eslint.config.js asserts DATABASE_URL is set; lint
+        # never connects, so a placeholder is enough to load the config.
+        env:
+          DATABASE_URL: postgresql://lint:lint@localhost:5432/lint
 
       - name: Typecheck
         working-directory: ${{ env.WORKSPACE }}
