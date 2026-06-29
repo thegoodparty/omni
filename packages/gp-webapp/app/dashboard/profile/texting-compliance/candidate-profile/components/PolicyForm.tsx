@@ -29,6 +29,9 @@ interface PolicyFormProps {
   showDelete: boolean
   onSave: (issue: WebsiteIssue) => void
   onDelete: () => void
+  // Hide the editor's formatting toolbar (plain-text feel) — used by the
+  // Campaign Story surface.
+  hideToolbar?: boolean
 }
 
 export default function PolicyForm({
@@ -36,6 +39,7 @@ export default function PolicyForm({
   showDelete,
   onSave,
   onDelete,
+  hideToolbar,
 }: PolicyFormProps): React.JSX.Element {
   const [title, setTitle] = useState(initial?.title ?? '')
   const [description, setDescription] = useState(initial?.description ?? '')
@@ -95,6 +99,7 @@ export default function PolicyForm({
           onChangeCallback={setDescription}
           onTextLengthChange={setDescriptionPlainLength}
           error={attemptedSave && focusInvalid}
+          hideToolbar={hideToolbar}
         />
         <div className="flex justify-between text-xs text-muted-foreground">
           <span>{MIN_POLICY_FOCUS_LENGTH} character minimum</span>

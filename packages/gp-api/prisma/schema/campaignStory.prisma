@@ -8,7 +8,6 @@ model CampaignStory {
 
   why        String?
   background String?
-  issues     String?
 
   // Lifetime count of AI "Help me rewrite" attempts for this campaign, capped
   // server-side to bound Gemini cost/abuse. Counts attempts, not successes.

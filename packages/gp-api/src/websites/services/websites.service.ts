@@ -24,6 +24,10 @@ type PositionWithTopIssue = Prisma.CampaignPositionGetPayload<{
   include: { topIssue: true }
 }>
 
+type WebsiteIssue = NonNullable<
+  NonNullable<PrismaJson.WebsiteContent['about']>['issues']
+>[number]
+
 const COMPLIANCE_DEFAULT_ISSUE_TITLE = 'Local Solutions, Not Party Politics'
 
 const hasText = (value?: string | null): boolean =>
@@ -181,6 +185,14 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
         data: { content: patched },
       })
     }
+  }
+
+  // The candidate's issues live on the website content (shared with the
+  // Pro-upgrade flow), not the campaign story. Returns [] when the campaign
+  // has no website yet.
+  async getIssuesForCampaign(campaignId: number): Promise<WebsiteIssue[]> {
+    const website = await this.model.findUnique({ where: { campaignId } })
+    return website?.content?.about?.issues ?? []
   }
 
   async findByDomainName(domainName: string, include?: Prisma.WebsiteInclude) {

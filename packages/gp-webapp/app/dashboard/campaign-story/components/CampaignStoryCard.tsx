@@ -135,11 +135,7 @@ const CampaignStoryCard = ({
         // "at least one field" union type (a computed-key literal would widen
         // to an index signature and not match).
         const body =
-          id === 'why'
-            ? { why: lastAttempted }
-            : id === 'background'
-              ? { background: lastAttempted }
-              : { issues: lastAttempted }
+          id === 'why' ? { why: lastAttempted } : { background: lastAttempted }
         await clientRequest('PUT /v1/campaigns/mine/story', body)
         savedRef.current = lastAttempted
         setSavedValue(lastAttempted)

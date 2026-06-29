@@ -26,7 +26,7 @@ const section: CampaignStorySection = {
   example: 'A short example why.',
 }
 
-const emptyStory = { why: null, background: null, issues: null }
+const emptyStory = { why: null, background: null }
 
 describe('CampaignStoryCard', () => {
   it('shows the not-answered hint when empty', () => {
@@ -52,8 +52,7 @@ describe('CampaignStoryCard', () => {
 
   it('autosaves the field on blur', async () => {
     const user = userEvent.setup()
-    let putBody: { why?: string; background?: string; issues?: string } | null =
-      null
+    let putBody: { why?: string; background?: string } | null = null
     api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
       putBody = body
       return { status: 200, data: emptyStory }

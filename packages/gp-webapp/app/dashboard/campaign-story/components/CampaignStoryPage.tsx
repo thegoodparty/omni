@@ -6,8 +6,12 @@ import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import Paper from '@shared/utils/Paper'
 import H2 from '@shared/typography/H2'
-import { BookOpenIcon, Button } from '@styleguide'
+import { BookOpenIcon, Button, Card } from '@styleguide'
 import type { CampaignStory } from '@goodparty_org/contracts'
+import type { WebsiteIssue } from 'helpers/types'
+import { useSnackbar } from 'helpers/useSnackbar'
+import { saveAboutFields } from 'app/dashboard/website/util/website.util'
+import PolicyPriorities from 'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { CAMPAIGN_STORY_SECTIONS } from '../sections'
 import { isStoryFieldAnswered } from '../useCampaignStory'
@@ -17,6 +21,9 @@ import CampaignStoryCard from './CampaignStoryCard'
 interface CampaignStoryPageProps {
   pathname?: string
   initialStory: CampaignStory
+  // The candidate's issues, sourced from their website (shared with the
+  // Pro-upgrade flow). Empty when they have no website/issues yet.
+  initialIssues: WebsiteIssue[]
 }
 
 const answeredFromStory = (
@@ -24,20 +31,35 @@ const answeredFromStory = (
 ): Record<CampaignStoryField, boolean> => ({
   why: isStoryFieldAnswered(story.why),
   background: isStoryFieldAnswered(story.background),
-  issues: isStoryFieldAnswered(story.issues),
 })
 
 const CampaignStoryPage = ({
   pathname,
   initialStory,
+  initialIssues,
 }: CampaignStoryPageProps): React.JSX.Element => {
+  const { errorSnackbar } = useSnackbar()
   // Seeded from the persisted story, then updated live as each card reports its
-  // answered-state on every keystroke — so the footer appears as soon as all
-  // three have content, without waiting for blur/save.
+  // answered-state on every keystroke — so the footer appears as soon as both
+  // have content, without waiting for blur/save.
   const [answered, setAnswered] = useState(() =>
     answeredFromStory(initialStory),
   )
-  const allAnswered = answered.why && answered.background && answered.issues
+  // Issues are the website issues; edited here via the shared PolicyPriorities
+  // editor and persisted to website.content.about.issues on every change
+  // (saveAboutFields creates the site on first write).
+  const [issues, setIssues] = useState<WebsiteIssue[]>(initialIssues)
+
+  // Persist on every change. saveAboutFields serializes overlapping writes and
+  // creates the website on first save, so no debounce/guard is needed here.
+  const handleIssuesChange = (next: WebsiteIssue[]): void => {
+    setIssues(next)
+    void saveAboutFields({ issues: next }).then((ok) => {
+      if (!ok) errorSnackbar('Could not save your issues. Please try again.')
+    })
+  }
+
+  const allAnswered = answered.why && answered.background && issues.length > 0
 
   return (
     <FeatureFlagGuard flagKey={CAMPAIGN_STORY_FLAG_KEY}>
@@ -77,6 +99,23 @@ const CampaignStoryPage = ({
                 }
               />
             ))}
+
+            <Card className="p-6">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-xl font-semibold text-foreground">
+                  Your issues
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Two to four concrete fights for your first term. These are
+                  shared with your campaign website.
+                </p>
+              </div>
+              <PolicyPriorities
+                issues={issues}
+                onChange={handleIssuesChange}
+                hideToolbar
+              />
+            </Card>
           </div>
 
           {allAnswered && (

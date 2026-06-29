@@ -25,6 +25,9 @@ interface PolicyPrioritiesProps {
   issues: WebsiteIssue[]
   onChange: (issues: WebsiteIssue[]) => void
   disabled?: boolean
+  // Forwarded to the policy editor: hide its formatting toolbar so it reads as
+  // a plain-text field (used by the Campaign Story surface).
+  hideToolbar?: boolean
 }
 
 const buildFormKey = (mode: PolicyModalMode, index?: number): string =>
@@ -34,6 +37,7 @@ export default function PolicyPriorities({
   issues,
   onChange,
   disabled,
+  hideToolbar,
 }: PolicyPrioritiesProps): React.JSX.Element {
   const [modal, setModal] = useState<ModalState>({ open: false })
   const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(
@@ -147,6 +151,7 @@ export default function PolicyPriorities({
           showDelete={isEditing}
           onSave={handleSave}
           onDelete={handleClickDelete}
+          hideToolbar={hideToolbar}
         />
       </ModalOrDrawer>
 

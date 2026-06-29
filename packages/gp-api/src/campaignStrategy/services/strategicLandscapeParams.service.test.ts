@@ -15,7 +15,6 @@ const primaryCtx = {
 const story = {
   why: 'To fix the roads',
   background: 'Lifelong resident',
-  issues: null,
 }
 
 const campaign = (details: unknown) =>
@@ -35,6 +34,7 @@ describe('StrategicLandscapeParamsService', () => {
   let electionApi: { getStrategyContext: ReturnType<typeof vi.fn> }
   let races: { getPrimaryRaceId: ReturnType<typeof vi.fn> }
   let campaignStory: { getForCampaign: ReturnType<typeof vi.fn> }
+  let websites: { getIssuesForCampaign: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     electionApi = {
@@ -44,11 +44,13 @@ describe('StrategicLandscapeParamsService', () => {
     }
     races = { getPrimaryRaceId: vi.fn() }
     campaignStory = { getForCampaign: vi.fn(async () => story) }
+    websites = { getIssuesForCampaign: vi.fn(async () => []) }
     const logger = { setContext: vi.fn(), warn: vi.fn() }
     service = new StrategicLandscapeParamsService(
       electionApi as never,
       races as never,
       campaignStory as never,
+      websites as never,
       logger as never,
     )
   })
@@ -107,7 +109,26 @@ describe('StrategicLandscapeParamsService', () => {
     const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
 
     expect(campaignStory.getForCampaign).toHaveBeenCalledWith(42)
-    expect(out.campaign_story).toEqual(story)
+    expect(websites.getIssuesForCampaign).toHaveBeenCalledWith(42)
+    // issues now come from the website (none here), so they flatten to null.
+    expect(out.campaign_story).toEqual({ ...story, issues: null })
+  })
+
+  it('flattens website issues into the story issues string (HTML stripped)', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getIssuesForCampaign.mockResolvedValue([
+      {
+        title: 'Roads',
+        description: '<p>Fix the <strong>potholes</strong></p>',
+      },
+      { title: 'Schools', description: '<p>More funding</p>' },
+    ])
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story?.issues).toBe(
+      'Roads\nFix the potholes\n\nSchools\nMore funding',
+    )
   })
 
   it('omits the story (without failing the build) when its read errors', async () => {

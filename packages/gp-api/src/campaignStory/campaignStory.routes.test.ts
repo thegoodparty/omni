@@ -42,7 +42,6 @@ describe('CampaignStory routes', () => {
       expect(result.data).toEqual({
         why: null,
         background: null,
-        issues: null,
       })
     })
 
@@ -102,7 +101,6 @@ describe('CampaignStory routes', () => {
       expect(result.data).toEqual({
         why: 'kept',
         background: null,
-        issues: null,
       })
     })
 
