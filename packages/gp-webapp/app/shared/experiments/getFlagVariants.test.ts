@@ -55,4 +55,12 @@ describe('getFlagVariants', () => {
 
     expect(await getFlagVariants()).toBeNull()
   })
+
+  it('returns null (does not throw) on a network-level error', async () => {
+    // ofetch throws on DNS/timeout/connection errors; an uncaught throw here
+    // would 500 every authed SSR render via PageWrapper's Promise.all.
+    mockServerRequest.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    await expect(getFlagVariants()).resolves.toBeNull()
+  })
 })

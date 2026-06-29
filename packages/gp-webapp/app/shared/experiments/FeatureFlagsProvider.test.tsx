@@ -134,6 +134,7 @@ describe('server-seeded initialVariants', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
         credentials: 'include',
+        redirect: 'manual',
       }),
     )
     await waitFor(() => expect(result.current.on).toBe(false))
@@ -150,6 +151,7 @@ describe('client resolution (no seed)', () => {
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
       credentials: 'include',
+      redirect: 'manual',
     })
     expect(result.current.on).toBe(true)
     // The whole point: resolution is same-origin only, exactly once — never
@@ -186,6 +188,7 @@ describe('client resolution (no seed)', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(VARIANTS_ROUTE, {
         credentials: 'include',
+        redirect: 'manual',
       }),
     )
     await waitFor(() => expect(result.current.on).toBe(true))
@@ -435,5 +438,38 @@ describe('regression coverage', () => {
       result.current.variant('campaign-story')
     })
     await waitFor(() => expect(mockTrack).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not reset the exposure dedup on a failed (empty) refresh', async () => {
+    // A transient failure clears variants but must NOT reset the dedup set —
+    // otherwise the same key re-fires $exposure once a set is in place again,
+    // double-counting for the session.
+    mockUser = fullUser
+    serverVariants = { 'campaign-story': { value: 'on' } }
+
+    const { result, rerender } = renderHook(() => useFeatureFlags(), {
+      wrapper: seededWrapper,
+    })
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    act(() => {
+      result.current.variant('campaign-story')
+    })
+    await waitFor(() => expect(mockTrack).toHaveBeenCalledTimes(1))
+
+    // Identity change → refresh 5xxs → variants cleared, dedup left intact.
+    fetchOk = false
+    mockUser = { ...fullUser, id: 99 }
+    rerender()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    await waitFor(() => expect(result.current.all()).toEqual({}))
+
+    // Reading the now-absent flag must not fire another exposure.
+    act(() => {
+      result.current.variant('campaign-story')
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(mockTrack).toHaveBeenCalledTimes(1)
   })
 })

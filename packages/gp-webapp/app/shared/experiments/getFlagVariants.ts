@@ -15,14 +15,23 @@ export async function getFlagVariants(): Promise<ExperimentVariants | null> {
     return null
   }
 
-  const result = await serverRequest(
-    'GET /v1/experiment/variants',
-    {},
-    { ignoreResponseError: true },
-  )
+  // serverRequest (ofetch) throws on network-level errors (DNS, timeout,
+  // connection refused); ignoreResponseError only suppresses non-2xx HTTP
+  // responses, not throws. A bare throw here would reject PageWrapper's
+  // Promise.all and 500 every authed SSR render, so fail closed to null (every
+  // flag reads off) on any failure instead.
+  try {
+    const result = await serverRequest(
+      'GET /v1/experiment/variants',
+      {},
+      { ignoreResponseError: true },
+    )
 
-  if (!result.ok) {
+    if (!result.ok) {
+      return null
+    }
+    return result.data.variants
+  } catch {
     return null
   }
-  return result.data.variants
 }

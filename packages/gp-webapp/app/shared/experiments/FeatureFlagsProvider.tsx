@@ -105,7 +105,14 @@ export const FeatureFlagsProvider = ({
     // variants in place — an unresolvable flag has to read off, never stale.
     let next: Record<string, Variant> = {}
     try {
-      const res = await fetch(VARIANTS_ROUTE, { credentials: 'include' })
+      // redirect: 'manual' so an expired-session redirect to /login surfaces as
+      // an opaque (ok: false) response we skip — not a followed 200 HTML body
+      // that res.json() would throw on, which would spam Sentry on routine auth
+      // expiry.
+      const res = await fetch(VARIANTS_ROUTE, {
+        credentials: 'include',
+        redirect: 'manual',
+      })
       if (res.ok) {
         const parsed = ExperimentVariantsResponseSchema.safeParse(
           await res.json(),
@@ -121,7 +128,13 @@ export const FeatureFlagsProvider = ({
       )
     } finally {
       setVariants(next)
-      exposedRef.current = new Set()
+      // Reset the exposure dedup only when we actually resolved a new variant
+      // set. Resetting on a transient failure (next === {}) would let the same
+      // key re-fire $exposure once the set is replaced on recovery — a
+      // double-count for the same session.
+      if (Object.keys(next).length > 0) {
+        exposedRef.current = new Set()
+      }
       setReady(true)
     }
   }, [])
