@@ -11,6 +11,10 @@ COPY package.json package-lock.json ./
 COPY packages/gp-api/package.json ./packages/gp-api/package.json
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/dist ./packages/contracts/dist
+# gp-api imports @goodparty_org/nest-common; the prebuilt workspace package must
+# be present so npm links it into node_modules and the runtime can resolve it.
+COPY packages/nest-common/package.json ./packages/nest-common/package.json
+COPY packages/nest-common/dist ./packages/nest-common/dist
 RUN npm ci --omit=dev --legacy-peer-deps --workspace gp-api
 
 WORKDIR /app/packages/gp-api
