@@ -49,7 +49,7 @@ export const CHAT_MESSAGE_MAX_LENGTH = 10_000;
 
 export const SendChatMessageRequestSchema = z.object({
   content: z.string().min(1).max(CHAT_MESSAGE_MAX_LENGTH),
-  clientMessageId: z.string().uuid().optional(),
+  clientMessageId: z.guid().optional(),
 });
 export type SendChatMessageRequest = z.infer<
   typeof SendChatMessageRequestSchema

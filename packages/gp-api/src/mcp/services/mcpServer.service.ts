@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-unsafe-type-assertion */
-// zod-to-json-schema returns a JSONSchema-shaped object that the MCP SDK accepts as
+// z.toJSONSchema returns a JSONSchema-shaped object that the MCP SDK accepts as
 // Tool['inputSchema'], but its return type is broader than the SDK's tighter declaration.
 // The fastify adapter is loosely typed via HttpAdapterHost, so member access on the
 // underlying instance triggers unsafe-* lints. NestJS DiscoveryService surfaces controller
@@ -24,7 +24,7 @@ import {
   ListToolsRequestSchema,
   Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { z } from 'zod'
 import { MCP_TOOL_KEY, McpToolMetadata } from '../decorators/McpTool.decorator'
 import {
   reflectInputDeclarations,
@@ -318,7 +318,7 @@ export class McpServerService {
   private toMcpTool(t: RegisteredMcpTool): Tool {
     const combined = buildCombinedInputSchema(t.inputDeclarations)
     const inputSchema = combined
-      ? (zodToJsonSchema(combined) as unknown as Tool['inputSchema'])
+      ? (z.toJSONSchema(combined) as unknown as Tool['inputSchema'])
       : ({ type: 'object', properties: {} } as Tool['inputSchema'])
 
     return {

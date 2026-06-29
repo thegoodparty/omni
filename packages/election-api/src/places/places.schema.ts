@@ -80,7 +80,7 @@ const placeFilterSchema = z.object({
 ///  .strict()
 
 export const getPlaceByPositionIdParamsSchema = z.object({
-  positionId: z.string().uuid('Position ID must be a valid UUID'),
+  positionId: z.guid('Position ID must be a valid UUID'),
 })
 
 export class GetPlaceByPositionIdParamsDTO extends createZodDto(

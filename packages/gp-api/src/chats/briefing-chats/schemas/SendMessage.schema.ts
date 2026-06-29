@@ -10,7 +10,7 @@ export const sendMessageSchema = z.object({
     .max(SEND_MESSAGE_MAX_LENGTH)
     .transform((v) => v.trim())
     .refine((v) => v.length > 0, { message: 'content must not be empty' }),
-  clientMessageId: z.string().uuid().optional(),
+  clientMessageId: z.guid().optional(),
 })
 
 export class SendMessageSchema extends createZodDto(sendMessageSchema) {}
