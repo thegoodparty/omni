@@ -975,6 +975,8 @@ export type RaceOpponentSummary = {
   // Phase 3 analytical fields, all optional (the analysis may be absent).
   whyTheyMatter?: string
   whatYouNeedToKnow?: string[]
+  // Relaxed sourcing: an item cites a source where one is direct, else omits it.
+  whereSoft?: Array<{ text: string; sources?: RaceOpponentSummarySourceRef[] }>
 }
 
 export type RaceOpponentResponse = {

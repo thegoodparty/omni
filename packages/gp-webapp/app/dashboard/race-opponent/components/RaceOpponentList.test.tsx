@@ -207,6 +207,54 @@ describe('<RaceOpponentList>', () => {
     expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
   })
 
+  const withWhereSoft: RaceOpponentResponse = {
+    ...withSummary,
+    opponents: [
+      {
+        ...withSummary.opponents[0]!,
+        summary: {
+          ...withSummary.opponents[0]!.summary!,
+          whereSoft: [
+            {
+              text: 'No published long-term water position.',
+              sources: [
+                {
+                  sourceType: 'ballotpedia',
+                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#water',
+                },
+              ],
+            },
+            // relaxed sourcing: an item with no source still renders
+            { text: 'Skipped the 2026 candidate survey.' },
+          ],
+        },
+      },
+    ],
+  }
+
+  it('renders the where-theyre-soft section with a count and relaxed sourcing', () => {
+    render(<RaceOpponentList initialData={withWhereSoft} />)
+
+    expect(screen.getByText("Where they're soft")).toBeInTheDocument()
+    expect(screen.getByText('2 openings')).toBeInTheDocument()
+    expect(
+      screen.getByText('No published long-term water position.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', {
+        name: /ballotpedia\.org\/Jane_Rival#water/i,
+      }),
+    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#water')
+    expect(
+      screen.getByText('Skipped the 2026 candidate survey.'),
+    ).toBeInTheDocument()
+  })
+
+  it('hides the where-theyre-soft section when there are no items', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+    expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
+  })
+
   it('keeps the raw source research collapsed by default when a summary is present', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
