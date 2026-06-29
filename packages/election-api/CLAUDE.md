@@ -27,9 +27,10 @@ npm run generate               # regenerate Prisma client
 
 ## Verify
 
-Reproduce the CI **Validate** job (`.github/workflows/election-api.yml`) before opening a PR. There is no `types` script, so run `tsc` via `npm exec`. CI does not run lint here. From the repo root:
+Reproduce the CI **Validate** job (`.github/workflows/election-api.yml`) before opening a PR. CI builds the in-tree contracts first because election-api imports them. There is no `types` script, so run `tsc` via `npm exec`. CI does not run lint here. From the repo root:
 
 ```bash
+npm run build -w packages/contracts                 # build contracts election-api imports
 npm exec -w packages/election-api -- tsc --noEmit   # typecheck
 npm run test -w packages/election-api               # vitest run
 ```

@@ -32,6 +32,7 @@ jobs:
         with:
           app: election-api
           workspace: ${{ env.WORKSPACE }}
+          build-contracts: "true"
           prisma-generate-script: generate:prisma:election-api
 
       - name: Typecheck
@@ -60,6 +61,7 @@ jobs:
         with:
           app: election-api
           workspace: ${{ env.WORKSPACE }}
+          build-contracts: "true"
           prisma-generate-script: generate:prisma:election-api
 
       - name: Determine deployment context
