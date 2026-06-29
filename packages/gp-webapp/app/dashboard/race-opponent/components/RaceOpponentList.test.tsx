@@ -4,11 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { trackEvent } from 'helpers/analyticsHelper'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
 import RaceOpponentList from './RaceOpponentList'
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
+}))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 
 const withSummary: RaceOpponentResponse = {
@@ -314,6 +320,19 @@ describe('<RaceOpponentList>', () => {
   it('hides the where-you-contrast section when there are no contrasts', () => {
     render(<RaceOpponentList initialData={withSummary} />)
     expect(screen.queryByText('Where you contrast')).not.toBeInTheDocument()
+  })
+
+  it('fires Win - Opponent Profile Viewed when an opponent detail is shown', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+    expect(trackEvent).toHaveBeenCalledWith(
+      'Win - Opponent Profile Viewed',
+      expect.objectContaining({}),
+    )
+  })
+
+  it('never renders a finance summary card', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+    expect(screen.queryByText(/finance|fundraising|cash on hand/i)).toBeNull()
   })
 
   it('keeps the raw source research collapsed by default when a summary is present', () => {

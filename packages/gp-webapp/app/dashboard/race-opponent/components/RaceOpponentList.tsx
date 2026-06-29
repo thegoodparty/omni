@@ -20,6 +20,8 @@ import {
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import type {
   RaceOpponentItem,
   RaceOpponentResponse,
@@ -497,6 +499,8 @@ const RaceOpponentList = ({
     initialData.opponents[0]?.opponentName ?? null,
   )
 
+  const [campaign] = useCampaign()
+
   const activeName = useMemo<string | null>(() => {
     const names = data.opponents.map((opponent) => opponent.opponentName)
     if (selectedName && names.includes(selectedName)) {
@@ -504,6 +508,17 @@ const RaceOpponentList = ({
     }
     return names[0] ?? null
   }, [data.opponents, selectedName])
+
+  // Fire one Opponent Profile Viewed per distinct opponent detail shown. The ref
+  // set dedups so switching back to an already-viewed opponent doesn't re-fire.
+  const viewedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    if (!activeName || viewedRef.current.has(activeName)) return
+    viewedRef.current.add(activeName)
+    trackEvent(EVENTS.RaceOpponent.OpponentProfileViewed, {
+      campaignId: campaign?.id,
+    })
+  }, [activeName, campaign?.id])
 
   const loadStatus = useCallback(async (): Promise<void> => {
     const { data: latest } = await clientRequest(
