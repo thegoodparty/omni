@@ -3,7 +3,9 @@ import { z } from 'zod'
 
 const createJobResponseSchema = z.object({
   id: z.string(),
-  agents: z.union([z.array(z.string()), z.record(z.string())]).optional(),
+  agents: z
+    .union([z.array(z.string()), z.record(z.string(), z.string())])
+    .optional(),
   name: z.string(),
   status: z.string(),
   templates: z.array(

@@ -8,7 +8,7 @@ import { z } from 'zod'
  * gp-api treats a missing row as "no estimate yet".
  */
 export const ElectedOfficeSupportSchema = z.object({
-  electedOfficeId: z.string().uuid(),
+  electedOfficeId: z.guid(),
   supportConstituents: z.number().int().nonnegative(),
   totalConstituents: z.number().int().nonnegative(),
 })

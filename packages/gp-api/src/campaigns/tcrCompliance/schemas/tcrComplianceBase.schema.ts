@@ -43,8 +43,8 @@ export const tcrComplianceBaseShape = {
   // fallback, re-breaking the very stranding this is meant to fix.
   fecCommitteeId: z
     .string()
-    .optional()
-    .transform((value) => (value === '' ? undefined : value)),
+    .transform((value) => (value === '' ? undefined : value))
+    .optional(),
   committeeType: z.nativeEnum(CommitteeType).optional(),
 }
 

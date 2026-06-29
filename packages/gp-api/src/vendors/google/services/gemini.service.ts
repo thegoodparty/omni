@@ -7,7 +7,6 @@ import {
 import { GoogleGenAI, type GenerateContentParameters } from '@google/genai'
 import { PinoLogger } from 'nestjs-pino'
 import { z, ZodError } from 'zod'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import {
   GEMINI_MODEL,
   GenerateOptions,
@@ -107,7 +106,7 @@ export class GeminiService {
     schema: z.ZodType<T>,
     options?: GenerateOptions,
   ): Promise<T> {
-    const jsonSchema = zodToJsonSchema(schema, { target: 'openApi3' })
+    const jsonSchema = z.toJSONSchema(schema, { target: 'openapi-3.0' })
 
     const response = await this.callGemini(prompt, options, {
       responseJsonSchema: jsonSchema,

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { PaginationOptionsSchema } from '../shared/Pagination.schema'
 import { ArtifactReviewSchema } from '../artifactReview/ArtifactReview.schema'
 
@@ -58,7 +59,7 @@ export const BriefingAdminRowSchema = z.object({
     organizationSlug: z.string(),
     positionName: z.string().nullable(),
   }),
-  updatedAt: z.coerce.date(),
+  updatedAt: zCoerceDate(),
   review: ArtifactReviewSchema.nullable(),
 })
 export type BriefingAdminRow = z.infer<typeof BriefingAdminRowSchema>

@@ -7,7 +7,7 @@ const ElectionEnum = z.nativeEnum(ElectionCode)
 
 const projectedTurnoutUniqueSchema = z
   .object({
-    districtId: z.string().uuid().optional(),
+    districtId: z.guid().optional(),
     state: z
       .string()
       .transform((v) => v.toUpperCase())
@@ -16,11 +16,9 @@ const projectedTurnoutUniqueSchema = z
     L2DistrictType: z.string().optional(),
     L2DistrictName: z.string().optional(),
     electionYear: z.preprocess((val) => Number(val), z.number()).optional(),
-    electionDate: z
-      .string()
-      .refine((val) => !isNaN(new Date(val).getTime()), {
-        message: 'Invalid date string',
-      }),
+    electionDate: z.string().refine((val) => !isNaN(new Date(val).getTime()), {
+      message: 'Invalid date string',
+    }),
     electionCode: ElectionEnum.optional(),
   })
   .refine(

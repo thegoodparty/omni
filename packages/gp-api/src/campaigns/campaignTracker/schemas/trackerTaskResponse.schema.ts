@@ -1,20 +1,21 @@
 import { z } from 'zod'
+import { zCoerceDate } from '@goodparty_org/contracts'
 
 // Response shape for GET /campaigns/tracker-tasks. Mirrors the
 // CampaignTrackerTask Prisma model the endpoint returns (raw rows from
 // findMany), so it doubles as the MCP tool's output schema. Dates use
-// z.coerce.date() because the interceptor validates the raw value (Date
+// zCoerceDate() because the interceptor validates the raw value (Date
 // objects) before Fastify serializes them.
 export const CampaignTrackerTaskResponseSchema = z.object({
   id: z.string(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
   title: z.string(),
   description: z.string(),
   cta: z.string().nullable(),
   flowType: z.string().nullable(),
   week: z.number().int(),
-  date: z.coerce.date(),
+  date: zCoerceDate(),
   link: z.string().nullable(),
   proRequired: z.boolean().nullable(),
   isDefaultTask: z.boolean().nullable(),

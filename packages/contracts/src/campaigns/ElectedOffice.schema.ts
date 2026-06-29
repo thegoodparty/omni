@@ -1,17 +1,18 @@
 import { z } from "zod";
+import { zCoerceDate } from "../shared/Date.schema";
 
 export const ElectedOfficeSchema = z.object({
   id: z.string(),
   organizationSlug: z.string(),
-  swornInDate: z.coerce.date().nullish(),
-  electedDate: z.coerce.date().nullish(),
-  termStartDate: z.coerce.date().nullish(),
-  termEndDate: z.coerce.date().nullish(),
+  swornInDate: zCoerceDate().nullish(),
+  electedDate: zCoerceDate().nullish(),
+  termStartDate: zCoerceDate().nullish(),
+  termEndDate: zCoerceDate().nullish(),
   termLengthDays: z.number().nullish(),
   isActive: z.boolean(),
   party: z.string().nullish(),
-  pledgedAt: z.coerce.date().nullish(),
-  onboardingCompletedAt: z.coerce.date().nullish(),
+  pledgedAt: zCoerceDate().nullish(),
+  onboardingCompletedAt: zCoerceDate().nullish(),
   // True when the holder self-reported their office/term via the net-new serve
   // onboarding flow (vs a sales/BallotReady prefill). Always present on the API
   // response; default keeps older/cached payloads parseable.
@@ -21,8 +22,8 @@ export const ElectedOfficeSchema = z.object({
   onboardingStep: z.string().nullish(),
   userId: z.number(),
   campaignId: z.number().nullish(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
 });
 
 export type ElectedOffice = z.infer<typeof ElectedOfficeSchema>;

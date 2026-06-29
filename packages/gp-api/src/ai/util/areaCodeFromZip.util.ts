@@ -156,7 +156,7 @@ export class AreaCodeFromZipService {
       if (!validationResult.success) {
         this.logger.error(
           {
-            errors: validationResult.error.errors,
+            errors: validationResult.error.issues,
             jsonContent,
           },
           `Invalid area codes response format from OpenAI for zip ${zipCode}:`,

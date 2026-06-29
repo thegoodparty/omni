@@ -38,6 +38,10 @@ Never call `.passthrough()` on request schemas — unknown keys must be stripped
 
 ```ts
 import { z } from 'zod'
+// Use zCoerceDate()/zDate() (not z.coerce.date()/z.date()) for Date fields:
+// zod v4's JSON Schema generation (nestjs-zod OpenAPI at bootstrap) throws on a
+// bare ZodDate; these keep identical runtime parsing but render as date-time.
+import { zDate } from '@goodparty_org/contracts'
 
 export const CreateThingSchema = z.object({
   name: z.string().min(1),
@@ -48,7 +52,7 @@ export type CreateThingInput = z.infer<typeof CreateThingSchema>
 export const ThingResponseSchema = z.object({
   id: z.number(),
   name: z.string(),
-  createdAt: z.date(),
+  createdAt: zDate(),
 })
 ```
 
