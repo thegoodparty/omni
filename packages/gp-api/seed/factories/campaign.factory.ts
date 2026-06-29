@@ -3,7 +3,7 @@ import { Campaign, CampaignTier } from '../../src/generated/prisma'
 import { GenerationStatus } from '../../src/campaigns/ai/content/aiContent.types'
 import { CampaignLaunchStatus, OnboardingStep } from '@goodparty_org/contracts'
 import { LEVELS } from '../../src/shared/constants/governmentLevels'
-import { STATE_CODES } from '../../src/shared/constants/states'
+import { STATE_CODES } from '@goodparty_org/nest-common'
 import { generateFactory } from './generate'
 
 export const campaignFactory = generateFactory<Campaign>(() => {

@@ -2,8 +2,8 @@
   "uid": "serve_magic_link_card",
   "type": "card",
   "config": {
-    "name": "Send EO Magic Link (Internal)",
-    "description": "Internal/testing tool. Generates an elected-official onboarding magic link for this contact and returns a URL the rep can copy.",
+    "name": "Send EO Magic Link",
+    "description": "Generates an elected-official onboarding magic link for this contact and returns a URL the rep can copy.",
     "location": "crm.record.tab",
     "entrypoint": "/app/cards/ServeMagicLinkCard.tsx",
     "objectTypes": ["CONTACT"]

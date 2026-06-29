@@ -43,6 +43,7 @@ import {
   getPeerlyCommitteeType,
   getPeerlyLocaleFromOfficeLevel,
   PEERLY_ENTITY_TYPE,
+  PEERLY_PROFILE_STATUS_FINALIZED,
   PeerlyLocalities,
   PEERLY_USECASE,
 } from './peerly.const'
@@ -255,12 +256,14 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       email: `info@${domainName}`.substring(0, 100), // Limit to 100 characters per Peerly API docs
       ...(geography.didState !== P2P_JOB_DEFAULTS.DID_STATE
         ? {
+            // Peerly requires didNpaSubset on every jobAreas object even when
+            // empty; omitting it leaves the registration unable to load and
+            // finalize. An empty array is accepted and lets Peerly pick any
+            // area code within the state.
             jobAreas: [
               {
                 didState: geography.didState,
-                ...(geography.didNpaSubset.length > 0 && {
-                  didNpaSubset: geography.didNpaSubset,
-                }),
+                didNpaSubset: geography.didNpaSubset,
               },
             ],
           }
@@ -318,6 +321,70 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
       })
+    }
+  }
+
+  // Attach a CV token to the 10DLC brand, picking the right endpoint for the
+  // brand's state. A first-time registration is still `pending`, so /approve
+  // submits it and queues MNO review. A brand that was approved earlier without
+  // a CV token is already `finalized` and /approve 400s on it, so /submit is
+  // used to attach the token to the existing brand instead.
+  async submitCampaignVerifyTokenToBrand(
+    tcrCompliance: TcrCompliance,
+    campaignVerifyToken: string,
+  ): Promise<BrandApprovalResult | undefined> {
+    const { peerlyIdentityId, campaignId } = tcrCompliance
+    if (peerlyIdentityId) {
+      const campaign = await this.campaignsService.findFirstOrThrow({
+        where: { id: campaignId },
+      })
+      let profileStatus: string | undefined
+      try {
+        const profile = await this.getIdentityProfile(
+          peerlyIdentityId,
+          campaign,
+          { suppressSlackAlert: true },
+        )
+        profileStatus = profile?.profile?.status
+      } catch (error) {
+        // A missing/orphaned identity 404s here; fall through to approve, which
+        // surfaces the real error. Anything else is unexpected — rethrow.
+        if (!(error instanceof NotFoundException)) {
+          throw error
+        }
+      }
+      if (profileStatus === PEERLY_PROFILE_STATUS_FINALIZED) {
+        return this.submitCvTokenToFinalizedBrand(
+          peerlyIdentityId,
+          campaignVerifyToken,
+          campaign,
+        )
+      }
+    }
+    return this.approve10DLCBrand(tcrCompliance, campaignVerifyToken)
+  }
+
+  private async submitCvTokenToFinalizedBrand(
+    peerlyIdentityId: string,
+    campaignVerifyToken: string,
+    campaign: Campaign,
+  ): Promise<BrandApprovalResult | undefined> {
+    try {
+      // /submit returns the same brand payload as /approve (verified against
+      // the live response), with the CV token echoed back — strip it before
+      // returning so the credential isn't surfaced to the caller, matching
+      // approve10DLCBrand.
+      const response =
+        await this.peerlyHttpService.post<Approve10DLCBrandResponseBody>(
+          `/v2/tdlc/${peerlyIdentityId}/submit`,
+          { campaign_verify_token: campaignVerifyToken },
+        )
+      const {
+        data: { campaign_verify_token: _campaignVerifyToken, ...identityBrand },
+      } = response
+      return identityBrand
+    } catch (error) {
+      await this.handleApiError(error, { campaign, peerlyIdentityId })
     }
   }
 
