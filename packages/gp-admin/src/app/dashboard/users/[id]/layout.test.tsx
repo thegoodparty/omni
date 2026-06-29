@@ -23,8 +23,8 @@ vi.mock('next/navigation', () => ({
 vi.mock('@goodparty_org/sdk', () => {
   class SdkError extends Error {
     status: number
-    constructor(statusCode: number) {
-      super(`SdkError ${statusCode}`)
+    constructor(statusCode: number, message: string) {
+      super(message)
       this.status = statusCode
     }
   }
@@ -105,7 +105,7 @@ describe('UserLayout authorization', () => {
     mockUsersGet.mockRejectedValue(
       new SdkError(status.InternalServerError, 'Internal Server Error')
     )
-    await expect(render()).rejects.toThrow('SdkError 500')
+    await expect(render()).rejects.toThrow('Internal Server Error')
     expect(mockNotFound).not.toHaveBeenCalled()
   })
 })
