@@ -1,4 +1,4 @@
-<!-- v5 — 2026-06-26 -->
+<!-- v6 — 2026-06-29 -->
 # /release
 
 Merge each repo's pending `qa → production` PR (opened by `/release-prep`), wait 5 minutes for the deploys to settle, then print one `#product-releases` message: a one-paragraph plain-language summary of what shipped (grouped by epic/theme across both repos) followed by every released ticket along with its ClickUp title.
@@ -38,7 +38,7 @@ There are **two release repos**, each promoted on its own three-branch line:
 
 **books/.env variables**: `$RELEASE_OMNI_DIR`, `$RELEASE_AI_DIR`, `$RELEASE_PRODUCT_CHANNEL`, `$CLICKUP_TEAM_ID`
 **scripts/.env variables**: `CLICKUP_API_KEY`
-**Tools**: `gh` (authenticated), `git`, `uv` (for ClickUp lookups), `jq`
+**Tools**: `gh` (authenticated), `git`, `uv` (for ClickUp lookups), `jq`; **plus `terraform` and an AWS CLI authenticated to the gp-ai-projects AWS account — only for step 5b** (the gp-ai-projects prod control-plane deploy). Not needed when releasing omni only.
 
 Defaults if a `books/.env` value is unset: `$RELEASE_OMNI_DIR=$HOME/Documents/gp/dev/omni`, `$RELEASE_AI_DIR=$HOME/Documents/gp/dev/gp-ai-projects`, `$RELEASE_PRODUCT_CHANNEL=#product-releases`.
 
@@ -159,6 +159,41 @@ This command takes no arguments — the release targets are always `omni` and `g
 
    The `cd` is repeated defensively — some agent runtimes reset cwd between tool calls, so don't rely on step 3's `cd` carrying over. On merge failure for a repo (not the snapshot-mismatch skip), record it and continue: that repo's step-3 snapshot is still valid (only the merge command failed), so its section of the message is accurate and the operator can paste it once they complete the merge manually. The printed message and the step 14 final report both carry the "do not post until the merge actually lands" warning for any such repo. Track which repos actually merged this run — only those, plus the merge-failed-but-snapshot-valid repos, contribute to the message.
 
+5b. **gp-ai-projects only — deploy the control-plane Lambdas to prod.** Skip for omni. Run only if gp-ai-projects' `qa → prod` merged this run (step 5). In gp-ai-projects a merge auto-deploys the broker and runner, but the `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform and need a manual `terraform apply`; do it here — before the deploy-settle wait — so prod is fully live before you post the notes. Full procedure and rationale: the **`terraform-deploy` skill** at `$REPO_DIR/.claude/skills/terraform-deploy.md`; the steps below mirror it. Requires `terraform` and an AWS CLI authenticated to the gp-ai-projects account.
+
+   First wait for the prod image build (triggered by the merge) to finish so the runner image and the Lambdas land together:
+
+   ```bash
+   cd "$REPO_DIR"
+   gh run list --workflow build-pmf-engine.yml --branch prod --limit 1 \
+     --json status,conclusion,headSha
+   ```
+
+   Poll until `status` is `completed` (budget ~15 min); if `conclusion` isn't `success`, stop and report — don't deploy the Lambdas on a failed build. Then apply in a throwaway worktree off `origin/prod` so the user's checkout is untouched (the apply zips `pmf_engine/.lambda_build` from the working tree, so it must be the released code):
+
+   ```bash
+   cd "$REPO_DIR"
+   git fetch origin --prune
+   git worktree add --force .worktrees/release-cp-prod origin/prod
+   cd .worktrees/release-cp-prod
+   bash pmf_engine/scripts/build_lambda_package.sh
+   cd infrastructure/environments/prod/pmf-engine-control-plane
+   eval "$(aws configure export-credentials --format env)"
+   terraform init -input=false
+   terraform plan -input=false -out=tfplan
+   ```
+
+   **Review the plan before applying** — expect `0 to add, 3 to change, 0 to destroy` (the three Lambdas' `source_code_hash` only), or `No changes` if prod was already applied (idempotent — safe to re-run). Anything else (IAM, security groups, S3, networking) means drift — stop and surface it. Then apply and remove the worktree:
+
+   ```bash
+   cd "$REPO_DIR/.worktrees/release-cp-prod/infrastructure/environments/prod/pmf-engine-control-plane"
+   eval "$(aws configure export-credentials --format env)"
+   terraform apply -input=false tfplan
+   cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-prod && git worktree prune
+   ```
+
+   Record the result (applied / `No changes` / skipped / failed) for the step 14 report. A failure here means prod's control-plane code is **not** live even though the `qa → prod` PR merged — call it out so the notes aren't read as "fully shipped".
+
 ### Phase 5: Wait 5 minutes (once, after all merges)
 
 6. **Sleep for 5 minutes** (the merge → prod deploy buffer), with countdown updates every minute. One wait covers both repos' deploys:
@@ -265,6 +300,7 @@ This command takes no arguments — the release targets are always `omni` and `g
     - Per repo, if the merge succeeded: Released — the merged `qa → $TIP` PR URL
     - Per repo, if skipped on snapshot mismatch in step 5 (qa moved between confirmation and merge): not released — user should re-run `/release` to review that repo's updated contents
     - Per repo, if there was no pending `qa → $TIP` PR: note it (nothing released for that repo)
+    - gp-ai-projects only (step 5b): whether the prod control-plane Terraform was applied (Lambdas updated), reported `No changes` (already current), was skipped (omni / gp-ai-projects didn't merge this run), or failed (prod build not green, plan showed unexpected drift, or apply error). A skip/failure means the control-plane code is **not** live in prod even though the merge landed — flag it so the notes aren't read as fully shipped.
     - Any ticket tags whose ClickUp lookup failed
     - Any PRs that had no ticket tag (listed as fallback items in the message)
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared as untagged fallback bullets
@@ -277,6 +313,7 @@ This command takes no arguments — the release targets are always `omni` and `g
 - **Snapshot before merge AND before confirmation.** Step 3 must happen before step 4 (confirmation needs the commit list to be informative) and obviously before step 5 (once merged, `qa..$TIP` collapses and the snapshot is lost).
 - **Dedupe ticket tags within a repo; expect cross-repo duplicates.** The same ticket often spans more than one PR; list it once per repo. A ticket that touches both repos lists once under each repo section.
 - **5-minute wait is fixed, not deploy-aware.** This is intentionally simple — it's a hand-wave for the prod deploy pipelines, not a verification. One wait covers both repos. If a deploy genuinely takes longer or shorter, edit the wait inline or interrupt with Ctrl-C.
+- **gp-ai-projects needs a Terraform apply to prod (omni doesn't).** Merging `qa → prod` auto-deploys gp-ai-projects' broker + runner, but its `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform — step 5b applies them to `prod` after the build lands, before the deploy wait. omni has no equivalent step. See the `terraform-deploy` skill in the gp-ai-projects repo.
 - **Don't commit on the user's behalf.** The merges run through `gh pr merge`.
 
 ## Troubleshooting
