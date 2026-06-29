@@ -650,12 +650,23 @@ describe('PeerlyIdentityService', () => {
       httpService.get = vi
         .fn()
         .mockResolvedValue({ data: { profile: { status: 'finalized' } } })
-      const postSpy = vi
-        .fn()
-        .mockResolvedValue({ data: { submission_key: 'sk1' } })
+      // /submit returns the brand payload (same shape /approve returns),
+      // including the echoed CV token which must be stripped before return.
+      const postSpy = vi.fn().mockResolvedValue({
+        data: {
+          account_id: 'acct-1',
+          displayName: 'Jane for Council',
+          submission_key: 'sk1',
+          is_political: true,
+          campaign_verify_token: 'cv-token-1',
+        },
+      })
       httpService.post = postSpy
 
-      await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
+      const result = await service.submitCampaignVerifyTokenToBrand(
+        tcr,
+        'cv-token-1',
+      )
 
       expect(postSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/submit', {
         campaign_verify_token: 'cv-token-1',
@@ -664,6 +675,14 @@ describe('PeerlyIdentityService', () => {
         expect.stringContaining('/approve'),
         expect.anything(),
       )
+      // the embedded CV token is stripped from the returned brand
+      expect(result).toEqual({
+        account_id: 'acct-1',
+        displayName: 'Jane for Council',
+        submission_key: 'sk1',
+        is_political: true,
+      })
+      expect(result).not.toHaveProperty('campaign_verify_token')
     })
 
     it('uses /approve when the brand is still pending', async () => {

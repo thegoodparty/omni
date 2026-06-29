@@ -368,6 +368,10 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     campaign: Campaign,
   ): Promise<BrandApprovalResult | undefined> {
     try {
+      // /submit returns the same brand payload as /approve (verified against
+      // the live response), with the CV token echoed back — strip it before
+      // returning so the credential isn't surfaced to the caller, matching
+      // approve10DLCBrand.
       const response =
         await this.peerlyHttpService.post<Approve10DLCBrandResponseBody>(
           `/v2/tdlc/${peerlyIdentityId}/submit`,
