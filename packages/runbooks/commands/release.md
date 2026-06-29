@@ -177,6 +177,8 @@ This command takes no arguments — the release targets are always `omni` and `g
    ```bash
    cd "$REPO_DIR"
    git fetch origin --prune
+   git worktree remove --force .worktrees/release-cp-prod 2>/dev/null || true   # clear a leftover from a prior crashed/interrupted run — --force won't reuse a still-registered path
+   git worktree prune
    git worktree add --force .worktrees/release-cp-prod origin/prod
    cd .worktrees/release-cp-prod
    bash pmf_engine/scripts/build_lambda_package.sh
@@ -192,6 +194,11 @@ This command takes no arguments — the release targets are always `omni` and `g
    cd "$REPO_DIR/.worktrees/release-cp-prod/infrastructure/environments/prod/pmf-engine-control-plane"
    eval "$(aws configure export-credentials --format env)"
    terraform apply -input=false tfplan
+   ```
+
+   Then remove the worktree — **always, even if `terraform apply` exited non-zero** (on failure, run this before recording the error; the pre-flight teardown above is the backstop, but don't leave the worktree dangling):
+
+   ```bash
    cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-prod && git worktree prune
    ```
 
