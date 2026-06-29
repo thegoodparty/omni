@@ -1627,7 +1627,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   let mockPeerly: {
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
-    approve10DLCBrand: ReturnType<typeof vi.fn>
+    submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
   }
   let mockModel: { findFirstOrThrow: ReturnType<typeof vi.fn> }
   let mockPrisma: { tcrCompliance: typeof mockModel }
@@ -1643,7 +1643,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     mockPeerly = {
       verifyCampaignVerifyPin: vi.fn(),
       createCampaignVerifyToken: vi.fn(),
-      approve10DLCBrand: vi.fn(),
+      submitCampaignVerifyTokenToBrand: vi.fn(),
     }
     mockModel = { findFirstOrThrow: vi.fn() }
     mockPrisma = { tcrCompliance: mockModel }
@@ -1732,7 +1732,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       )
 
       expect(result).toBeUndefined()
-      expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     })
   })
 
@@ -1747,14 +1747,14 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   })
 
   it('submitCampaignVerifyToken calls Peerly when OTEL_SERVICE_ENVIRONMENT=prod', async () => {
-    mockPeerly.approve10DLCBrand.mockResolvedValueOnce({ brand: 'ok' })
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({ brand: 'ok' })
     await withEnv('prod', async () => {
       const result = await service.submitCampaignVerifyToken(
         tcrCompliance,
         'token',
       )
       expect(result).toEqual({ brand: 'ok' })
-      expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledWith(
         tcrCompliance,
         'token',
       )
@@ -1768,7 +1768,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     getIdentityProfile: ReturnType<typeof vi.fn>
     retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
-    approve10DLCBrand: ReturnType<typeof vi.fn>
+    submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
   }
   let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockModel: {
@@ -1819,7 +1819,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         .mockResolvedValue({ profile: { status: 'pending' } }),
       retrieveCampaignVerifyStatus: vi.fn().mockResolvedValue('VERIFIED'),
       createCampaignVerifyToken: vi.fn().mockResolvedValue('cv-token-1'),
-      approve10DLCBrand: vi.fn().mockResolvedValue({ brand: 'ok' }),
+      submitCampaignVerifyTokenToBrand: vi.fn().mockResolvedValue({ brand: 'ok' }),
     }
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaign) }
     mockModel = {
@@ -1860,7 +1860,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       'peerly-stuck',
       campaign,
     )
-    expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledWith(
       stuckRecord,
       'cv-token-1',
     )
@@ -1882,7 +1882,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
 
     expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -1909,14 +1909,14 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       await submitUsecaseIfVerified(service, stuckRecord)
 
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
       expect(mockModel.update).not.toHaveBeenCalled()
     },
   )
 
   it('marks the record error and rethrows when approve fails (sweep stops re-alerting)', async () => {
     const approveErr = new Error('Peerly approve rejected')
-    mockPeerly.approve10DLCBrand.mockRejectedValueOnce(approveErr)
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockRejectedValueOnce(approveErr)
 
     await withEnv('prod', async () => {
       await expect(submitUsecaseIfVerified(service, stuckRecord)).rejects.toBe(
@@ -1941,7 +1941,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
 
-    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -1951,7 +1951,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     await submitUsecaseIfVerified(service, stuckRecord)
 
     expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -1985,7 +1985,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
 
-    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
