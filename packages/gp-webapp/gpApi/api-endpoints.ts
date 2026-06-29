@@ -24,6 +24,7 @@ import {
 import type {
   CampaignStory,
   CampaignStoryRewrite,
+  RaceOpponentThreatTier,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -970,6 +971,7 @@ export type RaceOpponentSummary = {
   background: RaceOpponentSummarySection | null
   keyPositions: RaceOpponentSummaryKeyPosition[]
   generatedAt: string | null
+  threatTier?: RaceOpponentThreatTier
 }
 
 export type RaceOpponentResponse = {
@@ -979,6 +981,10 @@ export type RaceOpponentResponse = {
     // when the collected name doesn't match a roster row (don't guess).
     party: string | null
     isIncumbent: boolean | null
+    // Phase 3: surfaced on the opponent object (in addition to summary) so the
+    // roster can tier and order without opening the detail. Optional until an
+    // opponent has analysis.
+    threatTier?: RaceOpponentThreatTier
     items: RaceOpponentItem[]
     // Optional + nullable: ENG-10588 wires the producer to populate this from
     // the race_opponent_summary step; until then gp-api omits the field.

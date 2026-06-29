@@ -49,4 +49,22 @@ describe('OpponentOverviewCard', () => {
     expect(screen.getByText('Trevor Halberstam')).toBeInTheDocument()
     expect(screen.getByText('TH')).toBeInTheDocument()
   })
+
+  it.each([
+    ['primary_threat', 'Primary threat'],
+    ['watch_closely', 'Watch closely'],
+    ['low_priority', 'Low priority'],
+  ] as const)('renders the %s tier badge label', (tier, label) => {
+    render(
+      <OpponentOverviewCard name="Chuck B" initials="CB" threatTier={tier} />,
+    )
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
+
+  it('renders no threat-tier badge when threatTier is undefined', () => {
+    render(<OpponentOverviewCard name="Chuck B" initials="CB" />)
+    expect(screen.queryByText('Primary threat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Watch closely')).not.toBeInTheDocument()
+    expect(screen.queryByText('Low priority')).not.toBeInTheDocument()
+  })
 })

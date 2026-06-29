@@ -591,6 +591,13 @@ const RaceOpponentList = ({
                       'hover:border-info-600/40',
                       'focus-visible:ring-2 focus-visible:ring-info-600/40',
                       'data-[state=active]:border-info-600 data-[state=active]:ring-2 data-[state=active]:ring-info-600/20',
+                      // Emphasize the primary threat (Lovable highlights it).
+                      // The active-state variants must be re-specified for the
+                      // destructive emphasis, or the unconditional
+                      // data-[state=active]:*-info-600 rules above win on
+                      // specificity and the highlight vanishes when selected.
+                      opponent.threatTier === 'primary_threat' &&
+                        'border-destructive/40 ring-1 ring-destructive/20 hover:border-destructive/60 focus-visible:ring-destructive/40 data-[state=active]:border-destructive data-[state=active]:ring-2 data-[state=active]:ring-destructive/20',
                     )}
                   >
                     <OpponentOverviewCard
@@ -598,6 +605,7 @@ const RaceOpponentList = ({
                       initials={initialsFor(opponent.opponentName)}
                       party={opponent.party}
                       isIncumbent={opponent.isIncumbent}
+                      threatTier={opponent.threatTier}
                     />
                   </Tabs.Trigger>
                 ))}
