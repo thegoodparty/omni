@@ -10,6 +10,10 @@ export type MeetingBriefingOutput =
 export type MeetingSchedule = MeetingScheduleFound | MeetingScheduleNotFound
 
 export interface AgentJobContracts {
+  campaign_tracker_tasks: {
+    Input: CampaignTrackerTasksInputParams
+    Output: CampaignTrackerTasksArtifact
+  }
   compliance_setup: {
     Input: {
       /**
@@ -133,6 +137,10 @@ export interface AgentJobContracts {
     Input: MeetingScheduleInput
     Output: MeetingSchedule
   }
+  opponent_research: {
+    Input: OpponentResearchInputParams
+    Output: OpponentResearchArtifact
+  }
   opportunities_and_challenges: {
     Input: OpportunitiesAndChallengesInputParams
     Output: OpportunitiesAndChallengesArtifact
@@ -141,12 +149,32 @@ export interface AgentJobContracts {
     Input: OppositionResearchInputParams
     Output: OppositionResearchArtifact
   }
+  race_opponent_collection: {
+    Input: OpponentDataCollectionInputParams
+    Output: OpponentDataCollectionArtifact
+  }
+  race_opponent_summary: {
+    Input: OpponentSummaryInputParams
+    Output: OpponentSummaryArtifact
+  }
+  self_research: {
+    Input: SelfResearchInputParams
+    Output: SelfResearchArtifact
+  }
   top_community_issues: {
     Input: {
       /**
        * Human-readable district description (e.g. 'District 5, Chicago, IL').
        */
       district_descriptor: string
+      /**
+       * Optional. L2 district value to match (e.g. 'FAYETTEVILLE CITY WARD 2'). Paired with l2_district_type.
+       */
+      l2_district_name?: string
+      /**
+       * Optional. L2 voter-file column name for the office's district (e.g. 'City_Ward'). When present with l2_district_name, the Haystaq lean query is scoped to the district; when absent, it falls back to state scope.
+       */
+      l2_district_type?: string
       /**
        * Name of the elected official's office (e.g. 'City Council Member').
        */
@@ -183,6 +211,2110 @@ export interface AgentJobContracts {
     }
     Output: TrendingIssuesOutput
   }
+}
+export interface CampaignTrackerTasksInputParams {
+  /**
+   * The candidate's generated campaign plan (summary text) for personalization context.
+   */
+  campaign_plan?: string | null
+  /**
+   * The candidate's story for personalization context.
+   */
+  campaign_story?: string | null
+  /**
+   * City / locality name, for local event search.
+   */
+  city?: string | null
+  /**
+   * General election date (YYYY-MM-DD), or null. Drives the last-30-days GOTV reframe.
+   */
+  election_date?: string | null
+  /**
+   * initial = first full generation; weekly = re-prioritize the upcoming week using the candidate's prior tasks fetched via the tracker-tasks MCP tool.
+   */
+  mode: 'initial' | 'weekly'
+  /**
+   * BallotReady brHashId. Trace / idempotency identifier only - the agent does NOT reason over it.
+   */
+  race_id: string
+  /**
+   * 2-letter state code, for local event search.
+   */
+  state?: string | null
+  /**
+   * Reference date (YYYY-MM-DD) for the upcoming-week window and the GOTV reframe.
+   */
+  today: string
+  /**
+   * The candidate we write FOR. Referred to as 'you' in output, never by name.
+   */
+  user_full_name: string
+}
+export interface CampaignTrackerTasksArtifact {
+  /**
+   * ISO 8601 timestamp the agent emits when it writes the artifact.
+   */
+  generated_at: string
+  /**
+   * The week's top tasks in priority order (most important first), at most 12. At most 3 may be events (kind='event'). Tasks (kind='task') reference a task_catalog id.
+   *
+   * @minItems 0
+   * @maxItems 12
+   */
+  tasks:
+    | []
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
+    | [
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+        {
+          /**
+           * Event venue address; null for tasks or when not found.
+           */
+          address?: string | null
+          /**
+           * task_catalog id for kind='task'; null for events.
+           */
+          catalog_id?: string | null
+          /**
+           * Catalog channel for tasks; 'event' for events.
+           */
+          channel: string
+          /**
+           * YYYY-MM-DD. The event date for kind='event'; null for undated tasks.
+           */
+          date?: string | null
+          description: string
+          kind: 'task' | 'event'
+          phase: 'preLaunch' | 'launch' | 'active' | 'gotv'
+          title: string
+          /**
+           * Event page URL (https); null otherwise.
+           */
+          url?: string | null
+        },
+      ]
 }
 export interface DistrictIssuePulse {
   city: string
@@ -3509,6 +5641,110 @@ export interface MeetingScheduleNotFound {
   time: string
   timezone: string
 }
+export interface OpponentResearchInputParams {
+  /**
+   * The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Any field may be null when unwritten.
+   */
+  candidate_platform?: {
+    /**
+     * The candidate's background.
+     */
+    background?: string | null
+    /**
+     * The issues the candidate is running on.
+     */
+    issues?: string | null
+    /**
+     * Why the candidate is running.
+     */
+    why?: string | null
+  } | null
+  /**
+   * The named opponent to research. The lawful-use case for the L2 residency lookup on this named person has been confirmed.
+   */
+  opponent: {
+    /**
+     * The opponent's full name. Used for source discovery via WebSearch, to confirm a fetched page is about this person, and as the registration name to match in the L2 residency query.
+     */
+    full_name: string
+    /**
+     * true if known to be the incumbent, false if known not to be, null if unknown.
+     */
+    is_incumbent?: boolean | null
+    /**
+     * Optional hints: the opponent's public social-media profile URLs.
+     */
+    social_urls?: string[]
+    /**
+     * Optional hint: the opponent's campaign website. When present, fetch directly; when null/absent, discover via WebSearch.
+     */
+    website_url?: string | null
+  }
+  /**
+   * The race the opponent is running in, hydrated by gp-api before dispatch. Disambiguates the right person/page during discovery (same office, jurisdiction, cycle).
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null. The broker injects this as a WHERE clause on the L2 residency query when present.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null. Confirms the right cycle during discovery.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name: string
+    /**
+     * 2-letter state code (e.g. NC). The broker injects this as the WHERE on the L2 residency query.
+     */
+    state: string
+    [k: string]: unknown
+  }
+}
+export interface OpponentResearchArtifact {
+  /**
+   * One entry per verified vulnerability in the opponent's public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url (or, for a residency finding, when an L2 registration row matched). Findings that fail verification are dropped, never invented. The array may be empty.
+   */
+  findings: {
+    /**
+     * Which vulnerability category this finding belongs to.
+     */
+    category:
+      | 'residency'
+      | 'record'
+      | 'statements'
+      | 'funding'
+      | 'conflicts'
+      | 'narrative'
+    /**
+     * The vulnerability stated plainly: what the candidate could draw a contrast on, grounded in the opponent's own public conduct.
+     */
+    claim: string
+    /**
+     * Optional date the underlying event occurred (not the retrieval date), or null when undated.
+     */
+    occurred_at?: string | null
+    /**
+     * For web findings: a verbatim passage from the fetched page that substantiates the claim (verified via verify_quote). For a residency finding: the matched registration fields rendered as text (e.g. registration state/date).
+     */
+    source_extract: string
+    /**
+     * Optional human-readable title of the source page.
+     */
+    source_title?: string
+    /**
+     * For web findings: the page actually fetched (the broker's returned X-Source-URL after any redirect), matching ^https?://. For a residency finding sourced from L2 (not a fetchable URL), a stable dataset reference (e.g. 'l2:int__l2_nationwide_uniform_w_haystaq').
+     */
+    source_url: string
+  }[]
+  generated_at: string
+  /**
+   * Whether the L2 residency query returned a matching registration for the named opponent. 'available' when a row matched and a residency finding was produced; 'unavailable' when no row matched (no residency finding emitted, never fabricated). The broker's data-required gate is carved out for 'unavailable' so a web-only result can still publish.
+   */
+  residency_data: 'available' | 'unavailable'
+}
 export interface OpportunitiesAndChallengesInputParams {
   /**
    * The PRIMARY election stage's candidate roster only (candidate_count + candidates), or null when the race has no primary. We deliberately omit the race-level numbers here (win number, projected turnout, contacts goal, voter-file counts) because they are stage-specific and differ from the general-election numbers the plan is built on, and the office metadata / dates / partisan_type because they are identical to campaign_strategy_context. For offices that hold a primary, this is the real filed field; the general roster is often empty.
@@ -3741,6 +5977,477 @@ export interface OppositionResearchArtifact {
     party_affiliation: string
   }[]
 }
+export interface OpponentDataCollectionInputParams {
+  /**
+   * The opponents to collect as-collected data for. Names are seeded by gp-api from campaignStrategyOpponent; the URL hints are optional and used as a starting point when present.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * Optional hint: the opponent's Ballotpedia page if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      ballotpedia_url?: string | null
+      /**
+       * The opponent's full name. Used both for source discovery via WebSearch and as the opponent_name on every emitted item.
+       */
+      full_name: string
+      /**
+       * Optional hint: the opponent's campaign website if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      website_url?: string | null
+    },
+    ...{
+      /**
+       * Optional hint: the opponent's Ballotpedia page if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      ballotpedia_url?: string | null
+      /**
+       * The opponent's full name. Used both for source discovery via WebSearch and as the opponent_name on every emitted item.
+       */
+      full_name: string
+      /**
+       * Optional hint: the opponent's campaign website if gp-api already knows it. When present, use it directly; when null/absent, discover it via WebSearch.
+       */
+      website_url?: string | null
+    }[],
+  ]
+  /**
+   * The race the opponents are running in, hydrated by gp-api before dispatch. Used only to disambiguate the right person/page during discovery (same office, jurisdiction, cycle). The agent does NOT reason over it beyond that.
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null. Used to confirm the right cycle during discovery.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name?: string | null
+    /**
+     * 2-letter state code (e.g. NC), or null.
+     */
+    state?: string | null
+    [k: string]: unknown
+  }
+}
+export interface OpponentDataCollectionArtifact {
+  generated_at: string
+  /**
+   * One entry per (opponent, source) actually found and fetched. A source that could not be found or fetched is omitted entirely (never invented). An opponent with neither source contributes zero entries; the array may be empty if no source was fetched for any opponent.
+   */
+  items: {
+    /**
+     * Unstructured extracted page text/sections, as collected. Deliberately not normalized into named fields beyond `text` — that is a later-phase decision. Capture the page text as-is.
+     */
+    content: {
+      /**
+       * The full extracted page text/sections, as-is from the fetched page.
+       */
+      text: string
+    }
+    /**
+     * The opponent this collected content is about. Matches one of the input opponents' full_name.
+     */
+    opponent_name: string
+    /**
+     * Which of the two sources this content came from.
+     */
+    source_type: 'ballotpedia' | 'opponent_website'
+    /**
+     * The page actually fetched (the broker's returned source_url after any redirect). Required — every item is grounded in a real fetched URL.
+     */
+    source_url: string
+  }[]
+}
+export interface OpponentSummaryInputParams {
+  /**
+   * The candidate's own platform, hydrated by gp-api from Website.content.about (NOT CampaignStory). Used to rank threat tiers relative to the candidate and to pair each issue contrast against the candidate's own stance. Absent when the campaign has no website bio yet, in which case issue_contrasts are omitted (empty array).
+   */
+  candidate_platform?: {
+    /**
+     * The candidate's own biography paragraph, as captured for their candidate site.
+     */
+    bio?: string
+    /**
+     * The candidate's own issue positions. An issue contrast's candidate_stance is drawn only from these, never invented and never from CampaignStory.
+     */
+    issues?: {
+      /**
+       * The candidate's own stated stance on this issue.
+       */
+      description: string
+      /**
+       * Short issue title (e.g. 'Water security').
+       */
+      title: string
+    }[]
+  }
+  /**
+   * The opponents to structure, with the already-collected per-source text gp-api hydrated from race_opponent.content.text (Phase 0). This is the ONLY text the agent works from — there is no fetching or discovery.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    },
+    ...{
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    }[],
+  ]
+  /**
+   * The race the opponents are running in, hydrated by gp-api. Light context for phrasing only (office / jurisdiction). The agent does NOT reason over it to add facts and never cites it.
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name?: string | null
+    /**
+     * 2-letter state code (e.g. NC), or null.
+     */
+    state?: string | null
+    [k: string]: unknown
+  }
+}
+export interface OpponentSummaryArtifact {
+  generated_at: string
+  /**
+   * One entry per input opponent, in input order. opponent_name echoes the input verbatim. Every non-null section / position item carries at least one source_url drawn from that opponent's input sources; a section with nothing groundable in the provided text is null (overview/background) or omitted (key_positions item), never invented.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
+       */
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * One entry per candidate issue this opponent's collected text speaks to. Empty when candidate_platform is absent or the opponent's text is silent on every candidate issue. candidate_stance is drawn ONLY from candidate_platform.issues, never invented.
+       */
+      issue_contrasts: {
+        /**
+         * The candidate's own stance on this issue, drawn ONLY from candidate_platform.issues.
+         */
+        candidate_stance: string
+        /**
+         * The candidate issue this contrast is about (matches a candidate_platform.issues title).
+         */
+        issue: string
+        /**
+         * Optional. The input source_url(s) the opponent_stance rests on, drawn verbatim from THIS opponent's input sources. Cite where direct.
+         */
+        opponent_sources?: string[]
+        /**
+         * The opponent's stance on this issue, restated from their collected text.
+         */
+        opponent_stance: string
+        /**
+         * How salient this issue is to voters in this race. Interpretive: carries no source.
+         */
+        salience: 'high' | 'medium' | 'low'
+        /**
+         * Why this issue matters to constituents. Interpretive.
+         */
+        why_it_matters: string
+      }[]
+      /**
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
+       */
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
+       */
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       */
+      what_you_need_to_know: string[]
+      /**
+       * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
+       */
+      where_soft: {
+        /**
+         * Optional. Where the gap is directly evidenced, the input source_url(s) it rests on, drawn verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The vulnerability / opening, grounded in this opponent's collected text.
+         */
+        text: string
+      }[]
+      /**
+       * One sentence on why this opponent ranks where they do, relative to the field and the candidate. Interpretive: carries no source.
+       */
+      why_they_matter: string
+    },
+    ...{
+      /**
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
+       */
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * One entry per candidate issue this opponent's collected text speaks to. Empty when candidate_platform is absent or the opponent's text is silent on every candidate issue. candidate_stance is drawn ONLY from candidate_platform.issues, never invented.
+       */
+      issue_contrasts: {
+        /**
+         * The candidate's own stance on this issue, drawn ONLY from candidate_platform.issues.
+         */
+        candidate_stance: string
+        /**
+         * The candidate issue this contrast is about (matches a candidate_platform.issues title).
+         */
+        issue: string
+        /**
+         * Optional. The input source_url(s) the opponent_stance rests on, drawn verbatim from THIS opponent's input sources. Cite where direct.
+         */
+        opponent_sources?: string[]
+        /**
+         * The opponent's stance on this issue, restated from their collected text.
+         */
+        opponent_stance: string
+        /**
+         * How salient this issue is to voters in this race. Interpretive: carries no source.
+         */
+        salience: 'high' | 'medium' | 'low'
+        /**
+         * Why this issue matters to constituents. Interpretive.
+         */
+        why_it_matters: string
+      }[]
+      /**
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
+       */
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
+       */
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       */
+      what_you_need_to_know: string[]
+      /**
+       * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
+       */
+      where_soft: {
+        /**
+         * Optional. Where the gap is directly evidenced, the input source_url(s) it rests on, drawn verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The vulnerability / opening, grounded in this opponent's collected text.
+         */
+        text: string
+      }[]
+      /**
+       * One sentence on why this opponent ranks where they do, relative to the field and the candidate. Interpretive: carries no source.
+       */
+      why_they_matter: string
+    }[],
+  ]
+}
+export interface SelfResearchInputParams {
+  /**
+   * City / jurisdiction name, or null. Used to disambiguate the right person during discovery.
+   */
+  city?: string | null
+  /**
+   * Optional hints: known news-coverage URLs about the candidate. Used as starting points; the agent still discovers more via WebSearch.
+   */
+  coverage_urls?: string[]
+  /**
+   * The candidate's full name. The person this research is FOR. Used for source discovery via WebSearch and to confirm a fetched page is about this candidate, not a same-named person.
+   */
+  full_name: string
+  /**
+   * Readable office the candidate is running for (e.g. 'Fayetteville City Council'). Disambiguates the right race during discovery.
+   */
+  office_name: string
+  /**
+   * Prior public roles / offices the candidate has held (e.g. 'School Board Member 2018-2022'), to seed record and statements research. Optional; may be empty.
+   */
+  prior_roles?: string[]
+  /**
+   * Optional hints: the candidate's public social-media profile URLs. Used as starting points for the public footprint.
+   */
+  social_urls?: string[]
+  /**
+   * 2-letter state code (e.g. NC). Used to disambiguate the right person/jurisdiction during discovery.
+   */
+  state: string
+  /**
+   * Optional hint: the candidate's campaign website. When present, fetch it directly; when null/absent, discover via WebSearch.
+   */
+  website_url?: string | null
+}
+export interface SelfResearchArtifact {
+  /**
+   * One entry per verified vulnerability in the candidate's own public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url. Findings that fail verification are dropped, never invented. The array may be empty when nothing surfaced.
+   */
+  findings: {
+    /**
+     * Which vulnerability category this finding belongs to.
+     */
+    category:
+      | 'residency'
+      | 'record'
+      | 'statements'
+      | 'funding'
+      | 'conflicts'
+      | 'narrative'
+    /**
+     * The vulnerability stated plainly: what an opponent could attack the candidate on, grounded in the candidate's own public conduct.
+     */
+    claim: string
+    /**
+     * A short, ready-to-use response the candidate could give if attacked on this. First person or neutral; honest, not spin.
+     */
+    drafted_response: string
+    /**
+     * Optional date the underlying event occurred (not the retrieval date), or null when undated.
+     */
+    occurred_at?: string | null
+    /**
+     * A verbatim passage from the fetched page that substantiates the claim. MUST appear literally on source_url (verified via verify_quote).
+     */
+    source_extract: string
+    /**
+     * Optional human-readable title of the source page.
+     */
+    source_title?: string
+    /**
+     * The page actually fetched (the broker's returned X-Source-URL after any redirect). Every finding is grounded in a real fetched URL.
+     */
+    source_url: string
+  }[]
+  generated_at: string
+}
 export interface TopCommunityIssuesOutput {
   data_quality: 'ok' | 'partial' | 'insufficient_signal'
   data_quality_reason?: string
@@ -3800,7 +6507,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -3864,7 +6576,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -3926,195 +6643,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-      ]
-    | [
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4178,7 +6712,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4240,7 +6779,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4302,69 +6846,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4428,7 +6915,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4490,7 +6982,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4552,7 +7049,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4614,69 +7116,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4740,7 +7185,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4802,7 +7252,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4864,7 +7319,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4926,7 +7386,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -4988,69 +7453,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5114,7 +7522,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5176,7 +7589,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5238,7 +7656,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5300,7 +7723,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5362,7 +7790,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5424,69 +7857,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5550,7 +7926,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5612,7 +7993,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5674,7 +8060,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5736,7 +8127,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5798,7 +8194,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5860,7 +8261,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -5922,69 +8328,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6048,7 +8397,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6110,7 +8464,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6172,7 +8531,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6234,7 +8598,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6296,7 +8665,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6358,7 +8732,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6420,7 +8799,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6482,69 +8866,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6608,7 +8935,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6670,7 +9002,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6732,7 +9069,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6794,7 +9136,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6856,7 +9203,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6918,7 +9270,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -6980,7 +9337,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7042,7 +9404,12 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7104,7 +9471,81 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+      ]
+    | [
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7166,7 +9607,548 @@ export interface TopCommunityIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7245,7 +10227,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7309,7 +10296,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7371,195 +10363,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-      ]
-    | [
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7623,7 +10432,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7685,7 +10499,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7747,69 +10566,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7873,7 +10635,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7935,7 +10702,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -7997,7 +10769,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8059,69 +10836,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8185,7 +10905,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8247,7 +10972,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8309,7 +11039,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8371,7 +11106,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8433,69 +11173,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8559,7 +11242,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8621,7 +11309,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8683,7 +11376,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8745,7 +11443,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8807,7 +11510,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8869,69 +11577,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -8995,7 +11646,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9057,7 +11713,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9119,7 +11780,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9181,7 +11847,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9243,7 +11914,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9305,7 +11981,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9367,69 +12048,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9493,7 +12117,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9555,7 +12184,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9617,7 +12251,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9679,7 +12318,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9741,7 +12385,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9803,7 +12452,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9865,7 +12519,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -9927,69 +12586,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
-              url?: string | null
-            }[]
-          }
-          /**
-           * ID of the existing community issue in the feed, if this issue already exists.
-           */
-          existing_issue_id?: string
-          priority: 'low' | 'medium' | 'high'
-          rank: number
-          summary: string
-          title: string
-        },
-        {
-          category:
-            | 'infrastructure_and_transportation'
-            | 'public_safety'
-            | 'education'
-            | 'housing_and_development'
-            | 'health_and_human_services'
-            | 'economic_development'
-            | 'quality_of_life'
-            | 'government_operations'
-            | 'other'
-          detail: {
-            history?: {
-              source_ids: string[]
-              summary: string
-            }
-            legislation?: {
-              source_ids: string[]
-              summary: string
-            }
-            overview: {
-              source_ids: string[]
-              summary: string
-            }
-            quotes?: {
-              items: {
-                attribution?: string
-                source_id: string
-                text: string
-              }[]
-            }
-            research?: {
-              source_ids: string[]
-              summary: string
-            }
-            sources: {
-              article_date?: string | null
-              article_type?:
-                | 'reporting'
-                | 'opinion'
-                | 'editorial'
-                | 'press_release'
-                | 'government_communication'
-                | null
-              id: string
-              name: string
-              publisher?: string | null
-              retrieved_at: string
-              retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10053,7 +12655,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10115,7 +12722,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10177,7 +12789,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10239,7 +12856,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10301,7 +12923,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10363,7 +12990,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10425,7 +13057,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10487,7 +13124,12 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10549,7 +13191,81 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+      ]
+    | [
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }
@@ -10611,7 +13327,548 @@ export interface TrendingIssuesOutput {
               publisher?: string | null
               retrieved_at: string
               retrieved_text_or_snapshot: string
-              source_type: 'news' | 'government_website' | 'research' | 'poll'
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
+              url?: string | null
+            }[]
+          }
+          /**
+           * ID of the existing community issue in the feed, if this issue already exists.
+           */
+          existing_issue_id?: string
+          priority: 'low' | 'medium' | 'high'
+          rank: number
+          summary: string
+          title: string
+        },
+        {
+          category:
+            | 'infrastructure_and_transportation'
+            | 'public_safety'
+            | 'education'
+            | 'housing_and_development'
+            | 'health_and_human_services'
+            | 'economic_development'
+            | 'quality_of_life'
+            | 'government_operations'
+            | 'other'
+          detail: {
+            history?: {
+              source_ids: string[]
+              summary: string
+            }
+            legislation?: {
+              source_ids: string[]
+              summary: string
+            }
+            overview: {
+              source_ids: string[]
+              summary: string
+            }
+            quotes?: {
+              items: {
+                attribution?: string
+                source_id: string
+                text: string
+              }[]
+            }
+            research?: {
+              source_ids: string[]
+              summary: string
+            }
+            sources: {
+              article_date?: string | null
+              article_type?:
+                | 'reporting'
+                | 'opinion'
+                | 'editorial'
+                | 'press_release'
+                | 'government_communication'
+                | null
+              id: string
+              name: string
+              publisher?: string | null
+              retrieved_at: string
+              retrieved_text_or_snapshot: string
+              source_type:
+                | 'news'
+                | 'government_website'
+                | 'research'
+                | 'poll'
+                | 'advocacy_org'
               url?: string | null
             }[]
           }

@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { PrismaService } from 'src/prisma/prisma.service'
 import { RacesService } from './races.service'
 import { RaceFilterDto } from './races.schema'
 
@@ -9,7 +8,7 @@ describe('RacesService.findFilingFeeByBrHashId', () => {
 
   beforeEach(() => {
     raceFindMany = vi.fn()
-    service = new RacesService({} as PrismaService)
+    service = new RacesService()
     Object.defineProperty(service, '_prisma', {
       value: {
         race: {
@@ -216,7 +215,7 @@ describe('RacesService.findFrequencyByBrHashId', () => {
 
   beforeEach(() => {
     raceFindMany = vi.fn()
-    service = new RacesService({} as PrismaService)
+    service = new RacesService()
     Object.defineProperty(service, '_prisma', {
       value: {
         race: {
@@ -273,7 +272,7 @@ describe('RacesService.findRaces — candidacy PII', () => {
 
   beforeEach(() => {
     raceFindMany = vi.fn().mockResolvedValue([{ id: 'race-1' }])
-    service = new RacesService({} as PrismaService)
+    service = new RacesService()
     Object.defineProperty(service, '_prisma', {
       value: { race: { findMany: raceFindMany } },
     })
@@ -282,7 +281,7 @@ describe('RacesService.findRaces — candidacy PII', () => {
   it('omits candidacy email when including candidacies with no explicit columns', async () => {
     await service.findRaces({ includeCandidacies: true } as RaceFilterDto)
 
-    const args = raceFindMany.mock.calls[0][0]
+    const args = raceFindMany.mock.calls[0]?.[0]
     // Never a bare `true` — that would expand to all scalars incl. email.
     expect(args.include.Candidacies).toEqual({ omit: { email: true } })
   })
@@ -293,7 +292,7 @@ describe('RacesService.findRaces — candidacy PII', () => {
       includeCandidacies: true,
     } as RaceFilterDto)
 
-    const args = raceFindMany.mock.calls[0][0]
+    const args = raceFindMany.mock.calls[0]?.[0]
     // raceColumns present -> top-level `select`; the Candidacies relation still
     // carries the omit so email never comes back.
     expect(args.select.Candidacies).toEqual({ omit: { email: true } })

@@ -43,6 +43,7 @@ import {
   getPeerlyCommitteeType,
   getPeerlyLocaleFromOfficeLevel,
   PEERLY_ENTITY_TYPE,
+  PEERLY_PROFILE_STATUS_FINALIZED,
   PeerlyLocalities,
   PEERLY_USECASE,
 } from './peerly.const'
@@ -173,6 +174,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   async getIdentityProfile(
     peerlyIdentityId: string,
     campaign: Campaign,
+    options?: { suppressSlackAlert?: boolean },
   ): Promise<PeerlyIdentityProfileResponseBody | null> {
     this.logger.debug(
       `Fetching identity profile for identityId: ${peerlyIdentityId}`,
@@ -199,7 +201,11 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           'Identity profile for given identity ID could not be found',
         )
       }
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      await this.handleApiError(e, {
+        campaign,
+        peerlyIdentityId,
+        suppressSlackAlert: options?.suppressSlackAlert,
+      })
     }
     return result
   }
@@ -250,12 +256,14 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       email: `info@${domainName}`.substring(0, 100), // Limit to 100 characters per Peerly API docs
       ...(geography.didState !== P2P_JOB_DEFAULTS.DID_STATE
         ? {
+            // Peerly requires didNpaSubset on every jobAreas object even when
+            // empty; omitting it leaves the registration unable to load and
+            // finalize. An empty array is accepted and lets Peerly pick any
+            // area code within the state.
             jobAreas: [
               {
                 didState: geography.didState,
-                ...(geography.didNpaSubset.length > 0 && {
-                  didNpaSubset: geography.didNpaSubset,
-                }),
+                didNpaSubset: geography.didNpaSubset,
               },
             ],
           }
@@ -313,6 +321,66 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
       })
+    }
+  }
+
+  // Attach a CV token to the 10DLC brand and finalize it so it queues for MNO
+  // review (the MNOs are what flip the usecase to activated). A first-time
+  // registration is still `pending`, so /approve submits + finalizes it. A
+  // brand approved earlier without a CV token is already `finalized` and
+  // /approve 400s on it, so /submit first re-opens it to `pending` and attaches
+  // the token; we then fall through to /approve to finalize it. Attaching the
+  // token via /submit alone leaves the brand `pending` and it never activates.
+  async submitCampaignVerifyTokenToBrand(
+    tcrCompliance: TcrCompliance,
+    campaignVerifyToken: string,
+  ): Promise<BrandApprovalResult | undefined> {
+    const { peerlyIdentityId, campaignId } = tcrCompliance
+    if (peerlyIdentityId) {
+      const campaign = await this.campaignsService.findFirstOrThrow({
+        where: { id: campaignId },
+      })
+      let profileStatus: string | undefined
+      try {
+        const profile = await this.getIdentityProfile(
+          peerlyIdentityId,
+          campaign,
+          { suppressSlackAlert: true },
+        )
+        profileStatus = profile?.profile?.status
+      } catch (error) {
+        // A missing/orphaned identity 404s here; fall through to approve, which
+        // surfaces the real error. Anything else is unexpected — rethrow.
+        if (!(error instanceof NotFoundException)) {
+          throw error
+        }
+      }
+      if (profileStatus === PEERLY_PROFILE_STATUS_FINALIZED) {
+        await this.submitCvTokenToFinalizedBrand(
+          peerlyIdentityId,
+          campaignVerifyToken,
+          campaign,
+        )
+      }
+    }
+    return this.approve10DLCBrand(tcrCompliance, campaignVerifyToken)
+  }
+
+  // Re-opens a finalized brand to `pending` and attaches the CV token. The
+  // caller must then /approve to finalize — /submit alone does not queue MNO
+  // review.
+  private async submitCvTokenToFinalizedBrand(
+    peerlyIdentityId: string,
+    campaignVerifyToken: string,
+    campaign: Campaign,
+  ): Promise<void> {
+    try {
+      await this.peerlyHttpService.post<Peerly10DLCBrandSubmitResponseBody>(
+        `/v2/tdlc/${peerlyIdentityId}/submit`,
+        { campaign_verify_token: campaignVerifyToken },
+      )
+    } catch (error) {
+      await this.handleApiError(error, { campaign, peerlyIdentityId })
     }
   }
 
@@ -593,7 +661,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     error: unknown,
     context: PeerlyApiErrorContext,
   ): Promise<never> {
-    if (context.campaign) {
+    if (context.campaign && !context.suppressSlackAlert) {
       const user = await this.usersService.findByCampaign(context.campaign)
       if (user) {
         const formattedError = (isAxiosError(error) && format(error)) || error

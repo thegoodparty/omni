@@ -21,7 +21,7 @@ import {
 import { AiChatFeedbackSchema } from './schemas/AiChatFeedback.schema'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { User } from '../../../generated/prisma'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { buildSlackBlocks } from './util/buildSlackBlocks.util'
 import { SlackChannel } from '../../../vendors/slack/slackService.types'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -310,7 +310,7 @@ export class AiChatService extends createPrismaBase(MODELS.AiChat) {
     candidateContext: string
     priorMessages: AiChatMessage[]
     userContent: string
-  }): ChatCompletionMessageParam[] {
+  }): LlmMessage[] {
     if (!systemPrompt) {
       throw new Error('Missing required param: systemPrompt')
     }
@@ -377,7 +377,7 @@ export class AiChatService extends createPrismaBase(MODELS.AiChat) {
       return
     }
 
-    let messages: ChatCompletionMessageParam[]
+    let messages: LlmMessage[]
     try {
       const { candidateJson, systemPrompt } =
         await this.contentService.getChatSystemPrompt(

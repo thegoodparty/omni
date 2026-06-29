@@ -4,12 +4,15 @@ import { InternalServerErrorException } from '@nestjs/common'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
+import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
@@ -219,12 +222,15 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       pollsService as unknown as PollsService,
       pollIssuesService as never,
       pollIndividualMessage as never,
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -880,7 +886,10 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       domainsService as unknown as DomainsService,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1068,6 +1077,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       pollsService as never,
       {} as never,
       {} as never,
@@ -1075,6 +1085,8 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       contactsService as never,
       s3Service as never,
       usersService as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -1221,6 +1233,18 @@ describe('QueueConsumerService - message type routing', () => {
         },
         {
           provide: CampaignStrategyService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: CampaignTrackerTasksService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentResearchPersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
@@ -1508,6 +1532,18 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         },
         {
           provide: CampaignStrategyService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: CampaignTrackerTasksService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: RaceOpponentResearchPersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },

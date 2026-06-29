@@ -3,6 +3,9 @@ import type { Person, PeopleListResponse } from '@goodparty_org/contracts'
 export interface SegmentResponse {
   id: number
   name?: string
+  // Free-text search term persisted when a list is saved directly from a
+  // contacts search result set (ENG-10518); absent for filter-only lists.
+  search?: string | null
   [key: string]: unknown
 }
 

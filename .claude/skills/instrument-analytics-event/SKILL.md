@@ -1,11 +1,11 @@
 ---
 name: instrument-analytics-event
-description: Add a Segment/Amplitude analytics event when building a feature — in the webapp (frontend, via trackEvent) or in gp-api (backend, via AnalyticsService). Decide whether it earns an event, which side fires it, name it per the standard, register it, and fire it.
+description: Add a Segment/Amplitude analytics event when building a feature — in the webapp (frontend, via trackEvent) or in gp-api (backend, via AnalyticsService). Decide whether it earns an event, which side fires it, name it per the standard, register it, and fire it. For frontend events it then hands off to the event-metadata skill to record governance metadata, and it also handles client events a change removes (routing them to retirement).
 ---
 
 # Instrument an analytics event
 
-Use when adding or changing something a dashboard might ask about — a new flow, screen, primary button, form submit, funnel step, outcome, async job, payment, or status change — in **gp-webapp** (frontend) or **gp-api** (backend). This skill decides whether the moment earns an event, which side should fire it, names it, registers it, and fires it.
+Use when adding or changing something a dashboard might ask about — a new flow, screen, primary button, form submit, funnel step, outcome, async job, payment, or status change — in **gp-webapp** (frontend) or **gp-api** (backend). This skill decides whether the moment earns an event, which side should fire it, names it, registers it, and fires it. For frontend events it then hands off to the `event-metadata` skill to record the event's governance metadata in Amplitude (step 6); and when a change **removes** a client event, it routes that event to retirement (see "When a change removes an event").
 
 Background: events flow app/api → Segment → Amplitude (and HubSpot). There are two registries:
 
@@ -15,6 +15,8 @@ Background: events flow app/api → Segment → Amplitude (and HubSpot). There a
 Naming and governance are adopted from the Analytics Event Tracking Guide (product-os `processes/analytics-standards.md`, owner: Bryan Levine), which remains the source of truth.
 
 ## Procedure
+
+**Before step 1 — is this a pure removal?** If the change only **removes** a frontend `trackEvent` call and adds no new event, skip steps 1–5 (they are addition-oriented and will conclude "nothing to instrument") and go straight to "When a change removes an event" to complete the RETIRE handoff (including its CSV step), then to step 8 (Verify).
 
 1. **Decide whether to instrument.**
 
@@ -40,7 +42,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    Fire from the **webapp (frontend)** when the browser directly observes the moment: a screen view, a button click, a form submit, a funnel step the user navigates.
 
    Fire from **gp-api (backend)** when the moment is server truth the client cannot honestly observe:
-   - an async or AI job completes (the browser only knows it *started*),
+   - an async or AI job completes (the browser only knows it _started_),
    - a payment or subscription confirms,
    - a webhook lands, or a status changes (compliance, domain, publish),
    - the event needs server-only data, or must be tamper-proof / guaranteed to fire.
@@ -58,7 +60,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    ```
 
    - Product area is the navigation area the user is in (frontend) or the domain the work belongs to (backend). Follow the app's navigation as the source of truth for the area name rather than inventing one or leaning on a fixed list; the canonical set is still evolving, so match how the product is organized in the nav today.
-   - If it is something the user *is* or *has* (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
+   - If it is something the user _is_ or _has_ (officeType, isPro, onboardingCompleted), it is a **user property**, not an event — set it with `identifyUser` (frontend, from `@shared/utils/analytics`) or `AnalyticsService.identify` (backend), not a track call.
 
 4. **Register it in the `EVENTS` map.**
 
@@ -88,7 +90,6 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 5. **Fire it.**
 
    **Frontend** — `import { EVENTS, trackEvent } from 'helpers/analyticsHelper'`:
-
    - "Viewed" / screen-entry events fire in a `useEffect` so they run once per view, not on every render:
 
      ```ts
@@ -130,7 +131,60 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    `await` the call only when the outcome must propagate — e.g. a payment must not be considered tracked if Segment failed. `track` already merges in the user's email/hubspotId context and the impersonation flag.
 
-6. **Verify.**
+   **Emailable events — flatten collections into indexed scalar props.** If an event will drive a user email (a HubSpot workflow reads the event's properties to render the template), it must carry **flat scalar** properties, not arrays or nested objects — HubSpot custom-event properties are predefined flat fields and cannot index into an array. So encode a list as numbered scalar keys, not an array of objects:
+
+   ```ts
+   // ❌ HubSpot can't read into this
+   { topIssues: [{ title, summary, priority }, ...] }
+
+   // ✅ flat, indexed, HubSpot-friendly
+   {
+     topIssueCount: 5,
+     topIssue1Title: '…', topIssue1Summary: '…', topIssue1Priority: 'high',
+     topIssue2Title: '…', topIssue2Summary: '…', topIssue2Priority: 'medium',
+     // …trendingIssue1Title, etc.
+   }
+   ```
+
+   Key format stays camelCase: `<collection><N><Field>`, 1-based. Cap `N` at a fixed, documented max (e.g. top 5 by rank) so the property set stays bounded and predefinable in HubSpot, and keep the true total in a `<collection>Count` prop. This applies to **any** event a user email is built from, not just this one.
+
+6. **Record the event's metadata (frontend/client events).**
+
+   **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff (including its CSV step), then go to step 8.
+
+   A new event is illegible later without its governance metadata. For a new **frontend** event, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
+   - `mode=add`,
+   - `event` = the Title Case event-name string you just registered (e.g. `Briefing Assistant - Agenda Submitted`),
+   - `purposeDraft` = the one-line question this event answers (you already reasoned about this when naming it),
+   - `productHint` = `win | serve | shared` (from the nav area you used to name it),
+   - `supersedes` = the event it replaces — **only** if this event explicitly replaces a named one. Never infer a supersession from an unrelated event being removed in the same change.
+
+   Backend (`segment.types.ts`) events are out of scope for metadata for now (ClickUp 86aj7bdkp) — skip the handoff for them.
+
+   If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff (including its CSV step), then complete steps 7–8.
+
+7. **Record code provenance (frontend AND backend).**
+
+   Unlike the metadata handoff above (client-only), this step runs for **every** event you
+   instrument — frontend or backend. It writes a *provisional* row into the omni provenance
+   CSV (`packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`),
+   the curated summary of instrumentation-related git events in this repo, read by the
+   DATA-1952 monitor. Resolve the PR number once (`gh pr view --json number -q .number` on the
+   current branch; omit `--pr` if none yet), then from the repo root:
+
+   ```bash
+   uv run --project packages/runbooks/scripts/python \
+     python packages/runbooks/scripts/python/amplitude_event_provenance_backfill.py \
+     upsert --event "Briefing Assistant - Agenda Submitted" --direction add --pr 1234
+   ```
+
+   The engine stores the PR as a full link (`https://github.com/thegoodparty/omni/pull/1234`),
+   writes today's date and status `present`, and leaves the exact merge SHA blank for the
+   periodic git-walk (`packages/runbooks/books/refresh-event-provenance.md`) to fill. The skill is the freshness
+   writer; the walk is the truth writer. Do not hand-edit the CSV — always go through `upsert`
+   so the file's sort and quoting stay identical to a full walk.
+
+8. **Verify.**
 
    **Frontend** (from the repo root):
 
@@ -149,6 +203,10 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    To confirm the event actually reaches Segment, trigger the interaction and watch the Segment debugger — frontend: also the browser network tab for the Segment `t` call; backend: the `[ANALYTICS]` debug logs.
 
+   To confirm the provenance write, `git status` should show the modified
+   `packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`
+   with exactly the row(s) for the event(s) you touched changed.
+
 ## When to skip
 
 - The interaction is on the **skip** list in step 1.
@@ -156,9 +214,29 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 - It is a variation of an existing event — add a property instead of a new event.
 - It is a user attribute, not an action — use `identifyUser` (frontend) or `AnalyticsService.identify` (backend), not a track call.
 
+## When a change removes an event
+
+If the change you are working on **removes** a `trackEvent` call (a frontend/client event is being deleted), that event still reads as in use in Amplitude until its metadata says otherwise — and "no recent data" alone cannot tell an intentional removal from a silent break. So when you see a client `EVENTS` entry / `trackEvent` literal being deleted:
+
+1. Confirm with the human that it is an intentional removal, and ask the human for a one-line reason (e.g. "feature removed", "replaced by new flow"). Block until they supply it — the handoff path trusts the incoming `reason` and will not re-prompt for it.
+2. Hand off to the **`event-metadata`** skill with a RETIRE payload: `mode=retire`, `event` = the removed Title Case event-name string, `reason` = the one-line reason the human gave. `event-metadata` stamps `not in use` with the date and PR.
+3. Record the removal in the provenance CSV (frontend AND backend), regardless of whether
+   the metadata handoff applied:
+
+   ```bash
+   uv run --project packages/runbooks/scripts/python \
+     python packages/runbooks/scripts/python/amplitude_event_provenance_backfill.py \
+     upsert --event "Briefing Assistant - Old Event" --direction retire --pr 1234
+   ```
+
+   This stamps today's `retired_date` + PR link (creating the row if the event predates the
+   CSV), flipping its derived status to `removed`. The exact merge SHA is left for the git-walk.
+
+Adds and removes are **independent**. A removal happening in the same change as an addition does _not_ mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
+
 ## Common mistakes
 
-- Firing a server-truth outcome from the frontend, or double-firing it on both sides — the browser only sees a job *start*; let gp-api emit the completion.
+- Firing a server-truth outcome from the frontend, or double-firing it on both sides — the browser only sees a job _start_; let gp-api emit the completion.
 - Renaming a backend event marked `⚠️ DO NOT MODIFY` — it breaks the HubSpot workflow that triggers on that exact string.
 - `await`-ing a non-critical backend `track` and letting a Segment hiccup block or fail the request — use `void … .catch(() => undefined)` for telemetry.
 - Passing a string literal to `trackEvent` / `track` instead of an `EVENTS` entry — defeats the single source of truth and drifts the catalog.
@@ -166,3 +244,4 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 - Wrong casing — group keys PascalCase, event-name values Title Case, property keys camelCase.
 - Firing a "Viewed" event on every render instead of once in a `useEffect`.
 - Tracking something page views already cover, or a moment no dashboard question depends on.
+- Putting an array or nested object on an event that drives a HubSpot email — flatten the collection into indexed scalar props (`topIssue1Title`, …), see step 5.

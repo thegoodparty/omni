@@ -17,7 +17,7 @@ import {
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { camelToSentence } from 'src/shared/util/strings.util'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { AiChatMessage } from '../chat/aiChat.types'
 import { GenerationStatus } from './aiContent.types'
 import {
@@ -240,7 +240,7 @@ export class AiContentService {
     }
 
     const chat = existingChat || []
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       { role: 'user', content: prompt },
       ...chat.map(toChatCompletionMessage).filter(isChatCompletionMessage),
     ]

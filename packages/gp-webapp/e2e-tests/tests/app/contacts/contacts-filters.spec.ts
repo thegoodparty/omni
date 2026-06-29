@@ -21,8 +21,6 @@ const selectCheckbox = async (sheet: Locator, label: string, value: string) => {
   await checkboxLabel.locator('xpath=..').getByRole('checkbox').click()
 }
 
-// let filterCallCount = 0
-
 const closePanel = async (page: Page, panel: Locator) => {
   await pRetry(
     async () => {
@@ -44,31 +42,6 @@ const testFilterField = async (
     )[]
   },
 ) => {
-  // filterCallCount++
-
-  /**
-   * Why:
-   * For whatever reason, the amount of page navigation in this test suite can cause memory crashes
-   * in the browser. It's not that reflective of actual user behavior, so we reload the page every few
-   * filters in order to avoid the memory issues.
-   */
-  // Commenting this out for now since it was causing tests to fail.
-  //  Swain to follow up with a long term solution.
-
-  // if (filterCallCount % 8 === 0) {
-  //   await page.reload({ waitUntil: 'domcontentloaded' })
-  //   await NavigationHelper.dismissOverlays(page)
-  //   await expect(
-  //     page
-  //       .locator('table')
-  //       .first()
-  //       .locator('tbody tr')
-  //       .first()
-  //       .locator('td')
-  //       .first(),
-  //   ).toHaveText(/.+/)
-  // }
-
   await page.getByTestId('edit-list-button').first().click()
   const sheet = filtersSheet(page, /update segment/i)
 
@@ -117,6 +90,13 @@ const testFilterField = async (
     }
   }
 
+  // Opening the person panel is one of the two heaviest waits per call (a
+  // GET /v1/contacts/:id fetch plus its own skeleton clear). Only pay it when
+  // the step actually asserts something on the panel — applyContactsQuery's
+  // waitForContactsTableReady has already confirmed the filter refetched and
+  // returned a row, which is all the panel-less steps (e.g. Age) need.
+  if (config.expectSheetValues.length === 0) return
+
   const firstRow = table.locator('tbody tr').first()
   const panel = personContactPanel(page)
 
@@ -136,22 +116,14 @@ const testFilterField = async (
   await closePanel(page, panel)
 }
 
-test.beforeEach(async ({ page }) => {
-  await blockSlowScripts(page)
-})
-
-// @dev-only: this ~20-step filter walk is the suite's longest test. With each
-// step now gated on a real data-ready wait (segment refetch + skeleton clear +
-// person-detail load) it is correct but slow, and on the cold, single-shard
-// ephemeral PR preview it overruns even an 8-min budget and times out — burning
-// the whole shard across retries. It runs reliably on the warm post-merge
-// develop stack (where it historically completed in ~2-3 min), so gate it there.
-// Follow-up: split this monolith into per-filter-group tests so a single shard
-// can carry it on PRs. Excluded from PR runs via --grep-invert @dev-only.
-test('validate contacts filters @dev-only', async ({ page }) => {
-  // Generous budget for the warm develop stack; the data-ready waits add time.
-  test.setTimeout(8 * 60 * 1000)
-
+// Provision an elected-office user, land on the Constituent Data surface, and
+// seed the one segment that testFilterField then edits in place. Each split
+// test runs this independently (its own isolated user + page), so the four
+// tests parallelize across Playwright workers instead of running as one serial
+// monolith. setupElectedOfficeUser is the expensive part (create user + win a
+// race + await async EO-org creation), but the four run concurrently, so it
+// costs ~one setup of wall-clock, not four.
+const setUpFilterableContacts = async (page: Page) => {
   await setupElectedOfficeUser(page, {
     zip: '82001',
     office: 'Cheyenne City Council - Ward 1',
@@ -183,6 +155,25 @@ test('validate contacts filters @dev-only', async ({ page }) => {
     await createBtn.click({ force: true })
     await expect(sheet).toBeHidden({ timeout: 15000 })
   })
+}
+
+// This was one ~20-step monolith — the suite's longest test at ~15 min, pinned
+// to a single worker because test.step()s run serially. It's split into four
+// independent test()s so Playwright's workers/shards run them in parallel,
+// cutting the suite's critical path. Each owns its setup + seed segment, so
+// there's no shared state and they can't race each other; coverage is unchanged
+// (same filter groups, regrouped). Not @dev-only: the Serve "Constituent Data"
+// surface has no flag/pro gating, so these run on PRs too. The per-test budget
+// is wide enough to absorb a cold preview (setup + ~6-8 filter applications).
+const TEST_TIMEOUT = 8 * 60 * 1000
+
+test.beforeEach(async ({ page }) => {
+  await blockSlowScripts(page)
+})
+
+test('contacts filters: demographics', async ({ page }) => {
+  test.setTimeout(TEST_TIMEOUT)
+  await setUpFilterableContacts(page)
 
   await test.step('Filter: Gender', async () => {
     await testFilterField(page, {
@@ -224,6 +215,30 @@ test('validate contacts filters @dev-only', async ({ page }) => {
     })
   })
 
+  await test.step('Filter: Marital Status', async () => {
+    await testFilterField(page, {
+      select: [{ label: 'Marital Status', values: ['Married'] }],
+      expectSheetValues: [{ label: 'Marital Status', value: /Married/i }],
+    })
+
+    await testFilterField(page, {
+      select: [{ label: 'Marital Status', values: ['Single'] }],
+      expectSheetValues: [{ label: 'Marital Status', value: /Single/i }],
+    })
+  })
+
+  await test.step('Filter: Veteran Status', async () => {
+    await testFilterField(page, {
+      select: [{ label: 'Veteran Status', values: ['Yes'] }],
+      expectSheetValues: [{ label: 'Veteran Status', value: /Yes/i }],
+    })
+  })
+})
+
+test('contacts filters: contact methods and voting', async ({ page }) => {
+  test.setTimeout(TEST_TIMEOUT)
+  await setUpFilterableContacts(page)
+
   await test.step('Filter: Cell Phone', async () => {
     await testFilterField(page, {
       select: [{ label: 'Cell Phone', values: ['Has Cell Phone'] }],
@@ -264,6 +279,18 @@ test('validate contacts filters @dev-only', async ({ page }) => {
     })
   })
 
+  await test.step('Filter: Business Owner', async () => {
+    await testFilterField(page, {
+      select: [{ label: 'Business Owner', values: ['Yes'] }],
+      expectSheetValues: [{ label: 'Business Owner', value: /Yes/i }],
+    })
+  })
+})
+
+test('contacts filters: household and socioeconomic', async ({ page }) => {
+  test.setTimeout(TEST_TIMEOUT)
+  await setUpFilterableContacts(page)
+
   await test.step('Filter: Children', async () => {
     await testFilterField(page, {
       select: [{ label: 'Children', values: ['Yes'] }],
@@ -285,32 +312,6 @@ test('validate contacts filters @dev-only', async ({ page }) => {
     await testFilterField(page, {
       select: [{ label: 'Homeowner', values: ['No'] }],
       expectSheetValues: [{ label: 'Homeowner', value: /No/i }],
-    })
-  })
-
-  await test.step('Filter: Marital Status', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Marital Status', values: ['Married'] }],
-      expectSheetValues: [{ label: 'Marital Status', value: /Married/i }],
-    })
-
-    await testFilterField(page, {
-      select: [{ label: 'Marital Status', values: ['Single'] }],
-      expectSheetValues: [{ label: 'Marital Status', value: /Single/i }],
-    })
-  })
-
-  await test.step('Filter: Veteran Status', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Veteran Status', values: ['Yes'] }],
-      expectSheetValues: [{ label: 'Veteran Status', value: /Yes/i }],
-    })
-  })
-
-  await test.step('Filter: Business Owner', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Business Owner', values: ['Yes'] }],
-      expectSheetValues: [{ label: 'Business Owner', value: /Yes/i }],
     })
   })
 
@@ -347,6 +348,13 @@ test('validate contacts filters @dev-only', async ({ page }) => {
       ],
     })
   })
+})
+
+test('contacts filters: ethnicity and multi-filter combos', async ({
+  page,
+}) => {
+  test.setTimeout(TEST_TIMEOUT)
+  await setUpFilterableContacts(page)
 
   await test.step('Filter: Ethnicity', async () => {
     await testFilterField(page, {

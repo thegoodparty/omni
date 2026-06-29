@@ -25,6 +25,7 @@ import {
   StatsResponse,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
+import { CountContactsDTO } from '../schemas/countContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -209,6 +210,8 @@ export class ContactsService {
     const fetchPeople = async (
       districtParams: { districtId: string },
       filters: FilterObject,
+      groupByHousehold: boolean,
+      peopleSearch: string | undefined,
     ) => {
       try {
         const response = await lastValueFrom(
@@ -219,7 +222,8 @@ export class ContactsService {
               resultsPerPage,
               page,
               filters,
-              search,
+              search: peopleSearch,
+              groupByHousehold,
             },
             {
               headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
@@ -236,9 +240,66 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    const groupByHousehold = this.segmentGroupsByHousehold(segment)
+    // A list saved from a search result set persists its search term. When the
+    // request itself carries no live search, re-apply the saved list's stored
+    // search so selecting it reproduces the searched-down view (ENG-10518). A
+    // live search the user typed always wins over the stored one.
+    const effectiveSearch =
+      search || (await this.segmentToSearch(segment, organization))
     return this.withOrgDistrictResolution(organization, (params) =>
-      fetchPeople(params, filters),
+      fetchPeople(params, filters, groupByHousehold, effectiveSearch),
     )
+  }
+
+  // Live matching-voter count for the in-progress (unsaved) filter set the
+  // segment builder is showing (ENG-10517). Runs the same filter translation a
+  // saved segment would and reads only the people-api total — resultsPerPage: 1
+  // so no real rows are loaded. Pro-gated like search/named segments: a non-pro
+  // requester only ever sees the base-list preview, never an arbitrary count.
+  async countContacts(
+    filterInput: CountContactsDTO,
+    organization: Organization,
+  ): Promise<number> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Filtering voter data is only available for pro campaigns',
+      )
+    }
+
+    const filters = convertVoterFileFilterToFilters(filterInput)
+    // The builder counts the filter set plus any active free-text search so the
+    // number matches the list it would save (ENG-10517/10518).
+    const search = filterInput.search || undefined
+
+    const fetchCount = async (districtParams: { districtId: string }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people`,
+            {
+              ...districtParams,
+              resultsPerPage: 1,
+              page: 1,
+              filters,
+              search,
+              groupByHousehold: false,
+            },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return (response.data as PeopleListResponse).pagination.totalResults
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to count from people API')
+        throw new BadGatewayException('Failed to count from people API')
+      }
+    }
+
+    return this.withOrgDistrictResolution(organization, fetchCount)
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
@@ -355,13 +416,14 @@ export class ContactsService {
     const downloadPeople = async (
       districtParams: { districtId: string },
       filters: FilterObject,
+      groupByHousehold: boolean,
     ) => {
       let response: { data: Readable }
       try {
         response = await lastValueFrom(
           this.httpService.post<Readable>(
             `${PEOPLE_API_URL}/v1/people/download`,
-            { ...districtParams, filters },
+            { ...districtParams, filters, groupByHousehold },
             {
               headers: {
                 Authorization: `Bearer ${this.getValidS2SToken()}`,
@@ -457,8 +519,9 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    const groupByHousehold = this.segmentGroupsByHousehold(segment)
     return this.withOrgDistrictResolution(organization, (params) =>
-      downloadPeople(params, filters),
+      downloadPeople(params, filters, groupByHousehold),
     )
   }
 
@@ -561,6 +624,39 @@ export class ContactsService {
       )
 
     return customSegment ? convertVoterFileFilterToFilters(customSegment) : {}
+  }
+
+  // A saved list created from a search result set stores its search term.
+  // Built-in segments and the default view never carry one (ENG-10518).
+  private async segmentToSearch(
+    segment: string | undefined,
+    organization: Organization,
+  ): Promise<string | undefined> {
+    const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
+    if (this.resolveBuiltInSegment(resolvedSegment)) return undefined
+
+    const customSegment =
+      await this.voterFileFilterService.findByIdAndOrganizationSlug(
+        parseInt(resolvedSegment),
+        organization.slug,
+      )
+
+    return customSegment?.search ?? undefined
+  }
+
+  // Only the built-in door-knocking channel de-dupes by household; custom and
+  // named segments (and every other channel) list one row per voter.
+  private segmentGroupsByHousehold(segment: string | undefined): boolean {
+    const builtIn =
+      defaultSegmentToFiltersMap[
+        // Dynamic key lookup into const object — TS can't narrow string to keys
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        (segment ||
+          ALL_CONTACTS_SEGMENT) as keyof typeof defaultSegmentToFiltersMap
+      ]
+    return (
+      !!builtIn && 'groupByHousehold' in builtIn && builtIn.groupByHousehold
+    )
   }
 
   private resolveBuiltInSegment(segment: string): FilterObject | undefined {

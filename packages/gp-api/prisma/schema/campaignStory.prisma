@@ -13,5 +13,7 @@ model CampaignStory {
   // server-side to bound Gemini cost/abuse. Counts attempts, not successes.
   rewriteCount Int @default(0) @map("rewrite_count")
 
+  raceOpponentContrasts RaceOpponentContrast[]
+
   @@map("campaign_story")
 }

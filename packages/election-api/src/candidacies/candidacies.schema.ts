@@ -1,5 +1,5 @@
 import { createZodDto } from 'nestjs-zod'
-import { STATE_CODES } from 'src/shared/constants/states'
+import { STATE_CODES } from '@goodparty_org/nest-common'
 import { toUpper } from 'src/shared/util/strings.util'
 import { z } from 'zod'
 import { Prisma } from '../generated/prisma'

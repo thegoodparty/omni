@@ -352,7 +352,7 @@ export class CrmCampaignsService {
       const msg = `CRM Push cancelled - validation failed for campaign slug: ${campaign.slug}.`
       this.logger.error(
         {
-          errors: validated.error.errors,
+          errors: validated.error.issues,
           fields: fieldsToSync,
         },
         msg,

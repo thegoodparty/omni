@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { filtersSchema } from './schemas/filters.schema'
 
 const withDistrictInput = <T extends z.ZodRawShape>(shape: T) =>
-  z.object({ districtId: z.string().uuid() }).extend(shape)
+  z.object({ districtId: z.guid() }).extend(shape)
 
 export const listPeopleSchema = withDistrictInput({
   filters: filtersSchema,
@@ -27,6 +27,10 @@ export const listPeopleSchema = withDistrictInput({
     .optional()
     .default(50),
   page: z.coerce.number().int().min(1).max(MAX_PAGE).optional().default(1),
+  // Door-knocking de-dupes by physical household: one representative voter per
+  // residence-address composite (see buildHouseholdKeySql). Off → one row per
+  // voter (the legacy behavior every other channel uses).
+  groupByHousehold: z.coerce.boolean().optional().default(false),
 })
   // Cap the effective SQL OFFSET ((page - 1) * resultsPerPage): the per-field
   // caps alone still permit a multi-hundred-million-row OFFSET.
@@ -43,6 +47,9 @@ export class ListPeopleDTO extends createZodDto(listPeopleSchema) {}
 
 export const downloadPeopleSchema = withDistrictInput({
   filters: filtersSchema,
+  // Mirror the list endpoint: door-knocking exports one row per physical
+  // household so the CSV matches the on-screen de-duplicated list.
+  groupByHousehold: z.coerce.boolean().optional().default(false),
 })
 
 export class DownloadPeopleDTO extends createZodDto(downloadPeopleSchema) {}
@@ -52,14 +59,14 @@ export class StatsDTO extends createZodDto(withDistrictInput({})) {}
 export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),
-  excludeIds: z.array(z.string().uuid()).optional(),
+  excludeIds: z.array(z.guid()).optional(),
 })
 
 export class SamplePeopleDTO extends createZodDto(samplePeopleSchema) {}
 
 export class GetPersonParamsDTO extends createZodDto(
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
   }),
 ) {}
 

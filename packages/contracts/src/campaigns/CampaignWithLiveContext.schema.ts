@@ -1,7 +1,10 @@
-import { z } from 'zod'
 import { CampaignWithPositionNameSchema } from './CampaignWithPositionName.schema'
-import { OrganizationSchema } from './Organization.schema'
-import { RaceTargetMetricsSchema } from './RaceTargetMetrics.schema'
+import { OrganizationSchema, type Organization } from './Organization.schema'
+import {
+  RaceTargetMetricsSchema,
+  type RaceTargetMetrics,
+} from './RaceTargetMetrics.schema'
+import type { ReadCampaignOutput } from './ReadCampaignOutput.schema'
 
 /**
  * The full single-campaign read shape (e.g. `GET /v1/campaigns/:id` over
@@ -20,6 +23,11 @@ export const CampaignWithLiveContextSchema =
     organization: OrganizationSchema.optional(),
   })
 
-export type CampaignWithLiveContext = z.infer<
-  typeof CampaignWithLiveContextSchema
->
+// Mirrors `ReadCampaignOutput`'s hand-typed `data`/`details`/`aiContent` instead
+// of the schema's loose `z.infer`, so consumers keep strong typing on those
+// fields. The schema above remains the runtime source of truth.
+export type CampaignWithLiveContext = ReadCampaignOutput & {
+  positionName: string | null
+  raceTargetMetrics: RaceTargetMetrics | null
+  organization?: Organization
+}

@@ -92,6 +92,27 @@ export const EVENTS = {
     ResponseCompleted: 'AI Assistant - Response Completed',
     ResponseFailed: 'AI Assistant - Response Failed',
   },
+  // Know Your Opponent (Win). SelfResearchCompleted is server-truth: it fires
+  // when the self-research agent job lands its findings and the pass reaches
+  // completed (the browser only sees the job start). ContrastUsed fires when a
+  // candidate routes an approved contrast into their Campaign Story or a draft
+  // texting Outreach — a DRAFT only, marking intent to use a contrast, not a
+  // send. ContrastEdited fires when the candidate edits a cleared or approved
+  // contrast's text before routing it.
+  RaceOpponent: {
+    SelfResearchCompleted: 'Win - Self Research Completed',
+    ContrastUsed: 'Win - Contrast Used',
+    ContrastEdited: 'Win - Contrast Edited',
+  },
+  // Community issues (Serve). The agent jobs generate the feed server-side; the
+  // browser only sees a job *start*. These fire on job completion and carry the
+  // issue headline + summary so a downstream email (HubSpot) can render them.
+  CommunityIssues: {
+    InitialIssuesGenerated: 'Community Issues - Initial Issues Generated',
+    HighPriorityTrendingIssueCreated:
+      'Community Issues - High Priority Trending Issue Created',
+    TopIssuePriorityChanged: 'Community Issues - Top Issue Priority Changed',
+  },
 }
 
 export type UserContext = {

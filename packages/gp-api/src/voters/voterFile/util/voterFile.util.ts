@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Campaign } from '../../../generated/prisma'
-import { STATE_CODES } from '@/shared/constants/states'
+import { STATE_CODES } from '@goodparty_org/nest-common'
 import { OrgDistrict } from 'src/organizations/organizations.types'
 import { GetVoterFileSchema } from '../schemas/GetVoterFile.schema'
 import {
@@ -332,6 +332,8 @@ function customFiltersToQuery(filters: CustomFilter[]) {
     party: [],
     age: [],
     gender: [],
+    phone: [],
+    ethnicity: [],
   }
 
   filters.forEach((filter) => {
@@ -422,6 +424,36 @@ function customFiltersToQuery(filters: CustomFilter[]) {
       case 'gender_unknown':
         filterConditions.gender.push('"Voters_Gender" IS NULL')
         break
+      case 'has_cell_phone':
+        filterConditions.phone.push(
+          '"VoterTelephones_CellPhoneFormatted" IS NOT NULL',
+        )
+        break
+      case 'has_landline':
+        filterConditions.phone.push(
+          '"VoterTelephones_LandlineFormatted" IS NOT NULL',
+        )
+        break
+      case 'ethnicity_european':
+        filterConditions.ethnicity.push(
+          '"EthnicGroups_EthnicGroup1Desc" = \'European\'',
+        )
+        break
+      case 'ethnicity_asian':
+        filterConditions.ethnicity.push(
+          '"EthnicGroups_EthnicGroup1Desc" LIKE \'%Asian%\'',
+        )
+        break
+      case 'ethnicity_hispanic':
+        filterConditions.ethnicity.push(
+          '"EthnicGroups_EthnicGroup1Desc" LIKE \'%Hispanic%\'',
+        )
+        break
+      case 'ethnicity_african_american':
+        filterConditions.ethnicity.push(
+          '"EthnicGroups_EthnicGroup1Desc" LIKE \'%African%\'',
+        )
+        break
     }
   })
 
@@ -438,6 +470,12 @@ function customFiltersToQuery(filters: CustomFilter[]) {
   const genderCondition = filterConditions.gender.length
     ? `(${filterConditions.gender.join(' OR ')})`
     : null
+  const phoneCondition = filterConditions.phone.length
+    ? `(${filterConditions.phone.join(' OR ')})`
+    : null
+  const ethnicityCondition = filterConditions.ethnicity.length
+    ? `(${filterConditions.ethnicity.join(' OR ')})`
+    : null
 
   // Combine all categories with AND
   const finalCondition = [
@@ -445,6 +483,8 @@ function customFiltersToQuery(filters: CustomFilter[]) {
     partyCondition,
     ageCondition,
     genderCondition,
+    phoneCondition,
+    ethnicityCondition,
   ]
     .filter(Boolean)
     .join(' AND ')

@@ -39,6 +39,13 @@ model CampaignStrategy {
   // first. Appended on each race-change reset; length = office-change count.
   previousRaceIds String[] @default([]) @map("previous_race_ids")
 
+  // One-shot claim that guards the initial campaign-tracker bootstrap. Both
+  // plan sections complete on independent SQS messages (possibly different
+  // pods); the first to flip this false->true in a single conditional update
+  // wins the right to materialize static rows + dispatch the initial CAP run,
+  // so concurrent completions can't double-dispatch.
+  trackerBootstrapped Boolean @default(false) @map("tracker_bootstrapped")
+
   opportunities CampaignStrategyOpportunity[]
   challenges    CampaignStrategyChallenge[]
   opponents     CampaignStrategyOpponent[]

@@ -36,6 +36,12 @@ vi.mock('@shared/user/ImpersonationBanner', () => ({ default: () => null }))
 vi.mock('@styleguide/components/ui/icons', () => ({
   MenuIcon: () => null,
   XMarkIcon: () => null,
+  SparklesIcon: () => null,
+  ClipboardListIcon: () => null,
+  FlagIcon: () => null,
+  SendIcon: () => null,
+  UsersRoundIcon: () => null,
+  SwordsIcon: () => null,
 }))
 vi.mock('@styleguide', () => ({
   Sidebar: ({ children }: { children: React.ReactNode }) => children,

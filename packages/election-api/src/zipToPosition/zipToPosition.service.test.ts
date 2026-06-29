@@ -353,8 +353,8 @@ describe.skipIf(process.env.CI === 'true')(
       const result = await service.search({ zip: '90210' })
 
       expect(result).toHaveLength(1)
-      expect(result[0].id).toBe(ztpBeverlyHillsId)
-      expect(result[0].city).toBe('Beverly Hills')
+      expect(result[0]?.id).toBe(ztpBeverlyHillsId)
+      expect(result[0]?.city).toBe('Beverly Hills')
       expect(result.find((r) => r.id === ztpAtlantaId)).toBeUndefined()
     })
   },

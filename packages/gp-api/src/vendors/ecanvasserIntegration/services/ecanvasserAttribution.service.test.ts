@@ -274,47 +274,58 @@ describe('EcanvasserAttributionService', () => {
 
   it('prefers the phone-bearing row when an externalId is duplicated', async () => {
     const { campaignId, organization } = await seedCampaign('dup-contact')
-    // Two contact rows share externalId 105 (a delta re-sync appended a second).
-    // The newer (higher id) row has no phone; the older one carries the phone.
-    // Attribution must use the phone-bearing row, not the most recent.
-    const ecanvasser = await service.prisma.ecanvasser.create({
-      data: {
-        campaignId,
-        apiKey: 'test-key',
-        contacts: {
-          create: [
-            {
-              externalId: 105,
-              firstName: 'John',
-              lastName: 'Smith',
-              type: 'Resident',
-              mobilePhone: '5557778888',
-              createdBy: 0,
-            },
-            {
-              externalId: 105,
-              firstName: 'John',
-              lastName: 'Smith',
-              type: 'Resident',
-              mobilePhone: null,
-              createdBy: 0,
-            },
-          ],
-        },
-        interactions: {
-          create: [
-            {
-              externalId: 905,
-              type: 'Canvass',
-              contactId: 105,
-              createdBy: 0,
-              date: new Date('2026-03-01T12:00:00.000Z'),
-            },
-          ],
-        },
-      },
-      include: { contacts: true, interactions: true },
-    })
+    // A single fetched batch can carry the same externalId twice (the API
+    // returns a contact more than once across an overlapping window, or twice
+    // within one page set). The DB unique index now stops both rows from
+    // persisting, but attribution still resolves the in-memory batch: the
+    // newer (higher id) row has no phone, the older one carries the phone, and
+    // attribution must use the phone-bearing row, not the most recent one.
+    const phoneRow: EcanvasserContact = {
+      id: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      externalId: 105,
+      firstName: 'John',
+      lastName: 'Smith',
+      type: 'Resident',
+      gender: null,
+      dateOfBirth: null,
+      yearOfBirth: null,
+      houseId: null,
+      uniqueIdentifier: null,
+      organization: null,
+      volunteer: false,
+      deceased: false,
+      donor: false,
+      homePhone: null,
+      mobilePhone: '5557778888',
+      email: null,
+      actionId: null,
+      lastInteractionId: null,
+      createdBy: 0,
+      ecanvasserId: 1,
+      ecanvasserHouseId: null,
+    }
+    const noPhoneRow: EcanvasserContact = {
+      ...phoneRow,
+      id: 2,
+      mobilePhone: null,
+    }
+    const interaction: EcanvasserInteraction = {
+      id: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      externalId: 905,
+      type: 'Canvass',
+      rating: null,
+      date: new Date('2026-03-01T12:00:00.000Z'),
+      status: 'Active',
+      contactId: 105,
+      createdBy: 0,
+      notes: null,
+      source: null,
+      ecanvasserId: 1,
+    }
 
     const lookup = vi
       .spyOn(contacts, 'findPersonByPhone')
@@ -323,8 +334,8 @@ describe('EcanvasserAttributionService', () => {
     const result = await attribution.attributeDoorKnocking(
       campaignId,
       organization,
-      ecanvasser.contacts,
-      ecanvasser.interactions,
+      [noPhoneRow, phoneRow],
+      [interaction],
     )
 
     expect(result).toEqual({ matched: 1, skipped: 0 })

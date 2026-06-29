@@ -1,0 +1,33 @@
+name: styleguide
+
+on:
+  pull_request:
+    branches-ignore: [qa, master]
+  push:
+    branches: [develop, qa, master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: styleguide-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  WORKSPACE: packages/styleguide
+
+jobs:
+  ci:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-node-workspace
+        with:
+          app: styleguide
+
+      - name: Test
+        run: npm run test -w ${{ env.WORKSPACE }}

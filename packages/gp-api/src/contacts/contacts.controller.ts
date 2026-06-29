@@ -1,10 +1,20 @@
-import { Controller, Get, Param, Query, Res, UsePipes } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Res,
+  UsePipes,
+} from '@nestjs/common'
 import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
+import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
 import {
   DownloadContactsDTO,
@@ -52,6 +62,20 @@ export class ContactsController {
   ) {
     await this.contactsService.assertContactsAccess(organization, user)
     return this.contactsService.getDistrictStats(organization)
+  }
+
+  @Post('count')
+  async countContacts(
+    @Body() filters: CountContactsDTO,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.contactsService.assertContactsAccess(organization, user)
+    const count = await this.contactsService.countContacts(
+      filters,
+      organization,
+    )
+    return { count }
   }
 
   @Get(':id')

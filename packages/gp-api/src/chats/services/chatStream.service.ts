@@ -5,7 +5,7 @@ import {
   ChatMessageSegmentKind,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
   LlmService,
   LlmStreamResult,
@@ -120,10 +120,8 @@ const roleToOpenAiRole = (
 const toLlmMessages = (
   systemPrompt: string,
   history: ChatMessage[],
-): ChatCompletionMessageParam[] => {
-  const out: ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt },
-  ]
+): LlmMessage[] => {
+  const out: LlmMessage[] = [{ role: 'system', content: systemPrompt }]
   for (const m of history) {
     const role = roleToOpenAiRole(m.role)
     if (role === 'system') {

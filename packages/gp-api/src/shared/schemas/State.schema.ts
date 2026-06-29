@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { STATE_CODES, STATES } from '../constants/states'
+import { STATE_CODES, STATES } from '@goodparty_org/nest-common'
 
 export function StateSchema(stateLength: 'long' | 'short' = 'short') {
   return z.string().refine(

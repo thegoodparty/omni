@@ -18,8 +18,12 @@ import {
 } from './place.types'
 import { getDedupedRacesBySlug } from 'src/races/races.util'
 
-const COUNTY_MTFCC = { G4020: true }
-const DISTRICT_MTFCC = { G5420: true, G5410: true, G5400: true }
+const COUNTY_MTFCC: Record<string, boolean> = { G4020: true }
+const DISTRICT_MTFCC: Record<string, boolean> = {
+  G5420: true,
+  G5410: true,
+  G5400: true,
+}
 
 @Injectable()
 export class PlacesService extends createPrismaBase(MODELS.Place) {
@@ -94,9 +98,9 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
         place.others = []
         if (!place.children) continue
         for (const child of place.children) {
-          if (COUNTY_MTFCC[child.mtfcc!]) {
+          if (child.mtfcc && COUNTY_MTFCC[child.mtfcc]) {
             place.counties.push(child)
-          } else if (DISTRICT_MTFCC[child.mtfcc!]) {
+          } else if (child.mtfcc && DISTRICT_MTFCC[child.mtfcc]) {
             place.districts.push(child)
           } else {
             place.others.push(child)
