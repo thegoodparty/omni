@@ -243,7 +243,7 @@ const CampaignStoryCard = ({
   )
 
   return (
-    <Card className="p-6">
+    <Card className="p-6" data-testid={`campaign-story-card-${id}`}>
       <div className="flex flex-col gap-1">
         <h3 className="text-xl font-semibold text-foreground">{title}</h3>
         <p className="text-sm text-muted-foreground">{description}</p>

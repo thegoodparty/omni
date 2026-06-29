@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const { mockServerRequest, mockGetServerToken, mockIsTokenExpired } =
-  vi.hoisted(() => ({
-    mockServerRequest: vi.fn(),
-    mockGetServerToken: vi.fn(),
-    mockIsTokenExpired: vi.fn(),
-  }))
+const {
+  mockServerRequest,
+  mockGetServerToken,
+  mockIsTokenExpired,
+  mockGetFlagOverrides,
+} = vi.hoisted(() => ({
+  mockServerRequest: vi.fn(),
+  mockGetServerToken: vi.fn(),
+  mockIsTokenExpired: vi.fn(),
+  mockGetFlagOverrides: vi.fn(),
+}))
 
 vi.mock('gpApi/server-request', () => ({
   serverRequest: (...args: unknown[]) => mockServerRequest(...args),
@@ -16,12 +21,17 @@ vi.mock('helpers/tokenHelper', () => ({
   isTokenExpired: (token: string) => mockIsTokenExpired(token),
 }))
 
+vi.mock('./flagOverrides', () => ({
+  getFlagOverrides: () => mockGetFlagOverrides(),
+}))
+
 import { getFlagVariants } from './getFlagVariants'
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockGetServerToken.mockResolvedValue('token')
   mockIsTokenExpired.mockReturnValue(false)
+  mockGetFlagOverrides.mockResolvedValue(null)
 })
 
 describe('getFlagVariants', () => {
@@ -62,5 +72,63 @@ describe('getFlagVariants', () => {
     mockServerRequest.mockRejectedValue(new Error('ECONNREFUSED'))
 
     await expect(getFlagVariants()).resolves.toBeNull()
+  })
+})
+
+describe('getFlagVariants with an e2e override', () => {
+  it('honors the override without a server token (preview test user)', async () => {
+    // Preview e2e users authenticate via a cookie the Clerk server session can't
+    // read, so getServerToken returns nothing — the override must still apply.
+    mockGetServerToken.mockResolvedValue(undefined)
+    mockGetFlagOverrides.mockResolvedValue({
+      'campaign-story': { value: 'on' },
+    })
+
+    expect(await getFlagVariants()).toEqual({
+      'campaign-story': { value: 'on' },
+    })
+    expect(mockServerRequest).not.toHaveBeenCalled()
+  })
+
+  it('merges the override over gp-api variants (override wins)', async () => {
+    mockServerRequest.mockResolvedValue({
+      ok: true,
+      data: {
+        variants: {
+          'campaign-story': { value: 'off' },
+          'other-flag': { value: 'on' },
+        },
+      },
+    })
+    mockGetFlagOverrides.mockResolvedValue({
+      'campaign-story': { value: 'on' },
+    })
+
+    expect(await getFlagVariants()).toEqual({
+      'campaign-story': { value: 'on' },
+      'other-flag': { value: 'on' },
+    })
+  })
+
+  it('applies the override when gp-api resolution fails', async () => {
+    mockServerRequest.mockResolvedValue({ ok: false, data: null })
+    mockGetFlagOverrides.mockResolvedValue({
+      'campaign-story': { value: 'on' },
+    })
+
+    expect(await getFlagVariants()).toEqual({
+      'campaign-story': { value: 'on' },
+    })
+  })
+
+  it('applies the override when gp-api throws', async () => {
+    mockServerRequest.mockRejectedValue(new Error('ECONNREFUSED'))
+    mockGetFlagOverrides.mockResolvedValue({
+      'campaign-story': { value: 'on' },
+    })
+
+    expect(await getFlagVariants()).toEqual({
+      'campaign-story': { value: 'on' },
+    })
   })
 })
