@@ -100,7 +100,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
      }, [briefingId])
      ```
 
-     In a URL-stable wizard where the stage component stays mounted across steps, a `useEffect` keyed on a value that does not change on Back (or `[]`) will not re-fire on re-entry. Key it on the active-stage identifier (e.g. `[currentStep]`), or render each stage with `key={currentStep}` so it remounts — so the stage `Viewed` re-fires every time the user enters the stage, including via Back.
+     In a URL-stable wizard where the stage component stays mounted across steps, a `useEffect` keyed on a value that does not change on Back (or `[]`) will not re-fire on re-entry. Key the `useEffect` on the active-stage identifier (e.g. `[currentStep]`) so the `Viewed` re-fires every time the user enters the stage, including via Back. Avoid `key={currentStep}` on stage components that hold form state — remounting tears down all component-local state (form values, validation, in-flight requests) on every navigation. Reserve `key={currentStep}` only for purely display stages that carry no local state.
 
    - Action / completion / outcome events fire in the handler, with camelCase properties:
 
