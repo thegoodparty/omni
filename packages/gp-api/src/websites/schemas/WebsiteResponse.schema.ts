@@ -1,5 +1,6 @@
 import { DomainStatus, WebsiteStatus } from '../../generated/prisma'
 import { z } from 'zod'
+import { zCoerceDate } from '@goodparty_org/contracts'
 import { GooglePlacesApiResponseSchema } from 'src/shared/schemas'
 
 const WebsiteContentSchema = z
@@ -41,8 +42,8 @@ const WebsiteContentSchema = z
 const DomainSchema = z
   .object({
     id: z.number().int(),
-    createdAt: z.coerce.date(),
-    updatedAt: z.coerce.date(),
+    createdAt: zCoerceDate(),
+    updatedAt: zCoerceDate(),
     name: z.string(),
     websiteId: z.number().int(),
     status: z.nativeEnum(DomainStatus),
@@ -50,14 +51,14 @@ const DomainSchema = z
     price: z.number().nullable(),
     paymentId: z.string().nullable(),
     emailForwardingDomainId: z.string().nullable(),
-    registrantVerifiedAt: z.coerce.date().nullable(),
+    registrantVerifiedAt: zCoerceDate().nullable(),
   })
   .nullable()
 
 export const MyWebsiteResponseSchema = z.object({
   id: z.number().int(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
   campaignId: z.number().int(),
   status: z.nativeEnum(WebsiteStatus),
   hasEverBeenPublished: z.boolean(),
@@ -74,8 +75,8 @@ export const MyWebsiteResponseSchema = z.object({
 // this allowlist drops everything else, including the user's clerkId.
 export const PublicWebsiteResponseSchema = z.object({
   id: z.number().int(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
   campaignId: z.number().int(),
   status: z.nativeEnum(WebsiteStatus),
   vanityPath: z.string(),

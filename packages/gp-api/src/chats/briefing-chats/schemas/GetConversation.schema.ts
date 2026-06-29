@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zDate } from '@goodparty_org/contracts'
 
 export const getConversationSchema = z.object({
   conversationId: z.string(),
@@ -7,7 +8,7 @@ export const getConversationSchema = z.object({
       id: z.string(),
       role: z.enum(['user', 'assistant', 'system', 'tool']),
       content: z.string(),
-      createdAt: z.date(),
+      createdAt: zDate(),
     }),
   ),
 })
