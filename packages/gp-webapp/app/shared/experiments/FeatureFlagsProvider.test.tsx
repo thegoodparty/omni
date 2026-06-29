@@ -424,6 +424,27 @@ describe('regression coverage', () => {
     })
   })
 
+  it('reports to Sentry when a 200 response fails schema validation', async () => {
+    // A valid HTTP 200 whose body doesn't match the contract (deploy skew /
+    // contract drift) must fail safe to empty AND surface to Sentry.
+    mockUser = fullUser
+    fetchMock.mockImplementationOnce(
+      async () =>
+        ({
+          ok: true,
+          json: async () => ({ variants: 'not-a-record' }),
+        }) as unknown as Response,
+    )
+
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper })
+
+    await waitFor(() => expect(result.current.ready).toBe(true))
+    expect(reportErrorToSentry).toHaveBeenCalledWith(expect.any(Error), {
+      context: 'FeatureFlagsProvider.refresh',
+    })
+    expect(result.current.all()).toEqual({})
+  })
+
   it('stays silent on an auth-expiry redirect (opaque response), clearing to empty', async () => {
     // An expired session redirects to /login; with redirect:'manual' that arrives
     // as an opaque (ok:false, type:'opaqueredirect') response. That's routine, so

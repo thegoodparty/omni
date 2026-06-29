@@ -129,6 +129,13 @@ export const FeatureFlagsProvider = ({
         )
         if (parsed.success) {
           next = parsed.data.variants
+        } else {
+          // 200 but the body doesn't match the contract (gp-api deploy skew /
+          // contract drift): fail safe to empty, but surface it.
+          reportErrorToSentry(
+            new Error('Feature flags response failed schema validation'),
+            { context: 'FeatureFlagsProvider.refresh' },
+          )
         }
       } else if (res.type !== 'opaqueredirect') {
         // A non-ok response that ISN'T the expected auth-expiry redirect (opaque)

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { UnauthorizedException } from '@nestjs/common'
 
 const { mockFetchV2 } = vi.hoisted(() => ({ mockFetchV2: vi.fn() }))
 
@@ -31,6 +32,18 @@ describe('FeaturesController', () => {
 
     await expect(controller.getVariants(user)).resolves.toEqual({ variants })
     expect(features.getAllVariants).toHaveBeenCalledWith(user)
+  })
+
+  it('rejects a caller with no user (e.g. M2M token) instead of NPE-ing', async () => {
+    const features = {
+      getAllVariants: vi.fn(),
+    } as Partial<FeaturesService> as FeaturesService
+    const controller = new FeaturesController(features)
+
+    await expect(controller.getVariants(undefined)).rejects.toThrow(
+      UnauthorizedException,
+    )
+    expect(features.getAllVariants).not.toHaveBeenCalled()
   })
 })
 
