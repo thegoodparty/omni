@@ -1326,7 +1326,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
       return undefined
     }
-    return this.peerlyIdentityService.approve10DLCBrand(
+    return this.peerlyIdentityService.submitCampaignVerifyTokenToBrand(
       tcrCompliance,
       campaignVerifyToken,
     )
