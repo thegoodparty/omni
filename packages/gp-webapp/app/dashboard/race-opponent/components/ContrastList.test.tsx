@@ -51,9 +51,7 @@ describe('<ContrastList>', () => {
   it('never renders a contrast missing its sourceUrl', () => {
     const noSource = baseContrast({ id: 2, sourceUrl: '' })
 
-    const { container } = render(
-      <ContrastList initialContrasts={[noSource]} />,
-    )
+    const { container } = render(<ContrastList initialContrasts={[noSource]} />)
 
     expect(
       screen.queryByText(noSource.contrastSentence),
@@ -72,6 +70,7 @@ describe('<ContrastList>', () => {
       baseContrast({ id: 5, contrastSentence: '' }),
       baseContrast({ id: 6, issueTag: '' }),
       baseContrast({ id: 7, sourceUrl: '   ' }),
+      baseContrast({ id: 8, routing: '' as ContrastRecord['routing'] }),
     ]
 
     const { container } = render(
