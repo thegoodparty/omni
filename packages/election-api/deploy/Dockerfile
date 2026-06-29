@@ -39,6 +39,10 @@ ARG CACHEBUST
 
 # Install dependencies
 COPY package.json package-lock.json ./
+# election-api/tsconfig.json extends ../../tsconfig.base.json; the in-image
+# `npm run build` needs it present or tsc reverts to defaults (no skipLibCheck
+# / esModuleInterop) and fails typechecking node_modules type declarations.
+COPY tsconfig.base.json ./
 COPY packages/election-api/package.json ./packages/election-api/package.json
 # election-api imports @goodparty_org/nest-common; nest build typechecks against
 # it, so the prebuilt workspace package must be present for module resolution.
