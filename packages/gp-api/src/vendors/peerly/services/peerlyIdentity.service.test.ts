@@ -766,6 +766,10 @@ describe('PeerlyIdentityService', () => {
       )
 
       // no identity → /approve only; no profile fetch, /submit, or /finalize
+      expect(postSpy).toHaveBeenCalledWith(
+        '/v2/tdlc/null/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
       expect(getSpy).not.toHaveBeenCalledWith(
         expect.stringContaining('/finalize'),
       )
