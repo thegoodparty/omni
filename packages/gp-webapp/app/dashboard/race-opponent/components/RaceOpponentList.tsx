@@ -14,6 +14,7 @@ import {
   ScaleIcon,
   SearchIcon,
   SwordsIcon,
+  TriangleAlertIcon,
   UserCheckIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
@@ -248,6 +249,37 @@ const WhatYouNeedToKnow = ({
   </OpponentSection>
 )
 
+// Phase 3: the "where they're soft" vulnerability list, with an openings count.
+// Relaxed sourcing — an item renders whether or not it carries a source. Hidden
+// when there are no items.
+const WhereTheySoft = ({
+  items,
+}: {
+  items: NonNullable<RaceOpponentSummary['whereSoft']>
+}): React.JSX.Element => (
+  <OpponentSection
+    title="Where they're soft"
+    icon={<TriangleAlertIcon className="size-4" aria-hidden />}
+    meta={`${items.length} ${items.length === 1 ? 'opening' : 'openings'}`}
+  >
+    <ul className="flex w-full min-w-0 list-none flex-col gap-3">
+      {items.map((item) => (
+        <li
+          key={item.text}
+          className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3"
+        >
+          <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+            {item.text}
+          </p>
+          {item.sources && item.sources.length > 0 && (
+            <SummarySources sources={item.sources} />
+          )}
+        </li>
+      ))}
+    </ul>
+  </OpponentSection>
+)
+
 const OpponentSummaryView = ({
   summary,
 }: {
@@ -277,6 +309,9 @@ const OpponentSummaryView = ({
           ))}
         </ul>
       </section>
+    )}
+    {summary.whereSoft && summary.whereSoft.length > 0 && (
+      <WhereTheySoft items={summary.whereSoft} />
     )}
   </div>
 )
