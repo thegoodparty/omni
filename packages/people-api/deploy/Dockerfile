@@ -41,6 +41,10 @@ COPY packages/people-api/package.json ./packages/people-api/package.json
 # so the prebuilt workspace package must be present for module resolution.
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/dist ./packages/contracts/dist
+# people-api also imports @goodparty_org/nest-common; nest build typechecks
+# against it, so the prebuilt workspace package must be present too.
+COPY packages/nest-common/package.json ./packages/nest-common/package.json
+COPY packages/nest-common/dist ./packages/nest-common/dist
 RUN npm cache clean --force && \
     npm ci --build-from-source --ignore-scripts --workspace people-api
 
@@ -78,6 +82,10 @@ COPY packages/people-api/package.json ./packages/people-api/package.json
 # container crashes on boot with "Cannot find module '@goodparty_org/contracts'".
 COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/dist ./packages/contracts/dist
+# The compiled dist also imports @goodparty_org/nest-common, so its prebuilt
+# workspace package must be present for npm to link it into node_modules.
+COPY packages/nest-common/package.json ./packages/nest-common/package.json
+COPY packages/nest-common/dist ./packages/nest-common/dist
 # Install only production dependencies with --ignore-scripts
 RUN npm ci --omit=dev --ignore-scripts --workspace people-api
 

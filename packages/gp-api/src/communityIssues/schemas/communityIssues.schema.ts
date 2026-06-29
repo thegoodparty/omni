@@ -30,7 +30,7 @@ export const CommunityIssueListResponseSchema = z.object({
 
 export const CommunityIssueDetailSchema = CommunityIssueCardSchema.extend({
   archived: z.boolean(),
-  detail: z.record(z.unknown()).nullable(),
+  detail: z.record(z.string(), z.unknown()).nullable(),
   relatedBriefings: z.array(
     z.object({
       meetingBriefingId: z.string(),

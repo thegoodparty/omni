@@ -50,7 +50,7 @@ class ListPollsQueryDTO extends createZodDto(
 
 class PollParamsDto extends createZodDto(
   z.object({
-    pollId: z.string().uuid(),
+    pollId: z.guid(),
   }),
 ) {}
 

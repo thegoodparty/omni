@@ -9,7 +9,7 @@ export const parseJsonString = <T>(
   schema: z.ZodType<T>,
   errorMessage?: string,
 ) =>
-  z.preprocess((input, ctx) => {
+  z.preprocess((input, ctx): unknown => {
     if (input === undefined) return
 
     try {

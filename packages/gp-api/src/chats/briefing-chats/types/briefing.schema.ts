@@ -80,7 +80,7 @@ export const BriefingSchema = z.object({
     topIssues: z.array(
       z.object({ name: z.string(), score: z.number(), tier: z.string() }),
     ),
-    ideology: z.record(z.number()).nullable(),
+    ideology: z.record(z.string(), z.number()).nullable(),
   }),
 
   footer: z.object({

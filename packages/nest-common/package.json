@@ -1,0 +1,32 @@
+{
+  "name": "@goodparty_org/nest-common",
+  "version": "0.0.1",
+  "description": "Shared backend infra (state constants, log redaction) for the GoodParty NestJS services",
+  "private": true,
+  "license": "CC0-1.0",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "es-toolkit": "^1.44.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
