@@ -3,9 +3,10 @@ import { getServerToken, isTokenExpired } from 'helpers/tokenHelper'
 import type { ExperimentVariants } from '@goodparty_org/contracts'
 
 // Server-side flag resolution for the current user. gp-api evaluates Amplitude
-// Experiment server-to-server, so the result is correct on first paint and
-// never depends on the browser reaching Amplitude. Returns null for anonymous
-// requests or on any failure, in which case the client SDK fetch takes over.
+// Experiment server-to-server, so the result is correct on first paint and the
+// browser never has to reach Amplitude (ad blockers / blocked networks can't
+// affect gating). Returns null for anonymous requests or on failure, in which
+// case every flag reads off — the client never falls back to Amplitude.
 export async function getFlagVariants(): Promise<ExperimentVariants | null> {
   // Mirror fetchUserCampaign: skip the call entirely for unauthenticated
   // requests so bots hammering the app don't generate authed-endpoint traffic.
@@ -14,14 +15,23 @@ export async function getFlagVariants(): Promise<ExperimentVariants | null> {
     return null
   }
 
-  const result = await serverRequest(
-    'GET /v1/experiment/variants',
-    {},
-    { ignoreResponseError: true },
-  )
+  // serverRequest (ofetch) throws on network-level errors (DNS, timeout,
+  // connection refused); ignoreResponseError only suppresses non-2xx HTTP
+  // responses, not throws. A bare throw here would reject PageWrapper's
+  // Promise.all and 500 every authed SSR render, so fail closed to null (every
+  // flag reads off) on any failure instead.
+  try {
+    const result = await serverRequest(
+      'GET /v1/experiment/variants',
+      {},
+      { ignoreResponseError: true },
+    )
 
-  if (!result.ok) {
+    if (!result.ok) {
+      return null
+    }
+    return result.data.variants
+  } catch {
     return null
   }
-  return result.data.variants
 }
