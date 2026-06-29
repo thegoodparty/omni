@@ -25,7 +25,9 @@ export type NavHeaderIconKey = keyof typeof NAV_HEADER_ICONS
 
 // Full-bleed page header (icon + tab name) that mirrors the active sidebar nav
 // item. Rendered by DashboardLayout above the padded content wrapper so it sits
-// flush against the layout edges, matching the Serve nav prototype.
+// flush against the layout edges, matching the Serve nav prototype. Desktop only
+// (hidden below lg): on mobile the title lives in the top bar (MobileMenuTrigger)
+// instead, so it isn't shown twice.
 const DashboardNavHeader = ({
   icon,
   label,
@@ -39,7 +41,7 @@ const DashboardNavHeader = ({
   return (
     <div
       className={cn(
-        'flex items-center gap-2 border-b border-border bg-background px-6 py-4',
+        'hidden items-center gap-2 border-b border-border bg-background px-6 py-4 lg:flex',
         centered && 'justify-center',
       )}
     >
