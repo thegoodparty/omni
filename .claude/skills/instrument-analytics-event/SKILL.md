@@ -25,10 +25,10 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    **Instrument** these moments:
    - Every distinct stage of a multi-step flow, each fired as a `Viewed` (on entry) and a `Completed` (on advance) — per-stage drop-off is the dashboard question, so instrument the whole staircase, not just the first screen and the final outcome. Any flow with more than one step counts, not just classic onboarding funnels. This holds even when a stage does not change the URL (a wizard, stepper, or modal flow): the root `RouteTracker` fires a page view only on a route change, so URL-stable stages are invisible to it and must be instrumented explicitly. The unit is the stage, not the click: the `Viewed` event must fire every time the user enters a stage, including when they press Back and re-enter a stage they already passed. Sub-interactions inside a stage (field edits, toggles) still follow the skip list below. The Back and Next button clicks themselves are also skipped — the stage transition is captured by the stage's `Viewed` / `Completed` events, not by click events on the navigation controls.
    - Primary calls to action: the main action a screen exists to drive.
-   - Outcomes: the user produced the thing the feature makes (a poll sent, a website published).
+   - Outcomes: the user produced the thing the feature makes (a poll sent, a website published). When a flow's final stage both completes the funnel and produces the outcome, fire both — the stage `Completed` (funnel completion) and the outcome event (the thing produced) answer different questions; do not collapse them into one.
    - Blockers and errors that stop a user (they explain drop-off).
 
-   Concrete pattern — a multi-step flow done right (from the live registry): `Onboarding V2` and `Serve Onboarding` each fire `… - {Stage} Viewed` when a screen renders and `… - {Stage} Completed` when the user advances, all within a single route (e.g. `Onboarding V2 - Office Viewed` then `Onboarding V2 - Office Completed`). Counter-example to fix, not copy: the `Schedule Text Campaign` wizard fired only `Next` / `Back` / `Submit` clicks, so per-stage entry and completion — and therefore drop-off — are invisible. The fix there is a `Viewed` + `Completed` per stage, not more click events.
+   Concrete pattern — a multi-step flow done right (from the live registry): `Onboarding V2` fires `… - {Stage} Viewed` when a screen renders and `… - {Stage} Completed` when the user advances, all within a single route (e.g. `Onboarding V2 - Office Viewed` then `Onboarding V2 - Office Completed`). A purely informational stage with no user decision (a success page, a read-only value-prop slide) is legitimately `Viewed`-only — the "no decision" skip below covers its lack of a `Completed`. Counter-example to fix, not copy: the `Schedule Text Campaign` wizard fired only `Next` / `Back` / `Submit` clicks, so per-stage entry and completion — and therefore drop-off — are invisible. The fix there is a `Viewed` + `Completed` per stage, not more click events.
 
    **Capture the core action; let the higher-level metric be derived.** Do not mint separate `Activated`, `Converted`, or `First-Time` events. Activation and conversion are metrics defined on top of the action events above. Which specific action counts as activation or conversion for a product (for example, a poll sent in Win) is a product designation that can change without re-instrumenting, and Amplitude derives first-occurrence-per-user from any event automatically. Your job is to make sure the underlying core action is tracked.
 
@@ -99,6 +99,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
        trackEvent(EVENTS.BriefingAssistant.BriefingViewed, { briefingId })
      }, [briefingId])
      ```
+
+     In a URL-stable wizard where the stage component stays mounted across steps, a `useEffect` keyed on a value that does not change on Back (or `[]`) will not re-fire on re-entry. Key it on the active-stage identifier (e.g. `[currentStep]`), or render each stage with `key={currentStep}` so it remounts — so the stage `Viewed` re-fires every time the user enters the stage, including via Back.
 
    - Action / completion / outcome events fire in the handler, with camelCase properties:
 
