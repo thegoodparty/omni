@@ -4,11 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { trackEvent } from 'helpers/analyticsHelper'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
 import RaceOpponentList from './RaceOpponentList'
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
+}))
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 
 const withSummary: RaceOpponentResponse = {
@@ -314,6 +320,48 @@ describe('<RaceOpponentList>', () => {
   it('hides the where-you-contrast section when there are no contrasts', () => {
     render(<RaceOpponentList initialData={withSummary} />)
     expect(screen.queryByText('Where you contrast')).not.toBeInTheDocument()
+  })
+
+  it('fires Win - Opponent Profile Viewed when an opponent detail is shown', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+    // No CampaignProvider in the test, so campaignId resolves to undefined, but
+    // the key must be present in the payload.
+    expect(trackEvent).toHaveBeenCalledWith('Win - Opponent Profile Viewed', {
+      campaignId: undefined,
+    })
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires once per distinct opponent viewed and dedups a revisit', async () => {
+    const twoOpponents: RaceOpponentResponse = {
+      ...withSummary,
+      opponents: [
+        withSummary.opponents[0]!,
+        {
+          opponentName: 'Second Opponent',
+          party: null,
+          isIncumbent: null,
+          items: [],
+          summary: null,
+        },
+      ],
+    }
+    render(<RaceOpponentList initialData={twoOpponents} />)
+    // First opponent's detail is shown on mount.
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+
+    // Viewing the second opponent fires again (a new name).
+    await userEvent.click(screen.getByRole('tab', { name: /Second Opponent/i }))
+    expect(trackEvent).toHaveBeenCalledTimes(2)
+
+    // Returning to the first opponent does NOT re-fire (deduped via viewedRef).
+    await userEvent.click(screen.getByRole('tab', { name: /Jane Rival/i }))
+    expect(trackEvent).toHaveBeenCalledTimes(2)
+  })
+
+  it('never renders a finance summary card', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+    expect(screen.queryByText(/finance|fundraising|cash on hand/i)).toBeNull()
   })
 
   it('keeps the raw source research collapsed by default when a summary is present', () => {
