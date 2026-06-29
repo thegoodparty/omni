@@ -112,6 +112,10 @@ describe('ClerkAuthService', () => {
         externalUserId: 'user_clerk_1',
         actor: undefined,
       })
+      expect(verifyToken).toHaveBeenCalledWith(CLERK_TOKEN, {
+        secretKey: process.env.CLERK_SECRET_KEY,
+        authorizedParties: undefined,
+      })
     })
 
     it('includes the actor when the Clerk token carries a valid act claim', async () => {
@@ -153,6 +157,10 @@ describe('ClerkAuthService', () => {
       await expect(service.verifyM2MToken('mt_token')).resolves.toEqual({
         id: 'm2m_1',
         subject: 'machine_abc',
+      })
+      expect(m2mVerify).toHaveBeenCalledWith({
+        token: 'mt_token',
+        machineSecretKey: process.env.GP_WEBAPP_MACHINE_SECRET,
       })
     })
 
