@@ -19,6 +19,8 @@
     "generate-enums": "tsx scripts/generate-enums.ts",
     "dev": "npm run generate-enums && tsup --watch",
     "build": "npm run generate-enums && tsup",
+    "lint": "npm run generate-enums && eslint src",
+    "typecheck": "npm run generate-enums && tsc --noEmit",
     "test": "npm run generate-enums && vitest run"
   },
   "repository": {

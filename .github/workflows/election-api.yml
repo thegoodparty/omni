@@ -36,6 +36,9 @@ jobs:
           build-nest-common: "true"
           prisma-generate-script: generate:prisma:election-api
 
+      - name: Lint
+        run: npm run lint -w ${{ env.WORKSPACE }}
+
       - name: Typecheck
         working-directory: ${{ env.WORKSPACE }}
         run: npx tsc --noEmit
