@@ -60,12 +60,37 @@ def _valid_artifact() -> dict:
                         "sources": ["https://janedoe.com"],
                     }
                 ],
+                "threat_tier": "primary_threat",
+                "why_they_matter": "The only incumbent in the field.",
+                "what_you_need_to_know": ["Two-term incumbent with a base."],
+                "where_soft": [
+                    {
+                        "text": "No published water position.",
+                        "sources": ["https://ballotpedia.org/Jane_Doe"],
+                    },
+                    {"text": "Skipped the candidate survey."},
+                ],
+                "issue_contrasts": [
+                    {
+                        "issue": "Housing",
+                        "salience": "high",
+                        "why_it_matters": "Families are priced out.",
+                        "opponent_stance": "Supports affordable housing.",
+                        "opponent_sources": ["https://janedoe.com"],
+                        "candidate_stance": "Supports more starter homes.",
+                    }
+                ],
             },
             {
                 "opponent_name": "No Sources Sam",
                 "overview": None,
                 "background": None,
                 "key_positions": [],
+                "threat_tier": "low_priority",
+                "why_they_matter": "No public platform yet.",
+                "what_you_need_to_know": [],
+                "where_soft": [],
+                "issue_contrasts": [],
             },
         ],
     }
@@ -137,6 +162,63 @@ class TestSchemaPresentPath:
         fragments = main.build_fragments(art, permissive)
         assert _by_name(fragments, "schema_valid")["passed"] is True
         assert _by_name(fragments, "attribution_shape")["passed"] is False
+
+
+class TestPrimaryThreatCount:
+    """The 'exactly one primary_threat' invariant JSON Schema can't express;
+    the deterministic gate is its only enforcement, so both failure modes
+    (zero primaries, two-plus primaries) need explicit coverage."""
+
+    def test_exactly_one_primary_threat_passes(self):
+        main = _fresh_main()
+        fragments = main.build_fragments(_valid_artifact(), _real_schema())
+        assert _by_name(fragments, "primary_threat_count")["passed"] is True
+
+    def test_zero_primary_threats_fails(self):
+        main = _fresh_main()
+        art = _valid_artifact()
+        art["opponents"][0]["threat_tier"] = "watch_closely"
+        fragments = main.build_fragments(art, _real_schema())
+        frag = _by_name(fragments, "primary_threat_count")
+        assert frag["passed"] is False
+        assert frag["severity"] == "error"
+        assert "got 0" in frag["detail"]
+
+    def test_multiple_primary_threats_fails(self):
+        main = _fresh_main()
+        art = _valid_artifact()
+        art["opponents"][1]["threat_tier"] = "primary_threat"
+        fragments = main.build_fragments(art, _real_schema())
+        frag = _by_name(fragments, "primary_threat_count")
+        assert frag["passed"] is False
+        assert "got 2" in frag["detail"]
+
+
+class TestAnalysisSourcingRate:
+    """The relaxed-sourcing metric is observe-only (always passed:true) but must
+    be PRESENT and must count the where_soft + issue_contrasts items; a silent
+    drop or a crash in collect_analysis_items would otherwise go unnoticed."""
+
+    def test_fragment_present_and_passes_on_valid_artifact(self):
+        main = _fresh_main()
+        fragments = main.build_fragments(_valid_artifact(), _real_schema())
+        frag = _by_name(fragments, "analysis_sourcing_rate")
+        assert frag["passed"] is True
+        # The valid fixture's Jane carries 2 where_soft (1 sourced) + 1 sourced
+        # contrast = 3 analytical items, 2 of them sourced.
+        assert "2/3" in frag["detail"]
+
+    def test_not_applicable_when_no_analytical_items(self):
+        main = _fresh_main()
+        art = _valid_artifact()
+        for opp in art["opponents"]:
+            opp["where_soft"] = []
+            opp["issue_contrasts"] = []
+        frag = _by_name(
+            main.build_fragments(art, _real_schema()), "analysis_sourcing_rate"
+        )
+        assert frag["passed"] is True
+        assert "not applicable" in frag["detail"]
 
 
 class TestSchemaAbsentPath:

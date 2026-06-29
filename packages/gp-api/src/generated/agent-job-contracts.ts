@@ -6067,6 +6067,28 @@ export interface OpponentDataCollectionArtifact {
 }
 export interface OpponentSummaryInputParams {
   /**
+   * The candidate's own platform, hydrated by gp-api from Website.content.about (NOT CampaignStory). Used to rank threat tiers relative to the candidate and to pair each issue contrast against the candidate's own stance. Absent when the campaign has no website bio yet, in which case issue_contrasts are omitted (empty array).
+   */
+  candidate_platform?: {
+    /**
+     * The candidate's own biography paragraph, as captured for their candidate site.
+     */
+    bio?: string
+    /**
+     * The candidate's own issue positions. An issue contrast's candidate_stance is drawn only from these, never invented and never from CampaignStory.
+     */
+    issues?: {
+      /**
+       * The candidate's own stated stance on this issue.
+       */
+      description: string
+      /**
+       * Short issue title (e.g. 'Water security').
+       */
+      title: string
+    }[]
+  }
+  /**
    * The opponents to structure, with the already-collected per-source text gp-api hydrated from race_opponent.content.text (Phase 0). This is the ONLY text the agent works from — there is no fetching or discovery.
    *
    * @minItems 1
@@ -6162,6 +6184,35 @@ export interface OpponentSummaryArtifact {
         text: string
       } | null
       /**
+       * One entry per candidate issue this opponent's collected text speaks to. Empty when candidate_platform is absent or the opponent's text is silent on every candidate issue. candidate_stance is drawn ONLY from candidate_platform.issues, never invented.
+       */
+      issue_contrasts: {
+        /**
+         * The candidate's own stance on this issue, drawn ONLY from candidate_platform.issues.
+         */
+        candidate_stance: string
+        /**
+         * The candidate issue this contrast is about (matches a candidate_platform.issues title).
+         */
+        issue: string
+        /**
+         * Optional. The input source_url(s) the opponent_stance rests on, drawn verbatim from THIS opponent's input sources. Cite where direct.
+         */
+        opponent_sources?: string[]
+        /**
+         * The opponent's stance on this issue, restated from their collected text.
+         */
+        opponent_stance: string
+        /**
+         * How salient this issue is to voters in this race. Interpretive: carries no source.
+         */
+        salience: 'high' | 'medium' | 'low'
+        /**
+         * Why this issue matters to constituents. Interpretive.
+         */
+        why_it_matters: string
+      }[]
+      /**
        * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
        */
       key_positions: {
@@ -6194,6 +6245,31 @@ export interface OpponentSummaryArtifact {
         sources: [string, ...string[]]
         text: string
       } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       */
+      what_you_need_to_know: string[]
+      /**
+       * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
+       */
+      where_soft: {
+        /**
+         * Optional. Where the gap is directly evidenced, the input source_url(s) it rests on, drawn verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The vulnerability / opening, grounded in this opponent's collected text.
+         */
+        text: string
+      }[]
+      /**
+       * One sentence on why this opponent ranks where they do, relative to the field and the candidate. Interpretive: carries no source.
+       */
+      why_they_matter: string
     },
     ...{
       /**
@@ -6207,6 +6283,35 @@ export interface OpponentSummaryArtifact {
         text: string
       } | null
       /**
+       * One entry per candidate issue this opponent's collected text speaks to. Empty when candidate_platform is absent or the opponent's text is silent on every candidate issue. candidate_stance is drawn ONLY from candidate_platform.issues, never invented.
+       */
+      issue_contrasts: {
+        /**
+         * The candidate's own stance on this issue, drawn ONLY from candidate_platform.issues.
+         */
+        candidate_stance: string
+        /**
+         * The candidate issue this contrast is about (matches a candidate_platform.issues title).
+         */
+        issue: string
+        /**
+         * Optional. The input source_url(s) the opponent_stance rests on, drawn verbatim from THIS opponent's input sources. Cite where direct.
+         */
+        opponent_sources?: string[]
+        /**
+         * The opponent's stance on this issue, restated from their collected text.
+         */
+        opponent_stance: string
+        /**
+         * How salient this issue is to voters in this race. Interpretive: carries no source.
+         */
+        salience: 'high' | 'medium' | 'low'
+        /**
+         * Why this issue matters to constituents. Interpretive.
+         */
+        why_it_matters: string
+      }[]
+      /**
        * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
        */
       key_positions: {
@@ -6239,6 +6344,31 @@ export interface OpponentSummaryArtifact {
         sources: [string, ...string[]]
         text: string
       } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       */
+      what_you_need_to_know: string[]
+      /**
+       * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
+       */
+      where_soft: {
+        /**
+         * Optional. Where the gap is directly evidenced, the input source_url(s) it rests on, drawn verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The vulnerability / opening, grounded in this opponent's collected text.
+         */
+        text: string
+      }[]
+      /**
+       * One sentence on why this opponent ranks where they do, relative to the field and the candidate. Interpretive: carries no source.
+       */
+      why_they_matter: string
     }[],
   ]
 }

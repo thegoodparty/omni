@@ -73,6 +73,41 @@
           }
         }
       },
+      "candidate_platform": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The candidate's own platform, hydrated by gp-api from Website.content.about (NOT CampaignStory). Used to rank threat tiers relative to the candidate and to pair each issue contrast against the candidate's own stance. Absent when the campaign has no website bio yet, in which case issue_contrasts are omitted (empty array).",
+        "properties": {
+          "bio": {
+            "type": "string",
+            "description": "The candidate's own biography paragraph, as captured for their candidate site."
+          },
+          "issues": {
+            "type": "array",
+            "description": "The candidate's own issue positions. An issue contrast's candidate_stance is drawn only from these, never invented and never from CampaignStory.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "title",
+                "description"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Short issue title (e.g. 'Water security')."
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The candidate's own stated stance on this issue."
+                }
+              }
+            }
+          }
+        }
+      },
       "race_context": {
         "type": "object",
         "additionalProperties": true,
@@ -135,7 +170,12 @@
             "opponent_name",
             "overview",
             "background",
-            "key_positions"
+            "key_positions",
+            "threat_tier",
+            "why_they_matter",
+            "what_you_need_to_know",
+            "where_soft",
+            "issue_contrasts"
           ],
           "properties": {
             "opponent_name": {
@@ -231,6 +271,112 @@
                       "pattern": "^https?://",
                       "minLength": 1
                     }
+                  }
+                }
+              }
+            },
+            "threat_tier": {
+              "type": "string",
+              "enum": [
+                "primary_threat",
+                "watch_closely",
+                "low_priority"
+              ],
+              "description": "This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source."
+            },
+            "why_they_matter": {
+              "type": "string",
+              "minLength": 1,
+              "description": "One sentence on why this opponent ranks where they do, relative to the field and the candidate. Interpretive: carries no source."
+            },
+            "what_you_need_to_know": {
+              "type": "array",
+              "description": "The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "where_soft": {
+              "type": "array",
+              "description": "This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The vulnerability / opening, grounded in this opponent's collected text."
+                  },
+                  "sources": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "description": "Optional. Where the gap is directly evidenced, the input source_url(s) it rests on, drawn verbatim from THIS opponent's input sources.",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^https?://",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            },
+            "issue_contrasts": {
+              "type": "array",
+              "description": "One entry per candidate issue this opponent's collected text speaks to. Empty when candidate_platform is absent or the opponent's text is silent on every candidate issue. candidate_stance is drawn ONLY from candidate_platform.issues, never invented.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "issue",
+                  "salience",
+                  "why_it_matters",
+                  "opponent_stance",
+                  "candidate_stance"
+                ],
+                "properties": {
+                  "issue": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The candidate issue this contrast is about (matches a candidate_platform.issues title)."
+                  },
+                  "salience": {
+                    "type": "string",
+                    "enum": [
+                      "high",
+                      "medium",
+                      "low"
+                    ],
+                    "description": "How salient this issue is to voters in this race. Interpretive: carries no source."
+                  },
+                  "why_it_matters": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Why this issue matters to constituents. Interpretive."
+                  },
+                  "opponent_stance": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The opponent's stance on this issue, restated from their collected text."
+                  },
+                  "opponent_sources": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "description": "Optional. The input source_url(s) the opponent_stance rests on, drawn verbatim from THIS opponent's input sources. Cite where direct.",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^https?://",
+                      "minLength": 1
+                    }
+                  },
+                  "candidate_stance": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The candidate's own stance on this issue, drawn ONLY from candidate_platform.issues."
                   }
                 }
               }

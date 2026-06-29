@@ -102,6 +102,21 @@ def collect_sections(artifact: dict) -> list[dict]:
     return sections
 
 
+def collect_analysis_items(artifact: dict) -> list[dict]:
+    """The Phase 3 analytical items whose sourcing is RELAXED (cite where
+    direct). Unlike collect_sections these may legitimately carry no source,
+    so they feed an observe-only rate metric, never the strict shape check."""
+    items: list[dict] = []
+    for opp in artifact.get("opponents") or []:
+        if not isinstance(opp, dict):
+            continue
+        items.extend(opp.get("where_soft") or [])
+        for contrast in opp.get("issue_contrasts") or []:
+            if isinstance(contrast, dict):
+                items.append({"sources": contrast.get("opponent_sources")})
+    return items
+
+
 def build_fragments(artifact: dict, schema: dict) -> list[dict]:
     fragments: list[dict] = []
 
@@ -183,6 +198,51 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
             else "not applicable — no sections emitted (all opponents ungroundable)"
         ),
     })
+
+    # Phase 3 analytical items (where_soft, issue_contrasts) use relaxed sourcing
+    # — cite where direct. Report the citation rate as an observe-only metric;
+    # never fail the shape check on a relaxed item that legitimately omits a
+    # source.
+    analysis_items = collect_analysis_items(artifact)
+    analysis_sourced = sum(1 for s in analysis_items if has_valid_sources(s))
+    analysis_total = len(analysis_items)
+    analysis_rate = analysis_sourced / analysis_total if analysis_total else None
+    fragments.append({
+        "name": "analysis_sourcing_rate",
+        "passed": True,
+        "type": "deterministic",
+        "severity": "warning",
+        "detail": (
+            f"{analysis_sourced}/{analysis_total} analytical items "
+            f"(where_soft + issue contrasts) cite a source ({analysis_rate:.0%}) "
+            "— relaxed, optional by design"
+            if analysis_total
+            else "not applicable — no analytical items emitted"
+        ),
+    })
+
+    # The "exactly one primary_threat for a normal field" invariant the
+    # instruction states. JSON Schema draft-07 can't express a cross-item count,
+    # so this deterministic fragment is the only enforcement layer (the LLM judge
+    # scores it editorially but is not a gate).
+    primary_threat_count = sum(
+        1
+        for opp in opponents
+        if isinstance(opp, dict) and opp.get("threat_tier") == "primary_threat"
+    )
+    primary_threat_ok = primary_threat_count == 1
+    primary_frag: dict = {
+        "name": "primary_threat_count",
+        "passed": primary_threat_ok,
+        "type": "deterministic",
+    }
+    if not primary_threat_ok:
+        primary_frag["severity"] = "error"
+        primary_frag["detail"] = (
+            f"expected exactly 1 primary_threat across the field, "
+            f"got {primary_threat_count}"
+        )
+    fragments.append(primary_frag)
 
     return fragments
 
