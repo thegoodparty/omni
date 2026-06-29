@@ -260,16 +260,20 @@ describe('<RaceOpponentList>', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
     expect(screen.getByText('The field')).toBeInTheDocument()
-    expect(screen.getByText('1 candidate in this race')).toBeInTheDocument()
+    expect(
+      screen.getByText('1 candidate filed for this seat'),
+    ).toBeInTheDocument()
   })
 
-  it('renders party/incumbency badges in the overview card and the detail header', () => {
+  it('shows party/incumbency as a selector descriptor and as detail badges', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    // Badges render twice per opponent: once in the overview card and once in
-    // the per-opponent detail header (both mirror the Lovable identity row).
-    expect(screen.getAllByText('Democrat')).toHaveLength(2)
-    expect(screen.getAllByText('Incumbent')).toHaveLength(2)
+    // The selector card shows a combined "party · role" descriptor line...
+    expect(screen.getByText('Democrat · Incumbent')).toBeInTheDocument()
+    // ...and the selected opponent's detail header shows them as separate
+    // badges (each an exact-text node, distinct from the descriptor line).
+    expect(screen.getByText('Democrat')).toBeInTheDocument()
+    expect(screen.getByText('Incumbent')).toBeInTheDocument()
   })
 
   it('refreshes the overview cards in sync with the research list', async () => {

@@ -1,15 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
 import { Avatar, AvatarFallback, Button, Card, cn } from '@styleguide'
 import {
+  Building2Icon,
   CheckCircleIcon,
   CircleIcon,
   ExternalLinkIcon,
   Loader2Icon,
   RefreshIcon,
+  ScaleIcon,
   SearchIcon,
-  UsersRoundIcon,
+  SwordsIcon,
+  UserCheckIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
@@ -37,8 +41,8 @@ const initialsFor = (name: string): string =>
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('') || '?'
 
-// party + incumbency badge row, shared by the overview card and the per-opponent
-// detail header so both read identically.
+// party + incumbency badge row on the per-opponent detail header. Icons mirror
+// the Lovable design: party = building, incumbent/challenger = identity icons.
 const OpponentIdentityBadges = ({
   party,
   isIncumbent,
@@ -51,9 +55,19 @@ const OpponentIdentityBadges = ({
   }
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {party && <OpponentBadge label={party} tone={partyTone(party)} />}
-      {isIncumbent === true && <OpponentBadge label="Incumbent" />}
-      {isIncumbent === false && <OpponentBadge label="Challenger" />}
+      {party && (
+        <OpponentBadge
+          label={party}
+          tone={partyTone(party)}
+          Icon={Building2Icon}
+        />
+      )}
+      {isIncumbent === true && (
+        <OpponentBadge label="Incumbent" Icon={UserCheckIcon} />
+      )}
+      {isIncumbent === false && (
+        <OpponentBadge label="Challenger" Icon={ScaleIcon} />
+      )}
     </div>
   )
 }
@@ -311,6 +325,46 @@ const RawResearch = ({
   </div>
 )
 
+// The detail panel for the selected opponent: identity header, then the
+// structured summary (or readable raw-text fallback), with the raw scrape tucked
+// into a collapsible when a summary exists.
+const OpponentDetailCard = ({
+  opponent,
+}: {
+  opponent: RaceOpponentResponse['opponents'][number]
+}): React.JSX.Element => (
+  <Card className="w-full min-w-0 gap-5 p-6">
+    <header className="flex w-full min-w-0 items-start gap-4">
+      <Avatar size="large" className="shrink-0">
+        <AvatarFallback className="bg-info-50 font-semibold text-info-600">
+          {initialsFor(opponent.opponentName)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <h2 className="text-xl font-semibold text-foreground">
+          {opponent.opponentName}
+        </h2>
+        <OpponentIdentityBadges
+          party={opponent.party}
+          isIncumbent={opponent.isIncumbent}
+        />
+      </div>
+    </header>
+
+    {opponent.summary ? (
+      <OpponentSummaryView summary={opponent.summary} />
+    ) : (
+      <RawResearch items={opponent.items} />
+    )}
+
+    {opponent.summary && opponent.items.length > 0 && (
+      <OpponentSection title="View source research" defaultOpen={false}>
+        <RawResearch items={opponent.items} />
+      </OpponentSection>
+    )}
+  </Card>
+)
+
 // How often to poll status while discovery/collection is in flight.
 const POLL_INTERVAL_MS = 5000
 
@@ -332,6 +386,19 @@ const RaceOpponentList = ({
   // the effect and a user click could both fire a (paid) collect. The ref is
   // set before the await, so any concurrent caller sees it immediately.
   const collectingRef = useRef(false)
+  // Which opponent the selector is showing. Defaults to the first; falls back to
+  // the first if the selected one disappears after a refresh (see activeName).
+  const [selectedName, setSelectedName] = useState<string | null>(
+    initialData.opponents[0]?.opponentName ?? null,
+  )
+
+  const activeName = useMemo<string | null>(() => {
+    const names = data.opponents.map((opponent) => opponent.opponentName)
+    if (selectedName && names.includes(selectedName)) {
+      return selectedName
+    }
+    return names[0] ?? null
+  }, [data.opponents, selectedName])
 
   const loadStatus = useCallback(async (): Promise<void> => {
     const { data: latest } = await clientRequest(
@@ -424,41 +491,14 @@ const RaceOpponentList = ({
       <OpponentPageHeader
         title="Know your opponent"
         raceContext={raceContext}
+        actions={
+          <Button variant="outline" disabled title="Export brief — coming soon">
+            Export brief
+          </Button>
+        }
       />
 
-      {data.opponents.length > 0 && (
-        <section className="flex flex-col gap-3">
-          <div className="flex flex-col gap-0.5">
-            <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              <UsersRoundIcon className="size-3.5 shrink-0" aria-hidden />
-              The field
-            </span>
-            <h2 className="text-lg font-semibold text-foreground">
-              {data.opponents.length}{' '}
-              {data.opponents.length === 1 ? 'candidate' : 'candidates'} in this
-              race
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Sourced research on the candidates in your race. Focus on whoever
-              is most likely to take votes from you.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {data.opponents.map((opponent) => (
-              <OpponentOverviewCard
-                key={opponent.opponentName}
-                name={opponent.opponentName}
-                initials={initialsFor(opponent.opponentName)}
-                party={opponent.party}
-                isIncumbent={opponent.isIncumbent}
-                summary={opponent.summary?.overview?.text}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
           <CollectionStatusIndicator status={data.collectionStatus} />
           {data.lastCollectedAt && (
@@ -484,9 +524,9 @@ const RaceOpponentList = ({
             Refresh
           </Button>
         </div>
-      </header>
+      </div>
 
-      {data.opponents.length === 0 ? (
+      {activeName === null ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
           <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <SearchIcon className="size-6" aria-hidden />
@@ -503,46 +543,63 @@ const RaceOpponentList = ({
           </div>
         </div>
       ) : (
-        <div className="flex flex-col gap-8">
-          {data.opponents.map((opponent) => (
-            <Card
-              key={opponent.opponentName}
-              className="w-full min-w-0 gap-5 p-6"
+        <Tabs.Root
+          value={activeName}
+          onValueChange={setSelectedName}
+          className="flex flex-col gap-6"
+        >
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
+                The field
+              </span>
+              <h2 className="text-lg font-semibold text-foreground">
+                {data.opponents.length}{' '}
+                {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
+                for this seat
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Focus on the candidate most likely to take votes from you.
+                Usually the incumbent or a party-backed challenger.
+              </p>
+            </div>
+            <Tabs.List
+              aria-label="Select an opponent to view their research"
+              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
             >
-              <header className="flex w-full min-w-0 items-start gap-4">
-                <Avatar size="large" className="shrink-0">
-                  <AvatarFallback className="bg-info-50 font-semibold text-info-600">
-                    {initialsFor(opponent.opponentName)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 flex-1 flex-col gap-2">
-                  <h2 className="text-lg font-semibold text-foreground">
-                    {opponent.opponentName}
-                  </h2>
-                  <OpponentIdentityBadges
+              {data.opponents.map((opponent) => (
+                <Tabs.Trigger
+                  key={opponent.opponentName}
+                  value={opponent.opponentName}
+                  className={cn(
+                    'flex w-full min-w-0 items-center rounded-lg border border-border bg-card p-4 text-left outline-none transition',
+                    'hover:border-info-600/40',
+                    'focus-visible:ring-2 focus-visible:ring-info-600/40',
+                    'data-[state=active]:border-info-600 data-[state=active]:ring-2 data-[state=active]:ring-info-600/20',
+                  )}
+                >
+                  <OpponentOverviewCard
+                    name={opponent.opponentName}
+                    initials={initialsFor(opponent.opponentName)}
                     party={opponent.party}
                     isIncumbent={opponent.isIncumbent}
                   />
-                </div>
-              </header>
+                </Tabs.Trigger>
+              ))}
+            </Tabs.List>
+          </section>
 
-              {opponent.summary ? (
-                <OpponentSummaryView summary={opponent.summary} />
-              ) : (
-                <RawResearch items={opponent.items} />
-              )}
-
-              {opponent.summary && opponent.items.length > 0 && (
-                <OpponentSection
-                  title="View source research"
-                  defaultOpen={false}
-                >
-                  <RawResearch items={opponent.items} />
-                </OpponentSection>
-              )}
-            </Card>
+          {data.opponents.map((opponent) => (
+            <Tabs.Content
+              key={opponent.opponentName}
+              value={opponent.opponentName}
+              className="outline-none"
+            >
+              <OpponentDetailCard opponent={opponent} />
+            </Tabs.Content>
           ))}
-        </div>
+        </Tabs.Root>
       )}
     </div>
   )

@@ -1,50 +1,57 @@
-import { Avatar, AvatarFallback, Card } from '@styleguide'
-import OpponentBadge, { partyTone } from './OpponentBadge'
+import { Avatar, AvatarFallback } from '@styleguide'
 
 type Props = {
   name: string
   initials: string
   party?: string | null
-  // true -> "Incumbent", false -> "Challenger", null/undefined -> no badge.
+  // true -> "Incumbent", false -> "Challenger", null/undefined -> omitted.
   isIncumbent?: boolean | null
-  summary?: string | null
-  actions?: React.ReactNode
-  children?: React.ReactNode
 }
 
+const descriptorFor = (
+  party: string | null | undefined,
+  isIncumbent: boolean | null | undefined,
+): string | null => {
+  const parts = [
+    party || null,
+    isIncumbent === true
+      ? 'Incumbent'
+      : isIncumbent === false
+        ? 'Challenger'
+        : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+// The visual content of an opponent selector card. The selectable box (border,
+// hover, selected ring) is owned by the Tabs trigger that wraps this in
+// RaceOpponentList, so this only renders the avatar + name + party/role line.
 const OpponentOverviewCard = ({
   name,
   initials,
   party,
   isIncumbent,
-  summary,
-  actions,
-  children,
-}: Props): React.JSX.Element => (
-  <Card className="h-full gap-4 p-6">
-    <div className="flex items-start gap-4">
+}: Props): React.JSX.Element => {
+  const descriptor = descriptorFor(party, isIncumbent)
+  return (
+    <div className="flex w-full min-w-0 items-center gap-3">
       <Avatar size="large" className="shrink-0">
         <AvatarFallback className="bg-info-50 font-semibold text-info-600">
           {initials}
         </AvatarFallback>
       </Avatar>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <h3 className="text-lg font-semibold text-foreground">{name}</h3>
-        <div className="flex flex-wrap items-center gap-2">
-          {party && <OpponentBadge label={party} tone={partyTone(party)} />}
-          {isIncumbent === true && <OpponentBadge label="Incumbent" />}
-          {isIncumbent === false && <OpponentBadge label="Challenger" />}
-        </div>
-        {summary && (
-          <p className="line-clamp-2 w-full min-w-0 break-words text-sm text-muted-foreground">
-            {summary}
-          </p>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-base font-semibold text-foreground">
+          {name}
+        </span>
+        {descriptor && (
+          <span className="truncate text-sm text-muted-foreground">
+            {descriptor}
+          </span>
         )}
-        {children}
       </div>
-      {actions && <div className="shrink-0">{actions}</div>}
     </div>
-  </Card>
-)
+  )
+}
 
 export default OpponentOverviewCard
