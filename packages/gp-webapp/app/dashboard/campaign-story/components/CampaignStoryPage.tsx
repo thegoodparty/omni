@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
@@ -10,7 +11,10 @@ import { BookOpenIcon, Button, Card } from '@styleguide'
 import type { CampaignStory } from '@goodparty_org/contracts'
 import type { WebsiteIssue } from 'helpers/types'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { saveAboutFields } from 'app/dashboard/website/util/website.util'
+import {
+  saveAboutFields,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
 import PolicyPriorities from 'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { CAMPAIGN_STORY_SECTIONS } from '../sections'
@@ -39,6 +43,7 @@ const CampaignStoryPage = ({
   initialIssues,
 }: CampaignStoryPageProps): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
+  const queryClient = useQueryClient()
   // Seeded from the persisted story, then updated live as each card reports its
   // answered-state on every keystroke — so the footer appears as soon as both
   // have content, without waiting for blur/save.
@@ -61,7 +66,11 @@ const CampaignStoryPage = ({
       if (!ok) {
         setIssues(previous)
         errorSnackbar('Could not save your issues. Please try again.')
+        return
       }
+      // Invalidate the shared website cache the plan-tab gate reads, so freshly
+      // saved issues aren't hidden by a stale within-staleTime snapshot.
+      void queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
     })
   }
 

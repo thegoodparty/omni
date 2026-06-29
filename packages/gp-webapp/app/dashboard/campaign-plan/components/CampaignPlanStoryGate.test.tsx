@@ -103,6 +103,40 @@ describe('CampaignPlanStoryGate', () => {
     )
   })
 
+  it('renders issue descriptions without dropping text after an HTML entity', async () => {
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: completeStory,
+    })
+    mockGetUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          issues: [{ title: 'Budget', description: '<p>fund &lt;$50M</p>' }],
+        },
+      },
+    })
+
+    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+
+    expect(await screen.findByText('fund <$50M')).toBeInTheDocument()
+  })
+
+  it('fails open (shows generate, no empty issues section) when the website read errors but the story is complete', async () => {
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: completeStory,
+    })
+    mockGetUserWebsite.mockRejectedValue(new Error('network error'))
+
+    render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('button', { name: /Generate my Campaign Plan/ }),
+    ).toBeInTheDocument()
+    // No issues to show, so the section is omitted rather than rendered empty.
+    expect(screen.queryByText('Your issues')).not.toBeInTheDocument()
+  })
+
   it('generates only after confirming in the modal', async () => {
     const onGenerate = vi.fn()
     api.mock('GET /v1/campaigns/mine/story', {

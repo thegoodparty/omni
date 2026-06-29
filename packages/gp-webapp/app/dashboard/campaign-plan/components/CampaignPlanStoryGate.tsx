@@ -22,6 +22,19 @@ interface CampaignPlanStoryGateProps {
 
 const CARD_CLASS = 'mx-auto flex max-w-2xl flex-col items-start gap-4 p-8'
 
+// Quill issue descriptions are HTML. stripHtml decodes entities before
+// stripping, which turns "&lt;$50M" into "<$50M" and then strips it as a tag —
+// silently dropping text. Skip its decoding and decode the entities ourselves
+// after the tags are gone (& last, so a literal "&amp;lt;" doesn't collapse).
+const issueDescriptionText = (description: string): string =>
+  stripHtml(description, { skipHtmlDecoding: true })
+    .result.replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+
 const CampaignPlanStoryGate = ({
   onGenerate,
 }: CampaignPlanStoryGateProps): React.JSX.Element => {
@@ -104,23 +117,27 @@ const CampaignPlanStoryGate = ({
             </p>
           </div>
         ))}
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-semibold text-foreground">
-            Your issues
-          </span>
-          <ul className="flex flex-col gap-2">
-            {issues.map((issue, index) => (
-              <li key={index} className="flex flex-col">
-                <span className="text-sm font-medium text-foreground">
-                  {issue.title}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {issue.description ? stripHtml(issue.description).result : ''}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        {issues.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold text-foreground">
+              Your issues
+            </span>
+            <ul className="flex flex-col gap-2">
+              {issues.map((issue, index) => (
+                <li key={index} className="flex flex-col">
+                  <span className="text-sm font-medium text-foreground">
+                    {issue.title}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {issue.description
+                      ? issueDescriptionText(issue.description)
+                      : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="flex w-full flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">
