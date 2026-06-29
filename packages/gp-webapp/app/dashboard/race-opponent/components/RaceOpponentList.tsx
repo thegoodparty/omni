@@ -487,121 +487,136 @@ const RaceOpponentList = ({
   const isBusy = status === 'running' || status === 'discovering'
 
   return (
-    <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
-      <OpponentPageHeader
-        title="Know your opponent"
-        raceContext={raceContext}
-        actions={
-          <Button variant="outline" disabled title="Export brief — coming soon">
-            Export brief
-          </Button>
-        }
-      />
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
-          <CollectionStatusIndicator status={data.collectionStatus} />
-          {data.lastCollectedAt && (
-            <span>Last collected {formatTimestamp(data.lastCollectedAt)}</span>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            onClick={collect}
-            disabled={collecting || isBusy}
-            className="flex items-center gap-1.5"
-          >
-            <RefreshIcon className="size-4" aria-hidden />
-            Collect now
-          </Button>
-          <Button
-            variant="outline"
-            onClick={refresh}
-            disabled={refreshing}
-            className="flex items-center gap-1.5"
-          >
-            <RefreshIcon className="size-4" aria-hidden />
-            Refresh
-          </Button>
+    <>
+      {/* Full-bleed white header band (title + race context + Export brief),
+          matching the Lovable design; the dev controls and the field sit below
+          on the gray content background. */}
+      <div className="border-b border-border bg-background">
+        <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
+          <OpponentPageHeader
+            title="Know your opponent"
+            raceContext={raceContext}
+            actions={
+              <Button
+                variant="outline"
+                disabled
+                title="Export brief — coming soon"
+              >
+                Export brief
+              </Button>
+            }
+          />
         </div>
       </div>
 
-      {activeName === null ? (
-        <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
-          <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <SearchIcon className="size-6" aria-hidden />
-          </span>
-          <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold text-foreground">
-              No opponent research yet
-            </h2>
-            <p className="max-w-sm text-sm text-muted-foreground">
-              Use &quot;Collect now&quot; above to gather sourced research on
-              the candidates in your race. We&apos;ll pull what&apos;s public
-              and summarize it for you.
-            </p>
+      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
+            <CollectionStatusIndicator status={data.collectionStatus} />
+            {data.lastCollectedAt && (
+              <span>
+                Last collected {formatTimestamp(data.lastCollectedAt)}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={collect}
+              disabled={collecting || isBusy}
+              className="flex items-center gap-1.5"
+            >
+              <RefreshIcon className="size-4" aria-hidden />
+              Collect now
+            </Button>
+            <Button
+              variant="outline"
+              onClick={refresh}
+              disabled={refreshing}
+              className="flex items-center gap-1.5"
+            >
+              <RefreshIcon className="size-4" aria-hidden />
+              Refresh
+            </Button>
           </div>
         </div>
-      ) : (
-        <Tabs.Root
-          value={activeName}
-          onValueChange={setSelectedName}
-          className="flex flex-col gap-6"
-        >
-          <section className="flex flex-col gap-3">
-            <div className="flex flex-col gap-0.5">
-              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
-                The field
-              </span>
-              <h2 className="text-lg font-semibold text-foreground">
-                {data.opponents.length}{' '}
-                {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
-                for this seat
+
+        {activeName === null ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+              <SearchIcon className="size-6" aria-hidden />
+            </span>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold text-foreground">
+                No opponent research yet
               </h2>
-              <p className="text-sm text-muted-foreground">
-                Focus on the candidate most likely to take votes from you.
-                Usually the incumbent or a party-backed challenger.
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Use &quot;Collect now&quot; above to gather sourced research on
+                the candidates in your race. We&apos;ll pull what&apos;s public
+                and summarize it for you.
               </p>
             </div>
-            <Tabs.List
-              aria-label="Select an opponent to view their research"
-              className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-            >
-              {data.opponents.map((opponent) => (
-                <Tabs.Trigger
-                  key={opponent.opponentName}
-                  value={opponent.opponentName}
-                  className={cn(
-                    'flex w-full min-w-0 items-center rounded-lg border border-border bg-card p-4 text-left outline-none transition',
-                    'hover:border-info-600/40',
-                    'focus-visible:ring-2 focus-visible:ring-info-600/40',
-                    'data-[state=active]:border-info-600 data-[state=active]:ring-2 data-[state=active]:ring-info-600/20',
-                  )}
-                >
-                  <OpponentOverviewCard
-                    name={opponent.opponentName}
-                    initials={initialsFor(opponent.opponentName)}
-                    party={opponent.party}
-                    isIncumbent={opponent.isIncumbent}
-                  />
-                </Tabs.Trigger>
-              ))}
-            </Tabs.List>
-          </section>
+          </div>
+        ) : (
+          <Tabs.Root
+            value={activeName}
+            onValueChange={setSelectedName}
+            className="flex flex-col gap-6"
+          >
+            <section className="flex flex-col gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
+                  The field
+                </span>
+                <h2 className="text-lg font-semibold text-foreground">
+                  {data.opponents.length}{' '}
+                  {data.opponents.length === 1 ? 'candidate' : 'candidates'}{' '}
+                  filed for this seat
+                </h2>
+                <p className="text-sm text-muted-foreground">
+                  Focus on the candidate most likely to take votes from you.
+                  Usually the incumbent or a party-backed challenger.
+                </p>
+              </div>
+              <Tabs.List
+                aria-label="Select an opponent to view their research"
+                className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              >
+                {data.opponents.map((opponent) => (
+                  <Tabs.Trigger
+                    key={opponent.opponentName}
+                    value={opponent.opponentName}
+                    className={cn(
+                      'flex w-full min-w-0 items-center rounded-lg border border-border bg-card p-4 text-left outline-none transition',
+                      'hover:border-info-600/40',
+                      'focus-visible:ring-2 focus-visible:ring-info-600/40',
+                      'data-[state=active]:border-info-600 data-[state=active]:ring-2 data-[state=active]:ring-info-600/20',
+                    )}
+                  >
+                    <OpponentOverviewCard
+                      name={opponent.opponentName}
+                      initials={initialsFor(opponent.opponentName)}
+                      party={opponent.party}
+                      isIncumbent={opponent.isIncumbent}
+                    />
+                  </Tabs.Trigger>
+                ))}
+              </Tabs.List>
+            </section>
 
-          {data.opponents.map((opponent) => (
-            <Tabs.Content
-              key={opponent.opponentName}
-              value={opponent.opponentName}
-              className="outline-none"
-            >
-              <OpponentDetailCard opponent={opponent} />
-            </Tabs.Content>
-          ))}
-        </Tabs.Root>
-      )}
-    </div>
+            {data.opponents.map((opponent) => (
+              <Tabs.Content
+                key={opponent.opponentName}
+                value={opponent.opponentName}
+                className="outline-none"
+              >
+                <OpponentDetailCard opponent={opponent} />
+              </Tabs.Content>
+            ))}
+          </Tabs.Root>
+        )}
+      </div>
+    </>
   )
 }
 
