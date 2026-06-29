@@ -5,12 +5,12 @@ from the Govern description), code presence (the committed git-provenance CSV th
 beside this script in ``instrumentation_data/``), and firing volume (the event catalog plus
 a trailing weekly aggregate of the raw stream) — classifies each against the
 analytics-event-change SOP status model, detects firing-volume anomalies, and renders a
-severity-ranked digest section appended to ``instrumentation_data/event-health-log.md``.
+severity-ranked digest section appended to ``instrumentation_data/analytics-event-health-log.md``.
 
 Hybrid scope: every catalog event gets an SOP status; a curated watchlist
 (``monitored_events.yaml``) drives severity elevation and the self-healing proposal queue
 (new events in watched families that are not yet on the list). The deeper per-flag code
-investigation (reading the diffs) is the runbook agent's job — see books/monitor-event-health.md.
+investigation (reading the diffs) is the runbook agent's job — see books/monitor-analytics-event-health.md.
 
 It READS from Databricks (the catalog ``int__amplitude_event_catalog`` and the raw stream
 ``stg_airbyte_source__amplitude_api_events``, via OAuth in ``databricks_oauth`` — no PAT) for
@@ -55,7 +55,7 @@ DATA_DIR = HERE / "instrumentation_data"
 CODE_CSV = DATA_DIR / "amplitude_event_provenance.csv"
 WATCHLIST = HERE / "monitored_events.yaml"
 DEFAULT_STATE = DATA_DIR / "analytics_event_health_state.json"
-DEFAULT_LOG = DATA_DIR / "event-health-log.md"
+DEFAULT_LOG = DATA_DIR / "analytics-event-health-log.md"
 
 # --- thresholds (SOP recommended defaults; tunable, pending Eng) --------------
 

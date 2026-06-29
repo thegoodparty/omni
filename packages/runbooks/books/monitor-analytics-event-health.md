@@ -59,7 +59,7 @@ cd scripts/python
 uv run analytics_event_health.py
 ```
 
-Prints the dated digest section, appends it to `instrumentation_data/event-health-log.md`
+Prints the dated digest section, appends it to `instrumentation_data/analytics-event-health-log.md`
 (the growing longitudinal history), and writes `analytics_event_health_state.json` (the
 flagged set, for next run's changes-since-last-run diff). Useful flags:
 

@@ -2,7 +2,7 @@
 
 Longitudinal history. `analytics_event_health.py` appends one dated section per run (newest
 at the bottom), so a flag can be tracked across passes: active -> anomaly-flagged -> dormant,
-with the first appearance of a divergence visible. See `books/monitor-event-health.md` for how
+with the first appearance of a divergence visible. See `books/monitor-analytics-event-health.md` for how
 to read and act on each section.
 
 ## Status legend
