@@ -1,6 +1,6 @@
-# Opponent Summary
+# Opponent Analysis
 
-Re-shape the **already-collected** text about each opponent into clean, display-ready sections — an overview, a background, and key positions/themes — each tagged with the input source URL it came from. The artifact is `{ "generated_at": ..., "opponents": [...] }`. This is a single-pass **structuring** job over text handed to you in params: no web research, no discovery, no fetching, no scoring, no contrasts. You restate what the provided text already says, neutrally, and attribute every section to the source it came from.
+Read the **already-collected** text about every opponent in the race, plus the candidate's own platform (`candidate_platform.bio` + `issues`), and synthesize the analytical read that drives the opponent page. For each opponent you produce the descriptive sections (overview, background, key positions, each attributed to the input source it came from) AND the analytical sections: a threat tier ranked relative to the field, why they matter, what the candidate needs to know, where they're soft, and per-issue contrasts against the candidate's own stances. The artifact is `{ "generated_at": ..., "opponents": [...] }`. This is a single-pass synthesis over text handed to you in params: no web research, no discovery, no fetching, no scoring against external data.
 
 ## BEFORE YOU START
 1. Read this entire instruction end-to-end before executing anything.
@@ -11,58 +11,80 @@ Re-shape the **already-collected** text about each opponent into clean, display-
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
 
 ## CRITICAL RULES
-- **Structure ONLY the provided text. Do NOT browse, search, fetch, or query anything.** Everything you need is in `PARAMS_JSON` (`opponents[].sources[].text` plus `race_context`). There is NO `WebSearch`, NO `pmf_runtime.http`, NO `pmf_runtime.databricks`, and NO internet here for this experiment. Do not write code or shell that reaches the network. If a fact is not in the provided text, it does not go in the output.
-- **Add no facts not present in the input.** Every sentence you write must be supported by the opponent's own collected `text`. Do not infer, embellish, fill gaps from general knowledge, or carry a fact from one opponent onto another. When the provided text supports nothing for a section, that section is `null` (overview / background) or an empty `key_positions` array — never invented.
-- **Attribute every section to an input source URL.** Each non-null `overview` / `background` and each `key_positions` item carries a `sources` array of one or more URLs. **Every URL in any `sources` array MUST be one of that same opponent's input `sources[].source_url` values, verbatim.** Never invent a URL, never use a URL from a different opponent, never cite `race_context`.
-- **Neutral, factual language by construction.** Plain, direct U.S. English. **No em dashes.** No spin, no praise, no criticism, no comparison between opponents, no contrast against the candidate. State positions as the source states them. (The fair-line / contrast tone work is a separate later phase — this experiment stays neutral by only restating provided text.)
-- **One output entry per input opponent, in input order.** Echo `opponent_name` verbatim from the input. An opponent whose `sources` is empty (or whose text grounds nothing) still gets an entry: `overview: null`, `background: null`, `key_positions: []`.
-- **The only PUBLISHED artifact is `/workspace/output/race_opponent_summary.json`.** Write any intermediate notes to `/workspace/scratch/` — that directory is never published.
+- **Work ONLY from the provided text. Do NOT browse, search, fetch, or query anything.** Everything you need is in `PARAMS_JSON` (`opponents[].sources[].text`, `candidate_platform`, `race_context`). There is NO `WebSearch`, NO `pmf_runtime.http`, NO `pmf_runtime.databricks`, and NO internet here. Do not write code or shell that reaches the network. If a fact is not in the provided text, it does not go in the output.
+- **Add no facts not present in the input.** Every opponent stance, position, and "where soft" item must be supported by that opponent's own collected `text`. Do not infer positions from party, fill gaps from general knowledge, or carry a fact from one opponent onto another. Thin data means smaller output, never fabrication.
+- **The candidate side comes ONLY from `candidate_platform`.** A contrast's `candidate_stance` is drawn only from `candidate_platform.issues[]`. Never invent the candidate's stance and never source it from anywhere else.
+- **Analyze the whole field at once so threat tiers are RELATIVE.** Rank each opponent against the field and the candidate: incumbency, endorsements / PAC backing, name recognition, and overlap with the candidate's own issues raise the tier. Emit exactly one realistic `primary_threat` for a normal field; rank the rest `watch_closely` / `low_priority`.
+- **Relaxed, grounded sourcing — cite where direct.** Factual claims (opponent stances, `where_soft` items, and the descriptive overview/background/key_positions) trace to the collected text. The descriptive sections keep the strict rule: every non-null `overview`/`background` and every `key_positions` item carries ≥1 input `source_url`. The analytical `where_soft[].sources` and `issue_contrasts[].opponent_sources` are **optional** — include them where there is a direct basis, omit them otherwise. The interpretive fields (`threat_tier`, `why_they_matter`, `what_you_need_to_know`, issue `salience`, `why_it_matters`) carry NO source.
+- **Every cited URL is one of THAT opponent's own input `source_url`s, verbatim.** Never invent a URL, never use another opponent's URL, never cite `race_context` or `candidate_platform`.
+- **Neutral, fair-line tone. No em dashes.** Plain, direct U.S. English. State opponent positions as the source states them. The contrast is factual (their stance vs. the candidate's), not an attack.
+- **One output entry per input opponent, in input order.** Echo `opponent_name` verbatim. An opponent whose `sources` is empty still gets an entry: descriptive sections null/empty, `threat_tier` ranked from the thin signal available, `where_soft`/`issue_contrasts` empty as appropriate.
+- **The only PUBLISHED artifact is `/workspace/output/race_opponent_summary.json`.** Write intermediate notes to `/workspace/scratch/` — never published.
 - **Run `python3 /workspace/validate_output.py` before declaring success.**
 
 ## TODO CHECKLIST
-1. Read `PARAMS_JSON`; pull `opponents[]` (with their `sources[]`) and `race_context` (Step 0).
-2. For each opponent, structure their provided text into overview / background / key_positions, each attributed to the input source URL(s) it came from (Step 1).
-3. Assemble the artifact in input opponent order and write it (Step 2).
-4. Validate (Step 3) and spot-check (Spot-check).
+1. Read `PARAMS_JSON`; pull `opponents[]` (with `sources[]`), `candidate_platform`, and `race_context` (Step 0).
+2. Structure each opponent's text into overview / background / key_positions, attributed to input source URLs (Step 1).
+3. Across the whole field, assign each opponent a relative `threat_tier` + `why_they_matter`, and a `what_you_need_to_know` list (Step 2).
+4. For each opponent, derive `where_soft` (grounded openings) and `issue_contrasts` against the candidate's issues (Step 3).
+5. Assemble one entry per input opponent in input order and write the artifact (Step 4).
+6. Validate (Step 5) and spot-check (Spot-check).
 
 ## Inputs (the params in `PARAMS_JSON`)
-- `opponents` (array, ≥1): each `{ opponent_name, sources: [{ source_type, source_url, text }] }`. `opponent_name` is the name you echo on the matching output entry. `sources` is the already-collected per-source text (from Phase 0); it may be empty.
-- `race_context` (object): `{ office_name?, state?, city?, election_date? }`. Light phrasing context only (which office / jurisdiction). Do not reason over it to add facts and never put it in a `sources` array.
+- `opponents` (array, ≥1): each `{ opponent_name, sources: [{ source_type, source_url, text }] }`. The already-collected per-source text (Phase 0). `sources` may be empty.
+- `candidate_platform` (object, optional): `{ bio?, issues?: [{ title, description }] }`, the candidate's own platform from their site. Absent when the campaign has no website bio yet — then emit no issue contrasts.
+- `race_context` (object): `{ office_name?, state?, city?, election_date? }`. Light phrasing context only. Never put it in a `sources` array.
 
 ## Steps
 
 ### Step 0 — Read params
 
-Read `PARAMS_JSON` once. Extract `opponents` and `race_context`. `mkdir -p /workspace/scratch`. Note each opponent's allowed source URLs — the set of `sources[].source_url` for that opponent is the ONLY set of URLs that may appear in that opponent's output `sources` arrays.
+Read `PARAMS_JSON` once. Extract `opponents`, `candidate_platform`, `race_context`. `mkdir -p /workspace/scratch`. Note each opponent's allowed source URLs — the only URLs that may appear in that opponent's output `sources`.
 
 ```bash
 python3 - <<'EOF'
 import json, os
 p = json.loads(os.environ["PARAMS_JSON"])
+cp = p.get("candidate_platform") or {}
+print("candidate issues:", [i.get("title") for i in (cp.get("issues") or [])])
 for o in p["opponents"]:
     urls = [s["source_url"] for s in o.get("sources", [])]
     print(o["opponent_name"], "->", len(urls), "source(s):", urls)
 EOF
 ```
 
-### Step 1 — Structure each opponent's provided text
+### Step 1 — Structure each opponent's provided text (descriptive)
 
-For each opponent, read every `sources[].text` and restate what it says into three display sections. Work only from that opponent's own text.
+For each opponent, restate their own text into three display sections, each attributed to that opponent's input `source_url`(s):
+- **`overview`** — short, neutral who-they-are paragraph, or `null` if the text supports none.
+- **`background`** — career, community ties, prior roles, education the text contains, or `null`.
+- **`key_positions`** — `{ label, detail, sources }` items for positions/themes the text states; `[]` if none.
 
-- **`overview`** — a short, neutral who-they-are paragraph (who the opponent is, what they are running for, current role if the text states it). Drawn only from the provided text. If the text supports nothing, set `overview: null`.
-- **`background`** — career, community ties, prior public roles, education — whatever biographical detail the provided text actually contains. Drawn only from the provided text. If none, set `background: null`.
-- **`key_positions`** — issue positions / themes the provided text attributes to this opponent. Each item is `{ label, detail, sources }`: `label` is a short topic (e.g. "Housing"), `detail` is a neutral one-to-two-sentence statement of the position as the source states it. Drawn only from the provided text. If the text states no positions, use an empty array `[]`.
+Every non-null section and every position carries ≥1 of THIS opponent's input `source_url`s, verbatim. Do not normalize into finance / fundraising / vote-record fields — that data is not in the text.
 
-For every non-null section and every position item, set `sources` to the input `source_url`(s) the content came from — drawn verbatim from THIS opponent's `sources[].source_url`. A section synthesized from two of the opponent's sources lists both URLs. Do **not** normalize into finance, fundraising, or vote-record fields — that data is not in the Phase-0 text; only overview / background / positions are groundable.
+### Step 2 — Rank the field (relative threat tiers)
 
-### Step 2 — Assemble and write the artifact
+Read all opponents and the candidate platform together. For each opponent emit:
+- **`threat_tier`** (`primary_threat | watch_closely | low_priority`) — relative to the field and the candidate. Incumbency, endorsements / PAC backing, name recognition, and overlap with the candidate's issues raise the tier. Exactly one realistic `primary_threat`.
+- **`why_they_matter`** — one sentence justifying the tier relative to the field.
+- **`what_you_need_to_know`** — the few takeaways the candidate must know about this opponent (string list; may be empty for a thin-data opponent).
 
-Build one entry per input opponent, preserving input order, and write the artifact:
+These are interpretive — they carry no source.
+
+### Step 3 — Soft spots and issue contrasts
+
+For each opponent:
+- **`where_soft`** — `{ text, sources? }` items: openings / vulnerabilities grounded in the collected text (an unaddressed issue, a skipped survey, a thin platform). Cite the source where the gap is directly evidenced; omit `sources` otherwise. `[]` when the text grounds none.
+- **`issue_contrasts`** — for each `candidate_platform.issues[]` title the opponent's text speaks to, emit `{ issue, salience, why_it_matters, opponent_stance, opponent_sources?, candidate_stance }`. `opponent_stance` restates the opponent's text (cite `opponent_sources` where direct); `candidate_stance` is drawn ONLY from that candidate issue's `description`. Omit a contrast when the opponent's text is silent on the issue. Empty array when `candidate_platform` is absent or no issue overlaps.
+
+### Step 4 — Assemble and write
+
+Build one entry per input opponent, preserving input order, echoing `opponent_name` verbatim, and write:
 
 ```python
 import json, os, datetime
 p = json.loads(os.environ["PARAMS_JSON"])
-opponents_out = []  # build one entry per p["opponents"], in order, per Step 1
+opponents_out = []  # one entry per p["opponents"], in order, per Steps 1-3
 artifact = {
     "generated_at": datetime.datetime.now(datetime.timezone.utc)
         .isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -71,9 +93,9 @@ artifact = {
 json.dump(artifact, open("/workspace/output/race_opponent_summary.json", "w"), indent=2)
 ```
 
-Every output opponent's `opponent_name` must match an input opponent verbatim, and the array length must equal the input opponent count.
+The array length must equal the input opponent count.
 
-### Step 3 — Validate
+### Step 5 — Validate
 
 ```bash
 python3 /workspace/validate_output.py
@@ -83,19 +105,22 @@ Fix any schema error before declaring success.
 
 ## Spot-check
 Validator-passing JSON can still be garbage. Before declaring success, confirm:
-- **Every URL in every `sources` array is one of THAT opponent's input `source_url` values, verbatim.** No invented URLs, no cross-opponent URLs, no `race_context`.
-- **Every section restates the provided text — nothing added.** If any `text` / `detail` contains a fact you cannot point to in that opponent's input text, remove it or drop the section.
-- **Sections with no grounding are `null` (overview/background) or `[]` (key_positions), not invented.**
+- **Exactly one realistic `primary_threat`; tiers are relative and justified** (an incumbent with endorsements outranks a first-time candidate with no base).
+- **Every opponent stance, position, and `where_soft` item traces to THAT opponent's text.** No invented facts; thin-data opponents get small output, not fabrication.
+- **Every URL in every `sources` / `opponent_sources` array is one of THAT opponent's input `source_url`s, verbatim.** No invented, cross-opponent, `race_context`, or `candidate_platform` URLs.
+- **Each `candidate_stance` is drawn only from `candidate_platform.issues`.** No issue contrasts when `candidate_platform` is absent.
+- **Issue contrasts only where the opponent's text actually speaks to that candidate issue.**
+- **Neutral language; no em dash (U+2014); no praise, attack, or spin.**
 - **One entry per input opponent, in input order, `opponent_name` echoed verbatim.**
-- **Neutral language; no em dash (U+2014); no spin, comparison, or contrast.**
-- **No finance / fundraising / vote-record fields** — that data is not in the Phase-0 text.
 
 ## Failure modes
 | Symptom | Cause | Fix |
 |---|---|---|
-| A command hangs ~30s then fails | A network call (`curl`/`requests`/`urllib`) — this experiment has no egress and needs none | Never make network calls; structure only the provided text |
-| A `sources` URL isn't in the input | Invented a URL or used another opponent's | Every URL must be that opponent's own input `source_url`, verbatim; else drop the section |
-| A section states a fact not in the text | Filled a gap from general knowledge | Restate only what the provided text says; omit/`null` what it doesn't support |
-| Output reads like praise, criticism, or a contrast | Over-reached into editorial / Phase-1 tone | Keep it neutral and factual — restate the source's own framing |
-| An opponent entry is missing | Dropped an opponent with empty sources | Every input opponent gets an entry: `overview: null`, `background: null`, `key_positions: []` |
-| `validate_output.py` fails on a section with empty `sources` | Emitted a non-null section without attribution | Every non-null section needs ≥1 input source_url, or set it null / drop the item |
+| A command hangs ~30s then fails | A network call — this experiment has no egress and needs none | Never make network calls; synthesize only the provided text |
+| Two or more `primary_threat` opponents | Tiers scored in isolation | Re-rank across the whole field; reserve `primary_threat` for the single strongest |
+| An opponent stance with no basis in their text | Inferred from party / general knowledge | Every stance quote-traces to that opponent's text; omit the contrast otherwise |
+| A `sources` / `opponent_sources` URL isn't in the input | Invented or cross-opponent URL | Use only that opponent's own input `source_url`s, verbatim |
+| `candidate_stance` came from somewhere other than the platform | Reached into general knowledge / CampaignStory | Draw `candidate_stance` only from `candidate_platform.issues[].description` |
+| A thin-data opponent has a fabricated platform | Filled gaps to make output symmetric | Thin data means `key_positions: []`, `issue_contrasts: []`; never invent |
+| Output reads like an attack | Over-reached past fair-line tone | State the opponent's stance as the source states it; the contrast is factual |
+| `validate_output.py` fails on a descriptive section with empty `sources` | Emitted a non-null overview/background/position without attribution | Every non-null descriptive section needs ≥1 input source_url, or set it null / drop the item |
