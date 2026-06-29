@@ -324,11 +324,13 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     }
   }
 
-  // Attach a CV token to the 10DLC brand, picking the right endpoint for the
-  // brand's state. A first-time registration is still `pending`, so /approve
-  // submits it and queues MNO review. A brand that was approved earlier without
-  // a CV token is already `finalized` and /approve 400s on it, so /submit is
-  // used to attach the token to the existing brand instead.
+  // Attach a CV token to the 10DLC brand and finalize it so it queues for MNO
+  // review (the MNOs are what flip the usecase to activated). A first-time
+  // registration is still `pending`, so /approve submits + finalizes it. A
+  // brand approved earlier without a CV token is already `finalized` and
+  // /approve 400s on it, so /submit first re-opens it to `pending` and attaches
+  // the token; we then fall through to /approve to finalize it. Attaching the
+  // token via /submit alone leaves the brand `pending` and it never activates.
   async submitCampaignVerifyTokenToBrand(
     tcrCompliance: TcrCompliance,
     campaignVerifyToken: string,
@@ -354,7 +356,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
         }
       }
       if (profileStatus === PEERLY_PROFILE_STATUS_FINALIZED) {
-        return this.submitCvTokenToFinalizedBrand(
+        await this.submitCvTokenToFinalizedBrand(
           peerlyIdentityId,
           campaignVerifyToken,
           campaign,
@@ -364,21 +366,19 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     return this.approve10DLCBrand(tcrCompliance, campaignVerifyToken)
   }
 
+  // Re-opens a finalized brand to `pending` and attaches the CV token. The
+  // caller must then /approve to finalize — /submit alone does not queue MNO
+  // review.
   private async submitCvTokenToFinalizedBrand(
     peerlyIdentityId: string,
     campaignVerifyToken: string,
     campaign: Campaign,
-  ): Promise<BrandApprovalResult | undefined> {
+  ): Promise<void> {
     try {
-      const response =
-        await this.peerlyHttpService.post<Approve10DLCBrandResponseBody>(
-          `/v2/tdlc/${peerlyIdentityId}/submit`,
-          { campaign_verify_token: campaignVerifyToken },
-        )
-      const {
-        data: { campaign_verify_token: _campaignVerifyToken, ...identityBrand },
-      } = response
-      return identityBrand
+      await this.peerlyHttpService.post<Peerly10DLCBrandSubmitResponseBody>(
+        `/v2/tdlc/${peerlyIdentityId}/submit`,
+        { campaign_verify_token: campaignVerifyToken },
+      )
     } catch (error) {
       await this.handleApiError(error, { campaign, peerlyIdentityId })
     }
