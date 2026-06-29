@@ -164,6 +164,36 @@ class TestSchemaPresentPath:
         assert _by_name(fragments, "attribution_shape")["passed"] is False
 
 
+class TestPrimaryThreatCount:
+    """The 'exactly one primary_threat' invariant JSON Schema can't express;
+    the deterministic gate is its only enforcement, so both failure modes
+    (zero primaries, two-plus primaries) need explicit coverage."""
+
+    def test_exactly_one_primary_threat_passes(self):
+        main = _fresh_main()
+        fragments = main.build_fragments(_valid_artifact(), _real_schema())
+        assert _by_name(fragments, "primary_threat_count")["passed"] is True
+
+    def test_zero_primary_threats_fails(self):
+        main = _fresh_main()
+        art = _valid_artifact()
+        art["opponents"][0]["threat_tier"] = "watch_closely"
+        fragments = main.build_fragments(art, _real_schema())
+        frag = _by_name(fragments, "primary_threat_count")
+        assert frag["passed"] is False
+        assert frag["severity"] == "error"
+        assert "got 0" in frag["detail"]
+
+    def test_multiple_primary_threats_fails(self):
+        main = _fresh_main()
+        art = _valid_artifact()
+        art["opponents"][1]["threat_tier"] = "primary_threat"
+        fragments = main.build_fragments(art, _real_schema())
+        frag = _by_name(fragments, "primary_threat_count")
+        assert frag["passed"] is False
+        assert "got 2" in frag["detail"]
+
+
 class TestSchemaAbsentPath:
     def test_skipped_schema_check_reported_unverified(self):
         """When jsonschema is unavailable the schema check is skipped and must be
