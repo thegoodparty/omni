@@ -84,7 +84,8 @@ export class ProjectedTurnoutService extends createPrismaBase(
     if (!district) return null
 
     const electionCode =
-      rawElectionCode ?? this.determineElectionCode(electionDate, district.state)
+      rawElectionCode ??
+      this.determineElectionCode(electionDate, district.state)
     return this.model.findFirst({
       where: {
         districtId,

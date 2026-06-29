@@ -18,9 +18,7 @@ export class PlaceController {
   }
 
   @Get('by-position-id/:positionId')
-  async getPlaceByPositionId(
-    @Param() params: GetPlaceByPositionIdParamsDTO,
-  ) {
+  async getPlaceByPositionId(@Param() params: GetPlaceByPositionIdParamsDTO) {
     return this.placesService.getPlaceByPositionId(params.positionId)
   }
 
