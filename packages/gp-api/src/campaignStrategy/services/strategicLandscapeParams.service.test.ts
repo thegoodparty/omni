@@ -148,6 +148,15 @@ describe('StrategicLandscapeParamsService', () => {
     )
   })
 
+  it('keeps why/background (issues null) when only the website read fails', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getIssuesForCampaign.mockRejectedValue(new Error('website down'))
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story).toEqual({ ...story, issues: null })
+  })
+
   it('omits the story (without failing the build) when its read errors', async () => {
     races.getPrimaryRaceId.mockResolvedValue(null)
     campaignStory.getForCampaign.mockRejectedValue(new Error('db down'))

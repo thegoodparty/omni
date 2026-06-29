@@ -281,19 +281,32 @@ export class StrategicLandscapeParamsService {
     try {
       const [story, issues] = await Promise.all([
         this.campaignStory.getForCampaign(campaignId),
-        this.websites.getIssuesForCampaign(campaignId),
+        this.loadIssuesParam(campaignId),
       ])
-      return {
-        why: story.why,
-        background: story.background,
-        issues: serializeIssues(issues),
-      }
+      return { why: story.why, background: story.background, issues }
     } catch (error) {
       this.logger.warn(
         { error, campaignId },
         'Failed to load campaign story for strategy params; proceeding without it',
       )
       return undefined
+    }
+  }
+
+  // Website issues fail independently of the story text: a website read error
+  // degrades issues to null rather than dropping the candidate's why/background
+  // from the agent input.
+  private async loadIssuesParam(campaignId: number): Promise<string | null> {
+    try {
+      return serializeIssues(
+        await this.websites.getIssuesForCampaign(campaignId),
+      )
+    } catch (error) {
+      this.logger.warn(
+        { error, campaignId },
+        'Failed to load website issues for strategy params; proceeding without issues',
+      )
+      return null
     }
   }
 

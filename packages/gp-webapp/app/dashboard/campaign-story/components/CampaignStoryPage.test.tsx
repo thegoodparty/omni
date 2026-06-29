@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import type { WebsiteIssue } from 'helpers/types'
@@ -129,5 +129,19 @@ describe('CampaignStoryPage', () => {
     expect(mockSaveAboutFields).toHaveBeenCalledWith({
       issues: [{ title: 't', description: 'd' }],
     })
+  })
+
+  it('reverts the issue and keeps the footer hidden when the save fails', async () => {
+    mockSaveAboutFields.mockResolvedValue(false)
+    const user = userEvent.setup()
+    render(<CampaignStoryPage initialStory={story} initialIssues={[]} />)
+
+    await user.click(screen.getByRole('button', { name: 'add-issue' }))
+
+    // Optimistic add is reverted once the save resolves false.
+    await waitFor(() =>
+      expect(screen.getByText('issue-count:0')).toBeInTheDocument(),
+    )
+    expect(footerLink()).not.toBeInTheDocument()
   })
 })

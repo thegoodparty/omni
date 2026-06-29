@@ -34,6 +34,11 @@ const CampaignPlanStoryGate = ({
   } = useQuery({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
+    // Always refetch on mount: a candidate who just edited issues on the story
+    // page (a direct saveAboutFields write that doesn't touch this cache) must
+    // see them here, not a stale within-staleTime snapshot that would wrongly
+    // gate them. Mirrors useCampaignStory's refetch for the story fields.
+    refetchOnMount: 'always',
   })
   const issues = website?.content?.about?.issues ?? []
   const [confirmOpen, setConfirmOpen] = useState(false)

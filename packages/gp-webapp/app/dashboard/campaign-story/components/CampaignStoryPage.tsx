@@ -52,10 +52,16 @@ const CampaignStoryPage = ({
 
   // Persist on every change. saveAboutFields serializes overlapping writes and
   // creates the website on first save, so no debounce/guard is needed here.
+  // On failure, revert to the pre-edit list so the UI (and the "ready" footer)
+  // reflects what's actually persisted rather than an unsaved optimistic edit.
   const handleIssuesChange = (next: WebsiteIssue[]): void => {
+    const previous = issues
     setIssues(next)
     void saveAboutFields({ issues: next }).then((ok) => {
-      if (!ok) errorSnackbar('Could not save your issues. Please try again.')
+      if (!ok) {
+        setIssues(previous)
+        errorSnackbar('Could not save your issues. Please try again.')
+      }
     })
   }
 
