@@ -34,6 +34,69 @@ import {
 } from '../raceOpponent.constants'
 
 type OpponentResearchInput = AgentJobContracts['opponent_research']['Input']
+type CandidatePlatform = NonNullable<
+  OpponentResearchInput['candidate_platform']
+>
+
+// The PMF Engine rejects dispatch params over 6000 bytes (it serializes them the
+// wider, spaced way Python json.dumps does). candidate_platform is candidate-
+// authored free text — why/background/issues each cap at 10k chars, ~30k total,
+// well over the limit on their own — but it is context-only (the agent frames
+// contrasts from it and never researches the candidate), so trim it to fit.
+// Budget against compact JSON.stringify under 6000 so the agent's wider spacing
+// still fits.
+const MAX_PARAMS_BYTES = 5000
+
+// Descending relevance to opponent contrasts: issues (what the candidate runs
+// on) frames contrasts most directly, then why (motivation), then background
+// (bio). The budget fills fields in this order and drops what overflows.
+const PLATFORM_FIELDS = ['issues', 'why', 'background'] as const
+
+const paramsBytes = (params: OpponentResearchInput): number =>
+  Buffer.byteLength(JSON.stringify(params))
+
+// Truncate to at most maxBytes of UTF-8 without splitting a multibyte character
+// (the cap is measured in bytes, and e.g. one emoji is one JS char but 4 bytes).
+const truncateToBytes = (value: string, maxBytes: number): string => {
+  if (maxBytes <= 0) return ''
+  const buf = Buffer.from(value, 'utf8')
+  if (buf.length <= maxBytes) return value
+  let end = maxBytes
+  // Back off out of a continuation byte (0b10xxxxxx) to cut on a char boundary.
+  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--
+  return buf.toString('utf8', 0, end)
+}
+
+// Shrink candidate_platform so the serialized params fit the dispatch cap; a
+// payload already under it (the common case) is returned untouched. Fields are
+// kept in PLATFORM_FIELDS order, each byte-truncated to the headroom the fixed
+// payload and higher-priority fields leave. JSON escaping makes a serialized
+// field larger than its raw bytes, so each field is re-measured and a single
+// corrective truncation by the measured excess brings it back under the cap
+// (removing N raw bytes removes at least N escaped bytes).
+const fitPlatform = (params: OpponentResearchInput): OpponentResearchInput => {
+  if (paramsBytes(params) <= MAX_PARAMS_BYTES) return params
+  const platform = params.candidate_platform
+  if (!platform) return params
+
+  const trimmed: CandidatePlatform = {}
+  for (const field of PLATFORM_FIELDS) {
+    const value = platform[field]
+    if (!value) continue
+    const headroom =
+      MAX_PARAMS_BYTES - paramsBytes({ ...params, candidate_platform: trimmed })
+    if (headroom <= 0) break
+    trimmed[field] = truncateToBytes(value, headroom)
+    const excess =
+      paramsBytes({ ...params, candidate_platform: trimmed }) - MAX_PARAMS_BYTES
+    if (excess > 0) {
+      const kept = trimmed[field] ?? ''
+      trimmed[field] = truncateToBytes(kept, Buffer.byteLength(kept) - excess)
+    }
+    if (!trimmed[field]) delete trimmed[field]
+  }
+  return { ...params, candidate_platform: trimmed }
+}
 
 // Only the campaign-details keys this module reads; the column is untyped JSON
 // at runtime, so each leaf is independently fault-tolerant.
@@ -394,7 +457,7 @@ export class OpponentResearchService extends createPrismaBase(
     const raceContext = await this.tryRaceContext(campaign)
     const rosterMatch = this.matchRosterCandidate(raceContext, opponentName)
 
-    return {
+    return fitPlatform({
       opponent: {
         full_name: opponentName,
         is_incumbent: rosterMatch?.isIncumbent ?? null,
@@ -411,7 +474,7 @@ export class OpponentResearchService extends createPrismaBase(
         state: raceContext?.state ?? '',
       },
       candidate_platform: await this.buildPlatform(campaign.id),
-    }
+    })
   }
 
   private async buildPlatform(
