@@ -123,10 +123,10 @@ describe('<RaceOpponentList>', () => {
   it('renders the structured summary sections with citations and never a <pre> dump', () => {
     const { container } = render(<RaceOpponentList initialData={withSummary} />)
 
-    // The research-list section heading (h2); the overview card renders the
-    // name as an h3, so anchor on the level to disambiguate.
+    // The candidate's name renders in its accordion trigger row (a button), not
+    // a heading — identity lives in the row, the panel below holds the research.
     expect(
-      screen.getByRole('heading', { level: 2, name: 'Jane Rival' }),
+      screen.getByRole('button', { name: /Jane Rival/i }),
     ).toBeInTheDocument()
 
     // Overview + background prose render as the primary content. The overview
@@ -350,12 +350,14 @@ describe('<RaceOpponentList>', () => {
     // First opponent's detail is shown on mount.
     expect(trackEvent).toHaveBeenCalledTimes(1)
 
-    // Viewing the second opponent fires again (a new name).
-    await userEvent.click(screen.getByRole('tab', { name: /Second Opponent/i }))
+    // Expanding the second opponent fires again (a new name).
+    await userEvent.click(
+      screen.getByRole('button', { name: /Second Opponent/i }),
+    )
     expect(trackEvent).toHaveBeenCalledTimes(2)
 
     // Returning to the first opponent does NOT re-fire (deduped via viewedRef).
-    await userEvent.click(screen.getByRole('tab', { name: /Jane Rival/i }))
+    await userEvent.click(screen.getByRole('button', { name: /Jane Rival/i }))
     expect(trackEvent).toHaveBeenCalledTimes(2)
   })
 
@@ -464,21 +466,20 @@ describe('<RaceOpponentList>', () => {
     ).toBeInTheDocument()
   })
 
-  it('shows party/incumbency as a selector descriptor and as detail badges', () => {
+  it('shows party and incumbency as a single descriptor on the opponent row', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    // The selector card shows a combined "party · role" descriptor line...
+    // Identity now lives only in the accordion trigger row as a combined
+    // "party · role" descriptor — the duplicate detail-header badges are gone.
     expect(screen.getByText('Democrat · Incumbent')).toBeInTheDocument()
-    // ...and the selected opponent's detail header shows them as separate
-    // badges (each an exact-text node, distinct from the descriptor line).
-    expect(screen.getByText('Democrat')).toBeInTheDocument()
-    expect(screen.getByText('Incumbent')).toBeInTheDocument()
+    expect(screen.queryByText('Democrat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Incumbent')).not.toBeInTheDocument()
   })
 
-  it('refreshes the overview cards in sync with the research list', async () => {
+  it('refreshes the opponent accordion in sync with the research list', async () => {
     // Start with no opponents, then Refresh returns an enriched roster. The
-    // cards are driven by the same client state as the list, so the new
-    // opponent's badges (card-only UI) must appear after the refresh.
+    // accordion is driven by the same client state, so the new opponent's row
+    // and its expanded research must both appear after the refresh.
     api.mock('GET /v1/campaigns/mine/race-opponent', {
       status: 200,
       data: withSummary,
@@ -486,18 +487,17 @@ describe('<RaceOpponentList>', () => {
     const user = userEvent.setup()
 
     render(<RaceOpponentList initialData={empty} />)
-    expect(screen.queryByText('Incumbent')).not.toBeInTheDocument()
+    expect(screen.queryByText('Democrat · Incumbent')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /refresh/i }))
 
+    // The opponent row appears (its descriptor), and the panel auto-opens to
+    // the first opponent (activeName fallback), rendering the Overview prose.
     await waitFor(() =>
-      expect(screen.getAllByText('Incumbent').length).toBeGreaterThanOrEqual(1),
+      expect(screen.getByText('Democrat · Incumbent')).toBeInTheDocument(),
     )
-    // List content updated from the same state, not just the cards: the
-    // research-list section heading and Overview prose both appear after the
-    // refresh (the overview text shows in both the card and the list).
     expect(
-      screen.getByRole('heading', { level: 2, name: 'Jane Rival' }),
+      screen.getByRole('button', { name: /Jane Rival/i }),
     ).toBeInTheDocument()
     expect(screen.getByText('Overview')).toBeInTheDocument()
   })
