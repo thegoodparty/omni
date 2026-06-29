@@ -256,13 +256,20 @@ describe('<RaceOpponentList>', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
-  it('renders an overview card per opponent with party/incumbency badges', () => {
+  it('renders a "The field" intro with the opponent count', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    // The card region (not the research list) is the only place the party and
-    // incumbency badges render.
-    expect(screen.getByText('Democrat')).toBeInTheDocument()
-    expect(screen.getByText('Incumbent')).toBeInTheDocument()
+    expect(screen.getByText('The field')).toBeInTheDocument()
+    expect(screen.getByText('1 candidate in this race')).toBeInTheDocument()
+  })
+
+  it('renders party/incumbency badges in the overview card and the detail header', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    // Badges render twice per opponent: once in the overview card and once in
+    // the per-opponent detail header (both mirror the Lovable identity row).
+    expect(screen.getAllByText('Democrat')).toHaveLength(2)
+    expect(screen.getAllByText('Incumbent')).toHaveLength(2)
   })
 
   it('refreshes the overview cards in sync with the research list', async () => {
@@ -281,7 +288,7 @@ describe('<RaceOpponentList>', () => {
     await user.click(screen.getByRole('button', { name: /refresh/i }))
 
     await waitFor(() =>
-      expect(screen.getByText('Incumbent')).toBeInTheDocument(),
+      expect(screen.getAllByText('Incumbent').length).toBeGreaterThanOrEqual(1),
     )
     // List content updated from the same state, not just the cards: the
     // research-list section heading and Overview prose both appear after the

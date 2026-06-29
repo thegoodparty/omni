@@ -2,6 +2,17 @@ import { Badge, cn } from '@styleguide'
 
 export type OpponentBadgeTone = 'neutral' | 'democrat' | 'republican'
 
+export const partyTone = (party: string): OpponentBadgeTone => {
+  const normalized = party.trim().toLowerCase()
+  if (normalized === 'democrat' || normalized === 'democratic') {
+    return 'democrat'
+  }
+  if (normalized === 'republican') {
+    return 'republican'
+  }
+  return 'neutral'
+}
+
 type Props = {
   label: string
   tone?: OpponentBadgeTone
