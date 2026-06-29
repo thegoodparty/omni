@@ -152,7 +152,7 @@
     "uuidv7": "^1.1.0",
     "validator": "^13.15.22",
     "vaul": "^1.1.2",
-    "zod": "4.0.17"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@apidevtools/json-schema-ref-parser": "^15.3.5",

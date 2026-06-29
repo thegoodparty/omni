@@ -1,4 +1,10 @@
-import { flip } from '../util/objects.util'
+const flip = (obj: Record<string, string>): Record<string, string> => {
+  const ret: Record<string, string> = {}
+  Object.keys(obj).forEach((key) => {
+    ret[obj[key]] = key
+  })
+  return ret
+}
 
 export const SHORT_TO_LONG_STATE = {
   AL: 'Alabama',

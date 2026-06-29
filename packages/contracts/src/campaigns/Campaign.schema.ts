@@ -1,11 +1,12 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { CampaignTierSchema } from '../generated/enums'
 import type { CampaignAiContent, CampaignData, CampaignDetails } from './types'
 
 export const CampaignSchema = z.object({
   id: z.number(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
   slug: z.string(),
   isActive: z.boolean(),
   isVerified: z.boolean().nullish(),
@@ -13,7 +14,7 @@ export const CampaignSchema = z.object({
   isDemo: z.boolean(),
   didWin: z.boolean().nullish(),
   primaryResult: z.enum(['won', 'lost']).nullish(),
-  dateVerified: z.coerce.date().nullish(),
+  dateVerified: zCoerceDate().nullish(),
   tier: CampaignTierSchema.nullish(),
   formattedAddress: z.string().nullish(),
   placeId: z.string().nullish(),
@@ -25,7 +26,7 @@ export const CampaignSchema = z.object({
   canDownloadFederal: z.boolean(),
   completedTaskIds: z.array(z.string()),
   hasFreeTextsOffer: z.boolean(),
-  freeTextsOfferRedeemedAt: z.coerce.date().nullish(),
+  freeTextsOfferRedeemedAt: zCoerceDate().nullish(),
   derp: z.string().optional(),
 })
 

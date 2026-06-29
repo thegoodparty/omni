@@ -10,6 +10,7 @@ import {
   applyCompliancePublishFallbacks,
   isPublicAddress,
   ssrfSafeLookup,
+  type PositionWithTopIssue,
 } from './websites.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import {
@@ -470,7 +471,10 @@ describe('ssrfSafeLookup (connection-time defense)', () => {
 
 describe('applyCompliancePublishFallbacks', () => {
   const user = createMockUser({ firstName: 'Rick', lastName: 'Bennett' })
-  const campaign = createMockCampaign({ details: { state: 'ME' } })
+  const campaign: CampaignWith<'campaignPositions'> = {
+    ...createMockCampaign({ details: { state: 'ME' } }),
+    campaignPositions: [],
+  }
 
   it('backfills bio and a publishable issue when about is empty', () => {
     const patched = applyCompliancePublishFallbacks({}, user, campaign)
@@ -584,6 +588,50 @@ describe('applyCompliancePublishFallbacks', () => {
     expect(patched?.about?.issues).toEqual([
       { title: 'Housing', description: 'More homes' },
     ])
+  })
+
+  it('seeds issues from real campaign positions before the default', () => {
+    // Legacy-Pro candidates often have real top-issue positions but an empty
+    // about.issues; the fallback must surface those, not the generic default
+    // (ENG-10602).
+    const positions: PositionWithTopIssue[] = [
+      {
+        id: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        description: 'Lower the cost of housing across Maine.',
+        order: 0,
+        campaignId: 1,
+        positionId: 1,
+        topIssueId: 5,
+        topIssue: {
+          id: 5,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          name: 'Housing Affordability',
+        },
+      },
+    ]
+    const campaignWithPositions: CampaignWith<'campaignPositions'> = {
+      ...createMockCampaign({ details: { state: 'ME' } }),
+      campaignPositions: positions,
+    }
+
+    const patched = applyCompliancePublishFallbacks(
+      {},
+      user,
+      campaignWithPositions,
+    )
+
+    expect(patched?.about?.issues).toEqual([
+      {
+        title: 'Housing Affordability',
+        description: 'Lower the cost of housing across Maine.',
+      },
+    ])
+    expect(patched?.about?.issues?.[0]?.title).not.toBe(
+      'Local Solutions, Not Party Politics',
+    )
   })
 })
 

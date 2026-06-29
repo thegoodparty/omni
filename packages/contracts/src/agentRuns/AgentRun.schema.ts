@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { ExperimentRunStatusSchema } from '../generated/enums'
 import { PaginationOptionsSchema } from '../shared/Pagination.schema'
 
@@ -22,10 +23,10 @@ export const AgentRunListItemSchema = z.object({
   candidate: AgentRunCandidateSummarySchema.nullable(),
   durationSeconds: z.number().nullable(),
   costUsd: z.number().nullable(),
-  createdAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
   stage: z.string().nullable(),
   dataQuality: z.string().nullable(),
-  resumeScheduledFor: z.coerce.date().nullable(),
+  resumeScheduledFor: zCoerceDate().nullable(),
   resumeAttempts: z.number(),
 })
 
@@ -35,8 +36,8 @@ export const AgentRunsListQuerySchema = PaginationOptionsSchema.extend({
   experimentType: z.string().optional(),
   status: ExperimentRunStatusSchema.optional(),
   organizationSlug: z.string().optional(),
-  createdAfter: z.coerce.date().optional(),
-  createdBefore: z.coerce.date().optional(),
+  createdAfter: zCoerceDate().optional(),
+  createdBefore: zCoerceDate().optional(),
 })
 
 export type AgentRunsListQuery = z.infer<typeof AgentRunsListQuerySchema>
@@ -54,11 +55,11 @@ export const AgentRunSchema = z.object({
   durationSeconds: z.number().nullable(),
   costUsd: z.number().nullable(),
   error: z.string().nullable(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
   stage: z.string().nullable(),
   dataQuality: z.string().nullable(),
-  resumeScheduledFor: z.coerce.date().nullable(),
+  resumeScheduledFor: zCoerceDate().nullable(),
   resumeAttempts: z.number(),
 })
 

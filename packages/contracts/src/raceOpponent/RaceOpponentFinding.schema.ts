@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 
 // A single sourced finding. sourced-or-silent is carried in the type: every
 // finding MUST have a non-empty sourceUrl and sourceExtract — there is no such
@@ -14,10 +15,10 @@ export const RaceOpponentFindingSchema = z.object({
   sourceUrl: z.string().min(1),
   sourceExtract: z.string().min(1),
   sourceTitle: z.string().nullable(),
-  sourceReachableAt: z.coerce.date().nullable(),
+  sourceReachableAt: zCoerceDate().nullable(),
   category: z.string(),
-  occurredAt: z.coerce.date().nullable(),
+  occurredAt: zCoerceDate().nullable(),
   draftedResponse: z.string().nullable(),
-  createdAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
 })
 export type RaceOpponentFinding = z.infer<typeof RaceOpponentFindingSchema>

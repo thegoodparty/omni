@@ -10,6 +10,11 @@ export const PEERLY_USECASE = 'POLITICAL'
 // `finalized`, so `pending` is the marker that a usecase still needs submitting.
 export const PEERLY_PROFILE_STATUS_PENDING = 'pending'
 
+// Terminal profile status after the 10DLC brand is approved. A finalized brand
+// rejects a second /approve ("status must be pending, not finalized"), so a CV
+// token attached after finalization has to go through /submit instead.
+export const PEERLY_PROFILE_STATUS_FINALIZED = 'finalized'
+
 export enum PeerlyLocalities {
   local = 'local',
   state = 'state',

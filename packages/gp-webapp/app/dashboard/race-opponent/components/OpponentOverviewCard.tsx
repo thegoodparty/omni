@@ -27,8 +27,8 @@ const descriptorFor = (
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
-// The visual content of an opponent selector card. The selectable box (border,
-// hover, selected ring) is owned by the Tabs trigger that wraps this in
+// The visual content of an opponent selector row. The expandable box (border,
+// hover, open ring) is owned by the accordion item/trigger that wraps this in
 // RaceOpponentList, so this only renders the avatar + name + party/role line.
 const OpponentOverviewCard = ({
   name,

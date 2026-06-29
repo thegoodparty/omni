@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import {
   RaceOpponentResearchStatusSchema,
   RaceOpponentContrastStatusSchema,
@@ -31,9 +32,9 @@ export const RaceOpponentResearchSchema = z.object({
   status: RaceOpponentResearchStatusSchema,
   runId: z.string().nullable(),
   attempts: z.number(),
-  completedAt: z.coerce.date().nullable(),
-  lastViewedAt: z.coerce.date().nullable(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  completedAt: zCoerceDate().nullable(),
+  lastViewedAt: zCoerceDate().nullable(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
 })
 export type RaceOpponentResearch = z.infer<typeof RaceOpponentResearchSchema>
