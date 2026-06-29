@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Accordion,
   AccordionContent,
@@ -47,6 +47,14 @@ const initialsFor = (name: string): string =>
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('') || '?'
+
+// The opponent whose panel opens by default: the primary threat (the Lovable
+// design opens it on load), else the first. '' when there are none.
+const defaultOpenFor = (opponents: RaceOpponentResponse['opponents']): string =>
+  opponents.find((opponent) => opponent.threatTier === 'primary_threat')
+    ?.opponentName ??
+  opponents[0]?.opponentName ??
+  ''
 
 const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   ballotpedia: 'Ballotpedia',
@@ -449,37 +457,36 @@ const RaceOpponentList = ({
   // the effect and a user click could both fire a (paid) collect. The ref is
   // set before the await, so any concurrent caller sees it immediately.
   const collectingRef = useRef(false)
-  // Which opponent's accordion panel is open. Defaults to the primary threat
-  // (the Lovable design opens it on load), else the first; falls back to the
-  // first if the open one disappears after a refresh (see activeName).
-  const [selectedName, setSelectedName] = useState<string | null>(
-    initialData.opponents.find(
-      (opponent) => opponent.threatTier === 'primary_threat',
-    )?.opponentName ??
-      initialData.opponents[0]?.opponentName ??
-      null,
+  // Which opponent's accordion panel is open. '' means all collapsed, so the
+  // user can close the open panel by clicking its row (type=single +
+  // collapsible). Opens the primary threat by default (Lovable opens it on load).
+  const [openName, setOpenName] = useState<string>(() =>
+    defaultOpenFor(initialData.opponents),
   )
 
   const [campaign] = useCampaign()
 
-  const activeName = useMemo<string | null>(() => {
-    const names = data.opponents.map((opponent) => opponent.opponentName)
-    if (selectedName && names.includes(selectedName)) {
-      return selectedName
-    }
-    return names[0] ?? null
-  }, [data.opponents, selectedName])
+  // One-shot auto-open for the empty -> populated transition (e.g. a fresh
+  // Collect that polls in the first opponents): open the default once when data
+  // first arrives. Guarded so it never re-opens after the user collapses.
+  const autoOpenedRef = useRef(initialData.opponents.length > 0)
+  useEffect(() => {
+    if (autoOpenedRef.current || data.opponents.length === 0) return
+    autoOpenedRef.current = true
+    setOpenName(defaultOpenFor(data.opponents))
+  }, [data.opponents])
 
-  // Fire one Opponent Profile Viewed per distinct opponent detail shown. The ref
-  // set dedups so switching back to an already-viewed opponent doesn't re-fire.
+  // Fire one Opponent Profile Viewed per distinct opponent panel opened. The ref
+  // set dedups so re-opening an already-viewed opponent doesn't re-fire; closing
+  // a panel (openName === '') fires nothing.
   const viewedRef = useRef<Set<string>>(new Set())
   useEffect(() => {
-    if (!activeName || viewedRef.current.has(activeName)) return
-    viewedRef.current.add(activeName)
+    if (!openName || viewedRef.current.has(openName)) return
+    viewedRef.current.add(openName)
     trackEvent(EVENTS.RaceOpponent.OpponentProfileViewed, {
       campaignId: campaign?.id,
     })
-  }, [activeName, campaign?.id])
+  }, [openName, campaign?.id])
 
   const loadStatus = useCallback(async (): Promise<void> => {
     const { data: latest } = await clientRequest(
@@ -621,7 +628,7 @@ const RaceOpponentList = ({
           </div>
         </div>
 
-        {activeName === null ? (
+        {data.opponents.length === 0 ? (
           <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
             <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
               <SearchIcon className="size-6" aria-hidden />
@@ -654,13 +661,14 @@ const RaceOpponentList = ({
                 Usually the incumbent or a party-backed challenger.
               </p>
             </div>
-            {/* type=single without collapsible: exactly one opponent is always
-                expanded, so the open panel mirrors the old selected-tab detail
-                and the refresh-from-empty auto-open via activeName is kept. */}
+            {/* type=single + collapsible: one opponent open at a time, and
+                clicking the open row collapses it. Opens the primary threat by
+                default (see openName + the auto-open effect). */}
             <Accordion
               type="single"
-              value={activeName}
-              onValueChange={setSelectedName}
+              collapsible
+              value={openName}
+              onValueChange={setOpenName}
               aria-label="Select an opponent to view their research"
               className="flex flex-col gap-3"
             >

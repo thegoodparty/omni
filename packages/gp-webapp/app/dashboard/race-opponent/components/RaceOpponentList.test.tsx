@@ -440,11 +440,29 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
 
     // Analytics fires once on mount, for the opened primary-threat opponent
-    // (driven by activeName), not the first opponent in the list.
+    // (driven by openName), not the first opponent in the list.
     expect(trackEvent).toHaveBeenCalledTimes(1)
     expect(trackEvent).toHaveBeenCalledWith('Win - Opponent Profile Viewed', {
       campaignId: undefined,
     })
+  })
+
+  it('collapses the open opponent panel when its own row is clicked', async () => {
+    const user = userEvent.setup()
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    // Jane opens by default, so her detail (Overview) is visible.
+    expect(screen.getByText('Overview')).toBeInTheDocument()
+
+    // Clicking the already-open row collapses it — the panel content is gone.
+    await user.click(screen.getByRole('button', { name: /Jane Rival/i }))
+    await waitFor(() =>
+      expect(screen.queryByText('Overview')).not.toBeInTheDocument(),
+    )
+
+    // Clicking the row again re-opens it.
+    await user.click(screen.getByRole('button', { name: /Jane Rival/i }))
+    expect(screen.getByText('Overview')).toBeInTheDocument()
   })
 
   it('never renders a finance summary card', () => {
