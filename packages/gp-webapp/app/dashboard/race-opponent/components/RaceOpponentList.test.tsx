@@ -255,6 +255,67 @@ describe('<RaceOpponentList>', () => {
     expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
   })
 
+  const withContrasts: RaceOpponentResponse = {
+    ...withSummary,
+    opponents: [
+      {
+        ...withSummary.opponents[0]!,
+        summary: {
+          ...withSummary.opponents[0]!.summary!,
+          issueContrasts: [
+            {
+              issue: 'Housing',
+              salience: 'high',
+              whyItMatters: 'Families are being priced out of the district.',
+              opponentStance: 'Backs the developer tax-credit bill.',
+              opponentSources: [
+                {
+                  sourceType: 'ballotpedia',
+                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#contrast',
+                },
+              ],
+              candidateStance: 'Supports more starter homes near transit.',
+            },
+          ],
+        },
+      },
+    ],
+  }
+
+  it('renders an issue contrast card with both stances, source, and salience', () => {
+    render(<RaceOpponentList initialData={withContrasts} />)
+
+    expect(screen.getByText('Where you contrast')).toBeInTheDocument()
+    expect(screen.getByText('High voter salience')).toBeInTheDocument()
+    expect(
+      screen.getByText('Families are being priced out of the district.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Backs the developer tax-credit bill.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Supports more starter homes near transit.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', {
+        name: /ballotpedia\.org\/Jane_Rival#contrast/i,
+      }),
+    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#contrast')
+  })
+
+  it('renders no Start or What-to-do action on a contrast card', () => {
+    render(<RaceOpponentList initialData={withContrasts} />)
+    expect(
+      screen.queryByRole('button', { name: /start|what to do/i }),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText(/what to do/i)).not.toBeInTheDocument()
+  })
+
+  it('hides the where-you-contrast section when there are no contrasts', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+    expect(screen.queryByText('Where you contrast')).not.toBeInTheDocument()
+  })
+
   it('keeps the raw source research collapsed by default when a summary is present', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
