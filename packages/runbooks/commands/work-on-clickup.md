@@ -1,7 +1,7 @@
 <!-- v3 — 2026-06-28 -->
 # /work-on-clickup
 
-Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan, set up a focused working context, then implement it yourself while two read-only subagents give it the review the implementer can't give itself: `gp-reviewer` (an independent senior review of the diff — correctness, security, design, conventions, tests) and, for UI work, `gp-ui-tester` (drives a real browser via the Playwright MCP). You implement and fix in your own context; the reviewers critique the cumulative diff in parallel; you loop on their blocking findings until the work converges or hits a small iteration cap. Same safety nets as before — scope confirmation, todo list seeded from acceptance criteria, AC walk before "done".
+Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan, set up a focused working context, then implement it yourself while two read-only subagents give it the review the implementer can't give itself: `gp-reviewer` (an independent senior review of the diff that **mirrors the `delegate-reviewer` bot's blocker bar** — across correctness, security, tests, conventions, ai-rules, cross-file, and thematic — so its blockers are the ones delegate would post and delegate passes on the first try) and, for UI work, `gp-ui-tester` (drives a real browser via the Playwright MCP). You implement and fix in your own context; the reviewers critique the cumulative diff in parallel; you loop on their blocking findings until the work converges or hits a small iteration cap. Same safety nets as before — scope confirmation, todo list seeded from acceptance criteria, AC walk before "done".
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
 > **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
@@ -46,7 +46,7 @@ Defaults if a `books/.env` value is unset: `$CLICKUP_PLANS_DIR=$HOME/.claude/pla
             ┌──────────── parallel fan-out (read-only) ────────────┐
             ▼                                                       ▼
    ┌──────────────────┐                              ┌──────────────────────┐
-   │   gp-reviewer    │  senior review of the diff   │     gp-ui-tester     │  (UI tasks only)
+   │   gp-reviewer    │  delegate-bar review of diff │     gp-ui-tester     │  (UI tasks only)
    │   read-only      │  correctness/security/design │  read-only + PW MCP  │  drives the browser
    └────────┬─────────┘  /conventions/tests          └──────────┬───────────┘  against the running app
             │                                                    │
