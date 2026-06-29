@@ -1582,4 +1582,77 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     })
     expect(stored).toHaveLength(1)
   })
+
+  const seedTieredSummary = (name: string, threatTier: string | null) =>
+    service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: `summary-${name}`,
+        opponentName: name,
+        sections: {
+          opponentName: name,
+          overview: null,
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-06-28T00:00:00.000Z',
+          ...(threatTier ? { threatTier } : {}),
+        },
+      },
+    })
+
+  it('orders the roster by threat tier and surfaces threatTier per opponent', async () => {
+    // Collected rows land in createdAt order Low, Watch, Primary, so a correct
+    // response must reorder them Primary -> Watch -> Low purely from the tier.
+    await seedCollectedRow({
+      opponentName: 'Low Larry',
+      sourceUrl: WEBSITE_URL,
+    })
+    await seedCollectedRow({
+      opponentName: 'Watch Wanda',
+      sourceUrl: WEBSITE_URL,
+    })
+    await seedCollectedRow({
+      opponentName: 'Primary Pat',
+      sourceUrl: WEBSITE_URL,
+    })
+    await seedTieredSummary('Low Larry', 'low_priority')
+    await seedTieredSummary('Watch Wanda', 'watch_closely')
+    await seedTieredSummary('Primary Pat', 'primary_threat')
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    expect(
+      result.data.opponents.map(
+        (o: { opponentName: string }) => o.opponentName,
+      ),
+    ).toEqual(['Primary Pat', 'Watch Wanda', 'Low Larry'])
+    expect(
+      result.data.opponents.map((o: { threatTier?: string }) => o.threatTier),
+    ).toEqual(['primary_threat', 'watch_closely', 'low_priority'])
+  })
+
+  it('sorts an opponent with no analysis last and returns Phase-2 fields only', async () => {
+    await seedCollectedRow({
+      opponentName: 'Primary Pat',
+      sourceUrl: WEBSITE_URL,
+    })
+    await seedCollectedRow({ opponentName: 'No Analysis Nora' })
+    await seedTieredSummary('Primary Pat', 'primary_threat')
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(
+      result.data.opponents.map(
+        (o: { opponentName: string }) => o.opponentName,
+      ),
+    ).toEqual(['Primary Pat', 'No Analysis Nora'])
+    const nora = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === 'No Analysis Nora',
+    )
+    expect(nora.threatTier).toBeUndefined()
+    expect(nora.summary).toBeNull()
+  })
 })

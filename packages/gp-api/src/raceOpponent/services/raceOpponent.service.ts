@@ -10,6 +10,7 @@ import {
   RaceOpponentResponse,
   RaceOpponentSummary,
   RaceOpponentSummarySchema,
+  RaceOpponentThreatTier,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -47,6 +48,16 @@ const CollectedContentSchema = z
   .object({ text: z.string() })
   .partial()
   .catch({})
+
+// Roster ordering for the read endpoint: primary_threat first, opponents with
+// no analysis last. 'none' is the synthetic key for an opponent without a
+// persisted threat tier.
+const THREAT_TIER_RANK: Record<RaceOpponentThreatTier | 'none', number> = {
+  primary_threat: 0,
+  watch_closely: 1,
+  low_priority: 2,
+  none: 3,
+}
 
 @Injectable()
 export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
@@ -465,19 +476,34 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       })
       byName.set(row.opponentName, items)
     }
-    return [...byName.entries()].map(([opponentName, items]) => {
+    const grouped = [...byName.entries()].map(([opponentName, items]) => {
       // Conservative name match against the roster: trim + lowercase only
       // (mirrors opponentResearch.matchRosterCandidate). No match => both null
       // rather than mis-attributing a party badge.
       const match = roster.get(opponentName.trim().toLowerCase())
+      const summary = summaries.get(opponentName.trim().toLowerCase()) ?? null
       return {
         opponentName,
         party: match?.party ?? null,
         isIncumbent: match?.isIncumbent ?? null,
+        // Surfaced on the opponent object (mirrors summary.threatTier) so the
+        // roster can tier and order without opening the detail.
+        threatTier: summary?.threatTier,
         items,
-        summary: summaries.get(opponentName.trim().toLowerCase()) ?? null,
+        summary,
       }
     })
+
+    // Order primary_threat -> watch_closely -> low_priority -> no-analysis last
+    // (matching the Lovable layout). threatTier lives in the summary JSON, so
+    // the ordering happens here in the service rather than via a Prisma orderBy.
+    // Array.prototype.sort is stable, so ties keep the collected (createdAt-asc)
+    // order the map preserved.
+    return grouped.sort(
+      (a, b) =>
+        THREAT_TIER_RANK[a.threatTier ?? 'none'] -
+        THREAT_TIER_RANK[b.threatTier ?? 'none'],
+    )
   }
 
   private lastCollectedAt(rows: RaceOpponentRow[]): Date | null {
