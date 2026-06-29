@@ -44,8 +44,11 @@ COPY package.json package-lock.json ./
 # / esModuleInterop) and fails typechecking node_modules type declarations.
 COPY tsconfig.base.json ./
 COPY packages/election-api/package.json ./packages/election-api/package.json
-# election-api imports @goodparty_org/nest-common; nest build typechecks against
-# it, so the prebuilt workspace package must be present for module resolution.
+# election-api imports @goodparty_org/contracts and @goodparty_org/nest-common;
+# nest build typechecks against both, so their prebuilt workspace packages must
+# be present for module resolution.
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/contracts/dist ./packages/contracts/dist
 COPY packages/nest-common/package.json ./packages/nest-common/package.json
 COPY packages/nest-common/dist ./packages/nest-common/dist
 RUN npm cache clean --force && \
@@ -79,8 +82,11 @@ WORKDIR /app
 # Copy package files for production dependencies
 COPY package.json package-lock.json ./
 COPY packages/election-api/package.json ./packages/election-api/package.json
-# The compiled dist also imports @goodparty_org/nest-common, so its prebuilt
-# workspace package must be present for npm to link it into node_modules.
+# The compiled dist also imports @goodparty_org/contracts and
+# @goodparty_org/nest-common, so their prebuilt workspace packages must be
+# present for npm to link them into node_modules.
+COPY packages/contracts/package.json ./packages/contracts/package.json
+COPY packages/contracts/dist ./packages/contracts/dist
 COPY packages/nest-common/package.json ./packages/nest-common/package.json
 COPY packages/nest-common/dist ./packages/nest-common/dist
 # Install only production dependencies with --ignore-scripts
