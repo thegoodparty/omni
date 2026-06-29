@@ -318,7 +318,19 @@ export class McpServerService {
   private toMcpTool(t: RegisteredMcpTool): Tool {
     const combined = buildCombinedInputSchema(t.inputDeclarations)
     const inputSchema = combined
-      ? (z.toJSONSchema(combined) as unknown as Tool['inputSchema'])
+      ? (z.toJSONSchema(combined, {
+          // zod v4's z.toJSONSchema throws on z.date() by default; the previous
+          // zod-to-json-schema rendered dates as { type: 'string', format: 'date-time' }.
+          // Don't throw on unrepresentable types and restore that date rendering so
+          // tool input schemas keep working.
+          unrepresentable: 'any',
+          override: (ctx) => {
+            if (ctx.zodSchema._zod.def.type === 'date') {
+              ctx.jsonSchema.type = 'string'
+              ctx.jsonSchema.format = 'date-time'
+            }
+          },
+        }) as unknown as Tool['inputSchema'])
       : ({ type: 'object', properties: {} } as Tool['inputSchema'])
 
     return {
