@@ -165,6 +165,7 @@ This command takes no arguments — the release targets are always `omni` and `g
 
    ```bash
    cd "$REPO_DIR"
+   git fetch origin --prune   # gh pr merge updated the remote, not local refs
    EXPECTED_SHA=$(git rev-parse origin/prod)   # the merge commit just landed on prod
    gh run list --workflow build-pmf-engine.yml --branch prod --limit 5 \
      --json status,conclusion,headSha \
@@ -185,7 +186,7 @@ This command takes no arguments — the release targets are always `omni` and `g
    terraform plan -input=false -out=tfplan
    ```
 
-   **Review the plan before applying** — expect `0 to add, 3 to change, 0 to destroy` (the three Lambdas' `source_code_hash` only), or `No changes` if prod was already applied (idempotent — safe to re-run). Anything else (IAM, security groups, S3, networking) means drift — stop and surface it. Then apply and remove the worktree:
+   **Review the plan before applying** — expect `0 to add, 3 to change, 0 to destroy` (the three Lambdas' `source_code_hash` only), or `No changes` if prod was already applied (idempotent — safe to re-run). Anything else (IAM, security groups, S3, networking) means drift — **remove the worktree first** (`cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-prod && git worktree prune`), then stop and surface it (a left-behind worktree blocks the next run's `git worktree add`). If the plan is clean, apply and then remove the worktree:
 
    ```bash
    cd "$REPO_DIR/.worktrees/release-cp-prod/infrastructure/environments/prod/pmf-engine-control-plane"

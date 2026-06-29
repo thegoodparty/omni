@@ -226,6 +226,7 @@ This command takes no arguments — the release targets are always `omni` and `g
 
    ```bash
    cd "$REPO_DIR"
+   git fetch origin --prune   # gh pr merge updated the remote, not local refs
    EXPECTED_SHA=$(git rev-parse origin/qa)   # the merge commit just landed on qa
    gh run list --workflow build-pmf-engine.yml --branch qa --limit 5 \
      --json status,conclusion,headSha \
@@ -248,7 +249,7 @@ This command takes no arguments — the release targets are always `omni` and `g
    terraform plan -input=false -out=tfplan
    ```
 
-   **Review the plan before applying.** A clean control-plane deploy is `0 to add, 3 to change, 0 to destroy` — the `dispatch`/`scheduler`/`task_reaper` Lambdas with only `source_code_hash` changing (or `No changes` if `qa` was already applied — the apply is idempotent, so re-running is safe). Anything beyond that (IAM, security groups, S3, networking) means drift — stop and surface it instead of applying. Then apply and remove the worktree:
+   **Review the plan before applying.** A clean control-plane deploy is `0 to add, 3 to change, 0 to destroy` — the `dispatch`/`scheduler`/`task_reaper` Lambdas with only `source_code_hash` changing (or `No changes` if `qa` was already applied — the apply is idempotent, so re-running is safe). Anything beyond that (IAM, security groups, S3, networking) means drift — **remove the worktree first** (`cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-qa && git worktree prune`), then stop and surface it instead of applying (a left-behind worktree blocks the next run's `git worktree add`). If the plan is clean, apply and then remove the worktree:
 
    ```bash
    cd "$REPO_DIR/.worktrees/release-cp-qa/infrastructure/environments/qa/pmf-engine-control-plane"
