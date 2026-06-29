@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common'
+import type { NextElectionForPosition } from '@goodparty_org/contracts'
 import { PositionsService } from './positions.service'
 import {
   GetPositionByBrIdParamsDTO,
@@ -30,7 +31,7 @@ export class PositionsController {
   @Get(':id/next-election')
   async getNextElectionForPosition(
     @Param() params: GetPositionByIdParamsDTO,
-  ): Promise<{ electionDate: string | null }> {
+  ): Promise<NextElectionForPosition> {
     return this.positions.getNextElectionForPosition(params.id)
   }
 
