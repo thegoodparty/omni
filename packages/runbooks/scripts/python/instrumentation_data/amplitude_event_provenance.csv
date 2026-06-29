@@ -419,6 +419,9 @@ Voter Outreach - 10DLC Compliance Started,voter_outreach_10dlc_compliance_starte
 Voter Outreach - Campaign Completed,voter_outreach_campaign_completed,703131cfff639170bd836b12c6d00c13e1fc1432,https://github.com/thegoodparty/omni/pull/708,2025-06-18,,,,2025-06-18,2026-06-25T01:35:48
 Voter Outreach - Free Texts Offer Redeemed,voter_outreach_free_texts_offer_redeemed,aa90af3d789823511f82e9d81dee84417a82b0c2,https://github.com/thegoodparty/omni/pull/520,2025-09-08,,,,2025-09-08,2026-06-25T01:35:48
 Voter Outreach - Payment Started,voter_outreach_payment_started,2b9f22689ccc9e29678a4482de65a62db2e1d322,https://github.com/thegoodparty/omni/pull/946,2025-09-09,,,,2025-09-09,2026-06-25T01:35:48
+Win - Opponent Activity Viewed,win_opponent_activity_viewed,,,2026-06-28,,,,2026-06-28,2026-06-28T07:37:49
+Win - Opponent Profile Viewed,win_opponent_profile_viewed,,,2026-06-28,,,,2026-06-28,2026-06-28T07:37:49
+Win - Self Research Completed,win_self_research_completed,,,2026-06-28,,,,2026-06-28,2026-06-28T07:37:49
 Win Onboarding - Magic Link Sent,win_onboarding_magic_link_sent,a68dbdba9ae55bd61453beee21edff8edf1a949d,https://github.com/thegoodparty/omni/pull/318,2026-06-23,0457c312a51f110b32f82d85c2b2103969f8e8a5,https://github.com/thegoodparty/omni/pull/349,2026-06-24,2026-06-24,2026-06-26T21:50:53
 [AI Visibility] Brand Snapshot,ai_visibility_brand_snapshot,,,,,,,,2026-06-25T01:35:48
 [Amplitude] Dead Click,amplitude_dead_click,,,,,,,,2026-06-25T01:35:48

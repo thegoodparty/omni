@@ -27,7 +27,7 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
-  navHeader?: { icon: NavHeaderIconKey; label: string }
+  navHeader?: { icon: NavHeaderIconKey; label: string; centered?: boolean }
 }
 
 const DashboardLayout = ({
@@ -98,7 +98,11 @@ const DashboardLayout = ({
           <ImpersonationBanner />
           <ElectedOfficeTermDatesModalController />
           {navHeader && (
-            <DashboardNavHeader icon={navHeader.icon} label={navHeader.label} />
+            <DashboardNavHeader
+              icon={navHeader.icon}
+              label={navHeader.label}
+              centered={navHeader.centered}
+            />
           )}
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
             <ProUpgradePrompt

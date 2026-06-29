@@ -82,7 +82,7 @@ set.
 | Sweep | What it heals |
 |-------|---------------|
 | `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. |
-| `sweepUnsubmittedUsecases` | Verified records missing the POLITICAL usecase (CV approved without the in-app PIN path running) — submits the usecase so the Peerly identity doesn't strand "loading". |
+| `sweepUnsubmittedUsecases` | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
 | `bootstrapTcrComplianceCheck` | Re-queues `pending` records for status checking. |
 
 ## `submitToPeerlyForAgent` notes

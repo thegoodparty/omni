@@ -8,12 +8,16 @@ import {
   RaceOpponent,
   RaceOpponentCollectionStatus,
   RaceOpponentResponse,
+  RaceOpponentSummary,
+  RaceOpponentSummarySchema,
+  RaceOpponentThreatTier,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   ExperimentRunStatus,
   Prisma,
   RaceOpponent as RaceOpponentRow,
+  RaceOpponentSourceType,
 } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { FeaturesService } from '@/features/services/features.service'
@@ -24,10 +28,12 @@ import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStr
 import {
   KNOW_YOUR_OPPONENT_FEATURE,
   RACE_OPPONENT_COLLECTION,
+  RACE_OPPONENT_SUMMARY,
 } from '../raceOpponent.constants'
 import { RaceOpponentCollectResponse } from '../schemas/raceOpponentCollect.schema'
 
 type CollectionInput = AgentJobContracts['race_opponent_collection']['Input']
+type SummaryInput = AgentJobContracts['race_opponent_summary']['Input']
 
 // Only the campaign-details keys this module reads; the column is untyped JSON
 // at runtime, so each leaf is independently fault-tolerant.
@@ -35,6 +41,23 @@ const lenientString = z.string().nullable().optional().catch(null)
 const CampaignDetailsSchema = z
   .object({ raceId: lenientString, city: lenientString })
   .partial()
+
+// The collected page text lives in race_opponent.content as { text }. The
+// column is untyped JSON at runtime, so read the leaf defensively.
+const CollectedContentSchema = z
+  .object({ text: z.string() })
+  .partial()
+  .catch({})
+
+// Roster ordering for the read endpoint: primary_threat first, opponents with
+// no analysis last. 'none' is the synthetic key for an opponent without a
+// persisted threat tier.
+const THREAT_TIER_RANK: Record<RaceOpponentThreatTier | 'none', number> = {
+  primary_threat: 0,
+  watch_closely: 1,
+  low_priority: 2,
+  none: 3,
+}
 
 @Injectable()
 export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
@@ -49,8 +72,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   // The ownership guard (@UseCampaign) already scopes the campaign to the
   // current user, so reaching here means the caller owns it. Pro + flag are
-  // the remaining gates; both 4xx so the webapp can branch cleanly.
-  private async assertAccess(campaign: CampaignWith<'user'>): Promise<void> {
+  // the remaining gates; both 4xx so the webapp can branch cleanly. Public so
+  // the controller can apply the same Pro+flag gate to opponent routes that
+  // don't go through collect() (e.g. opponents/identify).
+  async assertAccess(campaign: CampaignWith<'user'>): Promise<void> {
     if (!campaign.isPro) {
       throw new ForbiddenException('Race opponent collection requires Pro.')
     }
@@ -182,6 +207,122 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return { runId: run.runId, status: 'running' }
   }
 
+  // Chain the structuring run off a completed collection (called from
+  // RaceOpponentPersistService once the collected rows are committed). Reads
+  // those rows back, groups them per opponent into the summary input, and
+  // dispatches race_opponent_summary. No external call — the input is our own
+  // collected text. Skips dispatch when nothing was collected: a summary over
+  // zero sources has nothing to structure.
+  async dispatchSummary(campaign: CampaignWith<'user'>): Promise<void> {
+    const clerkUserId = campaign.user?.clerkId
+    if (!clerkUserId) return
+
+    const rows = await this.model.findMany({
+      where: { campaignId: campaign.id },
+      orderBy: { createdAt: Prisma.SortOrder.asc },
+    })
+
+    const opponents = this.groupSourcesForSummary(rows)
+    if (opponents.length === 0) return
+
+    // Reuse an already-in-flight summary run instead of dispatching a second:
+    // a collection that completes while a prior summary run is still going
+    // would otherwise spawn a duplicate whose replaceSummaries (delete-then-
+    // insert) races the first's, leaving a non-deterministic final state.
+    // Mirrors dispatchCollection's in-flight dedup; not a hard claim, but it
+    // closes the common chained-retry case.
+    const inFlight = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: RACE_OPPONENT_SUMMARY,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { runId: true },
+    })
+    if (inFlight) return
+
+    await this.experimentRuns.dispatchRun({
+      type: RACE_OPPONENT_SUMMARY,
+      organizationSlug: campaign.organizationSlug,
+      clerkUserId,
+      params: {
+        // The contract types opponents as a non-empty tuple; the
+        // empty-array case is filtered out above, but the type can't prove it.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        opponents: opponents as SummaryInput['opponents'],
+        candidate_platform: await this.buildCandidatePlatform(campaign.id),
+        race_context: await this.buildRaceContext(campaign),
+      },
+    })
+  }
+
+  // The candidate's own platform (bio + issues) for the analytical summary,
+  // read from Website.content.about — the pre-Pro-upgrade CandidateProfileStep
+  // capture, NOT CampaignStory (the self-research duplicate we avoid). Returns
+  // undefined when the campaign has no website bio or issues yet, so dispatch
+  // omits the field and the agent produces no issue contrasts.
+  private async buildCandidatePlatform(
+    campaignId: number,
+  ): Promise<SummaryInput['candidate_platform'] | undefined> {
+    const website = await this.client.website.findUnique({
+      where: { campaignId },
+      select: { content: true },
+    })
+    const about = website?.content?.about
+    if (!about) return undefined
+
+    const bio = about.bio?.trim() ? about.bio : undefined
+    const issues = (about.issues ?? []).flatMap((issue) =>
+      issue.title?.trim() && issue.description?.trim()
+        ? [{ title: issue.title, description: issue.description }]
+        : [],
+    )
+
+    if (!bio && issues.length === 0) return undefined
+    return {
+      ...(bio ? { bio } : {}),
+      ...(issues.length > 0 ? { issues } : {}),
+    }
+  }
+
+  // Group the flat collected rows into the summary input's per-opponent
+  // sources[]. Only the two web-discovered source types the summary contract
+  // accepts are passed through; campaign_plan_db rows (a later phase) are
+  // skipped. An opponent whose every row was skipped contributes no entry.
+  private groupSourcesForSummary(
+    rows: RaceOpponentRow[],
+  ): SummaryInput['opponents'][number][] {
+    const byName = new Map<string, SummaryInput['opponents'][number]>()
+    for (const row of rows) {
+      if (
+        row.sourceType !== RaceOpponentSourceType.ballotpedia &&
+        row.sourceType !== RaceOpponentSourceType.opponent_website
+      ) {
+        continue
+      }
+      if (!row.sourceUrl) continue
+
+      const entry = byName.get(row.opponentName) ?? {
+        opponent_name: row.opponentName,
+        sources: [],
+      }
+      entry.sources.push({
+        source_type: row.sourceType,
+        source_url: row.sourceUrl,
+        text: CollectedContentSchema.parse(row.content).text ?? '',
+      })
+      byName.set(row.opponentName, entry)
+    }
+    return [...byName.values()].filter((entry) => entry.sources.length > 0)
+  }
+
   async get(campaign: CampaignWith<'user'>): Promise<RaceOpponentResponse> {
     await this.assertAccess(campaign)
 
@@ -191,13 +332,73 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
 
     return {
-      opponents: this.groupByOpponent(rows),
+      opponents: this.groupByOpponent(
+        rows,
+        await this.loadRoster(campaign.id),
+        await this.loadSummaries(campaign.id),
+      ),
       lastCollectedAt: this.lastCollectedAt(rows),
       collectionStatus: await this.collectionStatus(
         campaign.id,
         campaign.organizationSlug,
       ),
     }
+  }
+
+  // The persisted structured summaries (one row per opponent). Keyed by the
+  // NORMALIZED opponent name (trim + lowercase, same as the roster lookup):
+  // the summary row and the race_opponent rows come from two separate LLM
+  // runs, so their casing/whitespace can differ — a raw-key match would
+  // silently drop the summary from the response. The persist path already
+  // validated sections against the contract before writing, so a stored row
+  // re-parses cleanly; a row that somehow doesn't is dropped rather than
+  // 500-ing the whole read.
+  private async loadSummaries(
+    campaignId: number,
+  ): Promise<Map<string, RaceOpponentSummary>> {
+    const summaries = await this.client.raceOpponentSummary.findMany({
+      where: { campaignId },
+    })
+    const byName = new Map<string, RaceOpponentSummary>()
+    for (const summary of summaries) {
+      const parsed = RaceOpponentSummarySchema.safeParse(summary.sections)
+      if (parsed.success) {
+        byName.set(summary.opponentName.trim().toLowerCase(), parsed.data)
+      } else {
+        this.logger.warn(
+          { campaignId, opponentName: summary.opponentName },
+          'persisted opponent summary failed contract re-parse; omitting',
+        )
+      }
+    }
+    return byName
+  }
+
+  // The campaign-strategy opponent roster (already populated by the plan;
+  // CampaignStrategyOpponent carries party + incumbency). Read here only to
+  // enrich the grouped response — no new external call, this is the same
+  // relation collect() reads via loadOpposition. Keyed by normalized name so
+  // groupByOpponent can resolve party/incumbency per collected opponent.
+  private async loadRoster(
+    campaignId: number,
+  ): Promise<
+    Map<string, { party: string | null; isIncumbent: boolean | null }>
+  > {
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      include: { opponents: true },
+    })
+    const byName = new Map<
+      string,
+      { party: string | null; isIncumbent: boolean | null }
+    >()
+    for (const opponent of plan?.opponents ?? []) {
+      byName.set(opponent.fullName.trim().toLowerCase(), {
+        party: opponent.partyAffiliation,
+        isIncumbent: opponent.incumbent ?? null,
+      })
+    }
+    return byName
   }
 
   private async buildOpponents(
@@ -259,6 +460,8 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   private groupByOpponent(
     rows: RaceOpponentRow[],
+    roster: Map<string, { party: string | null; isIncumbent: boolean | null }>,
+    summaries: Map<string, RaceOpponentSummary>,
   ): RaceOpponentResponse['opponents'] {
     const byName = new Map<string, RaceOpponent[]>()
     for (const row of rows) {
@@ -273,10 +476,34 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       })
       byName.set(row.opponentName, items)
     }
-    return [...byName.entries()].map(([opponentName, items]) => ({
-      opponentName,
-      items,
-    }))
+    const grouped = [...byName.entries()].map(([opponentName, items]) => {
+      // Conservative name match against the roster: trim + lowercase only
+      // (mirrors opponentResearch.matchRosterCandidate). No match => both null
+      // rather than mis-attributing a party badge.
+      const match = roster.get(opponentName.trim().toLowerCase())
+      const summary = summaries.get(opponentName.trim().toLowerCase()) ?? null
+      return {
+        opponentName,
+        party: match?.party ?? null,
+        isIncumbent: match?.isIncumbent ?? null,
+        // Surfaced on the opponent object (mirrors summary.threatTier) so the
+        // roster can tier and order without opening the detail.
+        threatTier: summary?.threatTier,
+        items,
+        summary,
+      }
+    })
+
+    // Order primary_threat -> watch_closely -> low_priority -> no-analysis last
+    // (matching the Lovable layout). threatTier lives in the summary JSON, so
+    // the ordering happens here in the service rather than via a Prisma orderBy.
+    // Array.prototype.sort is stable, so ties keep the collected (createdAt-asc)
+    // order the map preserved.
+    return grouped.sort(
+      (a, b) =>
+        THREAT_TIER_RANK[a.threatTier ?? 'none'] -
+        THREAT_TIER_RANK[b.threatTier ?? 'none'],
+    )
   }
 
   private lastCollectedAt(rows: RaceOpponentRow[]): Date | null {

@@ -1,0 +1,157 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "self_research",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 60,
+  "timeout_seconds": 1800,
+  "runtime": {
+    "max_parallel_subagents": 6,
+    "max_thinking_tokens": 0
+  },
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Self Research input params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "full_name",
+      "state",
+      "office_name"
+    ],
+    "properties": {
+      "full_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The candidate's full name. The person this research is FOR. Used for source discovery via WebSearch and to confirm a fetched page is about this candidate, not a same-named person."
+      },
+      "state": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "description": "2-letter state code (e.g. NC). Used to disambiguate the right person/jurisdiction during discovery."
+      },
+      "city": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "City / jurisdiction name, or null. Used to disambiguate the right person during discovery."
+      },
+      "office_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Readable office the candidate is running for (e.g. 'Fayetteville City Council'). Disambiguates the right race during discovery."
+      },
+      "prior_roles": {
+        "type": "array",
+        "description": "Prior public roles / offices the candidate has held (e.g. 'School Board Member 2018-2022'), to seed record and statements research. Optional; may be empty.",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "website_url": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "description": "Optional hint: the candidate's campaign website. When present, fetch it directly; when null/absent, discover via WebSearch."
+      },
+      "social_urls": {
+        "type": "array",
+        "description": "Optional hints: the candidate's public social-media profile URLs. Used as starting points for the public footprint.",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "coverage_urls": {
+        "type": "array",
+        "description": "Optional hints: known news-coverage URLs about the candidate. Used as starting points; the agent still discovers more via WebSearch.",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Self Research artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "generated_at",
+      "findings"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "findings": {
+        "type": "array",
+        "description": "One entry per verified vulnerability in the candidate's own public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url. Findings that fail verification are dropped, never invented. The array may be empty when nothing surfaced.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "claim",
+            "source_url",
+            "source_extract",
+            "category",
+            "drafted_response"
+          ],
+          "properties": {
+            "claim": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The vulnerability stated plainly: what an opponent could attack the candidate on, grounded in the candidate's own public conduct."
+            },
+            "source_url": {
+              "type": "string",
+              "pattern": "^https?://",
+              "minLength": 1,
+              "description": "The page actually fetched (the broker's returned X-Source-URL after any redirect). Every finding is grounded in a real fetched URL."
+            },
+            "source_extract": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A verbatim passage from the fetched page that substantiates the claim. MUST appear literally on source_url (verified via verify_quote)."
+            },
+            "category": {
+              "type": "string",
+              "enum": [
+                "residency",
+                "record",
+                "statements",
+                "funding",
+                "conflicts",
+                "narrative"
+              ],
+              "description": "Which vulnerability category this finding belongs to."
+            },
+            "drafted_response": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A short, ready-to-use response the candidate could give if attacked on this. First person or neutral; honest, not spin."
+            },
+            "source_title": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Optional human-readable title of the source page."
+            },
+            "occurred_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date",
+              "description": "Optional date the underlying event occurred (not the retrieval date), or null when undated."
+            }
+          }
+        }
+      }
+    }
+  }
+}

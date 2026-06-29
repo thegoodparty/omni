@@ -1,4 +1,8 @@
 export {
+  Swords as SwordsIcon,
+  Scale as ScaleIcon,
+  Building2 as Building2Icon,
+  UserCheck as UserCheckIcon,
   AlignCenter as AlignCenterIcon,
   EllipsisVertical as EllipsisVerticalIcon,
   Eye as EyeIcon,

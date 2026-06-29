@@ -137,6 +137,10 @@ export interface AgentJobContracts {
     Input: MeetingScheduleInput
     Output: MeetingSchedule
   }
+  opponent_research: {
+    Input: OpponentResearchInputParams
+    Output: OpponentResearchArtifact
+  }
   opportunities_and_challenges: {
     Input: OpportunitiesAndChallengesInputParams
     Output: OpportunitiesAndChallengesArtifact
@@ -148,6 +152,14 @@ export interface AgentJobContracts {
   race_opponent_collection: {
     Input: OpponentDataCollectionInputParams
     Output: OpponentDataCollectionArtifact
+  }
+  race_opponent_summary: {
+    Input: OpponentSummaryInputParams
+    Output: OpponentSummaryArtifact
+  }
+  self_research: {
+    Input: SelfResearchInputParams
+    Output: SelfResearchArtifact
   }
   top_community_issues: {
     Input: {
@@ -5629,6 +5641,110 @@ export interface MeetingScheduleNotFound {
   time: string
   timezone: string
 }
+export interface OpponentResearchInputParams {
+  /**
+   * The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Any field may be null when unwritten.
+   */
+  candidate_platform?: {
+    /**
+     * The candidate's background.
+     */
+    background?: string | null
+    /**
+     * The issues the candidate is running on.
+     */
+    issues?: string | null
+    /**
+     * Why the candidate is running.
+     */
+    why?: string | null
+  } | null
+  /**
+   * The named opponent to research. The lawful-use case for the L2 residency lookup on this named person has been confirmed.
+   */
+  opponent: {
+    /**
+     * The opponent's full name. Used for source discovery via WebSearch, to confirm a fetched page is about this person, and as the registration name to match in the L2 residency query.
+     */
+    full_name: string
+    /**
+     * true if known to be the incumbent, false if known not to be, null if unknown.
+     */
+    is_incumbent?: boolean | null
+    /**
+     * Optional hints: the opponent's public social-media profile URLs.
+     */
+    social_urls?: string[]
+    /**
+     * Optional hint: the opponent's campaign website. When present, fetch directly; when null/absent, discover via WebSearch.
+     */
+    website_url?: string | null
+  }
+  /**
+   * The race the opponent is running in, hydrated by gp-api before dispatch. Disambiguates the right person/page during discovery (same office, jurisdiction, cycle).
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null. The broker injects this as a WHERE clause on the L2 residency query when present.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null. Confirms the right cycle during discovery.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name: string
+    /**
+     * 2-letter state code (e.g. NC). The broker injects this as the WHERE on the L2 residency query.
+     */
+    state: string
+    [k: string]: unknown
+  }
+}
+export interface OpponentResearchArtifact {
+  /**
+   * One entry per verified vulnerability in the opponent's public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url (or, for a residency finding, when an L2 registration row matched). Findings that fail verification are dropped, never invented. The array may be empty.
+   */
+  findings: {
+    /**
+     * Which vulnerability category this finding belongs to.
+     */
+    category:
+      | 'residency'
+      | 'record'
+      | 'statements'
+      | 'funding'
+      | 'conflicts'
+      | 'narrative'
+    /**
+     * The vulnerability stated plainly: what the candidate could draw a contrast on, grounded in the opponent's own public conduct.
+     */
+    claim: string
+    /**
+     * Optional date the underlying event occurred (not the retrieval date), or null when undated.
+     */
+    occurred_at?: string | null
+    /**
+     * For web findings: a verbatim passage from the fetched page that substantiates the claim (verified via verify_quote). For a residency finding: the matched registration fields rendered as text (e.g. registration state/date).
+     */
+    source_extract: string
+    /**
+     * Optional human-readable title of the source page.
+     */
+    source_title?: string
+    /**
+     * For web findings: the page actually fetched (the broker's returned X-Source-URL after any redirect), matching ^https?://. For a residency finding sourced from L2 (not a fetchable URL), a stable dataset reference (e.g. 'l2:int__l2_nationwide_uniform_w_haystaq').
+     */
+    source_url: string
+  }[]
+  generated_at: string
+  /**
+   * Whether the L2 residency query returned a matching registration for the named opponent. 'available' when a row matched and a residency finding was produced; 'unavailable' when no row matched (no residency finding emitted, never fabricated). The broker's data-required gate is carved out for 'unavailable' so a web-only result can still publish.
+   */
+  residency_data: 'available' | 'unavailable'
+}
 export interface OpportunitiesAndChallengesInputParams {
   /**
    * The PRIMARY election stage's candidate roster only (candidate_count + candidates), or null when the race has no primary. We deliberately omit the race-level numbers here (win number, projected turnout, contacts goal, voter-file counts) because they are stage-specific and differ from the general-election numbers the plan is built on, and the office metadata / dates / partisan_type because they are identical to campaign_strategy_context. For offices that hold a primary, this is the real filed field; the general roster is often empty.
@@ -5948,6 +6064,389 @@ export interface OpponentDataCollectionArtifact {
      */
     source_url: string
   }[]
+}
+export interface OpponentSummaryInputParams {
+  /**
+   * The candidate's own platform, hydrated by gp-api from Website.content.about (NOT CampaignStory). Used to rank threat tiers relative to the candidate and to pair each issue contrast against the candidate's own stance. Absent when the campaign has no website bio yet, in which case issue_contrasts are omitted (empty array).
+   */
+  candidate_platform?: {
+    /**
+     * The candidate's own biography paragraph, as captured for their candidate site.
+     */
+    bio?: string
+    /**
+     * The candidate's own issue positions. An issue contrast's candidate_stance is drawn only from these, never invented and never from CampaignStory.
+     */
+    issues?: {
+      /**
+       * The candidate's own stated stance on this issue.
+       */
+      description: string
+      /**
+       * Short issue title (e.g. 'Water security').
+       */
+      title: string
+    }[]
+  }
+  /**
+   * The opponents to structure, with the already-collected per-source text gp-api hydrated from race_opponent.content.text (Phase 0). This is the ONLY text the agent works from — there is no fetching or discovery.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    },
+    ...{
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    }[],
+  ]
+  /**
+   * The race the opponents are running in, hydrated by gp-api. Light context for phrasing only (office / jurisdiction). The agent does NOT reason over it to add facts and never cites it.
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name?: string | null
+    /**
+     * 2-letter state code (e.g. NC), or null.
+     */
+    state?: string | null
+    [k: string]: unknown
+  }
+}
+export interface OpponentSummaryArtifact {
+  generated_at: string
+  /**
+   * One entry per input opponent, in input order. opponent_name echoes the input verbatim. Every non-null section / position item carries at least one source_url drawn from that opponent's input sources; a section with nothing groundable in the provided text is null (overview/background) or omitted (key_positions item), never invented.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
+       */
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * One entry per candidate issue this opponent's collected text speaks to. Empty when candidate_platform is absent or the opponent's text is silent on every candidate issue. candidate_stance is drawn ONLY from candidate_platform.issues, never invented.
+       */
+      issue_contrasts: {
+        /**
+         * The candidate's own stance on this issue, drawn ONLY from candidate_platform.issues.
+         */
+        candidate_stance: string
+        /**
+         * The candidate issue this contrast is about (matches a candidate_platform.issues title).
+         */
+        issue: string
+        /**
+         * Optional. The input source_url(s) the opponent_stance rests on, drawn verbatim from THIS opponent's input sources. Cite where direct.
+         */
+        opponent_sources?: string[]
+        /**
+         * The opponent's stance on this issue, restated from their collected text.
+         */
+        opponent_stance: string
+        /**
+         * How salient this issue is to voters in this race. Interpretive: carries no source.
+         */
+        salience: 'high' | 'medium' | 'low'
+        /**
+         * Why this issue matters to constituents. Interpretive.
+         */
+        why_it_matters: string
+      }[]
+      /**
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
+       */
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
+       */
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       */
+      what_you_need_to_know: string[]
+      /**
+       * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
+       */
+      where_soft: {
+        /**
+         * Optional. Where the gap is directly evidenced, the input source_url(s) it rests on, drawn verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The vulnerability / opening, grounded in this opponent's collected text.
+         */
+        text: string
+      }[]
+      /**
+       * One sentence on why this opponent ranks where they do, relative to the field and the candidate. Interpretive: carries no source.
+       */
+      why_they_matter: string
+    },
+    ...{
+      /**
+       * Career, community ties, and prior public roles drawn only from the provided text, or null when the provided text supports none.
+       */
+      background: {
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * One entry per candidate issue this opponent's collected text speaks to. Empty when candidate_platform is absent or the opponent's text is silent on every candidate issue. candidate_stance is drawn ONLY from candidate_platform.issues, never invented.
+       */
+      issue_contrasts: {
+        /**
+         * The candidate's own stance on this issue, drawn ONLY from candidate_platform.issues.
+         */
+        candidate_stance: string
+        /**
+         * The candidate issue this contrast is about (matches a candidate_platform.issues title).
+         */
+        issue: string
+        /**
+         * Optional. The input source_url(s) the opponent_stance rests on, drawn verbatim from THIS opponent's input sources. Cite where direct.
+         */
+        opponent_sources?: string[]
+        /**
+         * The opponent's stance on this issue, restated from their collected text.
+         */
+        opponent_stance: string
+        /**
+         * How salient this issue is to voters in this race. Interpretive: carries no source.
+         */
+        salience: 'high' | 'medium' | 'low'
+        /**
+         * Why this issue matters to constituents. Interpretive.
+         */
+        why_it_matters: string
+      }[]
+      /**
+       * Issue positions / themes drawn only from the provided text. Empty array when the provided text supports none — never invented.
+       */
+      key_positions: {
+        /**
+         * Neutral one-to-two sentence statement of the position, drawn only from the provided text.
+         */
+        detail: string
+        /**
+         * Short topic label for the position (e.g. 'Housing').
+         */
+        label: string
+        /**
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+      }[]
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * A short, neutral who-they-are paragraph drawn only from the provided text, or null when the provided text supports none.
+       */
+      overview: {
+        /**
+         * One or more input source_url values this text was drawn from.
+         *
+         * @minItems 1
+         */
+        sources: [string, ...string[]]
+        text: string
+      } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       */
+      what_you_need_to_know: string[]
+      /**
+       * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
+       */
+      where_soft: {
+        /**
+         * Optional. Where the gap is directly evidenced, the input source_url(s) it rests on, drawn verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The vulnerability / opening, grounded in this opponent's collected text.
+         */
+        text: string
+      }[]
+      /**
+       * One sentence on why this opponent ranks where they do, relative to the field and the candidate. Interpretive: carries no source.
+       */
+      why_they_matter: string
+    }[],
+  ]
+}
+export interface SelfResearchInputParams {
+  /**
+   * City / jurisdiction name, or null. Used to disambiguate the right person during discovery.
+   */
+  city?: string | null
+  /**
+   * Optional hints: known news-coverage URLs about the candidate. Used as starting points; the agent still discovers more via WebSearch.
+   */
+  coverage_urls?: string[]
+  /**
+   * The candidate's full name. The person this research is FOR. Used for source discovery via WebSearch and to confirm a fetched page is about this candidate, not a same-named person.
+   */
+  full_name: string
+  /**
+   * Readable office the candidate is running for (e.g. 'Fayetteville City Council'). Disambiguates the right race during discovery.
+   */
+  office_name: string
+  /**
+   * Prior public roles / offices the candidate has held (e.g. 'School Board Member 2018-2022'), to seed record and statements research. Optional; may be empty.
+   */
+  prior_roles?: string[]
+  /**
+   * Optional hints: the candidate's public social-media profile URLs. Used as starting points for the public footprint.
+   */
+  social_urls?: string[]
+  /**
+   * 2-letter state code (e.g. NC). Used to disambiguate the right person/jurisdiction during discovery.
+   */
+  state: string
+  /**
+   * Optional hint: the candidate's campaign website. When present, fetch it directly; when null/absent, discover via WebSearch.
+   */
+  website_url?: string | null
+}
+export interface SelfResearchArtifact {
+  /**
+   * One entry per verified vulnerability in the candidate's own public record. A finding is emitted ONLY when its source_extract literally appears on the fetched source_url. Findings that fail verification are dropped, never invented. The array may be empty when nothing surfaced.
+   */
+  findings: {
+    /**
+     * Which vulnerability category this finding belongs to.
+     */
+    category:
+      | 'residency'
+      | 'record'
+      | 'statements'
+      | 'funding'
+      | 'conflicts'
+      | 'narrative'
+    /**
+     * The vulnerability stated plainly: what an opponent could attack the candidate on, grounded in the candidate's own public conduct.
+     */
+    claim: string
+    /**
+     * A short, ready-to-use response the candidate could give if attacked on this. First person or neutral; honest, not spin.
+     */
+    drafted_response: string
+    /**
+     * Optional date the underlying event occurred (not the retrieval date), or null when undated.
+     */
+    occurred_at?: string | null
+    /**
+     * A verbatim passage from the fetched page that substantiates the claim. MUST appear literally on source_url (verified via verify_quote).
+     */
+    source_extract: string
+    /**
+     * Optional human-readable title of the source page.
+     */
+    source_title?: string
+    /**
+     * The page actually fetched (the broker's returned X-Source-URL after any redirect). Every finding is grounded in a real fetched URL.
+     */
+    source_url: string
+  }[]
+  generated_at: string
 }
 export interface TopCommunityIssuesOutput {
   data_quality: 'ok' | 'partial' | 'insufficient_signal'
