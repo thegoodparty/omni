@@ -131,6 +131,22 @@ describe('StrategicLandscapeParamsService', () => {
     )
   })
 
+  it('decodes HTML entities in serialized issues (not &amp; for the agent)', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getIssuesForCampaign.mockResolvedValue([
+      {
+        title: 'Clean Water & Air',
+        description: '<p>Protect rivers &amp; air</p>',
+      },
+    ])
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story?.issues).toBe(
+      'Clean Water & Air\nProtect rivers & air',
+    )
+  })
+
   it('omits the story (without failing the build) when its read errors', async () => {
     races.getPrimaryRaceId.mockResolvedValue(null)
     campaignStory.getForCampaign.mockRejectedValue(new Error('db down'))

@@ -43,11 +43,21 @@ const serializeIssues = (
   const blocks = issues
     .map(({ title, description }) => {
       const cleanTitle = title?.trim() ?? ''
+      // sanitizeHtml strips tags but re-encodes entities (& -> &amp;), so
+      // decode the common ones back to plain text for the agent. Decode &amp;
+      // last so a literal "&amp;lt;" doesn't collapse into "<".
       const cleanDescription = description
         ? sanitizeHtml(description, {
             allowedTags: [],
             allowedAttributes: {},
-          }).trim()
+          })
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .trim()
         : ''
       if (cleanTitle && cleanDescription) {
         return `${cleanTitle}\n${cleanDescription}`
