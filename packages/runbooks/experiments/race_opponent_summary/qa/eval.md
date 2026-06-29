@@ -39,7 +39,10 @@ Fail carries a single-line `detail` (≤ 300 chars): `defect | locator | evidenc
 1. **`relative_threat_ranking`** — tiers are coherent *relative to the field*:
    exactly one realistic `primary_threat`, the ranking reflecting incumbency,
    endorsements/backing, name recognition, and issue overlap. Fail if every opponent
-   is the same tier or there are multiple/zero primaries in a multi-opponent field.
+   is the same tier or there are multiple or zero primaries. (This matches the
+   deterministic `primary_threat_count == 1` gate unconditionally, so the two layers
+   never disagree — including a single-opponent race, where the sole opponent must be
+   the `primary_threat`.)
 2. **`actionability`** — `what_you_need_to_know` and `where_soft` read as concrete,
    usable openings/takeaways rather than vague filler. Fail on platitudes.
 3. **`issue_contrast_usefulness`** — contrasts pair a real opponent stance against the
