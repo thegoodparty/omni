@@ -324,10 +324,39 @@ describe('<RaceOpponentList>', () => {
 
   it('fires Win - Opponent Profile Viewed when an opponent detail is shown', () => {
     render(<RaceOpponentList initialData={withSummary} />)
-    expect(trackEvent).toHaveBeenCalledWith(
-      'Win - Opponent Profile Viewed',
-      expect.objectContaining({}),
-    )
+    // No CampaignProvider in the test, so campaignId resolves to undefined, but
+    // the key must be present in the payload.
+    expect(trackEvent).toHaveBeenCalledWith('Win - Opponent Profile Viewed', {
+      campaignId: undefined,
+    })
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires once per distinct opponent viewed and dedups a revisit', async () => {
+    const twoOpponents: RaceOpponentResponse = {
+      ...withSummary,
+      opponents: [
+        withSummary.opponents[0]!,
+        {
+          opponentName: 'Second Opponent',
+          party: null,
+          isIncumbent: null,
+          items: [],
+          summary: null,
+        },
+      ],
+    }
+    render(<RaceOpponentList initialData={twoOpponents} />)
+    // First opponent's detail is shown on mount.
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+
+    // Viewing the second opponent fires again (a new name).
+    await userEvent.click(screen.getByRole('tab', { name: /Second Opponent/i }))
+    expect(trackEvent).toHaveBeenCalledTimes(2)
+
+    // Returning to the first opponent does NOT re-fire (deduped via viewedRef).
+    await userEvent.click(screen.getByRole('tab', { name: /Jane Rival/i }))
+    expect(trackEvent).toHaveBeenCalledTimes(2)
   })
 
   it('never renders a finance summary card', () => {
