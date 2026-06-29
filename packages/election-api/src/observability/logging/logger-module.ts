@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import { LoggerModule } from 'nestjs-pino'
 import pino from 'pino'
-import { redactLine } from './log-redaction'
+import { redactLine } from '@goodparty_org/nest-common'
 
 const isLocal = process.env.NODE_ENV !== 'production'
 

@@ -33,6 +33,7 @@ jobs:
           app: people-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:people-api
 
       - name: Lint
@@ -64,6 +65,7 @@ jobs:
           app: people-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:people-api
 
       - name: Determine deployment context

@@ -16,6 +16,14 @@ inputs:
     description: Build the shared contracts package before app validation/build.
     required: false
     default: 'false'
+  build-nest-common:
+    description: >-
+      Build the shared @goodparty_org/nest-common package before app
+      validation/build. Its dist/ is gitignored, so the backends that import it
+      need it built (and present in the Docker build context) before typecheck,
+      test, or image build.
+    required: false
+    default: 'false'
   prisma-generate-script:
     description: >-
       Root package.json script to run for Prisma generation, for example
@@ -54,6 +62,11 @@ runs:
       if: inputs.build-contracts == 'true'
       shell: bash
       run: npm run build -w packages/contracts
+
+    - name: Build nest-common
+      if: inputs.build-nest-common == 'true'
+      shell: bash
+      run: npm run build -w packages/nest-common
 
     - name: Generate Prisma client
       if: inputs.prisma-generate-script != ''

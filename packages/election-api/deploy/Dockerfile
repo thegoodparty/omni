@@ -40,6 +40,10 @@ ARG CACHEBUST
 # Install dependencies
 COPY package.json package-lock.json ./
 COPY packages/election-api/package.json ./packages/election-api/package.json
+# election-api imports @goodparty_org/nest-common; nest build typechecks against
+# it, so the prebuilt workspace package must be present for module resolution.
+COPY packages/nest-common/package.json ./packages/nest-common/package.json
+COPY packages/nest-common/dist ./packages/nest-common/dist
 RUN npm cache clean --force && \
     npm ci --build-from-source --ignore-scripts --workspace election-api
 
@@ -71,6 +75,10 @@ WORKDIR /app
 # Copy package files for production dependencies
 COPY package.json package-lock.json ./
 COPY packages/election-api/package.json ./packages/election-api/package.json
+# The compiled dist also imports @goodparty_org/nest-common, so its prebuilt
+# workspace package must be present for npm to link it into node_modules.
+COPY packages/nest-common/package.json ./packages/nest-common/package.json
+COPY packages/nest-common/dist ./packages/nest-common/dist
 # Install only production dependencies with --ignore-scripts
 RUN npm ci --omit=dev --ignore-scripts --workspace election-api
 
