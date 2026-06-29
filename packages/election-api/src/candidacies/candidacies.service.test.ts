@@ -33,7 +33,7 @@ describe('CandidaciesService.getCandidacies', () => {
       includeRace: true,
     } as CandidacyFilterDto)
 
-    const args = findMany.mock.calls[0][0]
+    const args = findMany.mock.calls[0]?.[0]
     expect(args.omit).toEqual({ email: true })
     // include is populated for the relations, but email is still omitted.
     expect(args.include).toBeDefined()

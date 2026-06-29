@@ -64,7 +64,7 @@ export function buildColumnSelect(columns: string) {
   return columns
     .split(',')
     .map((col) => col.trim())
-    .reduce((acc, col) => {
+    .reduce<Record<string, boolean>>((acc, col) => {
       acc[col] = true
       return acc
     }, {})
