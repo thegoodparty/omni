@@ -1,21 +1,24 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import * as Tabs from '@radix-ui/react-tabs'
-import { Avatar, AvatarFallback, Button, Card, cn } from '@styleguide'
 import {
-  Building2Icon,
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  Button,
+  cn,
+} from '@styleguide'
+import {
   CheckCircleIcon,
   CircleIcon,
   ExternalLinkIcon,
   InfoIcon,
   Loader2Icon,
   RefreshIcon,
-  ScaleIcon,
   SearchIcon,
   SwordsIcon,
   TriangleAlertIcon,
-  UserCheckIcon,
   XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
@@ -34,7 +37,6 @@ import type { RaceOpponentSourceType } from '@goodparty_org/contracts'
 import OpponentSection from './OpponentSection'
 import OpponentPageHeader from './OpponentPageHeader'
 import OpponentOverviewCard from './OpponentOverviewCard'
-import OpponentBadge, { partyTone } from './OpponentBadge'
 import SourceAttribution from './SourceAttribution'
 import IssueContrastCard from './IssueContrastCard'
 
@@ -45,37 +47,6 @@ const initialsFor = (name: string): string =>
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? '')
     .join('') || '?'
-
-// party + incumbency badge row on the per-opponent detail header. Icons mirror
-// the Lovable design: party = building, incumbent/challenger = identity icons.
-const OpponentIdentityBadges = ({
-  party,
-  isIncumbent,
-}: {
-  party: string | null
-  isIncumbent: boolean | null
-}): React.JSX.Element | null => {
-  if (!party && isIncumbent === null) {
-    return null
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {party && (
-        <OpponentBadge
-          label={party}
-          tone={partyTone(party)}
-          Icon={Building2Icon}
-        />
-      )}
-      {isIncumbent === true && (
-        <OpponentBadge label="Incumbent" Icon={UserCheckIcon} />
-      )}
-      {isIncumbent === false && (
-        <OpponentBadge label="Challenger" Icon={ScaleIcon} />
-      )}
-    </div>
-  )
-}
 
 const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   ballotpedia: 'Ballotpedia',
@@ -432,32 +403,17 @@ const RawResearch = ({
   </div>
 )
 
-// The detail panel for the selected opponent: identity header, then the
+// The expanded detail for an opponent, rendered inline inside its accordion
+// panel. Identity (avatar, name, party/incumbency, threat tier) lives in the
+// accordion trigger row, so this body omits a header and shows only the
 // structured summary (or readable raw-text fallback), with the raw scrape tucked
 // into a collapsible when a summary exists.
-const OpponentDetailCard = ({
+const OpponentDetailBody = ({
   opponent,
 }: {
   opponent: RaceOpponentResponse['opponents'][number]
 }): React.JSX.Element => (
-  <Card className="w-full min-w-0 gap-5 p-6">
-    <header className="flex w-full min-w-0 items-start gap-4">
-      <Avatar size="large" className="shrink-0">
-        <AvatarFallback className="bg-info-50 font-semibold text-info-600">
-          {initialsFor(opponent.opponentName)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <h2 className="text-xl font-semibold text-foreground">
-          {opponent.opponentName}
-        </h2>
-        <OpponentIdentityBadges
-          party={opponent.party}
-          isIncumbent={opponent.isIncumbent}
-        />
-      </div>
-    </header>
-
+  <div className="flex w-full min-w-0 flex-col gap-5 pt-1">
     {opponent.summary ? (
       <OpponentSummaryView summary={opponent.summary} />
     ) : (
@@ -469,7 +425,7 @@ const OpponentDetailCard = ({
         <RawResearch items={opponent.items} />
       </OpponentSection>
     )}
-  </Card>
+  </div>
 )
 
 // How often to poll status while discovery/collection is in flight.
@@ -493,10 +449,15 @@ const RaceOpponentList = ({
   // the effect and a user click could both fire a (paid) collect. The ref is
   // set before the await, so any concurrent caller sees it immediately.
   const collectingRef = useRef(false)
-  // Which opponent the selector is showing. Defaults to the first; falls back to
-  // the first if the selected one disappears after a refresh (see activeName).
+  // Which opponent's accordion panel is open. Defaults to the primary threat
+  // (the Lovable design opens it on load), else the first; falls back to the
+  // first if the open one disappears after a refresh (see activeName).
   const [selectedName, setSelectedName] = useState<string | null>(
-    initialData.opponents[0]?.opponentName ?? null,
+    initialData.opponents.find(
+      (opponent) => opponent.threatTier === 'primary_threat',
+    )?.opponentName ??
+      initialData.opponents[0]?.opponentName ??
+      null,
   )
 
   const [campaign] = useCampaign()
@@ -677,49 +638,49 @@ const RaceOpponentList = ({
             </div>
           </div>
         ) : (
-          <Tabs.Root
-            value={activeName}
-            onValueChange={setSelectedName}
-            className="flex flex-col gap-6"
-          >
-            <section className="flex flex-col gap-3">
-              <div className="flex flex-col gap-0.5">
-                <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
-                  The field
-                </span>
-                <h2 className="text-lg font-semibold text-foreground">
-                  {data.opponents.length}{' '}
-                  {data.opponents.length === 1 ? 'candidate' : 'candidates'}{' '}
-                  filed for this seat
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Focus on the candidate most likely to take votes from you.
-                  Usually the incumbent or a party-backed challenger.
-                </p>
-              </div>
-              <Tabs.List
-                aria-label="Select an opponent to view their research"
-                className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-              >
-                {data.opponents.map((opponent) => (
-                  <Tabs.Trigger
-                    key={opponent.opponentName}
-                    value={opponent.opponentName}
-                    className={cn(
-                      'flex w-full min-w-0 items-center rounded-lg border border-border bg-card p-4 text-left outline-none transition',
-                      'hover:border-info-600/40',
-                      'focus-visible:ring-2 focus-visible:ring-info-600/40',
-                      'data-[state=active]:border-info-600 data-[state=active]:ring-2 data-[state=active]:ring-info-600/20',
-                      // Emphasize the primary threat (Lovable highlights it).
-                      // The active-state variants must be re-specified for the
-                      // destructive emphasis, or the unconditional
-                      // data-[state=active]:*-info-600 rules above win on
-                      // specificity and the highlight vanishes when selected.
-                      opponent.threatTier === 'primary_threat' &&
-                        'border-destructive/40 ring-1 ring-destructive/20 hover:border-destructive/60 focus-visible:ring-destructive/40 data-[state=active]:border-destructive data-[state=active]:ring-2 data-[state=active]:ring-destructive/20',
-                    )}
-                  >
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-0.5">
+              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
+                The field
+              </span>
+              <h2 className="text-lg font-semibold text-foreground">
+                {data.opponents.length}{' '}
+                {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
+                for this seat
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Focus on the candidate most likely to take votes from you.
+                Usually the incumbent or a party-backed challenger.
+              </p>
+            </div>
+            {/* type=single without collapsible: exactly one opponent is always
+                expanded, so the open panel mirrors the old selected-tab detail
+                and the refresh-from-empty auto-open via activeName is kept. */}
+            <Accordion
+              type="single"
+              value={activeName}
+              onValueChange={setSelectedName}
+              aria-label="Select an opponent to view their research"
+              className="flex flex-col gap-3"
+            >
+              {data.opponents.map((opponent) => (
+                <AccordionItem
+                  key={opponent.opponentName}
+                  value={opponent.opponentName}
+                  className={cn(
+                    'rounded-lg border border-border bg-card px-4 transition last:border-b',
+                    'hover:border-info-600/40',
+                    'data-[state=open]:border-info-600 data-[state=open]:ring-1 data-[state=open]:ring-info-600/20',
+                    // Emphasize the primary threat (Lovable highlights it). The
+                    // open-state variants are re-specified for the destructive
+                    // emphasis, or the unconditional data-[state=open]:*-info-600
+                    // rules above win and the highlight vanishes when open.
+                    opponent.threatTier === 'primary_threat' &&
+                      'border-destructive/40 ring-1 ring-destructive/20 hover:border-destructive/60 data-[state=open]:border-destructive data-[state=open]:ring-destructive/20',
+                  )}
+                >
+                  <AccordionTrigger className="items-center hover:no-underline focus-visible:no-underline">
                     <OpponentOverviewCard
                       name={opponent.opponentName}
                       initials={initialsFor(opponent.opponentName)}
@@ -727,21 +688,14 @@ const RaceOpponentList = ({
                       isIncumbent={opponent.isIncumbent}
                       threatTier={opponent.threatTier}
                     />
-                  </Tabs.Trigger>
-                ))}
-              </Tabs.List>
-            </section>
-
-            {data.opponents.map((opponent) => (
-              <Tabs.Content
-                key={opponent.opponentName}
-                value={opponent.opponentName}
-                className="outline-none"
-              >
-                <OpponentDetailCard opponent={opponent} />
-              </Tabs.Content>
-            ))}
-          </Tabs.Root>
+                  </AccordionTrigger>
+                  <AccordionContent className="border-t border-border">
+                    <OpponentDetailBody opponent={opponent} />
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </section>
         )}
       </div>
     </>
