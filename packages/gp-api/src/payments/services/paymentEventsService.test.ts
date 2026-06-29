@@ -113,7 +113,6 @@ describe('PaymentEventsService', () => {
       crm as never,
       voterFileDownloadAccess as never,
       organizationsService as never,
-      {} as never,
       analytics as never,
       purchaseService as never,
       tcrComplianceService as never,

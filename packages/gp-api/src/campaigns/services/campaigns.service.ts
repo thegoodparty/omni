@@ -39,12 +39,8 @@ import { PaginatedResults, WrapperType } from 'src/shared/types/utility.types'
 import { objectNotEmpty } from 'src/shared/util/objects.util'
 import { toDateOnlyString } from 'src/shared/util/date.util'
 import { buildSlug } from 'src/shared/util/slug.util'
-import { UsersService } from 'src/users/services/users.service'
 import { getUserFullName } from 'src/users/util/users.util'
-import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { AiContentInputValues } from '../ai/content/aiContent.types'
 import {
   CampaignPlanVersionData,
@@ -67,18 +63,13 @@ enum CandidateVerification {
 @Injectable()
 export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   constructor(
-    @Inject(forwardRef(() => UsersService))
-    private usersService: WrapperType<UsersService>,
     @Inject(forwardRef(() => CrmCampaignsService))
     private readonly crm: WrapperType<CrmCampaignsService>,
     private readonly analytics: AnalyticsService,
     private planVersionService: CampaignPlanVersionsService,
-    private readonly stripeService: StripeService,
-    private readonly googlePlaces: GooglePlacesService,
     private readonly elections: ElectionsService,
     private readonly ballotReady: BallotReadyService,
     private readonly organizations: OrganizationsService,
-    private readonly slack: SlackService,
     @Inject(forwardRef(() => CampaignTasksService))
     private readonly campaignTasks: WrapperType<CampaignTasksService>,
   ) {

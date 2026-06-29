@@ -106,7 +106,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   @Interval(AGENTIC_KICKOFF_SWEEP_INTERVAL * 1000)
-  private async sweepStrandedAgenticKickoffs() {
+  async sweepStrandedAgenticKickoffs() {
     const cutoff = subMinutes(new Date(), AGENTIC_KICKOFF_STALENESS_MINUTES)
     const stranded = await this.model.findMany({
       where: {
@@ -185,7 +185,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // `pending` means the usecase was already submitted (status advances after
   // approve).
   @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
-  private async sweepUnsubmittedUsecases() {
+  async sweepUnsubmittedUsecases() {
     const candidates = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.submitted,
@@ -304,7 +304,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   @Interval(TCR_COMPLIANCE_CHECK_INTERVAL * 1000) // This will run based on the environment variable
-  private async bootstrapTcrComplianceCheck() {
+  async bootstrapTcrComplianceCheck() {
     const pendingTcrCompliances = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.pending,

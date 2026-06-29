@@ -42,7 +42,7 @@ export class VotersService {
     partisanType: string,
     priorElectionDates: string[],
   ): Promise<VoterCounts> {
-    const searchJson = {
+    const searchJson: { filters: Record<string, string | number> } = {
       filters: {},
     }
 
