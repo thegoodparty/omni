@@ -38,23 +38,23 @@ import pandas as pd
 import cap_cost_db
 
 RUN_COLUMNS = [
-    "runId",
-    "organizationSlug",
-    "experimentType",
-    "status",
-    "costUsd",
-    "durationSeconds",
-    "artifactBucket",
-    "artifactKey",
-    "error",
-    "stage",
-    "createdAt",
+    ("run_id", "runId"),
+    ("organization_slug", "organizationSlug"),
+    ("experiment_type", "experimentType"),
+    ("status", "status"),
+    ("cost_usd", "costUsd"),
+    ("duration_seconds", "durationSeconds"),
+    ("artifact_bucket", "artifactBucket"),
+    ("artifact_key", "artifactKey"),
+    ("error", "error"),
+    ("stage", "stage"),
+    ("created_at", "createdAt"),
 ]
 
 
 def _select(where_sql: str, **params) -> pd.DataFrame:
-    cols = ", ".join(f'"{c}"' for c in RUN_COLUMNS)
-    sql = f'SELECT {cols} FROM experiment_run WHERE {where_sql} ORDER BY "createdAt" ASC'
+    cols = ", ".join(f'{db} AS "{alias}"' for db, alias in RUN_COLUMNS)
+    sql = f'SELECT {cols} FROM experiment_run WHERE {where_sql} ORDER BY created_at ASC'
     df = cap_cost_db.query(sql, **params)
     if not df.empty:
         df["createdAt"] = pd.to_datetime(df["createdAt"], utc=True)
@@ -66,7 +66,7 @@ def resolve_type_since(experiment_type: str, since: str) -> pd.DataFrame:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return _select(
-        '"experimentType" = :t AND "createdAt" >= :since',
+        'experiment_type = :t AND created_at >= :since',
         t=experiment_type,
         since=dt.isoformat(),
     )
@@ -78,7 +78,7 @@ def resolve_type_on(experiment_type: str, day: str) -> pd.DataFrame:
     start_dt = datetime.fromisoformat(f"{day}T00:00:00+00:00")
     end_dt = start_dt + timedelta(days=1)
     return _select(
-        '"experimentType" = :t AND "createdAt" >= :s AND "createdAt" < :e',
+        'experiment_type = :t AND created_at >= :s AND created_at < :e',
         t=experiment_type,
         s=start_dt.isoformat(),
         e=end_dt.isoformat(),
@@ -104,7 +104,7 @@ def resolve_last_cohorts(
 
     since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
     df = _select(
-        '"experimentType" = :t AND "createdAt" >= :since',
+        'experiment_type = :t AND created_at >= :since',
         t=experiment_type,
         since=since,
     )
@@ -117,10 +117,10 @@ def resolve_last_cohorts(
 
 def resolve_run_ids(run_ids: list[str]) -> pd.DataFrame:
     if not run_ids:
-        return pd.DataFrame(columns=RUN_COLUMNS)
+        return pd.DataFrame(columns=[alias for _, alias in RUN_COLUMNS])
     placeholders = ", ".join(f":id{i}" for i in range(len(run_ids)))
     params = {f"id{i}": rid for i, rid in enumerate(run_ids)}
-    return _select(f'"runId" IN ({placeholders})', **params)
+    return _select(f'run_id IN ({placeholders})', **params)
 
 
 def _read_id_file(path: str) -> list[str]:
