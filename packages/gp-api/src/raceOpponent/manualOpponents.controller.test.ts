@@ -1,11 +1,7 @@
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import {
-  ExperimentRunStatus,
-  RaceOpponentFindingKind,
-  RaceOpponentResearchStatus,
-} from '@/generated/prisma'
+import { ExperimentRunStatus } from '@/generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -15,18 +11,6 @@ const ORG_SLUG_HEADER = 'X-Organization-Slug'
 const MANUAL_PATH = '/v1/campaigns/mine/race-opponent/opponents/manual'
 const COLLECT_PATH = '/v1/campaigns/mine/race-opponent/collect'
 const JANE = 'Jane Rival'
-
-// collect() is gated server-side on a completed self-research pass; the
-// re-collect round-trip test seeds one so it reaches the dispatch path.
-const seedCompletedSelfPass = (campaignId: number) =>
-  service.prisma.raceOpponentResearch.create({
-    data: {
-      campaignId,
-      kind: RaceOpponentFindingKind.self,
-      status: RaceOpponentResearchStatus.completed,
-      runId: 'self-done',
-    },
-  })
 
 const seedCampaign = (opts: { isPro: boolean }) =>
   service.prisma.organization
@@ -133,8 +117,7 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
   })
 
   it('round-trips persisted URL hints into a later collect() re-dispatch', async () => {
-    const campaign = await seedCampaign({ isPro: true })
-    await seedCompletedSelfPass(campaign.id)
+    await seedCampaign({ isPro: true })
     flagOn()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')

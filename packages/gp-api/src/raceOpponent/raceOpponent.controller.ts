@@ -92,17 +92,19 @@ export class RaceOpponentController {
     private readonly contrastEdit: ContrastEditService,
   ) {}
 
-  // collect is the functional opponent trigger (it dispatches opponent
-  // discovery/collection runs), so PRD Requirement B's gate must hold here too,
-  // not only on the identify stub: opponent research stays blocked until the
-  // self-research pass has completed.
+  // collect drives the relaxed race_opponent_collection -> race_opponent_summary
+  // path the live /opponent page renders. That path sources the candidate's own
+  // platform from Website.content.about (buildCandidatePlatform), not the strict
+  // self_research engine, so it is gated on Pro+flag only (assertAccess inside
+  // collect) — NOT on a completed RaceOpponentResearch(kind=self) row, which the
+  // relaxed page never produces. The strict engine's own endpoints
+  // (opponents/research, contrasts/*) keep the self-research gate.
   @Post('collect')
   @ResponseSchema(RaceOpponentCollectResponseSchema)
   @UseCampaign({ include: { user: true } })
   async collect(
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentCollectResponse> {
-    await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
     return this.raceOpponent.collect(campaign)
   }
 
