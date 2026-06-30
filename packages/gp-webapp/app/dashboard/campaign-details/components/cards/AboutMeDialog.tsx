@@ -86,6 +86,15 @@ export default function AboutMeDialog({
 
   const handleSave = async (): Promise<void> => {
     if (!canSave || saving) return
+    // The elected-office record may still be loading when the dialog opens.
+    // Saving without its id would silently skip the party write, so block and
+    // ask the user to retry rather than report a false success.
+    if (isElectedOffice && !electedOfficeId) {
+      errorSnackbar(
+        'Your office is still loading. Please try again in a moment.',
+      )
+      return
+    }
     trackEvent(EVENTS.Profile.CampaignDetails.ClickSave)
     setSaving(true)
     // Bio lives on the website's "about.bio" — the same field the website
@@ -101,7 +110,7 @@ export default function AboutMeDialog({
                 id: electedOfficeId,
                 party: form.party || null,
               })
-            : Promise.resolve({ ok: true }),
+            : Promise.resolve({ ok: false }),
           saveAboutFields({ bio: form.bio }),
         ])
         ok = officeRes.ok && bioOk
