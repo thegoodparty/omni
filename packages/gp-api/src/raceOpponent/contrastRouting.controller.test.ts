@@ -4,11 +4,27 @@ import { PrismaService } from '@/prisma/prisma.service'
 import {
   OutreachStatus,
   OutreachType,
+  Prisma,
   RaceOpponentContrastStatus,
   RaceOpponentFindingKind,
   RaceOpponentResearchStatus,
 } from '@/generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
+
+// Genuine PrismaClientKnownRequestError instances, so the route hits the real
+// PrismaExceptionFilter (it matches on instanceof, which a plain Error fails).
+const prismaP2002 = (target: string) =>
+  new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+    code: 'P2002',
+    clientVersion: 'test',
+    meta: { target: [target] },
+  })
+
+const prismaP2034 = () =>
+  new Prisma.PrismaClientKnownRequestError('Transaction conflict', {
+    code: 'P2034',
+    clientVersion: 'test',
+  })
 
 const service = useTestService()
 
@@ -176,13 +192,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
             },
           },
         })
-        return Promise.reject(
-          Object.assign(new Error('unique'), {
-            name: 'PrismaClientKnownRequestError',
-            code: 'P2002',
-            meta: { target: ['campaign_id'] },
-          }),
-        )
+        return Promise.reject(prismaP2002('campaign_id'))
       })
       // Prisma's $transaction has overloads vitest can't infer here
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -224,22 +234,73 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
 
     // A P2002 on website's OTHER unique column (vanity_path) means a different
     // campaign already holds this slug — retrying can never clear it. The route
-    // must surface the error after a single attempt, not loop the retry.
+    // must surface it after a single attempt (PrismaExceptionFilter maps P2002
+    // to 409), not loop the retry.
     const prisma = service.app.get(PrismaService)
-    const spy = vi.spyOn(prisma, '$transaction').mockRejectedValue(
-      Object.assign(new Error('unique'), {
-        name: 'PrismaClientKnownRequestError',
-        code: 'P2002',
-        meta: { target: ['vanity_path'] },
-      }),
-    )
+    const spy = vi
+      .spyOn(prisma, '$transaction')
+      .mockRejectedValue(prismaP2002('vanity_path'))
 
     const result = await route(contrast.id, 'story')
 
-    expect(result.status).toBe(500)
+    expect(result.status).toBe(409)
     // Exactly one attempt — the predicate refused to retry the slug conflict.
     expect(spy.mock.calls.length).toBe(1)
     spy.mockRestore()
+  })
+
+  it('retries the append when two routes race a serialization failure (P2034)', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    // The website already exists, so both racing routes take the append branch;
+    // under Serializable the loser aborts with a serialization failure (P2034).
+    await service.prisma.website.create({
+      data: {
+        campaignId: campaign.id,
+        vanityPath: `${SLUG}-site`,
+        content: {
+          about: { issues: [{ title: 'Schools', description: 'Fund.' }] },
+        },
+      },
+    })
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    // First attempt aborts with P2034; retryIf must run a real second
+    // transaction that appends cleanly onto the existing row.
+    const prisma = service.app.get(PrismaService)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    const spy = vi
+      .spyOn(prisma, '$transaction')
+      .mockRejectedValueOnce(prismaP2034())
+      // Prisma's $transaction has overloads vitest can't infer here
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((arg: any) => realTransaction(arg))
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(201)
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2)
+    spy.mockRestore()
+
+    const website = await service.prisma.website.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    // The retry appended onto the existing row: the prior issue is preserved.
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Schools', description: 'Fund.' },
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
+
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.used)
+    expect(row.routedWebsiteId).toBe(website.id)
   })
 
   it('routes a cleared contrast to a pre-send draft Outreach (no send enqueued)', async () => {
