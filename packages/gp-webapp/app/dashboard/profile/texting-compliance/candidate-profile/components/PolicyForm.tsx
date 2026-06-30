@@ -128,11 +128,14 @@ export default function PolicyForm({
     setRewriteError(false)
   }
 
-  // Replace the editor content with the suggestion by remounting it.
+  // Replace the editor content with the suggestion by remounting it. Wrap the
+  // plain-text rewrite in <p> so `description` holds Quill-shaped HTML
+  // immediately — the remounted editor only emits its real innerHTML one render
+  // later, and Save (always enabled) could otherwise persist raw text.
   const acceptRewrite = (text: string): void => {
     setEditorSeed(text)
     setEditorKey((key) => key + 1)
-    setDescription(text)
+    setDescription(`<p>${text}</p>`)
     setDescriptionPlainLength(getBioPlainLength(text))
     discardRewrite()
   }

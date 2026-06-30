@@ -151,4 +151,25 @@ describe('PolicyForm — Help me rewrite', () => {
       screen.queryByRole('button', { name: /use this/i }),
     ).not.toBeInTheDocument()
   })
+
+  it('shows the AI-limit notice and permanently disables rewriting on a 403', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', {
+      status: 403,
+      data: { rewrite: '' },
+    })
+    render(
+      <PolicyForm showDelete={false} onSave={vi.fn()} onDelete={vi.fn()} />,
+    )
+
+    typeFocus(40)
+    await user.click(screen.getByRole('button', { name: /help me rewrite/i }))
+
+    expect(
+      await screen.findByText(/reached your AI rewrite limit/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /help me rewrite/i }),
+    ).toBeDisabled()
+  })
 })
