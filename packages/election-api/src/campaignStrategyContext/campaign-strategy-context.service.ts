@@ -13,7 +13,9 @@ import {
 const CONTACTS_NEEDED_MULTIPLIER = 5
 
 @Injectable()
-export class CampaignStrategyContextService extends createPrismaBase(MODELS.Race) {
+export class CampaignStrategyContextService extends createPrismaBase(
+  MODELS.Race,
+) {
   constructor(
     private readonly projectedTurnoutService: ProjectedTurnoutService,
   ) {
