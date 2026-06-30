@@ -195,5 +195,6 @@ export const Playground: Story = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => <SidebarDemo />,
 }

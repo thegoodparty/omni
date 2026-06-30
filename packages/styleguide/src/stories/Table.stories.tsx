@@ -20,6 +20,7 @@ export default meta
 type Story = StoryObj<typeof Table>
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Table>
       <TableCaption>A list of your recent invoices.</TableCaption>
@@ -62,6 +63,7 @@ export const Default: Story = {
 }
 
 export const WithCustomStyling: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Table>
       <TableHeader>
@@ -91,6 +93,7 @@ export const WithCustomStyling: Story = {
 }
 
 export const WithStripedRows: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Table>
       <TableHeader>
@@ -144,6 +147,7 @@ export const WithStripedRows: Story = {
 }
 
 export const WithHoverEffect: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Table>
       <TableHeader>

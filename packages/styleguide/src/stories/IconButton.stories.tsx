@@ -88,6 +88,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Variants: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex flex-wrap items-center gap-3">
       <IconButton variant="default" aria-label="Default">
@@ -113,6 +114,7 @@ export const Variants: Story = {
 }
 
 export const Sizes: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="flex items-center gap-4">
       <IconButton size="small" aria-label="Small">
@@ -134,6 +136,7 @@ export const Sizes: Story = {
 const labelClass = 'text-xs text-muted-foreground font-medium'
 
 export const States: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="grid grid-cols-4 gap-x-6 gap-y-3 items-center">
       <span />

@@ -11,10 +11,12 @@ export default meta
 type Story = StoryObj<typeof Stepper>
 
 export const Bar: Story = {
+  parameters: { controls: { disable: true } },
   render: () => <Stepper variant="bar" currentStep={2} totalSteps={5} />,
 }
 
 export const Vertical: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Stepper
       variant="vertical"
