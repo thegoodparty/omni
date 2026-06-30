@@ -40,6 +40,8 @@ import OpponentOverviewCard from './OpponentOverviewCard'
 import SourceAttribution from './SourceAttribution'
 import IssueContrastCard from './IssueContrastCard'
 import OpponentResearchProgress from './OpponentResearchProgress'
+import AddOpponentsForm from './AddOpponentsForm'
+import type { ManualOpponentInput } from './AddOpponentsForm'
 
 const initialsFor = (name: string): string =>
   name
@@ -564,6 +566,37 @@ const RaceOpponentList = ({
     }
   }, [errorSnackbar, loadStatus])
 
+  const [submittingManual, setSubmittingManual] = useState(false)
+  // Synchronous in-flight guard, mirroring collectingRef: setSubmittingManual
+  // only disables the button after a re-render, so two rapid clicks could both
+  // fire a (paid) manual run before React repaints. The ref is set before the
+  // await, so the second synchronous call sees it and bails immediately.
+  const submittingManualRef = useRef(false)
+
+  const submitManualOpponents = useCallback(
+    async (opponents: ManualOpponentInput[]) => {
+      if (submittingManualRef.current) return
+      submittingManualRef.current = true
+      setSubmittingManual(true)
+      try {
+        const { data: result } = await clientRequest(
+          'POST /v1/campaigns/mine/race-opponent/opponents/manual',
+          { opponents },
+        )
+        setData((prev) => ({
+          ...prev,
+          collectionStatus: result.status,
+        }))
+      } catch {
+        errorSnackbar('Failed to start the analysis. Please try again.')
+      } finally {
+        submittingManualRef.current = false
+        setSubmittingManual(false)
+      }
+    },
+    [errorSnackbar],
+  )
+
   const status = data.collectionStatus
 
   // Two-call discovery: collect() dispatches opposition_research and returns
@@ -711,7 +744,7 @@ const RaceOpponentList = ({
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={collect}
-              disabled={collecting || isBusy}
+              disabled={collecting || isBusy || submittingManual}
               className="flex items-center gap-1.5"
             >
               <RefreshIcon className="size-4" aria-hidden />
@@ -730,21 +763,54 @@ const RaceOpponentList = ({
         </div>
 
         {data.opponents.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <SearchIcon className="size-6" aria-hidden />
-            </span>
-            <div className="flex flex-col gap-1">
-              <h2 className="text-base font-semibold text-foreground">
-                No opponent research yet
-              </h2>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Use &quot;Collect now&quot; above to gather sourced research on
-                the candidates in your race. We&apos;ll pull what&apos;s public
-                and summarize it for you.
-              </p>
+          // No opponents yet — the branch depends on collection status. A run in
+          // flight (running/discovering/idle-mid-run) is handled above by the
+          // processing screen early return, so this block only reaches the
+          // settled states: a failed run shows a failure/retry message;
+          // completed-with-zero is the "we ran it and found nobody" case, so the
+          // form acknowledges the prior run (ranAlready) and gates a fresh submit
+          // behind a disclosure rather than inviting indefinite (paid) re-runs;
+          // idle/never-run prompts to start collection. The full status
+          // state-machine is ENG-10611.
+          status === 'failed' ? (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <TriangleAlertIcon className="size-6" aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  Collection failed
+                </h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Something went wrong gathering research on your race. Use
+                  &quot;Collect now&quot; above to try again.
+                </p>
+              </div>
             </div>
-          </div>
+          ) : status === 'completed' ? (
+            <AddOpponentsForm
+              submitting={submittingManual || collecting}
+              onSubmit={submitManualOpponents}
+              ranAlready
+            />
+          ) : (
+            // idle / never-run: no collection has fired yet, so don't claim "no
+            // opponents found" — prompt the candidate to start collection.
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <SwordsIcon className="size-6" aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  No opponent research yet
+                </h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Hit &quot;Collect now&quot; to gather sourced research on the
+                  candidates in your race.
+                </p>
+              </div>
+            </div>
+          )
         ) : (
           <section className="flex flex-col gap-3">
             <div className="flex flex-col gap-0.5">

@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Theme } from '@radix-ui/themes'
 import { EditCampaignClient } from './EditCampaignClient'
-import type { Campaign } from '@goodparty_org/sdk'
+import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
@@ -44,7 +44,7 @@ vi.mock('@/app/dashboard/campaigns/actions', () => ({
   updateCampaign: (...args: unknown[]) => mockUpdateCampaign(...args),
 }))
 
-const mockCampaign: Campaign = {
+const mockCampaign: CampaignWithLiveContext = {
   id: 42,
   createdAt: new Date('2023-04-02T05:51:59.450Z'),
   updatedAt: new Date('2026-01-29T03:50:12.433Z'),
@@ -68,10 +68,12 @@ const mockCampaign: Campaign = {
   },
   details: {
     state: 'CA',
-    office: 'Mayor',
+    normalizedOffice: 'Mayor',
     ballotLevel: BallotReadyPositionLevel.CITY,
     level: ElectionLevel.city,
   },
+  positionName: 'Mayor',
+  raceTargetMetrics: null,
 }
 
 describe('EditCampaignClient', () => {
