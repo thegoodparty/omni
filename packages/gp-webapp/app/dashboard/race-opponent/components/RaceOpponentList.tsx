@@ -547,8 +547,16 @@ const RaceOpponentList = ({
       // from the server so the poll re-activates on a real 'running' rather than
       // dropping to the list view where a second click double-dispatches a run.
       // A failed re-sync is non-actionable here — the collect failure already
-      // surfaced — so the snackbar isn't fired twice.
-      void loadStatus().catch(() => undefined)
+      // surfaced — so the snackbar isn't fired twice. If the re-sync ITSELF fails
+      // (transient network as the deadline fired), one delayed retry recovers it;
+      // dropping both would strand the user exactly as the re-sync was added to
+      // prevent.
+      void loadStatus().catch(() => {
+        setTimeout(
+          () => void loadStatus().catch(() => undefined),
+          POLL_INTERVAL_MS,
+        )
+      })
     } finally {
       clearTimeout(deadlineId)
       collectingRef.current = false

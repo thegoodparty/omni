@@ -777,10 +777,15 @@ describe('<RaceOpponentList>', () => {
       // First poll lands the transient idle, which auto-fires collect -> running.
       { status: 200, data: { ...empty, collectionStatus: 'idle' } },
     ])
-    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
-      status: 200,
-      data: { runId: 'collection-1', status: 'running' },
-    })
+    // Capture the POST so we can assert the collectingRef guard holds it to a
+    // single dispatch: if that guard were removed, the auto-fire effect plus a
+    // re-render could fire collect() twice and a static-object mock wouldn't
+    // notice. A call-count assertion does.
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'collection-1', status: 'running' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       render(
@@ -804,6 +809,8 @@ describe('<RaceOpponentList>', () => {
       expect(
         screen.queryByText(/no opponent research yet/i),
       ).not.toBeInTheDocument()
+      // The collectingRef guard dispatched collect exactly once.
+      expect(collectHandler).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
@@ -866,6 +873,73 @@ describe('<RaceOpponentList>', () => {
       await waitFor(() => expect(getStatus).toHaveBeenCalled())
       // The re-sync reports the server started the run, so the screen recovers
       // into the processing state rather than dropping to the navigable list.
+      await waitFor(() =>
+        expect(
+          screen.getByText('Researching your opponents'),
+        ).toBeInTheDocument(),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('retries the re-sync once if the first re-fetch also fails, then recovers', async () => {
+    // If the re-sync GET in the collect catch path ITSELF fails (transient
+    // network as the deadline fired), one delayed retry must recover rather than
+    // stranding the user — otherwise the same double-dispatch hole the re-sync
+    // closed reopens.
+    const errorSnackbar = vi.fn()
+    vi.mocked(useSnackbar).mockReturnValue({
+      successSnackbar: vi.fn(),
+      errorSnackbar,
+      displaySnackbar: vi.fn(),
+    })
+    // First GET (one-time, served first) = the poll landing the transient idle.
+    // The persistent handler serves every later GET: the first re-sync attempt
+    // 500s, the delayed retry succeeds with 'running'.
+    let getCalls = 0
+    const getStatus = vi.fn(() => {
+      getCalls += 1
+      if (getCalls === 1) {
+        return { status: 500 as const, data: { error: 'transient' } }
+      }
+      return {
+        status: 200 as const,
+        data: { ...empty, collectionStatus: 'running' as const },
+      }
+    })
+    api.mock('GET /v1/campaigns/mine/race-opponent', getStatus)
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: { ...empty, collectionStatus: 'idle' } },
+    ])
+    const neverResolves = new Promise<never>(() => undefined)
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/collect',
+      () => neverResolves,
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'discovering' }}
+        />,
+      )
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+
+      // Deadline fires: collect rejects, the first re-sync attempt 500s.
+      await vi.advanceTimersByTimeAsync(30000)
+      await waitFor(() =>
+        expect(errorSnackbar).toHaveBeenCalledWith(
+          'Failed to start collection. Please try again.',
+        ),
+      )
+
+      // The delayed retry (one poll interval later) succeeds and recovers the
+      // processing screen off the server's real 'running' status.
+      await vi.advanceTimersByTimeAsync(5000)
+      await waitFor(() => expect(getCalls).toBeGreaterThanOrEqual(2))
       await waitFor(() =>
         expect(
           screen.getByText('Researching your opponents'),
