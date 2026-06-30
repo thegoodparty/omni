@@ -54,11 +54,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     slug: 'serve-background-job-failed',
     name: '[Serve] Background job failed',
     type: 'log',
-    // Any error logged by the SQS consumer means a background job failed. The
-    // previous query (|= "Message processing failed" |= "poll") matched no
-    // current log lines, so real failures — poison-message loops, dropped
-    // agent results — went undetected.
-    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" [5m]))',
+    // Poll-job failures only. The consumer logs the SQS message in
+    // message_Body; match its `type` (pollCreation / pollExpansion /
+    // pollAnalysisComplete) so sibling jobs that share the consumer (AI
+    // content, websites) don't page the serve-bugs group.
+    expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} | json | context = "QueueConsumerService" | detected_level = "error" | message_Body =~ `"type":"poll.*` [5m]))',
     threshold: 0,
     for: '0m',
     message: [

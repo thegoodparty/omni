@@ -79,6 +79,7 @@ export {
   type PaginatedList,
 } from "./shared/Pagination.schema";
 export { makeOptional } from "./shared/zod.util";
+export { zCoerceDate, zDate } from "./shared/Date.schema";
 
 export {
   WHY_BROWSING_VALUES,
@@ -210,6 +211,31 @@ export {
   CampaignStoryRewriteSchema,
   type CampaignStoryRewrite,
 } from "./campaigns/CampaignStoryRewrite.schema";
+
+export {
+  CampaignStrategyPhaseKeySchema,
+  TaskTypeSchema,
+  TaskChannelSchema,
+  DayOfWeekSchema,
+  TaskStatusSchema,
+  TaskPersonalizationSchema,
+  PriorityTierSchema,
+  GeneratorSourceSchema,
+  TaskTimingSchema,
+  CampaignTaskDefinitionSchema,
+  type CampaignStrategyPhaseKey,
+  type TaskType,
+  type TaskChannel,
+  type DayOfWeek,
+  type TaskStatus,
+  type TaskPersonalization,
+  type PriorityTier,
+  type GeneratorSource,
+  type TaskTiming,
+  type CampaignTaskDefinition,
+} from './campaigns/CampaignTaskCatalog.schema'
+
+export { CAMPAIGN_TASK_CATALOG } from './campaigns/CampaignTaskCatalog.data'
 
 export {
   CampaignWithPositionNameSchema,
@@ -382,6 +408,7 @@ export {
   type CreateAnnotationRequest,
   UpdateNoteRequestSchema,
   type UpdateNoteRequest,
+  ATTACHMENT_MAX_BYTES,
   AttachmentPresignRequestSchema,
   type AttachmentPresignRequest,
   AttachmentPresignResponseSchema,

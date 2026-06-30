@@ -892,22 +892,21 @@ export default function OnboardingFlow({
         const ok = await persistStructuredOffice(answers.structuredOffice)
         if (!ok) return
         // Pre-warm the success-page LLM sections now that raceId +
-        // electionDate are persisted. Both endpoints poll on mount,
-        // but firing here gives them a ~15-90s head start so sections
-        // are usually ready by the time the user lands. Fire-and-forget
-        // — both helpers swallow errors and gp-api dedupes via the
-        // per-pod inFlight slot, so pre-warm + success-page mount
-        // collapse to a single LLM run.
+        // electionDate are persisted. Both endpoints poll on mount, but
+        // firing here gives them a ~15-90s head start so sections are usually
+        // ready by the time the user lands. Fire-and-forget — both helpers
+        // swallow errors and gp-api dedupes via the per-pod inFlight slot, so
+        // pre-warm + success-page mount collapse to a single LLM run.
         //
-        // Gated on the campaign-strategy flag: no point spending Gemini
-        // calls if the user will be routed straight to /dashboard
-        // post-pledge.
+        // Gated on the strategy-only cohort (campaign-strategy on,
+        // campaign-story off): they land on the legacy success page. No point
+        // spending Gemini calls for campaign-story users (who generate on
+        // demand after their story, and whose events come from the tracker)
+        // or flag-off users (routed straight to /dashboard).
         if (campaignStrategyEnabled && !campaignStoryEnabled) {
           // These prewarm calls are the real first request for the strategic
           // landscape and community events, so the `Requested` events fire
           // here (not on the success page, which only re-polls afterward).
-          // Skipped for campaign-story users — they generate on demand after
-          // completing their story, so there's nothing to pre-warm yet.
           const planCampaignId = liveCampaign?.id ?? campaign?.id
           trackEvent(EVENTS.OnboardingV2.StrategicLandscapeRequested, {
             campaignId: planCampaignId,
@@ -970,9 +969,9 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Campaign-story users go write their story first (the plan is
-      // generated from it later, on the Campaign Plan tab). Otherwise:
-      // campaign-strategy on → /onboarding/success (LLM-backed plan);
+      // Campaign-story users go write their story first (the plan + tracker
+      // are generated from it later, on the Campaign Plan tab). Otherwise:
+      // campaign-strategy on → /onboarding/success (legacy LLM plan);
       // off → /dashboard (legacy, no plan).
       router.push(
         resolvePostPledgeRoute({

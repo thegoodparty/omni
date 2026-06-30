@@ -447,7 +447,9 @@ describe('pollBiasSpan.util', () => {
 
       const result = convertSubstringsToIndices(spans, originalText, [], logger)
 
-      expect(result[0].start).toBeLessThan(result[1].start)
+      const [firstSpan, secondSpan] = result
+      if (!firstSpan || !secondSpan) throw new Error('expected two spans')
+      expect(firstSpan.start).toBeLessThan(secondSpan.start)
     })
 
     it('respects existing spans to avoid overlaps', () => {
@@ -498,7 +500,7 @@ describe('pollBiasSpan.util', () => {
       const result = convertSubstringsToIndices(spans, originalText, [], logger)
 
       expect(result.length).toBeGreaterThan(0)
-      expect(result[0].reason).toBe('bias')
+      expect(result[0]?.reason).toBe('bias')
     })
 
     it('usage pattern from pollBiasAnalysis.service - bias spans first', () => {

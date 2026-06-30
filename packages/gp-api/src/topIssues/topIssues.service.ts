@@ -5,7 +5,7 @@ import {
 } from './schemas/topIssues.schema'
 import { TopIssue } from '../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { LlmService } from '@/llm/services/llm.service'
 
 @Injectable()
@@ -15,7 +15,7 @@ export class TopIssuesService extends createPrismaBase(MODELS.TopIssue) {
   }
 
   async getByLocation(zip: string): Promise<string[]> {
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       {
         role: 'system',
         content: 'You are a helpful political assistant.',

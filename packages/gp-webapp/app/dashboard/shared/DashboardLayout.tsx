@@ -2,6 +2,7 @@
 import { ReactNode, useEffect } from 'react'
 import Link from 'next/link'
 import DashboardMenu from './DashboardMenu'
+import DashboardNavHeader, { type NavHeaderIconKey } from './DashboardNavHeader'
 import { EcanvasserProvider } from '@shared/hooks/EcanvasserProvider'
 import { useUser } from '@shared/hooks/useUser'
 import { useCampaign } from '@shared/hooks/useCampaign'
@@ -26,6 +27,7 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
+  navHeader?: { icon: NavHeaderIconKey; label: string; centered?: boolean }
 }
 
 const DashboardLayout = ({
@@ -34,6 +36,7 @@ const DashboardLayout = ({
   campaign,
   wrapperClassName = '',
   hideMenu = false,
+  navHeader,
 }: DashboardLayoutProps): React.JSX.Element | null => {
   const [user] = useUser()
   const [hookCampaign] = useCampaign()
@@ -94,6 +97,13 @@ const DashboardLayout = ({
           {!hideMenu && <MobileMenuTrigger />}
           <ImpersonationBanner />
           <ElectedOfficeTermDatesModalController />
+          {navHeader && (
+            <DashboardNavHeader
+              icon={navHeader.icon}
+              label={navHeader.label}
+              centered={navHeader.centered}
+            />
+          )}
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
             <ProUpgradePrompt
               campaign={activeCampaign}
@@ -109,9 +119,14 @@ const DashboardLayout = ({
   )
 }
 
+// The full-bleed DashboardNavHeader is desktop-only, so on mobile the tab title
+// is shown here in the top bar instead. Any route that renders a navHeader (or
+// IssuesNavHeader) needs a matching entry so its title survives on mobile.
 const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/chief-of-staff', 'Chief of Staff'],
   ['/dashboard/briefings', 'Briefing Assistant'],
+  ['/dashboard/community-issues', 'Community Issues'],
+  ['/dashboard/race-opponent', 'Know your opponent'],
   ['/dashboard/outreach', 'Voter Outreach'],
   ['/dashboard/voter-records', 'Voter Data'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs

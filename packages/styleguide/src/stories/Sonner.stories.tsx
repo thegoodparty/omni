@@ -13,6 +13,7 @@ export default meta
 type Story = StoryObj<typeof Sonner>
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div>
       <Button onClick={() => toast('This is a toast notification!')}>

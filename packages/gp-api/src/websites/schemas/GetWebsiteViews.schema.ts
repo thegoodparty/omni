@@ -1,11 +1,12 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import { zCoerceDate } from '@goodparty_org/contracts'
 
 export class GetWebsiteViewsSchema extends createZodDto(
   z
     .object({
-      startDate: z.coerce.date().optional(),
-      endDate: z.coerce.date().optional(),
+      startDate: zCoerceDate().optional(),
+      endDate: zCoerceDate().optional(),
     })
     .refine(
       (data) => {

@@ -1,6 +1,6 @@
 import { Prisma, ElectionCode as EC } from '../generated/prisma'
 import { createZodDto } from 'nestjs-zod'
-import { STATE_CODES } from 'src/shared/constants/states'
+import { STATE_CODES } from '@goodparty_org/nest-common'
 import { z } from 'zod'
 
 export const districtColumns = Object.values(
@@ -106,7 +106,7 @@ const getDistrictNamesSchema = z.object({
 })
 
 const getDistrictByIdParamsSchema = z.object({
-  id: z.string().uuid('District ID must be a valid UUID'),
+  id: z.guid('District ID must be a valid UUID'),
 })
 
 export class GetDistrictByIdParamsDTO extends createZodDto(

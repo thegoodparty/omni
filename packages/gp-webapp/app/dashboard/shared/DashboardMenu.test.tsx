@@ -15,6 +15,7 @@ const links = (
     winVoterDataEnabled = false,
     campaignStoryEnabled = false,
     communityIssuesEnabled = true,
+    knowYourOpponentEnabled = false,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
@@ -23,6 +24,7 @@ const links = (
     winVoterDataEnabled?: boolean
     campaignStoryEnabled?: boolean
     communityIssuesEnabled?: boolean
+    knowYourOpponentEnabled?: boolean
   } = {},
 ) =>
   getDashboardMenuItems(
@@ -31,11 +33,11 @@ const links = (
     isElectedOffice,
     isElectedOfficeLoading,
     false,
-    false,
     winVoterDataReady,
     winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
+    knowYourOpponentEnabled,
   )
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
@@ -141,12 +143,12 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
       false, // serveAccessEnabled
       false, // isElectedOffice
       false, // isElectedOfficeLoading
-      false, // chiefOfStaffEnabled
       true, // campaignStrategyExists
       true, // winVoterDataReady
       false, // winVoterDataEnabled
       true, // campaignStoryEnabled
       false, // communityIssuesEnabled
+      false, // knowYourOpponentEnabled
     )
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
@@ -168,6 +170,64 @@ describe('getDashboardMenuItems — Website tab retired (ENG-10505)', () => {
     const items = links(freeCampaign)
     expect(items.some((i) => i.id === 'website-dashboard')).toBe(false)
     expect(items.some((i) => i.link === '/dashboard/website')).toBe(false)
+  })
+})
+
+describe('getDashboardMenuItems — Know your opponent nav gating', () => {
+  it('shows the nav item when the flag is on and the campaign is Pro', () => {
+    const items = links(proCampaign, { knowYourOpponentEnabled: true })
+    const item = items.find((i) => i.id === 'race-opponent-dashboard')
+    expect(item).toBeDefined()
+    expect(item?.link).toBe('/dashboard/race-opponent')
+    expect(item?.v2Category).toBe('campaign')
+  })
+
+  it('hides the nav item when the flag is off', () => {
+    const items = links(proCampaign, { knowYourOpponentEnabled: false })
+    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(false)
+  })
+
+  it('shows the nav item for a non-pro campaign when the flag is on (content is gated at the route, not the nav)', () => {
+    const items = links(freeCampaign, { knowYourOpponentEnabled: true })
+    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(true)
+  })
+})
+
+describe('getDashboardMenuItems — Chief of Staff nav gating', () => {
+  it('shows the Chief of Staff item when serve-access + elected-office', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: true,
+      isElectedOffice: true,
+    })
+    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(true)
+  })
+
+  it('hides the Chief of Staff item when serve-access is off', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: false,
+      isElectedOffice: true,
+    })
+    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
+  })
+
+  it('hides the Chief of Staff item when not elected office', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: true,
+      isElectedOffice: false,
+    })
+    expect(items.some((i) => i.id === 'chief-of-staff-dashboard')).toBe(false)
+  })
+
+  it('renders Chief of Staff before Briefing Assistant when both are shown', () => {
+    const items = links(proCampaign, {
+      serveAccessEnabled: true,
+      isElectedOffice: true,
+    })
+    const cosIdx = items.findIndex((i) => i.id === 'chief-of-staff-dashboard')
+    const briefingsIdx = items.findIndex((i) => i.id === 'briefings-dashboard')
+    expect(cosIdx).toBeGreaterThanOrEqual(0)
+    expect(briefingsIdx).toBeGreaterThanOrEqual(0)
+    expect(cosIdx).toBeLessThan(briefingsIdx)
   })
 })
 

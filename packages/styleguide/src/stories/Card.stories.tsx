@@ -61,6 +61,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Card className="w-[350px]">
       <CardHeader>
@@ -90,6 +91,7 @@ export const Default: Story = {
 }
 
 export const WithImage: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Card className="w-[350px]">
       <CardHeader>
@@ -114,6 +116,7 @@ export const WithImage: Story = {
 }
 
 export const Simple: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Card className="w-[350px]">
       <CardHeader>

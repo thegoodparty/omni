@@ -33,7 +33,7 @@ test.describe('Positions - CRUD Operations', () => {
     expect(Array.isArray(positions)).toBe(true)
 
     if (positions.length > 0) {
-      expect(positions[0].topIssueId).toBeDefined()
+      expect(positions[0]?.topIssueId).toBeDefined()
     }
   })
 
@@ -52,7 +52,7 @@ test.describe('Positions - CRUD Operations', () => {
       return
     }
 
-    const testTopIssueId = positions[0].topIssueId
+    const testTopIssueId = positions[0]?.topIssueId
     const positionName = faker.lorem.words(3)
 
     const response = await request.post('/v1/positions', {
@@ -97,7 +97,7 @@ test.describe('Positions - CRUD Operations', () => {
       return
     }
 
-    const testTopIssueId = positions[0].topIssueId
+    const testTopIssueId = positions[0]?.topIssueId
     const createResponse = await request.post('/v1/positions', {
       headers: {
         Authorization: `Bearer ${authToken}`,
@@ -150,7 +150,7 @@ test.describe('Positions - CRUD Operations', () => {
       return
     }
 
-    const testTopIssueId = positions[0].topIssueId
+    const testTopIssueId = positions[0]?.topIssueId
     const createResponse = await request.post('/v1/positions', {
       headers: {
         Authorization: `Bearer ${authToken}`,

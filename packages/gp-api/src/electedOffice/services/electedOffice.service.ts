@@ -226,7 +226,10 @@ export class ElectedOfficeService extends createPrismaBase(
         // No term dates provided (e.g. the legacy win→serve path). Preserve the
         // historical "one elected office per user" idempotency / crash-recovery
         // behavior by returning the existing record.
-        return existingForUser[0]
+        const existing = existingForUser[0]
+        if (existing) {
+          return existing
+        }
       }
 
       const orgData = args.orgData ?? {

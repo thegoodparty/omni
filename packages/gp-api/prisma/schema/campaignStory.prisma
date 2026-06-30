@@ -8,11 +8,19 @@ model CampaignStory {
 
   why        String?
   background String?
+
+  // No longer read or written by current code: race opponent's contrast routing
+  // moved to website issues (ENG-10603) and every other reader moved earlier
+  // (ENG-10524/10607). Retained for now only so the column survives the rolling
+  // deploy window, where the old image still queries it. Dropped in the
+  // ENG-10603 follow-up once no running image references it.
   issues     String?
 
   // Lifetime count of AI "Help me rewrite" attempts for this campaign, capped
   // server-side to bound Gemini cost/abuse. Counts attempts, not successes.
   rewriteCount Int @default(0) @map("rewrite_count")
+
+  raceOpponentContrasts RaceOpponentContrast[]
 
   @@map("campaign_story")
 }

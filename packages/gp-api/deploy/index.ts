@@ -6,6 +6,7 @@ import { createAssetsBucket } from './components/assets-bucket'
 import { createAssetsRouter } from './components/assets-router'
 import { createGrafanaResources } from './components/grafana'
 import { createMeetingPipelineBucket } from './components/meeting-pipeline-bucket'
+import { createPreviewSharedCluster } from './components/preview-shared-cluster'
 import { createService } from './components/service'
 import { createVpc } from './components/vpc'
 
@@ -169,107 +170,138 @@ export = async () => {
     })
   }
 
-  const rdsSecurityGroup = new aws.ec2.SecurityGroup('rdsSecurityGroup', {
-    name:
-      environment === 'dev'
-        ? 'api-rds-security-group'
-        : `api-${stage}-rds-security-group`,
-    description: 'Allow traffic to RDS',
-    vpcId,
-    ingress: [
-      {
-        protocol: 'tcp',
-        fromPort: 5432,
-        toPort: 5432,
-        securityGroups: vpcSecurityGroupIds,
-      },
-      {
-        protocol: 'tcp',
-        fromPort: 5432,
-        toPort: 5432,
-        cidrBlocks: [vpcCidr],
-      },
-      {
-        protocol: 'tcp',
-        fromPort: 5432,
-        toPort: 5432,
-        description: 'databricks via vpc peering',
-        cidrBlocks: ['172.16.0.0/16'],
-      },
-      ...select({
-        preview: [],
-        // TODOSWAIN: investigate whether these are truly needed in dev
-        dev: [
+  const skipPerPrRds = environment === 'preview'
+
+  // With the shared preview DB the per-PR cluster is skipped, so its security
+  // group and subnet group would be orphaned — skip them too.
+  const rdsSecurityGroup = skipPerPrRds
+    ? undefined
+    : new aws.ec2.SecurityGroup('rdsSecurityGroup', {
+        name:
+          environment === 'dev'
+            ? 'api-rds-security-group'
+            : `api-${stage}-rds-security-group`,
+        description: 'Allow traffic to RDS',
+        vpcId,
+        ingress: [
           {
             protocol: 'tcp',
             fromPort: 5432,
             toPort: 5432,
-            description: 'internal gp-bastion',
-            securityGroups: ['sg-05a21af11aacbe60b'],
+            securityGroups: vpcSecurityGroupIds,
+          },
+          {
+            protocol: 'tcp',
+            fromPort: 5432,
+            toPort: 5432,
+            cidrBlocks: [vpcCidr],
+          },
+          {
+            protocol: 'tcp',
+            fromPort: 5432,
+            toPort: 5432,
+            description: 'databricks via vpc peering',
+            cidrBlocks: ['172.16.0.0/16'],
+          },
+          ...select({
+            preview: [],
+            // TODOSWAIN: investigate whether these are truly needed in dev
+            dev: [
+              {
+                protocol: 'tcp',
+                fromPort: 5432,
+                toPort: 5432,
+                description: 'internal gp-bastion',
+                securityGroups: ['sg-05a21af11aacbe60b'],
+              },
+            ],
+            qa: [],
+            prod: [],
+          }),
+        ],
+        egress: [
+          {
+            protocol: '-1',
+            fromPort: 0,
+            toPort: 0,
+            cidrBlocks: ['0.0.0.0/0'],
           },
         ],
-        qa: [],
-        prod: [],
-      }),
-    ],
-    egress: [
-      {
-        protocol: '-1',
-        fromPort: 0,
-        toPort: 0,
-        cidrBlocks: ['0.0.0.0/0'],
-      },
-    ],
-  })
+      })
 
-  const subnetGroup = new aws.rds.SubnetGroup('subnetGroup', {
-    name:
-      environment === 'dev'
-        ? 'api-rds-subnet-group'
-        : `api-${stage}-rds-subnet-group`,
-    subnetIds: vpcSubnetIds.private,
-    tags: {
-      Name: `api-${stage}-rds-subnet-group`,
-    },
-  })
+  const subnetGroup = skipPerPrRds
+    ? undefined
+    : new aws.rds.SubnetGroup('subnetGroup', {
+        name:
+          environment === 'dev'
+            ? 'api-rds-subnet-group'
+            : `api-${stage}-rds-subnet-group`,
+        subnetIds: vpcSubnetIds.private,
+        tags: {
+          Name: `api-${stage}-rds-subnet-group`,
+        },
+      })
 
-  const rdsCluster = new aws.rds.Cluster('rdsCluster', {
-    clusterIdentifier: select({
-      preview: `gp-api-${stage}`,
-      dev: 'gp-api-db',
-      qa: 'gp-api-db-qa',
-      prod: 'gp-api-db-prod',
-    }),
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineMode: aws.rds.EngineMode.Provisioned,
-    engineVersion: '16.8',
-    databaseName: 'gpdb',
-    masterUsername: 'gpuser',
-    masterPassword: pulumi.secret(secret.DB_PASSWORD),
-    dbSubnetGroupName: subnetGroup.name,
-    vpcSecurityGroupIds: [rdsSecurityGroup.id],
-    storageEncrypted: true,
-    serverlessv2ScalingConfiguration: {
-      minCapacity: environment === 'prod' ? 1 : 0.5,
-      maxCapacity: 64,
-    },
-    backupRetentionPeriod: select({ preview: 1, dev: 7, qa: 7, prod: 14 }),
-    // Disable these protections for preview environments -- these
-    // configs help them tear down more quickly.
-    deletionProtection: environment !== 'preview',
-    skipFinalSnapshot: environment === 'preview',
-    finalSnapshotIdentifier:
-      environment === 'preview'
-        ? undefined
-        : `gp-api-db-${stage}-final-snapshot`,
-  })
+  const rdsCluster = skipPerPrRds
+    ? undefined
+    : new aws.rds.Cluster('rdsCluster', {
+        clusterIdentifier: select({
+          preview: `gp-api-${stage}`,
+          dev: 'gp-api-db',
+          qa: 'gp-api-db-qa',
+          prod: 'gp-api-db-prod',
+        }),
+        engine: aws.rds.EngineType.AuroraPostgresql,
+        engineMode: aws.rds.EngineMode.Provisioned,
+        engineVersion: '16.8',
+        databaseName: 'gpdb',
+        masterUsername: 'gpuser',
+        masterPassword: pulumi.secret(secret.DB_PASSWORD),
+        dbSubnetGroupName: subnetGroup!.name,
+        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
+        storageEncrypted: true,
+        serverlessv2ScalingConfiguration: {
+          minCapacity: environment === 'prod' ? 1 : 0.5,
+          maxCapacity: 64,
+        },
+        backupRetentionPeriod: select({
+          preview: 1,
+          dev: 7,
+          qa: 7,
+          prod: 14,
+        }),
+        deletionProtection: true,
+        skipFinalSnapshot: false,
+        finalSnapshotIdentifier: `gp-api-db-${stage}-final-snapshot`,
+      })
 
-  const rdsInstance = new aws.rds.ClusterInstance('rdsInstance', {
-    clusterIdentifier: rdsCluster.id,
-    instanceClass: 'db.serverless',
-    engine: aws.rds.EngineType.AuroraPostgresql,
-    engineVersion: rdsCluster.engineVersion,
-  })
+  const rdsInstance = skipPerPrRds
+    ? undefined
+    : new aws.rds.ClusterInstance('rdsInstance', {
+        clusterIdentifier: rdsCluster!.id,
+        instanceClass: 'db.serverless',
+        engine: aws.rds.EngineType.AuroraPostgresql,
+        engineVersion: rdsCluster!.engineVersion,
+      })
+
+  // The dev stack owns the always-on shared preview Aurora cluster. Every PR
+  // preview clones its own gpdb_pr_<n> database onto this one cluster (see
+  // docker-entrypoint.sh) instead of provisioning a cluster per PR.
+  if (environment === 'dev') {
+    createPreviewSharedCluster({
+      vpcId,
+      vpcCidr,
+      privateSubnetIds: vpcSubnetIds.private,
+      appSecurityGroupIds: vpcSecurityGroupIds,
+      dbPassword: secret.DB_PASSWORD,
+    })
+  }
+
+  const sharedPreviewCluster = skipPerPrRds
+    ? await aws.rds.getCluster({
+        clusterIdentifier: 'gp-api-preview-shared-db',
+      })
+    : undefined
 
   let voterCluster: aws.rds.Cluster | aws.rds.GetClusterResult
 
@@ -283,8 +315,8 @@ export = async () => {
         databaseName: 'voters',
         masterUsername: 'postgres',
         masterPassword: pulumi.secret(secret.VOTER_DB_PASSWORD),
-        dbSubnetGroupName: subnetGroup.name,
-        vpcSecurityGroupIds: [rdsSecurityGroup.id],
+        dbSubnetGroupName: subnetGroup!.name,
+        vpcSecurityGroupIds: [rdsSecurityGroup!.id],
         storageEncrypted: true,
         deletionProtection: true,
         finalSnapshotIdentifier: `gp-voter-db-${stage}-final-snapshot`,
@@ -356,7 +388,7 @@ export = async () => {
   })
 
   const service = createService({
-    dependsOn: [rdsInstance],
+    dependsOn: rdsInstance ? [rdsInstance] : [],
     environment,
     stage,
     imageUri,
@@ -392,7 +424,7 @@ export = async () => {
         prod: 'assets.goodparty.org',
       }),
       WEBAPP_ROOT_URL: `https://${productDomain}`,
-      AI_MODELS: 'Qwen/Qwen3-235B-A22B-Instruct-2507-tput',
+      AI_MODELS: 'claude-sonnet-4-6',
       LLAMA_AI_ASSISTANT: 'asst_GP_AI_1.0',
       SQS_QUEUE: queue.name,
       SQS_QUEUE_BASE_URL: 'https://sqs.us-west-2.amazonaws.com/333022194791',
@@ -433,9 +465,15 @@ export = async () => {
       CAMPAIGN_PLAN_SHARES_BUCKET: campaignPlanSharesBucketName,
       API_PUBLIC_ROOT_URL: `https://${domain}`,
       AGENT_RUN_INPUTS_BUCKET: agentRunInputsBucketName,
-      DB_HOST: rdsCluster.endpoint,
-      DB_USER: rdsCluster.masterUsername,
-      DB_NAME: rdsCluster.databaseName,
+      DB_HOST: sharedPreviewCluster
+        ? sharedPreviewCluster.endpoint
+        : rdsCluster!.endpoint,
+      DB_USER: sharedPreviewCluster
+        ? sharedPreviewCluster.masterUsername
+        : rdsCluster!.masterUsername,
+      DB_NAME: sharedPreviewCluster
+        ? `gpdb_pr_${prNumber}`
+        : rdsCluster!.databaseName,
       VOTER_DB_HOST: voterCluster.endpoint,
       VOTER_DB_USER: voterCluster.masterUsername,
       VOTER_DB_NAME: voterCluster.databaseName,

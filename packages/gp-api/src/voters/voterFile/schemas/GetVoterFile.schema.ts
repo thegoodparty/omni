@@ -28,11 +28,12 @@ const SelectedColumnSchema = z.object({
 export class GetVoterFileSchema extends createZodDto(
   z.object({
     type: z.preprocess(
-      (val) => {
+      (val): unknown => {
         // check if val is a lowercase version
         // Zod transform input is unknown — z.preprocess callback receives unknown
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        return LOWER_CASE_TYPE_MAP[val as string] ?? val
+        const key = val as keyof typeof LOWER_CASE_TYPE_MAP
+        return LOWER_CASE_TYPE_MAP[key] ?? val
       },
       z.union([
         z.nativeEnum(VoterFileType),

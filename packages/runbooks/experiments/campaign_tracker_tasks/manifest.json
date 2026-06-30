@@ -1,0 +1,112 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "campaign_tracker_tasks",
+  "version": 1,
+  "model": "sonnet",
+  "max_turns": 60,
+  "timeout_seconds": 1800,
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Campaign Tracker tasks input params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["race_id", "user_full_name", "mode", "today"],
+    "properties": {
+      "race_id": {
+        "type": "string",
+        "minLength": 1,
+        "description": "BallotReady brHashId. Trace / idempotency identifier only - the agent does NOT reason over it."
+      },
+      "user_full_name": {
+        "type": "string",
+        "minLength": 1,
+        "description": "The candidate we write FOR. Referred to as 'you' in output, never by name."
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["initial", "weekly"],
+        "description": "initial = first full generation; weekly = re-prioritize the upcoming week using the candidate's prior tasks fetched via the tracker-tasks MCP tool."
+      },
+      "today": {
+        "type": "string",
+        "format": "date",
+        "description": "Reference date (YYYY-MM-DD) for the upcoming-week window and the GOTV reframe."
+      },
+      "election_date": {
+        "type": ["string", "null"],
+        "description": "General election date (YYYY-MM-DD), or null. Drives the last-30-days GOTV reframe."
+      },
+      "state": {
+        "type": ["string", "null"],
+        "description": "2-letter state code, for local event search."
+      },
+      "city": {
+        "type": ["string", "null"],
+        "description": "City / locality name, for local event search."
+      },
+      "campaign_plan": {
+        "type": ["string", "null"],
+        "description": "The candidate's generated campaign plan (summary text) for personalization context."
+      },
+      "campaign_story": {
+        "type": ["string", "null"],
+        "description": "The candidate's story for personalization context."
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Campaign Tracker tasks artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["generated_at", "tasks"],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp the agent emits when it writes the artifact."
+      },
+      "tasks": {
+        "type": "array",
+        "description": "The week's top tasks in priority order (most important first), at most 12. At most 3 may be events (kind='event'). Tasks (kind='task') reference a task_catalog id.",
+        "minItems": 0,
+        "maxItems": 12,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "title", "description", "phase", "channel"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["task", "event"] },
+            "catalog_id": {
+              "type": ["string", "null"],
+              "description": "task_catalog id for kind='task'; null for events."
+            },
+            "title": { "type": "string", "minLength": 1 },
+            "description": { "type": "string", "minLength": 1 },
+            "phase": {
+              "type": "string",
+              "enum": ["preLaunch", "launch", "active", "gotv"]
+            },
+            "channel": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Catalog channel for tasks; 'event' for events."
+            },
+            "date": {
+              "type": ["string", "null"],
+              "description": "YYYY-MM-DD. The event date for kind='event'; null for undated tasks."
+            },
+            "address": {
+              "type": ["string", "null"],
+              "description": "Event venue address; null for tasks or when not found."
+            },
+            "url": {
+              "type": ["string", "null"],
+              "description": "Event page URL (https); null otherwise."
+            }
+          }
+        }
+      }
+    }
+  }
+}

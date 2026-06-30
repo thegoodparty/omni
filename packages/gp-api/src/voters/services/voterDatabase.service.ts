@@ -22,6 +22,9 @@ export class VoterDatabaseService implements OnModuleDestroy {
     this.logger.setContext(VoterDatabaseService.name)
     this.pool = new Pool({
       connectionString: VOTER_DATASTORE,
+      // Preview shares the dev voter cluster across every PR stack; cap the
+      // pool so 25+ previews don't exhaust it (pg defaults to max 10).
+      max: process.env.IS_PREVIEW === 'true' ? 5 : undefined,
     })
   }
 
@@ -43,7 +46,7 @@ export class VoterDatabaseService implements OnModuleDestroy {
     const client = await this.pool.connect()
 
     // Build the header mapping
-    const headerMapping = { ...HEADER_MAPPING }
+    const headerMapping: Record<string, string> = { ...HEADER_MAPPING }
     if (selectedColumns?.length) {
       selectedColumns.forEach((col) => {
         if (col.label) {
@@ -99,7 +102,7 @@ export class VoterDatabaseService implements OnModuleDestroy {
     const client = await this.pool.connect()
 
     // Build the header mapping
-    const headerMapping = { ...HEADER_MAPPING }
+    const headerMapping: Record<string, string> = { ...HEADER_MAPPING }
     if (selectedColumns?.length) {
       selectedColumns.forEach((col) => {
         if (col.label) {

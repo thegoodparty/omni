@@ -8,4 +8,4 @@ const CSV_FORMULA_PREFIXES = ['=', '+', '-', '@']
  * text — the same neutralization the poll-responses export applies in SQL.
  */
 export const neutralizeCsvFormula = (value: string): string =>
-  CSV_FORMULA_PREFIXES.includes(value[0]) ? `'${value}` : value
+  CSV_FORMULA_PREFIXES.includes(value[0] ?? '') ? `'${value}` : value

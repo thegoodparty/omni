@@ -68,9 +68,9 @@ import {
   useOrganization,
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useChiefOfStaffFlag } from '@shared/experiments/chiefOfStaffFlag'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import { useKnowYourOpponentFlag } from '@shared/experiments/knowYourOpponentFlag'
 
 interface MenuItem {
   id: string
@@ -261,6 +261,15 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
+const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
+  id: 'race-opponent-dashboard',
+  label: 'Know your opponent',
+  link: '/dashboard/race-opponent',
+  icon: <MdFactCheck />,
+  v2Icon: FlagIcon,
+  v2Category: 'campaign',
+}
+
 const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
   id: 'campaign-story-dashboard',
   label: 'Campaign Story',
@@ -275,12 +284,12 @@ export const getDashboardMenuItems = (
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
-  chiefOfStaffEnabled: boolean,
   campaignStrategyExists: boolean,
   winVoterDataReady: boolean,
   winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
+  knowYourOpponentEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -319,10 +328,8 @@ export const getDashboardMenuItems = (
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
-  // Briefing Assistant. Same serve-access + elected-office gate, plus its own
-  // chief-of-staff flag so it can ramp to internal staff independently.
-  const chiefOfStaffShown =
-    serveAccessEnabled && isElectedOffice && chiefOfStaffEnabled
+  // Briefing Assistant. Gated on the same serve-access + elected-office check.
+  const chiefOfStaffShown = serveAccessEnabled && isElectedOffice
   if (chiefOfStaffShown) {
     menuItems.unshift(CHIEF_OF_STAFF_MENU_ITEM)
   }
@@ -352,6 +359,14 @@ export const getDashboardMenuItems = (
     menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
   }
 
+  // Internal, read-only race-opponent page. Flag-gated so it can ramp to staff
+  // independently. Visible to flag-on non-Pro users too: the page renders a
+  // locked upgrade view rather than the feature, so the nav entry is gated on
+  // the flag only — the content is gated on isPro at the route.
+  if (knowYourOpponentEnabled) {
+    menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
+  }
+
   return menuItems
 }
 
@@ -364,7 +379,6 @@ export default function DashboardMenu({
     useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
-  const { enabled: chiefOfStaffEnabled } = useChiefOfStaffFlag()
   // Master gate for the Win voter-data rollout. When on, a pro Win campaign
   // sees the Contacts item (reusing the Serve route) in place of the legacy
   // Voter Data item. Read with trackExposure=false — the page is the treatment
@@ -377,6 +391,9 @@ export default function DashboardMenu({
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
   const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
+  // track exposure here.
+  const { enabled: knowYourOpponentEnabled } = useKnowYourOpponentFlag(false)
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -385,12 +402,12 @@ export default function DashboardMenu({
       serveAccessEnabled,
       !!electedOffice,
       isElectedOfficeLoading,
-      chiefOfStaffEnabled,
       campaignStrategyExists,
       winVoterDataReady,
       winVoterDataEnabled,
       campaignStoryEnabled,
       communityIssuesEnabled,
+      knowYourOpponentEnabled,
     )
 
     if (ecanvasser) {
@@ -404,12 +421,12 @@ export default function DashboardMenu({
     ecanvasser,
     electedOffice,
     isElectedOfficeLoading,
-    chiefOfStaffEnabled,
     campaignStrategyExists,
     winVoterDataReady,
     winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
+    knowYourOpponentEnabled,
   ])
 
   useEffect(() => {

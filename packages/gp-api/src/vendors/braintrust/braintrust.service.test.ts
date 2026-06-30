@@ -86,7 +86,7 @@ describe('BraintrustService.tracedNested', () => {
       const service = new BraintrustService(createMockLogger())
       await service.tracedNested('plain', vi.fn().mockResolvedValue('x'))
 
-      const args = vi.mocked(braintrust.traced).mock.calls[0][1]
+      const args = vi.mocked(braintrust.traced).mock.calls[0]?.[1]
       expect(args).toEqual({ name: 'plain' })
     })
 

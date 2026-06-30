@@ -16,17 +16,26 @@ runbooks/
 │   └── .env             # AI agents MAY read this
 ├── commands/            # Procedures that ALSO register as Claude Code slash commands via install.sh
 │                        # Same shape as books/; difference is invocation surface, not content
+├── agents/              # Claude Code subagent definitions dispatched BY commands (installed via install.sh)
+│                        # e.g. /work-on-clickup's gp-reviewer + gp-ui-tester
 ├── scripts/
 │   ├── INDEX.md         # Script inventory — what each script does and which procedure uses it
 │   ├── .env.example     # Secrets and credentials for script execution
 │   ├── .env             # AI agents MUST NOT read this
 │   ├── python/          # Python scripts — managed by uv (pyproject.toml)
 │   └── shell/           # Shell scripts — no runtime manager
-├── install.sh           # Symlinks (or copies) commands/*.md into a Claude Code commands dir
+├── install.sh           # Symlinks (or copies) commands/*.md AND agents/*.md into a Claude Code config dir
 └── CLAUDE.md
 ```
 
 When given a task, start by reading `books/INDEX.md` to find the relevant procedure. The index routes to both `books/` and `commands/` — the agent should treat both the same way when reading.
+
+## CAP agent skills (authoring + cost)
+
+Two top-level Claude Code skills (auto-discovered, in `.claude/skills/`) own the CAP experiment workflows that used to be books. Reach for these, not `books/INDEX.md`, for:
+
+- **`build-cap-agent`** — author or port a runbook into a deployed experiment (`experiments/<id>/{manifest.json, instruction.md}`): the instruction skeleton, the broker-quirk CRITICAL RULES, manifest/schema discipline, cloud Databricks querying, and publish + SQS dispatch testing in dev.
+- **`analyze-cap-agent-costs`** — cohort cost analysis of deployed experiment runs: a scope resolver over `experiment_run`, the invoice-validated `costUsd`, per-turn cost curves and a population heatmap, hot-region detection, and per-job profiles.
 
 ## Used by the delegate worker
 
@@ -81,7 +90,17 @@ Commands are markdown procedures in `commands/` that _also_ register as Claude C
 - When adding a new command, no `install.sh` change is required — it picks up `commands/*.md` automatically
 - Commands header convention: start the file with `<!-- v<N> — <YYYY-MM-DD> -->` so reviewers can spot major revisions in the file itself
 - The "Where this runs" / `$RUNBOOKS_DIR` resolution block is duplicated by design (slash commands run with only their own file in context, so a shared helper file would create a chicken-and-egg dependency). Each copy is wrapped in `<!-- BEGIN: resolve-runbooks-dir -->` … `<!-- END: resolve-runbooks-dir -->` markers so future bulk-edits across `commands/*.md` are mechanical — keep them in sync
-- Commands that operate on the omni monorepo (`release-prep.md`, `release.md`) additionally include a second resolution block, wrapped in `<!-- BEGIN: resolve-omni-dir -->` … `<!-- END: resolve-omni-dir -->`, that resolves the omni repo path via `$RELEASE_OMNI_DIR` (with fallbacks). Duplicated by design for the same reason — keep it in sync across any command that operates on the omni repo
+- Commands that operate on the release repos (`release-prep.md`, `release.md`) additionally include a second resolution block, wrapped in `<!-- BEGIN: resolve-release-repos -->` … `<!-- END: resolve-release-repos -->`, that resolves both release repos: omni (via `$RELEASE_OMNI_DIR`, production tip `master`) and gp-ai-projects (via `$RELEASE_AI_DIR`, production tip `prod`), each with fallbacks. Duplicated by design for the same reason — keep it in sync across any command that operates on the release repos
+
+### Agents
+
+Subagent definitions in `agents/` are Claude Code `.md` files (YAML frontmatter — `name`, `description`, `tools` — plus a system-prompt body) that **commands dispatch by name**. They are not invoked directly by users; a command (e.g. `commands/work-on-clickup.md`) spawns them via the subagent mechanism.
+
+- One agent per file, kebab-case, named for its role (`gp-reviewer.md`, `gp-ui-tester.md`). Prefix shared GoodParty agents with `gp-` so they don't collide with generic agents in a user's config dir.
+- `install.sh` installs `agents/*.md` into `$CLAUDE_CONFIG_DIR/agents` (or `./.claude/agents` for `project` scope) the same way it installs commands. **Subagents only resolve after a session restart** — say so wherever a command depends on one.
+- Keep the `tools:` allowlist tight and intentional. It gates **MCP tools too** — a UI agent that needs Playwright must name the `mcp__playwright__*` tools explicitly; omitting them silently denies access. "Read-only" reviewers omit `Edit`/`Write`.
+- A command that dispatches an agent must **degrade gracefully** when it isn't installed (skip it with a note, or fall back to inline) — don't assume the user ran `install.sh`.
+- Same portability rules as books/commands: self-contained, no paths outside this repo. Pass repo-specific paths (convention files, diffs, output files) in at dispatch time rather than hardcoding them.
 
 ### Scripts
 

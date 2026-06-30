@@ -17,6 +17,8 @@ function makeUser(id: number): User {
     lastName: 'User',
     email: 'test@example.com',
     hasPassword: true,
+    zip: null,
+    phone: null,
   }
 }
 

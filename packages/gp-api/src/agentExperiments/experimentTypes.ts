@@ -11,4 +11,5 @@ export const NON_RESUMABLE_EXPERIMENT_TYPES = [
   'meeting_schedule',
   'top_community_issues',
   'trending_issues',
+  'campaign_tracker_tasks',
 ] as const

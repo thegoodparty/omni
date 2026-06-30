@@ -23,7 +23,7 @@ export class ScheduledMessagingService extends createPrismaBase(
   }
 
   @Interval(SCHEDULED_MESSAGING_INTERVAL_SECS * 1000) // This will run based on the environment variable
-  private async processScheduledMessages() {
+  async processScheduledMessages() {
     this.logger.debug(
       `ScheduledMessagingService::processScheduledMessages task running every ${SCHEDULED_MESSAGING_INTERVAL_SECS}s`,
     )

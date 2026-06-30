@@ -1,870 +1,243 @@
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { LlmService } from './llm.service'
+import {
+  LlmService,
+  type AnthropicProvider,
+  type AnthropicProviderFactory,
+  type GenerateObjectFn,
+  type GenerateTextFn,
+  type StreamTextFn,
+} from './llm.service'
 
-const mockCreate = vi.fn()
+const stubAnthropicFactory: AnthropicProviderFactory = () =>
+  ({
+    languageModel: (model: string) => ({ modelId: model }) as never,
+    webSearchTool: () => ({}) as never,
+  }) as AnthropicProvider
 
-vi.mock('openai', () => {
-  class MockOpenAI {
-    chat = {
-      completions: {
-        create: mockCreate,
-      },
-    }
-    baseURL = 'https://api.together.xyz/v1'
-  }
+const USER_MSG = { role: 'user' as const, content: 'Hi' }
 
-  return {
-    OpenAI: MockOpenAI,
-  }
-})
+const build = (): {
+  service: LlmService
+  generateText: ReturnType<typeof vi.fn>
+  generateObject: ReturnType<typeof vi.fn>
+} => {
+  const generateText = vi.fn()
+  const generateObject = vi.fn()
+  const service = new LlmService(
+    createMockLogger(),
+    vi.fn() as unknown as StreamTextFn,
+    generateText as unknown as GenerateTextFn,
+    generateObject as unknown as GenerateObjectFn,
+    stubAnthropicFactory,
+  )
+  return { service, generateText, generateObject }
+}
 
-describe('LlmService', () => {
+describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
   let originalEnv: NodeJS.ProcessEnv
-
-  const createServiceWithMockLogger = (): LlmService => {
-    const service = new LlmService(createMockLogger())
-    return service
-  }
 
   beforeEach(() => {
     originalEnv = { ...process.env }
-    process.env.TOGETHER_AI_KEY = 'test-api-key'
-    process.env.AI_MODELS = 'model1,model2,model3'
-    mockCreate.mockClear()
-    vi.useRealTimers()
+    process.env.ANTHROPIC_API_KEY = 'test-anthropic-key'
+    process.env.AI_MODELS = 'claude-sonnet-4-6'
+    delete process.env.TOGETHER_AI_KEY
   })
 
   afterEach(() => {
     process.env = originalEnv
-    vi.useRealTimers()
   })
 
-  describe('getChatModelChain - cross-provider fallback', () => {
-    it('returns just the default models when no fallback is configured', () => {
-      delete process.env.AI_FALLBACK_MODEL
-      const service = createServiceWithMockLogger()
-      expect(service.getChatModelChain()).toEqual([
-        'model1',
-        'model2',
-        'model3',
-      ])
-    })
-
-    it('appends a non-Claude fallback without requiring an Anthropic key', () => {
-      delete process.env.ANTHROPIC_API_KEY
-      process.env.AI_FALLBACK_MODEL = 'some/other-model'
-      const service = createServiceWithMockLogger()
-      expect(service.getChatModelChain()).toEqual([
-        'model1',
-        'model2',
-        'model3',
-        'some/other-model',
-      ])
-    })
-
-    it('appends a Claude fallback only when ANTHROPIC_API_KEY is set', () => {
-      process.env.AI_FALLBACK_MODEL = 'claude-3-5-sonnet-latest'
-
-      process.env.ANTHROPIC_API_KEY = 'anthropic-key'
-      const withKey = createServiceWithMockLogger()
-      expect(withKey.getChatModelChain()).toContain('claude-3-5-sonnet-latest')
-
-      delete process.env.ANTHROPIC_API_KEY
-      const withoutKey = createServiceWithMockLogger()
-      expect(withoutKey.getChatModelChain()).not.toContain(
-        'claude-3-5-sonnet-latest',
-      )
-    })
-
-    it('does not duplicate a fallback already present in AI_MODELS', () => {
-      process.env.AI_MODELS = 'model1,claude-x'
-      process.env.ANTHROPIC_API_KEY = 'anthropic-key'
-      process.env.AI_FALLBACK_MODEL = 'claude-x'
-      const service = createServiceWithMockLogger()
-      expect(service.getChatModelChain()).toEqual(['model1', 'claude-x'])
-    })
+  it('throws when ANTHROPIC_API_KEY is missing', () => {
+    delete process.env.ANTHROPIC_API_KEY
+    expect(() => build()).toThrow(/ANTHROPIC_API_KEY/)
   })
 
-  describe('chatCompletion - model fallback behavior', () => {
-    let service: LlmService
-
-    beforeEach(() => {
-      service = createServiceWithMockLogger()
+  it('chatCompletion returns text + tokens from generateText', async () => {
+    const { service, generateText } = build()
+    generateText.mockResolvedValueOnce({
+      text: '  hello  ',
+      toolCalls: [],
+      totalUsage: { inputTokens: 4, outputTokens: 6, totalTokens: 10 },
     })
 
-    it('tries all models in sequence when each fails', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Success' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate
-        .mockRejectedValueOnce(new Error('Model 1 failed'))
-        .mockRejectedValueOnce(new Error('Model 2 failed'))
-        .mockResolvedValueOnce(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        models: ['model1', 'model2', 'model3'],
-        retries: 0,
-      })
-
-      expect(result.model).toBe('model3')
-      expect(result.content).toBe('Success')
-      expect(mockCreate).toHaveBeenCalledTimes(3)
+    const result = await service.chatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
     })
 
-    it('returns first successful model without trying remaining models', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Success' } }],
-        usage: { total_tokens: 5 },
-      }
+    expect(result.content).toBe('hello')
+    expect(result.tokens).toBe(10)
+    expect(result.model).toBe('claude-sonnet-4-6')
+  })
 
-      mockCreate.mockResolvedValueOnce(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        models: ['model1', 'model2', 'model3'],
-        retries: 0,
-      })
-
-      expect(result.model).toBe('model1')
-      expect(mockCreate).toHaveBeenCalledTimes(1)
+  it('jsonCompletion validates the object against the schema', async () => {
+    const { service, generateObject } = build()
+    generateObject.mockResolvedValueOnce({
+      object: { answer: '42' },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
     })
 
-    it('uses default models when none provided', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Success' } }],
-        usage: { total_tokens: 5 },
-      }
+    const result = await service.jsonCompletion({
+      messages: [USER_MSG],
+      schema: z.object({ answer: z.string() }),
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+    })
 
-      mockCreate.mockResolvedValue(mockCompletion)
+    expect(result.object).toEqual({ answer: '42' })
+    expect(result.tokens).toBe(2)
+  })
 
-      await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
+  it('jsonCompletion forwards maxTokens as maxOutputTokens', async () => {
+    const { service, generateObject } = build()
+    generateObject.mockResolvedValueOnce({
+      object: { answer: '42' },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
 
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ model: 'model1' }),
-        expect.any(Object),
-      )
+    await service.jsonCompletion({
+      messages: [USER_MSG],
+      schema: z.object({ answer: z.string() }),
+      models: ['claude-sonnet-4-6'],
+      maxTokens: 200,
+      retries: 0,
+    })
+
+    expect(generateObject.mock.calls[0]?.[0].maxOutputTokens).toBe(200)
+  })
+
+  it('forwards userId as an X-User-Id header on non-streaming calls', async () => {
+    const { service, generateText } = build()
+    generateText.mockResolvedValueOnce({
+      text: 'ok',
+      toolCalls: [],
+      totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
+
+    await service.chatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      userId: 'user-123',
+      retries: 0,
+    })
+
+    expect(generateText.mock.calls[0]?.[0].headers).toEqual({
+      'X-User-Id': 'user-123',
     })
   })
 
-  describe('chatCompletion - retry behavior', () => {
-    let service: LlmService
-
-    beforeEach(() => {
-      service = createServiceWithMockLogger()
-      vi.useFakeTimers()
-    })
-
-    afterEach(() => {
-      vi.useRealTimers()
-    })
-
-    it('retries transient errors before trying next model', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Success' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      const transientError = new Error('Network timeout')
-      ;(transientError as { status?: number }).status = 500
-
-      mockCreate
-        .mockRejectedValueOnce(transientError)
-        .mockRejectedValueOnce(transientError)
-        .mockResolvedValueOnce(mockCompletion)
-
-      const promise = service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        models: ['model1'],
-        retries: 2,
-      })
-
-      await vi.runAllTimersAsync()
-      const result = await promise
-
-      expect(result.content).toBe('Success')
-      expect(mockCreate).toHaveBeenCalledTimes(3)
-    })
-
-    it('does not retry permanent client errors (4xx)', async () => {
-      const clientError = new Error('Bad Request')
-      ;(clientError as { status?: number }).status = 400
-
-      mockCreate.mockRejectedValueOnce(clientError)
-
-      await expect(
-        service.chatCompletion({
-          messages: [{ role: 'user', content: 'Test' }],
-          models: ['model1'],
-          retries: 3,
-        }),
-      ).rejects.toThrow('Bad Request')
-
-      expect(mockCreate).toHaveBeenCalledTimes(1)
-    })
-
-    it('combines retries with model fallback correctly', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Success' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      const transientError = new Error('Transient error')
-      ;(transientError as { status?: number }).status = 500
-
-      mockCreate
-        .mockRejectedValueOnce(transientError)
-        .mockRejectedValueOnce(transientError)
-        .mockRejectedValueOnce(new Error('Model 1 exhausted'))
-        .mockResolvedValueOnce(mockCompletion)
-
-      const promise = service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        models: ['model1', 'model2'],
-        retries: 2,
-      })
-
-      await vi.runAllTimersAsync()
-      const result = await promise
-
-      expect(result.model).toBe('model2')
-      expect(result.content).toBe('Success')
-      expect(mockCreate).toHaveBeenCalledTimes(4)
-    })
-  })
-
-  describe('chatCompletion - content extraction', () => {
-    let service: LlmService
-
-    beforeEach(() => {
-      service = createServiceWithMockLogger()
-    })
-
-    it('handles string content', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Hello, world!' } }],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(result.content).toBe('Hello, world!')
-    })
-
-    it('handles array content format', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: [
-                { type: 'text', text: 'Hello' },
-                { type: 'text', text: ' World' },
-              ],
-            },
-          },
-        ],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(result.content).toBe('Hello World')
-    })
-
-    it('handles null content gracefully', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: null } }],
-        usage: { total_tokens: 0 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(result.content).toBe('')
-    })
-
-    it('trims whitespace from content', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: '  Hello World  ' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(result.content).toBe('Hello World')
-    })
-
-    it('extracts tool calls from response', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: 'Tool call response',
-              tool_calls: [
-                {
-                  id: 'call-1',
-                  type: 'function',
-                  function: {
-                    name: 'test_function',
-                    arguments: '{"arg": "value"}',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(result.toolCalls).toEqual([
+  it('toolCompletion maps SDK tool calls back to the OpenAI shape', async () => {
+    const { service, generateText } = build()
+    generateText.mockResolvedValueOnce({
+      text: '',
+      toolCalls: [
         {
-          id: 'call-1',
+          toolCallId: 'call_1',
+          toolName: 'extractLocation',
+          input: { city: 'Austin' },
+        },
+      ],
+      totalUsage: { inputTokens: 2, outputTokens: 2, totalTokens: 4 },
+    })
+
+    const result = await service.toolCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      tools: [
+        {
           type: 'function',
           function: {
-            name: 'test_function',
-            arguments: '{"arg": "value"}',
+            name: 'extractLocation',
+            description: 'x',
+            parameters: { type: 'object', properties: {} },
           },
         },
-      ])
+      ],
+      toolChoice: { type: 'function', function: { name: 'extractLocation' } },
     })
 
-    it('handles missing choices array', async () => {
-      const mockCompletion = {
-        choices: [],
-        usage: { total_tokens: 0 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(result.content).toBe('')
-    })
-
-    it('handles missing usage information', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Test' } }],
-        usage: undefined,
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(result.tokens).toBe(0)
+    expect(result.toolCalls?.[0]?.function.name).toBe('extractLocation')
+    expect(
+      JSON.parse(result.toolCalls?.[0]?.function.arguments ?? '{}'),
+    ).toEqual({ city: 'Austin' })
+    expect(generateText.mock.calls[0]?.[0].toolChoice).toEqual({
+      type: 'tool',
+      toolName: 'extractLocation',
     })
   })
 
-  describe('jsonCompletion - JSON parsing and validation', () => {
-    let service: LlmService
-    const testSchema = z.object({
-      name: z.string(),
-      age: z.number(),
-    })
-
-    beforeEach(() => {
-      service = createServiceWithMockLogger()
-    })
-
-    it('parses and validates valid JSON', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ name: 'John', age: 30 }),
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.jsonCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        schema: testSchema,
+  it('falls back to the next model on a transient error', async () => {
+    const { service, generateText } = build()
+    generateText
+      .mockRejectedValueOnce(Object.assign(new Error('503'), { status: 503 }))
+      .mockResolvedValueOnce({
+        text: 'ok',
+        toolCalls: [],
+        totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       })
 
-      expect(result.object).toEqual({ name: 'John', age: 30 })
-      expect(result.tokens).toBe(10)
+    const result = await service.chatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-opus-4-7', 'claude-sonnet-4-6'],
+      retries: 0,
     })
 
-    it('removes markdown code blocks from JSON', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: '```json\n{"name": "John", "age": 30}\n```',
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.jsonCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        schema: testSchema,
-      })
-
-      expect(result.object).toEqual({ name: 'John', age: 30 })
-    })
-
-    it('removes trailing commas from JSON', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: '{"name": "John", "age": 30,}',
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.jsonCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        schema: testSchema,
-      })
-
-      expect(result.object).toEqual({ name: 'John', age: 30 })
-    })
-
-    it('handles JSON with multiple trailing commas', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: '{"name": "John", "age": 30, "city": "NYC",}',
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      const schema = z.object({
-        name: z.string(),
-        age: z.number(),
-        city: z.string(),
-      })
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.jsonCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        schema,
-      })
-
-      expect(result.object).toEqual({ name: 'John', age: 30, city: 'NYC' })
-    })
-
-    it('throws error on invalid JSON that cannot be cleaned', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: 'not valid json at all',
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      await expect(
-        service.jsonCompletion({
-          messages: [{ role: 'user', content: 'Test' }],
-          schema: testSchema,
-          models: ['model1'],
-          retries: 0,
-        }),
-      ).rejects.toThrow('Model returned invalid JSON for model1')
-    })
-
-    it('throws error on schema validation failure', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ name: 'John' }),
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      await expect(
-        service.jsonCompletion({
-          messages: [{ role: 'user', content: 'Test' }],
-          schema: testSchema,
-          models: ['model1'],
-          retries: 0,
-        }),
-      ).rejects.toThrow()
-    })
-
-    it('uses zero temperature by default for JSON completion', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: '{}' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      await service.jsonCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        schema: z.object({}),
-      })
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          temperature: 0,
-          response_format: { type: 'json_object' },
-        }),
-        expect.any(Object),
-      )
-    })
-
-    it('retries on JSON parsing errors across models', async () => {
-      vi.useFakeTimers()
-
-      const validCompletion = {
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({ name: 'John', age: 30 }),
-            },
-          },
-        ],
-        usage: { total_tokens: 10 },
-      }
-
-      mockCreate
-        .mockResolvedValueOnce({
-          choices: [{ message: { content: 'invalid json' } }],
-          usage: { total_tokens: 10 },
-        })
-        .mockResolvedValueOnce(validCompletion)
-
-      const promise = service.jsonCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        schema: testSchema,
-        models: ['model1', 'model2'],
-        retries: 1,
-      })
-
-      await vi.runAllTimersAsync()
-      const result = await promise
-
-      expect(result.object).toEqual({ name: 'John', age: 30 })
-      expect(result.model).toBe('model2')
-
-      vi.useRealTimers()
-    })
+    expect(result.model).toBe('claude-sonnet-4-6')
   })
 
-  describe('toolCompletion', () => {
-    let service: LlmService
+  it('bails immediately on a permanent 4xx error', async () => {
+    const { service, generateText } = build()
+    generateText.mockRejectedValue(
+      Object.assign(new Error('400'), { status: 400 }),
+    )
 
-    beforeEach(() => {
-      service = createServiceWithMockLogger()
-    })
-
-    it('returns completion with tool calls', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: 'Tool response',
-              tool_calls: [
-                {
-                  id: 'call-1',
-                  type: 'function',
-                  function: {
-                    name: 'test_tool',
-                    arguments: '{"param": "value"}',
-                  },
-                },
-              ],
-            },
-          },
-        ],
-        usage: { total_tokens: 15 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.toolCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'test_tool',
-              description: 'Test tool',
-            },
-          },
-        ],
-      })
-
-      expect(result.toolCalls).toEqual([
-        {
-          id: 'call-1',
-          type: 'function',
-          function: {
-            name: 'test_tool',
-            arguments: '{"param": "value"}',
-          },
-        },
-      ])
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tools: expect.any(Array),
-          temperature: 0.1,
-          top_p: 0.1,
-        }),
-        expect.any(Object),
-      )
-    })
-
-    it('throws error when tools array is empty', async () => {
-      await expect(
-        service.toolCompletion({
-          messages: [{ role: 'user', content: 'Test' }],
-          tools: [],
-        }),
-      ).rejects.toThrow('Tools must be provided for tool completion')
-    })
-
-    it('handles completion without tool calls', async () => {
-      const mockCompletion = {
-        choices: [
-          {
-            message: {
-              content: 'Regular response',
-            },
-          },
-        ],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      const result = await service.toolCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'test_tool',
-              description: 'Test',
-            },
-          },
-        ],
-      })
-
-      expect(result.toolCalls).toBeUndefined()
-      expect(result.content).toBe('Regular response')
-    })
-
-    it('includes toolChoice when provided', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Test' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      await service.toolCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        tools: [
-          {
-            type: 'function',
-            function: {
-              name: 'test_tool',
-              description: 'Test',
-            },
-          },
-        ],
-        toolChoice: { type: 'function', function: { name: 'test_tool' } },
-      })
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          tool_choice: { type: 'function', function: { name: 'test_tool' } },
-        }),
-        expect.any(Object),
-      )
-    })
+    await expect(
+      service.chatCompletion({
+        messages: [USER_MSG],
+        models: ['claude-sonnet-4-6'],
+        retries: 2,
+      }),
+    ).rejects.toThrow('400')
+    expect(generateText).toHaveBeenCalledOnce()
   })
 
-  describe('error handling - permanent vs transient errors', () => {
-    let service: LlmService
-
-    beforeEach(() => {
-      service = createServiceWithMockLogger()
-    })
-
-    it('identifies 4xx errors as permanent and does not retry', async () => {
-      const error400 = new Error('Bad Request')
-      ;(error400 as { status?: number }).status = 400
-
-      mockCreate.mockRejectedValue(error400)
-
-      await expect(
-        service.chatCompletion({
-          messages: [{ role: 'user', content: 'Test' }],
-          models: ['model1'],
-          retries: 0,
-        }),
-      ).rejects.toThrow('Bad Request')
-
-      expect(mockCreate).toHaveBeenCalledTimes(1)
-    })
-
-    it('retries 5xx errors as transient', async () => {
-      vi.useFakeTimers()
-
-      const error500 = new Error('Internal Server Error')
-      ;(error500 as { status?: number }).status = 500
-
-      const mockCompletion = {
-        choices: [{ message: { content: 'Success' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate
-        .mockRejectedValueOnce(error500)
-        .mockResolvedValueOnce(mockCompletion)
-
-      const promise = service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        models: ['model1'],
-        retries: 1,
+  it('retries transient errors up to the retry count', async () => {
+    const { service, generateText } = build()
+    generateText
+      .mockRejectedValueOnce(Object.assign(new Error('503'), { status: 503 }))
+      .mockResolvedValueOnce({
+        text: 'ok',
+        toolCalls: [],
+        totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
       })
 
-      await vi.runAllTimersAsync()
-      const result = await promise
-
-      expect(result.content).toBe('Success')
-      expect(mockCreate).toHaveBeenCalledTimes(2)
-
-      vi.useRealTimers()
+    const result = await service.chatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 2,
     })
 
-    it('handles errors without status codes as transient', async () => {
-      vi.useFakeTimers()
-
-      const networkError = new Error('Network error')
-
-      const mockCompletion = {
-        choices: [{ message: { content: 'Success' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate
-        .mockRejectedValueOnce(networkError)
-        .mockResolvedValueOnce(mockCompletion)
-
-      const promise = service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        models: ['model1'],
-        retries: 1,
-      })
-
-      await vi.runAllTimersAsync()
-      const result = await promise
-
-      expect(result.content).toBe('Success')
-      expect(mockCreate).toHaveBeenCalledTimes(2)
-
-      vi.useRealTimers()
-    })
+    expect(result.content).toBe('ok')
+    expect(generateText).toHaveBeenCalledTimes(2)
   })
 
-  describe('user identification for token caching', () => {
-    let service: LlmService
+  it('bails immediately on a permanent 4xx ai-SDK APICallError (statusCode)', async () => {
+    const { service, generateText } = build()
+    generateText.mockRejectedValue(
+      Object.assign(new Error('400'), { statusCode: 400 }),
+    )
 
-    beforeEach(() => {
-      service = createServiceWithMockLogger()
-    })
-
-    it('includes userId in request when provided', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Test' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-        userId: 'user-123',
-      })
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          user: 'user-123',
-        }),
-        expect.any(Object),
-      )
-    })
-
-    it('omits userId when not provided', async () => {
-      const mockCompletion = {
-        choices: [{ message: { content: 'Test' } }],
-        usage: { total_tokens: 5 },
-      }
-
-      mockCreate.mockResolvedValue(mockCompletion)
-
-      await service.chatCompletion({
-        messages: [{ role: 'user', content: 'Test' }],
-      })
-
-      expect(mockCreate).toHaveBeenCalledWith(
-        expect.not.objectContaining({
-          user: expect.anything(),
-        }),
-        expect.any(Object),
-      )
-    })
+    await expect(
+      service.chatCompletion({
+        messages: [USER_MSG],
+        models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+        retries: 2,
+      }),
+    ).rejects.toThrow('400')
+    expect(generateText).toHaveBeenCalledOnce()
   })
 })

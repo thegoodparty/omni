@@ -2,8 +2,8 @@
   "uid": "goodparty_serve_magic_link_app",
   "type": "app",
   "config": {
-    "name": "GoodParty Serve Magic Link (Internal)",
-    "description": "Internal/testing tool: send an elected-official onboarding magic link directly from a HubSpot contact record.",
+    "name": "GoodParty Serve Magic Link",
+    "description": "Send an elected-official onboarding magic link directly from a HubSpot contact record.",
     "distribution": "private",
     "auth": {
       "type": "static",

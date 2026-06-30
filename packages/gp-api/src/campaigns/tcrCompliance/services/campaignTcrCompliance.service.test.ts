@@ -3,6 +3,7 @@ import {
   BadGatewayException,
   BadRequestException,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import {
   CommitteeType,
@@ -13,6 +14,7 @@ import {
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { ComplianceStateService } from './complianceState.service'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
@@ -267,7 +269,9 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     await service.createAgentic(user, campaign, basePayload)
 
     expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-    const [message, group, options] = mockQueue.sendMessage.mock.calls[0]
+    const [message, group, options] = firstOrThrow(
+      mockQueue.sendMessage.mock.calls,
+    )
     expect(message).toEqual({
       type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
       data: {
@@ -450,7 +454,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         data: { kickoffSentAt: expect.any(Date) },
       })
       expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message] = mockQueue.sendMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
       expect(message.data).toEqual({
         campaignId: campaign.id,
         tcrComplianceId: 'tcr-paid',
@@ -522,7 +526,9 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         }),
       )
       expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message, group, options] = mockQueue.sendMessage.mock.calls[0]
+      const [message, group, options] = firstOrThrow(
+        mockQueue.sendMessage.mock.calls,
+      )
       expect(message).toEqual({
         type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
         data: {
@@ -713,15 +719,16 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     const provisionOrder =
       mockWebsites.ensureCompliancePublishableWebsite.mock
         .invocationCallOrder[0]
-    const dispatchOrder =
-      mockExperimentRuns.dispatchRun.mock.invocationCallOrder[0]
+    const dispatchOrder = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.invocationCallOrder,
+    )
     expect(provisionOrder).toBeLessThan(dispatchOrder)
   })
 
   it('claims the dispatch slot atomically before calling dispatchRun', async () => {
     await service.handleAgenticKickoff(kickoff)
 
-    const claimCall = mockModel.updateMany.mock.calls[0][0]
+    const claimCall = firstOrThrow(mockModel.updateMany.mock.calls)[0]
     expect(claimCall.where).toMatchObject({
       id: kickoff.tcrComplianceId,
       agenticRunId: null,
@@ -732,8 +739,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     })
     expect(claimCall.data.agenticDispatchAttemptedAt).toBeInstanceOf(Date)
 
-    const dispatchCallOrder =
-      mockExperimentRuns.dispatchRun.mock.invocationCallOrder[0]
+    const dispatchCallOrder = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.invocationCallOrder,
+    )
     const claimCallOrder = mockModel.updateMany.mock.invocationCallOrder[0]
     expect(claimCallOrder).toBeLessThan(dispatchCallOrder)
   })
@@ -761,10 +769,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     // Last updateMany is the success stamp; scoped to our claim timestamp so
     // a TTL re-claimant's stamp isn't clobbered.
-    const stampCall =
-      mockModel.updateMany.mock.calls[
-        mockModel.updateMany.mock.calls.length - 1
-      ][0]
+    const stampCall = nthOrThrow(
+      mockModel.updateMany.mock.calls,
+      mockModel.updateMany.mock.calls.length - 1,
+    )[0]
     expect(stampCall.where).toMatchObject({
       id: kickoff.tcrComplianceId,
       agenticDispatchAttemptedAt: expect.any(Date),
@@ -792,7 +800,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     await service.handleAgenticKickoff(kickoff)
 
-    const dispatchArg = mockExperimentRuns.dispatchRun.mock.calls[0][0]
+    const dispatchArg = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.calls,
+    )[0]
     expect(dispatchArg.params.candidate_first_name).toBe('')
     expect(dispatchArg.params.candidate_last_name).toBe('')
   })
@@ -800,7 +810,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
   it('does not include actor_token_url in the dispatch params', async () => {
     await service.handleAgenticKickoff(kickoff)
 
-    const dispatchCall = mockExperimentRuns.dispatchRun.mock.calls[0][0]
+    const dispatchCall = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.calls,
+    )[0]
     expect(JSON.stringify(dispatchCall)).not.toContain('actor_token_url')
     expect(JSON.stringify(dispatchCall)).not.toContain('actorTokenUrl')
   })
@@ -851,10 +863,12 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     await service.handleAgenticKickoff(kickoff)
 
     expect(mockExperimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
-    const dispatchArg = mockExperimentRuns.dispatchRun.mock.calls[0][0]
+    const dispatchArg = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.calls,
+    )[0]
     expect(dispatchArg.params.trigger).toBe('recovery_resume')
 
-    const retakeCall = mockModel.updateMany.mock.calls[1][0]
+    const retakeCall = nthOrThrow(mockModel.updateMany.mock.calls, 1)[0]
     expect(retakeCall.where).toMatchObject({
       id: kickoff.tcrComplianceId,
       agenticRunId: 'run-failed',
@@ -1028,8 +1042,8 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     await expect(service.handleAgenticKickoff(kickoff)).rejects.toBe(err)
 
-    const claimTimestamp =
-      mockModel.updateMany.mock.calls[0][0].data.agenticDispatchAttemptedAt
+    const claimTimestamp = firstOrThrow(mockModel.updateMany.mock.calls)[0].data
+      .agenticDispatchAttemptedAt
     expect(mockModel.updateMany).toHaveBeenLastCalledWith({
       where: {
         id: kickoff.tcrComplianceId,
@@ -1046,8 +1060,8 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     await expect(service.handleAgenticKickoff(kickoff)).resolves.toBeUndefined()
 
-    const claimTimestamp =
-      mockModel.updateMany.mock.calls[0][0].data.agenticDispatchAttemptedAt
+    const claimTimestamp = firstOrThrow(mockModel.updateMany.mock.calls)[0].data
+      .agenticDispatchAttemptedAt
     expect(mockModel.updateMany).toHaveBeenLastCalledWith({
       where: {
         id: kickoff.tcrComplianceId,
@@ -1275,7 +1289,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   it('claims the submission slot atomically before calling Peerly', async () => {
     await service.submitToPeerlyForAgent(user, campaign, input)
 
-    const firstUpdateMany = mockTcrModel.updateMany.mock.calls[0]
+    const firstUpdateMany = firstOrThrow(mockTcrModel.updateMany.mock.calls)
     expect(firstUpdateMany[0]).toEqual({
       where: {
         id: existingRecord.id,
@@ -1289,7 +1303,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     })
     // Claim happens BEFORE Peerly is invoked
     const claimCallOrder = mockTcrModel.updateMany.mock.invocationCallOrder[0]
-    const peerlyCallOrder = mockPeerly.getIdentities.mock.invocationCallOrder[0]
+    const peerlyCallOrder = firstOrThrow(
+      mockPeerly.getIdentities.mock.invocationCallOrder,
+    )
     expect(claimCallOrder).toBeLessThan(peerlyCallOrder)
   })
 
@@ -1437,8 +1453,8 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
 
     // Two updateMany calls: claim, then rollback
     expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
-    const claimCall = mockTcrModel.updateMany.mock.calls[0][0]
-    const rollbackCall = mockTcrModel.updateMany.mock.calls[1][0]
+    const claimCall = firstOrThrow(mockTcrModel.updateMany.mock.calls)[0]
+    const rollbackCall = nthOrThrow(mockTcrModel.updateMany.mock.calls, 1)[0]
     const claimTimestamp = claimCall.data.peerlySubmissionStartedAt
     expect(claimTimestamp).toBeInstanceOf(Date)
     // Rollback scopes to the exact timestamp we wrote, so a TTL re-claim by
@@ -1517,8 +1533,8 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
 
     // Two updateMany calls: claim, then rollback scoped to our own timestamp.
     expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
-    const claimCall = mockTcrModel.updateMany.mock.calls[0][0]
-    const rollbackCall = mockTcrModel.updateMany.mock.calls[1][0]
+    const claimCall = firstOrThrow(mockTcrModel.updateMany.mock.calls)[0]
+    const rollbackCall = nthOrThrow(mockTcrModel.updateMany.mock.calls, 1)[0]
     expect(rollbackCall).toEqual({
       where: {
         id: existingRecord.id,
@@ -1627,7 +1643,8 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   let mockPeerly: {
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
-    approve10DLCBrand: ReturnType<typeof vi.fn>
+    submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
+    retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
   }
   let mockModel: { findFirstOrThrow: ReturnType<typeof vi.fn> }
   let mockPrisma: { tcrCompliance: typeof mockModel }
@@ -1643,7 +1660,8 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     mockPeerly = {
       verifyCampaignVerifyPin: vi.fn(),
       createCampaignVerifyToken: vi.fn(),
-      approve10DLCBrand: vi.fn(),
+      submitCampaignVerifyTokenToBrand: vi.fn(),
+      retrieveCampaignVerifyStatus: vi.fn(),
     }
     mockModel = { findFirstOrThrow: vi.fn() }
     mockPrisma = { tcrCompliance: mockModel }
@@ -1732,7 +1750,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       )
 
       expect(result).toBeUndefined()
-      expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     })
   })
 
@@ -1747,16 +1765,79 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
   })
 
   it('submitCampaignVerifyToken calls Peerly when OTEL_SERVICE_ENVIRONMENT=prod', async () => {
-    mockPeerly.approve10DLCBrand.mockResolvedValueOnce({ brand: 'ok' })
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockResolvedValueOnce({
+      brand: 'ok',
+    })
     await withEnv('prod', async () => {
       const result = await service.submitCampaignVerifyToken(
         tcrCompliance,
         'token',
       )
       expect(result).toEqual({ brand: 'ok' })
-      expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledWith(
         tcrCompliance,
         'token',
+      )
+    })
+  })
+
+  const tcrWithIdentity = {
+    id: 'tcr-2',
+    peerlyIdentityId: 'peerly-1',
+  } as unknown as Parameters<
+    CampaignTcrComplianceService['retrieveCampaignVerifyToken']
+  >[1]
+
+  it('retrieveCampaignVerifyToken verifies the PIN when the CV is not yet VERIFIED', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken(
+        '123456',
+        tcrWithIdentity,
+      )
+
+      expect(token).toBe('cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).toHaveBeenCalledWith(
+        'peerly-1',
+        '123456',
+        { id: 1 },
+      )
+    })
+  })
+
+  it('retrieveCampaignVerifyToken throws Invalid PIN for a wrong PIN on a non-VERIFIED CV', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
+      ).rejects.toThrow(UnprocessableEntityException)
+      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+    })
+  })
+
+  it('retrieveCampaignVerifyToken skips PIN re-verification and mints a token when the CV is already VERIFIED', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken(
+        'any-pin',
+        tcrWithIdentity,
+      )
+
+      expect(token).toBe('cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
+        'peerly-1',
+        { id: 1 },
       )
     })
   })
@@ -1768,7 +1849,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     getIdentityProfile: ReturnType<typeof vi.fn>
     retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
-    approve10DLCBrand: ReturnType<typeof vi.fn>
+    submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
   }
   let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockModel: {
@@ -1819,7 +1900,9 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         .mockResolvedValue({ profile: { status: 'pending' } }),
       retrieveCampaignVerifyStatus: vi.fn().mockResolvedValue('VERIFIED'),
       createCampaignVerifyToken: vi.fn().mockResolvedValue('cv-token-1'),
-      approve10DLCBrand: vi.fn().mockResolvedValue({ brand: 'ok' }),
+      submitCampaignVerifyTokenToBrand: vi
+        .fn()
+        .mockResolvedValue({ brand: 'ok' }),
     }
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaign) }
     mockModel = {
@@ -1860,7 +1943,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       'peerly-stuck',
       campaign,
     )
-    expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledWith(
       stuckRecord,
       'cv-token-1',
     )
@@ -1870,20 +1953,20 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     })
   })
 
-  it('submits the usecase with an empty token (no create_cv_token) when CV is APPROVED', async () => {
+  it('does not submit or advance when CV is APPROVED (candidate still owes a PIN)', async () => {
+    // APPROVED can be reached by the CV authority before the candidate enters
+    // their PIN, so the sweep must leave the record in `submitted`. Advancing
+    // it to `pending` would flip the candidate to the "in review" screen and
+    // strand them with a PIN they can no longer enter.
     mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
 
     await withEnv('prod', async () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
 
-    // create_cv_token 400s for authority-APPROVED CVs, so it must be skipped.
     expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.approve10DLCBrand).toHaveBeenCalledWith(stuckRecord, '')
-    expect(mockModel.update).toHaveBeenCalledWith({
-      where: { id: 'tcr-stuck' },
-      data: { status: TcrComplianceStatus.pending },
-    })
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
+    expect(mockModel.update).not.toHaveBeenCalled()
   })
 
   it.each(['waiting_to_finalize', 'finalized'])(
@@ -1909,14 +1992,16 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       await submitUsecaseIfVerified(service, stuckRecord)
 
       expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-      expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+      expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
       expect(mockModel.update).not.toHaveBeenCalled()
     },
   )
 
   it('marks the record error and rethrows when approve fails (sweep stops re-alerting)', async () => {
     const approveErr = new Error('Peerly approve rejected')
-    mockPeerly.approve10DLCBrand.mockRejectedValueOnce(approveErr)
+    mockPeerly.submitCampaignVerifyTokenToBrand.mockRejectedValueOnce(
+      approveErr,
+    )
 
     await withEnv('prod', async () => {
       await expect(submitUsecaseIfVerified(service, stuckRecord)).rejects.toBe(
@@ -1941,7 +2026,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
 
-    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -1951,7 +2036,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
     await submitUsecaseIfVerified(service, stuckRecord)
 
     expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
-    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 
@@ -1985,7 +2070,7 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       await submitUsecaseIfVerified(service, stuckRecord)
     })
 
-    expect(mockPeerly.approve10DLCBrand).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyTokenToBrand).not.toHaveBeenCalled()
     expect(mockModel.update).not.toHaveBeenCalled()
   })
 

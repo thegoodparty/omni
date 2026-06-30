@@ -62,7 +62,9 @@ export const reflectInputDeclarations = (
 
     result[inputKey].declared = true
 
-    const { index } = paramMeta[key]
+    const meta = paramMeta[key]
+    if (!meta) continue
+    const { index } = meta
     const dto = paramTypes[index]
     if (dto?.schema) {
       result[inputKey].schema = dto.schema

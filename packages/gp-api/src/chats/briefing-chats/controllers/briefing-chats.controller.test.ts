@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { EventEmitter } from 'events'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import type { BriefingChatCreateService } from '../services/briefingChatCreate.service'
@@ -566,7 +567,9 @@ describe('BriefingChatsController.streamMessage', () => {
     const endCalls = raw.end.mock.invocationCallOrder
     expect(writeCalls.length).toBeGreaterThan(0)
     expect(endCalls.length).toBeGreaterThan(0)
-    expect(endCalls[0]).toBeGreaterThan(writeCalls[writeCalls.length - 1])
+    expect(endCalls[0]).toBeGreaterThan(
+      nthOrThrow(writeCalls, writeCalls.length - 1),
+    )
   })
 
   it('does not time out before the prior 90s threshold (timeout extended to 300s)', async () => {
@@ -698,7 +701,9 @@ describe('BriefingChatsController.streamMessage', () => {
     expect(lastWrite).toContain('"retryable":true')
     const writeCalls = raw.write.mock.invocationCallOrder
     const endCalls = raw.end.mock.invocationCallOrder
-    expect(endCalls[0]).toBeGreaterThan(writeCalls[writeCalls.length - 1])
+    expect(endCalls[0]).toBeGreaterThan(
+      nthOrThrow(writeCalls, writeCalls.length - 1),
+    )
   })
 
   it('logs (does not silently swallow) write failures during timeout chunk emission', async () => {
@@ -805,9 +810,9 @@ describe('BriefingChatsController.getConversation', () => {
     )
     expect(result.conversationId).toBe('conv-1')
     expect(result.messages).toHaveLength(1)
-    expect(result.messages[0].id).toBe('m-1')
-    expect(result.messages[0].role).toBe(ChatMessageRole.user)
-    expect(result.messages[0].content).toBe('hi')
+    expect(result.messages[0]?.id).toBe('m-1')
+    expect(result.messages[0]?.role).toBe(ChatMessageRole.user)
+    expect(result.messages[0]?.content).toBe('hi')
   })
 })
 

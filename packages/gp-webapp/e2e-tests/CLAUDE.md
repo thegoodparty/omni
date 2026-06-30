@@ -19,6 +19,9 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 
 - **One config, many environments.** Set `BASE_URL` in `.env` to point at local / dev / qa. Tests fail-fast if missing.
 - **`@dev-only` (merge-only) tests.** A test that depends on the warm dev stack or live async pipelines (e.g. the SQS analyze round-trip and the Stripe expansion webhook in `polls-onboarding`) can't pass against an ephemeral per-PR preview. Tag such a test `@dev-only` in its title (e.g. `test('... @dev-only', ...)`); for a `describe.serial` block whose tests share state seeded by the gated test, tag the **describe** title so the whole block is excluded together. The CI workflow greps these **out** on `pull_request` runs and **includes** them on the post-merge `develop` run (and they always run locally / on demand). Add the tag plus a one-line comment naming the live dependency; that's the whole pattern — no per-test workflow plumbing.
+
+  **`@dev-only` means "needs the real dev stack" — it is NOT a place to hide flaky or broken tests from PR gates.** The develop run is not a quieter, lower-stakes lane; tagging a flaky/red test `@dev-only` only moves the red from PRs (where you'd fix it) to develop (where it rots, and trains everyone to ignore the gate). If a test flakes, stabilize it; if it's broken, fix it or `test.fixme()` it (visible, not failing). Only genuine warm-stack/live-pipeline dependencies (Stripe webhook, SQS round-trip, live BallotReady future-election data, `win-voter-data`+pro provisioning, a live model round-trip) earn the tag.
+
 - **Authenticated flows** use Clerk via `@clerk/testing/playwright`. `clerkSetup()` runs once in `global-setup.ts`; per-test sign-in helpers live in `src/helpers/clerk.helper.ts`.
 - **`authenticateTestUser(page, options?)`** (`tests/utils/api-registration.ts`) is the one-call way to get a logged-in user. Use it in a `beforeEach` (or at the top of a test) when the scenario needs an authenticated candidate. It:
   1. creates a real Clerk user via the backend SDK, signs in through the UI, and mints a long-lived (1h) API token from a backend session — browser-minted Clerk session tokens expire after 60s, which 401s any `client` call made late in a long test,
@@ -35,6 +38,8 @@ End-to-end tests using Playwright. Runs against a deployed environment (local ap
 
   Requires `BASE_URL` and `CLERK_SECRET_KEY` (throws at import if missing); `API_BASE_URL` is optional and defaults to `BASE_URL`. Created users are **not** deleted by the test — gp-api's scheduled `deleteTestUsers` sweep removes stale `@test.goodparty.org` users older than 3 hours.
 
+- **Flag-gated surfaces: force the flag, don't depend on Amplitude.** A test that exercises a feature behind an Amplitude flag must NOT rely on that flag's live targeting/rollout for the synthetic `@test.goodparty.org` user — that's flaky and couples the test to experiment config. Resolution is server-side (gp-api → Amplitude; the browser never calls Amplitude), so force the flag deterministically via the override-cookie seam: call `setFlagOverrides(page, { 'my-flag': 'on' })` (or a per-flag wrapper like `enableCampaignStoryFlag`, both in `src/helpers/campaignStory.helper.ts`) **before** auth/navigation, so the first SSR render already sees it. It's honored off-prod only (gated on `VERCEL_ENV`); there is no client SDK to stub. Mechanism + safety: `docs/feature-flags.md` § E2E overrides and `app/shared/experiments/flagOverrides.ts`.
+- **Prefer a stable `data-testid` over copy or DOM structure** for any element a test drives repeatedly (e.g. `campaign-story-card-<id>`). UI copy and component structure churn on `develop` and silently break selectors; a `data-testid` is a deliberate, durable contract. Add one to the component (styleguide primitives forward it) when the alternative selector would be brittle — it's a legitimate, behavior-free change to make a flow testable.
 - **Mirroring**: a feature dir under `app/` should have a matching dir under `tests/app/`. Add tests in the matching dir, not at the top of `tests/`.
 
 ## Running
@@ -48,7 +53,14 @@ npx playwright test tests/core/pages/blog.spec.ts  # one file
 npx playwright test polls                          # name pattern
 ```
 
-Some tests need AWS auth: `aws sso login --profile gp-engineer`.
+**Always pass `--retries=0` when running locally.** The config retries (for CI flake tolerance) just make a deterministic local failure take 3x as long before you see it — kill the feedback loop, not your afternoon:
+
+```bash
+BASE_URL=https://dev.goodparty.org npx playwright test --config="$PWD/playwright.config.ts" \
+  tests/app/polls/polls-onboarding.spec.ts --retries=0 --workers=1
+```
+
+Some tests need AWS auth: `aws sso login --profile gp-engineer` (or set `AWS_PROFILE` to whatever profile is currently authed for the dev account).
 
 ## Gotchas
 

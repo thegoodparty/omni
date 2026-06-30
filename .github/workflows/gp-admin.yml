@@ -34,6 +34,9 @@ jobs:
       - name: Build SDK
         run: npm run build -w packages/gp-sdk
 
+      - name: Typecheck
+        run: npm run typecheck -w ${{ env.WORKSPACE }}
+
       - name: Lint
         run: npm run lint -w ${{ env.WORKSPACE }}
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { MessageGroup, QueueType } from 'src/queue/queue.types'
@@ -29,7 +30,7 @@ describe('WeeklyTasksDigestService', () => {
       await service.triggerWeeklyDigest()
 
       expect(sendMessage).toHaveBeenCalledOnce()
-      const [message] = sendMessage.mock.calls[0]
+      const [message] = firstOrThrow(sendMessage.mock.calls)
       expect(message.type).toBe(QueueType.WEEKLY_TASKS_DIGEST)
       expect(message.data.windowStart).toBe('2026-04-20T00:00:00.000Z')
       expect(message.data.windowEnd).toBe('2026-04-27T00:00:00.000Z')
@@ -41,7 +42,7 @@ describe('WeeklyTasksDigestService', () => {
 
       await service.triggerWeeklyDigest()
 
-      const [message] = sendMessage.mock.calls[0]
+      const [message] = firstOrThrow(sendMessage.mock.calls)
       expect(message.data.windowStart).toBe('2026-04-20T00:00:00.000Z')
       expect(message.data.windowEnd).toBe('2026-04-27T00:00:00.000Z')
     })
@@ -52,7 +53,7 @@ describe('WeeklyTasksDigestService', () => {
 
       await service.triggerWeeklyDigest()
 
-      const [message] = sendMessage.mock.calls[0]
+      const [message] = firstOrThrow(sendMessage.mock.calls)
       expect(message.data.windowStart).toBe('2026-04-20T00:00:00.000Z')
       expect(message.data.windowEnd).toBe('2026-04-27T00:00:00.000Z')
     })
@@ -63,7 +64,7 @@ describe('WeeklyTasksDigestService', () => {
 
       await service.triggerWeeklyDigest()
 
-      const [message] = sendMessage.mock.calls[0]
+      const [message] = firstOrThrow(sendMessage.mock.calls)
       expect(message.data.windowStart).toBe('2026-01-05T00:00:00.000Z')
       expect(message.data.windowEnd).toBe('2026-01-12T00:00:00.000Z')
     })
@@ -75,7 +76,7 @@ describe('WeeklyTasksDigestService', () => {
 
       await service.triggerWeeklyDigest()
 
-      const [, group] = sendMessage.mock.calls[0]
+      const [, group] = firstOrThrow(sendMessage.mock.calls)
       expect(group).toBe(MessageGroup.weeklyTasksDigest)
     })
 
@@ -85,8 +86,8 @@ describe('WeeklyTasksDigestService', () => {
       await service.triggerWeeklyDigest()
       await service.triggerWeeklyDigest()
 
-      const [, , optionsA] = sendMessage.mock.calls[0]
-      const [, , optionsB] = sendMessage.mock.calls[1]
+      const [, , optionsA] = firstOrThrow(sendMessage.mock.calls)
+      const [, , optionsB] = nthOrThrow(sendMessage.mock.calls, 1)
       expect(optionsA.deduplicationId).toBe(
         'weeklyTasksDigest-2026-04-20T00:00:00.000Z',
       )

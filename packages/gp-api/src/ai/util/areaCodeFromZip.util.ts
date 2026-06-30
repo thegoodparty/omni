@@ -41,7 +41,7 @@ export class AreaCodeFromZipService {
       return null
     }
 
-    const normalizedZipCode = zipCode.split('-')[0].trim()
+    const normalizedZipCode = (zipCode.split('-')[0] ?? '').trim()
 
     // Check cache first
     const cachedEntry = await this.getAreaCodesFromS3(normalizedZipCode)
@@ -156,7 +156,7 @@ export class AreaCodeFromZipService {
       if (!validationResult.success) {
         this.logger.error(
           {
-            errors: validationResult.error.errors,
+            errors: validationResult.error.issues,
             jsonContent,
           },
           `Invalid area codes response format from OpenAI for zip ${zipCode}:`,

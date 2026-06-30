@@ -104,18 +104,9 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
     { timeout: 15_000 },
   )
 
-  // 4: IntentStep names the held office and pre-selects "same office".
-  const intentHeading = page.getByRole('heading', {
-    level: 1,
-    name: /running for re-election in .+ or a new office/i,
-  })
-  await expect(intentHeading).toBeVisible({ timeout: 15_000 })
-  await expect(intentHeading).toContainText(electedOfficeOrg.name)
-  await expect(page.getByRole('radio', { name: /same office/i })).toBeChecked()
-  // Leaving the intent step fires POST /v1/campaigns/follow-on.
-  await clickContinue(page)
-
-  // welcome (follow-on copy).
+  // 4: no intent screen — the "Run for re-election" action is the intent, so we
+  // land straight on welcome (follow-on copy). Leaving welcome fires POST
+  // /v1/campaigns/follow-on (same-office creates immediately; picker skipped).
   await expect(
     page.getByRole('heading', { level: 1, name: /set up your new campaign/i }),
   ).toBeVisible({ timeout: 15_000 })

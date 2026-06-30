@@ -106,7 +106,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   @Interval(AGENTIC_KICKOFF_SWEEP_INTERVAL * 1000)
-  private async sweepStrandedAgenticKickoffs() {
+  async sweepStrandedAgenticKickoffs() {
     const cutoff = subMinutes(new Date(), AGENTIC_KICKOFF_STALENESS_MINUTES)
     const stranded = await this.model.findMany({
       where: {
@@ -175,15 +175,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
   // The POLITICAL usecase is what finalizes a TCR registration, and it is only
   // submitted by approve10DLCBrand — which today fires solely from the in-app
-  // PIN flow (submit-cv-pin). When Campaign Verify completes without that step
-  // running (the CV authority approved the candidate directly, or the in-app
-  // approve threw), the usecase is never submitted and the identity strands
-  // "loading" in Peerly. This sweep submits the usecase for any verified record
-  // that's missing one, healing both existing stranded records and any future
-  // stragglers. Only `submitted` records are candidates — `pending` means the
-  // usecase was already submitted (status is advanced after approve).
+  // PIN flow (submit-cv-pin). When that flow's approve step throws after the
+  // candidate has verified their PIN, the usecase is never submitted and the
+  // identity strands "loading" in Peerly. This sweep heals those records by
+  // submitting the usecase for any record whose Campaign Verify is VERIFIED.
+  // It deliberately does NOT act on APPROVED: that status can precede the
+  // candidate's PIN entry, so advancing it would skip them past the PIN screen
+  // (submitUsecaseIfVerified). Only `submitted` records are candidates —
+  // `pending` means the usecase was already submitted (status advances after
+  // approve).
   @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
-  private async sweepUnsubmittedUsecases() {
+  async sweepUnsubmittedUsecases() {
     const candidates = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.submitted,
@@ -223,9 +225,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // in-flight (`waiting_to_finalize`) record be re-submitted.
     let profileResponse: PeerlyIdentityProfileResponseBody | null
     try {
+      // This is a background sweep with no human waiting, so a transient Peerly
+      // read failure must not page the 10DLC Slack channel (it logs + throws
+      // below, and the next sweep retries).
       profileResponse = await this.peerlyIdentityService.getIdentityProfile(
         peerlyIdentityId,
         campaign,
+        { suppressSlackAlert: true },
       )
     } catch (err) {
       // A deleted/orphaned Peerly identity 404s here; skip rather than letting
@@ -245,26 +251,23 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign,
       )
 
-    // Two Campaign Verify completion paths both warrant submitting the usecase:
-    //  - VERIFIED: the candidate proved control of their contact info via PIN.
-    //    Mint a CV token, then approve with it.
-    //  - APPROVED: the CV authority approved the candidate directly, with no
-    //    candidate PIN (e.g. postal / expedited). create_cv_token 400s in this
-    //    state, but approve accepts an empty token.
-    // Any other status (REQUESTED / IN_REVIEW / REJECTED / WITHDRAWN) is not yet
-    // verifiable or is terminal — skip, which also keeps the sweep from
-    // 400-spamming Peerly (and the 10DLC Slack channel) for those records.
-    let campaignVerifyToken = ''
-    if (cvStatus === PeerlyCvVerificationStatus.VERIFIED) {
-      const token = await this.peerlyIdentityService.createCampaignVerifyToken(
+    // Only VERIFIED warrants auto-submitting the usecase: the candidate
+    // proved control of their contact info via PIN, so this just finishes a
+    // flow whose approve step threw. APPROVED is NOT a candidate-completion
+    // signal — the CV authority can reach it before the candidate enters
+    // their PIN (Peerly still expects PIN delivery), so auto-submitting on
+    // APPROVED races ahead of the candidate and flips the record to `pending`
+    // (the "in review" UI) before they can enter their PIN. Leave every
+    // non-VERIFIED status in `submitted` so the in-app PIN path can still run.
+    if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+      return
+    }
+    const campaignVerifyToken =
+      await this.peerlyIdentityService.createCampaignVerifyToken(
         peerlyIdentityId,
         campaign,
       )
-      if (!token) {
-        return
-      }
-      campaignVerifyToken = token
-    } else if (cvStatus !== PeerlyCvVerificationStatus.APPROVED) {
+    if (!campaignVerifyToken) {
       return
     }
 
@@ -301,7 +304,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   @Interval(TCR_COMPLIANCE_CHECK_INTERVAL * 1000) // This will run based on the environment variable
-  private async bootstrapTcrComplianceCheck() {
+  async bootstrapTcrComplianceCheck() {
     const pendingTcrCompliances = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.pending,
@@ -1301,13 +1304,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign: true,
       },
     })
-    const pinIsValid = await this.peerlyIdentityService.verifyCampaignVerifyPin(
-      peerlyIdentityId,
-      pin,
-      campaign,
-    )
-    if (!pinIsValid) {
-      throw new UnprocessableEntityException('Invalid PIN')
+    // A PIN can only be consumed once: verify_pin rejects an already-VERIFIED
+    // CV as an invalid PIN. If an earlier attempt verified the PIN but a
+    // downstream Peerly step threw (stranding the record at `submitted`),
+    // re-verifying would dead-end the retry with "Invalid PIN". When the CV is
+    // already VERIFIED the candidate has proven control, so skip the re-check
+    // and mint the token so the retry can finish the flow.
+    const cvStatus =
+      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+        peerlyIdentityId,
+        campaign,
+      )
+    if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+      const pinIsValid =
+        await this.peerlyIdentityService.verifyCampaignVerifyPin(
+          peerlyIdentityId,
+          pin,
+          campaign,
+        )
+      if (!pinIsValid) {
+        throw new UnprocessableEntityException('Invalid PIN')
+      }
     }
 
     return await this.peerlyIdentityService.createCampaignVerifyToken(
@@ -1323,7 +1340,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
       return undefined
     }
-    return this.peerlyIdentityService.approve10DLCBrand(
+    return this.peerlyIdentityService.submitCampaignVerifyTokenToBrand(
       tcrCompliance,
       campaignVerifyToken,
     )

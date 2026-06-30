@@ -51,11 +51,10 @@ export function createPrismaBase<T extends Prisma.ModelName>(modelName: T) {
 
   // This interface merges with the class type to apply the prisma method types to the class def
   // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface BasePrismaService
-    extends Pick<
-      PrismaClient[Uncapitalize<T>],
-      (typeof PASSTHROUGH_MODEL_METHODS)[number]
-    > {}
+  interface BasePrismaService extends Pick<
+    PrismaClient[Uncapitalize<T>],
+    (typeof PASSTHROUGH_MODEL_METHODS)[number]
+  > {}
 
   return BasePrismaService
 }
@@ -64,7 +63,7 @@ export function buildColumnSelect(columns: string) {
   return columns
     .split(',')
     .map((col) => col.trim())
-    .reduce((acc, col) => {
+    .reduce<Record<string, boolean>>((acc, col) => {
       acc[col] = true
       return acc
     }, {})

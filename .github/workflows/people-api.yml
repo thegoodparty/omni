@@ -33,10 +33,15 @@ jobs:
           app: people-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:people-api
 
       - name: Lint
         run: npm run lint -w ${{ env.WORKSPACE }}
+
+      - name: Typecheck
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx tsc --noEmit
 
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
@@ -64,6 +69,7 @@ jobs:
           app: people-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:people-api
 
       - name: Determine deployment context

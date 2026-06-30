@@ -29,7 +29,7 @@ import { addDays, differenceInCalendarDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { chunk } from 'es-toolkit'
 import ms from 'ms'
-import { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
@@ -427,7 +427,8 @@ export class MeetingBriefingsService extends createPrismaBase(
       from: now,
       to: windowEnd,
     })
-    if (upcoming.length === 0) {
+    const [meetingDate] = upcoming
+    if (!meetingDate) {
       this.logger.info(
         { electedOfficeId, windowDays },
         'skipping briefing: no projected meeting inside window',
@@ -435,7 +436,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       return null
     }
     return {
-      meetingDate: upcoming[0],
+      meetingDate,
       meetingTime: schedule.time,
       meetingTimezone: schedule.timezone,
     }
@@ -1178,7 +1179,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       )
       .join('\n')
 
-    const messages: ChatCompletionMessageParam[] = [
+    const messages: LlmMessage[] = [
       {
         role: 'system',
         content:
@@ -1196,7 +1197,6 @@ export class MeetingBriefingsService extends createPrismaBase(
         () =>
           this.llm.chatCompletion({
             messages,
-            models: ['deepseek-ai/DeepSeek-V4-Pro'],
             temperature: 0.4,
             maxTokens: 200,
             userId: String(userId),

@@ -759,7 +759,7 @@ describe('CampaignStrategyContextService', () => {
 
     await service.getCampaignStrategyContext(baseRequest())
 
-    const callArgs = raceFindMany.mock.calls[0][0]
+    const callArgs = raceFindMany.mock.calls[0]?.[0]
     const gte = callArgs.where.electionDate.gte as Date
     const lt = callArgs.where.electionDate.lt as Date
     expect(gte.toISOString().slice(0, 10)).toBe('2026-07-15')
@@ -777,7 +777,7 @@ describe('CampaignStrategyContextService', () => {
 
     await service.getCampaignStrategyContext(baseRequest())
 
-    const callArgs = raceFindMany.mock.calls[0][0]
+    const callArgs = raceFindMany.mock.calls[0]?.[0]
     const gte = callArgs.where.electionDate.gte as Date
     const lt = callArgs.where.electionDate.lt as Date
     expect(gte.toISOString().slice(0, 10)).toBe('2025-02-28')

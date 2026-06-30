@@ -2,6 +2,10 @@ import type {
   ExperimentVariantsResponse,
   Priority,
   ChatAnchor,
+  RaceOpponentSourceType,
+  RaceOpponentCollectionStatus,
+  RaceOpponentResearchStatus,
+  RaceOpponentFindingKind,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -20,6 +24,7 @@ import {
 import type {
   CampaignStory,
   CampaignStoryRewrite,
+  RaceOpponentThreatTier,
 } from '@goodparty_org/contracts'
 import type { ContactsStats } from 'app/dashboard/polls/shared/queries'
 import type { GetPollIssuesResponse } from 'app/dashboard/polls/shared/serverApiCalls'
@@ -59,6 +64,28 @@ export interface MeetingsListItemDto {
 }
 
 export type UserAgendaStatus = 'processing' | 'failed' | 'completed' | 'unknown'
+
+/**
+ * A Campaign Tracker task row (campaign_tracker_tasks). Mirrors the gp-api
+ * CampaignTrackerTask model returned by the /campaigns/tracker-tasks endpoints.
+ */
+export type CampaignTrackerTask = {
+  id: string
+  title: string
+  description: string
+  cta: string | null
+  link: string | null
+  flowType: string | null
+  week: number
+  date: string
+  completed: boolean
+  phase: string | null
+  proRequired: boolean | null
+  // true for the static launch/pre-launch rows materialized at bootstrap;
+  // false for the dynamic tasks + events the CAP run produces. Lets the client
+  // tell "still generating" (only static present) from "done".
+  isDefaultTask: boolean
+}
 
 /** Request/response shapes for the user-agenda-upload flow. */
 export type UserAgendaSubmitRequest =
@@ -236,15 +263,18 @@ export type APIEndpoints = {
     Response: CampaignStory
   }
 
-  // AI-suggested rewrite of one Campaign Story field. The server pairs the
-  // submitted text with the candidate's name and a section-specific prompt;
-  // `text` must be non-empty (the Zod schema rejects blank input with 400).
+  // AI-suggested rewrite of a Campaign Story field or a website issue's "Policy
+  // focus". The server pairs the submitted text with the candidate's name and a
+  // section-specific prompt; `text` must be non-empty (the Zod schema rejects
+  // blank input with 400).
   'POST /v1/campaigns/mine/story/rewrite': {
-    // `field` is single-sourced from the contract so it can't drift from the
-    // stored story shape; the server's Zod enum is the runtime mirror.
+    // why/background mirror the story shape; 'issue' rewrites a Policy focus
+    // (website issue description). The server's Zod enum is the runtime mirror.
     Request: {
-      field: keyof CampaignStory
+      field: keyof CampaignStory | 'issue'
       text: string
+      // Optional context for an `issue` rewrite: the policy title.
+      title?: string
     }
     Response: CampaignStoryRewrite
   }
@@ -298,10 +328,12 @@ export type APIEndpoints = {
     Response: StrategicLandscapeResponse
   }
 
-  // Section 7 community events. Polling endpoint — same shape as
-  // strategic-landscape. 200 → ready (events array up to length 3), 202 →
-  // generating (poll again ~3s). Mirrors `CommunityEventsResponseSchema`
-  // in `gp-api/src/campaignStrategy/schemas/communityEvents.schema.ts`.
+  // Section 7 community events (legacy / story-off plan only). Polling
+  // endpoint — same shape as strategic-landscape. 200 → ready (events array up
+  // to length 3), 202 → generating (poll again ~3s). Mirrors
+  // `CommunityEventsResponseSchema` in
+  // `gp-api/src/campaignStrategy/schemas/communityEvents.schema.ts`. Story-on
+  // campaigns get events from the campaign tracker (CAP) instead.
   'POST /v1/campaignStrategy/mine/community-events': {
     Request: {}
     Response: CommunityEventsResponse
@@ -313,6 +345,23 @@ export type APIEndpoints = {
   'GET /v1/campaignStrategy/mine/exists': {
     Request: {}
     Response: { exists: boolean }
+  }
+
+  // Campaign Tracker tasks (campaign_tracker_tasks). The new tracker reads and
+  // completes these; mirrors /campaigns/tracker-tasks in gp-api.
+  'GET /v1/campaigns/tracker-tasks': {
+    Request: {}
+    Response: CampaignTrackerTask[]
+  }
+
+  'PUT /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string; type?: string; quantity?: number }
+    Response: CampaignTrackerTask
+  }
+
+  'DELETE /v1/campaigns/tracker-tasks/complete/:id': {
+    Request: { id: string }
+    Response: CampaignTrackerTask
   }
 
   'GET /v1/elected-office/current': {
@@ -706,7 +755,333 @@ export type APIEndpoints = {
     Request: { type: 'top_community_issues' | 'trending_issues' }
     Response: { dispatched: number; skipped: number }
   }
+
+  'GET /v1/campaigns/mine/race-opponent': {
+    Request: {}
+    Response: RaceOpponentResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/collect': {
+    Request: {}
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
+  }
+
+  // Manual opponent entry: when discovery finds nobody, the candidate names
+  // opponents by hand and runs collection on them. Mirrors gp-api's
+  // ManualOpponentsRequestSchema (name required; ballotpediaUrl/website are
+  // optional https URLs; 1-10 opponents) and returns the same collect shape.
+  'POST /v1/campaigns/mine/race-opponent/opponents/manual': {
+    Request: {
+      opponents: Array<{
+        name: string
+        ballotpediaUrl?: string
+        website?: string
+      }>
+    }
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
+  }
+
+  // Self-research: the candidate's own footprint pass. start/status/report all
+  // derive their inputs from the campaign server-side, so none take a body.
+  'POST /v1/campaigns/mine/race-opponent/self-research': {
+    Request: {}
+    Response: StartSelfResearchResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/self-research/status': {
+    Request: {}
+    Response: SelfResearchStatusResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/self-research/report': {
+    Request: {}
+    Response: SelfResearchReportResponse
+  }
+
+  // Contrasts: the candidate review/edit/route surface (ENG-10575). generate
+  // drafts contrasts from opponent findings; list returns only candidate-
+  // visible (cleared/approved/used) contrasts; PATCH edits a contrast's text;
+  // route writes a DRAFT into Campaign Story or a texting Outreach (no send).
+  'POST /v1/campaigns/mine/race-opponent/contrasts/generate': {
+    Request: {}
+    Response: GenerateContrastsResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/contrasts': {
+    Request: {}
+    Response: ListContrastsResponse
+  }
+
+  // `id` is the path param (PathParamsOf types it as string and the runtime
+  // substitutes it into the URL), so it is NOT redeclared in Request —
+  // redeclaring it as a number would intersect with the string path param to
+  // `never`.
+  // Only candidate-authored fields are editable. opponentFact/sourceUrl/
+  // issueTag/routing are sourced from the opponent finding and immutable, so
+  // they are not part of the edit request (mirrors EditContrastRequestSchema).
+  'PATCH /v1/campaigns/mine/race-opponent/contrasts/:id': {
+    Request: {
+      candidateFact?: string
+      contrastSentence?: string
+    }
+    Response: ContrastResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/contrasts/:id/route': {
+    Request: { target: ContrastRouteTarget }
+    Response: RouteContrastResponse
+  }
+
+  // Opponent identify/research/profile/activity. All hard-gated server-side on a
+  // completed self-research pass — they 403 until self-research is done. identify
+  // defaults the opponent set from the election-api roster; research requires a
+  // candidate-confirmed opponentName in the body (never auto-run on a namesake).
+  'POST /v1/campaigns/mine/race-opponent/opponents/identify': {
+    Request: {}
+    Response: IdentifyOpponentsResponse
+  }
+
+  'POST /v1/campaigns/mine/race-opponent/opponents/research': {
+    Request: StartOpponentResearchRequest
+    Response: StartOpponentResearchResponse
+  }
+
+  'GET /v1/campaigns/mine/race-opponent/opponents/profile': {
+    Request: { opponentName: string }
+    Response: OpponentProfileResponse
+  }
+
+  // Viewing the activity stream advances lastViewedAt server-side, so a fresh GET
+  // re-flags only findings that landed after this read.
+  'GET /v1/campaigns/mine/race-opponent/opponents/activity': {
+    Request: {}
+    Response: RaceOpponentActivityResponse
+  }
 }
+
+// Wire shapes for the self-research routes. Mirror the contract schemas in
+// @goodparty_org/contracts (RaceOpponentResearchSchema / RaceOpponentFinding-
+// Schema), but dates arrive over JSON as ISO strings (the contract coerces them
+// to Date), so the date leaves are typed as string here.
+export type SelfResearchRecord = {
+  id: number
+  kind: RaceOpponentFindingKind
+  opponentName: string | null
+  electionCandidacyId: string | null
+  status: RaceOpponentResearchStatus
+  runId: string | null
+  attempts: number
+  completedAt: string | null
+  lastViewedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+// Every finding is sourced-or-silent at the type level: sourceUrl and
+// sourceExtract are always non-empty. draftedResponse is self-research only.
+export type SelfResearchFinding = {
+  id: number
+  researchId: number
+  claim: string
+  sourceUrl: string
+  sourceExtract: string
+  sourceTitle: string | null
+  sourceReachableAt: string | null
+  category: string
+  occurredAt: string | null
+  draftedResponse: string | null
+  createdAt: string
+}
+
+export type StartSelfResearchResponse = {
+  research: SelfResearchRecord
+}
+
+export type SelfResearchStatusResponse = {
+  status: RaceOpponentResearchStatus
+  research: SelfResearchRecord | null
+}
+
+export type SelfResearchReportResponse = {
+  research: SelfResearchRecord & { findings: SelfResearchFinding[] }
+}
+
+// Opponent identify returns roster-defaulted candidate names; the candidate
+// confirms a match before research is dispatched. Mirrors
+// IdentifyOpponentsResponseSchema in @goodparty_org/contracts.
+export type IdentifyOpponentsResponse = {
+  opponentNames: string[]
+}
+
+// Mirrors StartOpponentResearchRequestSchema. opponentName is the confirmed
+// match (required); electionCandidacyId is an optional roster reference.
+export type StartOpponentResearchRequest = {
+  opponentName: string
+  electionCandidacyId?: string | null
+}
+
+export type StartOpponentResearchResponse = {
+  research: SelfResearchRecord
+}
+
+// The opponent Handbook: the research row plus its sourced findings. Same wire
+// shape as the self-research report (dates as ISO strings over JSON); reuses
+// SelfResearchFinding for the finding leaves.
+export type OpponentProfileResponse = {
+  research: SelfResearchRecord & { findings: SelfResearchFinding[] }
+}
+
+// One "what's new" item: an opponent finding flagged with whether it landed
+// after the candidate last viewed the stream.
+export type RaceOpponentActivityItem = SelfResearchFinding & {
+  newSinceLastVisit: boolean
+}
+
+// Mirrors RaceOpponentActivityResponseSchema. `researchStatus` is the
+// authoritative opponent-research lifecycle from the persisted row (not_started
+// when none exists); the UI drives its initial view off it. The `refresh`
+// envelope matches the community-issues feed shape exactly so the activity feed
+// renders from the same pattern.
+export type RaceOpponentActivityResponse = {
+  findings: RaceOpponentActivityItem[]
+  researchStatus: RaceOpponentResearchStatus
+  refresh: {
+    status: 'running' | 'completed' | 'failed'
+    lastCompletedAt: string | null
+  }
+}
+
+// Wire shape of GET /v1/campaigns/mine/race-opponent. Mirrors
+// RaceOpponentResponseSchema in @goodparty_org/contracts, but dates arrive over
+// JSON as ISO strings (the contract type coerces them to Date), so they're
+// typed as string here.
+export type RaceOpponentItem = {
+  id: number
+  opponentName: string
+  sourceType: RaceOpponentSourceType
+  sourceUrl: string | null
+  content: unknown
+  collectedAt: string
+}
+
+// Display-ready summary structured by the race_opponent_summary step. Mirrors
+// RaceOpponentSummarySchema in @goodparty_org/contracts, but generatedAt arrives
+// over JSON as an ISO string (the contract coerces it to Date).
+export type RaceOpponentSummarySourceRef = {
+  sourceType: RaceOpponentSourceType
+  sourceUrl: string
+}
+
+export type RaceOpponentSummarySection = {
+  text: string
+  sources: RaceOpponentSummarySourceRef[]
+}
+
+export type RaceOpponentSummaryKeyPosition = {
+  label: string
+  detail: string
+  sources: RaceOpponentSummarySourceRef[]
+}
+
+export type RaceOpponentSummary = {
+  opponentName: string
+  overview: RaceOpponentSummarySection | null
+  background: RaceOpponentSummarySection | null
+  keyPositions: RaceOpponentSummaryKeyPosition[]
+  generatedAt: string | null
+  threatTier?: RaceOpponentThreatTier
+  // Phase 3 analytical fields, all optional (the analysis may be absent).
+  whyTheyMatter?: string
+  whatYouNeedToKnow?: string[]
+  // Relaxed sourcing: an item cites a source where one is direct, else omits it.
+  whereSoft?: Array<{ text: string; sources?: RaceOpponentSummarySourceRef[] }>
+  issueContrasts?: RaceOpponentIssueContrast[]
+}
+
+export type IssueSalience = 'high' | 'medium' | 'low'
+
+export type RaceOpponentIssueContrast = {
+  issue: string
+  salience: IssueSalience
+  whyItMatters: string
+  opponentStance: string
+  opponentSources?: RaceOpponentSummarySourceRef[]
+  candidateStance: string
+}
+
+export type RaceOpponentResponse = {
+  opponents: Array<{
+    opponentName: string
+    // Enriched from the campaign-strategy opponent roster by name match; null
+    // when the collected name doesn't match a roster row (don't guess).
+    party: string | null
+    isIncumbent: boolean | null
+    // Phase 3: surfaced on the opponent object (in addition to summary) so the
+    // roster can tier and order without opening the detail. Optional until an
+    // opponent has analysis.
+    threatTier?: RaceOpponentThreatTier
+    items: RaceOpponentItem[]
+    // Optional + nullable: ENG-10588 wires the producer to populate this from
+    // the race_opponent_summary step; until then gp-api omits the field.
+    summary?: RaceOpponentSummary | null
+  }>
+  lastCollectedAt: string | null
+  collectionStatus: RaceOpponentCollectionStatus
+}
+
+// Where a contrast is routed. Mirrors RaceOpponentContrastRoutingSchema in
+// @goodparty_org/contracts (the read shape, which includes 'mail') vs the
+// narrower route target (story | texting only).
+export type ContrastRouting = 'story' | 'texting' | 'mail'
+export type ContrastRouteTarget = 'story' | 'texting'
+export type ContrastStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'cleared'
+  | 'blocked'
+  | 'approved'
+  | 'used'
+  | 'discarded'
+
+// Wire shape of a contrast. Mirrors RaceOpponentContrastSchema in
+// @goodparty_org/contracts, but date leaves arrive over JSON as ISO strings
+// (the contract coerces them to Date). All six content fields are non-empty;
+// the UI additionally guards that every field is present before rendering.
+export type ContrastRecord = {
+  id: number
+  opponentFact: string
+  sourceUrl: string
+  candidateFact: string
+  contrastSentence: string
+  issueTag: string
+  routing: ContrastRouting
+  status: ContrastStatus
+  editCount: number
+  findingId: number | null
+  routedWebsiteId: number | null
+  routedOutreachId: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type ListContrastsResponse = {
+  contrasts: ContrastRecord[]
+}
+
+export type GenerateContrastsResponse = {
+  contrasts: ContrastRecord[]
+  routedToReviewCount: number
+}
+
+export type ContrastResponse = {
+  contrast: ContrastRecord
+}
+
+// The route endpoint returns one of two channel-specific shapes: a story route
+// carries routedWebsiteId, a texting route carries routedOutreachId.
+export type RouteContrastResponse =
+  | { contrast: ContrastRecord; routedWebsiteId: number }
+  | { contrast: ContrastRecord; routedOutreachId: number }
 
 export type CommunityIssueCard = {
   id: string
@@ -722,7 +1097,12 @@ export type CommunityIssueCard = {
 export type CommunityIssueSource = {
   id: string
   name: string
-  source_type: 'news' | 'government_website' | 'research' | 'poll'
+  source_type:
+    | 'news'
+    | 'government_website'
+    | 'research'
+    | 'poll'
+    | 'advocacy_org'
   url?: string | null
   publisher?: string | null
   article_type?: string | null

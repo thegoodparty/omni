@@ -5,6 +5,7 @@ import { ElectionsModule } from '@/elections/elections.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
+import { WebsitesModule } from '@/websites/websites.module'
 import { CampaignStrategyController } from './campaignStrategy.controller'
 import { CampaignStrategyService } from './services/campaignStrategy.service'
 import { CommunityEventsPersister } from './services/communityEvents.persister'
@@ -21,6 +22,7 @@ import { StrategicLandscapePersister } from './services/strategicLandscape.persi
     AgentExperimentsModule,
     AwsModule,
     CampaignStoryModule,
+    WebsitesModule,
   ],
   controllers: [CampaignStrategyController],
   providers: [

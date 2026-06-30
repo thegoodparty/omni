@@ -123,8 +123,8 @@ describe('VoterOutreachActivityService', () => {
     const result = await activities.getActivityForVoter(campaignId, 'LAL-match')
 
     expect(result).toHaveLength(1)
-    expect(result[0].campaignId).toBe(campaignId)
-    expect(result[0].lalVoterId).toBe('LAL-match')
+    expect(result[0]?.campaignId).toBe(campaignId)
+    expect(result[0]?.lalVoterId).toBe('LAL-match')
   })
 
   it('bounds the page with take and pages forward with the id cursor', async () => {
@@ -157,7 +157,7 @@ describe('VoterOutreachActivityService', () => {
       campaignId,
       'LAL-page',
       2,
-      String(firstTwo[1].id),
+      String(firstTwo[1]?.id),
     )
     expect(afterSecond.map((a) => a.occurredAt)).toEqual([
       new Date('2026-01-01T00:00:00.000Z'),

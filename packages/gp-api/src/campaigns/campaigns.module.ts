@@ -2,6 +2,7 @@ import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
+import { CronModule } from '@/cron/cron.module'
 import { forwardRef, Global, Module } from '@nestjs/common'
 import { AwsModule } from 'src/vendors/aws/aws.module'
 import { ElectionsModule } from 'src/elections/elections.module'
@@ -29,6 +30,9 @@ import { CrmCampaignsService } from './services/crmCampaigns.service'
 import { EligibilityService } from './services/eligibility.service'
 import { CampaignTasksController } from './tasks/campaignTasks.controller'
 import { CampaignTasksService } from './tasks/services/campaignTasks.service'
+import { CampaignTrackerController } from './campaignTracker/campaignTracker.controller'
+import { CampaignTrackerTasksService } from './campaignTracker/services/campaignTrackerTasks.service'
+import { CampaignTrackerDispatchService } from './campaignTracker/services/campaignTrackerDispatch.service'
 import { AiGenerationService } from './tasks/services/aiGeneration.service'
 import { CampaignTcrComplianceController } from './tcrCompliance/campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './tcrCompliance/services/campaignTcrCompliance.service'
@@ -64,12 +68,14 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     SlackModule,
     AgentExperimentsModule,
     ElectedOfficeModule,
+    CronModule,
   ],
   controllers: [
     CampaignsController,
     CampaignPositionsController,
     CampaignUpdateHistoryController,
     CampaignTasksController,
+    CampaignTrackerController,
     CampaignTcrComplianceController,
     PublicCampaignsController,
     EligibilityController,
@@ -82,6 +88,8 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CampaignUpdateHistoryService,
     CrmCampaignsService,
     CampaignTasksService,
+    CampaignTrackerTasksService,
+    CampaignTrackerDispatchService,
     AiGenerationService,
     CampaignTcrComplianceService,
     ComplianceStateService,
@@ -96,6 +104,7 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     CrmCampaignsService,
     CampaignTcrComplianceService,
     CampaignTasksService,
+    CampaignTrackerTasksService,
     AiGenerationService,
     WeeklyTasksDigestHandlerService,
     EligibilityService,

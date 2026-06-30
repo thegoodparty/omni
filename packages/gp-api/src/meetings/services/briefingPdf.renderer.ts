@@ -446,8 +446,7 @@ function drawTocPage(
   }
 
   let truncatedAt: number | null = null
-  for (let i = 0; i < featured.length; i++) {
-    const item = featured[i]
+  for (const [i, item] of featured.entries()) {
     const ok = drawRow(
       `${i + 1}. ${item.title}`,
       String(pageNumbers.featured[i] ?? ''),

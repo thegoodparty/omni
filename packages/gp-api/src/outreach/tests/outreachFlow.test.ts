@@ -25,6 +25,7 @@ import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, OutreachType } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 
 // Mirror the production env gate. Tests don't set OTEL_SERVICE_ENVIRONMENT so
 // this resolves to botDev; only the prod deploy resolves to botPolitics.
@@ -179,7 +180,7 @@ interface SuccessOutcomeOpts {
 async function assertSuccessfulOutreach(opts: SuccessOutcomeOpts) {
   // Exactly one Slack message, on the right channel, with the success template.
   expect(slackMessage).toHaveBeenCalledTimes(1)
-  const [blocks, channel] = slackMessage.mock.calls[0]
+  const [blocks, channel] = firstOrThrow(slackMessage.mock.calls)
   expect(channel).toBe(EXPECTED_CHANNEL)
 
   const blob = JSON.stringify(blocks)
@@ -195,9 +196,9 @@ async function assertSuccessfulOutreach(opts: SuccessOutcomeOpts) {
     where: { campaignId: campaign.id },
   })
   expect(outreachRows.length).toBe(1)
-  expect(outreachRows[0].outreachType).toBe(opts.outreachType)
+  expect(outreachRows[0]?.outreachType).toBe(opts.outreachType)
   if (opts.outreachType === OutreachType.p2p) {
-    expect(outreachRows[0].projectId).toBeTruthy()
+    expect(outreachRows[0]?.projectId).toBeTruthy()
   }
 
   // textCampaignCount incremented.
@@ -221,7 +222,7 @@ interface FailureOutcomeOpts {
 async function assertFailedOutreach(opts: FailureOutcomeOpts) {
   // Exactly one Slack message, on the same channel, with the FAILURE template.
   expect(slackMessage).toHaveBeenCalledTimes(1)
-  const [blocks, channel] = slackMessage.mock.calls[0]
+  const [blocks, channel] = firstOrThrow(slackMessage.mock.calls)
   expect(channel).toBe(EXPECTED_CHANNEL)
 
   const blob = JSON.stringify(blocks)

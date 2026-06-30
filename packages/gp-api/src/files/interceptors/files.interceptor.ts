@@ -166,6 +166,7 @@ export function setNestedProperty(
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i]
     const nextKey = keys[i + 1]
+    if (key === undefined || nextKey === undefined) continue
 
     const isNextKeyNumeric = !isNaN(Number(nextKey))
 
@@ -184,5 +185,8 @@ export function setNestedProperty(
     current = current[key] as Prisma.JsonObject
   }
 
-  current[keys[keys.length - 1]] = value
+  const lastKey = keys[keys.length - 1]
+  if (lastKey !== undefined) {
+    current[lastKey] = value
+  }
 }

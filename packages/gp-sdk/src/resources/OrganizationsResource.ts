@@ -1,6 +1,6 @@
 import type {
+  AdminOrganization,
   ListOrganizationsOptions,
-  Organization,
   OrganizationListItem,
   PatchOrganizationInput,
 } from '../types/organization'
@@ -9,8 +9,8 @@ import { BaseResource } from './BaseResource'
 export class OrganizationsResource extends BaseResource {
   protected readonly resourceBasePath = '/organizations'
 
-  get = (slug: string): Promise<Organization> =>
-    this.getRequest<Organization>(`${this.resourceBasePath}/admin/${slug}`)
+  get = (slug: string): Promise<AdminOrganization> =>
+    this.getRequest<AdminOrganization>(`${this.resourceBasePath}/admin/${slug}`)
 
   list = (
     options?: ListOrganizationsOptions,
@@ -23,8 +23,8 @@ export class OrganizationsResource extends BaseResource {
   patch = (
     slug: string,
     input: PatchOrganizationInput,
-  ): Promise<Organization> =>
-    this.patchRequest<Organization>(
+  ): Promise<AdminOrganization> =>
+    this.patchRequest<AdminOrganization>(
       `${this.resourceBasePath}/admin/${slug}`,
       input,
     )
