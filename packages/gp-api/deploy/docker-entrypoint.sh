@@ -2,8 +2,8 @@
 set -e
 
 # When invoked with a command (e.g. an ECS containerOverrides.command for the
-# preview DB-maintenance tasks: refresh-preview-template, drop-preview-db,
-# drop-orphaned-preview-dbs), exec it directly and skip the app-start flow.
+# preview DB-maintenance tasks: drop-preview-db, drop-orphaned-preview-dbs),
+# exec it directly and skip the app-start flow.
 # ENTRYPOINT is exec-form with no CMD and the service task definition sets no
 # command, so normal startup (no args) is unaffected. Must run before the env
 # guards below — those tasks intentionally do not set DB_NAME / VOTER_DB_*.
@@ -38,15 +38,11 @@ export DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@$DB_HOST:5432/$DB_NAME?c
 # voterDatabase.service.ts rather than on this URL.
 export VOTER_DATASTORE="postgresql://$VOTER_DB_USER:$VOTER_DB_PASSWORD@$VOTER_DB_HOST:5432/$VOTER_DB_NAME"
 
-# Per-PR preview: create the database if it does not already exist.
-# Must run before prisma migrate deploy because $DB_NAME may not exist yet on the
-# shared Aurora cluster. Connects to the maintenance "postgres" db (which always
-# exists) and issues CREATE DATABASE only when pg_database has no matching row.
-# Clones gpdb_preview_template (a persistent migrated + seeded database kept current
-# by gp-api-refresh-preview-template.yml), so the per-PR DB is ready in seconds and
-# skips migrate-from-scratch + seed. The retry loop also covers the brief window
-# where a concurrent template refresh has transiently dropped the template or holds
-# a connection to it (see deploy/CLAUDE.md "Template database").
+# Per-PR preview: create the database (empty) if it does not already exist.
+# Must run before prisma migrate deploy because $DB_NAME may not exist yet on
+# the shared Aurora cluster. Connects to the maintenance "postgres" db (which
+# always exists) and issues CREATE DATABASE only when pg_database has no
+# matching row; migrate deploy + seed below populate it.
 # CREATE DATABASE cannot run inside a transaction, so this uses a plain client
 # connection rather than a transaction block.
 # The pg package is a direct (non-dev) dependency, so it is present in --omit=dev
@@ -79,8 +75,7 @@ if [ "$IS_PREVIEW" = "true" ]; then
             return;
           }
           return client.query(
-            'CREATE DATABASE \"' + process.env.DB_NAME +
-              '\" TEMPLATE gpdb_preview_template'
+            'CREATE DATABASE \"' + process.env.DB_NAME + '\"'
           ).then(() => console.log('Database created.'));
         })
         .then(() => client.end().catch(() => {}))
@@ -154,9 +149,14 @@ case "$CLERK_SECRET_KEY" in
     ;;
 esac
 
-# Preview seed data is inherited from the gpdb_preview_template clone above, so
-# the per-PR DB is not re-seeded here (re-running seed/seed.ts against the clone
-# would conflict on already-seeded unique rows — see deploy/CLAUDE.md).
+if [ "$IS_PREVIEW" = "true" ]; then
+  echo "Preview environment detected. Running seed..."
+  if npx tsx seed/seed.ts; then
+    echo "Seed completed successfully."
+  else
+    echo "WARNING: Seed failed with exit code $?. Continuing with app startup..."
+  fi
+fi
 
 # For preview environments, start app in background, sync content, then wait
 if [ "$IS_PREVIEW" = "true" ]; then

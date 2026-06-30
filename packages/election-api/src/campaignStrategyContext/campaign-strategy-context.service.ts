@@ -319,7 +319,7 @@ export class CampaignStrategyContextService extends createPrismaBase(MODELS.Race
     normalizedPositionName: string | null | undefined,
   ): string | null {
     if (positionNames && positionNames.length > 0) {
-      return positionNames[0]
+      return positionNames[0] ?? null
     }
     return normalizedPositionName ?? null
   }

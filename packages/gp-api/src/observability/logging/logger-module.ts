@@ -3,7 +3,7 @@ import { LoggerModule } from 'nestjs-pino'
 import pino from 'pino'
 import jwt from 'jsonwebtoken'
 import { IncomingMessage } from 'http'
-import { redactLine } from './log-redaction'
+import { redactLine } from '@goodparty_org/nest-common'
 
 const determineUserId = (req: IncomingMessage): string | undefined => {
   if (!req.headers.authorization) {

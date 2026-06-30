@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { RaceOpponentContrastStatusSchema } from '../generated/enums'
 
 // `routing` is a free String column in Prisma, not a Prisma enum, so it is
@@ -34,7 +35,7 @@ export const RaceOpponentContrastSchema = z.object({
   findingId: z.number().nullable(),
   routedStoryId: z.number().nullable(),
   routedOutreachId: z.number().nullable(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
 })
 export type RaceOpponentContrast = z.infer<typeof RaceOpponentContrastSchema>

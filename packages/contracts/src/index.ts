@@ -79,6 +79,7 @@ export {
   type PaginatedList,
 } from "./shared/Pagination.schema";
 export { makeOptional } from "./shared/zod.util";
+export { zCoerceDate, zDate } from "./shared/Date.schema";
 
 export {
   WHY_BROWSING_VALUES,

@@ -1,17 +1,21 @@
 'use server'
 
 import { auth } from '@clerk/nextjs/server'
-import type { Organization } from '@goodparty_org/sdk'
+import type { AdminOrganization } from '@goodparty_org/sdk'
 import { PERMISSIONS } from '@/lib/permissions'
 import { gpAction } from '@/shared/util/gpClient.util'
 
-export type { Organization, OrgDistrict, OrgPosition } from '@goodparty_org/sdk'
+export type {
+  AdminOrganization,
+  OrgDistrict,
+  OrgPosition,
+} from '@goodparty_org/sdk'
 
 // Org records are campaign-domain data with no dedicated permission, so this
 // read reuses read_campaigns.
 export async function getOrganization(
   slug: string
-): Promise<Organization | null> {
+): Promise<AdminOrganization | null> {
   const { has } = await auth()
   if (!has?.({ permission: PERMISSIONS.READ_CAMPAIGNS })) {
     throw new Error('Missing read_campaigns permission')

@@ -48,6 +48,7 @@ jobs:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:gp-api
           route-types: "true"
 
@@ -83,6 +84,7 @@ jobs:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:gp-api
           route-types: "true"
 
@@ -120,6 +122,7 @@ jobs:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:gp-api
           route-types: "true"
 
@@ -216,6 +219,7 @@ jobs:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
           build-contracts: "true"
+          build-nest-common: "true"
           prisma-generate-script: generate:prisma:gp-api
           route-types: "true"
 

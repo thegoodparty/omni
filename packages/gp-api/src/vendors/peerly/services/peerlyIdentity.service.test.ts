@@ -710,6 +710,108 @@ describe('PeerlyIdentityService', () => {
         expect.anything(),
       )
     })
+
+    it('still approves and finalizes when getIdentityProfile 404s (orphaned identity)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      // getProfile 404s (orphaned identity); the method swallows it and falls
+      // through to approve + finalize rather than attempting /submit.
+      const getSpy = vi
+        .fn()
+        .mockRejectedValueOnce({
+          isAxiosError: true,
+          status: 404,
+          config: { url: '/identities/peerly-final/getProfile', method: 'get' },
+          response: { data: {} },
+        })
+        .mockResolvedValue({ data: {} })
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
+
+      expect(postSpy).toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
+      expect(postSpy).not.toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/submit',
+        expect.anything(),
+      )
+    })
+
+    it('approves directly (skips profile fetch, /submit, /finalize) when peerlyIdentityId is missing', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi.fn()
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(
+        { ...tcr, peerlyIdentityId: null } as TcrCompliance,
+        'cv-token-1',
+      )
+
+      // no identity → /approve only; no profile fetch, /submit, or /finalize
+      expect(postSpy).toHaveBeenCalledWith(
+        '/v2/tdlc/null/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
+      expect(getSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/finalize'),
+      )
+      expect(postSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/submit'),
+        expect.anything(),
+      )
+    })
+
+    it('does not fail the operation when /finalize errors (best-effort)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi
+        .fn()
+        .mockResolvedValueOnce({ data: { profile: { status: 'pending' } } })
+        .mockRejectedValueOnce({
+          isAxiosError: true,
+          status: 502,
+          config: { url: '/v2/tdlc/peerly-final/finalize', method: 'get' },
+          response: { data: {} },
+        })
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+      // handleApiError throws in prod; finalizeBrand must swallow it so a
+      // transient /finalize failure after a successful /approve does not fail
+      // the whole operation.
+      vi.mocked(errorHandling.handleApiError).mockRejectedValue(
+        new Error('boom'),
+      )
+
+      await expect(
+        service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1'),
+      ).resolves.toBeDefined()
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
+    })
   })
 
   describe('retrieveCampaignVerifyStatus', () => {
