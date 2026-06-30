@@ -39,7 +39,7 @@ export default function YourDetailsCard({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
   })
-  const serverBio = website?.content?.about?.content || ''
+  const serverBio = website?.content?.about?.bio || ''
   // Party is stored on the elected office for officeholders and on the campaign
   // for candidates — the two records are independent, so neither path assumes
   // the other exists.
@@ -87,10 +87,13 @@ export default function YourDetailsCard({
         data={data}
         isElectedOffice={isElectedOffice}
         electedOfficeId={electedOffice?.id}
-        onSaved={(next) => {
-          setDirty(true)
-          setData(next)
-        }}
+            onSaved={(next) => {
+              // onSaved fires only after the write succeeded and queries were
+              // invalidated, so the dirty guard's job (blocking an in-flight
+              // refetch) is done — clear it so server normalization can show.
+              setData(next)
+              setDirty(false)
+            }}
       />
     </Card>
   )

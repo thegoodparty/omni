@@ -25,7 +25,7 @@ const Page = async (): Promise<React.JSX.Element> => {
   }
 
   const campaign = await fetchUserCampaign()
-  const { subscriptionCancelAt } = campaign?.details || {}
+  const { subscriptionCancelAt, subscriptionId } = campaign?.details || {}
 
   return (
     <AccountProfilePage
@@ -33,6 +33,7 @@ const Page = async (): Promise<React.JSX.Element> => {
       campaign={campaign}
       isPro={Boolean(campaign?.isPro)}
       subscriptionCancelAt={subscriptionCancelAt}
+      subscriptionId={subscriptionId}
     />
   )
 }

@@ -5,10 +5,10 @@ import DashboardPageHeader from 'app/dashboard/shared/DashboardPageHeader'
 import ProfileHeroCard from './cards/ProfileHeroCard'
 import OfficeDetailsCard from './cards/OfficeDetailsCard'
 import YourDetailsCard from './cards/YourDetailsCard'
-import MotivationCard from './cards/MotivationCard'
+import { WebsiteSunsetBanner } from 'app/dashboard/shared/WebsiteSunsetBanner'
+import { isWebsiteSunsetEligible } from 'app/dashboard/shared/websiteSunset'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useUser } from '@shared/hooks/useUser'
-import { useOrganization } from '@shared/organization-picker'
 import { useQuery } from '@tanstack/react-query'
 import {
   getUserWebsite,
@@ -29,8 +29,6 @@ export default function DetailsPage(
 ): React.JSX.Element {
   const [campaign] = useCampaign()
   const [user] = useUser()
-  const organization = useOrganization()
-  const isElectedOffice = !!organization?.electedOfficeId
 
   const { data: website } = useQuery<Website | null>({
     queryKey: USER_WEBSITE_QUERY_KEY,
@@ -66,14 +64,15 @@ export default function DetailsPage(
 
       <div className="w-full bg-muted px-4 py-6 pb-20 sm:px-8 md:px-16">
         <div className="mx-auto flex w-full max-w-[640px] flex-col gap-4">
+          <WebsiteSunsetBanner
+            eligible={isWebsiteSunsetEligible(website ?? null)}
+          />
+
           <ProfileHeroCard user={activeUser} />
 
           <OfficeDetailsCard campaign={activeCampaign} />
 
           <YourDetailsCard campaign={activeCampaign} />
-
-          {/* Motivation for running is candidate-only. */}
-          {!isElectedOffice && <MotivationCard />}
         </div>
       </div>
     </DashboardLayout>

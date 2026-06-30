@@ -28,6 +28,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { electedOfficeQueryOptions } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
 import { isValidUrl } from 'helpers/linkhelper'
+import { useSnackbar } from 'helpers/useSnackbar'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 
 export interface AboutMeData {
@@ -67,6 +68,7 @@ export default function AboutMeDialog({
 }: AboutMeDialogProps): React.JSX.Element {
   const queryClient = useQueryClient()
   const organization = useOrganization()
+  const { errorSnackbar } = useSnackbar()
   const [form, setForm] = useState<AboutMeData>(data)
   const [saving, setSaving] = useState(false)
 
@@ -82,34 +84,48 @@ export default function AboutMeDialog({
     if (!canSave || saving) return
     trackEvent(EVENTS.Profile.CampaignDetails.ClickSave)
     setSaving(true)
-    // Bio always lives on the website's "about" content. Party is stored on the
-    // elected office for officeholders (with occupation/website omitted) and on
-    // the campaign for candidates — each path writes only to the record it owns.
-    if (isElectedOffice) {
-      await Promise.all([
-        electedOfficeId
-          ? clientRequest('PUT /v1/elected-office/:id', {
-              id: electedOfficeId,
-              party: form.party || null,
-            })
-          : Promise.resolve(),
-        saveAboutFields({ content: form.bio }),
-      ])
-      await queryClient.invalidateQueries({
-        queryKey: electedOfficeQueryOptions(organization?.slug).queryKey,
-      })
-    } else {
-      await Promise.all([
-        updateCampaign([
-          { key: 'details.party', value: form.party },
-          { key: 'details.occupation', value: form.occupation },
-          { key: 'details.website', value: form.website },
-        ]),
-        saveAboutFields({ content: form.bio }),
-      ])
+    // Bio lives on the website's "about.bio" — the same field the website
+    // builder and the public profile render. Party is stored on the elected
+    // office for officeholders (with occupation/website omitted) and on the
+    // campaign for candidates — each path writes only to the record it owns.
+    let ok = false
+    try {
+      if (isElectedOffice) {
+        const [officeRes, bioOk] = await Promise.all([
+          electedOfficeId
+            ? clientRequest('PUT /v1/elected-office/:id', {
+                id: electedOfficeId,
+                party: form.party || null,
+              })
+            : Promise.resolve({ ok: true }),
+          saveAboutFields({ bio: form.bio }),
+        ])
+        ok = officeRes.ok && bioOk
+        await queryClient.invalidateQueries({
+          queryKey: electedOfficeQueryOptions(organization?.slug).queryKey,
+        })
+      } else {
+        const [campaignRes, bioOk] = await Promise.all([
+          updateCampaign([
+            { key: 'details.party', value: form.party },
+            { key: 'details.occupation', value: form.occupation },
+            { key: 'details.website', value: form.website },
+          ]),
+          saveAboutFields({ bio: form.bio }),
+        ])
+        ok = campaignRes !== false && bioOk
+      }
+      await queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    } catch {
+      ok = false
     }
-    await queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
     setSaving(false)
+    if (!ok) {
+      // Keep the dialog open so the user can retry; don't show stale saved
+      // values as if the write succeeded.
+      errorSnackbar('Something went wrong saving your details. Please try again.')
+      return
+    }
     onSaved(form)
     onOpenChange(false)
   }

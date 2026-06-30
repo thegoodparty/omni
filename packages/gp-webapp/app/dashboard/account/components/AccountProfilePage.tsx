@@ -15,6 +15,7 @@ interface AccountProfilePageProps {
   campaign: Campaign | null
   isPro?: boolean
   subscriptionCancelAt?: number | null
+  subscriptionId?: string | null
 }
 
 const AccountProfilePage = ({
@@ -22,6 +23,7 @@ const AccountProfilePage = ({
   campaign,
   isPro = false,
   subscriptionCancelAt,
+  subscriptionId,
 }: AccountProfilePageProps): React.JSX.Element => {
   const organization = useOrganization()
   const isElectedOffice = !!organization?.electedOfficeId
@@ -43,6 +45,7 @@ const AccountProfilePage = ({
               isPro={isPro}
               isElectedOffice={isElectedOffice}
               subscriptionCancelAt={subscriptionCancelAt}
+              subscriptionId={subscriptionId}
             />
           )}
 

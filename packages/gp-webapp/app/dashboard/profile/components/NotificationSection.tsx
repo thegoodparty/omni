@@ -150,7 +150,9 @@ const NotificationSection = ({
     // so block disabling the last one and confirm disabling the other.
     const otherKey: CampaignChannel =
       key === 'notificationEmails' ? 'textNotifications' : 'notificationEmails'
-    if (!state[otherKey]) {
+    // A missing key means the channel renders as off (matches the switch's
+    // `?? false` default), so treat it the same here.
+    if (!(state[otherKey] ?? false)) {
       setBlockedOpen(true)
     } else {
       setPendingToggle(key)

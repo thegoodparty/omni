@@ -45,6 +45,14 @@ vi.mock('helpers/analyticsHelper', async (importActual) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({
+    errorSnackbar: vi.fn(),
+    successSnackbar: vi.fn(),
+    infoSnackbar: vi.fn(),
+  }),
+}))
+
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import {
   getUserWebsite,
@@ -63,7 +71,7 @@ const campaign = (
   }) as unknown as Campaign
 
 const websiteWithBio = (bio: string): Website =>
-  ({ content: { about: { content: bio } } }) as unknown as Website
+  ({ content: { about: { bio } } }) as unknown as Website
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -125,7 +133,7 @@ describe('YourDetailsCard — candidate (campaign) mode', () => {
       { key: 'details.occupation', value: 'Engineer' },
       { key: 'details.website', value: 'https://example.com' },
     ])
-    expect(saveAboutFields).toHaveBeenCalledWith({ content: 'Original bio' })
+    expect(saveAboutFields).toHaveBeenCalledWith({ bio: 'Original bio' })
 
     // Independence: the elected-office endpoint is never called in campaign mode.
     expect(clientRequest).not.toHaveBeenCalled()
@@ -182,7 +190,7 @@ describe('YourDetailsCard — elected official mode', () => {
         party: 'Forward Party',
       }),
     )
-    expect(saveAboutFields).toHaveBeenCalledWith({ content: 'Updated EO bio' })
+    expect(saveAboutFields).toHaveBeenCalledWith({ bio: 'Updated EO bio' })
 
     // Independence: the campaign update endpoint is never called in EO mode.
     expect(updateCampaign).not.toHaveBeenCalled()

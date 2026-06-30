@@ -11,6 +11,7 @@ interface AccountInformationCardProps {
   isPro: boolean
   isElectedOffice: boolean
   subscriptionCancelAt?: number | null
+  subscriptionId?: string | null
 }
 
 const formatJoined = (createdAt?: Date | string): string => {
@@ -25,6 +26,7 @@ export const AccountInformationCard = ({
   isPro,
   isElectedOffice,
   subscriptionCancelAt,
+  subscriptionId,
 }: AccountInformationCardProps): React.JSX.Element => {
   const userType = isElectedOffice ? 'Elected official' : 'Candidate'
   const planLabel = isPro
@@ -40,6 +42,7 @@ export const AccountInformationCard = ({
         <AccountSettingsButton
           isPro={isPro}
           isElectedOffice={isElectedOffice}
+          subscriptionId={subscriptionId}
         />
       </div>
 

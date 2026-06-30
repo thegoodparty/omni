@@ -56,7 +56,7 @@ describe('NotificationSection — saving preferences', () => {
     render(<NotificationSection showCampaignChannels={false} />)
 
     // EO order: [Marketing emails, Weekly newsletter].
-    const [marketing] = screen.getAllByRole('switch')
+    const marketing = screen.getAllByRole('switch')[0]!
     await user.click(marketing)
 
     await waitFor(() => expect(clientFetch).toHaveBeenCalledTimes(1))
@@ -77,7 +77,7 @@ describe('NotificationSection — campaign channel guard rails', () => {
     render(<NotificationSection showCampaignChannels />)
 
     // Campaign order: [Campaign emails, Campaign texts, Marketing, Newsletter].
-    const [campaignEmails] = screen.getAllByRole('switch')
+    const campaignEmails = screen.getAllByRole('switch')[0]!
     await user.click(campaignEmails)
 
     expect(
@@ -104,7 +104,7 @@ describe('NotificationSection — campaign channel guard rails', () => {
     const user = userEvent.setup()
     render(<NotificationSection showCampaignChannels />)
 
-    const [campaignEmails] = screen.getAllByRole('switch')
+    const campaignEmails = screen.getAllByRole('switch')[0]!
     await user.click(campaignEmails)
 
     expect(
