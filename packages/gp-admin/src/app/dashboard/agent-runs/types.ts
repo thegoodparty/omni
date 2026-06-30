@@ -22,16 +22,17 @@ export type SearchParamUpdates = Partial<
   Record<SearchParamKey, string | undefined>
 >
 
-// QUEUED / RUNNING / AWAITING_RESUME / COMPLETED / FAILED — `satisfies`
-// validates each literal against the SDK union so a typo fails to compile. The
-// SDK re-exports the type but not the values array, so this is the local source
-// for the status filter options.
+// QUEUED / RUNNING / AWAITING_RESUME / COMPLETED / FAILED / SUPERSEDED —
+// `satisfies` validates each literal against the SDK union so a typo fails to
+// compile. The SDK re-exports the type but not the values array, so this is the
+// local source for the status filter options.
 export const AGENT_RUN_STATUSES = [
   'QUEUED',
   'RUNNING',
   'AWAITING_RESUME',
   'COMPLETED',
   'FAILED',
+  'SUPERSEDED',
 ] as const satisfies readonly ExperimentRunStatus[]
 
 export function isAgentRunStatus(value: string): value is ExperimentRunStatus {
@@ -49,7 +50,19 @@ export const STATUS_BADGE_COLORS: Record<
   AWAITING_RESUME: 'amber',
   COMPLETED: 'green',
   FAILED: 'red',
+  // A resumed run's predecessor (e.g. compliance_setup that bought the domain +
+  // published the site, then handed off to a successor while DNS propagates).
+  // It is a successful hand-off, not a failure, so it reads green.
+  SUPERSEDED: 'green',
 }
+
+// Most statuses display their raw enum value; SUPERSEDED is relabelled so staff
+// read the benign hand-off as "Part 1 completed" rather than a scary internal
+// term. Partial: anything absent falls back to the raw status in the badge.
+export const STATUS_BADGE_LABELS: Partial<Record<ExperimentRunStatus, string>> =
+  {
+    SUPERSEDED: 'Part 1 completed',
+  }
 
 export interface SearchAgentRunsParams {
   [SEARCH_PARAMS.EXPERIMENT_TYPE]?: string

@@ -12,6 +12,7 @@ import {
 } from '@radix-ui/themes'
 import {
   STATUS_BADGE_COLORS,
+  STATUS_BADGE_LABELS,
   formatCost,
   formatDuration,
   formatTimestamp,
@@ -86,7 +87,7 @@ export function AgentRunDetailView() {
             <DataList.Label>Status</DataList.Label>
             <DataList.Value>
               <Badge color={STATUS_BADGE_COLORS[run.status]}>
-                {run.status}
+                {STATUS_BADGE_LABELS[run.status] ?? run.status}
               </Badge>
             </DataList.Value>
           </DataList.Item>

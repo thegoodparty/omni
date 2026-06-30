@@ -812,6 +812,27 @@ describe('PeerlyIdentityService', () => {
       ).resolves.toBeDefined()
       expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
     })
+
+    it('refuses to approve (and never finalizes) with an empty CV token', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi.fn().mockResolvedValue({ data: { profile: {} } })
+      httpService.get = getSpy
+      const postSpy = vi.fn()
+      httpService.post = postSpy
+
+      await expect(service.approve10DLCBrand(tcr, '')).rejects.toThrow(
+        BadRequestException,
+      )
+      // No /approve call reached Peerly, so no token-less finalization.
+      expect(postSpy).not.toHaveBeenCalled()
+      expect(getSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/finalize'),
+      )
+    })
   })
 
   describe('retrieveCampaignVerifyStatus', () => {

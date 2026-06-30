@@ -14,6 +14,7 @@ const makeService = () => {
   const experimentRuns = { findFirst: vi.fn().mockResolvedValue(null) }
   const trackerTasks = {
     dispatchGeneration: vi.fn().mockResolvedValue(undefined),
+    removeOutreachTasks: vi.fn().mockResolvedValue(0),
   }
   const service = new CampaignTrackerDispatchService(
     cronLock as never,
@@ -80,6 +81,15 @@ describe('CampaignTrackerDispatchService.dispatchWeeklyRegen', () => {
     expect(firstOrThrow(h.trackerTasks.dispatchGeneration.mock.calls)[1]).toBe(
       'weekly',
     )
+  })
+
+  it('removes outreach and skips generation when the primary was lost', async () => {
+    h.prisma.campaign.findMany.mockResolvedValueOnce([
+      campaign({ primaryResult: 'lost' }),
+    ])
+    await h.service.dispatchWeeklyRegen()
+    expect(h.trackerTasks.removeOutreachTasks).toHaveBeenCalledWith(7)
+    expect(h.trackerTasks.dispatchGeneration).not.toHaveBeenCalled()
   })
 
   it('skips a campaign whose election has already passed', async () => {

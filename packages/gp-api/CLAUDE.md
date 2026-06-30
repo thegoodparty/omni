@@ -114,6 +114,7 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Voter file / L2 lookups           | `src/voters/CLAUDE.md`                      |
 | Stripe payments / pro upgrades    | `src/payments/CLAUDE.md`                    |
 | Campaign websites / domains       | `src/websites/CLAUDE.md`                    |
+| Opposition research (Know Your Opponent) | `src/raceOpponent/CLAUDE.md`         |
 | SQS producer/consumer / async     | `src/queue/CLAUDE.md`                       |
 | Auth, JWT, Clerk M2M, roles       | `src/authentication/CLAUDE.md`              |
 | Agent experiments                 | `src/agentExperiments/CLAUDE.md`            |

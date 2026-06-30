@@ -49,6 +49,8 @@ import { ComplianceStateService } from './complianceState.service'
 import { SubmitToPeerlyDto } from '../schemas/submitToPeerlyDto.schema'
 import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
 import { ComplianceStage, SubmitToPeerlyOutput } from '@goodparty_org/contracts'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
@@ -101,6 +103,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private readonly complianceStateService: ComplianceStateService,
     private queueService: QueueProducerService,
     private readonly experimentRunsService: ExperimentRunsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -472,6 +475,26 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
     const peerlyIdentityId = tcrComplianceIdentity.identity_id
+
+    // Push the Peerly identity id onto the campaign's HubSpot company (via
+    // Segment) so Campaign Success can match Peerly's 10DLC Slack
+    // notifications, which carry only this id, to the right company record.
+    // Only when we just created the identity — an existing-identity pass
+    // (idempotent retry or account-level reuse) already emitted this, so
+    // re-firing would duplicate the event for the same id. companyHubspotId is
+    // where Campaign Success wants peerly_identity_id to land; the contact id
+    // already rides along in the event's context traits. Omitted when the
+    // company record isn't known yet.
+    if (!existingIdentity) {
+      void this.analytics
+        .track(user.id, EVENTS.Outreach.PeerlyIdentityIdCreated, {
+          peerly_identity_id: peerlyIdentityId,
+          ...(campaign.data.hubspotId
+            ? { company_hubspot_id: campaign.data.hubspotId }
+            : {}),
+        })
+        .catch(() => undefined)
+    }
 
     let existingIdentityProfileResponse: PeerlyIdentityProfileResponseBody | null =
       null
@@ -1096,10 +1119,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         const existingRun = await this.experimentRunsService.findUnique({
           where: { runId: current.agenticRunId },
         })
+        // QUEUED / RUNNING / AWAITING_RESUME / COMPLETED mean a live (or resume-
+        // pending) run already owns this record, so skip. SUPERSEDED falls
+        // through to the retake block below: agenticRunId is never repointed to
+        // the resume successor, so a SUPERSEDED predecessor whose successor later
+        // FAILED would otherwise strand the record forever — it stays
+        // re-dispatchable, exactly as FAILED is.
         if (
           existingRun &&
           (existingRun.status === ExperimentRunStatus.QUEUED ||
             existingRun.status === ExperimentRunStatus.RUNNING ||
+            existingRun.status === ExperimentRunStatus.AWAITING_RESUME ||
             existingRun.status === ExperimentRunStatus.COMPLETED)
         ) {
           this.logger.info(
@@ -1112,7 +1142,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           )
           return
         }
-        if (existingRun?.status === ExperimentRunStatus.FAILED) {
+        if (
+          existingRun?.status === ExperimentRunStatus.FAILED ||
+          existingRun?.status === ExperimentRunStatus.SUPERSEDED
+        ) {
           const retake = await this.model.updateMany({
             where: {
               id: tcrComplianceId,
@@ -1126,7 +1159,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           if (retake.count === 0) {
             this.logger.info(
               { tcrComplianceId },
-              '[TCR Compliance] Lost race to re-dispatch FAILED run; skipping',
+              '[TCR Compliance] Lost race to re-dispatch prior run; skipping',
             )
             return
           }
@@ -1304,13 +1337,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign: true,
       },
     })
-    const pinIsValid = await this.peerlyIdentityService.verifyCampaignVerifyPin(
-      peerlyIdentityId,
-      pin,
-      campaign,
-    )
-    if (!pinIsValid) {
-      throw new UnprocessableEntityException('Invalid PIN')
+    // A PIN can only be consumed once: verify_pin rejects an already-VERIFIED
+    // CV as an invalid PIN. If an earlier attempt verified the PIN but a
+    // downstream Peerly step threw (stranding the record at `submitted`),
+    // re-verifying would dead-end the retry with "Invalid PIN". When the CV is
+    // already VERIFIED the candidate has proven control, so skip the re-check
+    // and mint the token so the retry can finish the flow.
+    const cvStatus =
+      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+        peerlyIdentityId,
+        campaign,
+      )
+    if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+      const pinIsValid =
+        await this.peerlyIdentityService.verifyCampaignVerifyPin(
+          peerlyIdentityId,
+          pin,
+          campaign,
+        )
+      if (!pinIsValid) {
+        throw new UnprocessableEntityException('Invalid PIN')
+      }
     }
 
     return await this.peerlyIdentityService.createCampaignVerifyToken(

@@ -251,27 +251,26 @@ export type APIEndpoints = {
     Response: CampaignStory
   }
 
-  // Partial upsert — each Campaign Story field autosaves on blur, so any
-  // subset of why/background/issues may be sent.
-  // At least one field is required (the server's Zod schema rejects an empty
-  // body with 400) — encode that in the type so a call site can't send `{}`.
+  // Partial upsert of the story. Only `background` lives on the story now (the
+  // `why` and issues moved to the website, shared with Pro-upgrade); the
+  // server's Zod schema rejects an empty body with 400, so `background` is
+  // required here.
   'PUT /v1/campaigns/mine/story': {
-    Request:
-      | { why: string; background?: string; issues?: string }
-      | { why?: string; background: string; issues?: string }
-      | { why?: string; background?: string; issues: string }
+    Request: { background: string }
     Response: CampaignStory
   }
 
-  // AI-suggested rewrite of a Campaign Story field or a website issue's "Policy
+  // AI-suggested rewrite of a Campaign Story prompt or a website issue's "Policy
   // focus". The server pairs the submitted text with the candidate's name and a
   // section-specific prompt; `text` must be non-empty (the Zod schema rejects
   // blank input with 400).
   'POST /v1/campaigns/mine/story/rewrite': {
-    // why/background mirror the story shape; 'issue' rewrites a Policy focus
-    // (website issue description). The server's Zod enum is the runtime mirror.
+    // `why` (now the website bio) and `background` are the story prompts;
+    // `issue` rewrites a Policy focus (website issue description). `why` is no
+    // longer a CampaignStory key, so the set is listed explicitly. The server's
+    // Zod enum is the runtime mirror.
     Request: {
-      field: keyof CampaignStory | 'issue'
+      field: 'why' | 'background' | 'issue'
       text: string
       // Optional context for an `issue` rewrite: the policy title.
       title?: string
@@ -1058,7 +1057,7 @@ export type ContrastRecord = {
   status: ContrastStatus
   editCount: number
   findingId: number | null
-  routedStoryId: number | null
+  routedWebsiteId: number | null
   routedOutreachId: number | null
   createdAt: string
   updatedAt: string
@@ -1078,9 +1077,9 @@ export type ContrastResponse = {
 }
 
 // The route endpoint returns one of two channel-specific shapes: a story route
-// carries routedStoryId, a texting route carries routedOutreachId.
+// carries routedWebsiteId, a texting route carries routedOutreachId.
 export type RouteContrastResponse =
-  | { contrast: ContrastRecord; routedStoryId: number }
+  | { contrast: ContrastRecord; routedWebsiteId: number }
   | { contrast: ContrastRecord; routedOutreachId: number }
 
 export type CommunityIssueCard = {

@@ -91,34 +91,6 @@
     "channel": "general"
   },
   {
-    "id": "introduction-robocall",
-    "title": "Introduction Robocall",
-    "description": "Introduce yourself to voters with an automated call.",
-    "phase": "active",
-    "channel": "robocall"
-  },
-  {
-    "id": "introduction-text",
-    "title": "Introduction Text",
-    "description": "Introduce yourself to voters with a text.",
-    "phase": "active",
-    "channel": "text"
-  },
-  {
-    "id": "persuasion-robocall",
-    "title": "Persuasion Robocall",
-    "description": "Build trust and make your case for why voters should pick you, by automated call.",
-    "phase": "active",
-    "channel": "robocall"
-  },
-  {
-    "id": "persuasion-text",
-    "title": "Persuasion Text",
-    "description": "Build trust and make your case by text.",
-    "phase": "active",
-    "channel": "text"
-  },
-  {
     "id": "voter-registration-deadline",
     "title": "Voter Registration Deadline",
     "description": "Final day for voters to register for this election.",
@@ -152,27 +124,6 @@
     "description": "Remind your supporters that it is time to vote.",
     "phase": "gotv",
     "channel": "general"
-  },
-  {
-    "id": "early-voting-text",
-    "title": "Early Voting Text",
-    "description": "Encourage your supporters to vote early.",
-    "phase": "gotv",
-    "channel": "text"
-  },
-  {
-    "id": "election-day-reminder-robocall",
-    "title": "Election Day Reminder Robocall",
-    "description": "Get out the vote with an automated call on election (or primary) day.",
-    "phase": "gotv",
-    "channel": "robocall"
-  },
-  {
-    "id": "election-day-reminder-text",
-    "title": "Election Day Reminder Text",
-    "description": "Get out the vote with a text on election (or primary) day.",
-    "phase": "gotv",
-    "channel": "text"
   },
   {
     "id": "build-chase-list",

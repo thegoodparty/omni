@@ -10,8 +10,8 @@ overview: `docs/features/campaign-tracker-v3.md`.
 | File | Role |
 |------|------|
 | `services/campaignTrackerTasks.service.ts` | Core. Bootstrap (atomic claim + materialize + dispatch), dispatch params, artifact persistence (append), completion. |
-| `services/campaignTrackerDispatch.service.ts` | Sunday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort). |
-| `services/staticTrackerTasks.util.ts` | Builds the static catalog rows from `@goodparty_org/contracts` at bootstrap. |
+| `services/campaignTrackerDispatch.service.ts` | Thursday `@Cron` weekly re-generation (env-gated, CronLock dedup, active/non-demo cohort); primary-loss gate (tears down outreach + skips). |
+| `services/staticTrackerTasks.util.ts` | Builds the static catalog rows **and** the 7 deterministic outreach rows (`buildOutreachTrackerTaskRows`) from `@goodparty_org/contracts` at bootstrap. |
 | `campaignTracker.controller.ts` | `/campaigns/tracker-tasks` GET (also an `@McpTool`) + complete/uncomplete. |
 | `schemas/trackerTaskResponse.schema.ts` | `@ResponseSchema` for the GET (required for the MCP tool). |
 | `campaignTracker.consts.ts` | Experiment type, cron job name, `CHANNEL_TO_FLOW_TYPE` (the canonical map). |
@@ -38,17 +38,31 @@ overview: `docs/features/campaign-tracker-v3.md`.
   dynamic tasks are dated across the upcoming Mon-Sun week (counter skips dated
   events; `nextMondayUtcMidnight`, shared with the digest, so dates land in the
   digest window). Events keep their real date.
+- **Outreach (text/robocall) is deterministic, never agent-selected.** The 7
+  sends are the catalog's `channel ∈ {text, robocall}` entries, materialized at
+  bootstrap by `buildOutreachTrackerTaskRows` (`isDefaultTask: true`,
+  `electionRelative` dates off the **general** election). Belt and suspenders:
+  the catalog attachment excludes them (see the generator) and
+  `onExperimentRunCompleted` drops any `text`/`robocall` rows the agent emits.
+- **Lost primary → tear down outreach, stop generating.** The weekly dispatcher
+  checks `campaign.primaryResult === 'lost'` (synced from HubSpot `Lost Primary`)
+  before the date/dedup checks; if lost it calls `removeOutreachTasks` (deletes
+  the default text/robocall rows) and returns without dispatching. Checked in the
+  dispatcher, not bootstrap, because the loss is recorded after outreach exists.
 - **Catalog ships as an experiment attachment, not a param** (6 KB SQS limit);
-  prior tasks come back to the agent via the MCP tracker-tasks tool. See
-  `scripts/generate-tracker-catalog.ts` and the runbooks experiment.
+  prior tasks come back to the agent via the MCP tracker-tasks tool. The
+  generator filters to `type === 'dynamic'` **and** excludes text/robocall (the
+  outreach is deterministic). See `scripts/generate-tracker-catalog.ts` and the
+  runbooks experiment.
 - **Completion / CTA / update-history reuse `CampaignTasksService` shape** (WET
   copies on purpose) against the new model.
 
 ## Gotchas
 
-- `week` is a generation index on dynamic rows but a calendar offset on static
-  rows. Comparisons that mean "latest generation" filter `isDefaultTask = false`
-  first (so static `week` never pollutes the max).
+- `week` is a generation index on dynamic rows but a calendar offset on the
+  deterministic rows (static catalog + outreach, both `isDefaultTask = true`).
+  Comparisons that mean "latest generation" filter `isDefaultTask = false` first
+  (so a default-row `week` never pollutes the max).
 - The digest is a *separate* consumer of this table; a change to what counts as
   "current" must be mirrored in `weeklyTasksDigestHandler.service.ts`.
 - **The digest serves two cohorts.** `weeklyTasksDigestHandler` runs one query

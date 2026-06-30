@@ -47,6 +47,10 @@ export const EVENTS = {
     CompliancePinSubmitted: 'Voter Outreach - 10DLC Compliance PIN Submitted',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
+    // Carries peerlyIdentityId so Segment can stamp it onto the campaign's
+    // HubSpot company record. Peerly's 10DLC Slack notifications reference
+    // only this id, so it's the shared key Campaign Success matches on.
+    PeerlyIdentityIdCreated: 'Peerly Identity ID Created',
   },
   AiContent: {
     GenerationStarted: 'Content Builder: Generation Started',

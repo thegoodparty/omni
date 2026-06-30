@@ -34,10 +34,12 @@ export class CampaignTrackerDispatchService extends createPrismaBase(
     super()
   }
 
-  // Sunday morning re-prioritization. A run can take a while; the Monday digest
+  // Thursday morning re-prioritization, generating the upcoming Mon-Sun week.
+  // Running mid-week (not Sunday) gives ~3 days for the downstream ClickUp email
+  // automations to fire before Monday. A run can take a while; the Monday digest
   // reads whatever this produced. No batching — the subagent-concurrency cap
   // bounds load.
-  @Cron('0 9 * * 0', { timeZone: 'America/Chicago' })
+  @Cron('0 9 * * 4', { timeZone: 'America/Chicago' })
   async dispatchWeeklyRegen(): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info('tracker automation disabled; skipping weekly cron')
@@ -78,6 +80,15 @@ export class CampaignTrackerDispatchService extends createPrismaBase(
     campaign: CampaignWith<'user'>,
     now: Date,
   ): Promise<void> {
+    // A lost-primary race is over: stop generating and tear down the plan's
+    // deterministic outreach (general-election contact schedule) so no further
+    // texts/robocalls are suggested. Checked here, before generation, because
+    // the loss is recorded after the tracker (and its outreach) bootstrapped.
+    if (campaign.primaryResult === 'lost') {
+      await this.trackerTasks.removeOutreachTasks(campaign.id)
+      return
+    }
+
     // Primary-only campaigns have no general electionDate yet; fall back to the
     // primary so the weekly cron still re-prioritizes them (mirrors
     // dispatchGeneration / resolveElectionDate).
