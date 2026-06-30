@@ -1096,10 +1096,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         const existingRun = await this.experimentRunsService.findUnique({
           where: { runId: current.agenticRunId },
         })
+        // QUEUED / RUNNING / AWAITING_RESUME / COMPLETED mean a live (or resume-
+        // pending) run already owns this record, so skip. SUPERSEDED falls
+        // through to the retake block below: agenticRunId is never repointed to
+        // the resume successor, so a SUPERSEDED predecessor whose successor later
+        // FAILED would otherwise strand the record forever — it stays
+        // re-dispatchable, exactly as FAILED is.
         if (
           existingRun &&
           (existingRun.status === ExperimentRunStatus.QUEUED ||
             existingRun.status === ExperimentRunStatus.RUNNING ||
+            existingRun.status === ExperimentRunStatus.AWAITING_RESUME ||
             existingRun.status === ExperimentRunStatus.COMPLETED)
         ) {
           this.logger.info(
@@ -1112,7 +1119,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           )
           return
         }
-        if (existingRun?.status === ExperimentRunStatus.FAILED) {
+        if (
+          existingRun?.status === ExperimentRunStatus.FAILED ||
+          existingRun?.status === ExperimentRunStatus.SUPERSEDED
+        ) {
           const retake = await this.model.updateMany({
             where: {
               id: tcrComplianceId,
@@ -1126,7 +1136,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           if (retake.count === 0) {
             this.logger.info(
               { tcrComplianceId },
-              '[TCR Compliance] Lost race to re-dispatch FAILED run; skipping',
+              '[TCR Compliance] Lost race to re-dispatch prior run; skipping',
             )
             return
           }

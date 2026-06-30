@@ -750,14 +750,16 @@ export class CampaignStrategyService
     persistedAt: Date | null,
   ): SectionState {
     if (persistedAt) return 'persisted'
-    // QUEUED (waiting to launch), RUNNING, and AWAITING_RESUME (paused mid-run)
-    // are all in flight — none should be re-dispatched. Re-dispatching an
-    // AWAITING_RESUME run would overwrite its run id, orphan the paused run, and
-    // let sweepResumableRuns resume it into a second concurrent task.
+    // QUEUED (waiting to launch), RUNNING, AWAITING_RESUME (paused mid-run), and
+    // SUPERSEDED (the resume sweep already dispatched a live successor) are all
+    // in flight — none should be re-dispatched. Re-dispatching here would
+    // overwrite oppositionRunId, orphan the paused/successor run, and let a
+    // second concurrent task spawn against the same campaign.
     if (
       run?.status === ExperimentRunStatus.QUEUED ||
       run?.status === ExperimentRunStatus.RUNNING ||
-      run?.status === ExperimentRunStatus.AWAITING_RESUME
+      run?.status === ExperimentRunStatus.AWAITING_RESUME ||
+      run?.status === ExperimentRunStatus.SUPERSEDED
     ) {
       return 'inflight'
     }

@@ -820,6 +820,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
   it.each([
     ExperimentRunStatus.QUEUED,
     ExperimentRunStatus.RUNNING,
+    ExperimentRunStatus.AWAITING_RESUME,
     ExperimentRunStatus.COMPLETED,
   ])(
     'skips dispatch when claim fails and existing run is %s',
@@ -843,38 +844,42 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     },
   )
 
-  it('re-dispatches with trigger=recovery_resume when claim fails and existing run is FAILED', async () => {
-    const recordWithRun = {
-      ...tcrRecord,
-      agenticRunId: 'run-failed',
-    }
-    mockModel.updateMany
-      .mockResolvedValueOnce({ count: 0 }) // initial claim
-      .mockResolvedValueOnce({ count: 1 }) // FAILED retake
-      .mockResolvedValueOnce({ count: 1 }) // success stamp
-    mockModel.findUnique
-      .mockResolvedValueOnce(recordWithRun)
-      .mockResolvedValueOnce(recordWithRun)
-    mockExperimentRuns.findUnique.mockResolvedValueOnce({
-      runId: 'run-failed',
-      status: ExperimentRunStatus.FAILED,
-    })
+  it.each([ExperimentRunStatus.FAILED, ExperimentRunStatus.SUPERSEDED])(
+    're-dispatches with trigger=recovery_resume when claim fails and ' +
+      'existing run is %s',
+    async (status) => {
+      const recordWithRun = {
+        ...tcrRecord,
+        agenticRunId: 'run-prior',
+      }
+      mockModel.updateMany
+        .mockResolvedValueOnce({ count: 0 }) // initial claim
+        .mockResolvedValueOnce({ count: 1 }) // retake
+        .mockResolvedValueOnce({ count: 1 }) // success stamp
+      mockModel.findUnique
+        .mockResolvedValueOnce(recordWithRun)
+        .mockResolvedValueOnce(recordWithRun)
+      mockExperimentRuns.findUnique.mockResolvedValueOnce({
+        runId: 'run-prior',
+        status,
+      })
 
-    await service.handleAgenticKickoff(kickoff)
+      await service.handleAgenticKickoff(kickoff)
 
-    expect(mockExperimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
-    const dispatchArg = firstOrThrow(
-      mockExperimentRuns.dispatchRun.mock.calls,
-    )[0]
-    expect(dispatchArg.params.trigger).toBe('recovery_resume')
+      expect(mockExperimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
+      const dispatchArg = firstOrThrow(
+        mockExperimentRuns.dispatchRun.mock.calls,
+      )[0]
+      expect(dispatchArg.params.trigger).toBe('recovery_resume')
 
-    const retakeCall = nthOrThrow(mockModel.updateMany.mock.calls, 1)[0]
-    expect(retakeCall.where).toMatchObject({
-      id: kickoff.tcrComplianceId,
-      agenticRunId: 'run-failed',
-    })
-    expect(retakeCall.data).toMatchObject({ agenticRunId: null })
-  })
+      const retakeCall = nthOrThrow(mockModel.updateMany.mock.calls, 1)[0]
+      expect(retakeCall.where).toMatchObject({
+        id: kickoff.tcrComplianceId,
+        agenticRunId: 'run-prior',
+      })
+      expect(retakeCall.data).toMatchObject({ agenticRunId: null })
+    },
+  )
 
   it('skips when claim fails and the FAILED retake loses the race', async () => {
     const recordWithRun = {

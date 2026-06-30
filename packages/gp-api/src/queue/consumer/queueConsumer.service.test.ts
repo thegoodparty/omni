@@ -1618,4 +1618,19 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(runs.get('run-done')?.status).toBe('COMPLETED')
     expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
   })
+
+  it('skips a late result for a SUPERSEDED run without mutating state', async () => {
+    seedRun('run-superseded', 'SUPERSEDED')
+
+    const result = await service.processMessage(
+      agentResultMessage({
+        runId: 'run-superseded',
+        status: 'success',
+      }),
+    )
+
+    expect(result).toBe(true)
+    expect(runs.get('run-superseded')?.status).toBe('SUPERSEDED')
+    expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
+  })
 })
