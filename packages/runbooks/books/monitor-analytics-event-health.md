@@ -48,9 +48,9 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
 Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
-removed, name constant survives (DATA-2046) / anomaly drop on an active elevated event · 3 anomaly
-drop on any active/system event · 4 intent divergence · 5 dormant elevated · 6
-instrumented-never-observed · 7 dormant (collapsed to a single tail line in the digest).
+removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
+anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
+instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
 
 ## Stage 1 — run the monitor
 
@@ -68,7 +68,7 @@ flagged set, for next run's changes-since-last-run diff). Useful flags:
 - `--no-log` — print only, do not append to the log.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
-Read the digest top-down: priority flags table first (ranks 1-6), then the dormant tail,
+Read the digest top-down: priority flags table first (ranks 1-7), then the dormant tail,
 then changes-since-last-run, then metadata completeness, then watchlist proposals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
