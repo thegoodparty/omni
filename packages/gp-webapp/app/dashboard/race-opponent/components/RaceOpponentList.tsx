@@ -39,6 +39,8 @@ import OpponentPageHeader from './OpponentPageHeader'
 import OpponentOverviewCard from './OpponentOverviewCard'
 import SourceAttribution from './SourceAttribution'
 import IssueContrastCard from './IssueContrastCard'
+import AddOpponentsForm from './AddOpponentsForm'
+import type { ManualOpponentInput } from './AddOpponentsForm'
 
 const initialsFor = (name: string): string =>
   name
@@ -528,6 +530,29 @@ const RaceOpponentList = ({
     }
   }, [errorSnackbar])
 
+  const [submittingManual, setSubmittingManual] = useState(false)
+
+  const submitManualOpponents = useCallback(
+    async (opponents: ManualOpponentInput[]) => {
+      setSubmittingManual(true)
+      try {
+        const { data: result } = await clientRequest(
+          'POST /v1/campaigns/mine/race-opponent/opponents/manual',
+          { opponents },
+        )
+        setData((prev) => ({
+          ...prev,
+          collectionStatus: result.status,
+        }))
+      } catch {
+        errorSnackbar('Failed to start the analysis. Please try again.')
+      } finally {
+        setSubmittingManual(false)
+      }
+    },
+    [errorSnackbar],
+  )
+
   const status = data.collectionStatus
 
   // Two-call discovery: collect() dispatches opposition_research and returns
@@ -629,21 +654,32 @@ const RaceOpponentList = ({
         </div>
 
         {data.opponents.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <SearchIcon className="size-6" aria-hidden />
-            </span>
-            <div className="flex flex-col gap-1">
-              <h2 className="text-base font-semibold text-foreground">
-                No opponent research yet
-              </h2>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Use &quot;Collect now&quot; above to gather sourced research on
-                the candidates in your race. We&apos;ll pull what&apos;s public
-                and summarize it for you.
-              </p>
+          // Collection settled (completed/idle) with no opponents: offer manual
+          // entry rather than a dead empty state. While discovery/collection is
+          // in flight (isBusy), keep the "still working" empty state — the
+          // processing screen is wired by a sibling ticket (ENG-10610).
+          isBusy ? (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <SearchIcon className="size-6" aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  No opponent research yet
+                </h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Use &quot;Collect now&quot; above to gather sourced research
+                  on the candidates in your race. We&apos;ll pull what&apos;s
+                  public and summarize it for you.
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <AddOpponentsForm
+              submitting={submittingManual}
+              onSubmit={submitManualOpponents}
+            />
+          )
         ) : (
           <section className="flex flex-col gap-3">
             <div className="flex flex-col gap-0.5">

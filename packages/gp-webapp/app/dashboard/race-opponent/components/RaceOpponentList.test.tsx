@@ -551,14 +551,47 @@ describe('<RaceOpponentList>', () => {
     expect(screen.getByText(/last collected/i)).toBeInTheDocument()
   })
 
-  it('renders a clean empty state with a Collect affordance when there is no data', () => {
+  it('shows the manual entry form when collection settled with no opponents', () => {
     render(<RaceOpponentList initialData={empty} />)
+
+    expect(screen.getByText(/no opponents found/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/add the opponents you want to analyze/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /run the analysis/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/no opponent research yet/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the working empty state (not the manual form) while discovering', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'discovering' }}
+      />,
+    )
 
     expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /collect now/i }),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+      screen.queryByText(/add the opponents you want to analyze/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('submits manual opponents and transitions into the processing state', async () => {
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: 'manual-run-1', status: 'running' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
   })
 
   it('renders a "The field" intro with the opponent count', () => {
