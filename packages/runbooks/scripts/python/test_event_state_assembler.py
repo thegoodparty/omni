@@ -1,6 +1,7 @@
 import csv
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 import event_state_assembler as esa
@@ -88,9 +89,20 @@ def test_build_rows_handles_never_observed_and_missing_author_columns():
 
 
 def test_format_tags():
+    # Python list
     assert esa.format_tags(["a", "b"]) == "a, b"
+    # None
     assert esa.format_tags(None) == ""
+    # Plain string passthrough
     assert esa.format_tags("solo") == "solo"
+    # numpy ndarray — empty (real-data case from Databricks connector)
+    assert esa.format_tags(np.array([], dtype=object)) == ""
+    # numpy ndarray — populated
+    assert esa.format_tags(np.array(["product:serve"], dtype=object)) == "product:serve"
+    # numpy ndarray — multiple values
+    assert esa.format_tags(np.array(["product:win", "x"], dtype=object)) == "product:win, x"
+    # pandas null scalar (float("nan"))
+    assert esa.format_tags(float("nan")) == ""
 
 
 def test_build_rows_nulls_sort_last():

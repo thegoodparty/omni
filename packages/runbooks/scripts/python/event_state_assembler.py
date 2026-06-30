@@ -8,6 +8,7 @@ byte-identical to the health monitor's because both go through reconcile()/class
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -44,12 +45,19 @@ COLUMNS = [
 
 
 def format_tags(value: Any) -> str:
-    """govern_tags is array<string> in the catalog; render as a comma list. Blank for null."""
+    """govern_tags is array<string> in the catalog (returned as a numpy ndarray by the
+    Databricks connector). Render as a comma list; blank for null/empty."""
     if value is None:
         return ""
-    if isinstance(value, (list, tuple)):
-        return ", ".join(str(v) for v in value)
-    return str(value)
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        items = list(value)
+    except TypeError:
+        return str(value)
+    return ", ".join(str(v) for v in items if str(v))
 
 
 def _blank(value: Any) -> Any:
