@@ -62,10 +62,13 @@ def _select(where_sql: str, **params) -> pd.DataFrame:
 
 
 def resolve_type_since(experiment_type: str, since: str) -> pd.DataFrame:
+    dt = datetime.fromisoformat(since)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
     return _select(
         '"experimentType" = :t AND "createdAt" >= :since',
         t=experiment_type,
-        since=since,
+        since=dt.isoformat(),
     )
 
 
