@@ -49,6 +49,8 @@ import { ComplianceStateService } from './complianceState.service'
 import { SubmitToPeerlyDto } from '../schemas/submitToPeerlyDto.schema'
 import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
 import { ComplianceStage, SubmitToPeerlyOutput } from '@goodparty_org/contracts'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
@@ -101,6 +103,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private readonly complianceStateService: ComplianceStateService,
     private queueService: QueueProducerService,
     private readonly experimentRunsService: ExperimentRunsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -472,6 +475,16 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
     const peerlyIdentityId = tcrComplianceIdentity.identity_id
+
+    // Push the Peerly identity id onto the campaign's HubSpot company (via
+    // Segment) so Campaign Success can match Peerly's 10DLC Slack
+    // notifications, which carry only this id, to the right company record.
+    void this.analytics
+      .track(user.id, EVENTS.Outreach.PeerlyIdentityIdCreated, {
+        peerlyIdentityId,
+        campaignId: campaign.id,
+      })
+      .catch(() => undefined)
 
     let existingIdentityProfileResponse: PeerlyIdentityProfileResponseBody | null =
       null

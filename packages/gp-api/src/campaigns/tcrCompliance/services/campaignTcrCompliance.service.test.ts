@@ -21,6 +21,8 @@ import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -126,6 +128,10 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -687,6 +693,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
         { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1084,6 +1094,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     tcrCompliance: typeof mockTcrModel
     $transaction: ReturnType<typeof vi.fn>
   }
+  let mockAnalytics: { track: ReturnType<typeof vi.fn> }
 
   const user = createMockUser({ clerkId: 'user_clerk_xyz' })
   const campaign = createMockCampaign({
@@ -1168,6 +1179,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       tcrCompliance: mockTcrModel,
       $transaction: vi.fn(),
     }
+    mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1195,6 +1207,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
           useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: mockAnalytics },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1291,6 +1304,16 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     const claimCallOrder = mockTcrModel.updateMany.mock.invocationCallOrder[0]
     const peerlyCallOrder = mockPeerly.getIdentities.mock.invocationCallOrder[0]
     expect(claimCallOrder).toBeLessThan(peerlyCallOrder)
+  })
+
+  it('fires the Peerly Identity ID Created event with the new identity id', async () => {
+    await service.submitToPeerlyForAgent(user, campaign, input)
+
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.PeerlyIdentityIdCreated,
+      { peerlyIdentityId: 'peerly-id-1', campaignId: campaign.id },
+    )
   })
 
   it('submits to Peerly, persists results (including peerlyCvVerificationId), and returns awaiting_pin on the happy path', async () => {
@@ -1599,6 +1622,10 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
         { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
         { provide: ExperimentRunsService, useValue: { dispatchRun: vi.fn() } },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1677,6 +1704,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
           useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1846,6 +1877,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
