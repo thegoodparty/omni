@@ -12,6 +12,7 @@ from amplitude_event_provenance_backfill import (
     collect_provenance,
     compile_event_pattern,
     find_events,
+    parse_events_map,
     parse_git_log,
     parse_pr_number,
     present_at_head,
@@ -95,6 +96,53 @@ def test_slugify_event_handles_curly_quotes_and_trailing_punct():
 
 def test_slugify_event_already_snake_case_passthrough():
     assert slugify_event("pro_upgrade_complete") == "pro_upgrade_complete"
+
+
+# --------------------------------------------------------------------------- #
+# parse_events_map -- EVENTS constant -> name -> key-path
+# --------------------------------------------------------------------------- #
+
+_EVENTS_TS = """
+import { foo } from 'bar'
+
+export const EVENTS = {
+  CampaignStory: {
+    RewriteRequested: 'Campaign Story - Rewrite Requested',
+  },
+  polls: {
+    resultsViewed: 'Polls - Poll Results Overview Viewed',
+  },
+  Onboarding: {
+    RegistrationCompleted: 'Onboarding - Registration Completed',
+    // a comment between entries
+    OfficeStep: {
+      ClickCantSeeOffice: "Onboarding - Office Step: Click Can't See Office",
+    },
+  },
+} as const
+
+export const trackEvent = () => {}
+"""
+
+
+def test_parse_events_map_flattens_nested_paths():
+    out = parse_events_map(_EVENTS_TS)
+    assert out["Campaign Story - Rewrite Requested"] == "EVENTS.CampaignStory.RewriteRequested"
+    assert out["Polls - Poll Results Overview Viewed"] == "EVENTS.polls.resultsViewed"
+    assert out["Onboarding - Registration Completed"] == "EVENTS.Onboarding.RegistrationCompleted"
+
+
+def test_parse_events_map_handles_deep_nesting_and_double_quotes():
+    out = parse_events_map(_EVENTS_TS)
+    # double-quoted value (apostrophe inside) at a third nesting level
+    assert (
+        out["Onboarding - Office Step: Click Can't See Office"]
+        == "EVENTS.Onboarding.OfficeStep.ClickCantSeeOffice"
+    )
+
+
+def test_parse_events_map_absent_returns_empty():
+    assert parse_events_map("const OTHER = { a: 'b' }") == {}
 
 
 # --------------------------------------------------------------------------- #

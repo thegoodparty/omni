@@ -57,6 +57,11 @@ INSTRUMENTATION_PATHS = [
     ":(exclude,glob)packages/**/*.csv",
 ]
 
+# Frontend event-name registry: the EVENTS const maps key-paths (EVENTS.X.Y, used at call
+# sites) to event-name literals (used in the catalog). Parsed at the deploy ref to resolve a
+# name to the key-path we count call sites for.
+ANALYTICS_HELPER_PATH = "packages/gp-webapp/helpers/analyticsHelper.ts"
+
 # Events came online in Amplitude ~2025-05; the EVENTS map + segment wiring landed
 # ~2025-02. Bounding the walk here skips the large pre-2024 scaffold-era diffs while
 # keeping an 8-month margin before real instrumentation. None walks full history.
@@ -144,6 +149,78 @@ def slugify_event(name: str) -> str:
     """
     stripped = "".join(c for c in name.lower() if c not in _QUOTE_CHARS)
     return re.sub(r"[^a-z0-9]+", "_", stripped).strip("_")
+
+
+_MAP_COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+# A key (ident or quoted) immediately followed by ':'; an opening/closing brace; or a
+# standalone quoted string value. Ordered so a quoted key matches as 'key', not 'str'.
+_MAP_TOKEN_RE = re.compile(
+    r"""(?P<key>(?:[A-Za-z_$][\w$]*|'[^']*'|"[^"]*"))\s*:"""
+    r"""|(?P<open>\{)"""
+    r"""|(?P<close>\})"""
+    r"""|(?P<str>'[^']*'|"[^"]*")""",
+)
+
+
+def _slice_braced(text: str, open_idx: int) -> str:
+    """Return the text strictly inside the braces, given the index of the opening ``{``.
+
+    Counts brace depth while skipping over quoted strings so a brace inside a string value
+    cannot end the slice early.
+    """
+    depth = 0
+    i = open_idx
+    n = len(text)
+    start = open_idx + 1
+    while i < n:
+        ch = text[i]
+        if ch in "'\"":
+            i += 1
+            while i < n and text[i] != ch:
+                i += 1
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i]
+        i += 1
+    return text[start:]
+
+
+def parse_events_map(ts_text: str, root: str = "EVENTS") -> dict[str, str]:
+    """Flatten the ``EVENTS`` const into ``{event_name: "EVENTS.key.subkey"}``.
+
+    Walks the brace-delimited object with a key stack: a ``key:`` followed by ``{`` descends
+    a level; a ``key:`` followed by a quoted string emits one leaf (name -> dotted path).
+    Comments are stripped first. Returns ``{}`` when the const is absent. Resolution is from
+    the file's current state at the deploy ref, which is sufficient: the only case we target
+    is a surviving constant whose call site was deleted, so the key-path still exists here.
+    """
+    m = re.search(rf"\b{re.escape(root)}\s*=\s*\{{", ts_text)
+    if not m:
+        return {}
+    body = _slice_braced(ts_text, m.end() - 1)
+    src = _MAP_COMMENT_RE.sub("", body)
+    out: dict[str, str] = {}
+    stack: list[str] = []
+    pending: str | None = None
+    for tok in _MAP_TOKEN_RE.finditer(src):
+        kind = tok.lastgroup
+        if kind == "key":
+            pending = tok.group("key").strip("'\"")
+        elif kind == "open":
+            stack.append(pending or "")
+            pending = None
+        elif kind == "close":
+            if stack:
+                stack.pop()
+            pending = None
+        elif kind == "str":
+            if pending is not None:
+                out[tok.group("str").strip("'\"")] = ".".join([root, *stack, pending])
+                pending = None
+    return out
 
 
 # --------------------------------------------------------------------------- #
