@@ -113,6 +113,8 @@ group by event_type, date_trunc('week', cast(event_time as date))
 # Provenance CSV column carrying the code-removed date (empty = code still present).
 RETIRED_COL = "retired_date"
 INSTRUMENTED_PR_COL = "instrumented_pr"
+CALL_SITE_COUNT_COL = "call_site_count"
+CALL_SITE_RETIRED_COL = "call_site_retired_date"
 
 
 # --- pure helpers -------------------------------------------------------------
@@ -242,18 +244,29 @@ def rank_record(record: Mapping[str, Any]) -> int:
     div = record["divergence"] or ""
     if status == "orphaned_firing" or div.endswith("still firing"):
         return 1
-    if anomaly and status == "active" and elevated:
+    # DATA-2046: the name literal is still declared (status active/dormant) but the call site
+    # is gone (call_site_count == 0) and firing has flatlined (dormant, or an anomaly drop on
+    # still-"active" code). A removed call site behind a surviving constant. Null call_site_count
+    # (backend/dynamic, unresolved) is not zero and never trips this. Previously this fell to the
+    # dormant tail (rank 8) and went unnoticed — the exact blind spot this ticket closes.
+    if (
+        record.get("call_site_count") == 0
+        and status in ("active", "dormant")
+        and (status == "dormant" or anomaly)
+    ):
         return 2
-    if anomaly and status in ("active", "system", "code_unknown"):
+    if anomaly and status == "active" and elevated:
         return 3
-    if div.startswith("declared"):
+    if anomaly and status in ("active", "system", "code_unknown"):
         return 4
-    if status == "dormant" and elevated:
+    if div.startswith("declared"):
         return 5
-    if status == "instrumented_never_observed":
+    if status == "dormant" and elevated:
         return 6
-    if status == "dormant":
+    if status == "instrumented_never_observed":
         return 7
+    if status == "dormant":
+        return 8
     return 99
 
 
@@ -342,6 +355,8 @@ def reconcile(
         gpmeta = parse_gpmeta(description)
         anomaly = detect_anomaly(series.get(event_type, []))
         on_watchlist = event_type in watchlist_events
+        cs_raw = (crow or {}).get(CALL_SITE_COUNT_COL)
+        call_site_count = int(cs_raw) if cs_raw not in (None, "") else None
 
         if is_system(family, event_type):
             status = "system"  # anomaly-watched only
@@ -363,6 +378,8 @@ def reconcile(
                 "last_seen_date": to_date(row["last_seen_date"]),
                 "anomaly": anomaly,
                 "instrumented_pr": (crow or {}).get(INSTRUMENTED_PR_COL),
+                "call_site_count": call_site_count,
+                "call_site_retired_date": (crow or {}).get(CALL_SITE_RETIRED_COL) or None,
                 "divergence": divergence(gpmeta, status, firing_recent),
                 "gpmeta": gpmeta,
                 "has_description": has_description(description),
@@ -383,6 +400,10 @@ def reconcile(
                     "last_seen_date": None,
                     "anomaly": None,
                     "instrumented_pr": crow.get(INSTRUMENTED_PR_COL),
+                    "call_site_count": (lambda v: int(v) if v not in (None, "") else None)(
+                        crow.get(CALL_SITE_COUNT_COL)
+                    ),
+                    "call_site_retired_date": crow.get(CALL_SITE_RETIRED_COL) or None,
                     "divergence": None,
                     "gpmeta": None,
                     "has_description": None,  # not an Amplitude catalog event; no Govern desc
@@ -450,12 +471,13 @@ def diff_flagged(
 
 _RANK_LABEL = {
     1: "orphaned-firing / not-in-use still firing",
-    2: "anomaly drop, active (elevated)",
-    3: "anomaly drop, active",
-    4: "intent divergence",
-    5: "dormant (elevated)",
-    6: "instrumented, never observed",
-    7: "dormant",
+    2: "call site removed, name constant remains",
+    3: "anomaly drop, active (elevated)",
+    4: "anomaly drop, active",
+    5: "intent divergence",
+    6: "dormant (elevated)",
+    7: "instrumented, never observed",
+    8: "dormant",
 }
 
 
@@ -465,6 +487,9 @@ def _evidence(record: Mapping[str, Any]) -> str:
         parts.append(f"week {record['anomaly']['current']} vs base {record['anomaly']['baseline']}")
     if record["last_seen_date"]:
         parts.append(f"last_seen {record['last_seen_date']}")
+    if record.get("call_site_count") == 0:
+        removed = record.get("call_site_retired_date")
+        parts.append(f"call_sites=0 (removed {removed})" if removed else "call_sites=0")
     if record["instrumented_pr"]:
         parts.append(f"PR {record['instrumented_pr']}")
     return "; ".join(parts)
@@ -473,7 +498,7 @@ def _evidence(record: Mapping[str, Any]) -> str:
 # Rank-7 (plain dormant) events are listed as one compact line, not table rows: there are
 # routinely dozens and they repeat every weekly section, so a full table would bury the
 # priority flags above. Anything rank <= this threshold gets a detailed row.
-PRIORITY_RANK_MAX = 6
+PRIORITY_RANK_MAX = 7
 # Cap how many event names a single changes-line spells out before summarizing (the
 # first run flags everything, which would otherwise dump the whole list).
 CHANGES_NAME_CAP = 15
