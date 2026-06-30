@@ -194,7 +194,7 @@ def main() -> None:
 
     exp_type = df["experimentType"].iloc[0] if not df.empty else (a.type or "unknown")
     out = a.out or f"outputs/cap-cost/{exp_type}/scope.json"
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     payload = {
         "label": label,
         "resolved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

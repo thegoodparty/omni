@@ -184,7 +184,7 @@ def main() -> None:
         )
 
     out = a.out or f"outputs/cap-cost/{exp_type}/turns.parquet"
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     df = pd.DataFrame(all_rows)
     df.to_parquet(out, index=False)
     cov_path = os.path.splitext(out)[0] + ".coverage.json"

@@ -114,7 +114,7 @@ def main() -> None:
     }
 
     out = a.out or f"outputs/cap-cost/{exp_type}/segments.json"
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     with open(out, "w") as f:
         json.dump(result, f, indent=2)
     print(json.dumps(result, indent=2))
