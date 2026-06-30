@@ -288,8 +288,17 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
 
   async approve10DLCBrand(
     { committeeName, peerlyIdentityId, campaignId }: TcrCompliance,
-    campaignVerifyToken: string = '',
+    campaignVerifyToken: string,
   ): Promise<BrandApprovalResult | undefined> {
+    // Approving with an empty token finalizes the brand WITHOUT a Campaign
+    // Verify token, which strands it in Peerly's MNO review queue (they must
+    // clear it by hand). This was the original ENG-7508 failure mode; refuse
+    // it here so no caller can reintroduce a no-token finalization.
+    if (!campaignVerifyToken) {
+      throw new BadRequestException(
+        'Cannot approve a 10DLC brand without a Campaign Verify token',
+      )
+    }
     const campaign = await this.campaignsService.findFirstOrThrow({
       where: {
         id: campaignId,
