@@ -740,8 +740,18 @@ def augment_call_site_columns(
     Resolves the EVENTS map at ``ref``, counts call sites at ``ref`` in one grep, and looks
     up the retirement date only for zero-count events. Events with no resolvable key-path
     (backend/dynamic) get None for both -- null, never zero, so they are never flagged.
+
+    If ``analyticsHelper.ts`` is absent at ``ref`` (renamed/moved, or a ``--ref`` at an old
+    commit), return early and leave the rows' call-site columns untouched rather than aborting
+    the whole walk after the expensive ``git log`` pass -- the CSV/watermark must still get
+    written. This mirrors ``parse_events_map`` returning ``{}`` on a missing const: no key-path
+    resolves, so call-site data is simply unknown (None), consistent with the backend/dynamic
+    contract.
     """
-    ts_text = git_show_file(root, ref, ANALYTICS_HELPER_PATH)
+    try:
+        ts_text = git_show_file(root, ref, ANALYTICS_HELPER_PATH)
+    except subprocess.CalledProcessError:
+        return
     events_map = parse_events_map(ts_text)
     grep_text = git_grep_call_sites_text(root, list(events_map.values()), paths, ref)
     lookup = make_call_site_retired_lookup(root, ref, paths)

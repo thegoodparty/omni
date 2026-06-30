@@ -233,6 +233,31 @@ def test_make_call_site_retired_lookup_ignores_comment_removal(monkeypatch):
     assert lookup("EVENTS.Dashboard.Viewed") is None
 
 
+def test_augment_call_site_columns_populates_rows(monkeypatch):
+    # Exercise the full augment chain (git_show_file -> parse_events_map ->
+    # git_grep_call_sites_text -> compute_call_site_fields -> row mutation) with the git IO stubbed.
+    ts_src = "\nexport const EVENTS = {\n  Dashboard: { Viewed: 'Dash Viewed' },\n} as const\n"
+    monkeypatch.setattr(bf, "git_show_file", lambda *a, **k: ts_src)
+    monkeypatch.setattr(bf, "git_grep_call_sites_text", lambda *a, **k: "trackEvent(EVENTS.Dashboard.Viewed)\n")
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter([]))
+    rows = [{c: None for c in bf.PROVENANCE_COLUMNS} | {"event_type": "Dash Viewed", "event_type_slug": "dash_viewed"}]
+    bf.augment_call_site_columns(rows, "/root", "origin/develop")
+    assert rows[0]["call_site_count"] == 1
+    assert rows[0]["call_site_retired_date"] is None  # count>0 -> lookup not consulted
+
+
+def test_augment_call_site_columns_returns_early_when_helper_missing(monkeypatch):
+    # analyticsHelper.ts absent at ref -> git_show_file raises -> augment returns early and
+    # leaves the rows untouched, so the walk still reaches write_provenance/write_watermark.
+    def boom(*a, **k):
+        raise subprocess.CalledProcessError(128, ["git", "show"])
+
+    monkeypatch.setattr(bf, "git_show_file", boom)
+    rows = [{c: None for c in bf.PROVENANCE_COLUMNS} | {"event_type": "Dash Viewed", "call_site_count": "5"}]
+    bf.augment_call_site_columns(rows, "/root", "badref")
+    assert rows[0]["call_site_count"] == "5"  # not wiped
+
+
 # --------------------------------------------------------------------------- #
 # find_events
 # --------------------------------------------------------------------------- #
