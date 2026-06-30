@@ -9,8 +9,15 @@ import { CAMPAIGN_TASK_CATALOG } from '@goodparty_org/contracts'
 // re-run this when the catalog changes:
 //   npx tsx scripts/generate-tracker-catalog.ts
 
+// Outreach (text/robocall) is NOT agent-selectable: the plan's fixed contact
+// schedule owns those 7 sends deterministically (see staticTrackerTasks.util
+// buildOutreachTrackerTaskRows). Keep them out of the menu so the agent can't
+// surface or duplicate them.
 const menu = CAMPAIGN_TASK_CATALOG.filter(
-  (task) => task.type === 'dynamic',
+  (task) =>
+    task.type === 'dynamic' &&
+    task.channel !== 'text' &&
+    task.channel !== 'robocall',
 ).map((task) => ({
   id: task.id,
   title: task.title,
