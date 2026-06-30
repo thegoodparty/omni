@@ -66,6 +66,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Default: StoryObj<typeof BreadcrumbNav> = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <BreadcrumbNav
       items={[
@@ -78,6 +79,7 @@ export const Default: StoryObj<typeof BreadcrumbNav> = {
 }
 
 export const WithEllipsis: StoryObj<typeof Breadcrumb> = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Breadcrumb>
       <BreadcrumbList>

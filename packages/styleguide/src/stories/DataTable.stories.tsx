@@ -396,6 +396,7 @@ const productColumns: ColumnDef<Product>[] = [
 ]
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     columns: paymentColumns,
     data: samplePayments,
@@ -405,6 +406,7 @@ export const Default: Story = {
 }
 
 export const WithUsers: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     columns: userColumns,
     data: sampleUsers,
@@ -414,6 +416,7 @@ export const WithUsers: Story = {
 }
 
 export const WithProducts: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     columns: productColumns,
     data: sampleProducts,
@@ -423,6 +426,7 @@ export const WithProducts: Story = {
 }
 
 export const NoSearch: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     columns: paymentColumns,
     data: samplePayments,
@@ -430,6 +434,7 @@ export const NoSearch: Story = {
 }
 
 export const EmptyState: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     columns: paymentColumns,
     data: [],
@@ -439,6 +444,7 @@ export const EmptyState: Story = {
 }
 
 export const MinimalColumns: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     columns: [
       {
@@ -555,6 +561,7 @@ function InteractiveExample() {
 }
 
 export const Interactive: Story = {
+  parameters: { controls: { disable: true } },
   render: () => <InteractiveExample />,
 }
 
@@ -567,6 +574,7 @@ export const ServerSidePagination: Story = {
     pagination: false,
   },
   parameters: {
+    controls: { disable: true },
     docs: {
       description: {
         story:
@@ -585,6 +593,7 @@ export const NoPagination: Story = {
     pagination: false,
   },
   parameters: {
+    controls: { disable: true },
     docs: {
       description: {
         story:

@@ -24,10 +24,12 @@ export const Playground: Story = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => <Progress value={33} />,
 }
 
 export const WithLabel: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
