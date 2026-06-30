@@ -31,6 +31,7 @@ import base64
 import html
 import json
 import os
+import sys
 from datetime import datetime, timezone
 
 # Status -> dot color. Standard CAP statuses map to the palette; anything else
@@ -97,7 +98,8 @@ def compute_drivers(parquet_path: str | None) -> dict | None:
         import pandas as pd
 
         df = pd.read_parquet(parquet_path)
-    except Exception:
+    except Exception as exc:
+        print(f"warning: drivers block skipped — {exc}", file=sys.stderr)
         return None
     if df.empty:
         return None
@@ -147,7 +149,7 @@ def build_metrics(scope: dict, profile: dict | None, dist: dict) -> list[dict]:
             {
                 "lead": True,
                 "val": head_val,
-                "key": headline.get("note")
+                "key": esc(headline.get("note"))
                 or f"per {esc(success_status or 'successful')} run",
             }
         )
@@ -441,7 +443,7 @@ def render(
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     caveats: list[str] = []
     if not (drivers and drivers.get("cache_read_share") is not None):
-        caveats.append("cost-driver stats (parquet not provided)")
+        caveats.append("cost-driver stats (parquet absent or unreadable)")
     if dist.get("milestone_costs") is None:
         mcov = coverage.get("milestone_coverage_pct")
         if mcov is not None:

@@ -151,6 +151,34 @@ def test_report_degrades_without_profile(tmp_path):
     assert "no profile.json" in doc
 
 
+def test_report_with_parquet_renders_drivers_block(tmp_path):
+    import pandas as pd
+
+    scope, plots, profile = _write_outputs(tmp_path, with_profile=True)
+    # Two runs, three turns each; cache_read dominates tokens so cache_read_share
+    # is well-defined and cost varies with turn count.
+    turns = pd.DataFrame(
+        {
+            "run_id": ["r1", "r1", "r1", "r2", "r2"],
+            "turn_idx": [0, 1, 2, 0, 1],
+            "tokens": [1000, 1000, 1000, 1000, 1000],
+            "cache_read": [900, 900, 900, 900, 900],
+            "run_cost_usd": [14.5, 14.5, 14.5, 9.0, 9.0],
+        }
+    )
+    parquet_path = str(tmp_path / "turns.parquet")
+    turns.to_parquet(parquet_path)
+
+    doc = build_report(scope, plots, profile, parquet_path)
+    _assert_self_contained(doc)
+    # The drivers-present prose renders the cache-read share sentence.
+    assert "Cached-context reads are" in doc
+    assert "90.0%" in doc
+    assert "cache_read x turns" in doc
+    # The footer must NOT flag the parquet as missing, since it was read.
+    assert "parquet absent or unreadable" not in doc
+
+
 def test_null_headline_shows_na(tmp_path):
     scope, plots, _ = _write_outputs(tmp_path, with_profile=True)
     # Rewrite the profile with a null headline value and zero delivered.
