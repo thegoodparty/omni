@@ -112,7 +112,11 @@ def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str |
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the event-state table to a Google Sheet.")
     parser.add_argument("command", choices=["refresh"])
-    parser.add_argument("--dry-run", action="store_true", help="print matrix dims, no auth/write")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print matrix dims; reads Databricks but skips Google auth and the sheet write",
+    )
     parser.add_argument(
         "--spreadsheet-id",
         default=os.environ.get("GP_EVENT_STATE_SHEET_ID"),
@@ -125,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Dry-run previews the real output dimensions, so it still runs the (read-only)
+    # Databricks query — it only skips the Google auth and the sheet write.
     result = esa.assemble(date.today())
     rows = result["rows"]
 

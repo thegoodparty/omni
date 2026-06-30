@@ -9,7 +9,7 @@ Refresh the consumer-facing analytics event-state surface (the Google Sheet).
 
 1. Make sure the provenance CSV is current — run the provenance walk first if needed:
    `cd scripts/python && uv run python amplitude_event_provenance_backfill.py walk`
-2. Preview the surface without writing (prints matrix dimensions, no auth):
+2. Preview the surface without writing (prints matrix dimensions; reads Databricks but skips Google auth and the sheet write):
    `uv run python event_state_gsheet.py refresh --dry-run`
 3. Write/update the Google Sheet (full overwrite of the `events` tab):
    `uv run python event_state_gsheet.py refresh`
