@@ -165,7 +165,7 @@ def main() -> None:
     os.makedirs(outdir, exist_ok=True)
 
     tables = distribution_tables(df)
-    cov_path = a.turns.replace(".parquet", ".coverage.json")
+    cov_path = os.path.splitext(a.turns)[0] + ".coverage.json"
     if os.path.exists(cov_path):
         with open(cov_path) as f:
             tables["coverage"] = json.load(f)

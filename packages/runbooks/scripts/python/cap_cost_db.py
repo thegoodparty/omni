@@ -39,13 +39,15 @@ def _prod_db_password() -> str:
 
 def connect() -> pg8000.native.Connection:
     """Open a read-only prod connection. Caller closes it."""
-    return pg8000.native.Connection(
+    conn = pg8000.native.Connection(
         user=PROD_DB_USER,
         password=_prod_db_password(),
         host=PROD_DB_HOST,
         database=PROD_DB_NAME,
         port=5432,
     )
+    conn.run("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
+    return conn
 
 
 def query(sql: str, **params) -> pd.DataFrame:

@@ -83,11 +83,11 @@ def main() -> None:
         )
 
     region = os.environ.get("AWS_REGION", "us-west-2")
-    s3 = boto3.client("s3", region_name=region)
     status_field = profile["status_field"]
 
     def grab(run):
-        return run["runId"], _fetch_outcome(s3, run, status_field)
+        _s3 = boto3.client("s3", region_name=region)
+        return run["runId"], _fetch_outcome(_s3, run, status_field)
 
     outcomes: dict[str, str] = {}
     with ThreadPoolExecutor(max_workers=16) as ex:

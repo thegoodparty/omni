@@ -147,9 +147,9 @@ def main() -> None:
         sys.exit("scope has 0 runs — nothing to extract")
 
     region = os.environ.get("AWS_REGION", "us-west-2")
-    s3 = boto3.client("s3", region_name=region)
 
     def pull(run):
+        s3 = boto3.client("s3", region_name=region)
         bucket = run.get("artifactBucket") or "gp-agent-artifacts-prod"
         # artifactKey points at artifact.json; the session log is a sibling. Prefer
         # deriving from experimentType/runId (matches the S3 layout convention).
@@ -187,7 +187,8 @@ def main() -> None:
     os.makedirs(os.path.dirname(out), exist_ok=True)
     df = pd.DataFrame(all_rows)
     df.to_parquet(out, index=False)
-    with open(out.replace(".parquet", ".coverage.json"), "w") as f:
+    cov_path = os.path.splitext(out)[0] + ".coverage.json"
+    with open(cov_path, "w") as f:
         json.dump(coverage, f, indent=2)
     print(f"wrote {out}  ({len(all_rows)} turn rows over {parsed} runs)")
 

@@ -91,9 +91,18 @@ def cluster_cohorts(df: pd.DataFrame, gap_hours: float = 2.0) -> list[pd.DataFra
     return [g.reset_index(drop=True) for _, g in df.groupby(cohort_id)]
 
 
-def resolve_last_cohorts(experiment_type: str, n: int, gap_hours: float) -> pd.DataFrame:
-    # Pull a generous lookback, then cluster and keep the last n cohorts.
-    df = _select('"experimentType" = :t', t=experiment_type)
+def resolve_last_cohorts(
+    experiment_type: str, n: int, gap_hours: float, lookback_days: int = 90
+) -> pd.DataFrame:
+    # Pull a bounded lookback window, then cluster and keep the last n cohorts.
+    from datetime import timedelta
+
+    since = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
+    df = _select(
+        '"experimentType" = :t AND "createdAt" >= :since',
+        t=experiment_type,
+        since=since,
+    )
     cohorts = cluster_cohorts(df, gap_hours=gap_hours)
     if not cohorts:
         return df
@@ -147,6 +156,7 @@ def main() -> None:
     ap.add_argument("--on", help="UTC day YYYY-MM-DD — all runs of --type that day")
     ap.add_argument("--last-cohorts", type=int, help="last N dispatch-window cohorts of --type")
     ap.add_argument("--gap-hours", type=float, default=2.0, help="cohort gap threshold (h)")
+    ap.add_argument("--lookback-days", type=int, default=90, help="bounded lookback for --last-cohorts")
     ap.add_argument("--run-ids", help="comma-separated explicit run ids")
     ap.add_argument("--run-ids-file", help="file with one run id per line (or csv w/ run_id col)")
     ap.add_argument("--out", help="scope JSON output path")
@@ -162,7 +172,7 @@ def main() -> None:
         df = resolve_type_on(a.type, a.on)
         label = f"{a.type} on {a.on}"
     elif a.type and a.last_cohorts:
-        df = resolve_last_cohorts(a.type, a.last_cohorts, a.gap_hours)
+        df = resolve_last_cohorts(a.type, a.last_cohorts, a.gap_hours, a.lookback_days)
         label = f"{a.type} last {a.last_cohorts} cohorts"
     elif a.type and a.since:
         df = resolve_type_since(a.type, a.since)
