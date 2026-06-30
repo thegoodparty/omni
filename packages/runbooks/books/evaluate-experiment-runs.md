@@ -101,7 +101,7 @@ The rubric is graded by an LLM that never saw it being tuned (a *cold* judge), a
 
 Treat the prompt as the **only** variable: clone the experiment to `<exp>_v2`, change only `instruction.md`, publish, run the **same inputs** through both arms, and diff.
 
-1. **Clone + edit + publish** (see `books/convert-runbook-to-experiment.md` for the dir layout):
+1. **Clone + edit + publish** (see `.claude/skills/build-cap-agent/SKILL.md` for the dir layout):
    ```bash
    cd experiments && cp -r <exp> <exp>_v2
    # set "id":"<exp>_v2" in <exp>_v2/manifest.json; edit ONLY <exp>_v2/instruction.md

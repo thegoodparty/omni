@@ -1,4 +1,4 @@
-Dispatch a PMF experiment onto Fargate in the cloud (SQS → Lambda → broker → S3), monitor it, and pull/validate the artifact. For *creating* an experiment, see `books/convert-runbook-to-experiment.md`; this book is purely about *running* one that already exists.
+Dispatch a PMF experiment onto Fargate in the cloud (SQS → Lambda → broker → S3), monitor it, and pull/validate the artifact. For *creating* an experiment, see `.claude/skills/build-cap-agent/SKILL.md`; this book is purely about *running* one that already exists.
 
 ## Prerequisites
 
