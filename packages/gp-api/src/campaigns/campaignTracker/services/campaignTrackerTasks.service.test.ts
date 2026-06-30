@@ -115,12 +115,14 @@ describe('CampaignTrackerTasksService.dispatchGeneration', () => {
 
   it('assembles campaign_plan + campaign_story from the DB', async () => {
     h.prisma.campaignStory.findUnique.mockResolvedValueOnce({
-      why: 'I care',
       background: 'Local business owner',
     })
-    // Issues live on the website now (shared with Pro-upgrade).
+    // The "why" (bio) and issues live on the website now (shared with
+    // Pro-upgrade).
     h.prisma.website.findUnique.mockResolvedValueOnce({
-      content: { about: { issues: [{ description: 'Housing' }] } },
+      content: {
+        about: { bio: 'I care', issues: [{ description: 'Housing' }] },
+      },
     })
     h.prisma.campaignStrategy.findUnique.mockResolvedValueOnce({
       opportunities: [{ content: 'Engaged renters' }],

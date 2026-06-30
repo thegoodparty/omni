@@ -20,17 +20,21 @@ vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
   return { ...actual, getUserWebsite: mockGetUserWebsite }
 })
 
-const completeStory = {
-  why: 'why answer',
-  background: 'background answer',
-}
-const incompleteStory = { why: 'w', background: null }
-const websiteWithIssues = {
+// Only `background` lives on the story now; the why is the website bio.
+const completeStory = { background: 'background answer' }
+const incompleteStory = { background: null }
+// A complete website: a why (bio) and at least one issue.
+const websiteComplete = {
   content: {
     about: {
+      bio: '<p>why answer</p>',
       issues: [{ title: 'Roads', description: '<p>Fix the roads</p>' }],
     },
   },
+}
+// A why but no issues — the candidate still has to add issues.
+const websiteWhyNoIssues = {
+  content: { about: { bio: '<p>why answer</p>' } },
 }
 
 beforeEach(() => {
@@ -52,12 +56,12 @@ describe('CampaignPlanStoryGate', () => {
     ).toBeInTheDocument()
   })
 
-  it('prompts to complete the story when the story text is incomplete', async () => {
+  it('prompts to complete the story when the background is incomplete', async () => {
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: incompleteStory,
     })
-    mockGetUserWebsite.mockResolvedValue(websiteWithIssues)
+    mockGetUserWebsite.mockResolvedValue(websiteComplete)
 
     render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
 
@@ -75,7 +79,7 @@ describe('CampaignPlanStoryGate', () => {
       status: 200,
       data: completeStory,
     })
-    mockGetUserWebsite.mockResolvedValue(null)
+    mockGetUserWebsite.mockResolvedValue(websiteWhyNoIssues)
 
     render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
 
@@ -84,12 +88,12 @@ describe('CampaignPlanStoryGate', () => {
     ).toBeInTheDocument()
   })
 
-  it('reviews the answers (incl. website issues) with an edit link when complete', async () => {
+  it('reviews the answers (why + background + website issues) with an edit link when complete', async () => {
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: completeStory,
     })
-    mockGetUserWebsite.mockResolvedValue(websiteWithIssues)
+    mockGetUserWebsite.mockResolvedValue(websiteComplete)
 
     render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
 
@@ -111,6 +115,7 @@ describe('CampaignPlanStoryGate', () => {
     mockGetUserWebsite.mockResolvedValue({
       content: {
         about: {
+          bio: '<p>why answer</p>',
           issues: [{ title: 'Budget', description: '<p>fund &lt;$50M</p>' }],
         },
       },
@@ -143,7 +148,7 @@ describe('CampaignPlanStoryGate', () => {
       status: 200,
       data: completeStory,
     })
-    mockGetUserWebsite.mockResolvedValue(websiteWithIssues)
+    mockGetUserWebsite.mockResolvedValue(websiteComplete)
 
     render(<CampaignPlanStoryGate onGenerate={onGenerate} />)
 

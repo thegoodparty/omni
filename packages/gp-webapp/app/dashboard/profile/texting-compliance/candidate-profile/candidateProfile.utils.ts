@@ -5,6 +5,13 @@ export const MIN_BIO_LENGTH = 500
 export const MIN_POLICY_FOCUS_LENGTH = 100
 export const MIN_POLICY_PRIORITIES = 1
 
+// The "why are you running?" instruction, shared by every surface that edits
+// the website bio: the Campaign Story page, the Pro-upgrade candidate profile,
+// and the campaign-details WhyRunningSection. One source so the prompt reads
+// identically wherever the candidate writes their why.
+export const WHY_RUNNING_PROMPT =
+  'The moment, the people, the breaking point: your stump-speech opener.'
+
 export const getBioPlainLength = (rawBio: string | undefined | null): number =>
   rawBio ? stripHtml(rawBio).result.trim().length : 0
 

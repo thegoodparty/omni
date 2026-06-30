@@ -6,7 +6,6 @@ model CampaignStory {
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId Int      @unique @map("campaign_id")
 
-  why        String?
   background String?
 
   // No longer read or written by current code: race opponent's contrast routing

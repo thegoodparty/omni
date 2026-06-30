@@ -41,13 +41,23 @@ const STORY_ISSUE = {
 // "Saved" state so the answer is durable before we navigate to the plan tab.
 // Scoped by the card's stable data-testid (campaign-story-card-<field>) so the
 // Save button relabeling to "Saved" mid-flow can't shift the card locator.
+//
+// `why` is the candidate's website bio now, edited via a RichEditor (Quill) that
+// persists with saveAboutFields — so it has no plain textbox; type into the
+// `.ql-editor` contenteditable. `background` is still a plain-text story field.
 const fillStoryCard = async (
   page: Page,
   field: 'why' | 'background',
   value: string,
 ): Promise<void> => {
   const card = page.getByTestId(`campaign-story-card-${field}`)
-  await card.getByRole('textbox').fill(value)
+  if (field === 'why') {
+    const editor = card.locator('.ql-editor')
+    await editor.click()
+    await editor.pressSequentially(value)
+  } else {
+    await card.getByRole('textbox').fill(value)
+  }
   await card.getByRole('button', { name: /^Save$/ }).click()
   await expect(card.getByRole('button', { name: /^Saved$/ })).toBeVisible()
 }
