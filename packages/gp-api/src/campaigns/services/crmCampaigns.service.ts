@@ -63,6 +63,7 @@ export class CrmCampaignsService {
         message,
         error,
       })
+      return undefined
     }
   }
 
@@ -78,6 +79,7 @@ export class CrmCampaignsService {
         message,
         error,
       })
+      return undefined
     }
   }
 
@@ -95,6 +97,7 @@ export class CrmCampaignsService {
       )
     } catch (e) {
       this.logger.error({ e }, 'error getting crm company owner')
+      return undefined
     }
   }
 
@@ -525,7 +528,9 @@ export class CrmCampaignsService {
   ) {
     const campaignData = campaign.data
     const hubSpotUpdates = campaignData.hubSpotUpdates || {}
-    hubSpotUpdates[propertyName] = propertyValue
+    // propertyName is a dynamic HubSpot field name supplied at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    hubSpotUpdates[propertyName as HubSpot.IncomingProperty] = propertyValue
 
     const updatePayload: Prisma.CampaignUpdateInput = {
       data: {
@@ -730,6 +735,9 @@ export class CrmCampaignsService {
       ? crmCompanyProperties
       : fields.reduce(
           (acc: Record<string, string | number | undefined>, field) => {
+            if (field === 'all') {
+              return acc
+            }
             if (
               crmCompanyProperties[field] ||
               crmCompanyProperties[field] === null

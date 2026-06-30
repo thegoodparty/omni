@@ -1280,7 +1280,7 @@ export class QueueConsumerService {
   }
 }
 
-const csvEscape = (value) => {
+const csvEscape = (value: PersonOutput[keyof PersonOutput]) => {
   if (value === null || value === undefined) return ''
   const str = String(value)
   const mustQuote = /[",\n]/.test(str)

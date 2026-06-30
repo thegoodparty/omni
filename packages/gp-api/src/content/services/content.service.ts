@@ -190,8 +190,8 @@ export class ContentService extends createPrismaBase(MODELS.Content) {
   async syncContent() {
     const { allEntries = [], deletedEntries = [] } =
       await this.contentfulService.getSync()
-    const recognizedEntries = allEntries.filter((entry: Entry) =>
-      Boolean(CONTENT_TYPE_MAP[entry.sys.contentType.sys.id]),
+    const recognizedEntries = allEntries.filter(
+      (entry: Entry) => entry.sys.contentType.sys.id in CONTENT_TYPE_MAP,
     )
     const { createEntries, updateEntries } =
       await this.getSyncEntriesCategorized(recognizedEntries)
@@ -216,11 +216,12 @@ export class ContentService extends createPrismaBase(MODELS.Content) {
         }
 
         for (const entry of createEntries) {
-          // CMS content types use dynamic string keys — CONTENT_TYPE_MAP is indexed by runtime values
+          // CMS content types use dynamic string keys — narrow the runtime id to
+          // the map's key union before indexing.
           // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-          const contentTypeDef = CONTENT_TYPE_MAP[
-            entry.sys.contentType.sys.id
-          ] as (typeof CONTENT_TYPE_MAP)[keyof typeof CONTENT_TYPE_MAP]
+          const contentTypeId = entry.sys.contentType.sys
+            .id as keyof typeof CONTENT_TYPE_MAP
+          const contentTypeDef = CONTENT_TYPE_MAP[contentTypeId]
           await tx.content.create({
             data: {
               id: entry.sys.id,

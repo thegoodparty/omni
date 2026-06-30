@@ -96,7 +96,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       this.logger.debug({ identity }, 'Successfully created identity:')
       return identity
     } catch (error) {
-      await this.handleApiError(error, { campaign })
+      return await this.handleApiError(error, { campaign })
     }
   }
 
@@ -144,7 +144,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           'Use cases for given identity ID could not be found',
         )
       }
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 
@@ -282,7 +282,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       this.logger.debug({ data }, 'Successfully submitted 10DLC brand:')
       return submissionKey
     } catch (error) {
-      await this.handleApiError(error, { campaign, peerlyIdentityId })
+      return await this.handleApiError(error, { campaign, peerlyIdentityId })
     }
   }
 
@@ -317,7 +317,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
 
       return identityBrand
     } catch (error) {
-      await this.handleApiError(error, {
+      return await this.handleApiError(error, {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
       })
@@ -634,7 +634,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return null
         }
       }
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 
@@ -659,13 +659,13 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           'Peerly API returned 400 Bad Request when verifying CV PIN. This is likely due to an invalid PIN. ',
         )
         // throw new UnprocessableEntityException('PIN could not be validated')
-        await this.handleApiError(e, {
+        return await this.handleApiError(e, {
           campaign,
           peerlyIdentityId,
           httpExceptionClass: UnprocessableEntityException,
         })
       } else {
-        await this.handleApiError(e, { campaign, peerlyIdentityId })
+        return await this.handleApiError(e, { campaign, peerlyIdentityId })
       }
     }
   }
@@ -686,7 +686,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       const { campaign_verify_token: campaignVerifyToken } = data
       return campaignVerifyToken
     } catch (e) {
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 

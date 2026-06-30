@@ -21,5 +21,6 @@ export const parseJsonString = <T>(
         code: z.ZodIssueCode.custom,
         message: errorMessage ?? 'Must be a valid JSON string',
       })
+      return undefined
     }
   }, schema)

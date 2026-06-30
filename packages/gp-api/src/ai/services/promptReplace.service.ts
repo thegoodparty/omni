@@ -181,7 +181,7 @@ export class PromptReplaceService {
     const thisWeek = subDays(now, 7)
     const twoWeeksAgo = subDays(now, 14)
 
-    const emptyBucket = () => ({
+    const emptyBucket = (): Record<string, number> => ({
       total: 0,
       doorKnocking: 0,
       digitalAds: 0,
