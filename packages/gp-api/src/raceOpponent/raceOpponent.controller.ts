@@ -252,12 +252,7 @@ export class RaceOpponentController {
   ): Promise<RouteContrastResponse> {
     await this.raceOpponent.assertAccess(campaign)
     await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
-    return this.contrastRouting.route(
-      campaign.id,
-      campaign.userId,
-      id,
-      body.target,
-    )
+    return this.contrastRouting.route(campaign, id, body.target)
   }
 
   // Candidate edits a contrast's text before routing it. Owner-scoped and gated

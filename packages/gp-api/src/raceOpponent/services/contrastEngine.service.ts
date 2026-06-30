@@ -234,7 +234,7 @@ const toDTO = (row: RaceOpponentContrastRow): RaceOpponentContrastDTO => ({
   status: row.status,
   editCount: row.editCount,
   findingId: row.findingId,
-  routedStoryId: row.routedStoryId,
+  routedWebsiteId: row.routedWebsiteId,
   routedOutreachId: row.routedOutreachId,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,

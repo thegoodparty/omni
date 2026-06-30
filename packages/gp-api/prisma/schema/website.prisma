@@ -17,6 +17,7 @@ model Website {
   domain               Domain?
   contacts             WebsiteContact[]
   views                WebsiteView[]
+  raceOpponentContrasts RaceOpponentContrast[]
 
   @@map("website")
 }
