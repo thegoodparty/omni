@@ -35,12 +35,15 @@ beforeEach(() => {
 })
 
 describe('dashboard/campaign-story page', () => {
-  it('threads the fetched story and website issues to the page', async () => {
-    const story = { why: 'w', background: 'b' }
+  it('threads the fetched story and website why + issues to the page', async () => {
+    const story = { background: 'b' }
     mockServerRequest.mockResolvedValue({ data: story })
     mockFetchUserWebsite.mockResolvedValue({
       content: {
-        about: { issues: [{ title: 'Roads', description: '<p>Fix</p>' }] },
+        about: {
+          bio: '<p>My why</p>',
+          issues: [{ title: 'Roads', description: '<p>Fix</p>' }],
+        },
       },
     })
 
@@ -51,17 +54,19 @@ describe('dashboard/campaign-story page', () => {
       {},
     )
     expect(result.props.initialStory).toEqual(story)
+    expect(result.props.initialBio).toBe('<p>My why</p>')
     expect(result.props.initialIssues).toEqual([
       { title: 'Roads', description: '<p>Fix</p>' },
     ])
   })
 
-  it('passes empty issues when the candidate has no website yet', async () => {
-    mockServerRequest.mockResolvedValue({ data: { why: 'w', background: 'b' } })
+  it('passes an empty why and issues when the candidate has no website yet', async () => {
+    mockServerRequest.mockResolvedValue({ data: { background: 'b' } })
     mockFetchUserWebsite.mockResolvedValue(null)
 
     const result = await Page()
 
+    expect(result.props.initialBio).toBe('')
     expect(result.props.initialIssues).toEqual([])
   })
 

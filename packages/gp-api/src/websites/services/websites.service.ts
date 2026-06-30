@@ -203,6 +203,14 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
     return website?.content?.about?.issues ?? []
   }
 
+  // The candidate's "why" lives on the website bio (shared with the Pro-upgrade
+  // flow), not the campaign story. Returns null when the campaign has no
+  // website/bio yet.
+  async getBioForCampaign(campaignId: number): Promise<string | null> {
+    const website = await this.model.findUnique({ where: { campaignId } })
+    return website?.content?.about?.bio ?? null
+  }
+
   async findByDomainName(domainName: string, include?: Prisma.WebsiteInclude) {
     const domainRecord = await this.client.domain.findUniqueOrThrow({
       where: { name: domainName },

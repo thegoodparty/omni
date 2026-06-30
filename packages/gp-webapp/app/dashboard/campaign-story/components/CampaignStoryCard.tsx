@@ -11,15 +11,13 @@ import {
   Card,
   Textarea,
   CheckIcon,
-  LoaderCircleIcon,
   SparklesIcon,
   WandSparklesIcon,
-  XMarkIcon,
 } from '@styleguide'
-import { FetchError } from 'ofetch'
-import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
-import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { clientRequest } from 'gpApi/typed-request'
+import RewriteSuggestion from './RewriteSuggestion'
+import { useStoryRewrite } from './useStoryRewrite'
 
 export type CampaignStoryField = keyof CampaignStory
 
@@ -69,20 +67,6 @@ const CampaignStoryCard = ({
   const [savedValue, setSavedValue] = useState(initialValue ?? '')
   const [isSaving, setIsSaving] = useState(false)
 
-  // AI "Help me rewrite" suggestion. `rewrite` holds the latest draft; the
-  // card is shown whenever we're generating, have a draft, or hit an error.
-  const [rewrite, setRewrite] = useState<string | null>(null)
-  const [isRewriting, setIsRewriting] = useState(false)
-  const [rewriteError, setRewriteError] = useState(false)
-  // Set when the server returns 403 — the campaign has hit its lifetime AI
-  // rewrite cap. Permanent for the session: no point retrying.
-  const [limitReached, setLimitReached] = useState(false)
-  // Guards against overlapping rewrite calls (e.g. a double-click landing
-  // before the disabled state re-renders), so an older response can't resolve
-  // after a newer one and show a stale suggestion.
-  const rewritingRef = useRef(false)
-  const rewriteActive = isRewriting || rewrite !== null || rewriteError
-
   // Safety net for the navigate-away/refresh case: the only save trigger is
   // blur, so warn before unload if the latest text hasn't been persisted.
   useEffect(() => {
@@ -116,7 +100,6 @@ const CampaignStoryCard = ({
 
   // Autosave on blur. The loop flushes any edits that arrived while a request
   // was in flight, so a quick refocus-edit-reblur can't drop the newer text.
-  // `id` is `keyof CampaignStory`, so the computed-key payload is a valid field.
   const save = async (): Promise<void> => {
     if (savingRef.current) return
     // Nothing to persist (e.g. the user reverted a failed edit back to the
@@ -131,12 +114,9 @@ const CampaignStoryCard = ({
     try {
       while (valueRef.current !== savedRef.current) {
         lastAttempted = valueRef.current
-        // Build the single-field body per id so it satisfies the endpoint's
-        // "at least one field" union type (a computed-key literal would widen
-        // to an index signature and not match).
-        const body =
-          id === 'why' ? { why: lastAttempted } : { background: lastAttempted }
-        await clientRequest('PUT /v1/campaigns/mine/story', body)
+        await clientRequest('PUT /v1/campaigns/mine/story', {
+          background: lastAttempted,
+        })
         savedRef.current = lastAttempted
         setSavedValue(lastAttempted)
       }
@@ -167,44 +147,6 @@ const CampaignStoryCard = ({
     }
   }
 
-  const requestRewrite = async (source: 'initial' | 'retry'): Promise<void> => {
-    const text = valueRef.current.trim()
-    if (!text || rewritingRef.current || limitReached) return
-    rewritingRef.current = true
-    setIsRewriting(true)
-    setRewriteError(false)
-    setRewrite(null)
-    trackEvent(EVENTS.CampaignStory.RewriteRequested, { field: id, source })
-    try {
-      const { data } = await clientRequest(
-        'POST /v1/campaigns/mine/story/rewrite',
-        { field: id, text },
-      )
-      setRewrite(data.rewrite)
-    } catch (error) {
-      // 403 = campaign hit its lifetime rewrite cap. An expected limit, not an
-      // error to report — show the limit notice instead of the generic retry.
-      if (error instanceof FetchError && error.status === 403) {
-        setLimitReached(true)
-        trackEvent(EVENTS.CampaignStory.RewriteLimitReached, { field: id })
-      } else {
-        reportErrorToSentry(error, {
-          context: 'CampaignStoryCard.rewrite',
-          field: id,
-        })
-        setRewriteError(true)
-      }
-    } finally {
-      rewritingRef.current = false
-      setIsRewriting(false)
-    }
-  }
-
-  const discardRewrite = (): void => {
-    setRewrite(null)
-    setRewriteError(false)
-  }
-
   // "Use this" replaces the field with the suggestion and persists it now,
   // rather than waiting for a blur — the user accepted via a button click, so
   // there may be no blur to trigger the autosave.
@@ -212,10 +154,10 @@ const CampaignStoryCard = ({
     valueRef.current = text
     setValue(text)
     onAnsweredChange?.(text.trim().length > 0)
-    trackEvent(EVENTS.CampaignStory.RewriteAccepted, { field: id })
-    discardRewrite()
     void save()
   }
+
+  const rewrite = useStoryRewrite(id, value, acceptRewrite)
 
   const hintBox = (
     <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
@@ -277,85 +219,25 @@ const CampaignStoryCard = ({
           </p>
         )}
 
-        {limitReached && (
+        {rewrite.limitReached && (
           <p className="text-sm text-muted-foreground">
             You&apos;ve reached your AI rewrite limit for this campaign. You can
             still edit your answers yourself.
           </p>
         )}
 
-        {rewriteActive && (
-          <div className="flex flex-col gap-3 rounded-lg border border-primary bg-primary/5 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-primary">
-                <WandSparklesIcon className="size-4" />
-                Suggested rewrite
-              </span>
-              <span className="text-sm text-muted-foreground">
-                From your Campaign Manager
-              </span>
-            </div>
-
-            {isRewriting ? (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <LoaderCircleIcon className="size-4 animate-spin text-primary" />
-                Your Campaign Manager is writing a draft&hellip;
-              </p>
-            ) : rewriteError ? (
-              <p className="text-sm text-destructive">
-                Couldn&apos;t generate a rewrite. Please try again.
-              </p>
-            ) : (
-              <p className="whitespace-pre-wrap text-base text-foreground">
-                {rewrite}
-              </p>
-            )}
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <Button
-                variant="outline"
-                icon={<XMarkIcon />}
-                onClick={() => {
-                  if (rewrite) {
-                    trackEvent(EVENTS.CampaignStory.RewriteDiscarded, {
-                      field: id,
-                    })
-                  }
-                  discardRewrite()
-                }}
-                disabled={isRewriting}
-              >
-                Discard
-              </Button>
-              <Button
-                variant="outline"
-                icon={<WandSparklesIcon />}
-                onClick={() => requestRewrite('retry')}
-                disabled={isRewriting || limitReached}
-              >
-                Try again
-              </Button>
-              <Button
-                icon={<CheckIcon />}
-                onClick={() => rewrite && acceptRewrite(rewrite)}
-                disabled={isRewriting || !rewrite}
-              >
-                Use this
-              </Button>
-            </div>
-          </div>
-        )}
+        {rewrite.rewriteActive && <RewriteSuggestion rewrite={rewrite} />}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           {hintBox}
 
           <div className="flex flex-col gap-2 sm:shrink-0">
             {saveButton}
-            {!rewriteActive && (
+            {!rewrite.rewriteActive && (
               <Button
                 icon={<WandSparklesIcon />}
-                onClick={() => requestRewrite('initial')}
-                disabled={trimmedLength === 0 || limitReached}
+                onClick={() => rewrite.requestRewrite('initial')}
+                disabled={trimmedLength === 0 || rewrite.limitReached}
               >
                 Help me rewrite
               </Button>

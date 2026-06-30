@@ -1,17 +1,11 @@
 import { z } from 'zod'
-import {
-  CampaignStorySchema,
-  CAMPAIGN_STORY_FIELD_MAX_LENGTH,
-} from '@goodparty_org/contracts'
+import { CAMPAIGN_STORY_FIELD_MAX_LENGTH } from '@goodparty_org/contracts'
 
-// why/background are single-sourced from the contract so they can't drift from
-// the stored story shape. 'issue' rewrites a website issue's "Policy focus"
-// (shown on the candidate profile / Campaign Story page); it isn't a story
-// field, so it's appended explicitly.
-export const REWRITE_FIELDS = [
-  ...CampaignStorySchema.keyof().options,
-  'issue',
-] as const
+// The rewritable prompts. `why` (now the website bio) and `background` are the
+// Campaign Story prompts; `issue` rewrites a website issue's "Policy focus"
+// (candidate profile / Campaign Story page). `why` is no longer a CampaignStory
+// column, so the set is listed explicitly rather than derived from the schema.
+export const REWRITE_FIELDS = ['why', 'background', 'issue'] as const
 
 export const RewriteCampaignStorySchema = z
   .object({

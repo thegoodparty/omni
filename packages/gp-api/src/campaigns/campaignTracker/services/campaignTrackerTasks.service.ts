@@ -19,6 +19,7 @@ import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
+import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
 import { buildStaticTrackerTaskRows } from './staticTrackerTasks.util'
@@ -210,18 +211,20 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           opponents: true,
         },
       }),
-      // Issues live on the website now (shared with Pro-upgrade), not the story.
+      // The "why" and issues live on the website now (shared with Pro-upgrade),
+      // not the story.
       this.client.website.findUnique({
         where: { campaignId },
         select: { content: true },
       }),
     ])
 
+    const why = serializeWebsiteBio(website?.content?.about?.bio)
     const issuesText = serializeWebsiteIssues(
       website?.content?.about?.issues ?? [],
     )
     const storyParts = [
-      story?.why ? `Why I'm running:\n${story.why}` : null,
+      why ? `Why I'm running:\n${why}` : null,
       story?.background ? `Background:\n${story.background}` : null,
       issuesText ? `Key issues:\n${issuesText}` : null,
     ].filter((part): part is string => part !== null)
