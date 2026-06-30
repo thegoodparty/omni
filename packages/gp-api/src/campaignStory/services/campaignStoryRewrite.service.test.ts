@@ -58,7 +58,7 @@ describe('CampaignStoryRewriteService', () => {
       5,
     )
 
-    const [prompt] = generateStructured.mock.calls[0]
+    const [prompt] = firstOrThrow(generateStructured.mock.calls)
     expect(prompt).toContain('concrete issues they will fight for')
     expect(prompt).toContain('Infrastructure')
   })
