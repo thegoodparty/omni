@@ -2,6 +2,14 @@ import { CRMCompanyProperties } from 'src/crm/schemas/CRMCompanyProperties.schem
 
 export type CRMCompanyPropertyField = keyof CRMCompanyProperties | 'all'
 
+// The validated CRMCompanyProperties type only ever holds string values, but the
+// filter below explicitly carries `null` through — that null is how a HubSpot
+// field gets cleared. Model the input honestly (each prop optionally `null`) so
+// that field-clearing branch stays type-reachable rather than dead per the type.
+export type CRMCompanyPropertiesInput = {
+  [K in keyof CRMCompanyProperties]?: CRMCompanyProperties[K] | null
+}
+
 /**
  * Narrows a full set of computed CRM company properties down to the subset that
  * should be sent in a HubSpot update. When `fields` is exactly `['all']` the
@@ -9,7 +17,7 @@ export type CRMCompanyPropertyField = keyof CRMCompanyProperties | 'all'
  * truthy (or explicitly `null`) value are carried through.
  */
 export function filterPropertiesForUpdate(
-  crmCompanyProperties: CRMCompanyProperties,
+  crmCompanyProperties: CRMCompanyPropertiesInput,
   fields: Array<CRMCompanyPropertyField>,
 ) {
   const includeAll = fields.length === 1 && fields.includes('all')
@@ -17,7 +25,7 @@ export function filterPropertiesForUpdate(
   return includeAll
     ? crmCompanyProperties
     : fields.reduce(
-        (acc: Record<string, string | number | undefined>, field) => {
+        (acc: Record<string, string | number | null | undefined>, field) => {
           if (field === 'all') {
             return acc
           }

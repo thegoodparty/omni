@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { CRMCompanyProperties } from 'src/crm/schemas/CRMCompanyProperties.schema'
 import { HubSpot } from '../../crm/crm.types'
 import {
+  CRMCompanyPropertiesInput,
   CRMCompanyPropertyField,
   filterPropertiesForUpdate,
 } from './crmCompanyProperties.util'
@@ -95,6 +96,21 @@ describe('filterPropertiesForUpdate', () => {
       // '' is falsy and not null, so 'state' is filtered out.
       expect(result).toEqual({ city: 'Oakland' })
       expect(result).not.toHaveProperty('state')
+    })
+
+    it('passes null values through so HubSpot can clear the field', () => {
+      const properties: CRMCompanyPropertiesInput = {
+        state: null,
+        city: 'Oakland',
+      }
+
+      const result = filterPropertiesForUpdate(properties, [P.state, P.city])
+
+      // null is falsy but the explicit `=== null` guard carries it through —
+      // this is the only mechanism for clearing a field; a refactor to a bare
+      // `!== undefined` guard would silently drop it.
+      expect(result).toEqual({ state: null, city: 'Oakland' })
+      expect(result).toHaveProperty('state', null)
     })
   })
 
