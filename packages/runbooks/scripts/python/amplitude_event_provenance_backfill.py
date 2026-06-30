@@ -35,7 +35,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -235,6 +235,26 @@ def count_call_sites(grep_text: str, key_paths: Sequence[str]) -> dict[str, int]
     for path in key_paths:
         pat = re.compile(r"(?<![\w$.])" + re.escape(path) + r"(?![\w$.])")
         out[path] = len(pat.findall(grep_text))
+    return out
+
+
+def compute_call_site_fields(
+    events_map: Mapping[str, str],
+    grep_text: str,
+    retired_lookup: Callable[[str], str | None],
+) -> dict[str, dict]:
+    """Per-event call-site fields: count at the ref, plus a retirement date for dead ones.
+
+    ``retired_lookup`` is invoked ONLY for key-paths with zero call sites (the small subset
+    worth a targeted ``git log -S`` to attribute when the last call site was removed). Live
+    events get a null retired date with no git work.
+    """
+    counts = count_call_sites(grep_text, list(events_map.values()))
+    out: dict[str, dict] = {}
+    for name, path in events_map.items():
+        count = counts.get(path, 0)
+        retired = retired_lookup(path) if count == 0 else None
+        out[name] = {"call_site_count": count, "call_site_retired_date": retired}
     return out
 
 

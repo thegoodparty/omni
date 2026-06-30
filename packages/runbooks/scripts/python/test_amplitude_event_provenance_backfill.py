@@ -11,6 +11,7 @@ from amplitude_event_provenance_backfill import (
     classify_code_status,
     collect_provenance,
     compile_event_pattern,
+    compute_call_site_fields,
     count_call_sites,
     find_events,
     parse_events_map,
@@ -171,6 +172,26 @@ def test_count_call_sites_no_prefix_overcount():
     # deeper access (.foo) is not the leaf call site either.
     dump = "trackEvent(EVENTS.Dashboard.ViewedTwice)\nx = EVENTS.Dashboard.Viewed.foo\n"
     assert count_call_sites(dump, ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
+
+
+# --------------------------------------------------------------------------- #
+# compute_call_site_fields -- count + zero-crossing wiring
+# --------------------------------------------------------------------------- #
+
+
+def test_compute_call_site_fields_live_event_has_no_retired_date():
+    events_map = {"Dash Viewed": "EVENTS.Dashboard.Viewed"}
+    grep = "trackEvent(EVENTS.Dashboard.Viewed)\n"
+    calls = []
+    fields = compute_call_site_fields(events_map, grep, lambda p: calls.append(p) or "2099-01-01")
+    assert fields["Dash Viewed"] == {"call_site_count": 1, "call_site_retired_date": None}
+    assert calls == []  # lookup not called for a live (count>0) event
+
+
+def test_compute_call_site_fields_zero_count_resolves_retired_date():
+    events_map = {"Dash Viewed": "EVENTS.Dashboard.Viewed"}
+    fields = compute_call_site_fields(events_map, "", lambda p: "2026-06-13")
+    assert fields["Dash Viewed"] == {"call_site_count": 0, "call_site_retired_date": "2026-06-13"}
 
 
 # --------------------------------------------------------------------------- #
