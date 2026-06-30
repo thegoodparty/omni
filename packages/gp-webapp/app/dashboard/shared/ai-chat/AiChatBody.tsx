@@ -85,7 +85,7 @@ function normalizeMarkdown(md: string): string {
   return md
     .split('\n')
     .map((line) => {
-      if (/^\s*```/.test(line)) {
+      if (/^\s*(`{3,}|~{3,})/.test(line)) {
         inFence = !inFence
         return line
       }
@@ -343,6 +343,9 @@ export default function AiChatBody({
     abortRef.current = null
     sendingRef.current = false
     setSending(false)
+    // The body isn't unmounted on close (same key for new-conversation slots),
+    // so reset the guard or a later mic-open wouldn't auto-start dictation.
+    autoDictateStartedRef.current = false
   }, [active])
 
   useEffect(() => {
