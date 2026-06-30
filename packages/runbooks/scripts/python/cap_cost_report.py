@@ -158,7 +158,7 @@ def build_metrics(scope: dict, profile: dict | None, dist: dict) -> list[dict]:
             {"lead": True, "val": fmt_usd(total), "key": "total cohort cost (invoice-validated)"}
         )
 
-    per_run = (total / n_runs) if (total and n_runs) else None
+    per_run = (total / n_runs) if (total is not None and n_runs) else None
     cards.append({"val": fmt_usd(per_run), "key": "per dispatched run"})
     cards.append({"val": fmt_usd(total), "key": "total cohort cost (invoice-validated)"})
 
