@@ -137,6 +137,24 @@ def test_build_rows_preserves_catalog_zero_counts():
     assert r["event_count"] == 0, "Catalog zero should be preserved"
 
 
+def test_build_rows_coerces_nan_counts_to_zero():
+    # Regression: Databricks returns float("nan") for SQL NULLs (the key is present, so
+    # .get's default never applies). NaN would break json.dumps in the sinks and make the
+    # sort non-deterministic, so _num must coerce it to 0 like format_tags does for tags.
+    records = [_record("NullCounts", "active")]
+    catalog = {
+        "NullCounts": {
+            "govern_display_name": "NullCounts",
+            "event_count_30d": float("nan"),
+            "event_count": float("nan"),
+        }
+    }
+    code = {"NullCounts": {"last_code_change_date": "2026-01-01"}}
+    rows = esa.build_rows(records, catalog, code)
+    assert rows[0]["event_count_30d"] == 0
+    assert rows[0]["event_count"] == 0
+
+
 def test_assemble_uses_real_reconcile_for_status(tmp_path):
     # Two catalog events: one firing (active), one quiet & code-present (dormant).
     catalog_df = pd.DataFrame(

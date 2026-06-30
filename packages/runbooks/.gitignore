@@ -28,3 +28,7 @@ scripts/python/instrumentation_data/event-metadata-payload-*.yaml
 # Cached OAuth token for the event-state Google Sheets sink (event_state_gsheet.py).
 # It is a credential — never commit it.
 scripts/python/instrumentation_data/gsheet_token.pickle
+
+# Environment-specific ClickUp page ID written by event_state_clickup_doc.py on first run.
+# The committed value is workspace-specific and bypasses the create path on any other runner.
+scripts/python/instrumentation_data/event_state_doc_state.json

@@ -65,7 +65,11 @@ def _blank(value: Any) -> Any:
 
 
 def _num(value: Any) -> Any:
-    return 0 if value is None else value
+    if value is None:
+        return 0
+    if isinstance(value, float) and math.isnan(value):
+        return 0
+    return value
 
 
 def build_rows(
