@@ -73,5 +73,8 @@ describe('<OpponentResearchProgress>', () => {
       getByText("We've finished compiling everything. Opening your report…"),
     ).toBeInTheDocument()
     expect(getByText('4 of 4 steps complete')).toBeInTheDocument()
+    // The current-step row shows the wrap-up label in the ready branch (not an
+    // advancing step label), so the ready branch's row copy is covered too.
+    expect(getByText('Wrapping up')).toBeInTheDocument()
   })
 })
