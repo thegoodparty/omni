@@ -35,6 +35,19 @@ The compliance flow tracks user progress through these stages:
 | `Voter Outreach - 10DLC Compliance PIN Submitted` | Ops - Set 10 DLC Compliance Status to Compliance PIN Submitted | Compliance Pending | `CampaignTcrComplianceController.submitCampaignVerifyPIN()` |
 | `Voter Outreach - 10DLC Compliance Completed` | Ops - Set 10 DLC Compliance Status to 10 DLC Compliance Complete | Compliant | `QueueConsumerService.handleTcrComplianceCheckMessage()` |
 
+## Peerly Identity ID → Company
+
+When a candidate's Peerly identity is created during 10DLC/TCR submission, gp-api fires `Peerly Identity ID Created` carrying the Peerly identity id. The goal is to store it on the HubSpot **company** record as `peerly_identity_id`, so Campaign Success can match Peerly's 10DLC Slack notifications (which reference only this id) to the right company record in Zapier.
+
+| Event Name | HubSpot Target | Properties | Fired From |
+|-----------|----------------|-----------|------------|
+| `Peerly Identity ID Created` | `peerly_identity_id` on the company | `peerly_identity_id`, `company_hubspot_id` (omitted until the company exists) | `CampaignTcrComplianceService.submitToPeerly()` |
+
+Notes:
+- Fires once, only when the identity is **first created** — not on idempotent retries or existing-identity reuse.
+- Unlike the compliance-status events above (which land on the contact by email and rely on a workflow to copy to the company), this event also sends `company_hubspot_id` (`campaign.data.hubspotId`) so the mapping can target the company directly. The contact id still rides along in `context.traits.hubspotId`.
+- Property keys are snake_case to match the HubSpot property names; `peerly_identity_id` maps 1:1 to the company property.
+
 ## Weekly Tasks Digest Flow
 
 A cron job (`WeeklyTasksDigestService`) fires every Sunday at 11 PM Central Time and sends a `WEEKLY_TASKS_DIGEST` message to the SQS queue. The consumer (`WeeklyTasksDigestHandlerService`) processes all campaigns with a future election date and fires a Segment event per campaign with up to 5 upcoming tasks due Monday through Sunday of the coming week.
@@ -87,6 +100,7 @@ EVENTS.CandidateWebsite.PurchasedDomain     // 'Candidate Website - Purchased do
 EVENTS.Outreach.ComplianceFormSubmitted      // 'Voter Outreach - 10DLC Compliance Form Submitted'
 EVENTS.Outreach.CompliancePinSubmitted       // 'Voter Outreach - 10DLC Compliance PIN Submitted'
 EVENTS.Outreach.ComplianceCompleted          // 'Voter Outreach - 10DLC Compliance Completed'
+EVENTS.Outreach.PeerlyIdentityIdCreated      // 'Peerly Identity ID Created'
 EVENTS.CampaignPlan.WeeklyTasksDigest       // 'Campaign Plan - Weekly Tasks Digest'
 ```
 
