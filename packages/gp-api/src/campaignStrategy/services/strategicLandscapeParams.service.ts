@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import sanitizeHtml from 'sanitize-html'
 import { Campaign } from '../../generated/prisma'
 import { z } from 'zod'
 import { CampaignWith } from '@/campaigns/campaigns.types'
@@ -8,6 +7,7 @@ import { getUserFullName } from '@/users/util/users.util'
 import { RacesService } from '@/elections/services/races.service'
 import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { WebsitesService } from '@/websites/services/websites.service'
+import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from './electionApi.service'
 
@@ -196,40 +196,6 @@ const resolveParty = (
   }
 }
 
-// Website issues are { title, description } objects with HTML descriptions
-// (Quill). The agent's campaign_story.issues field is a single plain-text
-// string, so strip the markup and flatten to title + description blocks.
-const serializeIssues = (
-  issues: { title?: string; description?: string }[],
-): string | null => {
-  const blocks = issues
-    .map(({ title, description }) => {
-      const cleanTitle = title?.trim() ?? ''
-      // sanitizeHtml strips tags but re-encodes entities (& -> &amp;), so
-      // decode the common ones back to plain text for the agent. Decode &amp;
-      // last so a literal "&amp;lt;" doesn't collapse into "<".
-      const cleanDescription = description
-        ? sanitizeHtml(description, {
-            allowedTags: [],
-            allowedAttributes: {},
-          })
-            .replace(/&lt;/g, '<')
-            .replace(/&gt;/g, '>')
-            .replace(/&quot;/g, '"')
-            .replace(/&#39;/g, "'")
-            .replace(/&nbsp;/g, ' ')
-            .replace(/&amp;/g, '&')
-            .trim()
-        : ''
-      if (cleanTitle && cleanDescription) {
-        return `${cleanTitle}\n${cleanDescription}`
-      }
-      return cleanTitle || cleanDescription
-    })
-    .filter((block) => block.length > 0)
-  return blocks.length > 0 ? blocks.join('\n\n') : null
-}
-
 @Injectable()
 export class StrategicLandscapeParamsService {
   constructor(
@@ -298,7 +264,7 @@ export class StrategicLandscapeParamsService {
   // from the agent input.
   private async loadIssuesParam(campaignId: number): Promise<string | null> {
     try {
-      return serializeIssues(
+      return serializeWebsiteIssues(
         await this.websites.getIssuesForCampaign(campaignId),
       )
     } catch (error) {

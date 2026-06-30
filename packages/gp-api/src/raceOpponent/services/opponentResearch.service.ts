@@ -26,6 +26,7 @@ import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { RaceContextFromApi } from '@/campaignStrategy/types/electionApi.types'
 import { getUserFullName } from '@/users/util/users.util'
+import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { RaceOpponentService } from './raceOpponent.service'
 import { SelfResearchGateService } from './selfResearchGate.service'
 import {
@@ -480,15 +481,24 @@ export class OpponentResearchService extends createPrismaBase(
   private async buildPlatform(
     campaignId: number,
   ): Promise<OpponentResearchInput['candidate_platform']> {
-    const story = await this.client.campaignStory.findUnique({
-      where: { campaignId },
-      select: { why: true, background: true, issues: true },
-    })
-    if (!story) return null
+    // Issues live on the website now (shared with Pro-upgrade), flattened to
+    // the plain-text string candidate_platform.issues expects.
+    const [story, website] = await Promise.all([
+      this.client.campaignStory.findUnique({
+        where: { campaignId },
+        select: { why: true, background: true },
+      }),
+      this.client.website.findUnique({
+        where: { campaignId },
+        select: { content: true },
+      }),
+    ])
+    const issues = serializeWebsiteIssues(website?.content?.about?.issues ?? [])
+    if (!story && !issues) return null
     return {
-      why: story.why ?? null,
-      background: story.background ?? null,
-      issues: story.issues ?? null,
+      why: story?.why ?? null,
+      background: story?.background ?? null,
+      issues,
     }
   }
 

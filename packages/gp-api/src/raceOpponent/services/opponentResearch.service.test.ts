@@ -45,9 +45,26 @@ describe('OpponentResearchService.buildParams', () => {
   let service: OpponentResearchService
   let electionApi: { getRaceContext: ReturnType<typeof vi.fn> }
   let findUnique: ReturnType<typeof vi.fn>
+  let websiteFindUnique: ReturnType<typeof vi.fn>
 
-  const build = (story: unknown) => {
-    findUnique.mockResolvedValue(story)
+  // why/background come from the story; issues now come from the website
+  // (shared with Pro-upgrade), so feed the platform's issues through a single
+  // website issue whose serialized form is that text.
+  const build = (
+    platform: {
+      why: string | null
+      background: string | null
+      issues: string | null
+    } | null,
+  ) => {
+    findUnique.mockResolvedValue(
+      platform ? { why: platform.why, background: platform.background } : null,
+    )
+    websiteFindUnique.mockResolvedValue(
+      platform?.issues
+        ? { content: { about: { issues: [{ description: platform.issues }] } } }
+        : null,
+    )
     return service['buildParams'](
       { id: 42, details: { raceId: RACE_ID, city: 'Fayetteville' } } as never,
       OPPONENT,
@@ -57,6 +74,7 @@ describe('OpponentResearchService.buildParams', () => {
   beforeEach(() => {
     electionApi = { getRaceContext: vi.fn(async () => raceContext) }
     findUnique = vi.fn()
+    websiteFindUnique = vi.fn()
     service = new OpponentResearchService(
       {} as never,
       {} as never,
@@ -66,7 +84,10 @@ describe('OpponentResearchService.buildParams', () => {
     // _prisma and logger are property-injected by Nest; stub them for a direct
     // instantiation (Object.assign sidesteps their readonly declarations).
     Object.assign(service, {
-      _prisma: { campaignStory: { findUnique } },
+      _prisma: {
+        campaignStory: { findUnique },
+        website: { findUnique: websiteFindUnique },
+      },
       logger: { warn: vi.fn(), error: vi.fn() },
     })
   })
