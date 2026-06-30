@@ -223,6 +223,21 @@ def parse_events_map(ts_text: str, root: str = "EVENTS") -> dict[str, str]:
     return out
 
 
+def count_call_sites(grep_text: str, key_paths: Sequence[str]) -> dict[str, int]:
+    """Count occurrences of each ``EVENTS.X.Y`` key-path in a grep dump.
+
+    A match must not be part of a longer identifier or a deeper property access: the
+    negative lookbehind rejects a key-path embedded in a longer path, and the lookahead
+    ``(?![\\w$.])`` rejects both a longer name (``ViewedTwice``) and a deeper access
+    (``.foo``) — the leaf key-path is always passed as a call argument, never dotted further.
+    """
+    out: dict[str, int] = {}
+    for path in key_paths:
+        pat = re.compile(r"(?<![\w$.])" + re.escape(path) + r"(?![\w$.])")
+        out[path] = len(pat.findall(grep_text))
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Event-literal extraction -- anchored on the known event universe
 # --------------------------------------------------------------------------- #

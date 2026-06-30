@@ -11,6 +11,7 @@ from amplitude_event_provenance_backfill import (
     classify_code_status,
     collect_provenance,
     compile_event_pattern,
+    count_call_sites,
     find_events,
     parse_events_map,
     parse_git_log,
@@ -143,6 +144,33 @@ def test_parse_events_map_handles_deep_nesting_and_double_quotes():
 
 def test_parse_events_map_absent_returns_empty():
     assert parse_events_map("const OTHER = { a: 'b' }") == {}
+
+
+# --------------------------------------------------------------------------- #
+# count_call_sites -- occurrences of each key-path in a grep dump
+# --------------------------------------------------------------------------- #
+
+
+def test_count_call_sites_counts_each_reference():
+    dump = (
+        "  trackEvent(EVENTS.Dashboard.Viewed)\n"
+        "  trackEvent(EVENTS.Dashboard.Viewed, { a: 1 })\n"
+        "  trackEvent(EVENTS.polls.resultsViewed)\n"
+    )
+    counts = count_call_sites(dump, ["EVENTS.Dashboard.Viewed", "EVENTS.polls.resultsViewed"])
+    assert counts == {"EVENTS.Dashboard.Viewed": 2, "EVENTS.polls.resultsViewed": 1}
+
+
+def test_count_call_sites_zero_when_absent():
+    counts = count_call_sites("nothing here", ["EVENTS.Dashboard.Viewed"])
+    assert counts == {"EVENTS.Dashboard.Viewed": 0}
+
+
+def test_count_call_sites_no_prefix_overcount():
+    # EVENTS.Dashboard.Viewed must not match inside EVENTS.Dashboard.ViewedTwice, and a
+    # deeper access (.foo) is not the leaf call site either.
+    dump = "trackEvent(EVENTS.Dashboard.ViewedTwice)\nx = EVENTS.Dashboard.Viewed.foo\n"
+    assert count_call_sites(dump, ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
 
 
 # --------------------------------------------------------------------------- #
