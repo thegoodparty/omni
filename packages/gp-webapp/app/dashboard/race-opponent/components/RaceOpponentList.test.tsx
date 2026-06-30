@@ -809,6 +809,61 @@ describe('<RaceOpponentList>', () => {
     }
   })
 
+  it('escapes the processing screen if the collect POST hangs past its deadline', async () => {
+    // The processing screen treats an in-flight collect as still-running and the
+    // status poll is paused during that window, so a collect that never resolves
+    // would otherwise trap the user. The 30s deadline must reject, reset
+    // `collecting`, surface the error, and let the screen give way.
+    const errorSnackbar = vi.fn()
+    vi.mocked(useSnackbar).mockReturnValue({
+      successSnackbar: vi.fn(),
+      errorSnackbar,
+      displaySnackbar: vi.fn(),
+    })
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: { ...empty, collectionStatus: 'idle' } },
+    ])
+    // A collect POST that never resolves — only the deadline can end it.
+    const neverResolves = new Promise<never>(() => undefined)
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/collect',
+      () => neverResolves,
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'discovering' }}
+        />,
+      )
+
+      // Poll lands the transient idle, which auto-fires the (hanging) collect.
+      // The screen stays up while the collect is in flight.
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+
+      // Past the 30s deadline the collect rejects: the error surfaces and the
+      // screen gives way to the empty state rather than spinning forever.
+      await vi.advanceTimersByTimeAsync(30000)
+
+      await waitFor(() =>
+        expect(errorSnackbar).toHaveBeenCalledWith(
+          'Failed to start collection. Please try again.',
+        ),
+      )
+      await waitFor(() =>
+        expect(
+          screen.getByText(/no opponent research yet/i),
+        ).toBeInTheDocument(),
+      )
+      expect(
+        screen.queryByText('Researching your opponents'),
+      ).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('leaves the processing screen when an uncontested run settles to a terminal idle', async () => {
     // collect() returns a terminal 'idle' for an uncontested/unavailable race
     // (no collection run dispatched). The screen must NOT wedge — once the

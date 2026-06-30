@@ -445,6 +445,13 @@ const POLL_INTERVAL_MS = 5000
 // visible rather than an abrupt jump from step 4 to the report.
 const READY_HOLD_MS = 1500
 
+// Deadline for the collect POST. The processing screen treats an in-flight
+// collect as "still running" (idleMidRun), and the status poll is paused during
+// that window, so a collect that never resolves would trap the user on the
+// progress screen with no escape. Bounding it lets the catch/finally fire,
+// resetting `collecting` so the screen gives way and the error surfaces.
+const COLLECT_TIMEOUT_MS = 30_000
+
 type Props = {
   initialData: RaceOpponentResponse
   raceContext?: string
@@ -517,11 +524,18 @@ const RaceOpponentList = ({
     if (collectingRef.current) return
     collectingRef.current = true
     setCollecting(true)
+    let deadlineId: ReturnType<typeof setTimeout> | undefined
     try {
-      const { data: result } = await clientRequest(
-        'POST /v1/campaigns/mine/race-opponent/collect',
-        {},
-      )
+      const deadline = new Promise<never>((_, reject) => {
+        deadlineId = setTimeout(
+          () => reject(new Error('collect timed out')),
+          COLLECT_TIMEOUT_MS,
+        )
+      })
+      const { data: result } = await Promise.race([
+        clientRequest('POST /v1/campaigns/mine/race-opponent/collect', {}),
+        deadline,
+      ])
       setData((prev) => ({
         ...prev,
         collectionStatus: result.status,
@@ -529,6 +543,7 @@ const RaceOpponentList = ({
     } catch {
       errorSnackbar('Failed to start collection. Please try again.')
     } finally {
+      clearTimeout(deadlineId)
       collectingRef.current = false
       setCollecting(false)
     }
