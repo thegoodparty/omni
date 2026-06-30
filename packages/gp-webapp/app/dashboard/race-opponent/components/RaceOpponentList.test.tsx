@@ -116,6 +116,13 @@ const empty: RaceOpponentResponse = {
   opponents: [],
 }
 
+// A completed run that found no opponents — the state that surfaces the manual
+// entry form (behind the "Add opponents manually" disclosure).
+const completedEmpty: RaceOpponentResponse = {
+  ...empty,
+  collectionStatus: 'completed',
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(useSnackbar).mockReturnValue({
@@ -557,18 +564,35 @@ describe('<RaceOpponentList>', () => {
     expect(screen.getByText(/last collected/i)).toBeInTheDocument()
   })
 
-  it('shows the manual entry form when collection settled with no opponents', () => {
-    render(<RaceOpponentList initialData={empty} />)
+  it('shows the manual entry form when collection completed with no opponents', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'completed' }}
+      />,
+    )
 
-    expect(screen.getByText(/no opponents found/i)).toBeInTheDocument()
     expect(
-      screen.getByText(/add the opponents you want to analyze/i),
+      screen.getByText(/no opponents found in this analysis/i),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /run the analysis/i }),
+      screen.getByRole('button', { name: /add opponents manually/i }),
     ).toBeInTheDocument()
     expect(
       screen.queryByText(/no opponent research yet/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the never-run prompt (not the manual form) when idle', () => {
+    render(<RaceOpponentList initialData={empty} />)
+
+    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
+    // idle has never run, so it must not claim a finished analysis or offer the
+    // manual form.
+    expect(
+      screen.queryByText(/no opponents found in this analysis/i),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /add opponents manually/i }),
     ).not.toBeInTheDocument()
   })
 
@@ -592,8 +616,11 @@ describe('<RaceOpponentList>', () => {
     })
     const user = userEvent.setup()
 
-    render(<RaceOpponentList initialData={empty} />)
+    render(<RaceOpponentList initialData={completedEmpty} />)
 
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -624,8 +651,11 @@ describe('<RaceOpponentList>', () => {
     )
     const user = userEvent.setup()
 
-    render(<RaceOpponentList initialData={empty} />)
+    render(<RaceOpponentList initialData={completedEmpty} />)
 
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     const submit = screen.getByRole('button', { name: /run the analysis/i })
     const form = submit.closest('form')
@@ -651,8 +681,11 @@ describe('<RaceOpponentList>', () => {
     )
     const user = userEvent.setup()
 
-    render(<RaceOpponentList initialData={empty} />)
+    render(<RaceOpponentList initialData={completedEmpty} />)
 
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -669,8 +702,11 @@ describe('<RaceOpponentList>', () => {
     api.mock('POST /v1/campaigns/mine/race-opponent/collect', pendingForever)
     const user = userEvent.setup()
 
-    render(<RaceOpponentList initialData={empty} />)
+    render(<RaceOpponentList initialData={completedEmpty} />)
 
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /collect now/i }))
 

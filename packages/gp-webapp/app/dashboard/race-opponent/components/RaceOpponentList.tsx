@@ -701,12 +701,29 @@ const RaceOpponentList = ({
                 </p>
               </div>
             </div>
-          ) : (
+          ) : status === 'completed' ? (
             <AddOpponentsForm
               submitting={submittingManual || collecting}
               onSubmit={submitManualOpponents}
-              ranAlready={status === 'completed'}
+              ranAlready
             />
+          ) : (
+            // idle / never-run: no collection has fired yet, so don't claim "no
+            // opponents found" — prompt the candidate to start collection.
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <SwordsIcon className="size-6" aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  No opponent research yet
+                </h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Hit &quot;Collect now&quot; to gather sourced research on the
+                  candidates in your race.
+                </p>
+              </div>
+            </div>
           )
         ) : (
           <section className="flex flex-col gap-3">
