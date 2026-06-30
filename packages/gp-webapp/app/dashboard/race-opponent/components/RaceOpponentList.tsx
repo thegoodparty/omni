@@ -635,7 +635,7 @@ const RaceOpponentList = ({
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={collect}
-              disabled={collecting || isBusy}
+              disabled={collecting || isBusy || submittingManual}
               className="flex items-center gap-1.5"
             >
               <RefreshIcon className="size-4" aria-hidden />
@@ -695,7 +695,7 @@ const RaceOpponentList = ({
             </div>
           ) : (
             <AddOpponentsForm
-              submitting={submittingManual}
+              submitting={submittingManual || collecting}
               onSubmit={submitManualOpponents}
               ranAlready={status === 'completed'}
             />

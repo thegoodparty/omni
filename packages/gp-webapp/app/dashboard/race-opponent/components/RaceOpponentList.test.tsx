@@ -17,6 +17,12 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   trackEvent: vi.fn(),
 }))
 
+// A mock handler that never settles, so the request stays in flight and the
+// component's loading state (collecting / submittingManual) holds for the
+// duration of the assertion.
+const noop = (): void => undefined
+const pendingForever = (): Promise<never> => new Promise<never>(noop)
+
 const withSummary: RaceOpponentResponse = {
   collectionStatus: 'completed',
   lastCollectedAt: '2026-06-20T12:00:00.000Z',
@@ -592,6 +598,48 @@ describe('<RaceOpponentList>', () => {
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
     await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
+  })
+
+  it('disables "Collect now" while a manual submit is in flight', async () => {
+    // Hold the manual POST pending so submittingManual stays true; "Collect
+    // now" must not be clickable during that window (no concurrent paid run).
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/opponents/manual',
+      pendingForever,
+    )
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /collect now/i }),
+      ).toBeDisabled(),
+    )
+  })
+
+  it('disables the manual submit while a collect is in flight', async () => {
+    // Hold the collect POST pending so collecting stays true; the form's "Run
+    // the analysis" must be disabled during that window.
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', pendingForever)
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /collect now/i }))
+
+    // While collecting, the form's submit enters its loading state ("Starting…")
+    // and is disabled — so no concurrent manual run can be triggered.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /starting/i })).toBeDisabled(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /run the analysis/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows a failure state (not the manual form) when collection failed', () => {
