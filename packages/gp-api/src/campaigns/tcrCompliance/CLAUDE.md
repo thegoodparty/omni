@@ -104,8 +104,54 @@ kickoff path must not race it.
 - Strips leading `www.` from the website URL so Peerly's brand `website`/`email` use the
   apex domain, matching the legacy `create()` path.
 
+## Peerly 10DLC finalization — always token-backed
+
+The PIN flow ends by *finalizing* the 10DLC brand so it reaches the carrier (MNO)
+review queue. The one invariant that matters: **a brand must never be finalized
+without a submitted Campaign Verify (CV) token.** A token-less finalization strands
+the identity in Peerly's MNO queue and they have to clear it out by hand.
+
+Peerly's state machine and the only correct sequence:
+
+1. Candidate enters PIN → `verify_pin` moves the CV `APPROVED → VERIFIED` (one-shot;
+   a `VERIFIED` CV rejects a re-entered PIN as invalid).
+2. `create_cv_token` mints the token (only works once the CV is `VERIFIED`).
+3. The token is submitted to the **brand**: `/approve` carries it in its body for a
+   `pending` brand; `/submit` re-attaches it (and re-opens `finalized → pending`) when
+   the brand was already finalized.
+4. `GET /v2/tdlc/{id}/finalize` confirms the registration (mimics the email-link
+   click) so it advances to MNO review. **`/finalize` carries no token of its own** —
+   it only works correctly if step 3 already attached one.
+
+`submitCampaignVerifyTokenToBrand` is the single code path to `/finalize`, and it
+always runs `/approve` (or `/submit` + `/approve`) with a real token first, so the
+auto-finalize is always token-backed. `approve10DLCBrand` **requires** a non-empty
+token and throws `BadRequestException` otherwise — calling it with an empty token was
+the original ENG-7508 bug (the old sweep finalized brands with `campaign_verify_token:
+''`). Do not reintroduce an empty-token default.
+
+**Never call `GET /finalize` directly on a brand** (e.g. during manual recovery)
+unless you have *just* attached a token via `/approve`/`/submit` — a bare finalize is
+exactly the token-less finalization that pages Peerly. `verification_status: VERIFIED`
+alone does **not** mean the brand has the token; the brand can sit at
+`waiting_to_finalize` from an old empty-token `/approve` with no token attached.
+Verify recovery worked by reading back `getProfile().profile.campaign_verify_token`.
+
 ## Gotchas
 
+- **PIN retry self-recovery:** `verify_pin` consumes the PIN once — it rejects an
+  already-`VERIFIED` CV as an invalid PIN. So if a first PIN attempt verified the CV
+  but a downstream Peerly step threw (stranding the record at `submitted`), a naive
+  retry would dead-end with "Invalid PIN" forever. `retrieveCampaignVerifyToken`
+  checks the CV status first and, when it is already `VERIFIED`, skips re-verifying
+  and mints the token so the retry finishes the flow. Don't reintroduce an
+  unconditional `verify_pin` call ahead of that check.
+- **PIN screen can show before a PIN exists:** `deriveComplianceStage` returns
+  `awaiting_pin` from the DB `status` alone (a `submitted` record with a live site),
+  with no knowledge of Peerly's CV state. A candidate whose CV is still `IN_REVIEW` /
+  `REQUESTED` (Peerly hasn't issued a PIN yet) is shown the PIN-entry screen anyway, so
+  "I never got a PIN" reports are expected for those. Gating the screen on the live CV
+  status (`APPROVED`+) is a known follow-up; it needs the CV status surfaced to the FE.
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.

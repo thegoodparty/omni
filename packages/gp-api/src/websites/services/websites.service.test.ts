@@ -3,6 +3,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { PinoLogger } from 'nestjs-pino'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import {
@@ -687,7 +688,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
 
     expect(mockPrisma.website.create).toHaveBeenCalledTimes(1)
     expect(mockPrisma.website.update).toHaveBeenCalledTimes(1)
-    const updateArg = mockPrisma.website.update.mock.calls[0][0]
+    const updateArg = firstOrThrow(mockPrisma.website.update.mock.calls)[0]
     expect(updateArg.where).toEqual({ campaignId: 99 })
     expect(updateArg.data.content.about.bio.trim()).toBeTruthy()
     expect(updateArg.data.content.about.issues.length).toBeGreaterThan(0)
@@ -726,7 +727,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
 
     await service.ensureCompliancePublishableWebsite(namelessUser, campaign)
 
-    const createArg = mockPrisma.website.create.mock.calls[0][0]
+    const createArg = firstOrThrow(mockPrisma.website.create.mock.calls)[0]
     expect(createArg.data.content.main.title).toBe('Vote For The Candidate')
   })
 
@@ -762,7 +763,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
       campaignWithIncompletePosition,
     )
 
-    const createArg = mockPrisma.website.create.mock.calls[0][0]
+    const createArg = firstOrThrow(mockPrisma.website.create.mock.calls)[0]
     const issues = createArg.data.content.about.issues
     expect(issues).toHaveLength(1)
     expect(issues[0].title).not.toMatch(/^Issue \d/)
@@ -785,7 +786,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
 
     expect(mockPrisma.website.create).not.toHaveBeenCalled()
     expect(mockPrisma.website.update).toHaveBeenCalledTimes(1)
-    const updateArg = mockPrisma.website.update.mock.calls[0][0]
+    const updateArg = firstOrThrow(mockPrisma.website.update.mock.calls)[0]
     expect(updateArg.where).toEqual({ campaignId: 99 })
     expect(updateArg.data.content.about.bio.trim()).toBeTruthy()
     expect(updateArg.data.content.about.issues.length).toBeGreaterThan(0)

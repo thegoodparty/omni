@@ -3,6 +3,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common'
 import { describe, it, vi, beforeEach, expect } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { PinoLogger } from 'nestjs-pino'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { FileUpload } from '@/files/files.types'
@@ -91,7 +92,9 @@ describe('CampaignPlanSharesService', () => {
       const { url } = await service.createShare(7, file)
 
       expect(s3.listKeys).toHaveBeenCalledWith(TEST_BUCKET, '7/')
-      const [bucket, body, key, options] = s3.uploadFile.mock.calls[0]
+      const [bucket, body, key, options] = firstOrThrow(
+        s3.uploadFile.mock.calls,
+      )
       expect(bucket).toBe(TEST_BUCKET)
       expect(body).toBe(file.data)
       expect(key).toMatch(/^7\/[0-9a-f-]{36}\.pdf$/)

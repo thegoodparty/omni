@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { ExperimentRunStatus } from '../../../generated/prisma'
 import { CampaignTrackerDispatchService } from './campaignTrackerDispatch.service'
 
@@ -76,7 +77,9 @@ describe('CampaignTrackerDispatchService.dispatchWeeklyRegen', () => {
     h.prisma.campaign.findMany.mockResolvedValueOnce([campaign()])
     await h.service.dispatchWeeklyRegen()
     expect(h.trackerTasks.dispatchGeneration).toHaveBeenCalledTimes(1)
-    expect(h.trackerTasks.dispatchGeneration.mock.calls[0][1]).toBe('weekly')
+    expect(firstOrThrow(h.trackerTasks.dispatchGeneration.mock.calls)[1]).toBe(
+      'weekly',
+    )
   })
 
   it('skips a campaign whose election has already passed', async () => {

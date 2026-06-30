@@ -6,6 +6,7 @@ import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceController } from './campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
 import { ComplianceStateService } from './services/complianceState.service'
@@ -210,7 +211,7 @@ describe('CampaignTcrComplianceController', () => {
     it('accepts a payload with no websiteDomain', async () => {
       await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
 
-      const payload = mockTcrService.createAgentic.mock.calls[0][2]
+      const payload = firstOrThrow(mockTcrService.createAgentic.mock.calls)[2]
       expect(payload.websiteDomain).toBeUndefined()
     })
 

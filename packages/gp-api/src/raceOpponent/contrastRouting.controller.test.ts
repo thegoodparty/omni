@@ -1,13 +1,30 @@
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
+import { PrismaService } from '@/prisma/prisma.service'
 import {
   OutreachStatus,
   OutreachType,
+  Prisma,
   RaceOpponentContrastStatus,
   RaceOpponentFindingKind,
   RaceOpponentResearchStatus,
 } from '@/generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
+
+// Genuine PrismaClientKnownRequestError instances, so the route hits the real
+// PrismaExceptionFilter (it matches on instanceof, which a plain Error fails).
+const prismaP2002 = (target: string) =>
+  new Prisma.PrismaClientKnownRequestError('Unique constraint', {
+    code: 'P2002',
+    clientVersion: 'test',
+    meta: { target: [target] },
+  })
+
+const prismaP2034 = () =>
+  new Prisma.PrismaClientKnownRequestError('Transaction conflict', {
+    code: 'P2034',
+    clientVersion: 'test',
+  })
 
 const service = useTestService()
 
@@ -72,7 +89,7 @@ const route = (id: number, target: 'story' | 'texting', slug = SLUG) =>
   )
 
 describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
-  it('routes a cleared contrast to Campaign Story (draft narrative + linkage + used)', async () => {
+  it('routes a cleared contrast to website issues, creating the website when none exists', async () => {
     const campaign = await seedCampaign(SLUG)
     await seedCompletedSelfPass(campaign.id)
     const contrast = await seedContrast(
@@ -84,24 +101,206 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     const result = await route(contrast.id, 'story')
 
     expect(result.status).toBe(201)
-    expect(result.data.routedStoryId).toBeGreaterThan(0)
+    expect(result.data.routedWebsiteId).toBeGreaterThan(0)
     expect(result.data.contrast.status).toBe(RaceOpponentContrastStatus.used)
-    expect(result.data.contrast.routedStoryId).toBe(result.data.routedStoryId)
+    expect(result.data.contrast.routedWebsiteId).toBe(
+      result.data.routedWebsiteId,
+    )
 
-    // The narrative text was actually written into the story's issues field.
-    const story = await service.prisma.campaignStory.findUniqueOrThrow({
+    // No website existed before — one was created and the contrast became a
+    // structured website issue (issueTag -> title, sentence -> description).
+    const website = await service.prisma.website.findUniqueOrThrow({
       where: { campaignId: campaign.id },
     })
-    expect(story.id).toBe(result.data.routedStoryId)
-    expect(story.issues).toContain(CONTRAST_SENTENCE)
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
 
-    // The contrast row is linked and marked used.
+    // The contrast row is linked to the website and marked used.
     const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.used)
-    expect(row.routedStoryId).toBe(story.id)
+    expect(row.routedWebsiteId).toBe(website.id)
     expect(row.routedOutreachId).toBeNull()
+  })
+
+  it('appends to existing website issues, preserving candidate-authored content', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    await service.prisma.website.create({
+      data: {
+        campaignId: campaign.id,
+        vanityPath: `${SLUG}-site`,
+        content: {
+          about: {
+            bio: '<p>My bio</p>',
+            issues: [{ title: 'Schools', description: 'Fund schools.' }],
+          },
+        },
+      },
+    })
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(201)
+
+    const website = await service.prisma.website.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    // The pre-existing issue and bio survive; the contrast is appended.
+    expect(website.content?.about?.bio).toBe('<p>My bio</p>')
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Schools', description: 'Fund schools.' },
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
+  })
+
+  it('retries onto the append branch when the create races into a campaign_id P2002', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    // Reproduce the production race: the first attempt reads no website and
+    // takes the create branch, but a sibling route creates the row first, so
+    // the create aborts with a campaign_id P2002. We mimic the sibling by
+    // inserting the row as the first $transaction rejects, then let retryIf run
+    // a real second transaction — which now finds the website and must take the
+    // append branch, preserving the sibling's issue rather than 500ing.
+    const prisma = service.app.get(PrismaService)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    const spy = vi
+      .spyOn(prisma, '$transaction')
+      .mockImplementationOnce(async () => {
+        await service.prisma.website.create({
+          data: {
+            campaignId: campaign.id,
+            vanityPath: `${SLUG}-site`,
+            content: {
+              about: { issues: [{ title: 'Schools', description: 'Fund.' }] },
+            },
+          },
+        })
+        return Promise.reject(prismaP2002('campaign_id'))
+      })
+      // Prisma's $transaction has overloads vitest can't infer here
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((arg: any) => realTransaction(arg))
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(201)
+    // First $transaction rejected with P2002; the retry ran a second one.
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2)
+    spy.mockRestore()
+
+    const website = await service.prisma.website.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    // The retry took the append branch: the sibling's issue survives and the
+    // contrast is appended after it (a fresh create would have dropped it).
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Schools', description: 'Fund.' },
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
+
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.used)
+    expect(row.routedWebsiteId).toBe(website.id)
+  })
+
+  it('does not retry a vanity_path P2002 (slug collision surfaces, never loops)', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    // A P2002 on website's OTHER unique column (vanity_path) means a different
+    // campaign already holds this slug — retrying can never clear it. The route
+    // must surface it after a single attempt (PrismaExceptionFilter maps P2002
+    // to 409), not loop the retry.
+    const prisma = service.app.get(PrismaService)
+    const spy = vi
+      .spyOn(prisma, '$transaction')
+      .mockRejectedValue(prismaP2002('vanity_path'))
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(409)
+    // Exactly one attempt — the predicate refused to retry the slug conflict.
+    expect(spy.mock.calls.length).toBe(1)
+    spy.mockRestore()
+  })
+
+  it('retries the append when two routes race a serialization failure (P2034)', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    // The website already exists, so both racing routes take the append branch;
+    // under Serializable the loser aborts with a serialization failure (P2034).
+    await service.prisma.website.create({
+      data: {
+        campaignId: campaign.id,
+        vanityPath: `${SLUG}-site`,
+        content: {
+          about: { issues: [{ title: 'Schools', description: 'Fund.' }] },
+        },
+      },
+    })
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    // First attempt aborts with P2034; retryIf must run a real second
+    // transaction that appends cleanly onto the existing row.
+    const prisma = service.app.get(PrismaService)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    const spy = vi
+      .spyOn(prisma, '$transaction')
+      .mockRejectedValueOnce(prismaP2034())
+      // Prisma's $transaction has overloads vitest can't infer here
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((arg: any) => realTransaction(arg))
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(201)
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2)
+    spy.mockRestore()
+
+    const website = await service.prisma.website.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    // The retry appended onto the existing row: the prior issue is preserved.
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Schools', description: 'Fund.' },
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
+
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.used)
+    expect(row.routedWebsiteId).toBe(website.id)
   })
 
   it('routes a cleared contrast to a pre-send draft Outreach (no send enqueued)', async () => {
@@ -140,7 +339,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.used)
     expect(row.routedOutreachId).toBe(outreach.id)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('409s routing a pending_review contrast (not routable)', async () => {
@@ -160,11 +359,11 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.pending_review)
-    expect(row.routedStoryId).toBeNull()
-    const story = await service.prisma.campaignStory.findUnique({
+    expect(row.routedWebsiteId).toBeNull()
+    const website = await service.prisma.website.findUnique({
       where: { campaignId: campaign.id },
     })
-    expect(story).toBeNull()
+    expect(website).toBeNull()
   })
 
   it('409s routing a blocked contrast (not routable)', async () => {
@@ -218,7 +417,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: theirContrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('403s route when no self-research pass is completed (the gate)', async () => {
@@ -238,7 +437,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('routes an approved contrast (approved is routable)', async () => {
@@ -253,14 +452,14 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     const result = await route(contrast.id, 'story')
 
     expect(result.status).toBe(201)
-    expect(result.data.routedStoryId).toBeGreaterThan(0)
+    expect(result.data.routedWebsiteId).toBeGreaterThan(0)
     expect(result.data.contrast.status).toBe(RaceOpponentContrastStatus.used)
 
     const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.used)
-    expect(row.routedStoryId).toBe(result.data.routedStoryId)
+    expect(row.routedWebsiteId).toBe(result.data.routedWebsiteId)
   })
 
   it('403s route for a non-Pro campaign', async () => {
@@ -279,7 +478,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('403s route when the feature flag is off', async () => {
@@ -301,6 +500,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 })

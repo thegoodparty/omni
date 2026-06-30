@@ -358,10 +358,10 @@ export class BallotReadyService {
     if (electionDate) {
       ;({ gt, lt } = getMonthBounds(electionDate))
     } else {
-      gt = new Date().toISOString().split('T')[0]
+      gt = new Date().toISOString().split('T')[0] ?? ''
       const nextYear = new Date()
       nextYear.setFullYear(nextYear.getFullYear() + 2)
-      lt = nextYear.toISOString().split('T')[0]
+      lt = nextYear.toISOString().split('T')[0] ?? ''
     }
     // zipcodes.lookup returns a 2-letter US abbreviation (or nothing); pin that
     // shape before inlining so only [A-Z]{2} can ever reach the query.
@@ -781,10 +781,11 @@ export const collapseMilestones = (
   }
 }
 
-const toWindow = (bucket: {
+const toWindow = (bucket?: {
   opens: string[]
   closes: string[]
 }): MilestoneWindow | null => {
+  if (!bucket) return null
   const start = earliestDate(bucket.opens)
   const end = latestDate(bucket.closes)
   if (start === null && end === null) return null
@@ -853,7 +854,8 @@ export const selectPreferredOfficeHolder = (
         parseIsoDateAsUTC(a.startAt).getTime() -
         parseIsoDateAsUTC(b.startAt).getTime(),
     )
-  if (upcoming.length) return upcoming[0]
+  const [soonest] = upcoming
+  if (soonest) return soonest
 
   const current =
     active.find((holder) => holder.isCurrent) ??

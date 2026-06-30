@@ -70,6 +70,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -93,6 +94,7 @@ export const Default: Story = {
 }
 
 export const Destructive: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>
@@ -118,6 +120,7 @@ export const Destructive: Story = {
 }
 
 export const WithIcon: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <AlertDialog>
       <AlertDialogTrigger asChild>

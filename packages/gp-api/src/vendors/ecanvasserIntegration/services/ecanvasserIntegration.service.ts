@@ -92,15 +92,10 @@ export class EcanvasserIntegrationService extends createPrismaBase(
 
     return recentInteractions.reduce<Record<string, Record<string, number>>>(
       (acc, interaction) => {
-        const date = interaction.date.toISOString().split('T')[0]
-        if (!acc[date]) {
-          acc[date] = { count: 0 }
-        }
-        acc[date].count++
-        if (!acc[date][interaction.status]) {
-          acc[date][interaction.status] = 0
-        }
-        acc[date][interaction.status]++
+        const date = interaction.date.toISOString().split('T')[0] ?? ''
+        const bucket = (acc[date] ??= { count: 0 })
+        bucket.count = (bucket.count ?? 0) + 1
+        bucket[interaction.status] = (bucket[interaction.status] ?? 0) + 1
         return acc
       },
       {},
@@ -438,7 +433,10 @@ export class EcanvasserIntegrationService extends createPrismaBase(
     let idx = 0
     for (const ecanvasser of ecanvassers) {
       if (ecanvasser.campaign?.user) {
-        ecanvasser.campaign.user = enriched[idx++]
+        const enrichedUser = enriched[idx++]
+        if (enrichedUser) {
+          ecanvasser.campaign.user = enrichedUser
+        }
       }
     }
 

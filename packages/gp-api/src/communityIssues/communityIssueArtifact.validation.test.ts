@@ -66,7 +66,7 @@ describe('validateCommunityIssuesArtifact', () => {
     if (res.ok) {
       expect(res.artifact.issues).toHaveLength(0)
       expect(res.dropped).toHaveLength(1)
-      expect(res.dropped[0].reason).toMatch(/category/i)
+      expect(res.dropped[0]?.reason).toMatch(/category/i)
     }
   })
 
@@ -121,7 +121,7 @@ describe('validateCommunityIssuesArtifact', () => {
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.artifact.issues).toHaveLength(0)
-      expect(res.dropped[0].reason).toMatch(/source/i)
+      expect(res.dropped[0]?.reason).toMatch(/source/i)
     }
   })
 
@@ -142,7 +142,7 @@ describe('validateCommunityIssuesArtifact', () => {
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.artifact.issues).toHaveLength(0)
-      expect(res.dropped[0].reason).toMatch(/source/i)
+      expect(res.dropped[0]?.reason).toMatch(/source/i)
     }
   })
 
@@ -160,7 +160,7 @@ describe('validateCommunityIssuesArtifact', () => {
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.artifact.issues).toHaveLength(0)
-      expect(res.dropped[0].reason).toMatch(/overview/i)
+      expect(res.dropped[0]?.reason).toMatch(/overview/i)
     }
   })
 })

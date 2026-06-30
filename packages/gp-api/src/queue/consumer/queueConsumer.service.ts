@@ -712,6 +712,7 @@ export class QueueConsumerService {
 
     for (const [, groupRows] of Object.entries(groups)) {
       const first = groupRows[0]
+      if (!first) continue
       const { phoneNumber, originalMessage, receivedAt } = first
       const isOptOut = groupRows.some((r) => Boolean(r.isOptOut))
       const hasClusterId = groupRows.some(

@@ -155,7 +155,7 @@ describe('OutreachAttributionService', () => {
 
     const rows = await activitiesFor(outreach.id)
     expect(rows).toHaveLength(1)
-    expect(rows[0].occurredAt).toEqual(date)
+    expect(rows[0]?.occurredAt).toEqual(date)
   })
 
   it('is idempotent: a relaunch does not duplicate records', async () => {
@@ -200,12 +200,12 @@ describe('OutreachAttributionService', () => {
     const rows = await activitiesFor(outreach.id)
     expect(rows.map((r) => r.lalVoterId)).toEqual(['LAL-1', 'LAL-2', 'LAL-3'])
     expect(findContacts).toHaveBeenCalledTimes(2)
-    expect(findContacts.mock.calls[0][0]).toMatchObject({
+    expect(findContacts.mock.calls[0]?.[0]).toMatchObject({
       segment: String(outreach.voterFileFilterId),
       resultsPerPage: 1000,
       page: 1,
     })
-    expect(findContacts.mock.calls[1][0]).toMatchObject({ page: 2 })
+    expect(findContacts.mock.calls[1]?.[0]).toMatchObject({ page: 2 })
   })
 
   it('does nothing when the win-voter-data flag is off', async () => {
@@ -267,8 +267,8 @@ describe('OutreachAttributionService', () => {
 
     const rows = await activitiesFor(outreach.id)
     expect(rows.map((r) => r.lalVoterId)).toEqual(['LAL-7'])
-    expect(rows[0].outreachType).toBe(OutreachType.text)
-    expect(rows[0].attributionSource).toBe(
+    expect(rows[0]?.outreachType).toBe(OutreachType.text)
+    expect(rows[0]?.attributionSource).toBe(
       VoterOutreachAttributionSource.segmentDerived,
     )
   })

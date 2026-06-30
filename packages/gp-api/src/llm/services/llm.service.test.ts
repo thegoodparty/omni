@@ -106,7 +106,7 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
       retries: 0,
     })
 
-    expect(generateObject.mock.calls[0][0].maxOutputTokens).toBe(200)
+    expect(generateObject.mock.calls[0]?.[0].maxOutputTokens).toBe(200)
   })
 
   it('forwards userId as an X-User-Id header on non-streaming calls', async () => {
@@ -124,7 +124,7 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
       retries: 0,
     })
 
-    expect(generateText.mock.calls[0][0].headers).toEqual({
+    expect(generateText.mock.calls[0]?.[0].headers).toEqual({
       'X-User-Id': 'user-123',
     })
   })
@@ -160,11 +160,11 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
       toolChoice: { type: 'function', function: { name: 'extractLocation' } },
     })
 
-    expect(result.toolCalls?.[0].function.name).toBe('extractLocation')
+    expect(result.toolCalls?.[0]?.function.name).toBe('extractLocation')
     expect(
-      JSON.parse(result.toolCalls?.[0].function.arguments ?? '{}'),
+      JSON.parse(result.toolCalls?.[0]?.function.arguments ?? '{}'),
     ).toEqual({ city: 'Austin' })
-    expect(generateText.mock.calls[0][0].toolChoice).toEqual({
+    expect(generateText.mock.calls[0]?.[0].toolChoice).toEqual({
       type: 'tool',
       toolName: 'extractLocation',
     })

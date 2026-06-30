@@ -1,6 +1,7 @@
 import { BadGatewayException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import { EmailService } from 'src/email/email.service'
 import { Campaign, User } from 'src/generated/prisma'
 import type { RaceTargetMetrics } from '@goodparty_org/contracts'
@@ -42,7 +43,7 @@ describe('FilingInstructionsService.emailToCandidate', () => {
 
     expect(fetchLiveRaceTargetMetrics).toHaveBeenCalledWith(campaign)
     expect(sendEmail).toHaveBeenCalledTimes(1)
-    const payload = sendEmail.mock.calls[0][0]
+    const payload = firstOrThrow(sendEmail.mock.calls)[0]
     expect(payload.to).toBe(user.email)
     expect(payload.subject).toBe('Your filing instructions - GoodParty.org')
     expect(payload.message).toContain(
@@ -58,7 +59,7 @@ describe('FilingInstructionsService.emailToCandidate', () => {
   it('sends an HTML body with line breaks so it is not a wall of text', async () => {
     await service.emailToCandidate(campaign, user)
 
-    const payload = sendEmail.mock.calls[0][0]
+    const payload = firstOrThrow(sendEmail.mock.calls)[0]
     expect(payload.html).toContain('<br />')
     expect(payload.html).not.toContain('\n')
     expect(payload.html).toBe(payload.message.replace(/\n/g, '<br />'))
@@ -69,7 +70,7 @@ describe('FilingInstructionsService.emailToCandidate', () => {
 
     await service.emailToCandidate(campaign, user)
 
-    const payload = sendEmail.mock.calls[0][0]
+    const payload = firstOrThrow(sendEmail.mock.calls)[0]
     expect(payload.to).toBe(user.email)
     expect(payload.message).toContain(
       'Filing window: June 1, 2026 – June 15, 2026',

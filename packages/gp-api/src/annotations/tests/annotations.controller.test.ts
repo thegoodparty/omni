@@ -725,7 +725,7 @@ describe('AnnotationsService — review behavior with an actor', () => {
       ['review'],
     )
     expect(listedWithActor).toHaveLength(1)
-    expect(listedWithActor[0].kind).toBe('review')
+    expect(listedWithActor[0]?.kind).toBe('review')
 
     const listedNormally = await annotations.listForBriefing(
       '2026-06-08',

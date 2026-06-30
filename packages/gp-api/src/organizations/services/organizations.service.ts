@@ -187,7 +187,10 @@ export class OrganizationsService extends createPrismaBase(
     let idx = 0
     for (const org of organizations) {
       if (org.owner) {
-        org.owner = enrichedOwners[idx++]
+        const enrichedOwner = enrichedOwners[idx++]
+        if (enrichedOwner) {
+          org.owner = enrichedOwner
+        }
       }
     }
 

@@ -247,7 +247,7 @@ describe('ChatStoreService', () => {
       )
 
       expect(messages).toHaveLength(1)
-      expect(messages[0].content).toBe('only')
+      expect(messages[0]?.content).toBe('only')
     })
 
     it('returns empty when the conversation is soft-deleted', async () => {

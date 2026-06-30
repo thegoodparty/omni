@@ -9,11 +9,11 @@ model CampaignStory {
   why        String?
   background String?
 
-  // The candidate-facing "issues" moved to the website (Website.content.about
-  // .issues, shared with the Pro-upgrade flow); the Campaign Story page and the
-  // agent readers now use those. This column is retained ONLY because race
-  // opponent's contrast-routing still reads/writes it (ContrastRoutingService).
-  // Drop it once that feature is migrated to website issues — see ENG-10524.
+  // No longer read or written by current code: race opponent's contrast routing
+  // moved to website issues (ENG-10603) and every other reader moved earlier
+  // (ENG-10524/10607). Retained for now only so the column survives the rolling
+  // deploy window, where the old image still queries it. Dropped in the
+  // ENG-10603 follow-up once no running image references it.
   issues     String?
 
   // Lifetime count of AI "Help me rewrite" attempts for this campaign, capped

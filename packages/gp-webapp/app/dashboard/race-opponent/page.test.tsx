@@ -83,7 +83,7 @@ const renderableContrast = (
   status: 'cleared',
   editCount: 0,
   findingId: 10,
-  routedStoryId: null,
+  routedWebsiteId: null,
   routedOutreachId: null,
   createdAt: '2026-06-20T12:00:00.000Z',
   updatedAt: '2026-06-20T12:00:00.000Z',

@@ -466,7 +466,7 @@ describe('AiGenerationService', () => {
 
       expect(result.campaignId).toBe(1)
       expect(result.tasks).toHaveLength(1)
-      expect(result.tasks[0].title).toBe('Town Hall Meeting')
+      expect(result.tasks[0]?.title).toBe('Town Hall Meeting')
     })
 
     it('throws when file not found in S3', async () => {
@@ -543,10 +543,10 @@ describe('AiGenerationService', () => {
       )
 
       expect(result).toHaveLength(1)
-      expect(result[0].title).toBe('Event')
-      expect(result[0].flowType).toBe(CampaignTaskType.events)
-      expect(result[0].link).toBe('https://example.com')
-      expect(result[0].id).toMatch(/^event-42-0-/)
+      expect(result[0]?.title).toBe('Event')
+      expect(result[0]?.flowType).toBe(CampaignTaskType.events)
+      expect(result[0]?.link).toBe('https://example.com')
+      expect(result[0]?.id).toMatch(/^event-42-0-/)
     })
 
     it('throws on unknown flowType via Zod parsing', async () => {

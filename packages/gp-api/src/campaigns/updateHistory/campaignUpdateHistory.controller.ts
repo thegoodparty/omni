@@ -69,7 +69,10 @@ export class CampaignUpdateHistoryController {
     let idx = 0
     for (const update of updateHistory) {
       if (update.user) {
-        update.user = enriched[idx++]
+        const enrichedUser = enriched[idx++]
+        if (enrichedUser) {
+          update.user = enrichedUser
+        }
       }
     }
 

@@ -23,18 +23,20 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
    The rule everything serves: **every event must answer a question you would put on a dashboard. If you cannot name the question, do not fire the event.** More events is not more insight; un-asked events are noise.
 
    **Instrument** these moments:
-   - Funnel steps and multi-step workflows, viewed and completed (so we can see drop-off). Any flow with more than one step counts, not just classic onboarding funnels.
+   - Every distinct stage of a multi-step flow, each fired as a `Viewed` (on entry) and a `Completed` (on advance) — per-stage drop-off is the dashboard question, so instrument the whole staircase, not just the first screen and the final outcome. Any flow with more than one step counts, not just classic onboarding funnels. This holds even when a stage does not change the URL (a wizard, stepper, or modal flow): the root `RouteTracker` fires a page view only on a route change, so URL-stable stages are invisible to it and must be instrumented explicitly. The unit is the stage, not the click: the `Viewed` event must fire every time the user enters a stage, including when they press Back and re-enter a stage they already passed. Sub-interactions inside a stage (field edits, toggles) still follow the skip list below. The Back and Next button clicks themselves are also skipped — the stage transition is captured by the stage's `Viewed` / `Completed` events, not by click events on the navigation controls.
    - Primary calls to action: the main action a screen exists to drive.
-   - Outcomes: the user produced the thing the feature makes (a poll sent, a website published).
+   - Outcomes: the user produced the thing the feature makes (a poll sent, a website published). When a flow's final stage both completes the funnel and produces the outcome, fire both — the stage `Completed` (funnel completion) and the outcome event (the thing produced) answer different questions; do not collapse them into one.
    - Blockers and errors that stop a user (they explain drop-off).
+
+   Concrete pattern — a multi-step flow done right (from the live registry): `Onboarding V2` fires `… - {Stage} Viewed` when a screen renders and `… - {Stage} Completed` when the user advances, all within a single route (e.g. `Onboarding V2 - Office Viewed` then `Onboarding V2 - Office Completed`). A purely informational stage with no user decision (a success page, a read-only value-prop slide) is legitimately `Viewed`-only — it presents no action to complete, so omitting `Completed` is correct and does not count as a missing instrumentation. Counter-example to fix, not copy: the `Schedule Text Campaign` wizard fired only `Next` / `Back` / `Submit` clicks, so per-stage entry and completion — and therefore drop-off — are invisible. The fix there is a `Viewed` + `Completed` per stage, not more click events.
 
    **Capture the core action; let the higher-level metric be derived.** Do not mint separate `Activated`, `Converted`, or `First-Time` events. Activation and conversion are metrics defined on top of the action events above. Which specific action counts as activation or conversion for a product (for example, a poll sent in Win) is a product designation that can change without re-instrumenting, and Amplitude derives first-occurrence-per-user from any event automatically. Your job is to make sure the underlying core action is tracked.
 
    **Skip** these:
-   - Pure UI state toggles (open/close, expand/collapse, show/hide). Exception: opening an AI chat and sending a message are real engagement, not chrome. Track both (chat opened and message sent) so we can see the open-to-send drop-off.
-   - In-page navigation with no decision (tab switches, scrolling, carousel arrows). Main navigation destinations are already captured as page views (the root `RouteTracker` fires a Segment `page()` call on every route change), so do not add click events for them unless you need the entry point or source and can name the question it answers.
+   - Opening or closing a single UI element (a menu, modal, accordion, drawer, tooltip — expand/collapse, show/hide). This covers one element's own state, not progress through a flow: closing a modal is a skip, but advancing to the next stage of a wizard is instrumented (see the multi-step rule above). Exception: opening an AI chat and sending a message are real engagement, not chrome. Track both (chat opened and message sent) so we can see the open-to-send drop-off.
+   - In-page navigation with no decision (tab switches, scrolling, carousel arrows). Main navigation destinations are already captured as page views (the root `RouteTracker` fires a Segment `page()` call on every route change), so do not add click events for them unless you need the entry point or source and can name the question it answers. A multi-step flow that advances without changing the URL is **not** in-page navigation of this kind — its stages are captured by no page view and must be instrumented per the multi-step rule above.
    - Hover, focus, mouseover.
-   - Anything a page view already captures (route changes auto-fire a `page()` call via the root `RouteTracker`; do not double-track).
+   - Anything a page view already captures (route changes auto-fire a `page()` call via the root `RouteTracker`; do not double-track). `RouteTracker` fires only on a route change, so this exemption does not reach the stages of a flow that advance without a URL change — those still need explicit events.
    - A variation that a property could capture instead (one event with a `channel` prop beats one event per channel).
 
 2. **Decide where it fires — frontend or backend.**
@@ -97,6 +99,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
        trackEvent(EVENTS.BriefingAssistant.BriefingViewed, { briefingId })
      }, [briefingId])
      ```
+
+     In a URL-stable wizard where the stage component stays mounted across steps, a `useEffect` keyed on a value that does not change on Back (or `[]`) will not re-fire on re-entry. Key the `useEffect` on the active-stage identifier (e.g. `[currentStep]`) so the `Viewed` re-fires every time the user enters the stage, including via Back. Avoid `key={currentStep}` on stage components that hold form state — remounting tears down all component-local state (form values, validation, in-flight requests) on every navigation. Reserve `key={currentStep}` only for purely display stages that carry no local state.
 
    - Action / completion / outcome events fire in the handler, with camelCase properties:
 
@@ -244,4 +248,5 @@ Adds and removes are **independent**. A removal happening in the same change as 
 - Wrong casing — group keys PascalCase, event-name values Title Case, property keys camelCase.
 - Firing a "Viewed" event on every render instead of once in a `useEffect`.
 - Tracking something page views already cover, or a moment no dashboard question depends on.
+- Skipping the intermediate stages of a wizard or stepper because the URL did not change — `RouteTracker` fires only on route changes, so URL-stable stages are invisible to page views and need explicit `Viewed` / `Completed` events.
 - Putting an array or nested object on an event that drives a HubSpot email — flatten the collection into indexed scalar props (`topIssue1Title`, …), see step 5.
