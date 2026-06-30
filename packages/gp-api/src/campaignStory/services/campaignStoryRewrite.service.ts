@@ -75,6 +75,7 @@ export class CampaignStoryRewriteService {
     return [
       `Candidate name: ${candidateName || 'The candidate'}.`,
       `This passage is about ${FIELD_GUIDANCE[input.field]}`,
+      ...(input.title ? [`This policy is titled: "${input.title}".`] : []),
       'Here is what the candidate wrote (it may be rough, short, or',
       'unpolished):',
       '"""',

@@ -18,6 +18,9 @@ export const RewriteCampaignStorySchema = z.object({
   // Trim first so whitespace-only input fails min(1) — there's nothing to
   // rewrite, so reject it rather than spend a Gemini call on blank text.
   text: z.string().trim().min(1).max(CAMPAIGN_STORY_FIELD_MAX_LENGTH),
+  // Optional context: the policy title for an `issue` rewrite, so the prompt
+  // stays anchored to that specific policy.
+  title: z.string().trim().max(CAMPAIGN_STORY_FIELD_MAX_LENGTH).optional(),
 })
 
 export type RewriteCampaignStoryInput = z.infer<

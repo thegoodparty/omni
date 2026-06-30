@@ -273,6 +273,8 @@ export type APIEndpoints = {
     Request: {
       field: keyof CampaignStory | 'issue'
       text: string
+      // Optional context for an `issue` rewrite: the policy title.
+      title?: string
     }
     Response: CampaignStoryRewrite
   }

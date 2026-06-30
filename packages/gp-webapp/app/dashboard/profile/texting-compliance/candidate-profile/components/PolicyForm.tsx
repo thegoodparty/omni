@@ -106,7 +106,7 @@ export default function PolicyForm({
     try {
       const { data } = await clientRequest(
         'POST /v1/campaigns/mine/story/rewrite',
-        { field: 'issue', text },
+        { field: 'issue', text, title: trimmedTitle || undefined },
       )
       setRewrite(data.rewrite)
     } catch (error) {
