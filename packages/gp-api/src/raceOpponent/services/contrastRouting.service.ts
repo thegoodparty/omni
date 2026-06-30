@@ -9,7 +9,10 @@ import {
   RouteContrastToTextingResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
-import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import {
+  isSerializationError,
+  isUniqueConstraintError,
+} from '@/prisma/util/prismaErrors.util'
 import { retryIf } from '@/shared/util/retry-if'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import {
@@ -73,11 +76,13 @@ export class ContrastRoutingService extends createPrismaBase(
   // issues, append, and the per-contrast claim does not serialize them — at
   // Read Committed the second commit would clobber the first's appended issue.
   // The candidate's website issues moved off campaign_story (ENG-10524/10607);
-  // a routed contrast becomes a website issue so it's actually shown. Two
-  // simultaneous routes for a campaign with no website yet both take the
-  // create branch and the loser trips website's @@unique(campaignId) (P2002);
-  // retry so the loser re-reads the now-existing row and takes the safe
-  // append-update branch (Website has no upsert-append in a single statement).
+  // a routed contrast becomes a website issue so it's actually shown. Concurrent
+  // routes for the same campaign conflict two ways, both retried: with no
+  // website yet, both take the create branch and the loser trips website's
+  // @@unique(campaignId) (P2002); with a website present, both append under
+  // Serializable and the loser aborts with a serialization failure (P2034).
+  // Either retry re-reads the now-current row and re-appends cleanly (Website
+  // has no upsert-append in a single statement).
   private async routeToStory(
     campaign: CampaignWith<'user'>,
     contrastId: number,
@@ -137,7 +142,8 @@ export class ContrastRoutingService extends createPrismaBase(
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),
       {
-        shouldRetry: isUniqueConstraintError,
+        shouldRetry: (err) =>
+          isUniqueConstraintError(err) || isSerializationError(err),
         retries: 3,
         factor: 1.5,
         minTimeout: 50,

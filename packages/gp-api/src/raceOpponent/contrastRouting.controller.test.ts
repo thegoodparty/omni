@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
+import { PrismaService } from '@/prisma/prisma.service'
 import {
   OutreachStatus,
   OutreachType,
@@ -144,6 +145,71 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       { title: 'Schools', description: 'Fund schools.' },
       { title: 'Housing', description: CONTRAST_SENTENCE },
     ])
+  })
+
+  it('retries onto the append branch when the create races into P2002', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    // Reproduce the production race: the first attempt reads no website and
+    // takes the create branch, but a sibling route creates the row first, so
+    // the create aborts with P2002. We mimic the sibling by inserting the row
+    // as the first $transaction rejects, then let retryIf run a real second
+    // transaction — which now finds the website and must take the append
+    // branch, preserving the sibling's issue rather than 500ing.
+    const prisma = service.app.get(PrismaService)
+    const realTransaction = prisma.$transaction.bind(prisma)
+    const spy = vi
+      .spyOn(prisma, '$transaction')
+      .mockImplementationOnce(async () => {
+        await service.prisma.website.create({
+          data: {
+            campaignId: campaign.id,
+            vanityPath: `${SLUG}-site`,
+            content: {
+              about: { issues: [{ title: 'Schools', description: 'Fund.' }] },
+            },
+          },
+        })
+        return Promise.reject(
+          Object.assign(new Error('unique'), {
+            name: 'PrismaClientKnownRequestError',
+            code: 'P2002',
+          }),
+        )
+      })
+      // Prisma's $transaction has overloads vitest can't infer here
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .mockImplementation((arg: any) => realTransaction(arg))
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(201)
+    // First $transaction rejected with P2002; the retry ran a second one.
+    expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2)
+    spy.mockRestore()
+
+    const website = await service.prisma.website.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    // The retry took the append branch: the sibling's issue survives and the
+    // contrast is appended after it (a fresh create would have dropped it).
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Schools', description: 'Fund.' },
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
+
+    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
+      where: { id: contrast.id },
+    })
+    expect(row.status).toBe(RaceOpponentContrastStatus.used)
+    expect(row.routedWebsiteId).toBe(website.id)
   })
 
   it('routes a cleared contrast to a pre-send draft Outreach (no send enqueued)', async () => {
