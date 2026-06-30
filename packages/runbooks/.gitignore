@@ -24,3 +24,7 @@ scripts/python/analytics_event_health_report.json
 # Event-health remediation payloads are transient dev-review artifacts (proposals fed to
 # the event-metadata skill), not durable state. See books/monitor-event-health.md.
 scripts/python/instrumentation_data/event-metadata-payload-*.yaml
+
+# Cached OAuth token for the event-state Google Sheets sink (event_state_gsheet.py).
+# It is a credential — never commit it.
+scripts/python/instrumentation_data/gsheet_token.pickle

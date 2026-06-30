@@ -65,7 +65,6 @@ def get_sheets_service(token_path: Path = TOKEN_PATH):
     """OAuth InstalledAppFlow with cached token (write scope). Interactive on first run only.
     Not unit-tested — exercised by the live manual step."""
     from google.auth.transport.requests import Request
-    from google.oauth2.credentials import Credentials  # noqa: F401  (type used implicitly)
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
 
