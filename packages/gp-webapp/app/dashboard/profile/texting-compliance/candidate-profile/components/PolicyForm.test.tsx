@@ -144,9 +144,11 @@ describe('PolicyForm — Help me rewrite', () => {
 
     await user.click(screen.getByRole('button', { name: /use this/i }))
 
-    // The suggestion replaced the editor content and the suggestion card is
-    // dismissed (its "Use this" action is gone).
-    expect(screen.getByTestId('rich-editor')).toHaveValue(SUGGESTION)
+    // The suggestion replaced the editor content (wrapped as HTML) and the
+    // suggestion card is dismissed (its "Use this" action is gone).
+    expect(
+      (screen.getByTestId('rich-editor') as HTMLTextAreaElement).value,
+    ).toContain(SUGGESTION)
     expect(
       screen.queryByRole('button', { name: /use this/i }),
     ).not.toBeInTheDocument()

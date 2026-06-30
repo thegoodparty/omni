@@ -128,14 +128,20 @@ export default function PolicyForm({
     setRewriteError(false)
   }
 
-  // Replace the editor content with the suggestion by remounting it. Wrap the
-  // plain-text rewrite in <p> so `description` holds Quill-shaped HTML
-  // immediately — the remounted editor only emits its real innerHTML one render
-  // later, and Save (always enabled) could otherwise persist raw text.
+  // Replace the editor content with the suggestion by remounting it. The
+  // rewrite is raw Gemini text, so escape HTML entities before wrapping it in
+  // <p>: otherwise dangerouslyPasteHTML drops a literal '<' and the interim
+  // `description` (which Save, always enabled, could persist before the
+  // remounted editor emits its real innerHTML) would be malformed HTML.
   const acceptRewrite = (text: string): void => {
-    setEditorSeed(text)
+    const escaped = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+    setEditorSeed(`<p>${escaped}</p>`)
     setEditorKey((key) => key + 1)
-    setDescription(`<p>${text}</p>`)
+    setDescription(`<p>${escaped}</p>`)
     setDescriptionPlainLength(getBioPlainLength(text))
     discardRewrite()
   }
