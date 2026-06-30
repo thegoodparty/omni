@@ -33,6 +33,8 @@ describe('PaymentEventsService', () => {
   const crm = { getCrmCompanyOwnerName: vi.fn() }
   const tcrComplianceService = { enqueueAgenticKickoffIfNeeded: vi.fn() }
   const purchaseService = { completeCheckoutSession: vi.fn() }
+  const raceOpponentService = { autoCollectOnProUpgrade: vi.fn() }
+  const moduleRef = { get: vi.fn() }
 
   const mockUser = { id: 1, email: 'test@example.com' } as User
   const mockCampaign = {
@@ -96,7 +98,9 @@ describe('PaymentEventsService', () => {
     usersService.patchUserMetaData.mockResolvedValue(undefined)
     campaignsService.findActiveByUserId.mockResolvedValue(mockCampaign)
     campaignsService.patchCampaignDetails.mockResolvedValue(undefined)
-    campaignsService.setIsPro.mockResolvedValue(undefined)
+    campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+    raceOpponentService.autoCollectOnProUpgrade.mockResolvedValue(undefined)
+    moduleRef.get.mockReturnValue(raceOpponentService)
     analytics.trackProPayment.mockResolvedValue(undefined)
     analytics.track.mockResolvedValue(undefined)
     slackService.message.mockResolvedValue(undefined)
@@ -117,6 +121,7 @@ describe('PaymentEventsService', () => {
       analytics as never,
       purchaseService as never,
       tcrComplianceService as never,
+      moduleRef as never,
       logger,
     )
   })
@@ -216,6 +221,55 @@ describe('PaymentEventsService', () => {
         expect.objectContaining({ error: enqueueError }),
         expect.stringContaining('agentic compliance kickoff'),
       )
+      expect(usersService.patchUserMetaData).toHaveBeenCalled()
+    })
+  })
+
+  describe('auto-dispatch opponent collection on Pro upgrade', () => {
+    it('dispatches collection once when checkout flips the campaign to Pro', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(
+        raceOpponentService.autoCollectOnProUpgrade,
+      ).toHaveBeenCalledExactlyOnceWith(mockCampaign.id)
+    })
+
+    it('dispatches collection once when a resumed subscription flips to Pro', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+
+      await service.handleEvent(subscriptionResumedEvent)
+
+      expect(
+        raceOpponentService.autoCollectOnProUpgrade,
+      ).toHaveBeenCalledExactlyOnceWith(mockCampaign.id)
+    })
+
+    it('does not dispatch when the campaign was already Pro (no transition)', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: false })
+
+      await service.handleEvent(subscriptionEvent)
+
+      expect(raceOpponentService.autoCollectOnProUpgrade).not.toHaveBeenCalled()
+    })
+
+    it('does not fail the webhook when the dispatch throws', async () => {
+      campaignsService.setIsPro.mockResolvedValue({ becamePro: true })
+      const dispatchError = new Error('SQS down')
+      raceOpponentService.autoCollectOnProUpgrade.mockRejectedValueOnce(
+        dispatchError,
+      )
+
+      await expect(
+        service.handleEvent(subscriptionEvent),
+      ).resolves.not.toThrow()
+
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ error: dispatchError }),
+        expect.stringContaining('auto-dispatch opponent collection'),
+      )
+      // The Pro upgrade itself still completes.
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
     })
   })

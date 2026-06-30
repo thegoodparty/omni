@@ -6,6 +6,7 @@ import {
   Injectable,
   InternalServerErrorException,
 } from '@nestjs/common'
+import { ModuleRef } from '@nestjs/core'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
 import Stripe from 'stripe'
@@ -27,6 +28,7 @@ import { WrapperType } from 'src/shared/types/utility.types'
 import { PurchaseService } from './purchase.service'
 import { PinoLogger } from 'nestjs-pino'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { RaceOpponentService } from '../../raceOpponent/services/raceOpponent.service'
 
 const { STRIPE_WEBSOCKET_SECRET } = process.env
 if (!STRIPE_WEBSOCKET_SECRET) {
@@ -48,9 +50,35 @@ export class PaymentEventsService {
     @Inject(forwardRef(() => PurchaseService))
     private readonly purchaseService: WrapperType<PurchaseService>,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
+    private readonly moduleRef: ModuleRef,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PaymentEventsService.name)
+  }
+
+  // Auto-start opponent collection the moment a campaign first becomes Pro, so
+  // research is already in flight before the candidate opens /opponent. Gated
+  // and de-duplicated inside RaceOpponentService.autoCollectOnProUpgrade
+  // (flag check + the same in-flight guard as the manual button and the daily
+  // cron). Best-effort: a dispatch failure must never roll back the Pro upgrade
+  // that just succeeded, so swallow and log here rather than rethrow.
+  //
+  // RaceOpponentService is resolved lazily via ModuleRef rather than injected:
+  // importing RaceOpponentModule here closes a module cycle
+  // (Payments -> RaceOpponent -> CampaignStrategy -> Websites -> Payments) that
+  // a single forwardRef can't break.
+  private async dispatchOpponentCollectionOnProUpgrade(campaignId: number) {
+    try {
+      const raceOpponentService = this.moduleRef.get(RaceOpponentService, {
+        strict: false,
+      })
+      await raceOpponentService.autoCollectOnProUpgrade(campaignId)
+    } catch (error) {
+      this.logger.error(
+        { error },
+        `[WEBHOOK] Failed to auto-dispatch opponent collection - Campaign: ${campaignId}`,
+      )
+    }
   }
 
   async handleEvent(event: Stripe.Event) {
@@ -134,7 +162,11 @@ export class PaymentEventsService {
     await this.campaignsService.patchCampaignDetails(campaignId, {
       subscriptionId: subscriptionId as string,
     })
-    await this.campaignsService.setIsPro(campaignId)
+    const { becamePro } = await this.campaignsService.setIsPro(campaignId)
+
+    if (becamePro) {
+      await this.dispatchOpponentCollectionOnProUpgrade(campaignId)
+    }
 
     await Promise.allSettled([
       this.sendProSubscriptionResumedSlackMessage(user, campaign),
@@ -278,7 +310,11 @@ export class PaymentEventsService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       subscriptionId: subscriptionId as string,
     })
-    await this.campaignsService.setIsPro(campaignId)
+    const { becamePro } = await this.campaignsService.setIsPro(campaignId)
+
+    if (becamePro) {
+      await this.dispatchOpponentCollectionOnProUpgrade(campaignId)
+    }
 
     // Pre-payment submissions defer the compliance_setup agent
     // kickoff to here. No-ops when the candidate has no TCR record yet or the
