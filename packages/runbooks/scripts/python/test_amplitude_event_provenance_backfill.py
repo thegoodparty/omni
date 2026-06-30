@@ -197,6 +197,30 @@ def test_compute_call_site_fields_zero_count_resolves_retired_date():
     assert fields["Dash Viewed"] == {"call_site_count": 0, "call_site_retired_date": "2026-06-13"}
 
 
+def test_make_call_site_retired_lookup_returns_last_removal_date(monkeypatch):
+    # The key-path regex piped through parse_git_log differs from the event-name pattern, so
+    # cover it directly: a commit that net-removes the call site -> its date is the zero-crossing.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-06-11", "remove dashboard call (#95)"),
+        "-  trackEvent(EVENTS.Dashboard.Viewed)",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/develop", bf.INSTRUMENTATION_PATHS)
+    assert lookup("EVENTS.Dashboard.Viewed") == "2026-06-11"
+
+
+def test_make_call_site_retired_lookup_none_when_never_removed(monkeypatch):
+    # Key-path only ever added (never net-removed) -> no 'retired' entry -> None, not a silent
+    # wrong date. Guards the failure mode delegate flagged.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-06-11", "add dashboard call (#90)"),
+        "+  trackEvent(EVENTS.Dashboard.Viewed)",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/develop", bf.INSTRUMENTATION_PATHS)
+    assert lookup("EVENTS.Dashboard.Viewed") is None
+
+
 # --------------------------------------------------------------------------- #
 # find_events
 # --------------------------------------------------------------------------- #
