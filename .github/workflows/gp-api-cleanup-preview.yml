@@ -180,7 +180,7 @@ jobs:
       - name: Sweep orphaned gpdb_pr_* databases in-VPC
         run: |
           CLUSTER_ENDPOINT=$(aws rds describe-db-clusters \
-            --db-cluster-identifier gp-api-preview-shared \
+            --db-cluster-identifier gp-api-preview-shared-db \
             --query 'DBClusters[0].Endpoint' \
             --output text 2>/dev/null || true)
 

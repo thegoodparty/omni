@@ -1,7 +1,7 @@
 'use client'
 import { Pencil, Plus } from 'lucide-react'
 import { useState } from 'react'
-import { stripHtml } from 'string-strip-html'
+import { issueDescriptionText } from '@shared/utils/issueDescriptionText'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
 import AlertDialog from '@shared/utils/AlertDialog'
 import { WebsiteIssue } from 'helpers/types'
@@ -25,6 +25,9 @@ interface PolicyPrioritiesProps {
   issues: WebsiteIssue[]
   onChange: (issues: WebsiteIssue[]) => void
   disabled?: boolean
+  // Forwarded to the policy editor: hide its formatting toolbar so it reads as
+  // a plain-text field (used by the Campaign Story surface).
+  hideToolbar?: boolean
 }
 
 const buildFormKey = (mode: PolicyModalMode, index?: number): string =>
@@ -34,6 +37,7 @@ export default function PolicyPriorities({
   issues,
   onChange,
   disabled,
+  hideToolbar,
 }: PolicyPrioritiesProps): React.JSX.Element {
   const [modal, setModal] = useState<ModalState>({ open: false })
   const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(
@@ -116,7 +120,9 @@ export default function PolicyPriorities({
             <div className="min-w-0 flex-1">
               <div className="truncate text-base">{issue.title}</div>
               <div className="truncate text-sm text-foreground">
-                {issue.description ? stripHtml(issue.description).result : ''}
+                {issue.description
+                  ? issueDescriptionText(issue.description)
+                  : ''}
               </div>
             </div>
             <Pencil className="mt-1 h-4 w-4 shrink-0" aria-hidden />
@@ -147,6 +153,7 @@ export default function PolicyPriorities({
           showDelete={isEditing}
           onSave={handleSave}
           onDelete={handleClickDelete}
+          hideToolbar={hideToolbar}
         />
       </ModalOrDrawer>
 

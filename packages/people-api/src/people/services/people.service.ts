@@ -53,13 +53,14 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     const result = await this.client.$queryRaw<BaseDbPerson[]>(
       Prisma.sql`${select} FROM "green"."Voter" v WHERE v."id" = ${id}::uuid AND v."State" = CAST(${state}::text AS "public"."USState") ${districtExistsClause}`,
     )
-    if (!result.length) {
+    const [person] = result
+    if (!person) {
       if (!useVoterOnlyPath) {
         throw new NotFoundException('Person not found in district')
       }
       throw new NotFoundException(`Person with ID ${id} not found`)
     }
-    return transformToPersonOutput(result[0])
+    return transformToPersonOutput(person)
   }
 
   async findPeople(dto: ListPeopleDTO) {

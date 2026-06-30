@@ -21,8 +21,7 @@ function buildDatabaseUrl(): string {
   const baseUrl = process.env.DATABASE_URL || ''
   const connectionLimit =
     parseInt(process.env.PRISMA_CONNECTION_LIMIT || '', 10) || 10
-  const poolTimeout =
-    parseInt(process.env.PRISMA_POOL_TIMEOUT || '', 10) || 20
+  const poolTimeout = parseInt(process.env.PRISMA_POOL_TIMEOUT || '', 10) || 20
 
   const separator = baseUrl.includes('?') ? '&' : '?'
   return `${baseUrl}${separator}connection_limit=${connectionLimit}&pool_timeout=${poolTimeout}`

@@ -38,6 +38,9 @@ describe('HealthService', () => {
     const result = await service.checkHealth()
 
     expect(result).toBe(false)
-    expect(logger.error).toHaveBeenCalledWith({ err: error }, 'Health check failed => ')
+    expect(logger.error).toHaveBeenCalledWith(
+      { err: error },
+      'Health check failed => ',
+    )
   })
 })

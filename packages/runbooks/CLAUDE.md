@@ -30,6 +30,13 @@ runbooks/
 
 When given a task, start by reading `books/INDEX.md` to find the relevant procedure. The index routes to both `books/` and `commands/` — the agent should treat both the same way when reading.
 
+## CAP agent skills (authoring + cost)
+
+Two top-level Claude Code skills (auto-discovered, in `.claude/skills/`) own the CAP experiment workflows that used to be books. Reach for these, not `books/INDEX.md`, for:
+
+- **`build-cap-agent`** — author or port a runbook into a deployed experiment (`experiments/<id>/{manifest.json, instruction.md}`): the instruction skeleton, the broker-quirk CRITICAL RULES, manifest/schema discipline, cloud Databricks querying, and publish + SQS dispatch testing in dev.
+- **`analyze-cap-agent-costs`** — cohort cost analysis of deployed experiment runs: a scope resolver over `experiment_run`, the invoice-validated `costUsd`, per-turn cost curves and a population heatmap, hot-region detection, and per-job profiles.
+
 ## Used by the delegate worker
 
 The `ops/delegate/worker` (in the separate `ops` repo) clones omni at boot via the GitHub App token with a partial + sparse checkout of just this package, and sets `RUNBOOKS_DIR=/app/omni/packages/runbooks` in the agent environment. Updates to `commands/*.md` propagate to the bot on the next agent run with no `ops` redeploy — the clone is fresh each boot. See `ops/delegate/worker/entrypoint.ts` for the clone step and `ops/delegate/README.md` for the operator runbook.

@@ -1,13 +1,21 @@
 'use client'
 
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import Paper from '@shared/utils/Paper'
 import H2 from '@shared/typography/H2'
-import { BookOpenIcon, Button } from '@styleguide'
+import { BookOpenIcon, Button, Card } from '@styleguide'
 import type { CampaignStory } from '@goodparty_org/contracts'
+import type { WebsiteIssue } from 'helpers/types'
+import { useSnackbar } from 'helpers/useSnackbar'
+import {
+  saveAboutFields,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
+import PolicyPriorities from 'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { CAMPAIGN_STORY_SECTIONS } from '../sections'
 import { isStoryFieldAnswered } from '../useCampaignStory'
@@ -17,6 +25,9 @@ import CampaignStoryCard from './CampaignStoryCard'
 interface CampaignStoryPageProps {
   pathname?: string
   initialStory: CampaignStory
+  // The candidate's issues, sourced from their website (shared with the
+  // Pro-upgrade flow). Empty when they have no website/issues yet.
+  initialIssues: WebsiteIssue[]
 }
 
 const answeredFromStory = (
@@ -24,20 +35,48 @@ const answeredFromStory = (
 ): Record<CampaignStoryField, boolean> => ({
   why: isStoryFieldAnswered(story.why),
   background: isStoryFieldAnswered(story.background),
-  issues: isStoryFieldAnswered(story.issues),
 })
 
 const CampaignStoryPage = ({
   pathname,
   initialStory,
+  initialIssues,
 }: CampaignStoryPageProps): React.JSX.Element => {
+  const { errorSnackbar } = useSnackbar()
+  const queryClient = useQueryClient()
   // Seeded from the persisted story, then updated live as each card reports its
-  // answered-state on every keystroke — so the footer appears as soon as all
-  // three have content, without waiting for blur/save.
+  // answered-state on every keystroke — so the footer appears as soon as both
+  // have content, without waiting for blur/save.
   const [answered, setAnswered] = useState(() =>
     answeredFromStory(initialStory),
   )
-  const allAnswered = answered.why && answered.background && answered.issues
+  // Issues are the website issues; edited here via the shared PolicyPriorities
+  // editor and persisted to website.content.about.issues on every change
+  // (saveAboutFields creates the site on first write).
+  const [issues, setIssues] = useState<WebsiteIssue[]>(initialIssues)
+
+  // Persist on every change. saveAboutFields serializes overlapping writes and
+  // creates the website on first save, so no debounce/guard is needed here.
+  // On failure, revert to the pre-edit list so the UI (and the "ready" footer)
+  // reflects what's actually persisted rather than an unsaved optimistic edit.
+  const handleIssuesChange = (next: WebsiteIssue[]): void => {
+    const previous = issues
+    setIssues(next)
+    void saveAboutFields({ issues: next }).then((ok) => {
+      if (!ok) {
+        // Functional revert so a later overlapping edit isn't clobbered: only
+        // roll back if the state still shows this edit's optimistic value.
+        setIssues((current) => (current === next ? previous : current))
+        errorSnackbar('Could not save your issues. Please try again.')
+        return
+      }
+      // Invalidate the shared website cache the plan-tab gate reads, so freshly
+      // saved issues aren't hidden by a stale within-staleTime snapshot.
+      void queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    })
+  }
+
+  const allAnswered = answered.why && answered.background && issues.length > 0
 
   return (
     <FeatureFlagGuard flagKey={CAMPAIGN_STORY_FLAG_KEY}>
@@ -77,6 +116,23 @@ const CampaignStoryPage = ({
                 }
               />
             ))}
+
+            <Card className="p-6">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-xl font-semibold text-foreground">
+                  Your issues
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Two to four concrete fights for your first term. These are
+                  shared with your campaign website.
+                </p>
+              </div>
+              <PolicyPriorities
+                issues={issues}
+                onChange={handleIssuesChange}
+                hideToolbar
+              />
+            </Card>
           </div>
 
           {allAnswered && (

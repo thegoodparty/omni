@@ -187,9 +187,9 @@ describe('getDashboardMenuItems — Know your opponent nav gating', () => {
     expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(false)
   })
 
-  it('hides the nav item for a non-pro campaign even when the flag is on', () => {
+  it('shows the nav item for a non-pro campaign when the flag is on (content is gated at the route, not the nav)', () => {
     const items = links(freeCampaign, { knowYourOpponentEnabled: true })
-    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(false)
+    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(true)
   })
 })
 

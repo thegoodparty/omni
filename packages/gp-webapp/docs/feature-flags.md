@@ -1,6 +1,6 @@
 # Feature Flags
 
-Feature flags are powered by **Amplitude Experiment**. The provider in `app/shared/experiments/FeatureFlagsProvider.tsx` boots the SDK with the current user's traits and exposes hooks for reading variants.
+Feature flags are powered by **Amplitude Experiment**, resolved **server-side by gp-api**. gp-api evaluates Amplitude server-to-server; gp-webapp embeds the result in the SSR render (the "seed") and the client provider (`app/shared/experiments/FeatureFlagsProvider.tsx`) reads from it and exposes hooks. **The browser never calls Amplitude for flag resolution** — so an ad blocker or blocked network can't affect which gated surfaces render. On an identity change the provider re-resolves through the same-origin `GET /api/feature-flags` (which wraps the server resolver `getFlagVariants`), never Amplitude directly.
 
 ## Hooks
 
@@ -58,9 +58,17 @@ export const useCampaignStoryFlag = (trackExposure = true) => {
 
 This keeps the key out of feature code and gives you one place to remove the flag when the experiment ends.
 
-## User traits
+## Resolution and re-resolution
 
-The provider builds an Amplitude `ExperimentUser` from the current user via `helpers/buildUserTraits.ts`. When the user changes (login / logout / impersonation), the provider clears its cache and re-fetches variants. Don't try to manually re-init.
+The SSR seed is resolved for the authenticated user by gp-api. Client-side, the provider re-resolves through `/api/feature-flags` when the identity changes — keyed on the user's segment-relevant traits (`helpers/buildUserTraits.ts`: email / name / phone / zip) plus id, so a same-session trait edit re-evaluates, not just a login/logout. It does **not** call Amplitude.
+
+**Anonymous visitors get no flags — every flag reads `off` and the client makes no resolution call.** This is by design: the client never talks to Amplitude, and gp-api only resolves for an authenticated user. A flag that must be on for a logged-out / marketing page therefore will not work through this provider — resolve it another way.
+
+## E2E overrides
+
+Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `enableCampaignStoryFlag(page)` (`e2e-tests/src/helpers/campaignStory.helper.ts`).
+
+It's honored on every environment **except production** (`process.env.VERCEL_ENV === 'production'` — Vercel's reserved runtime var, not the unreliable `NEXT_PUBLIC_VERCEL_TARGET_ENV`), read only from a cookie, and schema-validated. Flags gate UX, not authz, so the off-prod blast radius is the requester's own gated UI.
 
 ## Server-side flags
 
@@ -83,5 +91,6 @@ Server components currently can't read Amplitude experiments — the provider is
 
 - `app/shared/experiments/FeatureFlagsProvider.tsx` — provider + hooks.
 - `app/shared/experiments/FeatureFlagGuard.tsx` — route-level guard.
-- `helpers/buildUserTraits.ts` — user traits passed to Amplitude.
-- `appEnv.ts` — `NEXT_PUBLIC_AMPLITUDE_API_KEY`.
+- `app/shared/experiments/getFlagVariants.ts` — server resolver (SSR seed).
+- `app/api/feature-flags/route.ts` — same-origin endpoint the client refreshes through.
+- `helpers/buildUserTraits.ts` — segment traits keying client re-resolution.

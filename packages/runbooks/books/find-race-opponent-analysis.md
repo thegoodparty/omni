@@ -1,6 +1,6 @@
 Read the already-collected opponent text plus the candidate's own platform (`bio` + `issues`) and synthesize the analytical read that drives the `/opponent` page: a per-opponent threat tier + why-they-matter, "what you need to know", "where they're soft", and per-issue contrasts (opponent stance vs. the candidate's). This is relaxed, grounded synthesis over text we already have — no web research, no discovery, no fetching, no `verify_quote`.
 
-This is the source runbook for the analysis step. It proves the workflow on real Phase-0 data before we port it into the existing `race_opponent_summary` PMF experiment (ENG-10591). The paired experiment is `experiments/race_opponent_summary/` — Phase 2 already runs it as a descriptive structurer (overview / background / key_positions); this runbook proves the analytical extension that the experiment grows into. See `books/convert-runbook-to-experiment.md` for the port.
+This is the source runbook for the analysis step. It proves the workflow on real Phase-0 data before we port it into the existing `race_opponent_summary` PMF experiment (ENG-10591). The paired experiment is `experiments/race_opponent_summary/` — Phase 2 already runs it as a descriptive structurer (overview / background / key_positions); this runbook proves the analytical extension that the experiment grows into. See `.claude/skills/build-cap-agent/SKILL.md` for the port.
 
 ## Prerequisites
 

@@ -1,5 +1,7 @@
 import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
+import { fetchUserWebsite } from 'helpers/fetchUserWebsite'
+import { normalizeIssues } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import candidateAccess from '../shared/candidateAccess'
 import CampaignStoryPage from './components/CampaignStoryPage'
 
@@ -22,10 +24,16 @@ export default async function Page(): Promise<React.JSX.Element> {
     'GET /v1/campaigns/mine/story',
     {},
   )
+  // Issues live on the website (shared with the Pro-upgrade flow), not the
+  // story. fetchUserWebsite returns null for a candidate with no site yet —
+  // the issues editor then starts empty and creates the site on first save.
+  const website = await fetchUserWebsite()
+  const initialIssues = normalizeIssues(website?.content?.about?.issues)
   return (
     <CampaignStoryPage
       pathname="/dashboard/campaign-story"
       initialStory={initialStory}
+      initialIssues={initialIssues}
     />
   )
 }
