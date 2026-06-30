@@ -663,32 +663,49 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     await this.crm.trackCampaign(campaign.id)
   }
 
+  // Returns whether this call flipped the campaign from non-Pro to Pro, so a
+  // caller can fire a one-time side effect (e.g. auto-dispatching opponent
+  // collection) only on the genuine false->true transition and not on a no-op
+  // re-write of an already-Pro campaign.
   async setIsPro(
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-  ) {
-    const existingCampaign = await this.model.findUnique({
-      where: { id: campaignId },
-      select: {
-        isPro: true,
-        hasFreeTextsOffer: true,
-        freeTextsOfferRedeemedAt: true,
-      },
-    })
+  ): Promise<{ becamePro: boolean }> {
+    // The transition detection (read prior isPro) and the write must serialize:
+    // Stripe delivers webhooks at-least-once, so two concurrent deliveries for
+    // the same subscription could otherwise both read isPro=false, both compute
+    // becamePro=true, and both fire the one-time Pro-upgrade side effects.
+    // Serializable makes the second writer block on the first and observe
+    // isPro=true, so it computes becamePro=false.
+    const { campaign, isBecomingProFirstTime } = await this.client.$transaction(
+      async (tx) => {
+        const existingCampaign = await tx.campaign.findUnique({
+          where: { id: campaignId },
+          select: {
+            isPro: true,
+            hasFreeTextsOffer: true,
+            freeTextsOfferRedeemedAt: true,
+          },
+        })
 
-    const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
-    const hasNeverRedeemedFreeTexts =
-      !existingCampaign?.freeTextsOfferRedeemedAt
-    const shouldGrantOffer = isBecomingProFirstTime && hasNeverRedeemedFreeTexts
+        const isBecomingProFirstTime = !existingCampaign?.isPro && isPro
+        const shouldGrantOffer =
+          isBecomingProFirstTime && !existingCampaign?.freeTextsOfferRedeemedAt
 
-    const campaign = await this.model.update({
-      where: { id: campaignId },
-      data: {
-        isPro,
-        ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
+        const campaign = await tx.campaign.update({
+          where: { id: campaignId },
+          data: {
+            isPro,
+            ...(shouldGrantOffer && { hasFreeTextsOffer: true }),
+          },
+        })
+
+        return { campaign, isBecomingProFirstTime }
       },
-    })
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    )
+
     // Must be in serial so as to not overwrite campaign details w/ concurrent queries
     await this.patchCampaignDetails(campaignId, {
       isProUpdatedAt: formatISO(new Date()),
@@ -708,6 +725,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       }
       await this.crm.trackCampaign(campaignId)
     }
+
+    return { becamePro: isBecomingProFirstTime }
   }
 
   async checkFreeTextsEligibility(campaignId: number): Promise<boolean> {

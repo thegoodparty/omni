@@ -2,8 +2,14 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
 import { Button, Card, ScrollTextIcon, SparklesIcon } from '@styleguide'
 import AlertDialog from '@shared/utils/AlertDialog'
+import { issueDescriptionText } from '@shared/utils/issueDescriptionText'
+import {
+  getUserWebsite,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
 import { CAMPAIGN_STORY_SECTIONS } from 'app/dashboard/campaign-story/sections'
 import {
   isCampaignStoryComplete,
@@ -20,12 +26,30 @@ const CampaignPlanStoryGate = ({
   onGenerate,
 }: CampaignPlanStoryGateProps): React.JSX.Element => {
   const { data: story, isError } = useCampaignStory()
+  // Issues live on the website (shared with Pro-upgrade), not the story.
+  const {
+    data: website,
+    isLoading: websiteLoading,
+    isError: websiteIsError,
+  } = useQuery({
+    queryKey: USER_WEBSITE_QUERY_KEY,
+    queryFn: getUserWebsite,
+    // Always refetch on mount: a candidate who just edited issues on the story
+    // page (a direct saveAboutFields write that doesn't touch this cache) must
+    // see them here, not a stale within-staleTime snapshot that would wrongly
+    // gate them. Mirrors useCampaignStory's refetch for the story fields.
+    refetchOnMount: 'always',
+  })
+  const issues = website?.content?.about?.issues ?? []
   const [confirmOpen, setConfirmOpen] = useState(false)
 
   // Only spin while genuinely loading — an errored fetch leaves data undefined
   // forever, so fall through (fail closed) to the "complete your story" prompt
   // rather than spinning indefinitely.
-  if (story === undefined && !isError) {
+  if (
+    (story === undefined && !isError) ||
+    (websiteLoading && !websiteIsError)
+  ) {
     return (
       <div className="flex h-[40vh] items-center justify-center">
         <div className="size-8 animate-spin rounded-full border-b-2 border-primary" />
@@ -33,7 +57,9 @@ const CampaignPlanStoryGate = ({
     )
   }
 
-  if (!isCampaignStoryComplete(story)) {
+  // Fail open on a website-fetch error: don't read it as "no issues" and block
+  // a candidate who actually has a complete story with real issues.
+  if (!isCampaignStoryComplete(story, websiteIsError || issues.length > 0)) {
     return (
       <Card className={CARD_CLASS}>
         <ScrollTextIcon className="size-8 text-primary" />
@@ -78,6 +104,27 @@ const CampaignPlanStoryGate = ({
             </p>
           </div>
         ))}
+        {issues.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <span className="text-sm font-semibold text-foreground">
+              Your issues
+            </span>
+            <ul className="flex flex-col gap-2">
+              {issues.map((issue, index) => (
+                <li key={index} className="flex flex-col">
+                  <span className="text-sm font-medium text-foreground">
+                    {issue.title}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {issue.description
+                      ? issueDescriptionText(issue.description)
+                      : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
 
       <div className="flex w-full flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2">

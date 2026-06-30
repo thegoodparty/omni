@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { Campaign, Prisma, User } from '../../generated/prisma'
+import { Prisma, User } from '../../generated/prisma'
 import axios, { AxiosError } from 'axios'
 import * as dns from 'node:dns'
 import { promisify } from 'node:util'
@@ -20,9 +20,13 @@ import {
 
 const dnsLookup = promisify(dns.lookup)
 
-type PositionWithTopIssue = Prisma.CampaignPositionGetPayload<{
+export type PositionWithTopIssue = Prisma.CampaignPositionGetPayload<{
   include: { topIssue: true }
 }>
+
+type WebsiteIssue = NonNullable<
+  NonNullable<PrismaJson.WebsiteContent['about']>['issues']
+>[number]
 
 const COMPLIANCE_DEFAULT_ISSUE_TITLE = 'Local Solutions, Not Party Politics'
 
@@ -44,6 +48,21 @@ const buildDefaultComplianceIssue = (displayName: string) => ({
     'and bringing neighbors together to solve local problems.',
 })
 
+// Map a campaign's positions to publishable issues, keeping only complete ones
+// (real title AND description). Placeholder copy like "Issue 1" would survive
+// the publish-readiness check and ship literally to a candidate's site.
+const realIssuesFromCampaign = (
+  campaign: CampaignWith<'campaignPositions'>,
+): { title: string; description: string }[] =>
+  // Prisma include query — TypeScript cannot narrow the included topIssue relation
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+  (campaign.campaignPositions as PositionWithTopIssue[])
+    .map((position) => ({
+      title: position.topIssue?.name ?? '',
+      description: position.description ?? '',
+    }))
+    .filter((issue) => hasText(issue.title) && hasText(issue.description))
+
 // The compliance_setup agent publishes an existing website but cannot author
 // missing copy. Legacy-Pro candidates reach the agentic flow without the
 // pre-payment candidate-profile step that creates the site, so the agent's
@@ -55,7 +74,7 @@ const buildDefaultComplianceIssue = (displayName: string) => ({
 export const applyCompliancePublishFallbacks = (
   content: PrismaJson.WebsiteContent,
   user: User,
-  campaign: Campaign,
+  campaign: CampaignWith<'campaignPositions'>,
 ): PrismaJson.WebsiteContent | null => {
   const displayName = getDisplayName(user)
 
@@ -85,16 +104,21 @@ export const applyCompliancePublishFallbacks = (
   }
 
   // assertReadyToPublish requires every issue to have a non-empty title AND
-  // description, so drop any malformed ones; seed a default only when none
-  // survive. Keeps valid candidate-authored issues intact.
+  // description, so drop any malformed ones; seed only when none survive.
+  // Keeps valid candidate-authored issues intact, and prefers the candidate's
+  // real campaign positions over the generic default (legacy-Pro candidates
+  // often have positions but an empty about.issues — ENG-10602).
   const validIssues = (about.issues ?? []).filter(
     (issue) => hasText(issue.title) && hasText(issue.description),
   )
   if (validIssues.length === 0 || validIssues.length !== about.issues?.length) {
+    const realIssues = realIssuesFromCampaign(campaign)
     nextAbout.issues =
       validIssues.length > 0
         ? validIssues
-        : [buildDefaultComplianceIssue(displayName)]
+        : realIssues.length > 0
+          ? realIssues
+          : [buildDefaultComplianceIssue(displayName)]
     changed = true
   }
 
@@ -111,21 +135,9 @@ export const applyCompliancePublishFallbacks = (
 @Injectable()
 export class WebsitesService extends createPrismaBase(MODELS.Website) {
   createByCampaign(user: User, campaign: CampaignWith<'campaignPositions'>) {
-    const campaignPositions =
-      // Prisma include query — TypeScript cannot narrow the included relations at compile time
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      campaign.campaignPositions as PositionWithTopIssue[]
-    // Keep only complete positions (real title AND description). Emitting
-    // placeholder copy like "Issue 1" / "Issue 1 description" would survive
-    // the publish-readiness check and ship literally to a candidate's site.
-    // Seed a default when none survive so this stays publishable for the
-    // direct POST /websites caller too (which has no fallback after).
-    const realIssues = campaignPositions
-      .map((position) => ({
-        title: position.topIssue?.name ?? '',
-        description: position.description ?? '',
-      }))
-      .filter((issue) => hasText(issue.title) && hasText(issue.description))
+    // Seed a default when no real positions survive so this stays publishable
+    // for the direct POST /websites caller too (which has no fallback after).
+    const realIssues = realIssuesFromCampaign(campaign)
     const issues =
       realIssues.length > 0
         ? realIssues
@@ -181,6 +193,14 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
         data: { content: patched },
       })
     }
+  }
+
+  // The candidate's issues live on the website content (shared with the
+  // Pro-upgrade flow), not the campaign story. Returns [] when the campaign
+  // has no website yet.
+  async getIssuesForCampaign(campaignId: number): Promise<WebsiteIssue[]> {
+    const website = await this.model.findUnique({ where: { campaignId } })
+    return website?.content?.about?.issues ?? []
   }
 
   async findByDomainName(domainName: string, include?: Prisma.WebsiteInclude) {

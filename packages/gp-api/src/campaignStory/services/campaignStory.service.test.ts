@@ -35,7 +35,6 @@ describe('CampaignStoryService.upsertForCampaign', () => {
     mockPrisma.campaignStory.update.mockResolvedValue({
       why: null,
       background: 'b',
-      issues: null,
     })
 
     const result = await service.upsertForCampaign(99, { background: 'b' })
@@ -44,7 +43,7 @@ describe('CampaignStoryService.upsertForCampaign', () => {
       where: { campaignId: 99 },
       data: { background: 'b' },
     })
-    expect(result).toEqual({ why: null, background: 'b', issues: null })
+    expect(result).toEqual({ why: null, background: 'b' })
   })
 
   it('rethrows errors that are not unique-constraint violations', async () => {

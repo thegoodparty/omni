@@ -5,7 +5,6 @@ import {
   MODELS,
 } from 'src/prisma/util/prisma.util'
 import { RaceFilterDto } from './races.schema'
-import { PrismaService } from 'src/prisma/prisma.service'
 import { Prisma } from '../generated/prisma'
 import { getDedupedRacesBySlug } from './races.util'
 import {
@@ -28,7 +27,7 @@ export interface FilingDetailsByBrHashResult extends FilingFeeResult {
 
 @Injectable()
 export class RacesService extends createPrismaBase(MODELS.Race) {
-  constructor(private readonly prisma: PrismaService) {
+  constructor() {
     super()
   }
 

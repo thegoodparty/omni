@@ -521,7 +521,10 @@ describe('CampaignForm', () => {
 
   describe('defaults for nullable fields', () => {
     it('handles null data and details gracefully', () => {
-      renderForm({ data: undefined, details: undefined } as Partial<Campaign>)
+      renderForm({
+        data: undefined,
+        details: undefined,
+      } as Partial<CampaignWithLiveContext>)
 
       expect(screen.getByText('Campaign Status')).toBeInTheDocument()
       expect(screen.getByText('Location')).toBeInTheDocument()

@@ -10,19 +10,16 @@ import React, {
   useMemo,
   useCallback,
 } from 'react'
-import {
-  Experiment,
-  ExperimentClient,
-  ExperimentUser,
-  Variant,
-} from '@amplitude/experiment-js-client'
+import type { Variant } from '@amplitude/experiment-js-client'
 import { noop, noopAsync } from '@shared/utils/noop'
 import { getReadyAnalytics } from '@shared/utils/analytics'
 import { useUser } from '@shared/hooks/useUser'
 import { reportErrorToSentry } from '@shared/sentry'
 import { buildUserTraits } from 'helpers/buildUserTraits'
-import { NEXT_PUBLIC_AMPLITUDE_API_KEY } from 'appEnv'
-import type { ExperimentVariants } from '@goodparty_org/contracts'
+import {
+  ExperimentVariantsResponseSchema,
+  type ExperimentVariants,
+} from '@goodparty_org/contracts'
 
 interface FeatureFlagsContextValue {
   ready: boolean
@@ -47,140 +44,194 @@ export const FeatureFlagsContext =
 
 interface FeatureFlagsProviderProps {
   children: ReactNode
-  // Variants resolved server-side by gp-api for the current user. When present,
-  // the client trusts them (correct on first paint, no Amplitude round-trip)
-  // and skips the initial client fetch.
+  // Variants resolved server-side by gp-api for the current user and embedded
+  // in the SSR render. The client trusts these and re-resolves only through
+  // gp-api (never Amplitude directly), so an ad blocker or blocked network can
+  // never affect which gated surfaces render.
   initialVariants?: ExperimentVariants | null
 }
+
+// Same-origin webapp route that returns gp-api-resolved variants via
+// getFlagVariants. The browser never calls Amplitude for flag resolution.
+const VARIANTS_ROUTE = '/api/feature-flags'
 
 export const FeatureFlagsProvider = ({
   children,
   initialVariants,
 }: FeatureFlagsProviderProps): React.JSX.Element => {
-  const clientRef = useRef<ExperimentClient | null>(null)
-  const hasSeed = !!initialVariants && Object.keys(initialVariants).length > 0
+  // getFlagVariants returns null for "no answer" (anonymous / server error) and
+  // {} for "resolved, zero flags assigned" — both authoritative. A non-null seed
+  // means trust it; requiring ≥1 key would refetch needlessly for a zero-flag
+  // authed user on every SSR render.
+  const hasSeed = initialVariants !== null && initialVariants !== undefined
+  const [variants, setVariants] = useState<Record<string, Variant>>(
+    initialVariants ?? {},
+  )
   const [ready, setReady] = useState<boolean>(hasSeed)
-  const [rev, setRev] = useState<number>(0)
   const [user, , isUserLoading] = useUser()
-  const prevUserIdRef = useRef<string | undefined>(undefined)
-  // The experiment user (id + traits) last sent to Amplitude. The fetch effect
-  // keys its skip-refetch decision on this, not just the id, so a trait change
-  // (email/name/phone/zip — all segment inputs) on the same user still refetches.
-  const lastFetchedKeyRef = useRef<string | undefined>(undefined)
-  // The server-seeded variants already cover the first resolved user, so the
-  // first identity resolution should adopt that user without refetching (a
-  // blocked client fetch could otherwise wipe the seed and bounce the user).
-  const seededRef = useRef<boolean>(hasSeed)
+  // Whether the first identity has settled, and the fingerprint of the user the
+  // current variants reflect — so we re-resolve on a real change (login /
+  // logout / impersonation / a segment-relevant trait edit), but not on the
+  // transient anonymous flash during Clerk hydration.
+  const resolvedRef = useRef<boolean>(false)
+  const resolvedKeyRef = useRef<string | undefined>(undefined)
+  // $exposure fires at most once per flag key per mount, matching the Amplitude
+  // SDK's automatic-exposure dedup. Reset whenever the variant set is replaced.
+  const exposedRef = useRef<Set<string>>(new Set())
+  // Monotonic id for identity-driven refreshes. They're fire-and-forget, so if a
+  // newer one starts (or a logout clears state) before an older fetch resolves,
+  // only the latest may commit — otherwise a slow stale response could overwrite
+  // the current identity's variants (last-to-resolve wins).
+  const refreshIdRef = useRef<number>(0)
 
-  const buildExperimentUser = useCallback((): ExperimentUser => {
-    if (!user) return {}
-    return {
-      user_id: String(user.id),
-      user_properties: buildUserTraits(user),
-    }
-  }, [user])
-
-  const refresh = useCallback(async () => {
-    const client = clientRef.current
-    if (!client) return
-    try {
-      const currentUserId = user ? String(user.id) : undefined
-      if (prevUserIdRef.current !== currentUserId) {
-        client.clear()
-        prevUserIdRef.current = currentUserId
+  const trackExposure = useCallback((key: string, variant?: Variant): void => {
+    if (exposedRef.current.has(key)) return
+    exposedRef.current.add(key)
+    void (async () => {
+      try {
+        const analytics = await getReadyAnalytics()
+        if (analytics && typeof analytics.track === 'function') {
+          analytics.track('$exposure', {
+            flag_key: key,
+            variant: variant?.value,
+          })
+        }
+      } catch (error) {
+        reportErrorToSentry(
+          error instanceof Error ? error : new Error(String(error)),
+          { context: 'FeatureFlagsProvider.exposureTrack' },
+        )
       }
-      const experimentUser = buildExperimentUser()
-      await client.fetch(experimentUser)
-      lastFetchedKeyRef.current = JSON.stringify(experimentUser)
-      setReady(true)
-      setRev((v) => v + 1)
+    })()
+  }, [])
+
+  // Re-resolve through gp-api (server-side), never from Amplitude in the
+  // browser — so an ad blocker or blocked network can't affect flag resolution.
+  const refresh = useCallback(async (): Promise<void> => {
+    const refreshId = ++refreshIdRef.current
+    // Resolve to the gp-api result, or fail safe to empty. refresh() runs on
+    // identity changes without pre-clearing, so a transient failure (non-ok,
+    // unparseable, or network error) must NOT leave the previous identity's
+    // variants in place — an unresolvable flag has to read off, never stale.
+    let next: Record<string, Variant> = {}
+    try {
+      // redirect: 'manual' so an expired-session redirect to /login surfaces as
+      // an opaque (ok: false) response we skip — not a followed 200 HTML body
+      // that res.json() would throw on, which would spam Sentry on routine auth
+      // expiry.
+      const res = await fetch(VARIANTS_ROUTE, {
+        credentials: 'include',
+        redirect: 'manual',
+      })
+      if (res.ok) {
+        const parsed = ExperimentVariantsResponseSchema.safeParse(
+          await res.json(),
+        )
+        if (parsed.success) {
+          next = parsed.data.variants
+        } else {
+          // 200 but the body doesn't match the contract (gp-api deploy skew /
+          // contract drift): fail safe to empty, but surface it.
+          reportErrorToSentry(
+            new Error('Feature flags response failed schema validation'),
+            { context: 'FeatureFlagsProvider.refresh' },
+          )
+        }
+      } else if (res.type !== 'opaqueredirect') {
+        // A non-ok response that ISN'T the expected auth-expiry redirect (opaque)
+        // is a real failure (e.g. 5xx) — still fail safe to empty, but surface it.
+        // Only the redirect case is silenced.
+        reportErrorToSentry(
+          new Error(`Feature flags fetch failed: ${res.status}`),
+          { context: 'FeatureFlagsProvider.refresh' },
+        )
+      }
     } catch (error) {
       reportErrorToSentry(
         error instanceof Error ? error : new Error(String(error)),
         { context: 'FeatureFlagsProvider.refresh' },
       )
-      setReady(true)
+    } finally {
+      // Skip a stale response if a newer refresh (or a logout) has superseded
+      // this one — otherwise a slow fetch for an old identity could clobber the
+      // current store.
+      if (refreshId === refreshIdRef.current) {
+        setVariants(next)
+        // Reset the exposure dedup only when we actually resolved a new variant
+        // set. Resetting on a transient failure (next === {}) would let the same
+        // key re-fire $exposure once the set is replaced on recovery — a
+        // double-count for the same session.
+        if (Object.keys(next).length > 0) {
+          exposedRef.current = new Set()
+        }
+        setReady(true)
+      }
     }
-  }, [buildExperimentUser, user])
+  }, [])
 
-  // Initialize the client once. fetchOnStart is disabled so the SDK never
-  // evaluates against an empty (pre-hydration) user; we drive fetching from the
-  // effect below once the user is known. initialVariants seeds the store so
-  // gated surfaces render immediately when the server resolved them.
   useEffect(() => {
-    const key = NEXT_PUBLIC_AMPLITUDE_API_KEY
-    if (!key) {
-      console.warn('Experiment disabled: missing key')
-      setReady(true)
-      return
-    }
-    if (clientRef.current) return
-
-    clientRef.current = Experiment.initialize(key, {
-      automaticExposureTracking: true,
-      fetchOnStart: false,
-      initialVariants: hasSeed ? (initialVariants ?? undefined) : undefined,
-      exposureTrackingProvider: {
-        track: async (exposure) => {
-          try {
-            const analytics = await getReadyAnalytics()
-            if (analytics && typeof analytics.track === 'function') {
-              analytics.track('$exposure', exposure)
-            }
-          } catch (error) {
-            reportErrorToSentry(
-              error instanceof Error ? error : new Error(String(error)),
-              { context: 'FeatureFlagsProvider.exposureTrack' },
-            )
-          }
-        },
-      },
-    })
-  }, [hasSeed, initialVariants])
-
-  // Fetch only once the user identity is settled. Gating on isUserLoading
-  // prevents the userless evaluation that would resolve gated flags to their
-  // default (off) and redirect an enabled user mid-hydration.
-  useEffect(() => {
-    if (!clientRef.current) return
     if (isUserLoading) return
+    // Fingerprint the identity by the same segment inputs gp-api/Amplitude
+    // resolve on, so a same-session trait edit (e.g. zip) re-resolves too — not
+    // just a user-id change.
+    const key = user
+      ? JSON.stringify({ id: user.id, traits: buildUserTraits(user) })
+      : undefined
 
-    const currentUserId = user ? String(user.id) : undefined
-    const fetchKey = JSON.stringify(buildExperimentUser())
-    if (seededRef.current) {
-      seededRef.current = false
-      // The seed was resolved server-side for the authenticated SSR user. Trust
-      // it only if the client confirms an authenticated user; if the client
-      // resolved anonymous, the seed is for the wrong identity, so discard it
-      // and fetch as the actual (anonymous) user instead.
-      if (user) {
-        prevUserIdRef.current = currentUserId
-        lastFetchedKeyRef.current = fetchKey
+    if (!resolvedRef.current) {
+      resolvedRef.current = true
+      resolvedKeyRef.current = key
+      // Trust the SSR seed whenever the server produced one, or stay empty for a
+      // genuinely anonymous visitor — either way, no fetch. Critically, do NOT
+      // discard the seed just because the client reports no user yet: an ad
+      // blocker can break Clerk's client SDK (its frontend API is a tracker-list
+      // domain) so useUser reports signed-out even while the server session that
+      // produced the seed is valid. The seed is the server's authoritative
+      // answer; discarding it on a client-only signal reintroduces the exact
+      // ad-blocker failure this whole change exists to fix. Re-resolution still
+      // happens on an observed identity change (below).
+      if (hasSeed || !user) {
         setReady(true)
         return
       }
-      clientRef.current.clear()
-      refresh()
+      void refresh()
       return
     }
-    if (lastFetchedKeyRef.current === fetchKey && ready) return
-    refresh()
-  }, [isUserLoading, user, refresh, ready, buildExperimentUser])
 
-  const value = useMemo<FeatureFlagsContextValue>(() => {
-    const client = clientRef.current
-    return {
-      ready,
-      variant: (key: string, fallback?: Variant): Variant =>
-        client
-          ? client.variant(key, fallback)
-          : (fallback ?? { value: undefined }),
-      all: (): Record<string, Variant> => (client ? client.all() : {}),
-      exposure: (key: string): void => client?.exposure(key),
-      refresh,
-      clear: (): void => client?.clear(),
+    if (key === resolvedKeyRef.current) return
+    resolvedKeyRef.current = key
+    if (!user) {
+      // Invalidate any in-flight refresh so a late response can't repopulate
+      // flags for a now-logged-out user.
+      refreshIdRef.current++
+      setVariants({})
+      exposedRef.current = new Set()
+      setReady(true)
+      return
     }
-  }, [ready, refresh, rev])
+    void refresh()
+  }, [isUserLoading, user, hasSeed, refresh])
+
+  const value = useMemo<FeatureFlagsContextValue>(
+    () => ({
+      ready,
+      // Reading a variant is the experiment's treatment surface, so it emits an
+      // exposure (deduped). all() deliberately does not — see useFlagOn's
+      // trackExposure option.
+      variant: (key: string, fallback?: Variant): Variant => {
+        trackExposure(key, variants[key])
+        return variants[key] ?? fallback ?? { value: undefined }
+      },
+      all: (): Record<string, Variant> => variants,
+      exposure: (key: string): void => trackExposure(key, variants[key]),
+      refresh,
+      clear: (): void => {
+        setVariants({})
+        exposedRef.current = new Set()
+      },
+    }),
+    [ready, variants, trackExposure, refresh],
+  )
 
   return (
     <FeatureFlagsContext.Provider value={value}>
@@ -198,10 +249,9 @@ interface UseFlagOnResult {
 }
 
 interface UseFlagOnOptions {
-  // automaticExposureTracking is on, so client.variant() emits an Amplitude
-  // exposure event. Pass false to read the flag without exposing the user
-  // (via client.all(), which does not track) — for callers that read the flag
-  // on a surface that isn't actually the experiment's treatment.
+  // variant() emits an exposure event; all() does not. Pass false to read the
+  // flag without exposing the user — for callers that read the flag on a
+  // surface that isn't actually the experiment's treatment.
   trackExposure?: boolean
 }
 

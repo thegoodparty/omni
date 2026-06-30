@@ -16,7 +16,6 @@ const FIELD_GUIDANCE: Record<RewriteCampaignStoryInput['field'], string> = {
   why: 'why they are running — the moment, people, or breaking point that pushed them to put their name on the ballot. This is their stump-speech opener.',
   background:
     'their background — childhood, career, and community ties; the human story behind the candidate.',
-  issues: 'the two to four concrete issues they will fight for if elected.',
 }
 
 const SYSTEM_INSTRUCTION = [
