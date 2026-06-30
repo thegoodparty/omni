@@ -22,12 +22,16 @@ trusted `costUsd`, never from token x list price.
 - Other outcomes: `awaiting_agenda`, `no_meeting_found` (placeholder statuses), plus
   DB-`FAILED` runs and `no_artifact` (crashed before writing an artifact).
 
-## Milestone-less caveat
+## Milestone attribution
 
-Per-milestone cost attribution is pending the `pmf_runtime.milestone()` primitive
-(separate PR). Until it lands, all meeting_briefing cost analysis is turn-level: the
-population heatmap and hot-region detector key on normalized turn progress, not named
-milestones. Do not infer milestone boundaries from tool-call regex.
+Per-milestone cost attribution is **live**: the `pmf_runtime.milestone()` primitive
+ships in gp-ai-projects and `build-cap-agent` agents mark a milestone at each Step
+boundary. Runs that carry a `milestones.jsonl` get per-milestone attribution (the
+heatmap and hot-region detector key on the named, ordered milestone). meeting_briefing
+runs that predate the primitive have no markers and **fall back to turn-progress**
+automatically; a cohort spanning the cutover will be mixed, and coverage reports the
+milestone share. Do not infer milestone boundaries from tool-call regex — markers are
+the only milestone source.
 
 ## Standing findings (validated, carry into any analysis)
 

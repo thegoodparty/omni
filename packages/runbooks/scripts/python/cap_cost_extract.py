@@ -16,6 +16,13 @@ We write ONE parquet for the whole cohort so re-analysis (stages 3-6) reads the
 parquet and never re-pulls S3. Coverage (logs parsed / runs in scope) is printed
 and stored alongside.
 
+When a run also has a sibling milestones.jsonl (written by the agent via
+pmf_runtime.milestone() — see the gp-ai-projects primitive), each turn row is
+tagged with the active milestone (the most recent marker at/before the turn's
+timestamp). Runs without markers (older runs, or agents that emitted none) leave
+the milestone column null and downstream analysis falls back to turn-progress.
+Milestone coverage is reported alongside log coverage.
+
 Per-turn token weight = input + output + cache_creation + cache_read (the same
 four fields the runner bills on). A run with no parsable turns / zero tokens
 still appears in the manifest with its costUsd but contributes no turn rows.
@@ -31,6 +38,7 @@ import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 import boto3
 import pandas as pd
@@ -87,6 +95,13 @@ def _session_key(experiment_type: str, run_id: str) -> str:
     return f"{experiment_type}/{run_id}/logs/session.jsonl"
 
 
+def _milestones_key(experiment_type: str, run_id: str) -> str:
+    # Sibling of session.jsonl. The runner promotes the agent's
+    # <workspace>/logs/milestones.jsonl to this bare key (see gp-ai-projects
+    # pmf_runtime.milestone + runner _collect_log_files).
+    return f"{experiment_type}/{run_id}/logs/milestones.jsonl"
+
+
 def _fetch_session(s3, bucket: str, key: str) -> str | None:
     from botocore.exceptions import ClientError, NoCredentialsError
 
@@ -101,8 +116,57 @@ def _fetch_session(s3, bucket: str, key: str) -> str | None:
         raise
 
 
-def turn_rows_for_run(run: dict, text: str) -> list[dict]:
-    """Build per-turn rows with proportional cost attribution for one run."""
+def parse_milestones(text: str) -> list[dict]:
+    """Ordered markers from a milestones.jsonl: [{"ts": ..., "name": ...}, ...].
+    Sorted by ts so the most-recent-at-or-before lookup is a simple scan."""
+    markers: list[dict] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        ts, name = obj.get("ts"), obj.get("name")
+        if ts and name:
+            markers.append({"ts": ts, "name": name})
+    return sorted(markers, key=lambda m: m["ts"])
+
+
+def milestone_at(markers: list[dict], turn_ts: str | None) -> str | None:
+    """The name of the most recent marker at/before turn_ts. Parses both sides
+    as aware datetimes so the comparison is correct regardless of whether the
+    source wrote 'Z' or '+00:00'. A naive timestamp (no offset) is treated as
+    UTC so the comparison never raises offset-naive vs offset-aware. None when no
+    marker precedes the turn (older runs have no markers at all -> always None)."""
+    if not markers or not turn_ts:
+        return None
+    try:
+        turn_dt = datetime.fromisoformat(turn_ts)
+    except ValueError:
+        return None
+    if turn_dt.tzinfo is None:
+        turn_dt = turn_dt.replace(tzinfo=timezone.utc)
+    active = None
+    for m in markers:
+        try:
+            marker_dt = datetime.fromisoformat(m["ts"])
+        except ValueError:
+            continue
+        if marker_dt.tzinfo is None:
+            marker_dt = marker_dt.replace(tzinfo=timezone.utc)
+        if marker_dt <= turn_dt:
+            active = m["name"]
+        else:
+            break
+    return active
+
+
+def turn_rows_for_run(run: dict, text: str, markers: list[dict] | None = None) -> list[dict]:
+    """Build per-turn rows with proportional cost attribution for one run.
+    When milestone markers are present, tag each turn with its active milestone."""
+    markers = markers or []
     turns = parse_session(text)
     cost_usd = run.get("costUsd") or 0.0
     totals = [t["input"] + t["output"] + t["cache_creation"] + t["cache_read"] for t in turns]
@@ -126,6 +190,7 @@ def turn_rows_for_run(run: dict, text: str) -> list[dict]:
                 "est_cost": est_cost,
                 "tool_calls": ",".join(tc for tc in t["tool_calls"] if tc),
                 "timestamp": t["timestamp"],
+                "milestone": milestone_at(markers, t["timestamp"]),
                 "run_cost_usd": cost_usd,
             }
         )
@@ -156,16 +221,24 @@ def main() -> None:
         key = _session_key(run["experimentType"], run["runId"])
         text = _fetch_session(s3, bucket, key)
         if text is None:
-            return run["runId"], None
-        return run["runId"], turn_rows_for_run(run, text)
+            return run["runId"], None, False
+        # Milestones are a sibling of the session log, written by the agent via
+        # pmf_runtime.milestone(). Older runs (pre-primitive) have no file -> the
+        # NoSuchKey swallow in _fetch_session returns None and markers stay empty.
+        mtext = _fetch_session(s3, bucket, _milestones_key(run["experimentType"], run["runId"]))
+        markers = parse_milestones(mtext) if mtext else []
+        return run["runId"], turn_rows_for_run(run, text, markers), bool(markers)
 
     parsed = 0
+    with_milestones = 0
     all_rows: list[dict] = []
     with ThreadPoolExecutor(max_workers=a.workers) as ex:
-        for run_id, rows in ex.map(pull, runs):
+        for run_id, rows, had_markers in ex.map(pull, runs):
             if rows is None:
                 continue
             parsed += 1
+            if had_markers and rows:
+                with_milestones += 1
             all_rows.extend(rows)
 
     coverage = {
@@ -173,6 +246,8 @@ def main() -> None:
         "logs_parsed": parsed,
         "coverage_pct": round(100 * parsed / len(runs), 1) if runs else 0.0,
         "turn_rows": len(all_rows),
+        "runs_with_milestones": with_milestones,
+        "milestone_coverage_pct": round(100 * with_milestones / parsed, 1) if parsed else 0.0,
     }
     print(json.dumps(coverage, indent=2), file=sys.stderr)
     if parsed < len(runs):
@@ -180,6 +255,13 @@ def main() -> None:
             f"!! coverage {coverage['coverage_pct']}% — {len(runs) - parsed} runs had no "
             f"session.jsonl (in-progress, crashed pre-log, or wrong bucket). Population "
             f"analytics will report this coverage.",
+            file=sys.stderr,
+        )
+    if parsed and with_milestones < parsed:
+        print(
+            f"   milestone coverage {coverage['milestone_coverage_pct']}% — "
+            f"{parsed - with_milestones} parsed runs had no milestones.jsonl (pre-primitive "
+            f"or agent emitted no markers). Those runs fall back to turn-progress analysis.",
             file=sys.stderr,
         )
 

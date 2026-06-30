@@ -161,11 +161,33 @@ Use this skeleton. Every section is mandatory and in this order:
 
 ## Steps
 
+Each Step MUST open by marking its milestone, so cost analysis can attribute
+per-turn spend to named phases. Paste this line verbatim as the FIRST action of
+every Step (substitute only the step name), because the agent only does what is
+literally in the instruction:
+
+```python
+from pmf_runtime import milestone; milestone("<step name>")
+```
+
+Use the same `<step name>` as the `### Step N — <name>` header. It is fine for a
+run to skip milestones (resumable state machines that re-enter mid-sequence) or to
+stop early (gated sequences that exit before later steps) — analysis joins on
+whatever markers exist and tolerates gaps.
+
 ### Step 1 — <name>
+
+```python
+from pmf_runtime import milestone; milestone("<name>")
+```
 
 <copy-paste-ready code block the agent can run with minimal substitution>
 
 ### Step N — Validate
+
+```python
+from pmf_runtime import milestone; milestone("validate")
+```
 
 ```bash
 python3 /workspace/validate_output.py
@@ -186,11 +208,11 @@ The six `## BEFORE YOU START` items are fixed — keep them as written, substitu
 only your `<slug>`. Keep `## TODO CHECKLIST`, `## CRITICAL RULES`, `## Steps` (as
 `### Step N — name`), `## Spot-check`, and `## Failure modes`.
 
-> Forward-looking: per-milestone cost attribution is a planned follow-up that will
-> require a `pmf_runtime.milestone()` runtime primitive (tracked separately). That
-> primitive does not exist yet — do NOT add or require any `milestone()` calls; they
-> would ImportError on Fargate. Keep the named-step / `## TODO CHECKLIST` structure
-> exactly as above.
+> Milestones: the `pmf_runtime.milestone()` primitive is live on Fargate. Every
+> Step must open with `from pmf_runtime import milestone; milestone("<step name>")`
+> (verbatim) so the `analyze-cap-agent-costs` skill can attribute cost per phase.
+> Skipped or early-exit milestones are fine — the analyzer joins on whatever markers
+> a run emits. Keep the named-step / `## TODO CHECKLIST` structure exactly as above.
 
 ## Manifest and schema discipline
 

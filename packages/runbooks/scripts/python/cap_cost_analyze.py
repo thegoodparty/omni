@@ -7,12 +7,14 @@ tail (which runs drive the bulk of spend), per status. Emits plots:
 
   - per-run cumulative cost curves (one line per run, $ vs turn)
   - cost-velocity (d$/dturn) with each spike annotated by the tool call on that turn
-  - population heatmap: one ROW per run, X = NORMALIZED turn progress (0..1),
-    color = cost intensity. Keyed on turn progress, NOT milestone.
+  - population heatmap: one ROW per run, X = ORDERED MILESTONE when markers are
+    present (else NORMALIZED turn progress 0..1), color = cost intensity.
 
-NOTE: Per-milestone cost attribution is pending the pmf_runtime.milestone()
-primitive (separate PR); until then, analysis is turn-level. The heatmap is keyed
-on normalized turn progress for exactly this reason.
+When the cohort has milestone markers (written by the agent via
+pmf_runtime.milestone(), tagged onto each turn row upstream), this also emits a
+per-milestone cost attribution table and keys the population heatmap on the
+ordered milestone column. When no run has markers (older cohorts), it falls back
+to turn-level analysis and a turn-progress heatmap, exactly as before.
 
 All dollar figures trace back to experiment_run.costUsd (distributed across turns
 by token weight upstream) — never token-count x list price.
@@ -86,6 +88,73 @@ def distribution_tables(df: pd.DataFrame) -> dict:
     return out
 
 
+def has_milestones(df: pd.DataFrame) -> bool:
+    """True when any turn row carries a milestone marker. The column may be
+    absent on parquet written before the primitive shipped."""
+    return "milestone" in df.columns and df["milestone"].notna().any()
+
+
+def milestone_order(df: pd.DataFrame) -> list[str]:
+    """Milestones ordered by first appearance (mean turn position across runs),
+    so the heatmap and table read in run-sequence order rather than alphabetically."""
+    m = df[df["milestone"].notna()]
+    if m.empty:
+        return []
+    first_pos = m.groupby("milestone")["turn_idx"].mean().sort_values()
+    return first_pos.index.tolist()
+
+
+def milestone_costs(df: pd.DataFrame) -> dict:
+    """Per-milestone cost attribution: total / median-per-run / share of spend,
+    in run-sequence order. Only over turns that carry a marker (null-milestone
+    turns from mixed cohorts are excluded from the per-milestone view)."""
+    m = df[df["milestone"].notna()]
+    order = milestone_order(df)
+    total = float(df["est_cost"].sum())
+    per_run = m.groupby(["run_id", "milestone"])["est_cost"].sum().reset_index()
+    rows = []
+    for name in order:
+        seg = per_run[per_run["milestone"] == name]["est_cost"]
+        seg_total = float(seg.sum())
+        rows.append(
+            {
+                "milestone": name,
+                "total": round(seg_total, 2),
+                "share_of_spend": round(seg_total / total, 3) if total else 0.0,
+                "runs": int(seg.shape[0]),
+                "median_per_run": round(float(np.median(seg)) if len(seg) else 0.0, 4),
+                "p90_per_run": round(pct(seg, 90), 4),
+            }
+        )
+    return {"ordered": rows, "runs_with_milestones": int(m["run_id"].nunique())}
+
+
+def plot_milestone_heatmap(df: pd.DataFrame, path: str) -> None:
+    """One row per run that has markers; X = ordered milestone, color = $ in that
+    milestone. Runs with no markers are omitted (they appear in the turn-progress
+    heatmap fallback instead)."""
+    order = milestone_order(df)
+    m = df[df["milestone"].notna()]
+    runs = sorted(m["run_id"].unique())
+    col = {name: i for i, name in enumerate(order)}
+    grid = np.zeros((len(runs), len(order)))
+    for i, run_id in enumerate(runs):
+        g = m[m["run_id"] == run_id]
+        for name, cost in g.groupby("milestone")["est_cost"].sum().items():
+            grid[i, col[name]] += float(cost)
+    fig, ax = plt.subplots(figsize=(max(8, len(order) * 1.2), max(4, len(runs) * 0.12)))
+    sns.heatmap(grid, cmap="rocket_r", cbar_kws={"label": "$ in milestone"}, ax=ax)
+    ax.set_xticks(np.arange(len(order)) + 0.5)
+    ax.set_xticklabels(order, rotation=40, ha="right", fontsize=8)
+    ax.set_xlabel("milestone (run order)")
+    ax.set_ylabel("run")
+    ax.set_yticks([])
+    ax.set_title(f"population cost heatmap by milestone ({len(runs)} runs)")
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
+
+
 def plot_cumulative_curves(df: pd.DataFrame, path: str) -> None:
     fig, ax = plt.subplots(figsize=(10, 6))
     for run_id, g in df.sort_values("turn_idx").groupby("run_id"):
@@ -128,7 +197,7 @@ def plot_cost_velocity(df: pd.DataFrame, path: str, top_runs: int = 5) -> None:
 
 def plot_population_heatmap(df: pd.DataFrame, path: str, bins: int = 20) -> None:
     """One row per run; X = normalized turn progress (0..1), color = cost intensity.
-    Keyed on TURN progress because milestone attribution is not available yet."""
+    The turn-progress fallback used when a cohort has no milestone markers."""
     runs = sorted(df["run_id"].unique())
     grid = np.zeros((len(runs), bins))
     for i, run_id in enumerate(runs):
@@ -142,7 +211,7 @@ def plot_population_heatmap(df: pd.DataFrame, path: str, bins: int = 20) -> None
             grid[i, b] += cost
     fig, ax = plt.subplots(figsize=(11, max(4, len(runs) * 0.12)))
     sns.heatmap(grid, cmap="rocket_r", cbar_kws={"label": "$ in band"}, ax=ax)
-    ax.set_xlabel("normalized turn progress (0..1) — NOT milestone (primitive pending)")
+    ax.set_xlabel("normalized turn progress (0..1) — no milestone markers in cohort")
     ax.set_ylabel("run")
     ax.set_yticks([])
     ax.set_title(f"population cost heatmap ({len(runs)} runs)")
@@ -169,17 +238,52 @@ def main() -> None:
     if os.path.exists(cov_path):
         with open(cov_path) as f:
             tables["coverage"] = json.load(f)
-    tables["milestone_note"] = (
-        "Per-milestone cost attribution is pending the pmf_runtime.milestone() "
-        "primitive (separate PR); until then, analysis is turn-level."
-    )
+
+    milestones_present = has_milestones(df)
+    marked_runs = int(df[df["milestone"].notna()]["run_id"].nunique()) if milestones_present else 0
+    total_runs = int(df["run_id"].nunique())
+    mixed = milestones_present and marked_runs < total_runs
+    if milestones_present:
+        tables["milestone_costs"] = milestone_costs(df)
+        tables["milestone_coverage"] = {
+            "runs_with_markers": marked_runs,
+            "total_runs": total_runs,
+            "mixed_cohort": mixed,
+        }
+        if mixed:
+            tables["milestone_note"] = (
+                f"MIXED cohort: {marked_runs}/{total_runs} runs carry milestone markers. "
+                "Per-milestone attribution and population_heatmap.png cover ONLY the marked "
+                f"runs; the {total_runs - marked_runs} unmarked runs are shown in "
+                "turn_progress_heatmap.png and remain in the cost distributions. "
+                "Per-milestone shares are fractions of TOTAL cohort spend, so they sum to "
+                "less than 1.0."
+            )
+        else:
+            tables["milestone_note"] = (
+                "Per-milestone cost attribution is LIVE: every run carries markers. "
+                "Heatmap keyed on ordered milestone."
+            )
+    else:
+        tables["milestone_note"] = (
+            "No milestone markers in this cohort (pre-primitive runs or agents that "
+            "emitted none): analysis is turn-level and the heatmap is keyed on "
+            "normalized turn progress."
+        )
     with open(os.path.join(outdir, "distributions.json"), "w") as f:
         json.dump(tables, f, indent=2)
     print(json.dumps(tables, indent=2))
 
     plot_cumulative_curves(df, os.path.join(outdir, "cumulative_cost.png"))
     plot_cost_velocity(df, os.path.join(outdir, "cost_velocity.png"))
-    plot_population_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
+    if milestones_present:
+        plot_milestone_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
+        if mixed:
+            # Mixed cohort: the milestone heatmap omits unmarked runs, so also emit a
+            # full-population turn-progress heatmap rather than silently dropping them.
+            plot_population_heatmap(df, os.path.join(outdir, "turn_progress_heatmap.png"))
+    else:
+        plot_population_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
     print(f"wrote plots + distributions.json to {outdir}")
 
 
