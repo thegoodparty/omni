@@ -97,7 +97,7 @@ stopped firing. The provenance CSV shows `call_site_count = 0` and usually a
 `call_site_retired_date`. This is a removed call site hiding behind a surviving constant —
 not a silent break.
 
-Stage 2 (propose and confirm — never auto-decide):
+This flag's propose-and-confirm flow (never auto-decide):
 
 1. Confirm in git: `git log -S'EVENTS.<KeyPath>' -- packages/gp-webapp` and read the removing
    diff. The key-path is the one resolved from the `EVENTS` map for this event name.

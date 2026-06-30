@@ -379,7 +379,7 @@ def test_reconcile_watchlist_elevates_and_proposes():
         },
     ]
     code = {"Dashboard - Tab Switched": {"retired_date": "", "instrumented_pr": "#1"}}
-    # On the watchlist: dormant becomes elevated (rank 5), and it is NOT re-proposed.
+    # On the watchlist: dormant becomes elevated (rank 6), and it is NOT re-proposed.
     result = eh.reconcile(
         catalog, [], code, TODAY,
         watchlist_events={"Dashboard - Tab Switched"},

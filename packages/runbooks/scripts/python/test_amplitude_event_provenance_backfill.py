@@ -168,10 +168,13 @@ def test_count_call_sites_zero_when_absent():
 
 
 def test_count_call_sites_no_prefix_overcount():
-    # EVENTS.Dashboard.Viewed must not match inside EVENTS.Dashboard.ViewedTwice, and a
-    # deeper access (.foo) is not the leaf call site either.
-    dump = "trackEvent(EVENTS.Dashboard.ViewedTwice)\nx = EVENTS.Dashboard.Viewed.foo\n"
-    assert count_call_sites(dump, ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
+    # A longer key-path that merely starts with the target must not be counted.
+    assert count_call_sites("trackEvent(EVENTS.Dashboard.ViewedTwice)\n", ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
+
+
+def test_count_call_sites_no_deeper_access_match():
+    # A deeper property access off the key-path is not a leaf call site.
+    assert count_call_sites("x = EVENTS.Dashboard.Viewed.foo\n", ["EVENTS.Dashboard.Viewed"]) == {"EVENTS.Dashboard.Viewed": 0}
 
 
 # --------------------------------------------------------------------------- #
@@ -1583,3 +1586,13 @@ def test_merge_provenance_entry_preserves_instrumented_author_email():
     new_entry = {"instrumented": None, "retired": None, "last_change": None}
     merged = bf.merge_provenance_entry(existing, new_entry, present_before_window=True)
     assert merged["instrumented"]["email"] == "writer@goodparty.org"
+
+
+def test_merge_provenance_entry_preserves_retired_author_email():
+    existing = {
+        "retired_commit": "b" * 40, "retired_pr": "2", "retired_date": "2026-06-13",
+        "retired_author_email": "remover@goodparty.org",
+    }
+    new_entry = {"instrumented": None, "retired": None, "last_change": None}
+    merged = bf.merge_provenance_entry(existing, new_entry, present_before_window=True)
+    assert merged["retired"]["email"] == "remover@goodparty.org"

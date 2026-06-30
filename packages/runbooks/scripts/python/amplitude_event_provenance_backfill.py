@@ -322,10 +322,11 @@ def find_events(text: str, pattern: re.Pattern[str]) -> set[str]:
 # --------------------------------------------------------------------------- #
 
 # Header line emitted by: git log -p --date=short
-#   --format='%x00%H%x1f%h%x1f%ad%x1f%at%x1f%s'
+#   --format='%x00%H%x1f%h%x1f%ad%x1f%at%x1f%ae%x1f%s'
 # A NUL marks the start of each commit; the remaining fields are 0x1f-separated.
 # %ad (--date=short) is the human-readable date we store; %at (commit epoch) is the
 # precise ordering key, so same-day commits break ties by true time, not stream order.
+# %ae is the author email, stored as instrumented_author_email / retired_author_email.
 _HEADER_PREFIX = "\x00"
 _FIELD_SEP = "\x1f"
 _GIT_LOG_FORMAT = "--format=%x00%H%x1f%h%x1f%ad%x1f%at%x1f%ae%x1f%s"
