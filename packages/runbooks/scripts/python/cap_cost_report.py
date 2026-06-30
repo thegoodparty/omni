@@ -108,6 +108,14 @@ def compute_drivers(parquet_path: str | None) -> dict | None:
         total_tokens = float(df["tokens"].sum())
         if total_tokens > 0:
             out["cache_read_share"] = round(float(df["cache_read"].sum()) / total_tokens, 4)
+    required_cols = {"run_id", "turn_idx", "run_cost_usd"}
+    if not required_cols.issubset(df.columns):
+        missing = required_cols - set(df.columns)
+        print(
+            f"warning: drivers block skipped — parquet missing columns: {missing}",
+            file=sys.stderr,
+        )
+        return out or None
     per_run = (
         df.groupby("run_id")
         .agg(turns=("turn_idx", "count"), cost=("run_cost_usd", "first"))
@@ -160,7 +168,8 @@ def build_metrics(scope: dict, profile: dict | None, dist: dict) -> list[dict]:
 
     per_run = (total / n_runs) if (total is not None and n_runs) else None
     cards.append({"val": fmt_usd(per_run), "key": "per dispatched run"})
-    cards.append({"val": fmt_usd(total), "key": "total cohort cost (invoice-validated)"})
+    if headline:
+        cards.append({"val": fmt_usd(total), "key": "total cohort cost (invoice-validated)"})
 
     if success_status and delivered is not None:
         cards.append(
@@ -203,7 +212,7 @@ def render(
     headline_val = lead.get("val", "")
     parts.append(
         f"<h1>{esc(exp_type)} cohort cost: "
-        f'<span class="fig">{headline_val}</span></h1>'
+        f'<span class="fig">{esc(headline_val)}</span></h1>'
     )
     parts.append(
         '<p class="lede">'
@@ -338,7 +347,7 @@ def render(
         )
         parts.append('<div class="callout"><h3>Pareto check</h3>')
         parts.append(
-            f"<p>It takes <b>{n80} of {of_total} runs ({share_txt})</b> to account for 80% "
+            f"<p>It takes <b>{esc(n80)} of {esc(of_total)} runs ({share_txt})</b> to account for 80% "
             f"of spend. {verdict}</p></div>"
         )
     parts.append("</section>")

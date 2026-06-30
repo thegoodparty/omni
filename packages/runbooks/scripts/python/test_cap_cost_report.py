@@ -147,6 +147,9 @@ def test_report_degrades_without_profile(tmp_path):
     # No outcome table without a profile, but the total card still renders.
     assert "What the cohort produced" not in doc
     assert "total cohort cost" in doc
+    # The total must appear exactly once — not duplicated as both the lead card
+    # and the fixed third card when profile is absent.
+    assert doc.count("total cohort cost") == 1
     # Footer flags the missing profile.
     assert "no profile.json" in doc
 
