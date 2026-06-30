@@ -103,6 +103,25 @@ describe('buildTrackerStrategy', () => {
     expect(pre).toEqual(['static'])
   })
 
+  it('keeps Active "active" when a prior-generation navigable task is open', () => {
+    // gen-6 (the global latest) is all done, but gen-5 in an earlier week is
+    // still open and reachable in the navigator. The phase must not read 'done'.
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'g5', phase: 'active', week: 5, date: '2026-02-03' }),
+        row({
+          id: 'g6',
+          phase: 'active',
+          week: 6,
+          date: '2026-02-10',
+          completed: true,
+        }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
+  })
+
   it('marks a phase done only when all its tasks are completed', () => {
     const data = buildTrackerStrategy(
       [

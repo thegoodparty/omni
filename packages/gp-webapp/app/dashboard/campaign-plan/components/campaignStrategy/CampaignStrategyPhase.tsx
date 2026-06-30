@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { addDays, format } from 'date-fns'
 import {
   AccordionContent,
@@ -28,13 +28,15 @@ interface CampaignStrategyPhaseProps {
 // Safari-safe dash->slash local-midnight trick the task rows use.
 const weekLabel = (start: string): string => {
   const monday = new Date(start.replace(/-/g, '/'))
-  return `${format(monday, 'MMM d')} – ${format(addDays(monday, 6), 'MMM d')}`
+  return `${format(monday, 'MMM d')} - ${format(addDays(monday, 6), 'MMM d')}`
 }
 
-// The active phase renders one Monday-Sunday week at a time. The candidate opens
-// on the week containing today and can step one week back (to review) or one
-// week forward (next week's plan, once that Thursday's generation lands) — but no
-// further, so older generations stay out of reach.
+// The active phase renders one Monday-Sunday week at a time. Normally the
+// candidate opens on the week containing today and can step one week back (to
+// review) or one forward (next week's plan, once that Thursday's generation
+// lands), but no further. When today falls outside every task week (e.g. the
+// election has passed), open on the most recent week with full navigation so no
+// week is stranded.
 const WeekNavigator = ({
   weeks,
   onToggleComplete,
@@ -42,13 +44,22 @@ const WeekNavigator = ({
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
 }): React.JSX.Element => {
-  const currentIndex = Math.max(
-    0,
-    weeks.findIndex((w) => w.isCurrent),
-  )
+  const rawIndex = weeks.findIndex((w) => w.isCurrent)
+  const currentIndex = rawIndex === -1 ? weeks.length - 1 : rawIndex
   const [selected, setSelected] = useState(currentIndex)
-  const lowerBound = Math.max(0, currentIndex - 1)
-  const upperBound = Math.min(weeks.length - 1, currentIndex + 1)
+  // Re-sync the open week when a background poll shifts which week is "current"
+  // (a new generation, or midnight crossing into a new week); otherwise
+  // `selected` keeps its stale mount-time value and silently shows last week.
+  const prevCurrentIndex = useRef(currentIndex)
+  if (prevCurrentIndex.current !== currentIndex) {
+    prevCurrentIndex.current = currentIndex
+    setSelected(currentIndex)
+  }
+  const lowerBound = rawIndex === -1 ? 0 : Math.max(0, currentIndex - 1)
+  const upperBound =
+    rawIndex === -1
+      ? weeks.length - 1
+      : Math.min(weeks.length - 1, currentIndex + 1)
   const week = weeks[selected] ?? weeks[currentIndex]
   if (!week) return <></>
 

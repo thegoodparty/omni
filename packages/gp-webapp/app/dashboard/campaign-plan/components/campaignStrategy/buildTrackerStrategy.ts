@@ -239,8 +239,20 @@ export const buildTrackerStrategy = (
   // (not just the latest), so its flat group list is replaced by `weeks`.
   const activeKeyPhase = phases.find((p) => p.key === 'active')
   if (activeKeyPhase) {
-    activeKeyPhase.weeks = buildActiveWeeks(tasks, today)
+    const activeWeeks = buildActiveWeeks(tasks, today)
+    activeKeyPhase.weeks = activeWeeks
     activeKeyPhase.groups = []
+    // phaseAllCompleted came from visibleTasks (the global latest generation),
+    // but the navigator renders per-week-latest tasks across all generations. A
+    // prior generation's open task can still be navigable, so re-check 'done'
+    // against everything the navigator can show; otherwise the header reads
+    // 'done' while open tasks sit one week back.
+    if (activeKeyPhase.status === 'done') {
+      const navigableTasks = activeWeeks.flatMap((w) => w.tasks)
+      const allDone =
+        navigableTasks.length > 0 && navigableTasks.every((t) => t.completed)
+      if (!allDone) activeKeyPhase.status = 'active'
+    }
   }
 
   // "Do this next" on the phase the calendar has reached. The Active phase marks
