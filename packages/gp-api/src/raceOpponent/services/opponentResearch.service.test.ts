@@ -107,13 +107,13 @@ describe('OpponentResearchService.buildParams', () => {
       {} as never,
       electionApi as never,
     )
-    // _prisma and logger are property-injected by Nest; stub them for a direct
-    // instantiation (Object.assign sidesteps their readonly declarations).
+    // logger is property-injected by Nest; stub it for a direct instantiation
+    // (Object.assign sidesteps the readonly declaration). service._prisma is
+    // deliberately NOT stubbed: buildParams delegates the website read to
+    // raceOpponent.buildCandidatePlatform, so any direct access of
+    // service._prisma.website would be a bug — leaving it undefined makes such
+    // a regression throw loudly instead of passing through the shared mock.
     Object.assign(service, {
-      _prisma: {
-        campaignStory: { findUnique: storyFindUnique },
-        website: { findUnique: websiteFindUnique },
-      },
       logger: { warn: vi.fn(), error: vi.fn() },
     })
   })
