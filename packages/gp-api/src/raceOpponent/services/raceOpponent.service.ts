@@ -301,6 +301,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
             ExperimentRunStatus.QUEUED,
             ExperimentRunStatus.RUNNING,
             ExperimentRunStatus.AWAITING_RESUME,
+            ExperimentRunStatus.SUPERSEDED,
           ],
         },
       },
@@ -365,6 +366,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
             ExperimentRunStatus.QUEUED,
             ExperimentRunStatus.RUNNING,
             ExperimentRunStatus.AWAITING_RESUME,
+            ExperimentRunStatus.SUPERSEDED,
           ],
         },
       },
@@ -696,7 +698,8 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     const inFlight =
       discovery.status === ExperimentRunStatus.QUEUED ||
       discovery.status === ExperimentRunStatus.RUNNING ||
-      discovery.status === ExperimentRunStatus.AWAITING_RESUME
+      discovery.status === ExperimentRunStatus.AWAITING_RESUME ||
+      discovery.status === ExperimentRunStatus.SUPERSEDED
     return inFlight ? 'discovering' : 'idle'
   }
 }
