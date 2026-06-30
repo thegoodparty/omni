@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { trackEvent } from 'helpers/analyticsHelper'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
 import RaceOpponentList from './RaceOpponentList'
 
@@ -1288,5 +1288,143 @@ describe('<RaceOpponentList>', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('fires Win - Opponents Manually Added once with the submitted count on a manual submit', async () => {
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: 'manual-run-1', status: 'running' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.RaceOpponent.OpponentsManuallyAdded,
+        { campaignId: undefined, opponentCount: 1 },
+      ),
+    )
+    const manualAddCalls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) => name === EVENTS.RaceOpponent.OpponentsManuallyAdded,
+      )
+    expect(manualAddCalls).toHaveLength(1)
+  })
+
+  it('fires Win - Opponent Research Started once when a run goes busy on manual submit', async () => {
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: 'manual-run-1', status: 'running' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.RaceOpponent.ResearchStarted,
+        { campaignId: undefined },
+      ),
+    )
+    const startedCalls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+      )
+    expect(startedCalls).toHaveLength(1)
+  })
+
+  it('fires Win - Opponent Research Started once across the discovering -> running progression of one run', async () => {
+    // A Collect click starts a run that goes idle -> discovering ->
+    // (transient idle) -> (auto-collect) -> running. ResearchStarted must fire
+    // exactly once for the whole run, not on each busy sub-status, since both
+    // legs are one research run.
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: { ...empty, collectionStatus: 'idle' } },
+    ])
+    // First collect (the click) returns discovering; the auto-fired collect
+    // after discovery returns running. Both are the same run.
+    const collectHandler = vi.fn()
+    collectHandler
+      .mockReturnValueOnce({
+        status: 200 as const,
+        data: { runId: 'opposition-1', status: 'discovering' as const },
+      })
+      .mockReturnValue({
+        status: 200 as const,
+        data: { runId: 'collection-1', status: 'running' as const },
+      })
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(<RaceOpponentList initialData={empty} />)
+
+      // Idle on mount: no run in flight, so nothing has fired yet.
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+          ),
+      ).toHaveLength(0)
+
+      // Click Collect: the run starts (idle -> discovering), firing once.
+      await userEvent.click(
+        screen.getByRole('button', { name: /collect now/i }),
+      )
+      await waitFor(() =>
+        expect(trackEvent).toHaveBeenCalledWith(
+          EVENTS.RaceOpponent.ResearchStarted,
+          { campaignId: undefined },
+        ),
+      )
+
+      // Poll lands the transient idle, auto-fires collect -> running (same run).
+      await vi.advanceTimersByTimeAsync(5000)
+      await waitFor(() => expect(collectHandler).toHaveBeenCalledTimes(2))
+
+      // Still exactly one run-start across the whole discovering -> running run.
+      const startedCalls = vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+        )
+      expect(startedCalls).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not fire Win - Opponent Research Started for a run already in flight on mount', () => {
+    // A page that loads mid-run (reload, or a just-upgraded candidate whose run
+    // is already running) must NOT count a run-start — only a start observed in
+    // this session fires. Seeded from initialData so the mount is silent.
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'running' }}
+      />,
+    )
+
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+        ),
+    ).toHaveLength(0)
   })
 })

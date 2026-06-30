@@ -223,10 +223,18 @@ const AddOpponentsForm = ({
                         updateRow(index, 'ballotpediaUrl', e.target.value)
                       }
                       aria-invalid={Boolean(rowErrors.ballotpediaUrl)}
+                      aria-describedby={
+                        rowErrors.ballotpediaUrl
+                          ? `opponent-ballotpedia-error-${index}`
+                          : undefined
+                      }
                       placeholder="https://ballotpedia.org/…"
                     />
                     {rowErrors.ballotpediaUrl && (
-                      <p className="text-sm text-destructive">
+                      <p
+                        id={`opponent-ballotpedia-error-${index}`}
+                        className="text-sm text-destructive"
+                      >
                         {rowErrors.ballotpediaUrl}
                       </p>
                     )}
@@ -246,10 +254,18 @@ const AddOpponentsForm = ({
                         updateRow(index, 'website', e.target.value)
                       }
                       aria-invalid={Boolean(rowErrors.website)}
+                      aria-describedby={
+                        rowErrors.website
+                          ? `opponent-website-error-${index}`
+                          : undefined
+                      }
                       placeholder="https://janedoe.com"
                     />
                     {rowErrors.website && (
-                      <p className="text-sm text-destructive">
+                      <p
+                        id={`opponent-website-error-${index}`}
+                        className="text-sm text-destructive"
+                      >
                         {rowErrors.website}
                       </p>
                     )}

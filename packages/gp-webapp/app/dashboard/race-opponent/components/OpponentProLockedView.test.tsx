@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { trackEvent } from 'helpers/analyticsHelper'
 import OpponentProLockedView from './OpponentProLockedView'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 const push = vi.fn()
 const refresh = vi.fn()
@@ -61,6 +67,13 @@ describe('<OpponentProLockedView>', () => {
     )
 
     expect(push).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+  })
+
+  it('fires Win - Opponent Upgrade Viewed once when the locked view renders', () => {
+    render(<OpponentProLockedView />)
+
+    expect(trackEvent).toHaveBeenCalledWith('Win - Opponent Upgrade Viewed')
+    expect(trackEvent).toHaveBeenCalledTimes(1)
   })
 
   it('re-checks Pro state on Refresh by invalidating the campaign query and re-rendering the route', async () => {
