@@ -2,7 +2,7 @@
 
 # Trending Issues
 
-Given an elected official's district, produce a ranked list of up to 10 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
+Given an elected official's district, produce a focused ranked list of the community issues that are actively trending in local news and public discourse right now — **lead with the 1 to 3 sharpest surges, and add more only when each is independently well-sourced and in-window (never padding toward the schema's max of 10)**. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
 
 ## BEFORE YOU START
 
@@ -31,6 +31,24 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 
 ## CRITICAL RULES
 
+**Lead with 1 to 3 issues; do not pad toward 10**:
+
+- The list is a focused lead of the few sharpest, most-recent surges, not a quota. Reserve `priority: "high"` for the 1 to 3 best-sourced, clearly resident-driven, in-window issues; include further issues only when each independently clears the same bar, at `priority` `medium`/`low`. The schema's max of 10 is a ceiling, not a target.
+- A quiet district may yield one issue, or none — that is the correct output (see thin-signal handling), not a cue to pad. Never delete a real in-window issue to shorten the list; demote it instead.
+
+**Resident-attribution is a labeling rule, not a selection filter**:
+
+- Only *claim* residents are raising an issue when you have direct resident voice for it: a letter or op-ed (`article_type` `opinion`/`editorial`), a petition, a public-comment write-up, or an advocacy-group statement. A topic that appears only in straight news reporting, a press release, or a government communication (`article_type` `reporting`/`press_release`/`government_communication`) is not, on its own, evidence that residents care.
+- Do **not** delete such an issue; include it, but say so in the `summary` (e.g. "covered in local news; direct resident voice not yet evidenced") and do not give it `priority: "high"` on salience grounds. The error to avoid is asserting resident demand you cannot source, not mentioning a real trending topic.
+
+**Identity — the recipient's own voice is not resident demand**:
+
+- This list is generated for the elected official in `organization_slug`/`office`, a public figure quoted in local coverage. Their own statements, campaign messaging, and votes are the supply side: never file a `quotes` item attributed to the official (or their office) as evidence residents are raising an issue, and do not let the official's framing stand in for resident demand.
+
+**Recency & date verification**:
+
+- Keep the existing within-90-days recency bar. **Verify the real byline `article_date` from the source**, not the search-snippet date (which is often wrong). An older article resurfacing in a search is a date-trap — confirm the byline and drop it if it is outside the window. When a date is load-bearing near the boundary and only a snippet date is available, escalate to `http.get` to read the byline.
+
 **Existing issue feed**:
 
 - Call `GET_v1_community-issue-feed` FIRST, before any research. The API returns the complete current issue list for the organization.
@@ -40,7 +58,8 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 **Thin-signal handling**:
 
 - If fewer than 3 issues have verifiable recent coverage (within the last 90 days), set `data_quality: "insufficient_signal"`, populate `data_quality_reason` with a brief explanation, and emit an `issues` array with whatever confirmed issues exist (may be empty). Do NOT fabricate issues to pad the list.
-- For smaller towns (under ~10k population), expect thin signal — don't escalate aggressively to compensate.
+- For smaller towns (under ~10k population), expect thin signal — don't escalate aggressively to compensate. An empty or one-item list is a valid, honest output.
+- **Before declaring `insufficient_signal` for a small district, scan one ring out.** Search the county, bordering municipalities, the shared school district, the shared utility/water system, and any nearby regional facility for an in-window surge that pulls in *this* district's residents. It counts only if a resident of this district is directly involved — quoted, petitioning, or organizing (direct resident voice) — not merely because the event is geographically near. A regional event with no local-resident voice is context, not a trending row; label it as such. If even the one-ring-out scan is empty, report `insufficient_signal` honestly.
 
 **Web (`WebSearch` + `pmf_runtime.http`)**:
 
@@ -122,7 +141,7 @@ if r["status"] in (403, 405):
 # If r["status"] != 200: drop this source
 ```
 
-Extract: source name, publisher, article_date, and a representative text snippet (≤ 2000 chars) for `retrieved_text_or_snapshot`.
+Extract: source name, publisher, `article_type`, `article_date`, and a representative text snippet (≤ 2000 chars) for `retrieved_text_or_snapshot`. Set `article_type` honestly — it decides resident-voice vs press per the attribution rule. **Verify the real byline `article_date`** (not the snippet date) and confirm it is within the last 90 days; an old article resurfacing in search is a date-trap, so drop it.
 
 Fast-bail rule: if a topic has no verifiable URL after 2 searches, skip it.
 
@@ -134,7 +153,7 @@ Rank candidates by:
 2. Coverage breadth (multiple independent sources)
 3. Relevance to the district (local vs. national story)
 
-Select up to 10. If fewer than 3 pass the threshold, proceed to thin-signal handling.
+**Lead with the 1 to 3 sharpest surges and reserve `priority: "high"` for them; add more only when each independently clears the recency + sourcing bar, at `priority` `medium`/`low`. Do not pad toward 10.** If fewer than 3 pass the threshold, proceed to thin-signal handling (including the scan-one-ring-out step). Demote weaker-but-real in-window issues rather than deleting them.
 
 ### Step 6 — Carry existing issue IDs
 
@@ -168,7 +187,11 @@ Fix any schema violations before declaring success.
 
 After validation passes, verify:
 
-- **All sources have article dates within the last 90 days.** Older articles indicate a stale search — re-run with a more recent date filter.
+- **All sources have verified byline article dates within the last 90 days.** Older articles indicate a stale search or a date-trap — re-run with a more recent date filter; confirm the real byline date, not the snippet date.
+- **The lead is tight, not padded.** `priority: "high"` is reserved for the 1 to 3 sharpest surges; the list is not padded toward 10. An empty or one-item list is valid when the window is quiet.
+- **Resident demand is sourced or labeled.** Any issue asserting residents are raising it has direct resident voice (op-ed/letter, petition, advocacy statement); press-only topics are kept but labeled and not `priority: "high"`, and none were deleted just for lacking a quote.
+- **No issue rests on the official's own voice.** The recipient's quotes/votes/press are not used as evidence of resident demand.
+- **Any one-ring-out issue ties to a local resident.** Regional items are included only when a resident of this district is directly involved, not by proximity alone.
 - **Issues span at least 2 different categories** (unless the district has a single dominant crisis). Monoculture output suggests the search queries were too narrow.
 - **Each `source_id` referenced in `source_ids` / `source_id` fields resolves to an entry in `detail.sources[]`.** A dangling ID means the validator missed it but the downstream renderer will break.
 - **`detail.overview` is present on every issue.** It is always required.
@@ -182,7 +205,11 @@ After validation passes, verify:
 | Symptom                                      | Cause                                                       | Fix                                                                      |
 | -------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------ |
 | All sources are > 90 days old                | Date filter not applied to searches                         | Re-run searches with `2026` or `site:` filter for local news             |
-| Fewer than 3 issues found                    | Small/rural district with thin local news coverage          | Set `data_quality: "insufficient_signal"`; emit what you have            |
+| An old article resurfaced as "trending"      | Trusted a snippet date / date-trap                          | Verify the byline `article_date`; drop if outside the 90-day window      |
+| List padded toward 10 with thin rows         | Treated 10 as a target                                      | Lead with 1-3; reserve `priority:"high"`; demote or omit weak rows       |
+| A straight-news topic asserted as resident demand | Counted `reporting` as resident voice                  | Label it "resident voice not yet evidenced," keep below high priority; don't delete it |
+| Official's own quote used as resident salience | Recipient's voice treated as demand                       | Exclude the official's quotes/votes/press; that is supply-side           |
+| Fewer than 3 issues found                    | Small/rural district with thin local news coverage          | Scan one ring out (county/neighbors) for a resident-tied surge; else set `data_quality: "insufficient_signal"` and emit what you have |
 | `source_id` not found in `detail.sources[]`  | Forgot to add the source entry after referencing it         | Add matching entry to `detail.sources[]`                                 |
 | Validator: missing required field `overview` | `detail.overview` was omitted                               | Always emit `overview`; it is required                                   |
 | `WebFetch` returns domain-safety error       | Used `WebFetch` instead of `WebSearch` + `pmf_runtime.http` | Use `WebSearch` for discovery; `pmf_runtime.http.head/get` for retrieval |
