@@ -486,6 +486,8 @@ def _flag(event_type, rank, status, **kw):
         "last_seen_date": None,
         "anomaly": None,
         "instrumented_pr": None,
+        "call_site_count": None,
+        "call_site_retired_date": None,
         "divergence": None,
     }
     base.update(kw)
@@ -532,3 +534,30 @@ def test_render_collapses_dormant_tail_and_caps_changes():
     # self-healing proposals section, rendered as a ready-to-paste yaml row
     assert "### Watchlist proposals (self-healing)" in out
     assert '- {event: "Onboarding - New Step", product: win, family: win_onboarding' in out
+
+
+def test_render_shows_call_site_removed_evidence():
+    # DATA-2046: the rank-2 row must render the call_sites=0 evidence (the primary new behavior)
+    # in the digest, not just be assigned the rank in reconcile.
+    flagged = [
+        _flag(
+            "Dashboard - Candidate Dashboard Viewed",
+            2,
+            "dormant",
+            call_site_count=0,
+            call_site_retired_date="2026-06-13",
+        ),
+    ]
+    result = {
+        "run_date": date(2026, 6, 26),
+        "current_week_basis": "complete weeks before 2026-06-22",
+        "total_events": 50,
+        "status_counts": {"dormant": 1},
+        "flagged": flagged,
+    }
+    changes = {"new": [], "resolved": [], "still_open": [], "escalated": []}
+    out = eh.render_digest_section(result, changes)
+
+    assert "| 2 call site removed, name constant remains |" in out
+    assert "Dashboard - Candidate Dashboard Viewed" in out
+    assert "call_sites=0 (removed 2026-06-13)" in out
