@@ -8,6 +8,7 @@ import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { KNOW_YOUR_OPPONENT_FLAG_KEY } from '@shared/experiments/knowYourOpponentFlag'
 import OpponentResearch from '../components/OpponentResearch'
+import OpponentProLockedView from '../components/OpponentProLockedView'
 import type {
   IdentifyOpponentsResponse,
   RaceOpponentActivityResponse,
@@ -25,8 +26,21 @@ export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
 
   const campaign = await fetchUserCampaign()
+  // Non-Pro candidates see the locked upgrade view in place of the research
+  // surface (deep-linked subroutes must not bounce them either). Flag still
+  // gates the whole surface below.
   if (!campaign?.isPro) {
-    redirect('/dashboard/pro-upgrade')
+    return (
+      <DashboardLayout
+        pathname="/dashboard/race-opponent/opponents"
+        showAlert={false}
+        wrapperClassName="!p-0"
+      >
+        <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
+          <OpponentProLockedView />
+        </FeatureFlagGuard>
+      </DashboardLayout>
+    )
   }
 
   // Opponent research is hard-gated server-side on a completed self-research
