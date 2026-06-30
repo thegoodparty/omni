@@ -66,6 +66,16 @@ describe('<AddOpponentsForm>', () => {
       expect(screen.getByText(/valid https url/i)).toBeInTheDocument(),
     )
     expect(onSubmit).not.toHaveBeenCalled()
+
+    // The errored field is marked invalid and points a screen reader at its
+    // message via aria-describedby, so the error is announced, not just shown.
+    const websiteInput = screen.getByLabelText(/website/i)
+    expect(websiteInput).toHaveAttribute('aria-invalid', 'true')
+    const describedBy = websiteInput.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy!)).toHaveTextContent(
+      /valid https url/i,
+    )
   })
 
   it('submits trimmed named rows with optional https URLs', async () => {

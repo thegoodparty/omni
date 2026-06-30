@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -21,6 +21,7 @@ import {
   ShieldIcon,
 } from '@styleguide/components/ui/icons'
 import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 // $10/mo + 7-day trial are hardcoded here to match the ValuePropStep /
 // ProUpgradeModal copy. The live Stripe price is only available inside the
@@ -29,17 +30,45 @@ import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 const BENEFITS: ReadonlyArray<{
   icon: React.ComponentType<{ className?: string }>
   label: string
+  description: string
 }> = [
-  { icon: SearchIcon, label: 'Deep opponent research' },
-  { icon: ScaleIcon, label: 'Issue-by-issue contrast' },
-  { icon: ShieldIcon, label: 'Threat & vulnerability scoring' },
-  { icon: MessageSquareIcon, label: 'Ready-to-send messaging' },
+  {
+    icon: SearchIcon,
+    label: 'Deep opponent research',
+    description:
+      'Voting records, finance filings, public statements — pulled and summarized for every opponent in your race.',
+  },
+  {
+    icon: ScaleIcon,
+    label: 'Issue-by-issue contrast',
+    description:
+      'Side-by-side positions on the issues your district actually cares about, with cited evidence.',
+  },
+  {
+    icon: ShieldIcon,
+    label: 'Threat & vulnerability scoring',
+    description:
+      'Know who to spend against, who to ignore, and where your opponents are weakest.',
+  },
+  {
+    icon: MessageSquareIcon,
+    label: 'Ready-to-send messaging',
+    description:
+      'Drafted contrast scripts and outreach copy generated from the research — not boilerplate.',
+  },
 ]
 
 const OpponentProLockedView = (): React.JSX.Element => {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
+
+  // The locked upgrade pitch is the only screen a non-Pro candidate sees here,
+  // so its render IS the "viewed the upgrade gate" funnel step. Fire once on
+  // mount (empty deps), not per render.
+  useEffect(() => {
+    trackEvent(EVENTS.RaceOpponent.UpgradeViewed)
+  }, [])
 
   // A candidate who upgraded in another tab won't have isPro flipped in this
   // tab's cached campaign. Refetch the shared campaign query, then re-run the
@@ -112,16 +141,21 @@ const OpponentProLockedView = (): React.JSX.Element => {
             <p className="text-sm font-semibold text-foreground">
               What you get
             </p>
-            <ul className="flex list-none flex-col gap-3">
-              {BENEFITS.map(({ icon: Icon, label }) => (
+            <ul className="flex list-none flex-col gap-4">
+              {BENEFITS.map(({ icon: Icon, label, description }) => (
                 <li
                   key={label}
-                  className="flex items-center gap-3 text-foreground"
+                  className="flex items-start gap-3 text-foreground"
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-grayscale-200">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-grayscale-200">
                     <Icon className="h-4 w-4" />
                   </span>
-                  <span className="text-base">{label}</span>
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-base font-medium">{label}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {description}
+                    </span>
+                  </span>
                 </li>
               ))}
             </ul>

@@ -583,6 +583,14 @@ const RaceOpponentList = ({
           'POST /v1/campaigns/mine/race-opponent/opponents/manual',
           { opponents },
         )
+        // The candidate hand-entered the field — the activation moment the
+        // empty-state form exists to drive. Fired here (not on the status
+        // transition) so the count reflects what they submitted; the run-start
+        // event below is the separate "a run began" signal.
+        trackEvent(EVENTS.RaceOpponent.OpponentsManuallyAdded, {
+          campaignId: campaign?.id,
+          opponentCount: opponents.length,
+        })
         setData((prev) => ({
           ...prev,
           collectionStatus: result.status,
@@ -594,7 +602,7 @@ const RaceOpponentList = ({
         setSubmittingManual(false)
       }
     },
-    [errorSnackbar],
+    [errorSnackbar, campaign?.id],
   )
 
   const status = data.collectionStatus
@@ -658,6 +666,32 @@ const RaceOpponentList = ({
   const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
   const isProcessing = isBusy || idleMidRun
 
+  // Fire one Opponent Research Started per run, keyed off isProcessing (not the
+  // raw busy status) so the transient idle-mid-run gap of the two-call discovery
+  // flow doesn't release the guard and re-fire. One ref-guarded fire covers
+  // every entry point — Collect (idle -> discovering -> running), manual submit
+  // (-> running), and the auto-fired collection after discovery — counting the
+  // whole run once. The guard releases only when the run truly settles
+  // (completed/failed/idle with no in-flight collect), so a later run fires
+  // again. Seeded from initialData so a page that loads mid-run (reload, or a
+  // just-upgraded candidate whose run is already in flight) does NOT fire — only
+  // a start observed in THIS session counts; otherwise every mid-run reload
+  // would over-count the event.
+  const researchStartedRef = useRef(
+    initialData.collectionStatus === 'running' ||
+      initialData.collectionStatus === 'discovering',
+  )
+  useEffect(() => {
+    if (isProcessing && !researchStartedRef.current) {
+      researchStartedRef.current = true
+      trackEvent(EVENTS.RaceOpponent.ResearchStarted, {
+        campaignId: campaign?.id,
+      })
+    } else if (!isProcessing) {
+      researchStartedRef.current = false
+    }
+  }, [isProcessing, campaign?.id])
+
   // While the real run is processing, show the cosmetic 4-step progress screen
   // instead of the bare empty/status row. The steps advance on their own timer
   // (inside OpponentResearchProgress) and are decoupled from this real status —
@@ -690,6 +724,18 @@ const RaceOpponentList = ({
     return () => clearTimeout(id)
   }, [readyHold])
 
+  // Page-state precedence ladder (flag-off and !isPro are resolved upstream in
+  // page.tsx, so by here the candidate is flag-on + Pro). This component owns
+  // the remaining four states, in strict precedence:
+  //   1. processing  — a run is in flight (running/discovering, or the
+  //      transient idle-mid-run gap). Checked FIRST so a just-upgraded
+  //      candidate with an in-flight run paints the progress screen on first
+  //      render, never flickering through the empty/manual state below.
+  //   2. report      — opponents.length > 0 (the accordion of findings).
+  //   3. manual form — settled completed with zero opponents (ran, found none).
+  //   4. failed / idle prompts — the remaining settled-empty branches.
+  // readyHold piggybacks on (1) to hold the "ready" terminal beat before the
+  // report or manual form takes over.
   if (isProcessing || readyHold) {
     return (
       <>
