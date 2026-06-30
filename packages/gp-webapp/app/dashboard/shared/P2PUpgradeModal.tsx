@@ -57,7 +57,7 @@ export function P2PUpgradeModal({
         ],
         highlight: null,
         cta: 'Complete Registration',
-        href: '/dashboard/profile#texting-compliance',
+        href: '/dashboard/account#texting-compliance',
       }
     : {
         title: 'Level the playing field for less',

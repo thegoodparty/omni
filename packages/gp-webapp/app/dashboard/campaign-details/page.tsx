@@ -1,41 +1,7 @@
-import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
-import pageMetaData from 'helpers/metadataHelper'
-import candidateAccess from '../shared/candidateAccess'
-import DetailsPage from './components/DetailsPage'
-import { getServerUser } from 'helpers/userServerHelper'
-import {
-  serverFetchIssues,
-  serverLoadCandidatePosition,
-} from 'app/dashboard/campaign-details/components/issues/serverIssuesUtils'
-const meta = pageMetaData({
-  title: 'campaign Details | GoodParty.org',
-  description: 'Campaign Details',
-  slug: '/dashboard/campaign-details',
-})
-export const metadata = meta
+import { redirect } from 'next/navigation'
 
-export const dynamic = 'force-dynamic'
-
-export default async function Page(): Promise<React.JSX.Element> {
-  await candidateAccess()
-
-  const campaign = await fetchUserCampaign()
-  let candidatePositions = campaign
-    ? await serverLoadCandidatePosition(campaign.id)
-    : []
-  const topIssues = await serverFetchIssues()
-  const user = await getServerUser() // can be removed when door knocking app is not for admins only
-  if (!candidatePositions) {
-    candidatePositions = []
-  }
-
-  const childProps = {
-    pathname: '/dashboard/campaign-details',
-    campaign: campaign ?? undefined,
-    candidatePositions,
-    topIssues,
-    user,
-  }
-
-  return <DetailsPage {...childProps} />
+// The public profile moved to /dashboard/profile. Keep this route as a
+// permanent redirect so existing links and bookmarks still resolve.
+export default async function Page(): Promise<never> {
+  redirect('/dashboard/profile')
 }

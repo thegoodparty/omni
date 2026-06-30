@@ -96,7 +96,7 @@ const TextingComplianceRegisterPage = ({
       })
 
       successSnackbar('Successfully registered for compliance')
-      router.push('/dashboard/profile')
+      router.push('/dashboard/account')
     } catch {
       setHasSubmissionError(true)
       trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {

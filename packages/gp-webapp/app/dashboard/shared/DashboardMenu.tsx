@@ -25,7 +25,6 @@ import {
   Send,
   Settings,
   Sparkles,
-  UserCog,
   UserRound,
   UsersRound,
   type LucideIcon,
@@ -123,7 +122,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     icon: <MdAccountCircle />,
     v2Icon: Circle,
     v2Category: null,
-    link: '/dashboard/campaign-details',
+    link: '/dashboard/profile',
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
   },
@@ -475,18 +474,12 @@ const NewNavMenu = ({
       label: 'Profile',
       icon: CircleUserRound,
       id: 'nav-dash-profile',
-      href: '/dashboard/campaign-details',
+      href: '/dashboard/profile',
       onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
     },
-    settings: {
-      label: 'Settings',
-      icon: Settings,
-      id: 'nav-dash-settings',
-      href: '/dashboard/profile',
-    },
     account: {
-      label: 'Account',
-      icon: UserCog,
+      label: 'Account Settings',
+      icon: Settings,
       id: 'nav-dash-account',
       href: '/dashboard/account',
     },
@@ -600,7 +593,6 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
-                  {sidebarItem(accountManagementMenuItems.settings)}
                   {sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.logout)}
@@ -642,7 +634,6 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
-                  {dropDownItem(accountManagementMenuItems.settings)}
                   {dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.community)}

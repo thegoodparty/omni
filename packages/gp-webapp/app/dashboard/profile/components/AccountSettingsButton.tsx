@@ -9,17 +9,29 @@ import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 
 interface AccountSettingsButtonProps {
   isPro: boolean
+  // Elected offices never see the Pro upgrade CTA. When elected and not
+  // subscribed, no button renders at all.
+  isElectedOffice?: boolean
 }
 
 export const AccountSettingsButton = ({
   isPro,
-}: AccountSettingsButtonProps): React.JSX.Element => {
-  return isPro ? (
-    <PaymentPortalButton>
-      Manage Subscription
-      <MdOpenInNew className="ml-2" />
-    </PaymentPortalButton>
-  ) : (
+  isElectedOffice = false,
+}: AccountSettingsButtonProps): React.JSX.Element | null => {
+  if (isPro) {
+    return (
+      <PaymentPortalButton>
+        Manage Subscription
+        <MdOpenInNew className="ml-2" />
+      </PaymentPortalButton>
+    )
+  }
+
+  if (isElectedOffice) {
+    return null
+  }
+
+  return (
     <div>
       <Button asChild>
         <Link
