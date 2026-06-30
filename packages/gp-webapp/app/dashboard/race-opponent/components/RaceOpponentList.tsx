@@ -39,6 +39,9 @@ import OpponentPageHeader from './OpponentPageHeader'
 import OpponentOverviewCard from './OpponentOverviewCard'
 import SourceAttribution from './SourceAttribution'
 import IssueContrastCard from './IssueContrastCard'
+import OpponentResearchProgress from './OpponentResearchProgress'
+import AddOpponentsForm from './AddOpponentsForm'
+import type { ManualOpponentInput } from './AddOpponentsForm'
 
 const initialsFor = (name: string): string =>
   name
@@ -439,6 +442,18 @@ const OpponentDetailBody = ({
 // How often to poll status while discovery/collection is in flight.
 const POLL_INTERVAL_MS = 5000
 
+// How long to hold the "report is ready" terminal state after the real run
+// completes, before revealing the report. A brief beat so the snap to ready is
+// visible rather than an abrupt jump from step 4 to the report.
+const READY_HOLD_MS = 1500
+
+// Deadline for the collect POST. The processing screen treats an in-flight
+// collect as "still running" (idleMidRun), and the status poll is paused during
+// that window, so a collect that never resolves would trap the user on the
+// progress screen with no escape. Bounding it lets the catch/finally fire,
+// resetting `collecting` so the screen gives way and the error surfaces.
+const COLLECT_TIMEOUT_MS = 30_000
+
 type Props = {
   initialData: RaceOpponentResponse
   raceContext?: string
@@ -511,22 +526,76 @@ const RaceOpponentList = ({
     if (collectingRef.current) return
     collectingRef.current = true
     setCollecting(true)
+    let deadlineId: ReturnType<typeof setTimeout> | undefined
     try {
-      const { data: result } = await clientRequest(
-        'POST /v1/campaigns/mine/race-opponent/collect',
-        {},
-      )
+      const deadline = new Promise<never>((_, reject) => {
+        deadlineId = setTimeout(
+          () => reject(new Error('collect timed out')),
+          COLLECT_TIMEOUT_MS,
+        )
+      })
+      const { data: result } = await Promise.race([
+        clientRequest('POST /v1/campaigns/mine/race-opponent/collect', {}),
+        deadline,
+      ])
       setData((prev) => ({
         ...prev,
         collectionStatus: result.status,
       }))
     } catch {
       errorSnackbar('Failed to start collection. Please try again.')
+      // The POST may have reached the server and started a run before the
+      // client deadline fired, leaving collectionStatus stale at 'idle'. Re-sync
+      // from the server so the poll re-activates on a real 'running' rather than
+      // dropping to the list view where a second click double-dispatches a run.
+      // A failed re-sync is non-actionable here — the collect failure already
+      // surfaced — so the snackbar isn't fired twice. If the re-sync ITSELF fails
+      // (transient network as the deadline fired), one delayed retry recovers it;
+      // dropping both would strand the user exactly as the re-sync was added to
+      // prevent.
+      void loadStatus().catch(() => {
+        setTimeout(
+          () => void loadStatus().catch(() => undefined),
+          POLL_INTERVAL_MS,
+        )
+      })
     } finally {
+      clearTimeout(deadlineId)
       collectingRef.current = false
       setCollecting(false)
     }
-  }, [errorSnackbar])
+  }, [errorSnackbar, loadStatus])
+
+  const [submittingManual, setSubmittingManual] = useState(false)
+  // Synchronous in-flight guard, mirroring collectingRef: setSubmittingManual
+  // only disables the button after a re-render, so two rapid clicks could both
+  // fire a (paid) manual run before React repaints. The ref is set before the
+  // await, so the second synchronous call sees it and bails immediately.
+  const submittingManualRef = useRef(false)
+
+  const submitManualOpponents = useCallback(
+    async (opponents: ManualOpponentInput[]) => {
+      if (submittingManualRef.current) return
+      submittingManualRef.current = true
+      setSubmittingManual(true)
+      try {
+        const { data: result } = await clientRequest(
+          'POST /v1/campaigns/mine/race-opponent/opponents/manual',
+          { opponents },
+        )
+        setData((prev) => ({
+          ...prev,
+          collectionStatus: result.status,
+        }))
+      } catch {
+        errorSnackbar('Failed to start the analysis. Please try again.')
+      } finally {
+        submittingManualRef.current = false
+        setSubmittingManual(false)
+      }
+    },
+    [errorSnackbar],
+  )
 
   const status = data.collectionStatus
 
@@ -574,6 +643,71 @@ const RaceOpponentList = ({
   // both disable a fresh Collect to avoid stacking paid runs.
   const isBusy = status === 'running' || status === 'discovering'
 
+  // Two-call discovery briefly reports 'idle' between discovery finishing and
+  // the auto-fired collect flipping the run to 'running'. Treating that gap as
+  // not-processing would flicker the screen out to the empty/report view and
+  // snap back. The gap is exactly the window where the auto-fired collect is
+  // pending or in flight, so key "idle still processing" off that — NOT a sticky
+  // session flag, which would also wedge the screen when collect legitimately
+  // settles to a terminal 'idle' (uncontested/unavailable race, where no
+  // collection run is dispatched). `justLeftDiscovery` covers the one render
+  // before the auto-fire effect flips `collecting` on; `collecting` covers the
+  // in-flight collect. A brand-new 'idle' user (never discovered, never
+  // collecting) stays out of the processing screen.
+  const justLeftDiscovery = prevStatus.current === 'discovering'
+  const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
+  const isProcessing = isBusy || idleMidRun
+
+  // While the real run is processing, show the cosmetic 4-step progress screen
+  // instead of the bare empty/status row. The steps advance on their own timer
+  // (inside OpponentResearchProgress) and are decoupled from this real status —
+  // the timer only drives the label/counter; this real status decides when to
+  // leave the screen, so a fast fake timer can't transition before data lands.
+  //
+  // On the processing -> completed transition, hold the progress screen in its
+  // "ready" terminal state briefly so the user sees it snap to "report is ready"
+  // before the report (or, for zero opponents, ENG-10609's manual form) replaces
+  // it.
+  //
+  // The hold is latched in state on the render where 'completed' first lands
+  // after a real run (prevProcessing was true), using the "store previous value
+  // in state, update during render" pattern. That detection is pure render
+  // logic with no ref mutation, so it is Strict-Mode safe — the double-invoked
+  // setup/cleanup of the dismissal timer below re-arms the same timer rather
+  // than skipping the hold, and the latch stays set across re-renders until the
+  // timer dismisses it.
+  const [readyHold, setReadyHold] = useState(false)
+  const [prevProcessing, setPrevProcessing] = useState(isProcessing)
+  if (prevProcessing !== isProcessing) {
+    setPrevProcessing(isProcessing)
+    if (prevProcessing && !isProcessing && status === 'completed') {
+      setReadyHold(true)
+    }
+  }
+  useEffect(() => {
+    if (!readyHold) return
+    const id = setTimeout(() => setReadyHold(false), READY_HOLD_MS)
+    return () => clearTimeout(id)
+  }, [readyHold])
+
+  if (isProcessing || readyHold) {
+    return (
+      <>
+        <div className="border-b border-border bg-background">
+          <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
+            <OpponentPageHeader
+              title="Know your opponent"
+              raceContext={raceContext}
+            />
+          </div>
+        </div>
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
+          <OpponentResearchProgress ready={readyHold} />
+        </div>
+      </>
+    )
+  }
+
   return (
     <>
       {/* Full-bleed white header band (title + race context + Export brief),
@@ -610,7 +744,7 @@ const RaceOpponentList = ({
           <div className="flex flex-wrap gap-2">
             <Button
               onClick={collect}
-              disabled={collecting || isBusy}
+              disabled={collecting || isBusy || submittingManual}
               className="flex items-center gap-1.5"
             >
               <RefreshIcon className="size-4" aria-hidden />
@@ -629,21 +763,54 @@ const RaceOpponentList = ({
         </div>
 
         {data.opponents.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
-            <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-              <SearchIcon className="size-6" aria-hidden />
-            </span>
-            <div className="flex flex-col gap-1">
-              <h2 className="text-base font-semibold text-foreground">
-                No opponent research yet
-              </h2>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Use &quot;Collect now&quot; above to gather sourced research on
-                the candidates in your race. We&apos;ll pull what&apos;s public
-                and summarize it for you.
-              </p>
+          // No opponents yet — the branch depends on collection status. A run in
+          // flight (running/discovering/idle-mid-run) is handled above by the
+          // processing screen early return, so this block only reaches the
+          // settled states: a failed run shows a failure/retry message;
+          // completed-with-zero is the "we ran it and found nobody" case, so the
+          // form acknowledges the prior run (ranAlready) and gates a fresh submit
+          // behind a disclosure rather than inviting indefinite (paid) re-runs;
+          // idle/never-run prompts to start collection. The full status
+          // state-machine is ENG-10611.
+          status === 'failed' ? (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <TriangleAlertIcon className="size-6" aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  Collection failed
+                </h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Something went wrong gathering research on your race. Use
+                  &quot;Collect now&quot; above to try again.
+                </p>
+              </div>
             </div>
-          </div>
+          ) : status === 'completed' ? (
+            <AddOpponentsForm
+              submitting={submittingManual || collecting}
+              onSubmit={submitManualOpponents}
+              ranAlready
+            />
+          ) : (
+            // idle / never-run: no collection has fired yet, so don't claim "no
+            // opponents found" — prompt the candidate to start collection.
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                <SwordsIcon className="size-6" aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  No opponent research yet
+                </h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Hit &quot;Collect now&quot; to gather sourced research on the
+                  candidates in your race.
+                </p>
+              </div>
+            </div>
+          )
         ) : (
           <section className="flex flex-col gap-3">
             <div className="flex flex-col gap-0.5">
