@@ -69,3 +69,72 @@ def render_markdown(rows: list[dict], meta: dict) -> str:
     for row in rows:
         lines.append("| " + " | ".join(_cell(row.get(c)) for c in esa.COLUMNS) + " |")
     return "\n".join(lines) + "\n"
+
+
+def load_doc_state(path: Path = DOC_STATE) -> dict:
+    if Path(path).exists():
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    return {}
+
+
+def save_doc_state(path: Path, page_id: str) -> None:
+    Path(path).write_text(json.dumps({"page_id": page_id}, indent=2) + "\n", encoding="utf-8")
+
+
+def upsert_page(
+    markdown: str,
+    *,
+    api_key: str,
+    team_id: str,
+    doc_id: str,
+    state_path: Path = DOC_STATE,
+    requester=None,
+) -> str:
+    """Create the page on first run (persisting its id) or update it in place thereafter.
+    ClickUp Docs are v3; pages carry markdown via content_format=text/md."""
+    kwargs = {"api_version": "v3"}
+    if requester is not None:
+        kwargs["requester"] = requester
+    state = load_doc_state(state_path)
+    page_id = state.get("page_id")
+    if page_id:
+        body = {"content": markdown, "content_format": "text/md", "content_edit_mode": "replace"}
+        clickup_api.put(
+            f"workspaces/{team_id}/docs/{doc_id}/pages/{page_id}", api_key, body, **kwargs
+        )
+        return page_id
+    body = {"name": PAGE_NAME, "content": markdown, "content_format": "text/md"}
+    result = clickup_api.post(
+        f"workspaces/{team_id}/docs/{doc_id}/pages", api_key, body, **kwargs
+    )
+    new_id = result["id"]
+    save_doc_state(state_path, new_id)
+    return new_id
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Refresh the event-state ClickUp doc page.")
+    parser.add_argument("command", choices=["refresh"])
+    parser.add_argument("--dry-run", action="store_true", help="print markdown, do not write")
+    parser.add_argument("--doc-id", default=DEFAULT_DOC_ID)
+    args = parser.parse_args(argv)
+
+    result = esa.assemble(date.today())
+    markdown = render_markdown(result["rows"], result["meta"])
+
+    if args.dry_run:
+        print(markdown)
+        return 0
+
+    api_key = os.environ.get("CLICKUP_API_KEY")
+    team_id = os.environ.get("CLICKUP_TEAM_ID")
+    if not api_key or not team_id:
+        print("CLICKUP_API_KEY and CLICKUP_TEAM_ID must be set", file=sys.stderr)
+        return 2
+    page_id = upsert_page(markdown, api_key=api_key, team_id=team_id, doc_id=args.doc_id)
+    print(f"wrote {result['meta']['event_count']} events to ClickUp doc page {page_id}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

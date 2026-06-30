@@ -27,3 +27,68 @@ def test_render_markdown_escapes_pipes_in_cells():
     md = doc.render_markdown(rows, SAMPLE_META)
     # a literal pipe inside a cell must be escaped so it does not break the column
     assert "a \\| b" in md
+
+
+import json
+
+
+def test_doc_state_round_trip(tmp_path):
+    p = tmp_path / "state.json"
+    assert doc.load_doc_state(p) == {}
+    doc.save_doc_state(p, "page-123")
+    assert doc.load_doc_state(p)["page_id"] == "page-123"
+
+
+def test_upsert_creates_page_when_no_state(tmp_path):
+    calls = []
+
+    def fake_requester(method, url, headers=None, params=None, json=None, timeout=None):
+        calls.append((method, url, json))
+        class R:
+            status_code = 200
+            content = b"{}"
+            def raise_for_status(self): pass
+            def json(self): return {"id": "new-page-1"}
+        return R()
+
+    page_id = doc.upsert_page(
+        "# md", api_key="k", team_id="900", doc_id="d1",
+        state_path=tmp_path / "s.json", requester=fake_requester,
+    )
+    assert page_id == "new-page-1"
+    assert calls[0][0] == "POST"                       # create path
+    assert "workspaces/900/docs/d1/pages" in calls[0][1]
+    assert doc.load_doc_state(tmp_path / "s.json")["page_id"] == "new-page-1"
+
+
+def test_upsert_updates_page_when_state_exists(tmp_path):
+    state = tmp_path / "s.json"
+    doc.save_doc_state(state, "existing-page")
+    calls = []
+
+    def fake_requester(method, url, headers=None, params=None, json=None, timeout=None):
+        calls.append((method, url))
+        class R:
+            status_code = 200
+            content = b"{}"
+            def raise_for_status(self): pass
+            def json(self): return {"id": "existing-page"}
+        return R()
+
+    page_id = doc.upsert_page(
+        "# md2", api_key="k", team_id="900", doc_id="d1",
+        state_path=state, requester=fake_requester,
+    )
+    assert page_id == "existing-page"
+    assert calls[0][0] == "PUT"                         # update path
+    assert "pages/existing-page" in calls[0][1]
+
+
+def test_main_dry_run_prints_markdown_and_does_not_write(monkeypatch, capsys):
+    monkeypatch.setattr(doc.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {
+        "refreshed_at": "2026-06-30T00:00:00+00:00", "event_count": 0,
+        "provenance_path": "p.csv"}})
+    rc = doc.main(["refresh", "--dry-run"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "# Analytics event state" in out
