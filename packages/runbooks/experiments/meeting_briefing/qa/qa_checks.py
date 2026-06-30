@@ -399,6 +399,17 @@ _REQUIRED_CHANNELS = frozenset(range(1, 5))
 # confirmed but the packet may or may not exist yet (the `awaiting_agenda`
 # path).
 _STALE_SCHEDULE_REASONS = frozenset({"no_meeting_on_target_date"})
+# A channel-0 POSITIVE read at the known agenda location (the hint passed from a
+# prior run) lets the agent bail without exhausting channels 1-4: it already
+# confirmed the meeting/agenda state at the authoritative location. Keyed on the
+# decision LABEL (not reason) and only the two CONFIRMED labels qualify —
+# channel_0_unreachable_or_unconfirmed deliberately does NOT, so a failure to
+# reach the hint still forces full 4-channel discovery. Mirrors the
+# stale-schedule exemption above.
+_CHANNEL_0_CONFIRMED_BAIL = frozenset({
+    "channel_0_confirmed_no_agenda_yet",
+    "channel_0_confirmed_no_meeting",
+})
 
 
 def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding]) -> None:
@@ -419,6 +430,12 @@ def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding
     (the stale-schedule signal path) are exempt from the 4-channel
     requirement: the agent never reached packet discovery because the
     target meeting did not exist on the platform.
+
+    Both `awaiting_agenda` and `no_meeting_found` artifacts that record a
+    channel-0 CONFIRMED bail (`channel_0_confirmed_no_agenda_yet` /
+    `channel_0_confirmed_no_meeting`) are likewise exempt: channel 0
+    positively confirmed the meeting/agenda state at the known agenda
+    location, so the 4-channel sweep is redundant.
     """
     status = artifact.get("briefing_status")
     if status not in ("awaiting_agenda", "no_meeting_found"):
@@ -427,6 +444,8 @@ def check_awaiting_agenda_discovery_depth(artifact: dict, findings: list[Finding
     if status == "no_meeting_found" and any(
         (d.get("reason") or "") in _STALE_SCHEDULE_REASONS for d in decisions
     ):
+        return
+    if any((d.get("decision") or "") in _CHANNEL_0_CONFIRMED_BAIL for d in decisions):
         return
     channels_seen: set[int] = set()
     for d in decisions:

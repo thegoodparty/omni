@@ -9,6 +9,14 @@ Run a meeting briefing for one elected official's specific city council meeting.
 3. Your params are in the `PARAMS_JSON` env var. Read them once at the top.
 4. Write the final artifact to `/workspace/output/meeting_briefing.json` and nowhere else.
 5. Perform the spot-check at the bottom — schema-valid data can still be garbage.
+6. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
+   ```python
+   try:
+       from pmf_runtime import milestone; milestone("<phase>")
+   except Exception:
+       pass  # primitive absent on this runner build — never fail the run over a marker
+   ```
+   The phase markers are called out at each Step. A run that bails early (e.g. a channel-0 confirmed miss) simply emits fewer markers — that is expected.
 
 ## EARLY EXIT CONDITIONS (gate the run before any heavy work)
 
@@ -219,6 +227,8 @@ Record which tier of the hierarchy applies in `run_metadata.run_decisions[]` (e.
 
 ### Step 2 — Resolve agenda packet source
 
+**Milestone — run `milestone("discovery")`** (per BEFORE YOU START item 6) before this step's work.
+
 **Target: the agenda packet, not the summary.** Re-read "WHAT COUNTS AS THE AGENDA PACKET" above before proceeding. You are looking for the substantive briefing PDFs (staff reports, ordinances, exhibits, etc.) — either one compiled file or the per-item attachments collection. If you end this step with only a summary, you have not resolved the packet and must route to `awaiting_agenda` in Step 3.
 
 **Precondition — `PARAMS.meetingDate` is the target.** The caller (gp-api) supplies the target meeting date based on the official's `meeting_schedule` artifact. The agent does NOT discover the next meeting on its own. Your job in Step 2 is to **verify** that `PARAMS.meetingDate` corresponds to a real meeting of the official's body on the streaming platform, then proceed to resolve the agenda packet for that specific date.
@@ -253,17 +263,20 @@ If the briefing setup pre-stages a bundled agenda packet at `/workspace/input/ag
 
 **Packet-discovery procedure on the primary platform:** after finding the meeting on the platform, enumerate every link on the meeting detail page that returns `Content-Type: application/pdf` (or `application/octet-stream` with a `.pdf` filename in `Content-Disposition`). Each substantive item should have at least one such attachment. Cap at 50 link fetches per meeting (HEAD when possible to avoid downloading every PDF before deciding to chunk it).
 
-**Channel 0 (when `PARAMS.knownAgendaLocation` is present) — try the hint first.** The hint is a URL or prose describing where prior runs found this body's agendas. Treat it as channel 0 in the discovery hierarchy:
+**Channel 0 (when `PARAMS.knownAgendaLocation` is present) — try the hint first, and TRUST a positive read.** The hint is a URL or prose describing where prior runs found this body's agendas. Treat it as channel 0 in the discovery hierarchy. Channel 0 keeps its full drill-down behavior: HEAD/GET the URL; if it is a platform calendar / meetings index, drill into it to reach the target meeting and its packet attachments; follow redirects, CDN/API hosts, and sibling links; if the hint is prose, parse it for a URL and follow the navigation it describes. A correct hint is very often a landing page you must drill _through_ to reach the packet — do not treat a landing page as a dead end.
 
-- If the hint contains a URL, HEAD/GET it. If it returns `Content-Type: application/pdf` for the target date's packet, you're done.
-- If the hint URL is a platform calendar or meetings index, drill into it to find the target meeting and its packet attachments.
-- If the hint is prose, parse it for a URL and start there; follow the navigation steps it describes.
-- **Channel 0 is NOT counted toward the 4-channel exhaustion check** below. If channel 0 succeeds you can skip channels 1-4 entirely. If channel 0 fails (404, redirects to a generic landing page, platform moved, or the parent page no longer lists this body's meetings), record a `run_decisions[]` entry with `decision: "channel_0_hint_stale"` and the URL/prose that didn't pan out, then fall through to the normal channels — **do not bail on a stale hint.**
-- The hint is a starting point, not an authority. Channels 1-4 remain the mandatory floor before declaring `awaiting_agenda`.
+Resolve channel 0 to **exactly one** of the four outcomes below, and record it as a `run_decisions[]` entry whose `decision` is the verbatim label shown. The first two are CONFIRMED bails: they let you declare a placeholder and **skip channels 1-4 entirely**. The last is the only failure mode, and it must fall through.
 
-**Before declaring `awaiting_agenda`, you MUST exhaust 4 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
+- `channel_0_confirmed_agenda_found` — you reached the target meeting's agenda packet from the hint. Proceed to the full briefing (the win path).
+- `channel_0_confirmed_no_agenda_yet` — you POSITIVELY rendered this body's meetings list / agenda index at the hint, confirmed a meeting on `PARAMS.meetingDate`, and confirmed no agenda packet is published for it yet. Declare `briefing_status: "awaiting_agenda"` and skip channels 1-4. In `reason`, record what you actually saw (the rendered index, the meeting row, the absent packet link).
+- `channel_0_confirmed_no_meeting` — you POSITIVELY rendered this body's calendar at the hint and it shows no meeting of the official's body on `PARAMS.meetingDate`. Declare `briefing_status: "no_meeting_found"` and skip channels 1-4. Record what the calendar did show.
+- `channel_0_unreachable_or_unconfirmed` — the hint 404'd, redirected to a generic landing page, sat behind a sign-in / bot-wall (HTTP 403), rendered only through a JS-only widget you could not read, timed out, or otherwise did NOT let you positively confirm the meeting/agenda state. **This is NOT a confirmation. Do NOT bail.** Record it and fall through to channels 1-4 exactly as before.
 
-Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic QA gate extracts the `channel_<N>_` prefix from each decision and treats any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers as a quality failure. Stop early ONLY when you find packet content for the target meeting. (Channel 0's `channel_0_*` entry, when emitted, is informational and ignored by the depth check.)
+**Only `channel_0_confirmed_no_agenda_yet` or `channel_0_confirmed_no_meeting` lets you skip channels 1-4.** A failure to reach or render the hint is never a confirmation — when in any doubt, treat it as `channel_0_unreachable_or_unconfirmed` and exhaust channels 1-4. The bail is gated on a POSITIVE read at the known location, not on the mere presence of a hint. (The deterministic QA gate honors these two labels: an artifact carrying one of them is exempt from the 4-channel depth requirement; every other miss must still show all 4 channels.)
+
+**Unless channel 0 returned a confirmed-bail outcome above, then before declaring `awaiting_agenda` you MUST exhaust 4 discovery channels.** Do NOT bail after only checking the streaming platform — Fulshear-style jurisdictions hide their packet on a CDN that no public-facing UI links to.
+
+Each channel attempted requires its own `run_decisions[]` entry whose `decision` field begins with `channel_<N>_` (where N is 1–4, matching the channel number below). Channel 1's per-platform sub-attempts (Legistar, PrimeGov, BoardDocs, etc.) go INSIDE the single `channel_1_*` entry's `reason` field — do NOT emit a separate `run_decisions[]` entry per sub-platform, that would inflate the count without exhausting the other 3 channels. The deterministic QA gate extracts the `channel_<N>_` prefix from each decision and treats any `awaiting_agenda` / `no_meeting_found` artifact that doesn't show all 4 distinct channel numbers as a quality failure. Stop early ONLY when you find packet content for the target meeting, OR when channel 0 returned a confirmed-bail outcome (`channel_0_confirmed_no_agenda_yet` / `channel_0_confirmed_no_meeting`), which exempts the run from this 4-channel requirement. (Any other `channel_0_*` entry is informational and ignored by the depth check.)
 
 1. **Primary platform** (try in order; each requires its own search query + verification fetch):
    - Legistar: WebSearch `"<city>" "<state>" legistar` → extract `{client}` from `https://{client}.legistar.com` → verify `https://webapi.legistar.com/v1/{client}/events?$top=1` returns ≥1 event.
@@ -285,7 +298,7 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
    - `"<city>" "agenda packet" "<MM/DD/YYYY of target meeting>"` (Google often indexes the PDF directly even when the city site doesn't link to it)
      For each candidate PDF URL: HEAD-check it — if `Content-Type: application/pdf` and size > 1KB, fetch and use it. Many Granicus installations expose packets at `d3*.cloudfront.net/<client>/...` URLs that are only discoverable via search.
 
-**Only after channels 1–4 yield no packet content for the target meeting may you declare `awaiting_agenda`.** The `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`). All 4 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic QA gate enforces this — an artifact missing any channel number is a quality failure.
+**Only after channels 1–4 yield no packet content for the target meeting may you declare `awaiting_agenda` — UNLESS channel 0 already returned `channel_0_confirmed_no_agenda_yet` / `channel_0_confirmed_no_meeting`, which authorizes an immediate bail.** Absent a confirmed channel-0 bail, the `run_decisions[]` array MUST contain one entry per channel attempted with `decision` prefixed `channel_<N>_<short-label>` (e.g. `channel_1_streaming_platforms`, `channel_4_cdn_search`). All 4 distinct channel numbers must appear. Per-platform sub-attempts in channel 1 go inside that single `channel_1_*` entry's `reason` field, not as separate entries. The deterministic QA gate enforces this — an artifact missing any channel number is a quality failure.
 
 **Publish-lag awareness.** Many jurisdictions release the packet on the Friday before a Monday or Tuesday meeting (~3 days lead time). If today is more than 7 days before the target meeting and channels 1–4 are empty, `awaiting_agenda` is the expected state, not a search failure — note this explicitly in the `awaiting_agenda` `run_decision` reason (e.g. `"packet_not_published — target meeting 2026-05-26 is 11 days out; typical Cheyenne lag is ~3 days, expected packet release Fri 2026-05-22"`).
 
@@ -314,6 +327,8 @@ Each channel attempted requires its own `run_decisions[]` entry whose `decision`
 When you do go to a platform, capture the response (`retrieved_at`, `retrieved_text_or_snapshot`) the same way as any other source. Cite it as a distinct entry in `sources[]` with its own `id`.
 
 ### Step 3 — Substantive-items check + packet-availability gate (run before classification)
+
+**Milestone — run `milestone("gate")`** (per BEFORE YOU START item 6) before this step's work.
 
 This step has two gates. Either gate failing routes to `briefing_status: "awaiting_agenda"`.
 
@@ -361,6 +376,8 @@ If **zero** substantive items exist — for example, the agenda packet is a titl
 This is a **qualitative** check based on item content, not a count threshold — agendas vary widely across jurisdictions, so "fewer than N items" does not generalize. The criterion is whether _any_ item is substantive in the sense above.
 
 ### Step 4 — Chunk the agenda packet into `raw_context` entries
+
+**Milestone — run `milestone("chunk")`** (per BEFORE YOU START item 6) before this step's work.
 
 Rules for chunking the agenda packet text into `raw_context` entries.
 
@@ -434,6 +451,8 @@ Every item must have at least one chunk, including standard items. If no detecta
 All chunks reference the agenda packet source: `source_id` points to the agenda source entry in `sources[]`.
 
 ### Step 5 — Classify items into tiers
+
+**Milestone — run `milestone("classify")`** (per BEFORE YOU START item 6) before this step's work.
 
 #### Tiers
 
@@ -624,6 +643,8 @@ For each priority-eligible item:
 
 ### Step 7 — Discover the exact L2 district value (when `l2DistrictType` is set)
 
+**Milestone — run `milestone("haystaq")`** (per BEFORE YOU START item 6) before this step's work (covers Steps 7-8, the L2 district discovery + batched query).
+
 L2 district value format varies by jurisdiction. PARAMS may pass `l2DistrictName='25'` but the actual value in L2 for NYC City Council is `'NEW YORK CITY CNCL DIST 25 (EST.)'`. Before running the Step 8 batched query for district scope, run a one-shot discovery query against `int__l2_nationwide_uniform_w_haystaq` to find the exact value matching the official's district:
 
 ```python
@@ -679,6 +700,8 @@ Notes:
 - If no priority item picked a column, **skip Step 8 entirely** — no zero-column queries.
 
 ### Step 9 — Per-item overview (for each featured and queued item)
+
+**Milestone — run `milestone("per_item")`** (per BEFORE YOU START item 6) before this step's work (covers Steps 9-12, the per-item generation pipeline).
 
 The first section under each priority item. Cover what the item actually decides, what changes if it passes, and what the consequences are if it fails or is deferred. Focus on the decision and its effects, not on procedure.
 
@@ -797,6 +820,8 @@ Populate `budget_impact.source_ids` with the ids (from the top-level `sources[]`
 Set `budget_impact` to `null`. Do not estimate or fabricate figures.
 
 ### Step 13 — Compile claims with verbatim source extracts
+
+**Milestone — run `milestone("claims_sources")`** (per BEFORE YOU START item 6) before this step's work (covers Steps 13-14, claims + sources compilation).
 
 Every factual claim in the briefing must reference at least one source. For each claim:
 
@@ -988,6 +1013,8 @@ Populate `research.full_treatment.haystaq_detail` with: `district_mean_score` an
 
 ### Step 17 — Write the artifact
 
+**Milestone — run `milestone("assemble")`** (per BEFORE YOU START item 6) before this step's work.
+
 Assemble the final JSON artifact and write it to `/workspace/output/meeting_briefing.json`. Include every top-level field required by the output_schema:
 
 - `experiment_id`: `"meeting_briefing"` (echo of the manifest id).
@@ -1067,6 +1094,8 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 
 ### Step 18 — Self-check the artifact shape
 
+**Milestone — run `milestone("validate")`** (per BEFORE YOU START item 6) before this step's work.
+
 For a fast in-loop sanity check, you may run the runner's generic schema-only shim:
 
 ```bash
@@ -1076,6 +1105,8 @@ python3 /workspace/validate_output.py
 It only does JSON-schema validation — it does NOT check cross-references, required_data_points coverage, discovery-channel depth, or source-extract presence. Use it as a quick fail-fast on shape, then rely on the requirements throughout this instruction (cross-references resolve, every featured item has talking points, all 4 discovery channels recorded for `awaiting_agenda` / `no_meeting_found`, the disclosure phrases are present) to get the deeper quality right.
 
 The full deterministic QA — schema + cross-references + required_data_points coverage + discovery-channel depth + source-extract presence — runs automatically after the run as a separate quality gate; you do not invoke it yourself. Get the requirements right in-loop so the artifact clears it.
+
+**Validate at most ONCE on a complete artifact, then STOP.** If `validate_output.py` exits 0 (schema-valid), you are DONE: do not re-run the validator, do not re-read the artifact back into context to "double-check" it, and do not re-open already-completed steps to second-guess them. Re-validating a passing artifact or re-reading it to inspect it spends turns for zero quality gain — trust the clean exit and finish the run. Re-run the validator only after you have actually edited the artifact to fix a specific error it reported.
 
 ## Spot-check
 

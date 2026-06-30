@@ -645,3 +645,40 @@ class TestFixtureGuard:
             "briefing_ready fixture no longer satisfies the real output_schema: "
             + "; ".join(f"{list(e.path)}: {e.message}" for e in errors[:10])
         )
+
+
+class TestChannel0ConfirmedBailExemption:
+    """A channel-0 POSITIVE read (confirmed bail) exempts a miss artifact from the
+    4-channel discovery-depth requirement; an unreachable/unconfirmed channel 0
+    does NOT — it must still exhaust channels 1-4."""
+
+    def _decisions(self, *labels):
+        now = datetime.now(timezone.utc).isoformat()
+        return [{"timestamp": now, "decision": l, "reason": "channel-0 outcome"} for l in labels]
+
+    def test_confirmed_no_agenda_yet_exempts_awaiting_agenda(self):
+        qc = _qa_checks()
+        art = _minimal_valid_artifact()  # awaiting_agenda
+        art["run_metadata"]["run_decisions"] = self._decisions("channel_0_confirmed_no_agenda_yet")
+        findings = []
+        qc.check_awaiting_agenda_discovery_depth(art, findings)
+        assert findings == [], "confirmed-no-agenda-yet should exempt the 4-channel check"
+
+    def test_confirmed_no_meeting_exempts_no_meeting_found(self):
+        qc = _qa_checks()
+        art = _minimal_valid_artifact()
+        art["briefing_status"] = "no_meeting_found"
+        art["run_metadata"]["run_decisions"] = self._decisions("channel_0_confirmed_no_meeting")
+        findings = []
+        qc.check_awaiting_agenda_discovery_depth(art, findings)
+        assert findings == [], "confirmed-no-meeting should exempt the 4-channel check"
+
+    def test_unreachable_channel0_still_requires_four_channels(self):
+        qc = _qa_checks()
+        art = _minimal_valid_artifact()
+        art["run_metadata"]["run_decisions"] = self._decisions("channel_0_unreachable_or_unconfirmed")
+        findings = []
+        qc.check_awaiting_agenda_discovery_depth(art, findings)
+        assert any(f.check == "run_decisions.discovery_channels_incomplete" for f in findings), (
+            "unreachable channel 0 must NOT exempt; the 4-channel finding should fire"
+        )
