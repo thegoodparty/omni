@@ -9,6 +9,12 @@ model CampaignStrategyOpponent {
   partyAffiliation String   @map("party_affiliation")
   incumbent        Boolean?
 
+  // Candidate-supplied discovery hints, set only on the manual-entry path
+  // (null for discovery-seeded opponents). Persisted so a later collect()
+  // re-dispatch keeps the starting points the candidate provided.
+  ballotpediaUrl String? @map("ballotpedia_url")
+  websiteUrl     String? @map("website_url")
+
   @@index([campaignStrategyId])
   @@map("campaign_strategy_opponent")
 }
