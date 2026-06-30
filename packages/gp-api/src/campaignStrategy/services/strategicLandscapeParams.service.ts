@@ -6,6 +6,8 @@ import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { RacesService } from '@/elections/services/races.service'
 import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
+import { WebsitesService } from '@/websites/services/websites.service'
+import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from './electionApi.service'
 
@@ -13,6 +15,7 @@ import { ElectionApiService } from './electionApi.service'
 type StrategicLandscapeInput = AgentJobContracts['opposition_research']['Input']
 type PrimaryContext =
   StrategicLandscapeInput['campaign_primary_strategy_context']
+type CampaignStoryParam = StrategicLandscapeInput['campaign_story']
 type Candidate =
   StrategicLandscapeInput['campaign_strategy_context']['candidates'][number]
 
@@ -199,6 +202,7 @@ export class StrategicLandscapeParamsService {
     private readonly electionApi: ElectionApiService,
     private readonly races: RacesService,
     private readonly campaignStory: CampaignStoryService,
+    private readonly websites: WebsitesService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(StrategicLandscapeParamsService.name)
@@ -211,7 +215,7 @@ export class StrategicLandscapeParamsService {
     const [context, primary, campaignStory] = await Promise.all([
       this.electionApi.getStrategyContext(brHashId),
       this.buildPrimaryContext(brHashId),
-      this.loadStory(campaign.id),
+      this.loadStoryParam(campaign.id),
     ])
     const { user } = campaign
     const { party, otherParty } = resolveParty(campaign.details)
@@ -234,17 +238,41 @@ export class StrategicLandscapeParamsService {
 
   // The story is optional enrichment, so a transient read failure must not
   // abort the (expensive) strategy build — log it and degrade to undefined.
-  private async loadStory(
+  // `issues` no longer lives on the story: it's sourced from the campaign's
+  // website issues (shared with Pro-upgrade) and flattened to the plain-text
+  // string the agent expects.
+  private async loadStoryParam(
     campaignId: number,
-  ): Promise<StrategicLandscapeInput['campaign_story']> {
+  ): Promise<CampaignStoryParam> {
     try {
-      return await this.campaignStory.getForCampaign(campaignId)
+      const [story, issues] = await Promise.all([
+        this.campaignStory.getForCampaign(campaignId),
+        this.loadIssuesParam(campaignId),
+      ])
+      return { why: story.why, background: story.background, issues }
     } catch (error) {
       this.logger.warn(
         { error, campaignId },
         'Failed to load campaign story for strategy params; proceeding without it',
       )
       return undefined
+    }
+  }
+
+  // Website issues fail independently of the story text: a website read error
+  // degrades issues to null rather than dropping the candidate's why/background
+  // from the agent input.
+  private async loadIssuesParam(campaignId: number): Promise<string | null> {
+    try {
+      return serializeWebsiteIssues(
+        await this.websites.getIssuesForCampaign(campaignId),
+      )
+    } catch (error) {
+      this.logger.warn(
+        { error, campaignId },
+        'Failed to load website issues for strategy params; proceeding without issues',
+      )
+      return null
     }
   }
 

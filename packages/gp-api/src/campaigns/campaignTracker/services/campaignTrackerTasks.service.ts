@@ -18,6 +18,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
+import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
 import { buildStaticTrackerTaskRows } from './staticTrackerTasks.util'
@@ -199,7 +200,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     campaignPlan: string | null
     campaignStory: string | null
   }> {
-    const [story, strategy] = await Promise.all([
+    const [story, strategy, website] = await Promise.all([
       this.client.campaignStory.findUnique({ where: { campaignId } }),
       this.client.campaignStrategy.findUnique({
         where: { campaignId },
@@ -209,12 +210,20 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           opponents: true,
         },
       }),
+      // Issues live on the website now (shared with Pro-upgrade), not the story.
+      this.client.website.findUnique({
+        where: { campaignId },
+        select: { content: true },
+      }),
     ])
 
+    const issuesText = serializeWebsiteIssues(
+      website?.content?.about?.issues ?? [],
+    )
     const storyParts = [
       story?.why ? `Why I'm running:\n${story.why}` : null,
       story?.background ? `Background:\n${story.background}` : null,
-      story?.issues ? `Key issues:\n${story.issues}` : null,
+      issuesText ? `Key issues:\n${issuesText}` : null,
     ].filter((part): part is string => part !== null)
     const campaignStory = storyParts.length ? storyParts.join('\n\n') : null
 

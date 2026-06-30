@@ -30,6 +30,7 @@ const makeService = () => {
         .mockResolvedValue({ id: 99, type: 'text', quantity: 5 }),
     },
     campaignStory: { findUnique: vi.fn().mockResolvedValue(null) },
+    website: { findUnique: vi.fn().mockResolvedValue(null) },
     campaignStrategy: {
       findUnique: vi.fn().mockResolvedValue(null),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -115,7 +116,10 @@ describe('CampaignTrackerTasksService.dispatchGeneration', () => {
     h.prisma.campaignStory.findUnique.mockResolvedValueOnce({
       why: 'I care',
       background: 'Local business owner',
-      issues: 'Housing',
+    })
+    // Issues live on the website now (shared with Pro-upgrade).
+    h.prisma.website.findUnique.mockResolvedValueOnce({
+      content: { about: { issues: [{ description: 'Housing' }] } },
     })
     h.prisma.campaignStrategy.findUnique.mockResolvedValueOnce({
       opportunities: [{ content: 'Engaged renters' }],
