@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -598,6 +598,48 @@ describe('<RaceOpponentList>', () => {
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
     await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
+    // The status badge alone is tautological (it renders from collectionStatus
+    // regardless of the isBusy branch), so also assert the form unmounted — the
+    // page actually left the manual-entry state for the processing state.
+    expect(
+      screen.queryByText(/add the opponents you want to analyze/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('only fires one request on a re-entrant submit (synchronous guard)', async () => {
+    // The first request stays pending so submittingManualRef is still set when
+    // the second submit fires. We dispatch the second one as a form submit
+    // event (not a button click): the button is disabled while the request is
+    // in flight, so a click would be a no-op and the test would pass on the
+    // button-disable alone. The form submit bypasses that, leaving only the
+    // synchronous ref-guard to coalesce the two — so this fails if the guard
+    // is removed.
+    const requestSpy = vi.fn()
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/opponents/manual',
+      (): Promise<never> => {
+        requestSpy()
+        return pendingForever()
+      },
+    )
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    const submit = screen.getByRole('button', { name: /run the analysis/i })
+    const form = submit.closest('form')
+    expect(form).not.toBeNull()
+
+    await user.click(submit)
+    await waitFor(() => expect(requestSpy).toHaveBeenCalledTimes(1))
+
+    // Re-entrant submit while the first is still in flight — guard must bail.
+    fireEvent.submit(form!)
+    fireEvent.submit(form!)
+
+    await waitFor(() => expect(requestSpy).toHaveBeenCalledTimes(1))
+    expect(requestSpy).toHaveBeenCalledTimes(1)
   })
 
   it('disables "Collect now" while a manual submit is in flight', async () => {

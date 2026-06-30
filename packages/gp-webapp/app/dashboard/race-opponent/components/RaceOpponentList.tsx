@@ -531,9 +531,16 @@ const RaceOpponentList = ({
   }, [errorSnackbar])
 
   const [submittingManual, setSubmittingManual] = useState(false)
+  // Synchronous in-flight guard, mirroring collectingRef: setSubmittingManual
+  // only disables the button after a re-render, so two rapid clicks could both
+  // fire a (paid) manual run before React repaints. The ref is set before the
+  // await, so the second synchronous call sees it and bails immediately.
+  const submittingManualRef = useRef(false)
 
   const submitManualOpponents = useCallback(
     async (opponents: ManualOpponentInput[]) => {
+      if (submittingManualRef.current) return
+      submittingManualRef.current = true
       setSubmittingManual(true)
       try {
         const { data: result } = await clientRequest(
@@ -547,6 +554,7 @@ const RaceOpponentList = ({
       } catch {
         errorSnackbar('Failed to start the analysis. Please try again.')
       } finally {
+        submittingManualRef.current = false
         setSubmittingManual(false)
       }
     },
