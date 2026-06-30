@@ -88,11 +88,17 @@ def _session_key(experiment_type: str, run_id: str) -> str:
 
 
 def _fetch_session(s3, bucket: str, key: str) -> str | None:
+    from botocore.exceptions import ClientError, NoCredentialsError
+
     try:
         resp = s3.get_object(Bucket=bucket, Key=key)
         return resp["Body"].read().decode("utf-8", errors="replace")
-    except Exception:
-        return None
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+            return None
+        raise
+    except NoCredentialsError:
+        raise
 
 
 def turn_rows_for_run(run: dict, text: str) -> list[dict]:

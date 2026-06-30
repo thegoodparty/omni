@@ -67,4 +67,7 @@ if __name__ == "__main__":
     import sys
 
     sql = sys.argv[1] if len(sys.argv) > 1 else 'SELECT count(*) AS n FROM experiment_run'
+    first_keyword = sql.lstrip().split()[0].upper() if sql.lstrip() else ""
+    if first_keyword not in ("SELECT", "WITH", "EXPLAIN"):
+        raise SystemExit(f"cap_cost_db: only SELECT/WITH/EXPLAIN queries allowed, got '{first_keyword}'")
     print(query(sql).to_string())

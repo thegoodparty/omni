@@ -37,11 +37,10 @@ import seaborn as sns
 
 
 def pct(series: pd.Series, p: float) -> float:
-    vals = sorted(v for v in series.tolist() if v is not None)
+    vals = [v for v in series.tolist() if v is not None]
     if not vals:
         return 0.0
-    k = max(0, min(len(vals) - 1, int(round(p / 100 * (len(vals) - 1)))))
-    return float(vals[k])
+    return float(np.percentile(vals, p))
 
 
 def run_costs(df: pd.DataFrame) -> pd.DataFrame:
@@ -75,7 +74,7 @@ def distribution_tables(df: pd.DataFrame) -> dict:
     total = ordered["run_cost"].sum()
     if total > 0:
         cum = ordered["run_cost"].cumsum() / total
-        n80 = int((cum <= 0.80).sum()) + 1
+        n80 = int((cum < 0.80).sum()) + 1
         out["pareto_tail"] = {
             "runs_driving_80pct_spend": min(n80, len(ordered)),
             "of_total_runs": int(len(ordered)),
