@@ -16,6 +16,8 @@ interface Props {
   onOpen: () => void
   /** Open the chat surface into a past conversation (from the history popover). */
   onOpenConversation: (conversationId: string) => void
+  /** Open the chat surface and begin dictation (from the mic button). Falls back to `onOpen`. */
+  onStartDictation?: () => void
   /** Extra classes on the fixed container — use to offset for a sidebar, e.g. `lg:left-64`. */
   className?: string
 }
@@ -35,6 +37,7 @@ export default function AiChatBar({
   firstName,
   onOpen,
   onOpenConversation,
+  onStartDictation,
   className,
 }: Props): React.JSX.Element {
   const placeholder = firstName
@@ -67,7 +70,7 @@ export default function AiChatBar({
               size="medium"
               variant="ghost"
               aria-label="Dictate a message"
-              onClick={onOpen}
+              onClick={onStartDictation ?? onOpen}
             >
               <MicIcon className="size-5" aria-hidden />
             </IconButton>

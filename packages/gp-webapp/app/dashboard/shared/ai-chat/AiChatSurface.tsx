@@ -26,6 +26,8 @@ interface Props {
   container?: HTMLElement | null
   /** Optional slot rendered between the message list and the input. */
   bottomSlot?: React.ReactNode
+  /** Begin dictation on open (e.g. when the surface was opened via the mic). */
+  autoDictate?: boolean
 }
 
 /**
@@ -44,6 +46,7 @@ export default function AiChatSurface({
   messageRenderer,
   container,
   bottomSlot,
+  autoDictate,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -97,6 +100,7 @@ export default function AiChatSurface({
           className={`mx-auto flex min-h-0 w-full ${CHAT_MAX_W} flex-1 flex-col gap-10 overflow-y-auto px-4 py-5`}
           messageRenderer={messageRenderer}
           bottomSlot={bottomSlot}
+          autoDictate={autoDictate}
         />
       </DrawerContent>
     </Drawer>

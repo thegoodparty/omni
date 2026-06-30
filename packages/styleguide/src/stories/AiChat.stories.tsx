@@ -64,6 +64,7 @@ function AiChatDemo({
   const [conversationId, setConversationId] = useState<string | null>(
     initialConversationId ?? null,
   )
+  const [autoDictate, setAutoDictate] = useState(false)
 
   return (
     <div className="relative h-[300px] bg-background">
@@ -76,7 +77,14 @@ function AiChatDemo({
           chatApi={chatApi}
           config={config}
           firstName={firstName}
-          onOpen={() => onOpenChange(true)}
+          onOpen={() => {
+            setAutoDictate(false)
+            onOpenChange(true)
+          }}
+          onStartDictation={() => {
+            setAutoDictate(true)
+            onOpenChange(true)
+          }}
           onOpenConversation={(id) => {
             setConversationId(id)
             onOpenChange(true)
@@ -88,10 +96,14 @@ function AiChatDemo({
         chatApi={chatApi}
         config={config}
         open={open}
-        onOpenChange={onOpenChange}
+        onOpenChange={(v) => {
+          if (!v) setAutoDictate(false)
+          onOpenChange(v)
+        }}
         initialConversationId={conversationId}
         messageRenderer={messageRenderer}
         bottomSlot={bottomSlot}
+        autoDictate={autoDictate}
       />
     </div>
   )

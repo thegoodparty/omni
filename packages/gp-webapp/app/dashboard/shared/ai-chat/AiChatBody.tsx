@@ -182,6 +182,8 @@ interface Props {
   messageRenderer?: (content: string) => React.ReactNode
   /** Optional content rendered between the messages area and the composer. */
   bottomSlot?: React.ReactNode
+  /** Start dictation automatically on open (e.g. when entered via the mic). */
+  autoDictate?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +200,7 @@ export default function AiChatBody({
   className,
   messageRenderer,
   bottomSlot,
+  autoDictate = false,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -236,6 +239,8 @@ export default function AiChatBody({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   // One-row textarea height (line-height + vertical padding), measured once.
   const oneRowHeightRef = useRef<number | null>(null)
+  // Guard so auto-dictation starts at most once per mount.
+  const autoDictateStartedRef = useRef(false)
 
   const introMessages = config.introMessages ?? []
   const introTotal = useMemo(
@@ -352,6 +357,15 @@ export default function AiChatBody({
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [streaming, history.length])
+
+  // When opened via the mic (autoDictate), begin recording once the surface is
+  // active so the user can talk straight away.
+  useEffect(() => {
+    if (!autoDictate || !active || autoDictateStartedRef.current) return
+    if (dictation.status !== 'idle') return
+    autoDictateStartedRef.current = true
+    void dictation.start()
+  }, [autoDictate, active, dictation.status, dictation.start])
 
   const ensureConversationId = useCallback(async (): Promise<string | null> => {
     if (conversationId) return conversationId
