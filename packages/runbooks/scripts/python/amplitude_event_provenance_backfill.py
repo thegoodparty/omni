@@ -1241,13 +1241,11 @@ def _run_walk(args: argparse.Namespace) -> None:
         git_fetch(root, args.ref)
     pr_resolver = None if args.no_pr_resolve else make_merge_walk_resolver(root, args.ref)
 
-    from databricks.sql import connect  # lazy: pure logic imports without the SDK
+    import databricks_oauth as dbc  # lazy: pure logic imports without the SDK
 
-    connection = connect(
-        server_hostname=os.environ["DATABRICKS_SERVER_HOSTNAME"],
-        http_path=os.environ["DATABRICKS_HTTP_PATH"],
-        access_token=os.environ["DATABRICKS_API_KEY"],
-    )
+    # OAuth (CLI / ~/.databrickscfg profile) is the analytics standard — no PAT. Shares the
+    # same auth path as the event-health monitor (analytics_event_health.py).
+    connection = dbc.get_connection()
     try:
         with connection.cursor() as cursor:
             rows = run_refresh(cursor, root, since, datetime.now(UTC),

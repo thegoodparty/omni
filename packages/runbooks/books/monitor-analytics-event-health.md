@@ -11,7 +11,7 @@ Source of truth for the lifecycle model: the Analytics event change SOP (ClickUp
 
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
   Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with
-  `DATABRICKS_CONFIG_PROFILE` if it is not the default. No PAT (that is the backfill's path).
+  `DATABRICKS_CONFIG_PROFILE` if it is not the default. No PAT — the backfill shares this path.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be
