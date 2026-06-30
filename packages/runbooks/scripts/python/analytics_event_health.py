@@ -133,7 +133,7 @@ def to_date(value: Any) -> date | None:
 def parse_gpmeta(description: str | None) -> dict | None:
     """Parse the ``<!-- gp-meta -->`` block from a Govern description.
 
-    Returns ``{"intent": "in_use"|"not_in_use"|None, "supersession": str|None}`` or
+    Returns ``{"intent": "in_use"|"not_in_use"|None, "supersession": str|None, "purpose": str|None}`` or
     ``None`` when no block is present. Sparse today; the logic is ready for when the
     instrument-analytics-event / event-metadata skills start writing it.
     """
@@ -149,7 +149,22 @@ def parse_gpmeta(description: str | None) -> dict | None:
     elif re.search(r"^\s*in use", block, re.IGNORECASE | re.MULTILINE):
         intent = "in_use"
     sup = re.search(r"supersession:\s*(.+)", block, re.IGNORECASE)
-    return {"intent": intent, "supersession": sup.group(1).strip() if sup else None}
+    # Purpose: the first content line that is neither a known field nor an in/out-of-use
+    # status line. Trailing " |" (the gp-meta line separator) is stripped.
+    purpose = None
+    for raw in block.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if re.match(r"^(supersession|in use|not in use|change-set)\b", line, re.IGNORECASE):
+            continue
+        purpose = line.rstrip().removesuffix("|").rstrip()
+        break
+    return {
+        "intent": intent,
+        "supersession": sup.group(1).rstrip().removesuffix("|").rstrip() if sup else None,
+        "purpose": purpose,
+    }
 
 
 def is_system(family: str | None, event_type: str | None) -> bool:

@@ -55,6 +55,32 @@ def test_parse_gpmeta_in_use():
     assert eh.parse_gpmeta(desc)["intent"] == "in_use"
 
 
+def test_parse_gpmeta_extracts_purpose():
+    desc = (
+        "<!-- gp-meta -->\n"
+        'Fired when user completes the "Pledge" step in Onboarding. |\n'
+        "supersession: superseded by Onboarding V2 - Pledge Completed (rebuild) |\n"
+        "not in use: 2026-05-05 (#1790)\n"
+        "<!-- /gp-meta -->"
+    )
+    result = eh.parse_gpmeta(desc)
+    assert result["purpose"] == 'Fired when user completes the "Pledge" step in Onboarding.'
+    assert result["supersession"] == "superseded by Onboarding V2 - Pledge Completed (rebuild)"
+    assert result["intent"] == "not_in_use"
+
+
+def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line():
+    desc = "<!-- gp-meta -->\nsupersession: original |\nin use: 2026-06-16 (#171)\n<!-- /gp-meta -->"
+    result = eh.parse_gpmeta(desc)
+    assert result["purpose"] is None
+    assert result["supersession"] == "original"
+
+
+def test_parse_gpmeta_none_when_no_block():
+    assert eh.parse_gpmeta("plain description, no markers") is None
+    assert eh.parse_gpmeta(None) is None
+
+
 # --- is_system / is_elevated -------------------------------------------------
 
 
