@@ -542,13 +542,16 @@ export default function AiChatBody({
   const onSend = useCallback(async () => {
     const trimmed = composer.trim()
     if (!trimmed || sendingRef.current || creatingRef.current) return
+    // Stop dictation on send so the mic doesn't keep transcribing into the
+    // now-cleared composer after the message goes out.
+    if (dictation.status === 'recording') void dictation.stop()
     setComposer('')
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
     }
     setMultiline(false)
     await sendContent(trimmed)
-  }, [composer, sendContent])
+  }, [composer, sendContent, dictation])
 
   const onRetry = useCallback(async () => {
     if (!error) return

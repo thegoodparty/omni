@@ -26,7 +26,13 @@ interface Props {
   container?: HTMLElement | null
   /** Optional slot rendered between the message list and the input. */
   bottomSlot?: React.ReactNode
-  /** Begin dictation on open (e.g. when the surface was opened via the mic). */
+  /**
+   * Begin dictation on open (e.g. when the surface was opened via the mic).
+   * The consumer owns this flag: set it `true` when opening from
+   * `AiChatBar`'s `onStartDictation`, and reset it to `false` on close so a
+   * later open via the pill doesn't auto-record. See AiChat stories for the
+   * reference wiring.
+   */
   autoDictate?: boolean
 }
 
@@ -59,7 +65,7 @@ export default function AiChatSurface({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} container={container}>
       <DrawerContent
-        className="flex h-[90vh] flex-col p-0"
+        className="flex h-[90dvh] flex-col p-0"
         aria-describedby={undefined}
       >
         {/* TODO(design): the drawer's built-in close button (styleguide
@@ -76,7 +82,7 @@ export default function AiChatSurface({
                 'linear-gradient(135deg, var(--ai-gradient-from), var(--ai-gradient-to))',
             }}
           >
-            <AiIcon className="size-4" aria-hidden />
+            <AiIcon className="size-5" aria-hidden />
           </span>
           <div className="flex flex-col text-left">
             <DrawerTitle className="text-base font-semibold">

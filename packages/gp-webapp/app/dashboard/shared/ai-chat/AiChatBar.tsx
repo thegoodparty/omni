@@ -69,7 +69,11 @@ export default function AiChatBar({
               type="button"
               size="medium"
               variant="ghost"
-              aria-label="Dictate a message"
+              aria-label={
+                onStartDictation
+                  ? 'Dictate a message'
+                  : `Open ${config.title} chat`
+              }
               onClick={onStartDictation ?? onOpen}
             >
               <MicIcon className="size-5" aria-hidden />
