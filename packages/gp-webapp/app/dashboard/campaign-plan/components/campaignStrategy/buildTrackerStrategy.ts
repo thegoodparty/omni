@@ -1,4 +1,4 @@
-import { differenceInDays, startOfDay } from 'date-fns'
+import { differenceInDays, format, startOfDay, startOfWeek } from 'date-fns'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import type {
   CampaignStrategyData,
@@ -6,15 +6,15 @@ import type {
   CampaignStrategyPhaseKey,
   CampaignStrategyPhaseStatus,
   CampaignStrategyTask,
+  CampaignStrategyWeek,
   TaskChannel,
 } from './campaignStrategy.types'
 
-// Builds the render shape from persisted `campaign_tracker_tasks` rows (the new
-// table) instead of the client-side catalog. Dates/phases/completion already
-// live on the rows, so this only buckets by phase and applies the deterministic
-// display rules (GOTV 30-day window, Active/GOTV weekly cap with progressive
-// reveal, "Do this next"). The catalog builder (buildCampaignStrategy) stays the
-// fallback for campaigns with no rows yet.
+// Builds the render shape from persisted `campaign_tracker_tasks` rows. Dates,
+// phases, and completion already live on the rows, so this only buckets by phase
+// and applies the deterministic display rules: the GOTV 30-day window gate, the
+// Active phase's Monday-Sunday week navigator (one week at a time, see
+// buildActiveWeeks), and "Do this next".
 
 const PHASE_META: {
   key: CampaignStrategyPhaseKey
@@ -43,7 +43,6 @@ const PHASE_META: {
   },
 ]
 
-const WEEKLY_LIMIT = 3
 const GOTV_WINDOW_DAYS = 30
 
 const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
@@ -77,8 +76,16 @@ const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
   completed: row.completed,
 })
 
+// API dates are full ISO at UTC midnight; the catalog fallback is date-only.
+// Parse both as LOCAL midnight (slice + dash->slash, matching the date chip in
+// CampaignStrategyTaskRow) so week bucketing lines up with what the row shows —
+// a raw `new Date(isoUtc)` shifts to the previous day in US timezones and would
+// land the task in the wrong calendar week.
+const localMidnight = (date: string): Date =>
+  new Date(date.slice(0, 10).replace(/-/g, '/'))
+
 const dateValue = (task: CampaignStrategyTask): number =>
-  task.date ? new Date(task.date).getTime() : Infinity
+  task.date ? localMidnight(task.date).getTime() : Infinity
 
 const compareTasks = (
   a: CampaignStrategyTask,
@@ -116,6 +123,57 @@ const derivePhaseStatuses = (
     out.set(key, status)
   })
   return out
+}
+
+const phaseOf = (task: CampaignTrackerTask): CampaignStrategyPhaseKey =>
+  (task.phase && PHASE_KEYS.has(task.phase)
+    ? task.phase
+    : 'preLaunch') as CampaignStrategyPhaseKey
+
+// The active phase renders as a week navigator: one Monday-Sunday week at a
+// time. Group every active-phase task (the deterministic outreach + all dynamic
+// generations) by its calendar week. Each weekly regen lands as its own week;
+// if two generations ever fall in the same calendar week (a same-week re-run),
+// keep the latest. The week containing today is flagged so the UI opens there.
+const buildActiveWeeks = (
+  tasks: CampaignTrackerTask[],
+  today: Date,
+): CampaignStrategyWeek[] => {
+  const active = tasks.filter((t) => phaseOf(t) === 'active' && t.date)
+  if (active.length === 0) return []
+
+  const byWeek = new Map<number, CampaignTrackerTask[]>()
+  for (const task of active) {
+    const weekStart = startOfWeek(localMidnight(task.date), {
+      weekStartsOn: 1,
+    }).getTime()
+    byWeek.set(weekStart, [...(byWeek.get(weekStart) ?? []), task])
+  }
+
+  const todayWeek = startOfWeek(startOfDay(today), {
+    weekStartsOn: 1,
+  }).getTime()
+
+  return [...byWeek.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([weekMs, rows]) => {
+      // Within a calendar week the dynamic rows keep only the latest generation;
+      // the deterministic outreach (isDefaultTask) always shows.
+      const latestGen = rows
+        .filter((r) => !r.isDefaultTask)
+        .reduce((max, r) => Math.max(max, r.week), -Infinity)
+      const tasksForWeek = rows
+        .filter((r) => r.isDefaultTask || r.week === latestGen)
+        .map(toRenderTask)
+        .sort(compareTasks)
+      const next = tasksForWeek.find((t) => !t.completed)
+      if (weekMs === todayWeek && next) next.isNext = true
+      return {
+        start: format(new Date(weekMs), 'yyyy-MM-dd'),
+        tasks: tasksForWeek,
+        isCurrent: weekMs === todayWeek,
+      }
+    })
 }
 
 export const buildTrackerStrategy = (
@@ -177,9 +235,32 @@ export const buildTrackerStrategy = (
     phase.status = statuses.get(phase.key) ?? 'upcoming'
   }
 
-  const activePhase = phases.find((p) => p.status === 'active')
-  if (activePhase) {
-    const candidates = activePhase.groups
+  // The Active phase renders as a week navigator built from every generation
+  // (not just the latest), so its flat group list is replaced by `weeks`.
+  const activeKeyPhase = phases.find((p) => p.key === 'active')
+  if (activeKeyPhase) {
+    const activeWeeks = buildActiveWeeks(tasks, today)
+    activeKeyPhase.weeks = activeWeeks
+    activeKeyPhase.groups = []
+    // phaseAllCompleted came from visibleTasks (the global latest generation),
+    // but the navigator renders per-week-latest tasks across all generations. A
+    // prior generation's open task can still be navigable, so re-check 'done'
+    // against everything the navigator can show; otherwise the header reads
+    // 'done' while open tasks sit one week back.
+    if (activeKeyPhase.status === 'done') {
+      const navigableTasks = activeWeeks.flatMap((w) => w.tasks)
+      const allDone =
+        navigableTasks.length > 0 && navigableTasks.every((t) => t.completed)
+      if (!allDone) activeKeyPhase.status = 'active'
+    }
+  }
+
+  // "Do this next" on the phase the calendar has reached. The Active phase marks
+  // its own (the current week's first open task, in buildActiveWeeks), so only
+  // a different "happening now" phase (e.g. Pre-launch early on) needs it here.
+  const happeningNow = phases.find((p) => p.status === 'active')
+  if (happeningNow && happeningNow.key !== 'active') {
+    const candidates = happeningNow.groups
       .flatMap((g) => g.tasks)
       .filter((t) => !t.completed)
       .sort(compareTasks)
@@ -205,20 +286,6 @@ export const buildTrackerStrategy = (
             : `Your get-out-the-vote tasks appear here in the final ${GOTV_WINDOW_DAYS} days before election day.`,
       }
       phase.groups = []
-      continue
-    }
-
-    if (phase.key === 'active' || phase.key === 'gotv') {
-      const flat = phase.groups.flatMap((g) => g.tasks).sort(compareTasks)
-      const completedCount = flat.filter((t) => t.completed).length
-      // Progressive reveal: show the next WEEKLY_LIMIT to do plus every task
-      // already completed; the rest stay hidden until the candidate works
-      // through these. Surface the withheld count so the UI can say so.
-      const limit = WEEKLY_LIMIT + completedCount
-      phase.groups = [
-        { key: 'thisWeek', label: '', tasks: flat.slice(0, limit) },
-      ]
-      phase.hiddenCount = Math.max(0, flat.length - limit)
     }
   }
 

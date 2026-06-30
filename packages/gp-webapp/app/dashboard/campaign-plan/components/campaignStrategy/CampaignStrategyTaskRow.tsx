@@ -88,9 +88,20 @@ const CampaignStrategyTaskRow = ({
           aria-label={
             task.completed ? 'Mark task incomplete' : 'Mark task complete'
           }
-          className={cn(markerClassName, 'p-0 hover:opacity-80')}
+          className={cn(markerClassName, 'group p-0 hover:opacity-80')}
         >
-          {markerContent}
+          {task.completed ? (
+            <CheckIcon className="size-4" />
+          ) : (
+            // Show the number normally; swap to a check on hover so it reads as
+            // a "click to complete" affordance.
+            <>
+              <span className="group-hover:hidden">
+                {String(index).padStart(2, '0')}
+              </span>
+              <CheckIcon className="hidden size-4 group-hover:block" />
+            </>
+          )}
         </Button>
       ) : (
         <span className={markerClassName}>{markerContent}</span>
