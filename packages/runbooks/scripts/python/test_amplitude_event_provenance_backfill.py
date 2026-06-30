@@ -1530,6 +1530,35 @@ def test_upsert_retire_does_not_clobber_existing_retirement(tmp_path):
     assert row["retired_date"] == "2026-06-01"
 
 
+def test_upsert_add_clears_stale_call_site_and_retired_columns(tmp_path):
+    # A prior walk retired this event (call_site_count=0, retirement fields set). Re-instrumenting
+    # via the skill (add) must clear ALL of them — a leftover call_site_count=0 would make the
+    # monitor emit a false rank-2 "call site removed" flag until the next walk refreshes the row.
+    csv = str(tmp_path / "p.csv")
+    bf.write_provenance(
+        [
+            {c: None for c in bf.PROVENANCE_COLUMNS}
+            | {
+                "event_type": "E",
+                "event_type_slug": "e",
+                "retired_pr": "5",
+                "retired_date": "2026-06-01",
+                "retired_commit": "abc",
+                "retired_author_email": "remover@goodparty.org",
+                "call_site_count": "0",
+                "call_site_retired_date": "2026-06-01",
+            }
+        ],
+        csv,
+    )
+    bf.upsert_provenance_row("E", "add", "9", "2026-06-25", "2026-06-25T00:00:00", csv_path=csv)
+    row = bf.read_provenance_rows(csv)["E"]
+    assert row["retired_date"] is None
+    assert row["retired_author_email"] is None
+    assert row["call_site_count"] is None
+    assert row["call_site_retired_date"] is None
+
+
 def test_upsert_add_clears_stale_retirement(tmp_path):
     # Re-adding a previously-retired event must un-retire it, else the row keeps both dates and
     # reads as removed.

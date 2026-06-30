@@ -930,11 +930,18 @@ def upsert_provenance_row(
             row["instrumented_pr"] = pr_url(pr)
             row["instrumented_date"] = date
             row["instrumented_commit"] = None
-        # A re-add un-retires the event: clear any stale retirement so it is no longer shown as
-        # removed in the CSV (the git-walk confirms presence at HEAD on its next run).
+        # A re-add un-retires the event: clear every "retired / no-longer-called" signal so it
+        # is no longer shown as removed in the CSV (the git-walk confirms presence at HEAD and
+        # recomputes the call-site count on its next run). Crucially, clear call_site_count too:
+        # a stale 0 left from the prior retirement would make the monitor emit a false rank-2
+        # "call site removed" flag for a freshly re-instrumented event. None (not 0) means
+        # "unknown until the next walk", which the monitor treats as not-a-signal (null != zero).
         row["retired_pr"] = None
         row["retired_date"] = None
         row["retired_commit"] = None
+        row["retired_author_email"] = None
+        row["call_site_count"] = None
+        row["call_site_retired_date"] = None
     else:
         # Symmetric with the add guard: preserve the first retirement attribution so a
         # double-fire (retry, reprocessing) does not replace the PR/date that first removed it.
