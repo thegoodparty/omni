@@ -98,7 +98,7 @@ export class AiContentService {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     const cmsPromptsByKey = cmsPrompts as unknown as Record<string, string>
     const keyNoDigits = key.replace(/\d+$/, '')
-    let prompt = cmsPromptsByKey[keyNoDigits]
+    let prompt = cmsPromptsByKey[keyNoDigits] ?? ''
 
     // Prisma include query — TypeScript cannot narrow the included relations at compile time
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -284,7 +284,11 @@ export class AiContentService {
       let oldVersion: { date: Date; text: string } | undefined
       if (chatResponse && chatResponse !== '') {
         try {
-          const oldVersionData = aiContent[key] as {
+          const rawVersionData = aiContent[key]
+          if (rawVersionData === undefined) {
+            throw new Error('no existing ai content version to snapshot')
+          }
+          const oldVersionData = rawVersionData as {
             content: string
             updatedAt?: number
           }

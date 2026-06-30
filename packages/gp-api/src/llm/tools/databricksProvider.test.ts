@@ -271,7 +271,7 @@ describe('DatabricksSqlProvider', () => {
     await provider.close()
     await provider.close()
 
-    expect(op.close).toHaveBeenCalledTimes(1)
+    expect(op?.close).toHaveBeenCalledTimes(1)
     expect(state.sessionCloseCalls).toBe(1)
     expect(state.clientCloseCalls).toBe(1)
   })
@@ -322,7 +322,7 @@ describe('DatabricksSqlProvider', () => {
 
     expect(result.columns).toEqual(['n'])
     expect(result.rows).toEqual([{ n: 42n }])
-    expect(result.rows[0].n).toBe(42n)
+    expect(result.rows[0]?.n).toBe(42n)
   })
 
   it('passes null column values through unchanged', async () => {

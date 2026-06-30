@@ -91,6 +91,7 @@ test.describe('CMS Content - AI Content', () => {
     Object.keys(data).forEach((key) => {
       const subArray = data[key]
       expect(Array.isArray(subArray)).toBe(true)
+      if (!subArray) return
 
       subArray.forEach((subItem) => {
         expect(subItem).toHaveProperty('title')

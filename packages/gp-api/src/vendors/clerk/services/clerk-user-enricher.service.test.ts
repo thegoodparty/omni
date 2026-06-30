@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing'
 import { LoggerModule } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CLERK_CLIENT_PROVIDER_TOKEN } from '@/vendors/clerk/providers/clerk-client.provider'
 import { PrismaService } from '@/prisma/prisma.service'
 import { ClerkUserEnricherService } from './clerk-user-enricher.service'
@@ -93,7 +94,7 @@ describe('ClerkUserEnricherService', () => {
         avatar: null,
       }
 
-      const [enriched] = await enricher.enrichUsers([dbUser])
+      const enriched = firstOrThrow(await enricher.enrichUsers([dbUser]))
 
       expect(enriched).toMatchObject({
         email: 'newer@goodparty.org',
@@ -127,7 +128,7 @@ describe('ClerkUserEnricherService', () => {
         avatar: null,
       }
 
-      const [enriched] = await enricher.enrichUsers([dbUser])
+      const enriched = firstOrThrow(await enricher.enrichUsers([dbUser]))
 
       expect(enriched.email).toBe('matthew+dev-clerk-1@goodparty.org')
     })
@@ -154,7 +155,7 @@ describe('ClerkUserEnricherService', () => {
         avatar: null,
       }
 
-      const [enriched] = await enricher.enrichUsers([dbUser])
+      const enriched = firstOrThrow(await enricher.enrichUsers([dbUser]))
 
       expect(enriched).toMatchObject({
         firstName: 'Real',
@@ -184,7 +185,7 @@ describe('ClerkUserEnricherService', () => {
         avatar: null,
       }
 
-      const [enriched] = await enricher.enrichUsers([dbUser])
+      const enriched = firstOrThrow(await enricher.enrichUsers([dbUser]))
 
       expect(enriched.email).toBe('secondary@goodparty.org')
     })
@@ -202,7 +203,7 @@ describe('ClerkUserEnricherService', () => {
         avatar: 'https://legacy/upload.png',
       }
 
-      const [enriched] = await enricher.enrichUsers([dbUser])
+      const enriched = firstOrThrow(await enricher.enrichUsers([dbUser]))
 
       expect(enriched.firstName).toBe('Un')
       expect(enriched.avatar).toBe(null)
@@ -218,7 +219,7 @@ describe('ClerkUserEnricherService', () => {
         avatar: 'https://legacy/old.png',
       }
 
-      const [enriched] = await enricher.enrichUsers([dbUser])
+      const enriched = firstOrThrow(await enricher.enrichUsers([dbUser]))
 
       expect(enriched.avatar).toBe(null)
       expect(getUserList).not.toHaveBeenCalled()
@@ -244,7 +245,7 @@ describe('ClerkUserEnricherService', () => {
         avatar: 'https://cdn/stale-upload.png',
       }
 
-      const [enriched] = await enricher.enrichUsers([dbUser])
+      const enriched = firstOrThrow(await enricher.enrichUsers([dbUser]))
 
       expect(enriched.avatar).toBe(null)
     })

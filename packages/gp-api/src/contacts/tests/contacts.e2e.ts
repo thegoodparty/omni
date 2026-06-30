@@ -179,8 +179,8 @@ test.describe('Contacts and Segments', () => {
     expect(typeof contacts.pagination.totalPages).toBe('number')
     expect(typeof contacts.pagination.hasNextPage).toBe('boolean')
     expect(typeof contacts.pagination.hasPreviousPage).toBe('boolean')
-    expect(contacts.people[0].id).toBeTruthy()
-    expect(contacts.people[0].state).toBe(CONTACTS_TEST_DISTRICT.state)
+    expect(contacts.people[0]?.id).toBeTruthy()
+    expect(contacts.people[0]?.state).toBe(CONTACTS_TEST_DISTRICT.state)
   })
 
   test('should return populated district stats for seeded district', async ({
@@ -273,7 +273,7 @@ test.describe('Contacts and Segments', () => {
     expect(listPayload.people.length).toBeGreaterThan(0)
 
     const personResponse = await request.get(
-      `/v1/contacts/${listPayload.people[0].id}`,
+      `/v1/contacts/${listPayload.people[0]?.id}`,
       {
         headers: AUTH_HEADER(authToken),
       },
@@ -287,7 +287,7 @@ test.describe('Contacts and Segments', () => {
       lastName?: string | null
       address?: { city?: string | null; state?: string | null }
     }
-    expect(person.id).toBe(listPayload.people[0].id)
+    expect(person.id).toBe(listPayload.people[0]?.id)
     expect(person.state).toBe(CONTACTS_TEST_DISTRICT.state)
     expect(person).toHaveProperty('address')
   })

@@ -247,7 +247,8 @@ export class DatabricksSqlProvider implements DatabricksProvider {
         // fall through to first-row derivation
       }
     }
-    if (rows.length === 0) return []
-    return Object.keys(rows[0])
+    const [firstRow] = rows
+    if (!firstRow) return []
+    return Object.keys(firstRow)
   }
 }

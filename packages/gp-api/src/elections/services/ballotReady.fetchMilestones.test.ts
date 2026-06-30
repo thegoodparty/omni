@@ -1,5 +1,6 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { BallotReadyMilestone } from '../types/ballotReady.types'
 import { BallotReadyService, collapseMilestones } from './ballotReady.service'
 
@@ -116,7 +117,7 @@ describe('BallotReadyService.fetchMilestones', () => {
     const result = await service.fetchMilestones('br-hash-1')
 
     expect(mockRequest).toHaveBeenCalledOnce()
-    const [, variables] = mockRequest.mock.calls[0]
+    const [, variables] = firstOrThrow(mockRequest.mock.calls)
     expect(variables).toEqual({ raceId: 'br-hash-1' })
     expect(result).toEqual({
       voter_registration: { start: null, end: '2026-09-01' },

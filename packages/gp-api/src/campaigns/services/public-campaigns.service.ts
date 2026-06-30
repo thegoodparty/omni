@@ -96,18 +96,19 @@ export class PublicCampaignsService extends createPrismaBase(MODELS.Campaign) {
     }
 
     if (campaignsWithLastName.length === 1) {
-      return this.withCandidateAvatar(campaignsWithLastName[0])
+      const [onlyMatch] = campaignsWithLastName
+      return onlyMatch ? this.withCandidateAvatar(onlyMatch) : null
     }
 
     const campaignsWithBothNames = campaignsWithLastName.filter((campaign) =>
       this.matchesCandidateName(campaign.slug, firstName, lastName),
     )
 
-    return this.withCandidateAvatar(
+    const chosen =
       campaignsWithBothNames.length > 0
         ? campaignsWithBothNames[0]
-        : campaignsWithLastName[0],
-    )
+        : campaignsWithLastName[0]
+    return chosen ? this.withCandidateAvatar(chosen) : null
   }
 
   // Resolve the claimed candidate's uploaded photo from Clerk (not the stale

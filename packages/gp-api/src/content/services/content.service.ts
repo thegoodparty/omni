@@ -74,7 +74,7 @@ export class ContentService extends createPrismaBase(MODELS.Content) {
 
   async getChatSystemPrompt(initial: boolean = false) {
     const date = new Date()
-    const today = date.toISOString().split('T')[0]
+    const today = date.toISOString().split('T')[0] ?? ''
 
     const aiChatPrompts = await this.model.findMany({
       where: {
@@ -134,6 +134,10 @@ export class ContentService extends createPrismaBase(MODELS.Content) {
         (p) =>
           nameOf(p) === ContentService.DEFAULT_CHAT_PROMPT_NAME.toLowerCase(),
       ) ?? prompts[0]
+
+    if (!fallback) {
+      throw new Error('No AI chat prompt available')
+    }
 
     this.logger.warn(
       { configuredName, available: prompts.map(nameOf) },

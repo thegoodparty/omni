@@ -576,7 +576,7 @@ describe('PeerlyIdentityService', () => {
       const jobAreas = lastSubmittedData.jobAreas as Array<{
         didState: string
       }>
-      expect(jobAreas[0].didState).toBe('IL')
+      expect(jobAreas[0]?.didState).toBe('IL')
     })
 
     it('omits jobAreas when geography falls back to USA default', async () => {

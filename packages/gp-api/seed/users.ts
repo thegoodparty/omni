@@ -126,8 +126,8 @@ export const ensureClerkUser = async (
         }),
       )
 
-      if (existing.data.length > 0) {
-        const clerkUser = existing.data[0]
+      const clerkUser = existing.data[0]
+      if (clerkUser) {
         await prisma.user.update({
           where: { id: localUserId },
           data: { clerkId: clerkUser.id },

@@ -139,13 +139,13 @@ describe('CommunityIssueService.onExperimentRunCompleted', () => {
       orderBy: { rank: 'asc' },
     })
     expect(rows).toHaveLength(2)
-    expect(rows[0].rank).toBe(1)
-    expect(rows[1].rank).toBe(2)
-    expect(rows[0].lastRefreshedRunId).toBe(run.runId)
-    expect(rows[0].archivedAt).toBeNull()
-    expect(rows[0].list).toBe(CommunityIssueList.top_community)
-    expect(rows[0].category).toBe(CommunityIssueCategory.public_safety)
-    expect(rows[0].priority).toBe(CommunityIssuePriority.high)
+    expect(rows[0]?.rank).toBe(1)
+    expect(rows[1]?.rank).toBe(2)
+    expect(rows[0]?.lastRefreshedRunId).toBe(run.runId)
+    expect(rows[0]?.archivedAt).toBeNull()
+    expect(rows[0]?.list).toBe(CommunityIssueList.top_community)
+    expect(rows[0]?.category).toBe(CommunityIssueCategory.public_safety)
+    expect(rows[0]?.priority).toBe(CommunityIssuePriority.high)
   })
 
   it('persists only the valid issues when some fail validation', async () => {
@@ -166,7 +166,7 @@ describe('CommunityIssueService.onExperimentRunCompleted', () => {
       where: { organizationSlug: ORG },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].rank).toBe(1)
+    expect(rows[0]?.rank).toBe(1)
   })
 
   it('updates an issue with a matching existing_issue_id', async () => {
@@ -452,8 +452,8 @@ describe('CommunityIssueService.onExperimentRunCompleted', () => {
       where: { organizationSlug: ORG },
     })
     expect(allRows).toHaveLength(1)
-    expect(allRows[0].id).toBe(prior.id)
-    expect(allRows[0].lastRefreshedRunId).toBeNull()
+    expect(allRows[0]?.id).toBe(prior.id)
+    expect(allRows[0]?.lastRefreshedRunId).toBeNull()
   })
 
   it('rejects an artifact with an unknown category — nothing changes', async () => {
@@ -501,10 +501,10 @@ describe('CommunityIssueService.onExperimentRunCompleted', () => {
       where: { organizationSlug: ORG },
       orderBy: { rank: 'asc' },
     })
-    expect(rows[0].rank).toBe(3)
-    expect(rows[1].rank).toBe(7)
+    expect(rows[0]?.rank).toBe(3)
+    expect(rows[1]?.rank).toBe(7)
     expect(rows.every((r) => r.lastRefreshedRunId === run.runId)).toBe(true)
-    expect(rows[0].list).toBe(CommunityIssueList.trending)
+    expect(rows[0]?.list).toBe(CommunityIssueList.trending)
   })
 })
 
@@ -556,8 +556,8 @@ describe('CommunityIssueService analytics events', () => {
     await generate('trending_issues', 'trending', [makeIssue(1)])
     const initial = callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated)
     expect(initial).toHaveLength(1)
-    expect(initial[0][0]).toBe(service.user.id)
-    expect(initial[0][2]).toMatchObject({
+    expect(initial[0]?.[0]).toBe(service.user.id)
+    expect(initial[0]?.[2]).toMatchObject({
       topIssueCount: 1,
       trendingIssueCount: 1,
       topIssue1Title: 'Issue 1',
@@ -608,7 +608,7 @@ describe('CommunityIssueService analytics events', () => {
       EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
     )
     expect(high).toHaveLength(1)
-    expect(high[0][2]).toMatchObject({ title: 'New High Issue' })
+    expect(high[0]?.[2]).toMatchObject({ title: 'New High Issue' })
   })
 
   it('fires Top Issue Priority Changed when a main-list issue changes priority', async () => {
@@ -635,7 +635,7 @@ describe('CommunityIssueService analytics events', () => {
 
     const changes = callsFor(EVENTS.CommunityIssues.TopIssuePriorityChanged)
     expect(changes).toHaveLength(1)
-    expect(changes[0][2]).toMatchObject({
+    expect(changes[0]?.[2]).toMatchObject({
       issueId: existing.id,
       previousPriority: 'low',
       priority: 'high',
