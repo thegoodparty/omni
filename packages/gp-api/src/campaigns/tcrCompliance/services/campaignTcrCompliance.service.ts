@@ -106,7 +106,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   @Interval(AGENTIC_KICKOFF_SWEEP_INTERVAL * 1000)
-  private async sweepStrandedAgenticKickoffs() {
+  async sweepStrandedAgenticKickoffs() {
     const cutoff = subMinutes(new Date(), AGENTIC_KICKOFF_STALENESS_MINUTES)
     const stranded = await this.model.findMany({
       where: {
@@ -185,7 +185,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // `pending` means the usecase was already submitted (status advances after
   // approve).
   @Interval(UNSUBMITTED_USECASE_SWEEP_INTERVAL * 1000)
-  private async sweepUnsubmittedUsecases() {
+  async sweepUnsubmittedUsecases() {
     const candidates = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.submitted,
@@ -304,7 +304,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   }
 
   @Interval(TCR_COMPLIANCE_CHECK_INTERVAL * 1000) // This will run based on the environment variable
-  private async bootstrapTcrComplianceCheck() {
+  async bootstrapTcrComplianceCheck() {
     const pendingTcrCompliances = await this.model.findMany({
       where: {
         status: TcrComplianceStatus.pending,
@@ -1304,13 +1304,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign: true,
       },
     })
-    const pinIsValid = await this.peerlyIdentityService.verifyCampaignVerifyPin(
-      peerlyIdentityId,
-      pin,
-      campaign,
-    )
-    if (!pinIsValid) {
-      throw new UnprocessableEntityException('Invalid PIN')
+    // A PIN can only be consumed once: verify_pin rejects an already-VERIFIED
+    // CV as an invalid PIN. If an earlier attempt verified the PIN but a
+    // downstream Peerly step threw (stranding the record at `submitted`),
+    // re-verifying would dead-end the retry with "Invalid PIN". When the CV is
+    // already VERIFIED the candidate has proven control, so skip the re-check
+    // and mint the token so the retry can finish the flow.
+    const cvStatus =
+      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+        peerlyIdentityId,
+        campaign,
+      )
+    if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+      const pinIsValid =
+        await this.peerlyIdentityService.verifyCampaignVerifyPin(
+          peerlyIdentityId,
+          pin,
+          campaign,
+        )
+      if (!pinIsValid) {
+        throw new UnprocessableEntityException('Invalid PIN')
+      }
     }
 
     return await this.peerlyIdentityService.createCampaignVerifyToken(

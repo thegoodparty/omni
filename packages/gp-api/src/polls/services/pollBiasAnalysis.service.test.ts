@@ -311,9 +311,9 @@ describe('PollBiasAnalysisService', () => {
 
       const result = await service.analyzePollText('hello world')
 
-      expect(result.bias_spans[0].start).toBeLessThan(
-        result.bias_spans[1].start,
-      )
+      const [firstSpan, secondSpan] = result.bias_spans
+      if (!firstSpan || !secondSpan) throw new Error('expected two bias spans')
+      expect(firstSpan.start).toBeLessThan(secondSpan.start)
     })
 
     it('handles whitespace variations in spans', async () => {

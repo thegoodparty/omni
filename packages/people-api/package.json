@@ -17,7 +17,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node -r ./dist/otel.js dist/main.js",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" && prettier --check \"src/**/*.ts\"",
+    "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix && prettier --write \"src/**/*.ts\"",
     "lint-format": "npm run lint && npm run format",
     "migrate:dev": "node ./scripts/disallow-perf-local.js && npx prisma migrate dev",
     "migrate:deploy": "node ./scripts/disallow-perf-local.js && npx prisma migrate deploy",
@@ -65,7 +66,7 @@
     "module-alias": "^2.2.3",
     "murmurhash": "^2.0.1",
     "nestjs-pino": "^4.4.1",
-    "nestjs-zod": "^4.3.1",
+    "nestjs-zod": "^5.4.0",
     "pg": "^8.20.0",
     "pg-copy-streams": "^6.0.6",
     "pino-http": "^10.5.0",
@@ -74,7 +75,7 @@
     "qs": "^6.13.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "zod": "^3.24.2"
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@faker-js/faker": "^9.9.0",

@@ -1,6 +1,5 @@
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import pageMetaData from 'helpers/metadataHelper'
-import { redirect } from 'next/navigation'
 import { serverRequest } from 'gpApi/server-request'
 import candidateAccess from '../shared/candidateAccess'
 import DashboardLayout from '../shared/DashboardLayout'
@@ -10,6 +9,7 @@ import RaceOpponentList from './components/RaceOpponentList'
 import ContrastList from './components/ContrastList'
 import { isRenderableContrast } from './components/ContrastCard'
 import RegenerateContrasts from './components/RegenerateContrasts'
+import OpponentProLockedView from './components/OpponentProLockedView'
 import type { ContrastRecord, RaceOpponentResponse } from 'gpApi/api-endpoints'
 
 const EMPTY_RACE_OPPONENT: RaceOpponentResponse = {
@@ -56,8 +56,30 @@ export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
 
   const campaign = await fetchUserCampaign()
+  // Non-Pro candidates land on an in-context upgrade pitch instead of being
+  // redirected to /dashboard/pro-upgrade. The KNOW_YOUR_OPPONENT flag still
+  // gates the ENTIRE surface, this locked view included: when the flag is off
+  // the feature does not exist for the user, so FeatureFlagGuard intentionally
+  // hides/bounces here too. Per ENG-10608 AC ("flag-off users see no nav item
+  // and no page"). Do NOT render the locked view outside FeatureFlagGuard —
+  // that would expose a gated, unreleased feature to every non-Pro user.
   if (!campaign?.isPro) {
-    redirect('/dashboard/pro-upgrade')
+    return (
+      <DashboardLayout
+        pathname="/dashboard/race-opponent"
+        showAlert={false}
+        wrapperClassName="!p-0"
+        navHeader={{
+          icon: 'swords',
+          label: 'Know your opponent',
+          centered: true,
+        }}
+      >
+        <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
+          <OpponentProLockedView />
+        </FeatureFlagGuard>
+      </DashboardLayout>
+    )
   }
 
   // serverRequest only returns { ok: false } on non-2xx with

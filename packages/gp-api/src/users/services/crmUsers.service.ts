@@ -132,13 +132,14 @@ export class CrmUsersService {
       this.logger.debug(searchResultObj, 'Search result:')
       const { total, results } = searchResultObj
 
-      if (!total) {
+      const firstResult = results[0]
+      if (!total || !firstResult) {
         throw new Error(`No contacts found for email: ${email}`)
       } else {
-        crmContactId = results[0].id
+        crmContactId = firstResult.id
         const {
           properties: { email: crmContactEmail },
-        } = results[0]
+        } = firstResult
         if (crmContactEmail !== email) {
           throw new Error('Email mismatch on CRM contact lookup!')
         }
@@ -150,6 +151,7 @@ export class CrmUsersService {
         { e },
         'could not find contact by email. user has never filled a form!',
       )
+      return undefined
     }
   }
 
@@ -297,6 +299,7 @@ export class CrmUsersService {
         { e },
         `error updating contact with CRM id: ${crmContactId}`,
       )
+      return undefined
     }
   }
 
@@ -310,6 +313,7 @@ export class CrmUsersService {
       })
     } catch (e) {
       this.logger.error({ e }, 'error creating contact')
+      return undefined
     }
   }
 }

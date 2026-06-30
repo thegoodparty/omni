@@ -13,6 +13,7 @@ import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { WebsitesController } from './websites.controller'
 import { WebsitesService } from '../services/websites.service'
 import { WebsiteContactsService } from '../services/websiteContacts.service'
@@ -504,7 +505,7 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, publishBody())
 
-      const updateCall = mockWebsitesService.update.mock.calls[0][0]
+      const updateCall = firstOrThrow(mockWebsitesService.update.mock.calls)[0]
       expect(updateCall.data.content.contact.address).toBe(
         '916 Silver Spur Rd, Rolling Hills Estates, CA 90274',
       )
@@ -523,7 +524,7 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, publishBody())
 
-      const updateCall = mockWebsitesService.update.mock.calls[0][0]
+      const updateCall = firstOrThrow(mockWebsitesService.update.mock.calls)[0]
       expect(updateCall.data.content.contact.address).toBe(
         completeContent.contact!.address,
       )
@@ -641,7 +642,9 @@ describe('WebsitesController', () => {
 
       await controller.viewWebsite(vanityPath)
 
-      const { include } = mockWebsitesService.findUniqueOrThrow.mock.calls[0][0]
+      const { include } = firstOrThrow(
+        mockWebsitesService.findUniqueOrThrow.mock.calls,
+      )[0]
       expect(include.campaign.select.details).toBeUndefined()
       expect(include.campaign.select.user).toBeDefined()
     })
@@ -745,7 +748,9 @@ describe('WebsitesController', () => {
 
       await controller.getWebsiteByDomain(domain)
 
-      const { include } = mockWebsitesService.findUnique.mock.calls[0][0]
+      const { include } = firstOrThrow(
+        mockWebsitesService.findUnique.mock.calls,
+      )[0]
       expect(include.campaign.select.details).toBeUndefined()
       expect(include.campaign.select.user).toBeDefined()
     })

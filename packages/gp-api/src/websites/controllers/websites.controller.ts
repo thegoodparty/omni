@@ -42,7 +42,6 @@ import { ValidateVanityPathSchema } from '../schemas/ValidateVanityPath.schema'
 import { WebsiteViewsService } from '../services/websiteViews.service'
 import { TrackWebsiteViewSchema } from '../schemas/TrackWebsiteView.schema'
 import { GetWebsiteViewsSchema } from '../schemas/GetWebsiteViews.schema'
-import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
@@ -154,7 +153,6 @@ export class WebsitesController {
     private readonly contacts: WebsiteContactsService,
     private readonly s3: S3Service,
     private readonly siteViews: WebsiteViewsService,
-    private readonly campaigns: CampaignsService,
     private readonly analytics: AnalyticsService,
     private readonly clerkEnricher: ClerkUserEnricherService,
     private readonly logger: PinoLogger,

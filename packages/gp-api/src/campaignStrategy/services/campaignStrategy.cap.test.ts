@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   BadRequestException,
   InternalServerErrorException,
@@ -55,12 +56,19 @@ describe('CampaignStrategyService', () => {
   let analytics: { track: ReturnType<typeof vi.fn> }
   let trackerTasks: { bootstrapForCampaign: ReturnType<typeof vi.fn> }
   let prisma: {
-    campaignStrategy: Record<string, ReturnType<typeof vi.fn>>
-    campaignStrategyOpportunity: Record<string, ReturnType<typeof vi.fn>>
-    campaignStrategyChallenge: Record<string, ReturnType<typeof vi.fn>>
-    campaignStrategyOpponent: Record<string, ReturnType<typeof vi.fn>>
-    campaign: Record<string, ReturnType<typeof vi.fn>>
-    campaignStory: Record<string, ReturnType<typeof vi.fn>>
+    campaignStrategy: {
+      upsert: ReturnType<typeof vi.fn>
+      findUnique: ReturnType<typeof vi.fn>
+      findUniqueOrThrow: ReturnType<typeof vi.fn>
+      update: ReturnType<typeof vi.fn>
+      updateMany: ReturnType<typeof vi.fn>
+      findFirst: ReturnType<typeof vi.fn>
+    }
+    campaignStrategyOpportunity: { deleteMany: ReturnType<typeof vi.fn> }
+    campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
+    campaignStrategyOpponent: { deleteMany: ReturnType<typeof vi.fn> }
+    campaign: { findUnique: ReturnType<typeof vi.fn> }
+    campaignStory: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
 
@@ -813,7 +821,9 @@ describe('CampaignStrategyService', () => {
         }),
       })
       // Attempt counters survive the reset — they bound lifetime spend.
-      const resetData = prisma.campaignStrategy.updateMany.mock.calls[0][0].data
+      const resetData = firstOrThrow(
+        prisma.campaignStrategy.updateMany.mock.calls,
+      )[0].data
       expect(resetData).not.toHaveProperty('oppositionAttempts')
       expect(resetData).not.toHaveProperty('opportunitiesAttempts')
       expect(analytics.track).toHaveBeenCalledWith(

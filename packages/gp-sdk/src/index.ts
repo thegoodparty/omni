@@ -103,7 +103,7 @@ export type {
 } from './types/briefing'
 
 export type {
-  Organization,
+  AdminOrganization,
   OrgDistrict,
   OrgPosition,
   OrganizationListItem,

@@ -3,6 +3,12 @@
   "compilerOptions": {
     "module": "CommonJS",
     "outDir": "./dist",
-    "baseUrl": "./"
-  }
+    "baseUrl": "./",
+    "noImplicitAny": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "exclude": ["deploy"]
 }

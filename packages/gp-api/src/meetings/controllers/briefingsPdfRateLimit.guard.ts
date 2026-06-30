@@ -142,8 +142,8 @@ export class BriefingsPdfRateLimitGuard implements CanActivate {
     const sorted = [...this.buckets.entries()].sort(
       (a, b) => a[1].lastRefillMs - b[1].lastRefillMs,
     )
-    for (let i = 0; i < target && i < sorted.length; i++) {
-      this.buckets.delete(sorted[i][0])
+    for (const [key] of sorted.slice(0, target)) {
+      this.buckets.delete(key)
     }
     this.logger.warn(
       `Rate-limit cap hit: evicted ${target} oldest buckets (size now ${this.buckets.size}). ` +

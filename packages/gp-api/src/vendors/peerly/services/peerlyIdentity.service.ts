@@ -96,7 +96,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       this.logger.debug({ identity }, 'Successfully created identity:')
       return identity
     } catch (error) {
-      await this.handleApiError(error, { campaign })
+      return await this.handleApiError(error, { campaign })
     }
   }
 
@@ -144,7 +144,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           'Use cases for given identity ID could not be found',
         )
       }
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 
@@ -282,14 +282,23 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       this.logger.debug({ data }, 'Successfully submitted 10DLC brand:')
       return submissionKey
     } catch (error) {
-      await this.handleApiError(error, { campaign, peerlyIdentityId })
+      return await this.handleApiError(error, { campaign, peerlyIdentityId })
     }
   }
 
   async approve10DLCBrand(
     { committeeName, peerlyIdentityId, campaignId }: TcrCompliance,
-    campaignVerifyToken: string = '',
+    campaignVerifyToken: string,
   ): Promise<BrandApprovalResult | undefined> {
+    // Approving with an empty token finalizes the brand WITHOUT a Campaign
+    // Verify token, which strands it in Peerly's MNO review queue (they must
+    // clear it by hand). This was the original ENG-7508 failure mode; refuse
+    // it here so no caller can reintroduce a no-token finalization.
+    if (!campaignVerifyToken) {
+      throw new BadRequestException(
+        'Cannot approve a 10DLC brand without a Campaign Verify token',
+      )
+    }
     const campaign = await this.campaignsService.findFirstOrThrow({
       where: {
         id: campaignId,
@@ -317,74 +326,103 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
 
       return identityBrand
     } catch (error) {
-      await this.handleApiError(error, {
+      return await this.handleApiError(error, {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
       })
     }
   }
 
-  // Attach a CV token to the 10DLC brand, picking the right endpoint for the
-  // brand's state. A first-time registration is still `pending`, so /approve
-  // submits it and queues MNO review. A brand that was approved earlier without
-  // a CV token is already `finalized` and /approve 400s on it, so /submit is
-  // used to attach the token to the existing brand instead.
+  // Attach a CV token to the 10DLC brand and finalize it so it queues for MNO
+  // review (the MNOs are what flip the usecase to activated). For a first-time
+  // (`pending`) registration /approve submits it; a brand approved earlier
+  // without a CV token is already `finalized` and /approve 400s on it, so
+  // /submit first re-opens it to `pending` and attaches the token. /approve
+  // only emails the finalization link, so we then call /finalize to confirm it
+  // programmatically — otherwise the brand sits at `waiting_to_finalize` until
+  // someone clicks that email and never reaches the MNOs.
   async submitCampaignVerifyTokenToBrand(
     tcrCompliance: TcrCompliance,
     campaignVerifyToken: string,
   ): Promise<BrandApprovalResult | undefined> {
     const { peerlyIdentityId, campaignId } = tcrCompliance
-    if (peerlyIdentityId) {
-      const campaign = await this.campaignsService.findFirstOrThrow({
-        where: { id: campaignId },
-      })
-      let profileStatus: string | undefined
-      try {
-        const profile = await this.getIdentityProfile(
-          peerlyIdentityId,
-          campaign,
-          { suppressSlackAlert: true },
-        )
-        profileStatus = profile?.profile?.status
-      } catch (error) {
-        // A missing/orphaned identity 404s here; fall through to approve, which
-        // surfaces the real error. Anything else is unexpected — rethrow.
-        if (!(error instanceof NotFoundException)) {
-          throw error
-        }
-      }
-      if (profileStatus === PEERLY_PROFILE_STATUS_FINALIZED) {
-        return this.submitCvTokenToFinalizedBrand(
-          peerlyIdentityId,
-          campaignVerifyToken,
-          campaign,
-        )
+    if (!peerlyIdentityId) {
+      return this.approve10DLCBrand(tcrCompliance, campaignVerifyToken)
+    }
+    const campaign = await this.campaignsService.findFirstOrThrow({
+      where: { id: campaignId },
+    })
+    let profileStatus: string | undefined
+    try {
+      const profile = await this.getIdentityProfile(
+        peerlyIdentityId,
+        campaign,
+        {
+          suppressSlackAlert: true,
+        },
+      )
+      profileStatus = profile?.profile?.status
+    } catch (error) {
+      // A missing/orphaned identity 404s here; fall through to approve, which
+      // surfaces the real error. Anything else is unexpected — rethrow.
+      if (!(error instanceof NotFoundException)) {
+        throw error
       }
     }
-    return this.approve10DLCBrand(tcrCompliance, campaignVerifyToken)
+    if (profileStatus === PEERLY_PROFILE_STATUS_FINALIZED) {
+      await this.submitCvTokenToFinalizedBrand(
+        peerlyIdentityId,
+        campaignVerifyToken,
+        campaign,
+      )
+    }
+    const brand = await this.approve10DLCBrand(
+      tcrCompliance,
+      campaignVerifyToken,
+    )
+    await this.finalizeBrand(peerlyIdentityId, campaign)
+    return brand
   }
 
+  // Re-opens a finalized brand to `pending` and attaches the CV token. The
+  // caller must then /approve to finalize — /submit alone does not queue MNO
+  // review.
   private async submitCvTokenToFinalizedBrand(
     peerlyIdentityId: string,
     campaignVerifyToken: string,
     campaign: Campaign,
-  ): Promise<BrandApprovalResult | undefined> {
+  ): Promise<void> {
     try {
-      // /submit returns the same brand payload as /approve (verified against
-      // the live response), with the CV token echoed back — strip it before
-      // returning so the credential isn't surfaced to the caller, matching
-      // approve10DLCBrand.
-      const response =
-        await this.peerlyHttpService.post<Approve10DLCBrandResponseBody>(
-          `/v2/tdlc/${peerlyIdentityId}/submit`,
-          { campaign_verify_token: campaignVerifyToken },
-        )
-      const {
-        data: { campaign_verify_token: _campaignVerifyToken, ...identityBrand },
-      } = response
-      return identityBrand
+      await this.peerlyHttpService.post<Peerly10DLCBrandSubmitResponseBody>(
+        `/v2/tdlc/${peerlyIdentityId}/submit`,
+        { campaign_verify_token: campaignVerifyToken },
+      )
     } catch (error) {
       await this.handleApiError(error, { campaign, peerlyIdentityId })
+    }
+  }
+
+  // /approve only sends the finalization email; this confirms it directly so
+  // the registration advances to MNO review without a manual email click.
+  // Best-effort: a transient failure here must not surface as a full failure —
+  // /approve already advanced the brand past `pending` (so the caller can't
+  // retry from scratch — /approve 400s) and the emailed link still finalizes as
+  // a fallback.
+  private async finalizeBrand(
+    peerlyIdentityId: string,
+    campaign: Campaign,
+  ): Promise<void> {
+    try {
+      await this.peerlyHttpService.get<string>(
+        `/v2/tdlc/${peerlyIdentityId}/finalize`,
+      )
+    } catch (error) {
+      // handleApiError logs + alerts, then always throws; swallow the throw so
+      // the best-effort finalize doesn't fail the whole operation.
+      await this.handleApiError(error, {
+        campaign,
+        peerlyIdentityId,
+      }).catch(() => undefined)
     }
   }
 
@@ -605,7 +643,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           return null
         }
       }
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 
@@ -630,13 +668,13 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           'Peerly API returned 400 Bad Request when verifying CV PIN. This is likely due to an invalid PIN. ',
         )
         // throw new UnprocessableEntityException('PIN could not be validated')
-        await this.handleApiError(e, {
+        return await this.handleApiError(e, {
           campaign,
           peerlyIdentityId,
           httpExceptionClass: UnprocessableEntityException,
         })
       } else {
-        await this.handleApiError(e, { campaign, peerlyIdentityId })
+        return await this.handleApiError(e, { campaign, peerlyIdentityId })
       }
     }
   }
@@ -657,7 +695,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       const { campaign_verify_token: campaignVerifyToken } = data
       return campaignVerifyToken
     } catch (e) {
-      await this.handleApiError(e, { campaign, peerlyIdentityId })
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 

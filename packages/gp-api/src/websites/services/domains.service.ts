@@ -98,7 +98,7 @@ export class DomainsService
 
   // This will attempt to setup domain email forwarding for domains that have not yet done so.
   @Timeout(0)
-  private async backfillDomainEmailRedirects() {
+  async backfillDomainEmailRedirects() {
     if (!this.shouldEnableDomainPurchase()) {
       this.logger.debug(': Domain purchase disabled - skipping backfill')
       return

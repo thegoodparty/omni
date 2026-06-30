@@ -339,11 +339,11 @@ describe('McpServerService MCP request handlers', () => {
     )) as { isError: boolean; content: Array<{ text: string }> }
     expect(result.isError).toBe(false)
     expect(calls).toHaveLength(1)
-    expect(calls[0].method).toBe('PATCH')
-    expect(calls[0].url).toBe('/v1/foo')
-    expect(calls[0].payload).toEqual({ slogan: 'x' })
-    expect(calls[0].headers?.authorization).toBe('Bearer test-jwt')
-    expect(result.content[0].text).toBe('{"ok":true}')
+    expect(calls[0]?.method).toBe('PATCH')
+    expect(calls[0]?.url).toBe('/v1/foo')
+    expect(calls[0]?.payload).toEqual({ slogan: 'x' })
+    expect(calls[0]?.headers?.authorization).toBe('Bearer test-jwt')
+    expect(result.content[0]?.text).toBe('{"ok":true}')
   })
 
   it('still calls fastify.inject when no Authorization header is present', async () => {
@@ -372,7 +372,7 @@ describe('McpServerService MCP request handlers', () => {
       params: { name: 'PATCH_v1_foo', arguments: { body: { slogan: 'x' } } },
     })
     expect(calls).toHaveLength(1)
-    expect(calls[0].headers?.authorization).toBeUndefined()
+    expect(calls[0]?.headers?.authorization).toBeUndefined()
   })
 
   it('returns isError when the upstream returns 4xx', async () => {
@@ -420,7 +420,7 @@ describe('McpServerService MCP request handlers', () => {
       params: { name: 'PATCH_v1_foo', arguments: { body: { slogan: 123 } } },
     })) as { isError: boolean; content: Array<{ text: string }> }
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toMatch(/Invalid arguments/)
+    expect(result.content[0]?.text).toMatch(/Invalid arguments/)
     expect(inject).not.toHaveBeenCalled()
   })
 
@@ -459,10 +459,10 @@ describe('McpServerService MCP request handlers', () => {
       },
     )
     expect(calls).toHaveLength(1)
-    expect(calls[0].method).toBe('POST')
-    expect(calls[0].payload).toBeUndefined()
-    expect(calls[0].headers?.authorization).toBe('Bearer t')
-    expect(calls[0].headers?.['content-type']).toBeUndefined()
+    expect(calls[0]?.method).toBe('POST')
+    expect(calls[0]?.payload).toBeUndefined()
+    expect(calls[0]?.headers?.authorization).toBe('Bearer t')
+    expect(calls[0]?.headers?.['content-type']).toBeUndefined()
   })
 
   it('preserves content-type when the tool call has a body', async () => {
@@ -493,7 +493,7 @@ describe('McpServerService MCP request handlers', () => {
         },
       },
     )
-    expect(calls[0].headers?.['content-type']).toBe('application/json')
+    expect(calls[0]?.headers?.['content-type']).toBe('application/json')
   })
 
   it('returns isError for unknown tool', async () => {

@@ -26,6 +26,7 @@ import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { RaceContextFromApi } from '@/campaignStrategy/types/electionApi.types'
 import { getUserFullName } from '@/users/util/users.util'
+import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { RaceOpponentService } from './raceOpponent.service'
 import { SelfResearchGateService } from './selfResearchGate.service'
 import {
@@ -48,9 +49,9 @@ type CandidatePlatform = NonNullable<
 const MAX_PARAMS_BYTES = 5000
 
 // Descending relevance to opponent contrasts: issues (what the candidate runs
-// on) frames contrasts most directly, then why (motivation), then background
-// (bio). The budget fills fields in this order and drops what overflows.
-const PLATFORM_FIELDS = ['issues', 'why', 'background'] as const
+// on) frames contrasts most directly, then background (bio). The budget fills
+// fields in this order and drops what overflows.
+const PLATFORM_FIELDS = ['issues', 'background'] as const
 
 const paramsBytes = (params: OpponentResearchInput): number =>
   Buffer.byteLength(JSON.stringify(params))
@@ -63,7 +64,7 @@ const truncateToBytes = (value: string, maxBytes: number): string => {
   if (buf.length <= maxBytes) return value
   let end = maxBytes
   // Back off out of a continuation byte (0b10xxxxxx) to cut on a char boundary.
-  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--
+  while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) end--
   return buf.toString('utf8', 0, end)
 }
 
@@ -477,18 +478,22 @@ export class OpponentResearchService extends createPrismaBase(
     })
   }
 
+  // Source the candidate platform from Website.content.about (shared with the
+  // Pro-upgrade capture and the summary path), NOT CampaignStory. bio maps to
+  // background and the structured issues flatten to the plain-text string this
+  // strict-engine contract expects; there is no `why` on the website, so the
+  // contract no longer carries one. Reuses RaceOpponentService's reader so the
+  // two opponent paths can't drift on where the platform comes from.
   private async buildPlatform(
     campaignId: number,
   ): Promise<OpponentResearchInput['candidate_platform']> {
-    const story = await this.client.campaignStory.findUnique({
-      where: { campaignId },
-      select: { why: true, background: true, issues: true },
-    })
-    if (!story) return null
+    const platform = await this.raceOpponent.buildCandidatePlatform(campaignId)
+    if (!platform) return null
+    const issues = serializeWebsiteIssues(platform.issues ?? [])
+    if (!platform.bio && !issues) return null
     return {
-      why: story.why ?? null,
-      background: story.background ?? null,
-      issues: story.issues ?? null,
+      background: platform.bio ?? null,
+      issues,
     }
   }
 

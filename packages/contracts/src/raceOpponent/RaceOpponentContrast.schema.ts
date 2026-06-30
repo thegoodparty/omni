@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { RaceOpponentContrastStatusSchema } from '../generated/enums'
 
 // `routing` is a free String column in Prisma, not a Prisma enum, so it is
@@ -18,7 +19,7 @@ export type RaceOpponentContrastRouting = z.infer<
 
 // A contrast pairs an opponent fact (with its source) against a candidate fact
 // and a one-line contrast sentence, tagged by issue and routed to a channel.
-// All six content fields are required and non-empty. routedStoryId /
+// All six content fields are required and non-empty. routedWebsiteId /
 // routedOutreachId are set once routed; findingId links back to the source
 // finding (nullable: SetNull on delete).
 export const RaceOpponentContrastSchema = z.object({
@@ -32,9 +33,9 @@ export const RaceOpponentContrastSchema = z.object({
   status: RaceOpponentContrastStatusSchema,
   editCount: z.number(),
   findingId: z.number().nullable(),
-  routedStoryId: z.number().nullable(),
+  routedWebsiteId: z.number().nullable(),
   routedOutreachId: z.number().nullable(),
-  createdAt: z.coerce.date(),
-  updatedAt: z.coerce.date(),
+  createdAt: zCoerceDate(),
+  updatedAt: zCoerceDate(),
 })
 export type RaceOpponentContrast = z.infer<typeof RaceOpponentContrastSchema>

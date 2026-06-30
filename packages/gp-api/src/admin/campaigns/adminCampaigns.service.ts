@@ -171,6 +171,11 @@ export class AdminCampaignsService {
 
     return campaigns.filter((campaign, i) => {
       const result = districtResults[i]
+      if (!result) {
+        // Settled results map 1:1 with campaigns, so this is unreachable; fail
+        // closed (treat as blocked) to match the rejected/no-slug handling below.
+        return true
+      }
       if (result.status === 'rejected') {
         // Fail closed: if we can't resolve the authoritative level, don't let
         // canDownload fall back to the user-editable details.ballotLevel — that

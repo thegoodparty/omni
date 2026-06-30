@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { RaceOpponentSourceTypeSchema } from './RaceOpponentSourceType.schema'
 import {
   RaceOpponentSummarySchema,
@@ -13,7 +14,7 @@ export const RaceOpponentSchema = z.object({
   // Opaque in Phase 0: the as-collected payload's shape isn't known yet, so we
   // deliberately don't model it.
   content: z.unknown(),
-  collectedAt: z.coerce.date(),
+  collectedAt: zCoerceDate(),
 })
 export type RaceOpponent = z.infer<typeof RaceOpponentSchema>
 
@@ -54,7 +55,7 @@ export const RaceOpponentResponseSchema = z.object({
       summary: RaceOpponentSummarySchema.nullish(),
     }),
   ),
-  lastCollectedAt: z.coerce.date().nullable(),
+  lastCollectedAt: zCoerceDate().nullable(),
   collectionStatus: RaceOpponentCollectionStatusSchema,
 })
 export type RaceOpponentResponse = z.infer<typeof RaceOpponentResponseSchema>

@@ -51,6 +51,7 @@ export const Playground: Story = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => {
     const Demo = () => {
       const [open, setOpen] = useState(false)
@@ -88,6 +89,7 @@ export const Default: Story = {
 }
 
 export const DefaultOpen: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Collapsible defaultOpen className="w-80 space-y-2">
       <CollapsibleTrigger asChild>
@@ -109,6 +111,7 @@ export const DefaultOpen: Story = {
 }
 
 export const Disabled: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Collapsible disabled className="w-80 space-y-2">
       <CollapsibleTrigger asChild>

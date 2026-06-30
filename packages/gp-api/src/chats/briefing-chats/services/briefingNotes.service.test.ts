@@ -348,7 +348,7 @@ describe('BriefingNotesService', () => {
         artifactContent: '{}',
       })
 
-      expect(out[0].body).toBe('[a.jpg]\none\n\n[b.jpg]\ntwo')
+      expect(out[0]?.body).toBe('[a.jpg]\none\n\n[b.jpg]\ntwo')
     })
 
     it('skips notes whose only attachment has not finished OCR yet', async () => {
@@ -435,7 +435,7 @@ describe('BriefingNotesService', () => {
         artifactContent: '{}',
       })
 
-      expect(out[0].body).toBe('my caption')
+      expect(out[0]?.body).toBe('my caption')
     })
   })
 })

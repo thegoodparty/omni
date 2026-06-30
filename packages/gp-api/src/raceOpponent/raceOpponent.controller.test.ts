@@ -706,8 +706,8 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].opponentName).toBe(JANE)
-    expect(rows[0].sourceType).toBe('ballotpedia')
+    expect(rows[0]?.opponentName).toBe(JANE)
+    expect(rows[0]?.sourceType).toBe('ballotpedia')
   })
 
   it('replaces prior rows on re-run (idempotent)', async () => {
@@ -741,8 +741,8 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].opponentName).toBe('John Foe')
-    expect(rows[0].runId).toBe('run-b')
+    expect(rows[0]?.opponentName).toBe('John Foe')
+    expect(rows[0]?.runId).toBe('run-b')
   })
 
   it('is a no-op for opposition_research (discovery does not auto-chain collection)', async () => {
@@ -799,7 +799,7 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].opponentName).toBe(JANE)
+    expect(rows[0]?.opponentName).toBe(JANE)
     const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
       where: { runId: 'run-mixed' },
     })
@@ -846,7 +846,7 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].runId).toBe('prior-run')
+    expect(rows[0]?.runId).toBe('prior-run')
     const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
       where: { runId: 'run-empty-rerun' },
     })
@@ -887,8 +887,8 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].runId).toBe('prior-run')
-    expect(rows[0].opponentName).toBe(JANE)
+    expect(rows[0]?.runId).toBe('prior-run')
+    expect(rows[0]?.opponentName).toBe(JANE)
     const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
       where: { runId: 'run-all-invalid' },
     })
@@ -1133,7 +1133,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       where: { campaignId },
     })
     expect(stored).toHaveLength(1)
-    expect(stored[0].opponentName).toBe(JANE)
+    expect(stored[0]?.opponentName).toBe(JANE)
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -1223,7 +1223,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       where: { campaignId },
     })
     expect(stored).toHaveLength(1)
-    expect(stored[0].runId).toBe('summary-second')
+    expect(stored[0]?.runId).toBe('summary-second')
   })
 
   it('rejects an artifact whose section has no source_url and persists nothing', async () => {
@@ -1271,7 +1271,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       where: { campaignId },
     })
     expect(stored).toHaveLength(1)
-    expect(stored[0].runId).toBe('summary-ok')
+    expect(stored[0]?.runId).toBe('summary-ok')
   })
 
   it('drops an uncollected (hallucinated) source URL rather than admitting it', async () => {
@@ -1503,7 +1503,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       .get(RaceOpponentService)
       .dispatchSummary(await loadCampaign())
 
-    const params = dispatchRun.mock.calls[0][0].params as {
+    const params = dispatchRun.mock.calls[0]?.[0].params as {
       candidate_platform?: unknown
     }
     expect(params.candidate_platform).toBeUndefined()

@@ -711,6 +711,7 @@ export class QueueConsumerService {
 
     for (const [, groupRows] of Object.entries(groups)) {
       const first = groupRows[0]
+      if (!first) continue
       const { phoneNumber, originalMessage, receivedAt } = first
       const isOptOut = groupRows.some((r) => Boolean(r.isOptOut))
       const hasClusterId = groupRows.some(
@@ -1280,7 +1281,7 @@ export class QueueConsumerService {
   }
 }
 
-const csvEscape = (value) => {
+const csvEscape = (value: PersonOutput[keyof PersonOutput]) => {
   if (value === null || value === undefined) return ''
   const str = String(value)
   const mustQuote = /[",\n]/.test(str)

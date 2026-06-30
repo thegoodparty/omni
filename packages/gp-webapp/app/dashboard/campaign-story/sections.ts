@@ -24,13 +24,4 @@ export const CAMPAIGN_STORY_SECTIONS: CampaignStorySection[] = [
     example:
       "I grew up here, graduated from Lincoln High, and put myself through community college working nights. For the last decade I've run a small business, coached youth soccer, and served on the parks advisory board. I'm not a career politician. I'm a neighbor who knows what it takes to make a budget work and show up when people need help.",
   },
-  {
-    id: 'issues',
-    title: 'Your issues',
-    description: 'Two to four concrete fights for your first term.',
-    placeholder:
-      "Tap to write: the 2-4 issues you'd spend political capital on.",
-    example:
-      "First, fix our roads and aging water lines before they fail. Second, back local small businesses instead of big out-of-town developers. Third, make sure every neighborhood has safe parks and after-school options for kids. These are what I hear at every door, and they're where I'd spend my energy in my first term.",
-  },
 ]

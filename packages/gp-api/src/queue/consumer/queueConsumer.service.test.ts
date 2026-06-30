@@ -29,6 +29,7 @@ import { DomainsService } from '@/websites/services/domains.service'
 import { Test, TestingModule } from '@nestjs/testing'
 import type { Message } from '@aws-sdk/client-sqs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import type { PollResponseJsonRow } from '../queue.types'
@@ -303,7 +304,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       expect.anything(),
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -338,7 +341,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       '5559999999',
       expect.anything(),
     )
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -392,7 +397,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -452,7 +459,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     })
     expect(pollIssuesService.client.pollIssue.createMany).toHaveBeenCalled()
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -486,7 +495,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     await service.processMessage(message)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -669,7 +680,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       where: { pollId: fixturePollId },
     })
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -696,7 +709,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       ]),
     })
     expect(
-      mockTx.pollIndividualMessage.createMany.mock.calls[0][0].data,
+      firstOrThrow(mockTx.pollIndividualMessage.createMany.mock.calls)[0].data,
     ).toHaveLength(3)
   })
 
@@ -716,7 +729,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -742,7 +757,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     await service.processMessage(message)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -757,7 +774,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       ]),
     })
     expect(
-      mockTx.pollIndividualMessage.createMany.mock.calls[0][0].data,
+      firstOrThrow(mockTx.pollIndividualMessage.createMany.mock.calls)[0].data,
     ).toHaveLength(1)
     // No join records should be created for opt-out without clusterId
     expect(mockTx.$executeRaw).not.toHaveBeenCalled()
@@ -791,7 +808,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
 
     await service.processMessage(message)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -799,7 +818,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     await txCb(mockTx)
     // The individual message is still created
     expect(
-      mockTx.pollIndividualMessage.createMany.mock.calls[0][0].data,
+      firstOrThrow(mockTx.pollIndividualMessage.createMany.mock.calls)[0].data,
     ).toHaveLength(1)
     expect(mockTx.pollIndividualMessage.createMany).toHaveBeenCalledWith({
       data: expect.arrayContaining([
@@ -831,7 +850,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(second).toBe(true)
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalledTimes(2)
 
-    const txCb = pollIndividualMessage.client.$transaction.mock.calls[0][0]
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
     const mockTx = {
       pollIndividualMessage: { deleteMany: vi.fn(), createMany: vi.fn() },
       $executeRaw: vi.fn(),
@@ -844,8 +865,9 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         sender: expect.anything(),
       },
     })
-    const deleteWhere =
-      mockTx.pollIndividualMessage.deleteMany.mock.calls[0][0].where
+    const deleteWhere = firstOrThrow(
+      mockTx.pollIndividualMessage.deleteMany.mock.calls,
+    )[0].where
     expect(deleteWhere.id.in).toHaveLength(1)
     expect(mockTx.pollIndividualMessage.createMany).toHaveBeenCalled()
   })
@@ -1121,8 +1143,9 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       ]),
       skipDuplicates: true,
     })
-    const { data } =
-      pollsService.client.pollIndividualMessage.createMany.mock.calls[0][0]
+    const { data } = firstOrThrow(
+      pollsService.client.pollIndividualMessage.createMany.mock.calls,
+    )[0]
     expect(data).toHaveLength(2)
   })
 

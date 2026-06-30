@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
 import { GeminiService } from 'src/vendors/google/services/gemini.service'
@@ -207,7 +208,9 @@ describe('CommunityEventsService', () => {
 
     await service.generate(42, 99, 7, 'hash-abc', buildCtx())
 
-    const [structuredPrompt] = gemini.generateStructured.mock.calls[0]
+    const [structuredPrompt] = firstOrThrow(
+      gemini.generateStructured.mock.calls,
+    )
     expect(structuredPrompt).toContain('EVENTS_FROM_BR')
   })
 })

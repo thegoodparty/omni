@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Query } from '@nestjs/common'
+import type { RaceFrequencyByBrHash } from '@goodparty_org/contracts'
 import { FilingDetailsByBrHashResult, RacesService } from './races.service'
 import { GetRaceByBrHashIdParamsDTO, RaceFilterDto } from './races.schema'
 
@@ -34,7 +35,7 @@ export class RacesController {
   @Get('by-br-hash-id/:brHashId/frequency')
   async getFrequencyByBrHashId(
     @Param() params: GetRaceByBrHashIdParamsDTO,
-  ): Promise<{ frequency: number[]; electionDate: string | null }> {
+  ): Promise<RaceFrequencyByBrHash> {
     return this.racesService.findFrequencyByBrHashId(params.brHashId)
   }
 }

@@ -227,7 +227,7 @@ describe('ElectionApiService', () => {
     const result = await service.getRaceContext(BR_HASH)
 
     expect(result.candidates).toHaveLength(1)
-    expect(result.candidates[0].fullName).toBe('No Email')
+    expect(result.candidates[0]?.fullName).toBe('No Email')
   })
 
   it('throws BadGateway when election-api returns a response that fails schema validation', async () => {

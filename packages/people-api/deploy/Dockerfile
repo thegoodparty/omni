@@ -36,6 +36,10 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json ./
+# people-api/tsconfig.json extends ../../tsconfig.base.json; the in-image
+# `npm run build` needs it present or tsc reverts to defaults (no skipLibCheck
+# / esModuleInterop) and fails typechecking node_modules type declarations.
+COPY tsconfig.base.json ./
 COPY packages/people-api/package.json ./packages/people-api/package.json
 # people-api imports @goodparty_org/contracts; nest build typechecks against it,
 # so the prebuilt workspace package must be present for module resolution.

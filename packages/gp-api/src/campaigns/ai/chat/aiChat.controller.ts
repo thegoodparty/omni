@@ -167,7 +167,9 @@ export class AiChatController {
         updatedAt: chat.updatedAt,
         name:
           chatData.title ||
-          (chatData.messages?.length > 0 ? chatData.messages[0].content : ''),
+          (chatData.messages?.length > 0
+            ? (chatData.messages[0]?.content ?? '')
+            : ''),
       })
     }
 

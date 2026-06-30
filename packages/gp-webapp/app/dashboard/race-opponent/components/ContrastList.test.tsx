@@ -24,7 +24,7 @@ const baseContrast = (
   status: 'cleared',
   editCount: 0,
   findingId: 10,
-  routedStoryId: null,
+  routedWebsiteId: null,
   routedOutreachId: null,
   createdAt: '2026-06-20T12:00:00.000Z',
   updatedAt: '2026-06-20T12:00:00.000Z',
@@ -158,8 +158,8 @@ describe('<ContrastList>', () => {
     api.mock('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', {
       status: 200,
       data: {
-        contrast: { ...contrast, status: 'used', routedStoryId: 99 },
-        routedStoryId: 99,
+        contrast: { ...contrast, status: 'used', routedWebsiteId: 99 },
+        routedWebsiteId: 99,
       },
     })
 
