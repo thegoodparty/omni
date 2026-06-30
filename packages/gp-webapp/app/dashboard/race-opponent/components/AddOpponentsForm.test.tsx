@@ -107,4 +107,28 @@ describe('<AddOpponentsForm>', () => {
       { name: 'Jane Doe', ballotpediaUrl: undefined, website: undefined },
     ])
   })
+
+  it('acknowledges a completed run and hides the entry fields behind a disclosure', async () => {
+    const user = userEvent.setup()
+    render(
+      <AddOpponentsForm submitting={false} onSubmit={vi.fn()} ranAlready />,
+    )
+
+    expect(
+      screen.getByText(/no opponents found in this analysis/i),
+    ).toBeInTheDocument()
+    // Fields and the submit start hidden — no always-live fresh-submit.
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /run the analysis/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    expect(screen.getByLabelText('Name')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /run the analysis/i }),
+    ).toBeInTheDocument()
+  })
 })

@@ -594,6 +594,49 @@ describe('<RaceOpponentList>', () => {
     await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
   })
 
+  it('shows a failure state (not the manual form) when collection failed', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'failed' }}
+      />,
+    )
+
+    expect(screen.getByText(/collection failed/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/add the opponents you want to analyze/i),
+    ).not.toBeInTheDocument()
+    // No live fresh-submit affordance on the failure state.
+    expect(
+      screen.queryByRole('button', { name: /run the analysis/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('acknowledges a completed run that found no opponents and gates a fresh submit', async () => {
+    const user = userEvent.setup()
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'completed' }}
+      />,
+    )
+
+    // Acknowledges the run rather than implying it never ran, and does NOT
+    // surface an always-live submit that invites repeated paid re-runs.
+    expect(
+      screen.getByText(/no opponents found in this analysis/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /run the analysis/i }),
+    ).not.toBeInTheDocument()
+
+    // The manual form is still reachable behind an explicit disclosure.
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    expect(
+      screen.getByRole('button', { name: /run the analysis/i }),
+    ).toBeInTheDocument()
+  })
+
   it('renders a "The field" intro with the opponent count', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 

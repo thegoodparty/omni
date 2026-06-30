@@ -654,10 +654,14 @@ const RaceOpponentList = ({
         </div>
 
         {data.opponents.length === 0 ? (
-          // Collection settled (completed/idle) with no opponents: offer manual
-          // entry rather than a dead empty state. While discovery/collection is
-          // in flight (isBusy), keep the "still working" empty state — the
-          // processing screen is wired by a sibling ticket (ENG-10610).
+          // No opponents yet — the branch depends on collection status. While a
+          // run is in flight (isBusy) keep the "still working" state; on a
+          // failed run show a failure/retry message; otherwise offer manual
+          // entry. completed-with-zero is the "we ran it and found nobody" case,
+          // so the form acknowledges the prior run (ranAlready) and gates a
+          // fresh submit behind a disclosure rather than inviting indefinite
+          // (paid) re-runs. The in-flight processing screen is a sibling ticket
+          // (ENG-10610); the full status state-machine is ENG-10611.
           isBusy ? (
             <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
               <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -674,10 +678,26 @@ const RaceOpponentList = ({
                 </p>
               </div>
             </div>
+          ) : status === 'failed' ? (
+            <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+                <TriangleAlertIcon className="size-6" aria-hidden />
+              </span>
+              <div className="flex flex-col gap-1">
+                <h2 className="text-base font-semibold text-foreground">
+                  Collection failed
+                </h2>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  Something went wrong gathering research on your race. Use
+                  &quot;Collect now&quot; above to try again.
+                </p>
+              </div>
+            </div>
           ) : (
             <AddOpponentsForm
               submitting={submittingManual}
               onSubmit={submitManualOpponents}
+              ranAlready={status === 'completed'}
             />
           )
         ) : (
