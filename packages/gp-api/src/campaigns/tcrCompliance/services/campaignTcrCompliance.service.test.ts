@@ -809,6 +809,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     ExperimentRunStatus.QUEUED,
     ExperimentRunStatus.RUNNING,
     ExperimentRunStatus.COMPLETED,
+    ExperimentRunStatus.SUPERSEDED,
   ])(
     'skips dispatch when claim fails and existing run is %s',
     async (status) => {

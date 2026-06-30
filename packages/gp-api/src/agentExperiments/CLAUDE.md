@@ -127,7 +127,7 @@ There is no time-based stale sweeper. A `RUNNING` run whose Fargate task dies wi
 - `runId` — unique, uuid7, used in SQS messages and by callers
 - `organizationSlug` → `Organization.slug`, `onDelete: Cascade`
 - `experimentType: String` — opaque to this module; callers define the value space
-- `status: ExperimentRunStatus { QUEUED, RUNNING, AWAITING_RESUME, COMPLETED, FAILED }`
+- `status: ExperimentRunStatus { QUEUED, RUNNING, AWAITING_RESUME, COMPLETED, FAILED, SUPERSEDED }` — `SUPERSEDED` is the terminal marker the resume sweep writes on an `AWAITING_RESUME` predecessor once it dispatches a successor (the old row did real work and handed off; it is **not** a failure — gp-admin renders it green as "Part 1 completed")
 - `params: Json`, `artifactBucket/Key`, `durationSeconds`, `error`
 - `@@index([organizationSlug, experimentType])`
 

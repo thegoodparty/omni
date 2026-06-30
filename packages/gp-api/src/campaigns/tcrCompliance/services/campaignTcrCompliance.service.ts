@@ -1096,10 +1096,14 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         const existingRun = await this.experimentRunsService.findUnique({
           where: { runId: current.agenticRunId },
         })
+        // SUPERSEDED (unlike FAILED below) is NOT re-dispatchable here: it marks
+        // a predecessor the resume sweep already handed off to a live successor,
+        // so re-dispatching would double-run the agent against the same record.
         if (
           existingRun &&
           (existingRun.status === ExperimentRunStatus.QUEUED ||
             existingRun.status === ExperimentRunStatus.RUNNING ||
+            existingRun.status === ExperimentRunStatus.SUPERSEDED ||
             existingRun.status === ExperimentRunStatus.COMPLETED)
         ) {
           this.logger.info(
