@@ -1,39 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { noop } from '@shared/utils/noop'
 import { numberFormatter } from 'helpers/numberHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { ModalOrDrawer } from '@shared/ui/ModalOrDrawer'
-import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
+import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { RaceTargetMetrics } from 'helpers/types'
-
-const CONTACTS_STATS_ROUTE = 'GET /v1/contacts/stats'
-
-const useRegisteredVoters = (enabled: boolean) => {
-  const [registeredVoters, setRegisteredVoters] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (!enabled) return
-    let cancelled = false
-    clientRequest(CONTACTS_STATS_ROUTE, {})
-      .then((res) => {
-        if (cancelled) return
-        setRegisteredVoters(res.data?.totalConstituents ?? null)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setRegisteredVoters(null)
-        reportErrorToSentry(error, {
-          context: 'dashboard.countsInfoModal.fetchContactsStats',
-        })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [enabled])
-
-  return registeredVoters
-}
 
 interface CountsInfoModalProps {
   open?: boolean
@@ -47,8 +20,22 @@ export const CountsInfoModal = ({
   raceTargetMetrics,
 }: CountsInfoModalProps): React.JSX.Element => {
   const { projectedTurnout, winNumber } = raceTargetMetrics ?? {}
-  const registeredVoters = useRegisteredVoters(open)
+  // Shared with the other contacts-stats consumers (queryKey
+  // ['contacts-stats']); lazy-gated so the fetch only runs while the modal is
+  // open, preserving the original hand-rolled hook's behavior.
+  const { data, error } = useQuery({
+    ...districtStatsQueryOptions,
+    enabled: open,
+  })
+  const registeredVoters = data?.totalConstituents ?? null
   const showRegisteredVoters = registeredVoters !== null && registeredVoters > 0
+
+  useEffect(() => {
+    if (!error) return
+    reportErrorToSentry(error, {
+      context: 'dashboard.countsInfoModal.fetchContactsStats',
+    })
+  }, [error])
 
   return (
     <ModalOrDrawer

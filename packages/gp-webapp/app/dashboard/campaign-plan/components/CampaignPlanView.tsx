@@ -12,7 +12,6 @@ import PlanView, {
 } from 'app/onboarding/success/components/PlanView'
 import { useCampaignPlanData } from 'app/onboarding/success/hooks/useCampaignPlanData'
 import { useGenerationTiming } from 'app/onboarding/success/hooks/useGenerationTiming'
-import { downloadCampaignPlanPdf } from 'app/onboarding/success/pdf/downloadCampaignPlanPdf'
 import CampaignStrategySection from './campaignStrategy/CampaignStrategySection'
 import CampaignTrackerHero from './CampaignTrackerHero'
 
@@ -113,6 +112,10 @@ const CampaignPlanView = ({
     handleDownload('download-button')
     setHeroDownloading(true)
     try {
+      // Defer the @react-pdf/renderer chain — only loaded on an actual
+      // download, keeping it out of the page bundle for everyone else.
+      const { downloadCampaignPlanPdf } =
+        await import('app/onboarding/success/pdf/downloadCampaignPlanPdf')
       await downloadCampaignPlanPdf(data.plan, {
         liveUrl:
           typeof window !== 'undefined' ? window.location.href : undefined,

@@ -21,10 +21,6 @@ import PlanSections, {
 import SharePlanModal from './SharePlanModal'
 import DownloadReminderModal from './DownloadReminderModal'
 import type { PlanData } from './planContent'
-import {
-  downloadCampaignPlanPdf,
-  generateCampaignPlanPdfBlob,
-} from '../pdf/downloadCampaignPlanPdf'
 import { uploadCampaignPlanPdf } from '../pdf/sharePlanPdf'
 
 export type PlanDownloadSource = 'download-button' | 'reminder-modal'
@@ -121,6 +117,10 @@ const PlanView = ({
       return cached.promise
     }
     const promise: Promise<string> = (async () => {
+      // Defer the @react-pdf/renderer chain — only loaded when the user
+      // actually shares, keeping it out of the page bundle for everyone else.
+      const { generateCampaignPlanPdfBlob } =
+        await import('../pdf/downloadCampaignPlanPdf')
       const blob = await generateCampaignPlanPdfBlob(plan, {
         liveUrl: liveUrl || undefined,
       })
@@ -142,6 +142,10 @@ const PlanView = ({
     onDownload(source)
     setDownloading(true)
     try {
+      // Defer the @react-pdf/renderer chain — only loaded on an actual
+      // download, keeping it out of the page bundle for everyone else.
+      const { downloadCampaignPlanPdf } =
+        await import('../pdf/downloadCampaignPlanPdf')
       await downloadCampaignPlanPdf(plan, { liveUrl: liveUrl || undefined })
       setHasDownloaded(true)
     } finally {
