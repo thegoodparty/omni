@@ -87,13 +87,13 @@ export default function YourDetailsCard({
         data={data}
         isElectedOffice={isElectedOffice}
         electedOfficeId={electedOffice?.id}
-            onSaved={(next) => {
-              // onSaved fires only after the write succeeded and queries were
-              // invalidated, so the dirty guard's job (blocking an in-flight
-              // refetch) is done — clear it so server normalization can show.
-              setData(next)
-              setDirty(false)
-            }}
+        onSaved={(next) => {
+          // onSaved fires only after the write succeeded and queries were
+          // invalidated, so the dirty guard's job (blocking an in-flight
+          // refetch) is done — clear it so server normalization can show.
+          setData(next)
+          setDirty(false)
+        }}
       />
     </Card>
   )

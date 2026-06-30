@@ -47,7 +47,11 @@ const formatTermLength = (office?: ElectedOffice | null): string => {
       years = Math.round((end - start) / MS_PER_YEAR)
     }
   }
-  if (years === undefined && office.termLengthDays && office.termLengthDays > 0) {
+  if (
+    years === undefined &&
+    office.termLengthDays &&
+    office.termLengthDays > 0
+  ) {
     years = Math.round(office.termLengthDays / 365.25)
   }
   if (!years || years < 1) return ''

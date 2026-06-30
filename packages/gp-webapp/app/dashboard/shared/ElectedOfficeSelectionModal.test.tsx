@@ -4,9 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 
 vi.mock('gpApi/typed-request', () => ({
-  clientRequest: vi
-    .fn()
-    .mockResolvedValue({ ok: true, status: 200, data: {} }),
+  clientRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, data: {} }),
 }))
 
 // ServeOfficePicker loads positions for a ZIP through the legacy clientFetch.
@@ -17,7 +15,12 @@ vi.mock('gpApi/clientFetch', () => ({
     data: [
       {
         brPositionId: 'br-1',
-        position: { id: 'p1', name: 'City Council', level: 'Local', state: 'ME' },
+        position: {
+          id: 'p1',
+          name: 'City Council',
+          level: 'Local',
+          state: 'ME',
+        },
         city: 'Rockland',
       },
     ],
@@ -73,11 +76,14 @@ describe('ElectedOfficeSelectionModal', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
-      expect(clientRequest).toHaveBeenCalledWith('PATCH /v1/organizations/:slug', {
-        slug: 'eo-1',
-        ballotReadyPositionId: 'br-1',
-        customPositionName: null,
-      }),
+      expect(clientRequest).toHaveBeenCalledWith(
+        'PATCH /v1/organizations/:slug',
+        {
+          slug: 'eo-1',
+          ballotReadyPositionId: 'br-1',
+          customPositionName: null,
+        },
+      ),
     )
     expect(onSaved).toHaveBeenCalledTimes(1)
     expect(onClose).toHaveBeenCalledTimes(1)
@@ -94,17 +100,22 @@ describe('ElectedOfficeSelectionModal', () => {
     )
 
     await searchAndAwaitResults(user)
-    await user.click(screen.getByRole('button', { name: /don.t see my office/i }))
+    await user.click(
+      screen.getByRole('button', { name: /don.t see my office/i }),
+    )
 
     await user.type(screen.getByLabelText('Office name'), 'Town Selectboard')
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() =>
-      expect(clientRequest).toHaveBeenCalledWith('PATCH /v1/organizations/:slug', {
-        slug: 'eo-1',
-        ballotReadyPositionId: null,
-        customPositionName: 'Town Selectboard',
-      }),
+      expect(clientRequest).toHaveBeenCalledWith(
+        'PATCH /v1/organizations/:slug',
+        {
+          slug: 'eo-1',
+          ballotReadyPositionId: null,
+          customPositionName: 'Town Selectboard',
+        },
+      ),
     )
   })
 })

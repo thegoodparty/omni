@@ -46,8 +46,7 @@ vi.mock('app/dashboard/shared/ElectedOfficeSelectionModal', () => ({
 }))
 
 vi.mock('helpers/analyticsHelper', async (importActual) => {
-  const actual =
-    await importActual<typeof import('helpers/analyticsHelper')>()
+  const actual = await importActual<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
 

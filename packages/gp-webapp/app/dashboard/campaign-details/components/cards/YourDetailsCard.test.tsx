@@ -25,7 +25,9 @@ vi.mock('app/onboarding/shared/ajaxActions', () => ({
 
 vi.mock('app/dashboard/website/util/website.util', async (importActual) => {
   const actual =
-    await importActual<typeof import('app/dashboard/website/util/website.util')>()
+    await importActual<
+      typeof import('app/dashboard/website/util/website.util')
+    >()
   return {
     ...actual,
     getUserWebsite: vi.fn(),
@@ -34,14 +36,11 @@ vi.mock('app/dashboard/website/util/website.util', async (importActual) => {
 })
 
 vi.mock('gpApi/typed-request', () => ({
-  clientRequest: vi
-    .fn()
-    .mockResolvedValue({ ok: true, status: 200, data: {} }),
+  clientRequest: vi.fn().mockResolvedValue({ ok: true, status: 200, data: {} }),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importActual) => {
-  const actual =
-    await importActual<typeof import('helpers/analyticsHelper')>()
+  const actual = await importActual<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
 
@@ -61,9 +60,7 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import YourDetailsCard from './YourDetailsCard'
 
-const campaign = (
-  details: Record<string, unknown> = {},
-): Campaign =>
+const campaign = (details: Record<string, unknown> = {}): Campaign =>
   ({
     id: 1,
     slug: 'campaign-1',

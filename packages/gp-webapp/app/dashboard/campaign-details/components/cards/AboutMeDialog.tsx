@@ -123,7 +123,9 @@ export default function AboutMeDialog({
     if (!ok) {
       // Keep the dialog open so the user can retry; don't show stale saved
       // values as if the write succeeded.
-      errorSnackbar('Something went wrong saving your details. Please try again.')
+      errorSnackbar(
+        'Something went wrong saving your details. Please try again.',
+      )
       return
     }
     onSaved(form)

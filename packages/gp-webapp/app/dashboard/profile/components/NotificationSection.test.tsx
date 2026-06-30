@@ -15,8 +15,7 @@ vi.mock('gpApi/clientFetch', () => ({
 }))
 
 vi.mock('helpers/analyticsHelper', async (importActual) => {
-  const actual =
-    await importActual<typeof import('helpers/analyticsHelper')>()
+  const actual = await importActual<typeof import('helpers/analyticsHelper')>()
   return { ...actual, trackEvent: vi.fn() }
 })
 
@@ -64,15 +63,16 @@ describe('NotificationSection — saving preferences', () => {
       meta: expect.objectContaining({ marketingEmails: true }),
     })
     // The returned user is pushed back into context (the "refetch").
-    expect(setUser).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 1 }),
-    )
+    expect(setUser).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }))
   })
 })
 
 describe('NotificationSection — campaign channel guard rails', () => {
   it('confirms before turning off a campaign channel, then saves', async () => {
-    mockUser = userWithMeta({ notificationEmails: true, textNotifications: true })
+    mockUser = userWithMeta({
+      notificationEmails: true,
+      textNotifications: true,
+    })
     const user = userEvent.setup()
     render(<NotificationSection showCampaignChannels />)
 
