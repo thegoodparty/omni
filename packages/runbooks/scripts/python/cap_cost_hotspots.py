@@ -86,7 +86,7 @@ def label_regions(experiment_type: str, regions: list[dict]) -> str:
         f"{json.dumps(regions, indent=2)}"
     )
     msg = client.messages.create(
-        model=os.environ.get("CAP_COST_LABEL_MODEL", "claude-sonnet-4-5"),
+        model=os.environ.get("CAP_COST_LABEL_MODEL", "claude-sonnet-4-6"),
         max_tokens=800,
         messages=[{"role": "user", "content": prompt}],
     )

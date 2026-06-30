@@ -73,13 +73,15 @@ def resolve_type_since(experiment_type: str, since: str) -> pd.DataFrame:
 
 
 def resolve_type_on(experiment_type: str, day: str) -> pd.DataFrame:
-    start = f"{day}T00:00:00Z"
-    end = f"{day}T23:59:59.999Z"
+    from datetime import timedelta
+
+    start_dt = datetime.fromisoformat(f"{day}T00:00:00+00:00")
+    end_dt = start_dt + timedelta(days=1)
     return _select(
-        '"experimentType" = :t AND "createdAt" >= :s AND "createdAt" <= :e',
+        '"experimentType" = :t AND "createdAt" >= :s AND "createdAt" < :e',
         t=experiment_type,
-        s=start,
-        e=end,
+        s=start_dt.isoformat(),
+        e=end_dt.isoformat(),
     )
 
 

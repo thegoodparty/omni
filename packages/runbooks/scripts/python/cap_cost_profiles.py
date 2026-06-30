@@ -57,11 +57,17 @@ def _fetch_outcome(s3, run: dict, status_field: str) -> str:
         return "FAILED"
     bucket = run.get("artifactBucket") or "gp-agent-artifacts-prod"
     key = run.get("artifactKey") or f"{run['experimentType']}/{run['runId']}/artifact.json"
+    from botocore.exceptions import ClientError, NoCredentialsError
+
     try:
         body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
         art = json.loads(body)
-    except Exception:
-        return "no_artifact"
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+            return "no_artifact"
+        raise
+    except NoCredentialsError:
+        raise
     return art.get(status_field) or art.get("status") or "unknown"
 
 
