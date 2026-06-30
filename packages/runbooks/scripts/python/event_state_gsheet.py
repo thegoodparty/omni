@@ -61,9 +61,11 @@ def _resolve(envs: tuple[str, ...]) -> str | None:
     return None
 
 
-def get_sheets_service(token_path: Path = TOKEN_PATH):
+def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str | None = None):
     """OAuth InstalledAppFlow with cached token (write scope). Interactive on first run only.
-    Not unit-tested — exercised by the live manual step."""
+    Client creds come from the downloaded client-secrets JSON (``client_secrets_file``, the
+    standard Google pattern) when given, else from env vars. Not unit-tested — exercised by
+    the live manual step."""
     from google.auth.transport.requests import Request
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
@@ -76,23 +78,26 @@ def get_sheets_service(token_path: Path = TOKEN_PATH):
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            client_id = _resolve(CLIENT_ID_ENVS)
-            client_secret = _resolve(CLIENT_SECRET_ENVS)
-            if not client_id or not client_secret:
-                raise RuntimeError(
-                    "Missing Google OAuth client creds (set GP_SHEETS_GOOGLE_CLIENT_ID/SECRET "
-                    "or DDHQ_MATCHER_GOOGLE_CLIENT_ID/SECRET)."
-                )
-            client_config = {
-                "installed": {
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["http://localhost"],
+            if client_secrets_file:
+                flow = InstalledAppFlow.from_client_secrets_file(client_secrets_file, SCOPES)
+            else:
+                client_id = _resolve(CLIENT_ID_ENVS)
+                client_secret = _resolve(CLIENT_SECRET_ENVS)
+                if not client_id or not client_secret:
+                    raise RuntimeError(
+                        "Missing Google OAuth client creds: pass --client-secrets <json> "
+                        "(or GP_SHEETS_GOOGLE_CLIENT_SECRETS), or set GP_SHEETS_GOOGLE_CLIENT_ID/SECRET."
+                    )
+                client_config = {
+                    "installed": {
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                        "redirect_uris": ["http://localhost"],
+                    }
                 }
-            }
-            flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
+                flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
             creds = flow.run_local_server(port=0)
         Path(token_path).parent.mkdir(parents=True, exist_ok=True)
         with open(token_path, "wb") as fh:
@@ -109,6 +114,11 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("GP_EVENT_STATE_SHEET_ID"),
         help="target Google Sheet id (or GP_EVENT_STATE_SHEET_ID env)",
     )
+    parser.add_argument(
+        "--client-secrets",
+        default=os.environ.get("GP_SHEETS_GOOGLE_CLIENT_SECRETS"),
+        help="path to the OAuth client-secrets JSON (or GP_SHEETS_GOOGLE_CLIENT_SECRETS env)",
+    )
     args = parser.parse_args(argv)
 
     result = esa.assemble(date.today())
@@ -122,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
     if not args.spreadsheet_id:
         print("--spreadsheet-id or GP_EVENT_STATE_SHEET_ID required for a live write", file=sys.stderr)
         return 2
-    service = get_sheets_service()
+    service = get_sheets_service(client_secrets_file=args.client_secrets)
     count = write_sheet(rows, service=service, spreadsheet_id=args.spreadsheet_id)
     print(f"wrote {count} events to sheet {args.spreadsheet_id}")
     return 0
