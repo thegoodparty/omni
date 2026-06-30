@@ -93,6 +93,29 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     }
   }
 
+  // Server-side auto-trigger for a fresh Pro upgrade (no request user context):
+  // get research in flight before the candidate first opens /opponent. Loads the
+  // campaign + user itself, then silently no-ops when the flag is off, the user
+  // is gone, or the campaign isn't Pro — an automated path must not 4xx the way
+  // the user-facing assertAccess does. Delegates to collect(), so the same
+  // in-flight dedup that guards the "Collect now" button keeps this from
+  // double-dispatching a duplicate paid RACE_OPPONENT_COLLECTION run.
+  async autoCollectOnProUpgrade(campaignId: number): Promise<void> {
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign?.isPro || !campaign.user) return
+
+    const enabled = await this.features.isFeatureEnabled({
+      user: campaign.user,
+      feature: KNOW_YOUR_OPPONENT_FEATURE,
+    })
+    if (!enabled) return
+
+    await this.collect(campaign)
+  }
+
   async collect(
     campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentCollectResponse> {

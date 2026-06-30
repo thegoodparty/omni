@@ -672,11 +672,15 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     await this.crm.trackCampaign(campaign.id)
   }
 
+  // Returns whether this call flipped the campaign from non-Pro to Pro, so a
+  // caller can fire a one-time side effect (e.g. auto-dispatching opponent
+  // collection) only on the genuine false->true transition and not on a no-op
+  // re-write of an already-Pro campaign.
   async setIsPro(
     campaignId: number,
     isPro: boolean = true,
     trackCampaign: boolean = true,
-  ) {
+  ): Promise<{ becamePro: boolean }> {
     const existingCampaign = await this.model.findUnique({
       where: { id: campaignId },
       select: {
@@ -717,6 +721,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       }
       await this.crm.trackCampaign(campaignId)
     }
+
+    return { becamePro: isBecomingProFirstTime }
   }
 
   async checkFreeTextsEligibility(campaignId: number): Promise<boolean> {
