@@ -112,7 +112,7 @@ def _mixed_df():
 
 def test_mixed_cohort_uses_total_spend_and_reports_partial_coverage():
     df = _mixed_df()
-    assert has_milestones(df) is True
+    assert has_milestones(df)
     out = milestone_costs(df)
     # Only the 2 marked runs appear in the per-milestone view (r3 is unmarked).
     assert out["runs_with_milestones"] == 2
