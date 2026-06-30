@@ -263,12 +263,14 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
   }
 
-  // The candidate's own platform (bio + issues) for the analytical summary,
-  // read from Website.content.about — the pre-Pro-upgrade CandidateProfileStep
-  // capture, NOT CampaignStory (the self-research duplicate we avoid). Returns
-  // undefined when the campaign has no website bio or issues yet, so dispatch
-  // omits the field and the agent produces no issue contrasts.
-  private async buildCandidatePlatform(
+  // The candidate's own platform (bio + issues), read from
+  // Website.content.about — the pre-Pro-upgrade CandidateProfileStep capture,
+  // NOT CampaignStory (the self-research duplicate we avoid). Returns undefined
+  // when the campaign has no website bio or issues yet, so dispatch omits the
+  // field and the agent produces no issue contrasts. Public so the strict
+  // OpponentResearchService can source its candidate_platform from the same
+  // place rather than re-implementing the Website read.
+  async buildCandidatePlatform(
     campaignId: number,
   ): Promise<SummaryInput['candidate_platform'] | undefined> {
     const website = await this.client.website.findUnique({

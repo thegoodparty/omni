@@ -49,9 +49,9 @@ type CandidatePlatform = NonNullable<
 const MAX_PARAMS_BYTES = 5000
 
 // Descending relevance to opponent contrasts: issues (what the candidate runs
-// on) frames contrasts most directly, then why (motivation), then background
-// (bio). The budget fills fields in this order and drops what overflows.
-const PLATFORM_FIELDS = ['issues', 'why', 'background'] as const
+// on) frames contrasts most directly, then background (bio). The budget fills
+// fields in this order and drops what overflows.
+const PLATFORM_FIELDS = ['issues', 'background'] as const
 
 const paramsBytes = (params: OpponentResearchInput): number =>
   Buffer.byteLength(JSON.stringify(params))
@@ -478,26 +478,21 @@ export class OpponentResearchService extends createPrismaBase(
     })
   }
 
+  // Source the candidate platform from Website.content.about (shared with the
+  // Pro-upgrade capture and the summary path), NOT CampaignStory. bio maps to
+  // background and the structured issues flatten to the plain-text string this
+  // strict-engine contract expects; there is no `why` on the website, so the
+  // contract no longer carries one. Reuses RaceOpponentService's reader so the
+  // two opponent paths can't drift on where the platform comes from.
   private async buildPlatform(
     campaignId: number,
   ): Promise<OpponentResearchInput['candidate_platform']> {
-    // Issues live on the website now (shared with Pro-upgrade), flattened to
-    // the plain-text string candidate_platform.issues expects.
-    const [story, website] = await Promise.all([
-      this.client.campaignStory.findUnique({
-        where: { campaignId },
-        select: { why: true, background: true },
-      }),
-      this.client.website.findUnique({
-        where: { campaignId },
-        select: { content: true },
-      }),
-    ])
-    const issues = serializeWebsiteIssues(website?.content?.about?.issues ?? [])
-    if (!story && !issues) return null
+    const platform = await this.raceOpponent.buildCandidatePlatform(campaignId)
+    if (!platform) return null
+    const issues = serializeWebsiteIssues(platform.issues ?? [])
+    if (!platform.bio && !issues) return null
     return {
-      why: story?.why ?? null,
-      background: story?.background ?? null,
+      background: platform.bio ?? null,
       issues,
     }
   }
