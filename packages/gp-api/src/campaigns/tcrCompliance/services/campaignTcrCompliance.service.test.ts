@@ -3,6 +3,7 @@ import {
   BadGatewayException,
   BadRequestException,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import {
   CommitteeType,
@@ -1628,6 +1629,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
     verifyCampaignVerifyPin: ReturnType<typeof vi.fn>
     createCampaignVerifyToken: ReturnType<typeof vi.fn>
     submitCampaignVerifyTokenToBrand: ReturnType<typeof vi.fn>
+    retrieveCampaignVerifyStatus: ReturnType<typeof vi.fn>
   }
   let mockModel: { findFirstOrThrow: ReturnType<typeof vi.fn> }
   let mockPrisma: { tcrCompliance: typeof mockModel }
@@ -1644,6 +1646,7 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       verifyCampaignVerifyPin: vi.fn(),
       createCampaignVerifyToken: vi.fn(),
       submitCampaignVerifyTokenToBrand: vi.fn(),
+      retrieveCampaignVerifyStatus: vi.fn(),
     }
     mockModel = { findFirstOrThrow: vi.fn() }
     mockPrisma = { tcrCompliance: mockModel }
@@ -1759,6 +1762,67 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.submitCampaignVerifyTokenToBrand).toHaveBeenCalledWith(
         tcrCompliance,
         'token',
+      )
+    })
+  })
+
+  const tcrWithIdentity = {
+    id: 'tcr-2',
+    peerlyIdentityId: 'peerly-1',
+  } as unknown as Parameters<
+    CampaignTcrComplianceService['retrieveCampaignVerifyToken']
+  >[1]
+
+  it('retrieveCampaignVerifyToken verifies the PIN when the CV is not yet VERIFIED', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(true)
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken(
+        '123456',
+        tcrWithIdentity,
+      )
+
+      expect(token).toBe('cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).toHaveBeenCalledWith(
+        'peerly-1',
+        '123456',
+        { id: 1 },
+      )
+    })
+  })
+
+  it('retrieveCampaignVerifyToken throws Invalid PIN for a wrong PIN on a non-VERIFIED CV', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('APPROVED')
+    mockPeerly.verifyCampaignVerifyPin.mockResolvedValueOnce(false)
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.retrieveCampaignVerifyToken('000000', tcrWithIdentity),
+      ).rejects.toThrow(UnprocessableEntityException)
+      expect(mockPeerly.createCampaignVerifyToken).not.toHaveBeenCalled()
+    })
+  })
+
+  it('retrieveCampaignVerifyToken skips PIN re-verification and mints a token when the CV is already VERIFIED', async () => {
+    mockModel.findFirstOrThrow.mockResolvedValueOnce({ campaign: { id: 1 } })
+    mockPeerly.retrieveCampaignVerifyStatus.mockResolvedValueOnce('VERIFIED')
+    mockPeerly.createCampaignVerifyToken.mockResolvedValueOnce('cv-token')
+
+    await withEnv('prod', async () => {
+      const token = await service.retrieveCampaignVerifyToken(
+        'any-pin',
+        tcrWithIdentity,
+      )
+
+      expect(token).toBe('cv-token')
+      expect(mockPeerly.verifyCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
+        'peerly-1',
+        { id: 1 },
       )
     })
   })

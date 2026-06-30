@@ -1304,13 +1304,27 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign: true,
       },
     })
-    const pinIsValid = await this.peerlyIdentityService.verifyCampaignVerifyPin(
-      peerlyIdentityId,
-      pin,
-      campaign,
-    )
-    if (!pinIsValid) {
-      throw new UnprocessableEntityException('Invalid PIN')
+    // A PIN can only be consumed once: verify_pin rejects an already-VERIFIED
+    // CV as an invalid PIN. If an earlier attempt verified the PIN but a
+    // downstream Peerly step threw (stranding the record at `submitted`),
+    // re-verifying would dead-end the retry with "Invalid PIN". When the CV is
+    // already VERIFIED the candidate has proven control, so skip the re-check
+    // and mint the token so the retry can finish the flow.
+    const cvStatus =
+      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+        peerlyIdentityId,
+        campaign,
+      )
+    if (cvStatus !== PeerlyCvVerificationStatus.VERIFIED) {
+      const pinIsValid =
+        await this.peerlyIdentityService.verifyCampaignVerifyPin(
+          peerlyIdentityId,
+          pin,
+          campaign,
+        )
+      if (!pinIsValid) {
+        throw new UnprocessableEntityException('Invalid PIN')
+      }
     }
 
     return await this.peerlyIdentityService.createCampaignVerifyToken(

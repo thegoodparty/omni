@@ -102,6 +102,13 @@ set.
 
 ## Gotchas
 
+- **PIN retry self-recovery:** `verify_pin` consumes the PIN once — it rejects an
+  already-`VERIFIED` CV as an invalid PIN. So if a first PIN attempt verified the CV
+  but a downstream Peerly step threw (stranding the record at `submitted`), a naive
+  retry would dead-end with "Invalid PIN" forever. `retrieveCampaignVerifyToken`
+  checks the CV status first and, when it is already `VERIFIED`, skips re-verifying
+  and mints the token so the retry finishes the flow. Don't reintroduce an
+  unconditional `verify_pin` call ahead of that check.
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.
