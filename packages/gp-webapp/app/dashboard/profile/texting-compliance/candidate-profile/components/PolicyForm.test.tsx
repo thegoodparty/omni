@@ -116,7 +116,10 @@ describe('PolicyForm — validation messaging', () => {
 })
 
 describe('PolicyForm — Help me rewrite', () => {
-  const SUGGESTION = 'A polished, first-person policy focus.'
+  // Longer than MIN_POLICY_FOCUS_LENGTH so Save isn't blocked after accepting,
+  // and free of HTML-special chars so the <p> wrapping is the only transform.
+  const SUGGESTION =
+    'A polished, first-person policy focus that runs comfortably past the one hundred character minimum the field requires.'
 
   it('disables "Help me rewrite" until the focus has content', () => {
     render(
@@ -127,31 +130,36 @@ describe('PolicyForm — Help me rewrite', () => {
     ).toBeDisabled()
   })
 
-  it('suggests a rewrite and applies it to the editor on "Use this"', async () => {
+  it('applies the rewrite as wrapped HTML and Save persists it', async () => {
     const user = userEvent.setup()
+    const onSave = vi.fn()
     api.mock('POST /v1/campaigns/mine/story/rewrite', {
       status: 200,
       data: { rewrite: SUGGESTION },
     })
-    render(
-      <PolicyForm showDelete={false} onSave={vi.fn()} onDelete={vi.fn()} />,
-    )
+    render(<PolicyForm showDelete={false} onSave={onSave} onDelete={vi.fn()} />)
 
+    await user.type(screen.getByLabelText('Policy title'), 'Roads')
     typeFocus(40)
     await user.click(screen.getByRole('button', { name: /help me rewrite/i }))
+    await user.click(await screen.findByRole('button', { name: /use this/i }))
 
-    expect(await screen.findByText(SUGGESTION)).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /use this/i }))
-
-    // The suggestion replaced the editor content (wrapped as HTML) and the
-    // suggestion card is dismissed (its "Use this" action is gone).
-    expect(
-      (screen.getByTestId('rich-editor') as HTMLTextAreaElement).value,
-    ).toContain(SUGGESTION)
+    // The suggestion replaced the editor content as <p>-wrapped HTML, and the
+    // suggestion card is dismissed.
+    expect(screen.getByTestId('rich-editor')).toHaveValue(
+      `<p>${SUGGESTION}</p>`,
+    )
     expect(
       screen.queryByRole('button', { name: /use this/i }),
     ).not.toBeInTheDocument()
+
+    // Save persists exactly that HTML — description must be Quill HTML, not
+    // raw text.
+    await user.click(screen.getByRole('button', { name: /save/i }))
+    expect(onSave).toHaveBeenCalledWith({
+      title: 'Roads',
+      description: `<p>${SUGGESTION}</p>`,
+    })
   })
 
   it('shows the AI-limit notice and permanently disables rewriting on a 403', async () => {

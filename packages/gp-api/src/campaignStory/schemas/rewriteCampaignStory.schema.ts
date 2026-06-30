@@ -13,15 +13,22 @@ export const REWRITE_FIELDS = [
   'issue',
 ] as const
 
-export const RewriteCampaignStorySchema = z.object({
-  field: z.enum(REWRITE_FIELDS),
-  // Trim first so whitespace-only input fails min(1) — there's nothing to
-  // rewrite, so reject it rather than spend a Gemini call on blank text.
-  text: z.string().trim().min(1).max(CAMPAIGN_STORY_FIELD_MAX_LENGTH),
-  // Optional context: the policy title for an `issue` rewrite, so the prompt
-  // stays anchored to that specific policy.
-  title: z.string().trim().max(CAMPAIGN_STORY_FIELD_MAX_LENGTH).optional(),
-})
+export const RewriteCampaignStorySchema = z
+  .object({
+    field: z.enum(REWRITE_FIELDS),
+    // Trim first so whitespace-only input fails min(1) — there's nothing to
+    // rewrite, so reject it rather than spend a Gemini call on blank text.
+    text: z.string().trim().min(1).max(CAMPAIGN_STORY_FIELD_MAX_LENGTH),
+    // Optional context: the policy title for an `issue` rewrite, so the prompt
+    // stays anchored to that specific policy.
+    title: z.string().trim().max(CAMPAIGN_STORY_FIELD_MAX_LENGTH).optional(),
+  })
+  // `title` is only context for an issue rewrite — reject it elsewhere so an
+  // arbitrary string can't be interpolated into the why/background prompt.
+  .refine((val) => val.field === 'issue' || val.title === undefined, {
+    message: 'title is only valid when field is issue',
+    path: ['title'],
+  })
 
 export type RewriteCampaignStoryInput = z.infer<
   typeof RewriteCampaignStorySchema

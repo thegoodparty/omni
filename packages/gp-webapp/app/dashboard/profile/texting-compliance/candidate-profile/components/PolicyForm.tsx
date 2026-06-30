@@ -95,6 +95,11 @@ export default function PolicyForm({
     onSave({ title: trimmedTitle, description })
   }
 
+  const discardRewrite = (): void => {
+    setRewrite(null)
+    setRewriteError(false)
+  }
+
   const requestRewrite = async (): Promise<void> => {
     // The endpoint rewrites plain text; the editor stores Quill HTML.
     const text = issueDescriptionText(description).trim()
@@ -111,8 +116,11 @@ export default function PolicyForm({
       setRewrite(data.rewrite)
     } catch (error) {
       // 403 = lifetime rewrite cap reached. Expected, not an error to report.
+      // Dismiss any prior suggestion so the card and the limit notice don't
+      // render together.
       if (error instanceof FetchError && error.status === 403) {
         setLimitReached(true)
+        discardRewrite()
       } else {
         reportErrorToSentry(error, { context: 'PolicyForm.rewrite' })
         setRewriteError(true)
@@ -121,11 +129,6 @@ export default function PolicyForm({
       rewritingRef.current = false
       setIsRewriting(false)
     }
-  }
-
-  const discardRewrite = (): void => {
-    setRewrite(null)
-    setRewriteError(false)
   }
 
   // Replace the editor content with the suggestion by remounting it. The
@@ -241,7 +244,7 @@ export default function PolicyForm({
                 variant="outline"
                 icon={<WandSparklesIcon />}
                 onClick={requestRewrite}
-                disabled={isRewriting}
+                disabled={isRewriting || limitReached}
               >
                 Try again
               </Button>
