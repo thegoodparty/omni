@@ -3,9 +3,9 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
-import { stripHtml } from 'string-strip-html'
 import { Button, Card, ScrollTextIcon, SparklesIcon } from '@styleguide'
 import AlertDialog from '@shared/utils/AlertDialog'
+import { issueDescriptionText } from '@shared/utils/issueDescriptionText'
 import {
   getUserWebsite,
   USER_WEBSITE_QUERY_KEY,
@@ -21,19 +21,6 @@ interface CampaignPlanStoryGateProps {
 }
 
 const CARD_CLASS = 'mx-auto flex max-w-2xl flex-col items-start gap-4 p-8'
-
-// Quill issue descriptions are HTML. stripHtml decodes entities before
-// stripping, which turns "&lt;$50M" into "<$50M" and then strips it as a tag —
-// silently dropping text. Skip its decoding and decode the entities ourselves
-// after the tags are gone (& last, so a literal "&amp;lt;" doesn't collapse).
-const issueDescriptionText = (description: string): string =>
-  stripHtml(description, { skipHtmlDecoding: true })
-    .result.replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
 
 const CampaignPlanStoryGate = ({
   onGenerate,

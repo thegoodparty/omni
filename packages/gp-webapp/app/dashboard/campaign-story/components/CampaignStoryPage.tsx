@@ -64,7 +64,9 @@ const CampaignStoryPage = ({
     setIssues(next)
     void saveAboutFields({ issues: next }).then((ok) => {
       if (!ok) {
-        setIssues(previous)
+        // Functional revert so a later overlapping edit isn't clobbered: only
+        // roll back if the state still shows this edit's optimistic value.
+        setIssues((current) => (current === next ? previous : current))
         errorSnackbar('Could not save your issues. Please try again.')
         return
       }
