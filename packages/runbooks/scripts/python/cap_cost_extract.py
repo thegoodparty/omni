@@ -38,6 +38,7 @@ import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 
 import boto3
 import pandas as pd
@@ -134,15 +135,23 @@ def parse_milestones(text: str) -> list[dict]:
 
 
 def milestone_at(markers: list[dict], turn_ts: str | None) -> str | None:
-    """The name of the most recent marker at/before turn_ts. ISO-8601 strings
-    sort lexicographically the same as chronologically (UTC, zero-padded), so
-    compare as strings — no datetime parsing needed. None when no marker
-    precedes the turn (older runs have no markers at all -> always None)."""
+    """The name of the most recent marker at/before turn_ts. Parses both sides
+    as aware datetimes so the comparison is correct regardless of whether the
+    source wrote 'Z' or '+00:00'. None when no marker precedes the turn (older
+    runs have no markers at all -> always None)."""
     if not markers or not turn_ts:
+        return None
+    try:
+        turn_dt = datetime.fromisoformat(turn_ts)
+    except ValueError:
         return None
     active = None
     for m in markers:
-        if m["ts"] <= turn_ts:
+        try:
+            marker_dt = datetime.fromisoformat(m["ts"])
+        except ValueError:
+            continue
+        if marker_dt <= turn_dt:
             active = m["name"]
         else:
             break

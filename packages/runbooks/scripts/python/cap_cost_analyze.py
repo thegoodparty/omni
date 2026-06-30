@@ -110,7 +110,7 @@ def milestone_costs(df: pd.DataFrame) -> dict:
     turns from mixed cohorts are excluded from the per-milestone view)."""
     m = df[df["milestone"].notna()]
     order = milestone_order(df)
-    total = float(m["est_cost"].sum())
+    total = float(df["est_cost"].sum())
     per_run = m.groupby(["run_id", "milestone"])["est_cost"].sum().reset_index()
     rows = []
     for name in order:
