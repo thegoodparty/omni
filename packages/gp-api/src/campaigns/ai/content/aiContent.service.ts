@@ -93,10 +93,12 @@ export class AiContentService {
 
     // generating a new ai content here
     const cmsPrompts = await this.contentService.getAiContentPrompts()
-    const keyNoDigits = key.replace(/\d+$/, '')
-    // CMS content types use dynamic string keys — indexing by runtime key returns broad union
+    // getAiContentPrompts is typed as Content[] but the onboarding/candidate
+    // transformers return a string-keyed prompt map at runtime.
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    let prompt = cmsPrompts[keyNoDigits] as string
+    const cmsPromptsByKey = cmsPrompts as unknown as Record<string, string>
+    const keyNoDigits = key.replace(/\d+$/, '')
+    let prompt = cmsPromptsByKey[keyNoDigits] ?? ''
 
     // Prisma include query — TypeScript cannot narrow the included relations at compile time
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -136,9 +138,7 @@ export class AiContentService {
       await this.slack.errorMessage({
         message: 'empty prompt replace',
         error: {
-          // CMS content types use dynamic string keys — indexing by runtime key returns broad union
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-          cmsPrompt: cmsPrompts[keyNoDigits] as string | undefined,
+          cmsPrompt: cmsPromptsByKey[keyNoDigits],
           promptAfterReplace: prompt,
           campaign,
         },
@@ -148,9 +148,7 @@ export class AiContentService {
     await this.slack.aiMessage({
       message: 'prompt',
       error: {
-        // CMS content types use dynamic string keys — indexing by runtime key returns broad union
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        cmsPrompt: cmsPrompts[keyNoDigits] as string | undefined,
+        cmsPrompt: cmsPromptsByKey[keyNoDigits],
         promptAfterReplace: prompt,
       },
     })
@@ -286,7 +284,11 @@ export class AiContentService {
       let oldVersion: { date: Date; text: string } | undefined
       if (chatResponse && chatResponse !== '') {
         try {
-          const oldVersionData = aiContent[key] as {
+          const rawVersionData = aiContent[key]
+          if (rawVersionData === undefined) {
+            throw new Error('no existing ai content version to snapshot')
+          }
+          const oldVersionData = rawVersionData as {
             content: string
             updatedAt?: number
           }

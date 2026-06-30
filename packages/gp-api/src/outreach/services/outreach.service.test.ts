@@ -13,6 +13,7 @@ import {
   User,
 } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { PrismaService } from 'src/prisma/prisma.service'
@@ -253,7 +254,7 @@ describe('OutreachService', () => {
 
       await service.create(mockUser, mockCampaign, dto, undefined, undefined)
 
-      const [createArg] = mockOutreachCreate.mock.calls[0]
+      const [createArg] = firstOrThrow(mockOutreachCreate.mock.calls)
       expect(createArg.data).not.toHaveProperty('campaignPlanDueDate')
     })
 
@@ -274,7 +275,7 @@ describe('OutreachService', () => {
       expect(mockNotifySuccess).toHaveBeenCalledWith(
         expect.objectContaining({ textCount: 5200, billableTextCount: 200 }),
       )
-      const [createArg] = mockOutreachCreate.mock.calls[0]
+      const [createArg] = firstOrThrow(mockOutreachCreate.mock.calls)
       expect(createArg.data).not.toHaveProperty('textCount')
       expect(createArg.data).not.toHaveProperty('billableTextCount')
     })

@@ -107,21 +107,14 @@
           "null"
         ],
         "additionalProperties": false,
-        "description": "The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Any field may be null when unwritten.",
+        "description": "The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Sourced from the candidate's website (the Pro-upgrade profile capture). Any field may be null when unwritten.",
         "properties": {
-          "why": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why the candidate is running."
-          },
           "background": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The candidate's background."
+            "description": "The candidate's background / bio."
           },
           "issues": {
             "type": [

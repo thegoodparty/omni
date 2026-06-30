@@ -360,8 +360,10 @@ export const getDashboardMenuItems = (
   }
 
   // Internal, read-only race-opponent page. Flag-gated so it can ramp to staff
-  // independently, and Pro-only like the page route itself.
-  if (knowYourOpponentEnabled && campaign?.isPro) {
+  // independently. Visible to flag-on non-Pro users too: the page renders a
+  // locked upgrade view rather than the feature, so the nav entry is gated on
+  // the flag only — the content is gated on isPro at the route.
+  if (knowYourOpponentEnabled) {
     menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
   }
 

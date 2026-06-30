@@ -104,12 +104,17 @@ export default function ServeWelcomeContent() {
   // reliable signal (the redemption itself is button-gated to defeat email
   // scanners), so fire once on mount — even if the ticket is missing/expired,
   // a human still arrived here. Replaces the former onboarding-flow-mount
-  // 'Serve Onboarding - Magic Link Activated' event.
+  // 'Serve Onboarding - Magic Link Activated' event. The `type: 'serve'`
+  // property mirrors the server-side `Onboarding - Magic Link Sent` so the
+  // sent → clicked funnel can be segmented per flow (serve vs win) in Amplitude.
   const magicLinkClickedRef = useRef(false)
   useEffect(() => {
     if (magicLinkClickedRef.current) return
     magicLinkClickedRef.current = true
-    trackEvent(EVENTS.Onboarding.MagicLinkClicked, { hasTicket: !!ticket })
+    trackEvent(EVENTS.Onboarding.MagicLinkClicked, {
+      hasTicket: !!ticket,
+      type: 'serve',
+    })
   }, [ticket])
 
   async function redeem() {

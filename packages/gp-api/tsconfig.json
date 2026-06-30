@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "exclude": ["node_modules", "contracts", "dist", "scripts"],
+  "exclude": ["node_modules", "contracts", "dist", "scripts", "deploy"],
   "compilerOptions": {
     "module": "NodeNext",
     "outDir": "./dist",
@@ -9,6 +9,11 @@
       "@/*": ["src/*"],
       "@e2e-tests/*": ["e2e-tests/*"]
     },
-    "preserveWatchOutput": true
+    "preserveWatchOutput": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true
   }
 }

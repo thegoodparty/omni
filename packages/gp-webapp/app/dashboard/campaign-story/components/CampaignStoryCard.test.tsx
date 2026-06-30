@@ -19,14 +19,14 @@ beforeEach(() => {
 })
 
 const section: CampaignStorySection = {
-  id: 'why',
-  title: 'Your why',
-  description: 'The moment, the people, the breaking point.',
-  placeholder: 'Tap to write your why',
-  example: 'A short example why.',
+  id: 'background',
+  title: 'Your background',
+  description: 'Childhood, career, community ties.',
+  placeholder: 'Tap to write your background',
+  example: 'A short example background.',
 }
 
-const emptyStory = { why: null, background: null, issues: null }
+const emptyStory = { background: null }
 
 describe('CampaignStoryCard', () => {
   it('shows the not-answered hint when empty', () => {
@@ -52,8 +52,7 @@ describe('CampaignStoryCard', () => {
 
   it('autosaves the field on blur', async () => {
     const user = userEvent.setup()
-    let putBody: { why?: string; background?: string; issues?: string } | null =
-      null
+    let putBody: { background?: string } | null = null
     api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
       putBody = body
       return { status: 200, data: emptyStory }
@@ -61,19 +60,19 @@ describe('CampaignStoryCard', () => {
 
     render(<CampaignStoryCard section={section} initialValue={null} />)
     await user.type(
-      screen.getByPlaceholderText('Tap to write your why'),
-      'Because of the schools',
+      screen.getByPlaceholderText('Tap to write your background'),
+      'Grew up here',
     )
     await user.tab()
 
     await waitFor(() => {
-      expect(putBody).toEqual({ why: 'Because of the schools' })
+      expect(putBody).toEqual({ background: 'Grew up here' })
     })
   })
 
   it('flushes a trailing edit made while a save is in flight', async () => {
     const user = userEvent.setup()
-    const bodies: Array<{ why?: string }> = []
+    const bodies: Array<{ background?: string }> = []
     let releaseFirst: () => void = () => undefined
     const firstSave = new Promise<void>((resolve) => {
       releaseFirst = resolve
@@ -89,7 +88,7 @@ describe('CampaignStoryCard', () => {
     })
 
     render(<CampaignStoryCard section={section} initialValue={null} />)
-    const textarea = screen.getByPlaceholderText('Tap to write your why')
+    const textarea = screen.getByPlaceholderText('Tap to write your background')
 
     await user.type(textarea, 'first')
     await user.tab() // starts the (gated) first save
@@ -101,7 +100,7 @@ describe('CampaignStoryCard', () => {
     releaseFirst() // ...the in-flight save's loop flushes the newer text
 
     await waitFor(() => {
-      expect(bodies.at(-1)).toEqual({ why: 'first second' })
+      expect(bodies.at(-1)).toEqual({ background: 'first second' })
     })
   })
 
@@ -115,7 +114,7 @@ describe('CampaignStoryCard', () => {
 
     render(<CampaignStoryCard section={section} initialValue={null} />)
     await user.type(
-      screen.getByPlaceholderText('Tap to write your why'),
+      screen.getByPlaceholderText('Tap to write your background'),
       'attempt',
     )
     await user.tab()
@@ -139,7 +138,7 @@ describe('CampaignStoryCard', () => {
     }))
 
     render(<CampaignStoryCard section={section} initialValue={null} />)
-    const textarea = screen.getByPlaceholderText('Tap to write your why')
+    const textarea = screen.getByPlaceholderText('Tap to write your background')
     await user.type(textarea, 'x')
     await user.tab()
     expect(await screen.findByText(/Couldn't save/)).toBeInTheDocument()
@@ -154,7 +153,7 @@ describe('CampaignStoryCard', () => {
 
   it('flushes a newer edit made while a failed save was in flight', async () => {
     const user = userEvent.setup()
-    const bodies: Array<{ why?: string }> = []
+    const bodies: Array<{ background?: string }> = []
     let releaseFirst: () => void = () => undefined
     const firstSave = new Promise<void>((resolve) => {
       releaseFirst = resolve
@@ -171,7 +170,7 @@ describe('CampaignStoryCard', () => {
     })
 
     render(<CampaignStoryCard section={section} initialValue={null} />)
-    const textarea = screen.getByPlaceholderText('Tap to write your why')
+    const textarea = screen.getByPlaceholderText('Tap to write your background')
 
     await user.type(textarea, 'A')
     await user.tab() // first save, gated, will fail
@@ -183,7 +182,7 @@ describe('CampaignStoryCard', () => {
     releaseFirst() // first save fails; the newer 'A B' is auto-flushed once
 
     await waitFor(() => {
-      expect(bodies.at(-1)).toEqual({ why: 'A B' })
+      expect(bodies.at(-1)).toEqual({ background: 'A B' })
     })
   })
 
@@ -196,7 +195,9 @@ describe('CampaignStoryCard', () => {
     })
 
     render(<CampaignStoryCard section={section} initialValue="unchanged" />)
-    await user.click(screen.getByPlaceholderText('Tap to write your why'))
+    await user.click(
+      screen.getByPlaceholderText('Tap to write your background'),
+    )
     await user.tab()
 
     expect(called).toBe(false)
@@ -205,7 +206,7 @@ describe('CampaignStoryCard', () => {
   describe('Save button', () => {
     it('is disabled until the text changes, then saves on click', async () => {
       const user = userEvent.setup()
-      let putBody: { why?: string } | null = null
+      let putBody: { background?: string } | null = null
       api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
         putBody = body
         return { status: 200, data: emptyStory }
@@ -216,15 +217,15 @@ describe('CampaignStoryCard', () => {
       expect(save).toBeDisabled()
 
       await user.type(
-        screen.getByPlaceholderText('Tap to write your why'),
-        'Because of the schools',
+        screen.getByPlaceholderText('Tap to write your background'),
+        'Grew up here',
       )
       expect(save).toBeEnabled()
 
       await user.click(save)
 
       await waitFor(() => {
-        expect(putBody).toEqual({ why: 'Because of the schools' })
+        expect(putBody).toEqual({ background: 'Grew up here' })
       })
     })
 
@@ -241,8 +242,8 @@ describe('CampaignStoryCard', () => {
 
       render(<CampaignStoryCard section={section} initialValue={null} />)
       await user.type(
-        screen.getByPlaceholderText('Tap to write your why'),
-        'Because of the schools',
+        screen.getByPlaceholderText('Tap to write your background'),
+        'Grew up here',
       )
       await user.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -263,8 +264,12 @@ describe('CampaignStoryCard', () => {
         data: emptyStory,
       }))
 
-      render(<CampaignStoryCard section={section} initialValue="saved why" />)
-      const textarea = screen.getByPlaceholderText('Tap to write your why')
+      render(
+        <CampaignStoryCard section={section} initialValue="saved background" />,
+      )
+      const textarea = screen.getByPlaceholderText(
+        'Tap to write your background',
+      )
       await user.type(textarea, ' more')
       await user.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -279,12 +284,14 @@ describe('CampaignStoryCard', () => {
       const user = userEvent.setup()
       api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
         status: 200,
-        data: { rewrite: 'A sharper why.' },
+        data: { rewrite: 'A sharper background.' },
       }))
 
-      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      render(
+        <CampaignStoryCard section={section} initialValue="rough background" />,
+      )
       await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
-      await screen.findByText('A sharper why.')
+      await screen.findByText('A sharper background.')
 
       expect(screen.getByRole('button', { name: /^Save/ })).toBeInTheDocument()
     })
@@ -298,7 +305,9 @@ describe('CampaignStoryCard', () => {
       await user.click(
         screen.getByRole('button', { name: /Here's an example/ }),
       )
-      expect(await screen.findByText('A short example why.')).toBeVisible()
+      expect(
+        await screen.findByText('A short example background.'),
+      ).toBeVisible()
     })
   })
 
@@ -311,8 +320,8 @@ describe('CampaignStoryCard', () => {
       expect(button).toBeDisabled()
 
       await user.type(
-        screen.getByPlaceholderText('Tap to write your why'),
-        'a rough why',
+        screen.getByPlaceholderText('Tap to write your background'),
+        'a rough background',
       )
       expect(button).toBeEnabled()
     })
@@ -322,17 +331,24 @@ describe('CampaignStoryCard', () => {
       let rewriteBody: { field?: string; text?: string } | null = null
       api.mock('POST /v1/campaigns/mine/story/rewrite', async ({ body }) => {
         rewriteBody = body
-        return { status: 200, data: { rewrite: 'A sharper why.' } }
+        return { status: 200, data: { rewrite: 'A sharper background.' } }
       })
 
-      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      render(
+        <CampaignStoryCard section={section} initialValue="rough background" />,
+      )
       await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
 
-      expect(await screen.findByText('A sharper why.')).toBeInTheDocument()
-      expect(rewriteBody).toEqual({ field: 'why', text: 'rough why' })
+      expect(
+        await screen.findByText('A sharper background.'),
+      ).toBeInTheDocument()
+      expect(rewriteBody).toEqual({
+        field: 'background',
+        text: 'rough background',
+      })
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteRequested,
-        { field: 'why', source: 'initial' },
+        { field: 'background', source: 'initial' },
       )
       expect(
         screen.getByRole('button', { name: /Discard/ }),
@@ -347,33 +363,35 @@ describe('CampaignStoryCard', () => {
 
     it('"Use this" replaces the text and saves immediately', async () => {
       const user = userEvent.setup()
-      let putBody: { why?: string } | null = null
+      let putBody: { background?: string } | null = null
       api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
         status: 200,
-        data: { rewrite: 'A sharper why.' },
+        data: { rewrite: 'A sharper background.' },
       }))
       api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
         putBody = body
         return { status: 200, data: emptyStory }
       })
 
-      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      render(
+        <CampaignStoryCard section={section} initialValue="rough background" />,
+      )
       await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
-      await screen.findByText('A sharper why.')
+      await screen.findByText('A sharper background.')
       await user.click(screen.getByRole('button', { name: /Use this/ }))
 
       await waitFor(() => {
-        expect(putBody).toEqual({ why: 'A sharper why.' })
+        expect(putBody).toEqual({ background: 'A sharper background.' })
       })
       const textarea = screen.getByPlaceholderText<HTMLTextAreaElement>(
-        'Tap to write your why',
+        'Tap to write your background',
       )
-      expect(textarea.value).toBe('A sharper why.')
+      expect(textarea.value).toBe('A sharper background.')
       // The suggestion card is dismissed once accepted.
       expect(screen.queryByText('Suggested rewrite')).not.toBeInTheDocument()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteAccepted,
-        { field: 'why' },
+        { field: 'background' },
       )
     })
 
@@ -382,23 +400,27 @@ describe('CampaignStoryCard', () => {
       let putCalled = false
       api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
         status: 200,
-        data: { rewrite: 'A sharper why.' },
+        data: { rewrite: 'A sharper background.' },
       }))
       api.mock('PUT /v1/campaigns/mine/story', async () => {
         putCalled = true
         return { status: 200, data: emptyStory }
       })
 
-      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      render(
+        <CampaignStoryCard section={section} initialValue="rough background" />,
+      )
       await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
-      await screen.findByText('A sharper why.')
+      await screen.findByText('A sharper background.')
       await user.click(screen.getByRole('button', { name: /Discard/ }))
 
-      expect(screen.queryByText('A sharper why.')).not.toBeInTheDocument()
+      expect(
+        screen.queryByText('A sharper background.'),
+      ).not.toBeInTheDocument()
       expect(putCalled).toBe(false)
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteDiscarded,
-        { field: 'why' },
+        { field: 'background' },
       )
       expect(trackEvent).not.toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteAccepted,
@@ -413,7 +435,9 @@ describe('CampaignStoryCard', () => {
         data: { rewrite: '' },
       }))
 
-      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      render(
+        <CampaignStoryCard section={section} initialValue="rough background" />,
+      )
       await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
 
       expect(
@@ -428,7 +452,9 @@ describe('CampaignStoryCard', () => {
         data: { rewrite: '' },
       }))
 
-      render(<CampaignStoryCard section={section} initialValue="rough why" />)
+      render(
+        <CampaignStoryCard section={section} initialValue="rough background" />,
+      )
       await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
 
       expect(
@@ -439,7 +465,7 @@ describe('CampaignStoryCard', () => {
       ).toBeDisabled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteLimitReached,
-        { field: 'why' },
+        { field: 'background' },
       )
     })
   })

@@ -25,10 +25,12 @@ describe('toModelMessages — tool message conversion', () => {
 
     const converted = toModelMessages(messages)
     const toolMsg = converted[1]
+    if (!toolMsg) throw new Error('expected message at index 1')
 
     expect(toolMsg.role).toBe('tool')
     if (toolMsg.role !== 'tool') return
     const part = toolMsg.content[0]
+    if (!part) throw new Error('expected content part')
     expect(part.type).toBe('tool-result')
     if (part.type !== 'tool-result') return
     expect(part.toolName).toBe('my_tool')
@@ -62,12 +64,17 @@ describe('toModelMessages — tool message conversion', () => {
     const second = converted[1]
     const first = converted[2]
 
-    if (second.role !== 'tool' || first.role !== 'tool') {
+    if (!second || !first || second.role !== 'tool' || first.role !== 'tool') {
       throw new Error('expected tool messages')
     }
     const secondPart = second.content[0]
     const firstPart = first.content[0]
-    if (secondPart.type !== 'tool-result' || firstPart.type !== 'tool-result') {
+    if (
+      !secondPart ||
+      !firstPart ||
+      secondPart.type !== 'tool-result' ||
+      firstPart.type !== 'tool-result'
+    ) {
       throw new Error('expected tool-result parts')
     }
     expect(secondPart.toolName).toBe('second_tool')
@@ -85,9 +92,11 @@ describe('toModelMessages — tool message conversion', () => {
 
     const converted = toModelMessages(messages)
     const toolMsg = converted[0]
-    if (toolMsg.role !== 'tool') throw new Error('expected tool message')
+    if (!toolMsg || toolMsg.role !== 'tool')
+      throw new Error('expected tool message')
     const part = toolMsg.content[0]
-    if (part.type !== 'tool-result') throw new Error('expected tool-result')
+    if (!part || part.type !== 'tool-result')
+      throw new Error('expected tool-result')
     expect(part.toolName).toBe('')
   })
 
@@ -116,9 +125,11 @@ describe('toModelMessages — tool message conversion', () => {
 
     const converted = toModelMessages(messages)
     const toolMsg = converted[1]
-    if (toolMsg.role !== 'tool') throw new Error('expected tool message')
+    if (!toolMsg || toolMsg.role !== 'tool')
+      throw new Error('expected tool message')
     const part = toolMsg.content[0]
-    if (part.type !== 'tool-result') throw new Error('expected tool-result')
+    if (!part || part.type !== 'tool-result')
+      throw new Error('expected tool-result')
     expect(part.toolName).toBe('array_tool')
     expect(part.output).toEqual({ type: 'text', value: 'hello world' })
   })
@@ -152,7 +163,7 @@ describe('toModelMessages — tool message conversion', () => {
       const converted = toModelMessages(messages)
 
       const assistantMsg = converted[0]
-      if (assistantMsg.role !== 'assistant') {
+      if (!assistantMsg || assistantMsg.role !== 'assistant') {
         throw new Error('expected assistant message')
       }
       const assistantParts = Array.isArray(assistantMsg.content)
@@ -167,9 +178,10 @@ describe('toModelMessages — tool message conversion', () => {
       expect(callPart.input).toEqual({ x: 42 })
 
       const toolMsg = converted[1]
-      if (toolMsg.role !== 'tool') throw new Error('expected tool message')
+      if (!toolMsg || toolMsg.role !== 'tool')
+        throw new Error('expected tool message')
       const resultPart = toolMsg.content[0]
-      if (resultPart.type !== 'tool-result') {
+      if (!resultPart || resultPart.type !== 'tool-result') {
         throw new Error('expected tool-result part')
       }
       expect(resultPart.toolCallId).toBe('call-rt')
@@ -200,7 +212,7 @@ describe('toModelMessages — user content parts', () => {
 
       const converted = toModelMessages(messages)
       const userMsg = converted[0]
-      if (userMsg.role !== 'user') throw new Error('expected user')
+      if (!userMsg || userMsg.role !== 'user') throw new Error('expected user')
       expect(userMsg.content).toEqual([
         { type: 'text', text: 'caption: ' },
         { type: 'text', text: 'end' },

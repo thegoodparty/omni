@@ -62,10 +62,11 @@ const getClerkUserIdByEmail = async (email: string): Promise<string> => {
     const users = await clerk.users.getUserList({
       emailAddress: [email],
     })
-    if (users.data.length === 0) {
+    const clerkUser = users.data[0]
+    if (!clerkUser) {
       throw new Error(`No Clerk user found for email: ${email}`)
     }
-    const id = users.data[0].id
+    const id = clerkUser.id
     clerkUserIdCache.set(email, id)
     return id
   })

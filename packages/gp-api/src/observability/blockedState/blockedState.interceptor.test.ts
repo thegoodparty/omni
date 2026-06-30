@@ -7,6 +7,7 @@ import {
 import { ExecutionContextHost } from '@nestjs/core/helpers/execution-context-host'
 import { of, throwError } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { BlockedStateInterceptor } from './blockedState.interceptor'
 
 const recordBlockedStateEventMock = vi.fn()
@@ -70,7 +71,7 @@ describe('BlockedStateInterceptor', () => {
     })
 
     expect(recordBlockedStateEventMock).toHaveBeenCalledTimes(1)
-    const [attrs] = recordBlockedStateEventMock.mock.calls[0]
+    const [attrs] = firstOrThrow(recordBlockedStateEventMock.mock.calls)
     expect(attrs).toMatchObject({
       service: 'gp-api',
       userId: 123,

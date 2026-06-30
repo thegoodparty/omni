@@ -5643,21 +5643,17 @@ export interface MeetingScheduleNotFound {
 }
 export interface OpponentResearchInputParams {
   /**
-   * The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Any field may be null when unwritten.
+   * The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Sourced from the candidate's website (the Pro-upgrade profile capture). Any field may be null when unwritten.
    */
   candidate_platform?: {
     /**
-     * The candidate's background.
+     * The candidate's background / bio.
      */
     background?: string | null
     /**
      * The issues the candidate is running on.
      */
     issues?: string | null
-    /**
-     * Why the candidate is running.
-     */
-    why?: string | null
   } | null
   /**
    * The named opponent to research. The lawful-use case for the L2 residency lookup on this named person has been confirmed.

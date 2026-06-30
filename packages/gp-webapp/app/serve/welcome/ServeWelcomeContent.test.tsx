@@ -370,13 +370,13 @@ describe('ServeWelcomeContent', () => {
     expect(mockSignInCreate).not.toHaveBeenCalled()
   })
 
-  it('fires Magic Link Clicked once on landing (top of the serve funnel) with hasTicket', async () => {
+  it('fires Magic Link Clicked once on landing (top of the serve funnel) with hasTicket and type:serve', async () => {
     render(<ServeWelcomeContent />)
 
     await waitFor(() =>
       expect(trackEventMock).toHaveBeenCalledWith(
         EVENTS.Onboarding.MagicLinkClicked,
-        { hasTicket: true },
+        { hasTicket: true, type: 'serve' },
       ),
     )
     // Landing-based, fired once on mount regardless of whether the click
@@ -395,7 +395,7 @@ describe('ServeWelcomeContent', () => {
     await waitFor(() =>
       expect(trackEventMock).toHaveBeenCalledWith(
         EVENTS.Onboarding.MagicLinkClicked,
-        { hasTicket: false },
+        { hasTicket: false, type: 'serve' },
       ),
     )
   })

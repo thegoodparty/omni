@@ -128,7 +128,11 @@ export class P2pPhoneListUploadService {
       const sqlResponse = await this.voterDatabaseService.query<{
         count: string
       }>(countQuery)
-      const count = parseInt(String(sqlResponse.rows[0].count))
+      const countRow = sqlResponse.rows[0]
+      if (!countRow) {
+        throw new Error('Voter count query returned no rows')
+      }
+      const count = parseInt(String(countRow.count))
       withFixColumns = count === 0
       this.logger.debug({ count, withFixColumns }, 'P2P voter count check:')
     } catch (error) {

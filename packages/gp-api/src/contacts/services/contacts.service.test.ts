@@ -891,7 +891,7 @@ describe('ContactsService', () => {
           org,
         )
 
-        expect(result.people[0].politicalParty).toBe('Republican')
+        expect(result.people[0]?.politicalParty).toBe('Republican')
       })
 
       // Regression guard: the backend treats Win and Serve identically — it
@@ -931,7 +931,7 @@ describe('ContactsService', () => {
           }),
           expect.any(Object),
         )
-        expect(result.people[0].politicalParty).toBe('Democratic')
+        expect(result.people[0]?.politicalParty).toBe('Democratic')
       })
     })
 

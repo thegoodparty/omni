@@ -62,7 +62,7 @@ async function authenticateGoogleServiceAccount() {
   return jwtClient
 }
 
-async function readJsonFromS3(bucketName, keyName) {
+async function readJsonFromS3(bucketName: string, keyName: string) {
   try {
     const params = {
       Bucket: bucketName,
@@ -80,12 +80,21 @@ async function readJsonFromS3(bucketName, keyName) {
   }
 }
 
-async function processRow(prisma: PrismaClient, entity) {
+async function processRow(prisma: PrismaClient, entity: string[] | undefined) {
   try {
     if (!entity) {
       return
     }
     const [mtfcc, mtfcc_type, geo_id, name, state] = entity
+    if (
+      mtfcc === undefined ||
+      mtfcc_type === undefined ||
+      geo_id === undefined ||
+      name === undefined ||
+      state === undefined
+    ) {
+      throw new Error('Row is missing required MTFCC columns')
+    }
 
     await prisma.censusEntity.upsert({
       where: {

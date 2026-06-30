@@ -14,10 +14,11 @@ const primaryCtx = {
   candidates: [{ full_name: 'Jane Doe' }, { full_name: 'Sam Roe' }],
 }
 const story = {
-  why: 'To fix the roads',
   background: 'Lifelong resident',
-  issues: null,
 }
+// The "why" now lives on the website bio (shared with Pro-upgrade), not the
+// story; plain text, so it serializes back to itself.
+const BIO = 'To fix the roads'
 
 const campaign = (details: unknown) =>
   ({
@@ -36,6 +37,10 @@ describe('StrategicLandscapeParamsService', () => {
   let electionApi: { getStrategyContext: ReturnType<typeof vi.fn> }
   let races: { getPrimaryRaceId: ReturnType<typeof vi.fn> }
   let campaignStory: { getForCampaign: ReturnType<typeof vi.fn> }
+  let websites: {
+    getIssuesForCampaign: ReturnType<typeof vi.fn>
+    getBioForCampaign: ReturnType<typeof vi.fn>
+  }
 
   beforeEach(() => {
     electionApi = {
@@ -45,11 +50,16 @@ describe('StrategicLandscapeParamsService', () => {
     }
     races = { getPrimaryRaceId: vi.fn() }
     campaignStory = { getForCampaign: vi.fn(async () => story) }
+    websites = {
+      getIssuesForCampaign: vi.fn(async () => []),
+      getBioForCampaign: vi.fn(async () => BIO),
+    }
     const logger = { setContext: vi.fn(), warn: vi.fn() }
     service = new StrategicLandscapeParamsService(
       electionApi as never,
       races as never,
       campaignStory as never,
+      websites as never,
       logger as never,
     )
   })
@@ -108,7 +118,73 @@ describe('StrategicLandscapeParamsService', () => {
     const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
 
     expect(campaignStory.getForCampaign).toHaveBeenCalledWith(42)
-    expect(out.campaign_story).toEqual(story)
+    expect(websites.getBioForCampaign).toHaveBeenCalledWith(42)
+    expect(websites.getIssuesForCampaign).toHaveBeenCalledWith(42)
+    // why comes from the website bio; issues come from the website (none here),
+    // so they flatten to null.
+    expect(out.campaign_story).toEqual({ why: BIO, ...story, issues: null })
+  })
+
+  it('flattens website issues into the story issues string (HTML stripped)', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getIssuesForCampaign.mockResolvedValue([
+      {
+        title: 'Roads',
+        description: '<p>Fix the <strong>potholes</strong></p>',
+      },
+      { title: 'Schools', description: '<p>More funding</p>' },
+    ])
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story?.issues).toBe(
+      'Roads\nFix the potholes\n\nSchools\nMore funding',
+    )
+  })
+
+  it('decodes HTML entities in serialized issues (not &amp; for the agent)', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getIssuesForCampaign.mockResolvedValue([
+      {
+        title: 'Clean Water & Air',
+        description: '<p>Protect rivers &amp; air</p>',
+      },
+    ])
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story?.issues).toBe(
+      'Clean Water & Air\nProtect rivers & air',
+    )
+  })
+
+  it('strips HTML and decodes entities from the website bio into why', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getBioForCampaign.mockResolvedValue(
+      '<p>Fix the <strong>roads</strong> &amp; bridges</p>',
+    )
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story?.why).toBe('Fix the roads & bridges')
+  })
+
+  it('keeps why/background (issues null) when only the issues read fails', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getIssuesForCampaign.mockRejectedValue(new Error('website down'))
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story).toEqual({ why: BIO, ...story, issues: null })
+  })
+
+  it('keeps background/issues (why null) when only the bio read fails', async () => {
+    races.getPrimaryRaceId.mockResolvedValue(null)
+    websites.getBioForCampaign.mockRejectedValue(new Error('website down'))
+
+    const out = await service.build(campaign({ raceId: GENERAL }), GENERAL)
+
+    expect(out.campaign_story).toEqual({ why: null, ...story, issues: null })
   })
 
   it('omits the story (without failing the build) when its read errors', async () => {
@@ -221,11 +297,11 @@ describe('StrategicLandscapeParamsService', () => {
     it('drops the story as a last resort when it alone blows the budget', async () => {
       // A maximal story (fields cap at 10k chars) exceeds the budget even with
       // an empty roster; the story is dropped so the roster still dispatches.
+      // why now comes from the website bio.
       campaignStory.getForCampaign.mockResolvedValue({
-        why: 'w'.repeat(6000),
         background: 'b'.repeat(6000),
-        issues: null,
       })
+      websites.getBioForCampaign.mockResolvedValue('w'.repeat(6000))
       electionApi.getStrategyContext.mockImplementation(async (id: string) =>
         id === PRIMARY ? bigPrimary(5) : { candidate_count: 0, candidates: [] },
       )

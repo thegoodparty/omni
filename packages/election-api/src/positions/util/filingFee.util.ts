@@ -32,8 +32,7 @@ const NO_FEE_PATTERN = /no filing fee|no fee/i
 const PCT_OF_SALARY_PATTERN =
   /([0-9]+(?:\.[0-9]+)?)\s*(?:%|percent)[^.;]*?salary/i
 
-const parseDollarString = (raw: string): number =>
-  Number(raw.replace(/,/g, ''))
+const parseDollarString = (raw: string): number => Number(raw.replace(/,/g, ''))
 
 const EMPTY_RESULT: FilingFeeResult = {
   filingFee: null,

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
@@ -428,7 +429,7 @@ describe('Self-research dispatch + persist + opponent gate', () => {
       expect(research.status).toBe(RaceOpponentResearchStatus.completed)
       expect(research.completedAt).not.toBeNull()
       expect(research.findings).toHaveLength(1)
-      const finding = research.findings[0]
+      const finding = firstOrThrow(research.findings)
       expect(finding.claim).toBe('Voted to raise property taxes in 2021')
       expect(finding.draftedResponse).toBe(
         'The 2021 budget funded schools; I stand by that vote.',
@@ -488,7 +489,7 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         where: { research: { campaignId } },
       })
       expect(findings).toHaveLength(1)
-      expect(findings[0].sourceUrl).toBe(REACHABLE)
+      expect(findings[0]?.sourceUrl).toBe(REACHABLE)
     })
 
     it('is idempotent: a replayed callback (same runId) does not duplicate', async () => {

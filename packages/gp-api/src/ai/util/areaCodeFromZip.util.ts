@@ -41,7 +41,7 @@ export class AreaCodeFromZipService {
       return null
     }
 
-    const normalizedZipCode = zipCode.split('-')[0].trim()
+    const normalizedZipCode = (zipCode.split('-')[0] ?? '').trim()
 
     // Check cache first
     const cachedEntry = await this.getAreaCodesFromS3(normalizedZipCode)

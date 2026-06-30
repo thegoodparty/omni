@@ -129,7 +129,7 @@ export class PaymentsService {
   }
 
   @Timeout(0)
-  private async backfillMissingCustomerIdsOnBoot() {
+  async backfillMissingCustomerIdsOnBoot() {
     const users = await this.usersService.findMany({
       where: {
         metaData: {

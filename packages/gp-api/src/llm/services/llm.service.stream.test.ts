@@ -1,4 +1,5 @@
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import {
@@ -135,7 +136,7 @@ describe('LlmService.streamChatCompletion', () => {
       userId: 'u-42',
     })
 
-    const call = streamTextFn.mock.calls[0][0]
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
     expect(call.messages).toEqual([{ role: 'user', content: 'Hi' }])
     expect(call.abortSignal).toBe(controller.signal)
     expect(call.temperature).toBe(0.5)
@@ -194,7 +195,7 @@ describe('LlmService.streamChatCompletion', () => {
       maxSteps: 2,
     })
 
-    const call = streamTextFn.mock.calls[0][0]
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
     expect(call.tools).toHaveProperty('lookup_voter')
     expect(call.tools.lookup_voter.description).toBe('Look up a voter by id')
     expect(typeof call.tools.lookup_voter.execute).toBe('function')
@@ -284,7 +285,7 @@ describe('LlmService.streamChatCompletion', () => {
       apiKey: 'test-anthropic-key',
     })
     expect(anthropicResolve).toHaveBeenCalledWith('claude-sonnet-4-6')
-    expect(streamTextFn.mock.calls[0][0].model).toEqual({
+    expect(firstOrThrow(streamTextFn.mock.calls)[0].model).toEqual({
       provider: 'anthropic',
       modelId: 'claude-sonnet-4-6',
     })
@@ -318,7 +319,7 @@ describe('LlmService.streamChatCompletion', () => {
     })
 
     expect(webSearchTool).toHaveBeenCalledWith(spec)
-    const call = streamTextFn.mock.calls[0][0]
+    const call = firstOrThrow(streamTextFn.mock.calls)[0]
     expect(call.tools.web_search).toBe(nativeTool)
     expect(typeof call.onChunk).toBe('function')
   })
@@ -351,7 +352,7 @@ describe('LlmService.streamChatCompletion', () => {
       retries: 0,
     })
 
-    const { onChunk } = streamTextFn.mock.calls[0][0]
+    const { onChunk } = firstOrThrow(streamTextFn.mock.calls)[0]
     onChunk({
       chunk: { type: 'tool-call', toolName: 'web_search', input: { q: 'x' } },
     })
@@ -430,11 +431,12 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       },
     })
 
-    const passedTools = streamTextFn.mock.calls[0][0].tools as Record<
+    const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
+      .tools as Record<
       string,
       { execute: (input: unknown) => Promise<unknown> }
     >
-    await passedTools.lookup_voter.execute({ voterId: 7 })
+    await passedTools.lookup_voter?.execute({ voterId: 7 })
 
     expect(events).toEqual([
       { phase: 'start', name: 'lookup_voter', input: { voterId: 7 } },
@@ -474,11 +476,14 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       },
     })
 
-    const passedTools = streamTextFn.mock.calls[0][0].tools as Record<
+    const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
+      .tools as Record<
       string,
       { execute: (input: unknown) => Promise<unknown> }
     >
-    const wrapped = passedTools.lookup_voter.execute
+    const lookupVoterTool = passedTools.lookup_voter
+    if (!lookupVoterTool) throw new Error('expected lookup_voter tool')
+    const wrapped = lookupVoterTool.execute
 
     await wrapped({ voterId: 42 })
 
@@ -518,11 +523,14 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       },
     })
 
-    const passedTools = streamTextFn.mock.calls[0][0].tools as Record<
+    const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
+      .tools as Record<
       string,
       { execute: (input: unknown) => Promise<unknown> }
     >
-    const wrapped = passedTools.broken_tool.execute
+    const brokenTool = passedTools.broken_tool
+    if (!brokenTool) throw new Error('expected broken_tool tool')
+    const wrapped = brokenTool.execute
 
     await expect(wrapped({ id: 7 })).rejects.toBe(upstream)
 
@@ -563,17 +571,19 @@ describe('LlmService.buildToolSet (via streamChatCompletion)', () => {
       },
     })
 
-    const passedTools = streamTextFn.mock.calls[0][0].tools as Record<
+    const passedTools = firstOrThrow(streamTextFn.mock.calls)[0]
+      .tools as Record<
       string,
       { execute: (input: unknown) => Promise<unknown> }
     >
 
-    await expect(passedTools.bigint_tool.execute({ big: 5n })).rejects.toBe(
+    await expect(passedTools.bigint_tool?.execute({ big: 5n })).rejects.toBe(
       upstream,
     )
 
-    const call = (logger.error as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as {
+    const call = firstOrThrow(
+      (logger.error as ReturnType<typeof vi.fn>).mock.calls,
+    )[0] as {
       inputPreview: string
     }
     expect(typeof call.inputPreview).toBe('string')
@@ -605,7 +615,7 @@ describe('toModelMessages conversion', () => {
       retries: 0,
     })
 
-    expect(streamTextFn.mock.calls[0][0].messages).toEqual([
+    expect(firstOrThrow(streamTextFn.mock.calls)[0].messages).toEqual([
       { role: 'user', content: 'hello' },
     ])
   })
@@ -628,7 +638,7 @@ describe('toModelMessages conversion', () => {
       retries: 0,
     })
 
-    expect(streamTextFn.mock.calls[0][0].messages).toEqual([
+    expect(firstOrThrow(streamTextFn.mock.calls)[0].messages).toEqual([
       {
         role: 'user',
         content: [

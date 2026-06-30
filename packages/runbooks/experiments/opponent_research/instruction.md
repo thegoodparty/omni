@@ -55,7 +55,7 @@ Absolute. A finding that touches any of these is dropped, never emitted:
 
 - `opponent` (object): `{ full_name, website_url?, social_urls?, is_incumbent? }` — the person to research.
 - `race_context` (object): `{ office_name, state, city?, election_date? }` — disambiguates the race and scopes the L2 query.
-- `candidate_platform` (object|null): the candidate's own `{ why, background, issues }`, **context only** — it frames which contrasts matter; never research the candidate, and never let it change an opponent finding.
+- `candidate_platform` (object|null): the candidate's own `{ background, issues }` (sourced from the candidate's website profile), **context only** — it frames which contrasts matter; never research the candidate, and never let it change an opponent finding.
 
 ## CRITICAL RULES
 

@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Page from './page'
 
-const { mockCandidateAccess, mockServerRequest } = vi.hoisted(() => ({
-  mockCandidateAccess: vi.fn(),
-  mockServerRequest: vi.fn(),
-}))
+const { mockCandidateAccess, mockServerRequest, mockFetchUserWebsite } =
+  vi.hoisted(() => ({
+    mockCandidateAccess: vi.fn(),
+    mockServerRequest: vi.fn(),
+    mockFetchUserWebsite: vi.fn(),
+  }))
 
 vi.mock('../shared/candidateAccess', () => ({
   default: () => mockCandidateAccess(),
@@ -12,6 +14,10 @@ vi.mock('../shared/candidateAccess', () => ({
 
 vi.mock('gpApi/server-request', () => ({
   serverRequest: (...args: unknown[]) => mockServerRequest(...args),
+}))
+
+vi.mock('helpers/fetchUserWebsite', () => ({
+  fetchUserWebsite: () => mockFetchUserWebsite(),
 }))
 
 vi.mock('./components/CampaignStoryPage', () => ({
@@ -25,12 +31,21 @@ vi.mock('helpers/metadataHelper', () => ({
 beforeEach(() => {
   vi.clearAllMocks()
   mockCandidateAccess.mockResolvedValue(undefined)
+  mockFetchUserWebsite.mockResolvedValue(null)
 })
 
 describe('dashboard/campaign-story page', () => {
-  it('threads the fetched story to the page', async () => {
-    const story = { why: 'w', background: 'b', issues: 'i' }
+  it('threads the fetched story and website why + issues to the page', async () => {
+    const story = { background: 'b' }
     mockServerRequest.mockResolvedValue({ data: story })
+    mockFetchUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          bio: '<p>My why</p>',
+          issues: [{ title: 'Roads', description: '<p>Fix</p>' }],
+        },
+      },
+    })
 
     const result = await Page()
 
@@ -39,6 +54,20 @@ describe('dashboard/campaign-story page', () => {
       {},
     )
     expect(result.props.initialStory).toEqual(story)
+    expect(result.props.initialBio).toBe('<p>My why</p>')
+    expect(result.props.initialIssues).toEqual([
+      { title: 'Roads', description: '<p>Fix</p>' },
+    ])
+  })
+
+  it('passes an empty why and issues when the candidate has no website yet', async () => {
+    mockServerRequest.mockResolvedValue({ data: { background: 'b' } })
+    mockFetchUserWebsite.mockResolvedValue(null)
+
+    const result = await Page()
+
+    expect(result.props.initialBio).toBe('')
+    expect(result.props.initialIssues).toEqual([])
   })
 
   it('propagates a fetch failure instead of swallowing it', async () => {

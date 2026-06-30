@@ -302,12 +302,13 @@ export const scrubResults = (
   rows: Array<Record<string, unknown>>,
   opts: ScrubOptions,
 ): ScrubResult => {
-  if (rows.length === 0) {
+  const [firstRow] = rows
+  if (!firstRow) {
     return { kept: [], suppressed: 0, reason: null }
   }
 
   const aliases = [...(opts.countColumnAliases ?? []), ...DEFAULT_COUNT_ALIASES]
-  const countKey = findCountKey(rows[0], aliases)
+  const countKey = findCountKey(firstRow, aliases)
 
   if (countKey === null) {
     return { kept: rows, suppressed: 0, reason: 'no_count_column' }

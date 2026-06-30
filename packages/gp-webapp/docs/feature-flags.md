@@ -64,6 +64,12 @@ The SSR seed is resolved for the authenticated user by gp-api. Client-side, the 
 
 **Anonymous visitors get no flags — every flag reads `off` and the client makes no resolution call.** This is by design: the client never talks to Amplitude, and gp-api only resolves for an authenticated user. A flag that must be on for a logged-out / marketing page therefore will not work through this provider — resolve it another way.
 
+## E2E overrides
+
+Because the browser never fetches Amplitude, an e2e test can't stub a variant. Instead `getFlagVariants` merges an `e2e-flag-overrides` cookie over gp-api's result (`app/shared/experiments/flagOverrides.ts`), so a test can force a flag deterministically. The Playwright helper sets it via `enableCampaignStoryFlag(page)` (`e2e-tests/src/helpers/campaignStory.helper.ts`).
+
+It's honored on every environment **except production** (`process.env.VERCEL_ENV === 'production'` — Vercel's reserved runtime var, not the unreliable `NEXT_PUBLIC_VERCEL_TARGET_ENV`), read only from a cookie, and schema-validated. Flags gate UX, not authz, so the off-prod blast radius is the requester's own gated UI.
+
 ## Server-side flags
 
 Server components currently can't read Amplitude experiments — the provider is client-only. If you need server-side gating, gate at the gp-api layer or pass the flag down to a `'use client'` boundary.

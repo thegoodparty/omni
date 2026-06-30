@@ -73,7 +73,8 @@ export const campaignFactory = generateFactory<Campaign>(() => {
 
   // NOTE: putting this in the object literal above gives a TS error on the generationStatus key
   // see campaign.jsonTypes.ts for aiContent type definition
-  campaign.aiContent['generationStatus'] = {
+  const aiContent: PrismaJson.CampaignAiContent = campaign.aiContent
+  aiContent.generationStatus = {
     launchSocialMediaCopy: {
       prompt:
         "I'm going to provide you with background information and then ask you a question....",

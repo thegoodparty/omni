@@ -115,7 +115,7 @@ describe('AdminAgentRunsService', () => {
 
       const { data } = await service.list({})
 
-      expect(data[0].candidate).toBeNull()
+      expect(data[0]?.candidate).toBeNull()
     })
 
     it('narrows the query by every supplied filter, ordered createdAt desc', async () => {
@@ -300,8 +300,9 @@ describe('AdminAgentRunsService', () => {
 
       await service.retry('run-1')
 
-      const dispatchedParams =
-        experimentRuns.dispatchRun.mock.calls[0][0].params
+      const dispatchCall = experimentRuns.dispatchRun.mock.calls[0]
+      if (!dispatchCall) throw new Error('expected dispatchRun to be called')
+      const dispatchedParams = dispatchCall[0].params
       expect(dispatchedParams.run_id).toBeUndefined()
       expect(dispatchedParams.trigger).toBe('recovery_resume')
     })
@@ -327,6 +328,22 @@ describe('AdminAgentRunsService', () => {
       )
       expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
     })
+
+    it.each([
+      ExperimentRunStatus.AWAITING_RESUME,
+      ExperimentRunStatus.SUPERSEDED,
+    ])(
+      'rejects with 409 and never dispatches when the run is %s (a ' +
+        'resume successor may be in flight)',
+      async (status) => {
+        mockModel.findUniqueOrThrow.mockResolvedValue(makeRun({ status }))
+
+        await expect(service.retry('run-1')).rejects.toBeInstanceOf(
+          ConflictException,
+        )
+        expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+      },
+    )
 
     it('rejects with 400 (wrong-type message) for a realistic non-retryable run, never dispatching', async () => {
       // A real meeting_briefing run carries no clerk_user_id; the type guard

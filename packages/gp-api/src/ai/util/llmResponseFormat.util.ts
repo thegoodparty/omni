@@ -35,6 +35,9 @@ export const extractToolCallContent = (result: {
   }
 
   const argsString = match[2]
+  if (argsString === undefined) {
+    return content
+  }
   try {
     JSON.parse(argsString)
     return argsString
@@ -46,5 +49,5 @@ export const extractToolCallContent = (result: {
 const stripHtmlFences = (content: string): string => {
   if (!content.includes('```html')) return content
   const match = content.match(HTML_FENCE_REGEX)
-  return match ? match[1] : content
+  return match?.[1] ?? content
 }

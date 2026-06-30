@@ -132,7 +132,7 @@ test.describe('Campaigns - User Campaign Operations', () => {
       errors: Array<{ message: string }>
     }
     expect(body.message).toBe('Validation failed')
-    expect(body.errors[0].message).toBe('Expected string, received array')
+    expect(body.errors[0]?.message).toBe('Expected string, received array')
   })
 
   test('should launch campaign', async ({ request }) => {
