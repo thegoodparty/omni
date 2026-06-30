@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { GEMINI_MODEL } from '@/vendors/google/gemini.types'
 import { GeminiService } from '@/vendors/google/services/gemini.service'
 import { CampaignStoryRewriteService } from './campaignStoryRewrite.service'
@@ -33,7 +34,7 @@ describe('CampaignStoryRewriteService', () => {
     )
 
     expect(result).toEqual({ rewrite: 'Rewritten why.' })
-    const [prompt, , options] = generateStructured.mock.calls[0]
+    const [prompt, , options] = firstOrThrow(generateStructured.mock.calls)
     expect(options.model).toBe(GEMINI_MODEL.FLASH_3_5)
     expect(prompt).toContain('Jane Doe')
     expect(prompt).toContain('i care about schools')
@@ -44,7 +45,7 @@ describe('CampaignStoryRewriteService', () => {
 
     await subject.rewrite({ field: 'background', text: 'roads' }, 'Sam Lee', 5)
 
-    const [prompt] = generateStructured.mock.calls[0]
+    const [prompt] = firstOrThrow(generateStructured.mock.calls)
     expect(prompt).toContain('their background')
   })
 
@@ -53,7 +54,7 @@ describe('CampaignStoryRewriteService', () => {
 
     await subject.rewrite({ field: 'background', text: 'grew up here' }, '', 5)
 
-    const [prompt] = generateStructured.mock.calls[0]
+    const [prompt] = firstOrThrow(generateStructured.mock.calls)
     expect(prompt).toContain('The candidate')
   })
 
