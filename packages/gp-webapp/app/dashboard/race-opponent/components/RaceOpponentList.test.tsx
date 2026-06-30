@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -16,6 +16,12 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
   ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
   trackEvent: vi.fn(),
 }))
+
+// A mock handler that never settles, so the request stays in flight and the
+// component's loading state (collecting / submittingManual) holds for the
+// duration of the assertion.
+const noop = (): void => undefined
+const pendingForever = (): Promise<never> => new Promise<never>(noop)
 
 const withSummary: RaceOpponentResponse = {
   collectionStatus: 'completed',
@@ -108,6 +114,13 @@ const empty: RaceOpponentResponse = {
   collectionStatus: 'idle',
   lastCollectedAt: null,
   opponents: [],
+}
+
+// A completed run that found no opponents — the state that surfaces the manual
+// entry form (behind the "Add opponents manually" disclosure).
+const completedEmpty: RaceOpponentResponse = {
+  ...empty,
+  collectionStatus: 'completed',
 }
 
 beforeEach(() => {
@@ -551,14 +564,203 @@ describe('<RaceOpponentList>', () => {
     expect(screen.getByText(/last collected/i)).toBeInTheDocument()
   })
 
-  it('renders a clean empty state with a Collect affordance when there is no data', () => {
+  it('shows the manual entry form when collection completed with no opponents', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'completed' }}
+      />,
+    )
+
+    expect(
+      screen.getByText(/no opponents found in this analysis/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText(/no opponent research yet/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the never-run prompt (not the manual form) when idle', () => {
     render(<RaceOpponentList initialData={empty} />)
 
     expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
+    // idle has never run, so it must not claim a finished analysis or offer the
+    // manual form.
     expect(
-      screen.getByRole('button', { name: /collect now/i }),
+      screen.queryByText(/no opponents found in this analysis/i),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /add opponents manually/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the working empty state (not the manual form) while discovering', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'discovering' }}
+      />,
+    )
+
+    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/add the opponents you want to analyze/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('submits manual opponents and transitions into the processing state', async () => {
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: 'manual-run-1', status: 'running' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
+    // The status badge alone is tautological (it renders from collectionStatus
+    // regardless of the isBusy branch), so also assert the form unmounted — the
+    // page actually left the manual-entry state for the processing state.
+    expect(
+      screen.queryByText(/add the opponents you want to analyze/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('only fires one request on a re-entrant submit (synchronous guard)', async () => {
+    // The first request stays pending so submittingManualRef is still set when
+    // the second submit fires. We dispatch the second one as a form submit
+    // event (not a button click): the button is disabled while the request is
+    // in flight, so a click would be a no-op and the test would pass on the
+    // button-disable alone. The form submit bypasses that, leaving only the
+    // synchronous ref-guard to coalesce the two — so this fails if the guard
+    // is removed.
+    const requestSpy = vi.fn()
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/opponents/manual',
+      (): Promise<never> => {
+        requestSpy()
+        return pendingForever()
+      },
+    )
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    const submit = screen.getByRole('button', { name: /run the analysis/i })
+    const form = submit.closest('form')
+    expect(form).not.toBeNull()
+
+    await user.click(submit)
+    await waitFor(() => expect(requestSpy).toHaveBeenCalledTimes(1))
+
+    // Re-entrant submit while the first is still in flight — guard must bail.
+    fireEvent.submit(form!)
+    fireEvent.submit(form!)
+
+    await waitFor(() => expect(requestSpy).toHaveBeenCalledTimes(1))
+    expect(requestSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables "Collect now" while a manual submit is in flight', async () => {
+    // Hold the manual POST pending so submittingManual stays true; "Collect
+    // now" must not be clickable during that window (no concurrent paid run).
+    api.mock(
+      'POST /v1/campaigns/mine/race-opponent/opponents/manual',
+      pendingForever,
+    )
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: /collect now/i }),
+      ).toBeDisabled(),
+    )
+  })
+
+  it('disables the manual submit while a collect is in flight', async () => {
+    // Hold the collect POST pending so collecting stays true; the form's "Run
+    // the analysis" must be disabled during that window.
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', pendingForever)
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /collect now/i }))
+
+    // While collecting, the form's submit enters its loading state ("Starting…")
+    // and is disabled — so no concurrent manual run can be triggered.
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /starting/i })).toBeDisabled(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /run the analysis/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows a failure state (not the manual form) when collection failed', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'failed' }}
+      />,
+    )
+
+    expect(screen.getByText(/collection failed/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/add the opponents you want to analyze/i),
+    ).not.toBeInTheDocument()
+    // No live fresh-submit affordance on the failure state.
+    expect(
+      screen.queryByRole('button', { name: /run the analysis/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('acknowledges a completed run that found no opponents and gates a fresh submit', async () => {
+    const user = userEvent.setup()
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'completed' }}
+      />,
+    )
+
+    // Acknowledges the run rather than implying it never ran, and does NOT
+    // surface an always-live submit that invites repeated paid re-runs.
+    expect(
+      screen.getByText(/no opponents found in this analysis/i),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /run the analysis/i }),
+    ).not.toBeInTheDocument()
+
+    // The manual form is still reachable behind an explicit disclosure.
+    await user.click(
+      screen.getByRole('button', { name: /add opponents manually/i }),
+    )
+    expect(
+      screen.getByRole('button', { name: /run the analysis/i }),
+    ).toBeInTheDocument()
   })
 
   it('renders a "The field" intro with the opponent count', () => {
