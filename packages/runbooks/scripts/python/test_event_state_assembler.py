@@ -1,3 +1,8 @@
+import csv
+from datetime import date
+
+import pandas as pd
+
 import event_state_assembler as esa
 
 
@@ -118,3 +123,44 @@ def test_build_rows_preserves_catalog_zero_counts():
     r = rows[0]
     assert r["event_count_30d"] == 0, "Catalog zero should be preserved, not replaced by record value"
     assert r["event_count"] == 0, "Catalog zero should be preserved"
+
+
+def test_assemble_uses_real_reconcile_for_status(tmp_path):
+    # Two catalog events: one firing (active), one quiet & code-present (dormant).
+    catalog_df = pd.DataFrame(
+        [
+            {"event_type": "Live Event", "govern_display_name": "Live Event",
+             "family": "win_x", "first_seen_date": "2026-01-01",
+             "last_seen_date": "2026-06-30", "event_count": 100, "event_count_30d": 40,
+             "govern_description": "<!-- gp-meta -->\nLive purpose. |\nsupersession: original |\nin use: 2026-01-01 (#1)\n<!-- /gp-meta -->",
+             "govern_tags": ["product:win"]},
+            {"event_type": "Quiet Event", "govern_display_name": "Quiet Event",
+             "family": "win_y", "first_seen_date": "2025-01-01",
+             "last_seen_date": "2025-12-01", "event_count": 5, "event_count_30d": 0,
+             "govern_description": None, "govern_tags": None},
+        ]
+    )
+    prov = tmp_path / "prov.csv"
+    with prov.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=[
+            "event_type", "instrumented_pr", "instrumented_date",
+            "retired_pr", "retired_date", "last_code_change_date"])
+        w.writeheader()
+        w.writerow({"event_type": "Live Event", "instrumented_pr": "p1",
+                    "instrumented_date": "2026-01-01", "retired_pr": "", "retired_date": "",
+                    "last_code_change_date": "2026-01-01"})
+        w.writerow({"event_type": "Quiet Event", "instrumented_pr": "p2",
+                    "instrumented_date": "2025-01-01", "retired_pr": "", "retired_date": "",
+                    "last_code_change_date": "2025-01-01"})
+
+    result = esa.assemble(
+        date(2026, 6, 30),
+        run_query=lambda _sql: catalog_df,
+        code_csv=prov,
+    )
+    rows = {r["event"]: r for r in result["rows"]}
+    assert rows["Live Event"]["status"] == "active"
+    assert rows["Quiet Event"]["status"] == "dormant"
+    assert rows["Live Event"]["description"] == "Live purpose."
+    assert result["meta"]["event_count"] == 2
+    assert result["meta"]["refreshed_at"]  # ISO timestamp present
