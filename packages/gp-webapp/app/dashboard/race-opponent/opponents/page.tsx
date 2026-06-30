@@ -27,8 +27,12 @@ export default async function Page(): Promise<React.JSX.Element> {
 
   const campaign = await fetchUserCampaign()
   // Non-Pro candidates see the locked upgrade view in place of the research
-  // surface (deep-linked subroutes must not bounce them either). Flag still
-  // gates the whole surface below.
+  // surface, so a non-Pro deep-link to this subroute shows the pitch rather
+  // than the pro-upgrade redirect. The KNOW_YOUR_OPPONENT flag still gates the
+  // ENTIRE surface, this locked view included: when the flag is off the feature
+  // does not exist for the user, so FeatureFlagGuard intentionally hides/bounces
+  // here too. Per ENG-10608 AC ("flag-off users see no nav item and no page").
+  // Do NOT render the locked view outside FeatureFlagGuard.
   if (!campaign?.isPro) {
     return (
       <DashboardLayout

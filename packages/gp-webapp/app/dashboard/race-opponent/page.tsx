@@ -57,8 +57,12 @@ export default async function Page(): Promise<React.JSX.Element> {
 
   const campaign = await fetchUserCampaign()
   // Non-Pro candidates land on an in-context upgrade pitch instead of being
-  // redirected to /dashboard/pro-upgrade. The flag still gates the surface
-  // entirely (below); only the isPro branch differs.
+  // redirected to /dashboard/pro-upgrade. The KNOW_YOUR_OPPONENT flag still
+  // gates the ENTIRE surface, this locked view included: when the flag is off
+  // the feature does not exist for the user, so FeatureFlagGuard intentionally
+  // hides/bounces here too. Per ENG-10608 AC ("flag-off users see no nav item
+  // and no page"). Do NOT render the locked view outside FeatureFlagGuard —
+  // that would expose a gated, unreleased feature to every non-Pro user.
   if (!campaign?.isPro) {
     return (
       <DashboardLayout
