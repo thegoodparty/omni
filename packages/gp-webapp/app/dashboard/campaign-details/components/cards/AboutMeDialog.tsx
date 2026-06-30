@@ -47,6 +47,10 @@ const PARTY_OPTIONS = [
   'Other',
 ]
 
+// Radix Select disallows an empty-string item value, so "None" uses a sentinel
+// that maps back to an empty party (cleared) on change.
+const NO_PARTY_VALUE = '__none__'
+
 interface AboutMeDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -107,7 +111,7 @@ export default function AboutMeDialog({
       } else {
         const [campaignRes, bioOk] = await Promise.all([
           updateCampaign([
-            { key: 'details.party', value: form.party },
+            { key: 'details.party', value: form.party || null },
             { key: 'details.occupation', value: form.occupation },
             { key: 'details.website', value: form.website },
           ]),
@@ -146,13 +150,16 @@ export default function AboutMeDialog({
           <div className="space-y-2">
             <Label htmlFor="about-party">Party</Label>
             <Select
-              value={form.party}
-              onValueChange={(v) => setForm({ ...form, party: v })}
+              value={form.party || NO_PARTY_VALUE}
+              onValueChange={(v) =>
+                setForm({ ...form, party: v === NO_PARTY_VALUE ? '' : v })
+              }
             >
               <SelectTrigger id="about-party" className="w-full">
                 <SelectValue placeholder="Select party" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={NO_PARTY_VALUE}>None</SelectItem>
                 {PARTY_OPTIONS.map((p) => (
                   <SelectItem key={p} value={p}>
                     {p}

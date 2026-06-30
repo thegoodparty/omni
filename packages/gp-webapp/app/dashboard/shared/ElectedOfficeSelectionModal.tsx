@@ -139,7 +139,11 @@ export function ElectedOfficeSelectionModal({
           >
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!canSave} loading={saving}>
+          <Button
+            onClick={handleSave}
+            disabled={!canSave || !organizationSlug}
+            loading={saving}
+          >
             Save
           </Button>
         </div>

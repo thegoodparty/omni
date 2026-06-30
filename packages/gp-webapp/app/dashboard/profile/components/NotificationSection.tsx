@@ -126,7 +126,9 @@ const NotificationSection = ({
       enabled: checked,
     })
     setState(updatedState)
-    setInitialUpdate(false)
+    // Don't re-arm the one-time seeding effect: when setUser fires with the API
+    // response, re-seeding from user.metaData could revert a later optimistic
+    // toggle made before the response returned.
     updateUserCallback(updatedState)
   }
 
