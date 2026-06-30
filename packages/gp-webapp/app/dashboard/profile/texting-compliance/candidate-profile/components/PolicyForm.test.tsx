@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
+import { api } from 'helpers/test-utils/api-mocking'
 import { MIN_POLICY_FOCUS_LENGTH } from '../candidateProfile.utils'
 import PolicyForm from './PolicyForm'
 
@@ -111,5 +112,43 @@ describe('PolicyForm — validation messaging', () => {
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledWith(existing)
     expect(screen.queryByText(/Please add a Policy/)).not.toBeInTheDocument()
+  })
+})
+
+describe('PolicyForm — Help me rewrite', () => {
+  const SUGGESTION = 'A polished, first-person policy focus.'
+
+  it('disables "Help me rewrite" until the focus has content', () => {
+    render(
+      <PolicyForm showDelete={false} onSave={vi.fn()} onDelete={vi.fn()} />,
+    )
+    expect(
+      screen.getByRole('button', { name: /help me rewrite/i }),
+    ).toBeDisabled()
+  })
+
+  it('suggests a rewrite and applies it to the editor on "Use this"', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', {
+      status: 200,
+      data: { rewrite: SUGGESTION },
+    })
+    render(
+      <PolicyForm showDelete={false} onSave={vi.fn()} onDelete={vi.fn()} />,
+    )
+
+    typeFocus(40)
+    await user.click(screen.getByRole('button', { name: /help me rewrite/i }))
+
+    expect(await screen.findByText(SUGGESTION)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /use this/i }))
+
+    // The suggestion replaced the editor content and the suggestion card is
+    // dismissed (its "Use this" action is gone).
+    expect(screen.getByTestId('rich-editor')).toHaveValue(SUGGESTION)
+    expect(
+      screen.queryByRole('button', { name: /use this/i }),
+    ).not.toBeInTheDocument()
   })
 })

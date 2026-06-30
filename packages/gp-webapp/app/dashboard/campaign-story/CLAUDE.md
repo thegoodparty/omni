@@ -1,7 +1,7 @@
 # app/dashboard/campaign-story/
 
 Candidate-facing "Campaign Story" page: two free-text prompts (your why, your
-background) plus a structured "your issues" editor, capturing the narrative
+background) plus a structured "Your Policies" editor, capturing the narrative
 foundation reused across the campaign plan, stump speech, and voter messaging.
 
 **Issues are NOT part of the story record.** `why`/`background` persist to the
@@ -42,7 +42,9 @@ shows up on the Pro-upgrade flow and the public site, and vice versa.
   section-specific, non-partisan prompt. The suggestion renders in a card with
   Discard / Try again / Use this. "Use this" replaces the field and persists
   immediately (no wait for blur). The button is disabled when the field is empty
-  (nothing to rewrite). The issues editor has no rewrite affordance.
+  (nothing to rewrite). The shared `PolicyForm` "Policy focus" editor has its own
+  "Help me rewrite" too (rewrite `field: 'issue'`), so both the Campaign Story
+  "Your Policies" editor and the Pro-upgrade flow get it.
 - **Rewrite limit.** A per-campaign lifetime cap of 200 rewrite attempts,
   tracked in `campaign_story.rewrite_count` and enforced server-side (403). A
   lifetime attempt is refunded if the Gemini call itself fails, so infra errors

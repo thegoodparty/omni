@@ -48,6 +48,19 @@ describe('CampaignStoryRewriteService', () => {
     expect(prompt).toContain('their background')
   })
 
+  it('rewrites an issue (Policy focus) with issue-specific guidance', async () => {
+    const { subject, generateStructured } = buildSubject()
+
+    await subject.rewrite(
+      { field: 'issue', text: 'fix the roads' },
+      'Sam Lee',
+      5,
+    )
+
+    const [prompt] = generateStructured.mock.calls[0]
+    expect(prompt).toContain('concrete issues they will fight for')
+  })
+
   it('falls back to a generic name when the candidate has none', async () => {
     const { subject, generateStructured } = buildSubject()
 
