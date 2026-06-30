@@ -154,21 +154,42 @@ def test_divergence_flags():
 
 def test_rank_record_priority():
     def rec(**kw):
-        base = {"status": "active", "elevated": False, "anomaly": None, "divergence": None}
+        base = {
+            "status": "active", "elevated": False, "anomaly": None,
+            "divergence": None, "call_site_count": None, "event_count_30d": 0,
+        }
         base.update(kw)
         return base
 
     assert eh.rank_record(rec(status="orphaned_firing")) == 1
-    assert eh.rank_record(rec(status="active", elevated=True, anomaly={"current": 1, "baseline": 9})) == 2
-    assert eh.rank_record(rec(status="active", anomaly={"current": 1, "baseline": 9})) == 3
-    assert eh.rank_record(rec(status="system", anomaly={"current": 1, "baseline": 9})) == 3
-    # code_unknown is anomaly-watched only, like system: a firing drop must still flag.
-    assert eh.rank_record(rec(status="code_unknown", anomaly={"current": 1, "baseline": 9})) == 3
-    assert eh.rank_record(rec(status="code_unknown")) == 99  # no anomaly -> unflagged
-    assert eh.rank_record(rec(status="dormant", elevated=True)) == 5
-    assert eh.rank_record(rec(status="instrumented_never_observed")) == 6
-    assert eh.rank_record(rec(status="dormant")) == 7
-    assert eh.rank_record(rec(status="active")) == 99  # healthy -> unflagged
+    # NEW: declared in code, zero call sites, not firing -> high-severity flag
+    assert eh.rank_record(rec(status="dormant", call_site_count=0)) == 2
+    # NEW: zero call sites + anomaly drop on still-active code also ranks here
+    assert eh.rank_record(rec(status="active", call_site_count=0, anomaly={"current": 1, "baseline": 9})) == 2
+    assert eh.rank_record(rec(status="active", elevated=True, anomaly={"current": 1, "baseline": 9})) == 3
+    assert eh.rank_record(rec(status="active", anomaly={"current": 1, "baseline": 9})) == 4
+    assert eh.rank_record(rec(status="system", anomaly={"current": 1, "baseline": 9})) == 4
+    assert eh.rank_record(rec(status="code_unknown", anomaly={"current": 1, "baseline": 9})) == 4
+    assert eh.rank_record(rec(status="code_unknown")) == 99
+    assert eh.rank_record(rec(status="dormant", elevated=True)) == 6
+    assert eh.rank_record(rec(status="instrumented_never_observed")) == 7
+    assert eh.rank_record(rec(status="dormant")) == 8
+    assert eh.rank_record(rec(status="active")) == 99
+
+
+def test_rank_record_null_call_sites_does_not_flag():
+    # Backend / dynamic events have no resolvable key-path -> call_site_count None -> never
+    # the new flag (null != zero). A plain dormant stays dormant (rank 8).
+    rec = {"status": "dormant", "elevated": False, "anomaly": None,
+           "divergence": None, "call_site_count": None, "event_count_30d": 0}
+    assert eh.rank_record(rec) == 8
+
+
+def test_rank_record_zero_calls_still_firing_no_anomaly_not_flagged():
+    # Zero callers but data still arriving and no drop yet is out of scope for this flag.
+    rec = {"status": "active", "elevated": False, "anomaly": None,
+           "divergence": None, "call_site_count": 0, "event_count_30d": 50}
+    assert eh.rank_record(rec) == 99
 
 
 # --- weekly_series -----------------------------------------------------------
@@ -305,12 +326,42 @@ def test_reconcile_classifies_counts_and_ranks():
     assert counts["instrumented_never_observed"] == 1
 
     flagged_types = [r["event_type"] for r in result["flagged"]]
-    # ranked: orphan (1) -> onboarding dormant elevated (5) -> never-fired (6)
+    # ranked: orphan (1) -> onboarding dormant elevated (6) -> never-fired (7)
     assert flagged_types == ["Orphan Event", "Onboarding - User Created", "Never Fired"]
     # system + active + brand-new are not flagged
     assert "page" not in flagged_types
     assert "Active One" not in flagged_types
     assert "Brand New" not in flagged_types
+
+
+def test_reconcile_flags_removed_call_site_with_surviving_constant():
+    # Reconstructs the 2026-06-13 state: the name literal is still declared (code row present,
+    # retired_date empty -> in_code), but the only call site was deleted (call_site_count 0)
+    # and firing has flatlined (event_count_30d 0). This is the DATA-2046 acceptance case:
+    # Stage 1 must flag it with no manual git work.
+    catalog = [
+        {
+            "event_type": "Dashboard - Candidate Dashboard Viewed",
+            "family": "win_dashboard", "is_win": True,
+            "first_seen_date": None, "last_seen_date": date(2026, 6, 13),
+            "event_count": 500, "event_count_30d": 0,
+            "govern_description": None, "in_govern_taxonomy": True,
+        },
+    ]
+    code = {
+        "Dashboard - Candidate Dashboard Viewed": {
+            "retired_date": "", "instrumented_pr": "#10",
+            "call_site_count": "0", "call_site_retired_date": "2026-06-13",
+        },
+    }
+    result = eh.reconcile(catalog, [], code, TODAY)
+    rec = result["records"][0]
+    assert rec["status"] == "dormant"          # literal present, not firing
+    assert rec["call_site_count"] == 0
+    assert rec["rank"] == 2
+    assert [r["event_type"] for r in result["flagged"]] == [
+        "Dashboard - Candidate Dashboard Viewed"
+    ]
 
 
 def test_reconcile_watchlist_elevates_and_proposes():
@@ -336,7 +387,7 @@ def test_reconcile_watchlist_elevates_and_proposes():
     )
     rec = result["records"][0]
     assert rec["on_watchlist"] and rec["elevated"]
-    assert rec["rank"] == 5  # dormant + elevated
+    assert rec["rank"] == 6  # dormant + elevated
     assert result["proposals"] == []  # already on the watchlist
 
 
@@ -444,8 +495,8 @@ def _flag(event_type, rank, status, **kw):
 def test_render_collapses_dormant_tail_and_caps_changes():
     flagged = [
         _flag("Orphan", 1, "orphaned_firing", elevated=True, event_count_30d=9),
-        _flag("Tail A", 7, "dormant"),
-        _flag("Tail B", 7, "dormant"),
+        _flag("Tail A", 8, "dormant"),
+        _flag("Tail B", 8, "dormant"),
     ]
     result = {
         "run_date": date(2026, 6, 26),
