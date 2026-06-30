@@ -120,7 +120,7 @@ const CampaignStoryPage = ({
             <Card className="p-6">
               <div className="flex flex-col gap-1">
                 <h3 className="text-xl font-semibold text-foreground">
-                  Your issues
+                  Your Policies
                 </h3>
                 <p className="text-sm text-muted-foreground">
                   Two to four concrete fights for your first term. These are
