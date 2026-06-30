@@ -7,7 +7,6 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common'
 import { ModuleRef } from '@nestjs/core'
-import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
 import Stripe from 'stripe'
 import { CampaignsService } from '../../campaigns/services/campaigns.service'
@@ -45,7 +44,6 @@ export class PaymentEventsService {
     private readonly crm: CrmCampaignsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly organizationsService: OrganizationsService,
-    private readonly stripeService: StripeService,
     private readonly analytics: AnalyticsService,
     @Inject(forwardRef(() => PurchaseService))
     private readonly purchaseService: WrapperType<PurchaseService>,

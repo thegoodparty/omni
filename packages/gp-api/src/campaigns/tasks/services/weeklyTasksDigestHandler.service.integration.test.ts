@@ -703,7 +703,9 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
       })
 
       expect(trackSpy).toHaveBeenCalledTimes(2)
-      const userIds = trackSpy.mock.calls.map((call) => call[0]).sort()
+      const userIds = trackSpy.mock.calls
+        .map((call: Parameters<AnalyticsService['track']>) => call[0])
+        .sort()
       expect(userIds).toEqual([c1.userId, c2.userId].sort())
     })
   })

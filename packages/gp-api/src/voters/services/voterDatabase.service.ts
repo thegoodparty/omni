@@ -46,7 +46,7 @@ export class VoterDatabaseService implements OnModuleDestroy {
     const client = await this.pool.connect()
 
     // Build the header mapping
-    const headerMapping = { ...HEADER_MAPPING }
+    const headerMapping: Record<string, string> = { ...HEADER_MAPPING }
     if (selectedColumns?.length) {
       selectedColumns.forEach((col) => {
         if (col.label) {
@@ -102,7 +102,7 @@ export class VoterDatabaseService implements OnModuleDestroy {
     const client = await this.pool.connect()
 
     // Build the header mapping
-    const headerMapping = { ...HEADER_MAPPING }
+    const headerMapping: Record<string, string> = { ...HEADER_MAPPING }
     if (selectedColumns?.length) {
       selectedColumns.forEach((col) => {
         if (col.label) {

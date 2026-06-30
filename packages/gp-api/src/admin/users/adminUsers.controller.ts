@@ -23,7 +23,6 @@ import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { Roles } from 'src/authentication/decorators/Roles.decorator'
 import { UsersService } from 'src/users/services/users.service'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { AdminCreateUserSchema } from './schemas/AdminCreateUser.schema'
 import {
   AdminUserListSchema,
@@ -40,7 +39,6 @@ const SENSITIVE_USER_FIELDS = {
 export class AdminUsersController {
   constructor(
     private readonly usersService: UsersService,
-    private readonly slack: SlackService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(AdminUsersController.name)

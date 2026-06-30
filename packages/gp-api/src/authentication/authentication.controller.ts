@@ -45,5 +45,6 @@ export class AuthenticationController {
     }
 
     response.statusCode = HttpStatus.NO_CONTENT
+    return undefined
   }
 }

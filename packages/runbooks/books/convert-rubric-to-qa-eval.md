@@ -245,5 +245,5 @@ If any fail, edit eval.md / manifest, bump nothing (qa files are versioned by S3
 - `experiments/_schema/qa.schema.json` — the `qa/manifest.json` schema
 - `experiments/CLAUDE.md` — "The QA folder" (two-entrypoint lane split) + the clean-context-subagent loop
 - `books/build-output-quality-rubric.md` — build + reliability-validate a rubric (the upstream / prerequisite-for-blocking step)
-- `books/convert-runbook-to-experiment.md` — the sibling converter (runbook → experiment); dispatch + monitor patterns
+- `.claude/skills/build-cap-agent/SKILL.md` — the sibling converter (runbook → experiment); dispatch + monitor patterns
 - `books/run-pmf-experiment-cloud.md` — full dev dispatch + log-tail + artifact-pull loop

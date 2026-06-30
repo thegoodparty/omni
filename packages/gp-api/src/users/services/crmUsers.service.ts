@@ -150,6 +150,7 @@ export class CrmUsersService {
         { e },
         'could not find contact by email. user has never filled a form!',
       )
+      return undefined
     }
   }
 
@@ -297,6 +298,7 @@ export class CrmUsersService {
         { e },
         `error updating contact with CRM id: ${crmContactId}`,
       )
+      return undefined
     }
   }
 
@@ -310,6 +312,7 @@ export class CrmUsersService {
       })
     } catch (e) {
       this.logger.error({ e }, 'error creating contact')
+      return undefined
     }
   }
 }

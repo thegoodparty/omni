@@ -78,6 +78,7 @@ export class SlackService {
         channel,
         err: serializeError(e),
       })
+      return undefined
     }
   }
 

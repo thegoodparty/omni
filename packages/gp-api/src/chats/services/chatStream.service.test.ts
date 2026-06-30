@@ -309,7 +309,9 @@ const collect = async (
 
 const fakeTool: LlmStreamTool = {
   description: 'fake tool',
-  inputSchema: { parse: (v) => v } as unknown as LlmStreamTool['inputSchema'],
+  inputSchema: {
+    parse: <T>(v: T): T => v,
+  } as unknown as LlmStreamTool['inputSchema'],
   execute: (input) => input,
 }
 

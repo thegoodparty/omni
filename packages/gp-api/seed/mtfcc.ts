@@ -62,7 +62,7 @@ async function authenticateGoogleServiceAccount() {
   return jwtClient
 }
 
-async function readJsonFromS3(bucketName, keyName) {
+async function readJsonFromS3(bucketName: string, keyName: string) {
   try {
     const params = {
       Bucket: bucketName,
@@ -80,7 +80,7 @@ async function readJsonFromS3(bucketName, keyName) {
   }
 }
 
-async function processRow(prisma: PrismaClient, entity) {
+async function processRow(prisma: PrismaClient, entity: string[]) {
   try {
     if (!entity) {
       return

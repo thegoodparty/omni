@@ -30,15 +30,22 @@ export const EVENTS = {
     RewriteDiscarded: 'Campaign Story - Rewrite Discarded',
     RewriteLimitReached: 'Campaign Story - Rewrite Limit Reached',
   },
-  // Know Your Opponent (Win). Both are browser-observed views the candidate
-  // navigates to: OpponentProfileViewed fires when the sourced opponent
-  // Handbook renders, OpponentActivityViewed when the "what's new" activity
-  // stream renders. Together they measure how far candidates get through the
-  // opponent surfaces. The self-research-completion and contrast events are
-  // server-truth and fire from gp-api, not here.
+  // Know Your Opponent (Win). Browser-observed views and activation moments the
+  // candidate drives directly: OpponentProfileViewed fires when the sourced
+  // opponent Handbook renders, OpponentActivityViewed when the "what's new"
+  // activity stream renders, UpgradeViewed when a non-Pro candidate lands on the
+  // locked upgrade pitch, OpponentsManuallyAdded when the manual-entry form is
+  // submitted, and ResearchStarted when a research run starts (manual submit or
+  // the auto-fired collection that follows discovery). Together they measure how
+  // far candidates get from upgrade through activation to the report. The
+  // self-research-completion and contrast events are server-truth and fire from
+  // gp-api, not here.
   RaceOpponent: {
     OpponentProfileViewed: 'Win - Opponent Profile Viewed',
     OpponentActivityViewed: 'Win - Opponent Activity Viewed',
+    UpgradeViewed: 'Win - Opponent Upgrade Viewed',
+    OpponentsManuallyAdded: 'Win - Opponents Manually Added',
+    ResearchStarted: 'Win - Opponent Research Started',
   },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',
@@ -89,12 +96,15 @@ export const EVENTS = {
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
     ClickFinishLater: 'Onboarding: Click Finish Later',
-    // Top of the serve (elected-official) magic-link funnel. The recipient
-    // landed on the /serve/welcome redemption page (client-side, fired once on
-    // landing). Its paired top-of-funnel event "Onboarding - Magic Link Sent"
-    // is emitted server-side in gp-api. The `Onboarding -` prefix is
-    // intentional (these two are funnel siblings of the Onboarding group, not
-    // the per-screen `Serve Onboarding -` stages below).
+    // Top of the magic-link funnel. The recipient landed on the redemption
+    // page (client-side, fired once on landing) — `/serve/welcome` for the
+    // elected-official flow and `/win/welcome` for the candidate flow. Both
+    // fire this single event, carrying a `type: 'serve' | 'win'` property that
+    // mirrors its server-side funnel sibling "Onboarding - Magic Link Sent"
+    // (gp-api), so the sent → clicked rate is a per-flow property filter in
+    // Amplitude rather than two separate events. The `Onboarding -` prefix is
+    // intentional (a funnel sibling of the Onboarding group, not the per-screen
+    // `Serve Onboarding -` stages below).
     MagicLinkClicked: 'Onboarding - Magic Link Clicked',
     OfficeStep: {
       ClickNext: 'Onboarding - Office Step: Click Next',

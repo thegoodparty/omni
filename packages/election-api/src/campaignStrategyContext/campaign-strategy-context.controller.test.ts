@@ -18,7 +18,9 @@ describe('CampaignStrategyContextController', () => {
   })
 
   it('forwards the body to the service and returns its result', async () => {
-    const body: CampaignStrategyContextRequestDto = { brHashId: 'br-race-hash-1' }
+    const body: CampaignStrategyContextRequestDto = {
+      brHashId: 'br-race-hash-1',
+    }
     const expected: Partial<CampaignStrategyContextResponse> = {
       candidate_count: 0,
       candidates: [],

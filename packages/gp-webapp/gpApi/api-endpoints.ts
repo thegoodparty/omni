@@ -263,15 +263,18 @@ export type APIEndpoints = {
     Response: CampaignStory
   }
 
-  // AI-suggested rewrite of one Campaign Story field. The server pairs the
-  // submitted text with the candidate's name and a section-specific prompt;
-  // `text` must be non-empty (the Zod schema rejects blank input with 400).
+  // AI-suggested rewrite of a Campaign Story field or a website issue's "Policy
+  // focus". The server pairs the submitted text with the candidate's name and a
+  // section-specific prompt; `text` must be non-empty (the Zod schema rejects
+  // blank input with 400).
   'POST /v1/campaigns/mine/story/rewrite': {
-    // `field` is single-sourced from the contract so it can't drift from the
-    // stored story shape; the server's Zod enum is the runtime mirror.
+    // why/background mirror the story shape; 'issue' rewrites a Policy focus
+    // (website issue description). The server's Zod enum is the runtime mirror.
     Request: {
-      field: keyof CampaignStory
+      field: keyof CampaignStory | 'issue'
       text: string
+      // Optional context for an `issue` rewrite: the policy title.
+      title?: string
     }
     Response: CampaignStoryRewrite
   }
@@ -760,6 +763,21 @@ export type APIEndpoints = {
 
   'POST /v1/campaigns/mine/race-opponent/collect': {
     Request: {}
+    Response: { runId: string | null; status: RaceOpponentCollectionStatus }
+  }
+
+  // Manual opponent entry: when discovery finds nobody, the candidate names
+  // opponents by hand and runs collection on them. Mirrors gp-api's
+  // ManualOpponentsRequestSchema (name required; ballotpediaUrl/website are
+  // optional https URLs; 1-10 opponents) and returns the same collect shape.
+  'POST /v1/campaigns/mine/race-opponent/opponents/manual': {
+    Request: {
+      opponents: Array<{
+        name: string
+        ballotpediaUrl?: string
+        website?: string
+      }>
+    }
     Response: { runId: string | null; status: RaceOpponentCollectionStatus }
   }
 

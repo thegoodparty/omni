@@ -908,16 +908,12 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
     vi.mocked(mockBallotReady.fetchMilestones!).mockReset()
     vi.mocked(mockBallotReady.fetchMilestones!).mockResolvedValue(null)
     service = new CampaignsService(
-      {} as UsersService,
       {} as CrmCampaignsService,
       {} as AnalyticsService,
       {} as CampaignPlanVersionsService,
-      {} as StripeService,
-      {} as GooglePlacesService,
       mockElections as ElectionsService,
       mockBallotReady as BallotReadyService,
       mockOrganizations as OrganizationsService,
-      {} as SlackService,
       { notifySlackOnProUpgrade: vi.fn() } as unknown as CampaignTasksService,
     )
   })

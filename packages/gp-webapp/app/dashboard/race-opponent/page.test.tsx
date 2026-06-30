@@ -64,6 +64,12 @@ vi.mock('./components/RegenerateContrasts', () => ({
   default: () => <div data-testid="regenerate" />,
 }))
 
+// The locked upgrade view is a client component with its own suite; stub it so
+// the page test asserts only that the non-Pro branch renders it.
+vi.mock('./components/OpponentProLockedView', () => ({
+  default: () => <div data-testid="opponent-locked-view" />,
+}))
+
 const renderableContrast = (
   overrides: Partial<ContrastRecord> = {},
 ): ContrastRecord => ({
@@ -175,16 +181,18 @@ describe('dashboard/race-opponent page', () => {
     expect(screen.getByTestId('contrast-list')).toHaveTextContent('1')
   })
 
-  it('redirects a non-Pro user to the pro-upgrade page', async () => {
+  it('renders the locked upgrade view (not a redirect) for a non-Pro user', async () => {
     mockFetchUserCampaign.mockResolvedValue({ isPro: false, details: {} })
     wireServerRequest(
       { ok: true, data: okRaceOpponent },
       { ok: false, data: { error: 'forbidden' } },
     )
 
-    await Page()
+    render(await Page())
 
-    expect(mockRedirect).toHaveBeenCalledWith('/dashboard/pro-upgrade')
+    expect(screen.getByTestId('opponent-locked-view')).toBeInTheDocument()
+    expect(screen.queryByTestId('opponent-list')).not.toBeInTheDocument()
+    expect(mockRedirect).not.toHaveBeenCalled()
   })
 
   it('falls back to an empty race-opponent shape when that endpoint is not ok', async () => {
