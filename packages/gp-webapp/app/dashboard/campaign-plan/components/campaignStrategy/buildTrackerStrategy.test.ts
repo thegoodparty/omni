@@ -47,39 +47,14 @@ describe('buildTrackerStrategy', () => {
     expect(gotv?.groups).toHaveLength(0)
   })
 
-  it('caps active to the weekly limit of 3', () => {
-    const active = Array.from({ length: 6 }, (_, i) =>
-      row({ id: `t${i}`, phase: 'active', date: `2026-02-0${i + 1}` }),
-    )
-    const data = buildTrackerStrategy(active, { electionDate: null, today })
-    const shown = data.phases
-      .find((p) => p.key === 'active')
-      ?.groups.flatMap((g) => g.tasks)
-    expect(shown).toHaveLength(3)
-  })
-
-  it('reveals an extra active task per completed one', () => {
-    const active = [
-      row({ id: 't0', phase: 'active', date: '2026-02-01', completed: true }),
-      ...Array.from({ length: 5 }, (_, i) =>
-        row({ id: `t${i + 1}`, phase: 'active', date: `2026-02-0${i + 2}` }),
-      ),
-    ]
-    const data = buildTrackerStrategy(active, { electionDate: null, today })
-    const shown = data.phases
-      .find((p) => p.key === 'active')
-      ?.groups.flatMap((g) => g.tasks)
-    expect(shown).toHaveLength(4)
-  })
-
-  it('reports the withheld count so the UI can say more will unlock', () => {
+  it('shows all active tasks at once, with nothing withheld', () => {
     const active = Array.from({ length: 6 }, (_, i) =>
       row({ id: `t${i}`, phase: 'active', date: `2026-02-0${i + 1}` }),
     )
     const data = buildTrackerStrategy(active, { electionDate: null, today })
     const phase = data.phases.find((p) => p.key === 'active')
-    expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(3)
-    expect(phase?.hiddenCount).toBe(3)
+    expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(6)
+    expect(phase?.hiddenCount ?? 0).toBe(0)
   })
 
   it('withholds nothing for the static launch checklist', () => {

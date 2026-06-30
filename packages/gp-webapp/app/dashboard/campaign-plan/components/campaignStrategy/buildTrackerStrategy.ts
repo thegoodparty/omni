@@ -43,7 +43,6 @@ const PHASE_META: {
   },
 ]
 
-const WEEKLY_LIMIT = 3
 const GOTV_WINDOW_DAYS = 30
 
 const FLOW_TYPE_TO_CHANNEL: Record<string, TaskChannel> = {
@@ -205,20 +204,6 @@ export const buildTrackerStrategy = (
             : `Your get-out-the-vote tasks appear here in the final ${GOTV_WINDOW_DAYS} days before election day.`,
       }
       phase.groups = []
-      continue
-    }
-
-    if (phase.key === 'active' || phase.key === 'gotv') {
-      const flat = phase.groups.flatMap((g) => g.tasks).sort(compareTasks)
-      const completedCount = flat.filter((t) => t.completed).length
-      // Progressive reveal: show the next WEEKLY_LIMIT to do plus every task
-      // already completed; the rest stay hidden until the candidate works
-      // through these. Surface the withheld count so the UI can say so.
-      const limit = WEEKLY_LIMIT + completedCount
-      phase.groups = [
-        { key: 'thisWeek', label: '', tasks: flat.slice(0, limit) },
-      ]
-      phase.hiddenCount = Math.max(0, flat.length - limit)
     }
   }
 

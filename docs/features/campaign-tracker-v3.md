@@ -41,12 +41,11 @@ dated task cards the candidate works through and marks complete.
   tracker is bootstrapped, so there is something to do immediately.
 - **Dynamic tasks and events** land a few minutes later when the first agent
   run completes. While they generate, a banner says so.
-- The Active / GOTV phases show the **top 3 uncompleted** tasks and reveal more
-  as the candidate completes them (progressive reveal).
+- Every phase shows **all** of its tasks at once (no per-week display cap).
 - GOTV tasks stay hidden behind a window message until the election is within
   **30 days**.
 - A **Monday digest** emails the candidate their top 3 uncompleted tasks for
-  the week.
+  the week (the digest still caps at 3; only the page shows all).
 
 ## Lifecycle (coexists with the legacy path, gated on campaign story)
 
@@ -200,7 +199,7 @@ and gotchas. Read those first when working in the code:
   (atomic claim), the append/generation model, weekly dispatch, persistence,
   completion.
 - `packages/gp-webapp/app/dashboard/campaign-plan/components/campaignStrategy/CLAUDE.md`
-  (frontend): latest-generation rendering, phase status, progressive reveal,
+  (frontend): latest-generation rendering, phase status, the GOTV window gate,
   polling, the date-format gotcha.
 
 The table below is the cross-package file index:
@@ -226,9 +225,8 @@ The table below is the cross-package file index:
 - `buildTrackerStrategy.ts` builds the rail from rows: filter dynamic rows to
   `max(week)`, bucket by phase, and apply the deterministic display rules. A
   phase reads `done` only when **all** its tasks are completed; the "happening
-  now" (active) phase is **date-driven**. The Active / GOTV phases cap at 3 with
-  progressive reveal and surface a hidden-count hint; GOTV is gated to the final
-  30 days.
+  now" (active) phase is **date-driven**. Every phase shows all of its tasks (no
+  per-week display cap); GOTV is gated to the final 30 days.
 - `useTrackerTasks.ts` polls fast (20s) while dynamic tasks are still
   generating, then drops to a slow background poll (so a weekly regen is picked
   up) with a fast-poll budget cap.

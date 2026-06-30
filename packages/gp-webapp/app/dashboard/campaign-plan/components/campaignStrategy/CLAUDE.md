@@ -27,10 +27,10 @@ cards the candidate checks off. Feature overview + backend:
   "happening now" (active) is date-driven (the first non-empty phase still in
   play). Empty intermediate phases are skipped so they can't strand a later
   populated phase as `upcoming`.
-- **Progressive reveal** (active / gotv only): show `WEEKLY_LIMIT (3) +
-  completedCount`, surface `hiddenCount`. GOTV is gated behind a window message
-  until the election is within 30 days. These caps/gates are deterministic here,
-  not in the agent.
+- **No per-week display cap:** every phase renders all of its tasks at once
+  (the page shows everything; the weekly digest is what caps at 3). GOTV is the
+  one gated phase: hidden behind a window message until the election is within
+  30 days. That gate is deterministic here, not in the agent.
 - **The section renders only for the story cohort, only from persisted rows.**
   `CampaignPlanView` branches on the `campaign-story` flag: story cohort gets
   the tracker, story-off gets the legacy plan content (incl. community events)
