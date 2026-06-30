@@ -116,6 +116,12 @@ model RaceOpponentContrast {
   routing          String
   status           RaceOpponentContrastStatus @default(draft)
   editCount        Int                        @default(0) @map("edit_count")
+  // routedStoryId is legacy: contrast routing moved off campaign_story to
+  // website issues (ENG-10603), so new code sets routedWebsiteId instead. The
+  // old column/FK stay through the rolling deploy (the old image still writes
+  // them) and are dropped in the ENG-10603 follow-up.
+  routedStory      CampaignStory?             @relation(fields: [routedStoryId], references: [id], onDelete: SetNull)
+  routedStoryId    Int?                       @map("routed_story_id")
   routedWebsite    Website?                   @relation(fields: [routedWebsiteId], references: [id], onDelete: SetNull)
   routedWebsiteId  Int?                       @map("routed_website_id")
   routedOutreach   Outreach?                  @relation(fields: [routedOutreachId], references: [id], onDelete: SetNull)

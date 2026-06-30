@@ -10,8 +10,8 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
+  isPrismaError,
   isSerializationError,
-  isUniqueConstraintError,
 } from '@/prisma/util/prismaErrors.util'
 import { retryIf } from '@/shared/util/retry-if'
 import { CampaignWith } from '@/campaigns/campaigns.types'
@@ -79,10 +79,12 @@ export class ContrastRoutingService extends createPrismaBase(
   // a routed contrast becomes a website issue so it's actually shown. Concurrent
   // routes for the same campaign conflict two ways, both retried: with no
   // website yet, both take the create branch and the loser trips website's
-  // @@unique(campaignId) (P2002); with a website present, both append under
-  // Serializable and the loser aborts with a serialization failure (P2034).
-  // Either retry re-reads the now-current row and re-appends cleanly (Website
-  // has no upsert-append in a single statement).
+  // @@unique(campaignId) (P2002 on campaign_id); with a website present, both
+  // append under Serializable and the loser aborts with a serialization failure
+  // (P2034). Either retry re-reads the now-current row and re-appends cleanly
+  // (Website has no upsert-append in a single statement). A P2002 on website's
+  // other unique column (vanity_path) is NOT retried — a slug collision across
+  // campaigns is irresolvable, so it must surface rather than loop.
   private async routeToStory(
     campaign: CampaignWith<'user'>,
     contrastId: number,
@@ -143,7 +145,7 @@ export class ContrastRoutingService extends createPrismaBase(
         ),
       {
         shouldRetry: (err) =>
-          isUniqueConstraintError(err) || isSerializationError(err),
+          isCampaignIdConflict(err) || isSerializationError(err),
         retries: 3,
         factor: 1.5,
         minTimeout: 50,
@@ -231,3 +233,13 @@ const appendWebsiteIssue = (
     about: { ...about, issues: [...(about.issues ?? []), issue] },
   }
 }
+
+// Only the campaign_id unique conflict (two routes both creating the campaign's
+// first website) is resolved by retrying — the retry re-reads the now-present
+// row and appends. A P2002 on website's other unique column (vanity_path) means
+// a different campaign already holds this slug; retrying can never clear it, so
+// it must fall through to a 4xx instead of looping.
+const isCampaignIdConflict = (err: unknown): boolean =>
+  isPrismaError(err, 'P2002') &&
+  Array.isArray(err.meta?.target) &&
+  err.meta.target.includes('campaign_id')

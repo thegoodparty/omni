@@ -147,7 +147,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     ])
   })
 
-  it('retries onto the append branch when the create races into P2002', async () => {
+  it('retries onto the append branch when the create races into a campaign_id P2002', async () => {
     const campaign = await seedCampaign(SLUG)
     await seedCompletedSelfPass(campaign.id)
     const contrast = await seedContrast(
@@ -158,10 +158,10 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
 
     // Reproduce the production race: the first attempt reads no website and
     // takes the create branch, but a sibling route creates the row first, so
-    // the create aborts with P2002. We mimic the sibling by inserting the row
-    // as the first $transaction rejects, then let retryIf run a real second
-    // transaction — which now finds the website and must take the append
-    // branch, preserving the sibling's issue rather than 500ing.
+    // the create aborts with a campaign_id P2002. We mimic the sibling by
+    // inserting the row as the first $transaction rejects, then let retryIf run
+    // a real second transaction — which now finds the website and must take the
+    // append branch, preserving the sibling's issue rather than 500ing.
     const prisma = service.app.get(PrismaService)
     const realTransaction = prisma.$transaction.bind(prisma)
     const spy = vi
@@ -180,6 +180,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
           Object.assign(new Error('unique'), {
             name: 'PrismaClientKnownRequestError',
             code: 'P2002',
+            meta: { target: ['campaign_id'] },
           }),
         )
       })
@@ -210,6 +211,35 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.used)
     expect(row.routedWebsiteId).toBe(website.id)
+  })
+
+  it('does not retry a vanity_path P2002 (slug collision surfaces, never loops)', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    // A P2002 on website's OTHER unique column (vanity_path) means a different
+    // campaign already holds this slug — retrying can never clear it. The route
+    // must surface the error after a single attempt, not loop the retry.
+    const prisma = service.app.get(PrismaService)
+    const spy = vi.spyOn(prisma, '$transaction').mockRejectedValue(
+      Object.assign(new Error('unique'), {
+        name: 'PrismaClientKnownRequestError',
+        code: 'P2002',
+        meta: { target: ['vanity_path'] },
+      }),
+    )
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(500)
+    // Exactly one attempt — the predicate refused to retry the slug conflict.
+    expect(spy.mock.calls.length).toBe(1)
+    spy.mockRestore()
   })
 
   it('routes a cleared contrast to a pre-send draft Outreach (no send enqueued)', async () => {
