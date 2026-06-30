@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -517,10 +517,9 @@ describe('<RaceOpponentList>', () => {
     expect(container.querySelector('pre')).toBeNull()
   })
 
+  // The non-busy states still surface the status pill on the list view.
   it.each([
     ['idle', 'Idle'],
-    ['discovering', 'Discovering opponents'],
-    ['running', 'Running'],
     ['completed', 'Completed'],
     ['failed', 'Failed'],
   ] as const)(
@@ -532,6 +531,20 @@ describe('<RaceOpponentList>', () => {
         />,
       )
       expect(screen.getByText(label)).toBeInTheDocument()
+    },
+  )
+
+  // While the run is busy (discovering/running) the page shows the cosmetic
+  // processing screen instead of the bare status pill.
+  it.each(['discovering', 'running'] as const)(
+    'shows the processing screen while %s',
+    (status) => {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: status }}
+        />,
+      )
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
     },
   )
 
@@ -606,7 +619,7 @@ describe('<RaceOpponentList>', () => {
     expect(screen.getByText('Overview')).toBeInTheDocument()
   })
 
-  it('triggers a collection and reflects the returned status', async () => {
+  it('triggers a collection and shows the processing screen for the returned running status', async () => {
     api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
       status: 200,
       data: { runId: 'run-1', status: 'running' },
@@ -617,10 +630,14 @@ describe('<RaceOpponentList>', () => {
 
     await user.click(screen.getByRole('button', { name: /collect now/i }))
 
-    await waitFor(() => expect(screen.getByText('Running')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(
+        screen.getByText('Researching your opponents'),
+      ).toBeInTheDocument(),
+    )
   })
 
-  it('shows discovering and keeps Collect disabled while discovering', async () => {
+  it('shows the processing screen when collection enters the discovering state', async () => {
     api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
       status: 200,
       data: { runId: 'opposition-1', status: 'discovering' },
@@ -632,9 +649,15 @@ describe('<RaceOpponentList>', () => {
     await user.click(screen.getByRole('button', { name: /collect now/i }))
 
     await waitFor(() =>
-      expect(screen.getByText('Discovering opponents')).toBeInTheDocument(),
+      expect(
+        screen.getByText('Researching your opponents'),
+      ).toBeInTheDocument(),
     )
-    expect(screen.getByRole('button', { name: /collect now/i })).toBeDisabled()
+    // The Collect button is part of the list view, which the processing screen
+    // replaces while busy — so it's no longer on screen to re-fire a paid run.
+    expect(
+      screen.queryByRole('button', { name: /collect now/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('polls while discovering and auto-fires collect once discovery completes', async () => {
@@ -645,10 +668,11 @@ describe('<RaceOpponentList>', () => {
       { status: 200, data: { ...empty, collectionStatus: 'idle' } },
       { status: 200, data: { ...empty, collectionStatus: 'running' } },
     ])
-    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
-      status: 200,
-      data: { runId: 'collection-1', status: 'running' },
-    })
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'collection-1', status: 'running' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
     vi.useFakeTimers({ shouldAdvanceTime: true })
     try {
       render(
@@ -657,13 +681,89 @@ describe('<RaceOpponentList>', () => {
         />,
       )
 
+      // While busy the processing screen is shown (not the bare status pill).
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+
       // Two 5s poll ticks: discovering -> idle (auto-fires collect -> running).
       await vi.advanceTimersByTimeAsync(5000)
       await vi.advanceTimersByTimeAsync(5000)
 
-      await waitFor(() =>
-        expect(screen.getByText('Running')).toBeInTheDocument(),
+      await waitFor(() => expect(collectHandler).toHaveBeenCalledTimes(1))
+      // Still busy (running): the processing screen stays up.
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('shows the processing screen while running, then the ready state, then the report when opponents arrive', async () => {
+    // running -> completed with opponents. The real status drives the
+    // transition; the report only appears after real data is present. Timers are
+    // advanced manually (no shouldAdvanceTime) so the brief ready-hold window is
+    // observable rather than auto-expiring before the assertion.
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: withSummary },
+    ])
+    vi.useFakeTimers()
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'running' }}
+        />,
       )
+
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+      // The report (opponent name) is not present while running.
+      expect(
+        screen.queryByRole('button', { name: /Jane Rival/i }),
+      ).not.toBeInTheDocument()
+
+      // Poll flips real status to completed -> brief ready terminal state.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(
+        screen.getByText('Your opponent report is ready'),
+      ).toBeInTheDocument()
+
+      // After the ready hold, the report replaces the processing screen.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500)
+      })
+      expect(
+        screen.getByRole('button', { name: /Jane Rival/i }),
+      ).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not transition to the report while still running even after the fake step timer has run long', async () => {
+    // Real status stays 'running' across many step-timer cycles. The cosmetic
+    // timer "finishing" must NOT reveal the report before real data lands.
+    api.mock('GET /v1/campaigns/mine/race-opponent', {
+      status: 200,
+      data: { ...empty, collectionStatus: 'running' },
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'running' }}
+        />,
+      )
+
+      // Run far past the 4-step cosmetic animation (4s each) and several polls.
+      await vi.advanceTimersByTimeAsync(4000 * 8)
+
+      // Still on the processing screen, never the ready state or the report.
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+      expect(
+        screen.queryByText('Your opponent report is ready'),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Jane Rival/i }),
+      ).not.toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }

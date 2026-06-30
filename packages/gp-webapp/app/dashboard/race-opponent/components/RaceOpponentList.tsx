@@ -39,6 +39,7 @@ import OpponentPageHeader from './OpponentPageHeader'
 import OpponentOverviewCard from './OpponentOverviewCard'
 import SourceAttribution from './SourceAttribution'
 import IssueContrastCard from './IssueContrastCard'
+import OpponentResearchProgress from './OpponentResearchProgress'
 
 const initialsFor = (name: string): string =>
   name
@@ -439,6 +440,11 @@ const OpponentDetailBody = ({
 // How often to poll status while discovery/collection is in flight.
 const POLL_INTERVAL_MS = 5000
 
+// How long to hold the "report is ready" terminal state after the real run
+// completes, before revealing the report. A brief beat so the snap to ready is
+// visible rather than an abrupt jump from step 4 to the report.
+const READY_HOLD_MS = 1500
+
 type Props = {
   initialData: RaceOpponentResponse
   raceContext?: string
@@ -573,6 +579,44 @@ const RaceOpponentList = ({
   // Discovery (opposition_research) and collection both keep the run busy, so
   // both disable a fresh Collect to avoid stacking paid runs.
   const isBusy = status === 'running' || status === 'discovering'
+
+  // While the real run is busy, show the cosmetic 4-step processing screen
+  // instead of the bare empty/status row. The steps advance on their own timer
+  // (inside OpponentResearchProgress) and are decoupled from this real status —
+  // the timer only drives the label/counter; this real status decides when to
+  // leave the screen, so a fast fake timer can't transition before data lands.
+  //
+  // On the busy -> completed transition, hold the progress screen in its "ready"
+  // terminal state briefly so the user sees it snap to "report is ready" before
+  // the report (or, for zero opponents, ENG-10609's manual form) replaces it.
+  const [readyHold, setReadyHold] = useState(false)
+  const wasBusy = useRef(isBusy)
+  useEffect(() => {
+    const leftBusy = wasBusy.current && !isBusy
+    wasBusy.current = isBusy
+    if (!leftBusy || status !== 'completed') return
+    setReadyHold(true)
+    const id = setTimeout(() => setReadyHold(false), READY_HOLD_MS)
+    return () => clearTimeout(id)
+  }, [isBusy, status])
+
+  if (isBusy || readyHold) {
+    return (
+      <>
+        <div className="border-b border-border bg-background">
+          <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
+            <OpponentPageHeader
+              title="Know your opponent"
+              raceContext={raceContext}
+            />
+          </div>
+        </div>
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
+          <OpponentResearchProgress ready={readyHold} />
+        </div>
+      </>
+    )
+  }
 
   return (
     <>
