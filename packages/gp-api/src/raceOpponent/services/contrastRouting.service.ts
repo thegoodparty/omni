@@ -9,6 +9,9 @@ import {
   RouteContrastToTextingResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { isUniqueConstraintError } from '@/prisma/util/prismaErrors.util'
+import { retryIf } from '@/shared/util/retry-if'
+import { CampaignWith } from '@/campaigns/campaigns.types'
 import {
   OutreachStatus,
   OutreachType,
@@ -27,10 +30,10 @@ const ROUTABLE_STATUSES: RaceOpponentContrastStatus[] = [
   RaceOpponentContrastStatus.approved,
 ]
 
-// Routes an approved contrast into Campaign Story or a texting Outreach as a
-// DRAFT only. The route never sends: the story write is narrative text and the
-// outreach is left in its pre-send `pending` state with no queue producer call.
-// The candidate's own later action is what sends.
+// Routes an approved contrast into the candidate website's issues or a texting
+// Outreach as a DRAFT only. The route never sends: the story write seeds a
+// website issue and the outreach is left in its pre-send `pending` state with
+// no queue producer call. The candidate's own later action is what sends.
 @Injectable()
 export class ContrastRoutingService extends createPrismaBase(
   MODELS.RaceOpponentContrast,
@@ -40,19 +43,18 @@ export class ContrastRoutingService extends createPrismaBase(
   }
 
   async route(
-    campaignId: number,
-    userId: number,
+    campaign: CampaignWith<'user'>,
     contrastId: number,
     target: RouteContrastTarget,
   ): Promise<RouteContrastToStoryResponse | RouteContrastToTextingResponse> {
     const result =
       target === 'story'
-        ? await this.routeToStory(campaignId, contrastId)
-        : await this.routeToTexting(campaignId, contrastId)
+        ? await this.routeToStory(campaign, contrastId)
+        : await this.routeToTexting(campaign.id, contrastId)
 
     void this.analytics
-      .track(userId, EVENTS.RaceOpponent.ContrastUsed, {
-        campaignId,
+      .track(campaign.userId, EVENTS.RaceOpponent.ContrastUsed, {
+        campaignId: campaign.id,
         contrastId,
         target,
       })
@@ -66,44 +68,80 @@ export class ContrastRoutingService extends createPrismaBase(
   // contrast still routable. The updateMany scoped to the routable statuses is
   // the atomic claim: count 0 means a concurrent route already used it, which
   // rolls back the target write too. Serializable because this is a read-then-
-  // write on the campaign's single shared `issues` text: two routes for the
-  // same campaign with different contrasts both read the same `issues`, append,
-  // and the per-contrast claim does not serialize them — at Read Committed the
-  // second commit would clobber the first's appended sentence.
+  // write on the campaign's single shared website `about.issues` array: two
+  // routes for the same campaign with different contrasts both read the same
+  // issues, append, and the per-contrast claim does not serialize them — at
+  // Read Committed the second commit would clobber the first's appended issue.
+  // The candidate's website issues moved off campaign_story (ENG-10524/10607);
+  // a routed contrast becomes a website issue so it's actually shown. Two
+  // simultaneous routes for a campaign with no website yet both take the
+  // create branch and the loser trips website's @@unique(campaignId) (P2002);
+  // retry so the loser re-reads the now-existing row and takes the safe
+  // append-update branch (Website has no upsert-append in a single statement).
   private async routeToStory(
-    campaignId: number,
+    campaign: CampaignWith<'user'>,
     contrastId: number,
   ): Promise<RouteContrastToStoryResponse> {
-    return this.client.$transaction(
-      async (tx) => {
-        const contrast = await this.assertRoutable(tx, campaignId, contrastId)
+    const campaignId = campaign.id
+    return retryIf(
+      () =>
+        this.client.$transaction(
+          async (tx) => {
+            const contrast = await this.assertRoutable(
+              tx,
+              campaignId,
+              contrastId,
+            )
 
-        const existing = await tx.campaignStory.findUnique({
-          where: { campaignId },
-          select: { issues: true },
-        })
-        const issues = appendIssue(
-          existing?.issues ?? null,
-          contrast.contrastSentence,
-        )
-        const story = await tx.campaignStory.upsert({
-          where: { campaignId },
-          create: { campaignId, issues },
-          update: { issues },
-        })
+            const newIssue = {
+              title: contrast.issueTag,
+              description: contrast.contrastSentence,
+            }
+            const existing = await tx.website.findUnique({
+              where: { campaignId },
+              select: { id: true, content: true },
+            })
+            // Mirror the webapp's saveAboutFields create-if-missing: a candidate
+            // may route a contrast before building a website, so seed a minimal
+            // row (vanityPath defaults to the campaign slug, as createByCampaign
+            // does) rather than 404. Existing content is preserved — only the
+            // about.issues slice is extended.
+            const website = existing
+              ? await tx.website.update({
+                  where: { campaignId },
+                  data: {
+                    content: appendWebsiteIssue(existing.content, newIssue),
+                  },
+                  select: { id: true },
+                })
+              : await tx.website.create({
+                  data: {
+                    campaignId,
+                    vanityPath: campaign.slug,
+                    content: { about: { issues: [newIssue] } },
+                  },
+                  select: { id: true },
+                })
 
-        await this.claim(tx, contrastId, { routedStoryId: story.id })
+            await this.claim(tx, contrastId, { routedWebsiteId: website.id })
 
-        return {
-          contrast: contrastToDTO({
-            ...contrast,
-            routedStoryId: story.id,
-            status: RaceOpponentContrastStatus.used,
-          }),
-          routedStoryId: story.id,
-        }
+            return {
+              contrast: contrastToDTO({
+                ...contrast,
+                routedWebsiteId: website.id,
+                status: RaceOpponentContrastStatus.used,
+              }),
+              routedWebsiteId: website.id,
+            }
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        ),
+      {
+        shouldRetry: isUniqueConstraintError,
+        retries: 3,
+        factor: 1.5,
+        minTimeout: 50,
       },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
   }
 
@@ -161,7 +199,7 @@ export class ContrastRoutingService extends createPrismaBase(
   private async claim(
     tx: Prisma.TransactionClient,
     contrastId: number,
-    routed: { routedStoryId?: number; routedOutreachId?: number },
+    routed: { routedWebsiteId?: number; routedOutreachId?: number },
   ): Promise<void> {
     const claimed = await tx.raceOpponentContrast.updateMany({
       where: { id: contrastId, status: { in: ROUTABLE_STATUSES } },
@@ -173,8 +211,17 @@ export class ContrastRoutingService extends createPrismaBase(
   }
 }
 
-// Campaign Story `issues` is a single free-text field shared with the candidate.
-// Routing appends the contrast on its own line so an existing narrative is never
-// clobbered; a first route into an empty story seeds it.
-const appendIssue = (existing: string | null, sentence: string): string =>
-  existing && existing.trim().length > 0 ? `${existing}\n${sentence}` : sentence
+// The website's `about.issues` array is shared with the candidate and the
+// Pro-upgrade flow. Routing appends the contrast as a new structured issue so
+// existing candidate-authored issues are never clobbered, and the rest of the
+// website content is carried through untouched.
+const appendWebsiteIssue = (
+  content: PrismaJson.WebsiteContent | null,
+  issue: { title: string; description: string },
+): PrismaJson.WebsiteContent => {
+  const about = content?.about ?? {}
+  return {
+    ...content,
+    about: { ...about, issues: [...(about.issues ?? []), issue] },
+  }
+}

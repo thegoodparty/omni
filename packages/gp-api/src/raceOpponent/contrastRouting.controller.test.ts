@@ -72,7 +72,7 @@ const route = (id: number, target: 'story' | 'texting', slug = SLUG) =>
   )
 
 describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
-  it('routes a cleared contrast to Campaign Story (draft narrative + linkage + used)', async () => {
+  it('routes a cleared contrast to website issues, creating the website when none exists', async () => {
     const campaign = await seedCampaign(SLUG)
     await seedCompletedSelfPass(campaign.id)
     const contrast = await seedContrast(
@@ -84,24 +84,66 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     const result = await route(contrast.id, 'story')
 
     expect(result.status).toBe(201)
-    expect(result.data.routedStoryId).toBeGreaterThan(0)
+    expect(result.data.routedWebsiteId).toBeGreaterThan(0)
     expect(result.data.contrast.status).toBe(RaceOpponentContrastStatus.used)
-    expect(result.data.contrast.routedStoryId).toBe(result.data.routedStoryId)
+    expect(result.data.contrast.routedWebsiteId).toBe(
+      result.data.routedWebsiteId,
+    )
 
-    // The narrative text was actually written into the story's issues field.
-    const story = await service.prisma.campaignStory.findUniqueOrThrow({
+    // No website existed before — one was created and the contrast became a
+    // structured website issue (issueTag -> title, sentence -> description).
+    const website = await service.prisma.website.findUniqueOrThrow({
       where: { campaignId: campaign.id },
     })
-    expect(story.id).toBe(result.data.routedStoryId)
-    expect(story.issues).toContain(CONTRAST_SENTENCE)
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
 
-    // The contrast row is linked and marked used.
+    // The contrast row is linked to the website and marked used.
     const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.used)
-    expect(row.routedStoryId).toBe(story.id)
+    expect(row.routedWebsiteId).toBe(website.id)
     expect(row.routedOutreachId).toBeNull()
+  })
+
+  it('appends to existing website issues, preserving candidate-authored content', async () => {
+    const campaign = await seedCampaign(SLUG)
+    await seedCompletedSelfPass(campaign.id)
+    await service.prisma.website.create({
+      data: {
+        campaignId: campaign.id,
+        vanityPath: `${SLUG}-site`,
+        content: {
+          about: {
+            bio: '<p>My bio</p>',
+            issues: [{ title: 'Schools', description: 'Fund schools.' }],
+          },
+        },
+      },
+    })
+    const contrast = await seedContrast(
+      campaign.id,
+      RaceOpponentContrastStatus.cleared,
+    )
+    flagOn()
+
+    const result = await route(contrast.id, 'story')
+
+    expect(result.status).toBe(201)
+
+    const website = await service.prisma.website.findUniqueOrThrow({
+      where: { campaignId: campaign.id },
+    })
+    expect(website.id).toBe(result.data.routedWebsiteId)
+    // The pre-existing issue and bio survive; the contrast is appended.
+    expect(website.content?.about?.bio).toBe('<p>My bio</p>')
+    expect(website.content?.about?.issues).toEqual([
+      { title: 'Schools', description: 'Fund schools.' },
+      { title: 'Housing', description: CONTRAST_SENTENCE },
+    ])
   })
 
   it('routes a cleared contrast to a pre-send draft Outreach (no send enqueued)', async () => {
@@ -140,7 +182,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.used)
     expect(row.routedOutreachId).toBe(outreach.id)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('409s routing a pending_review contrast (not routable)', async () => {
@@ -160,11 +202,11 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.pending_review)
-    expect(row.routedStoryId).toBeNull()
-    const story = await service.prisma.campaignStory.findUnique({
+    expect(row.routedWebsiteId).toBeNull()
+    const website = await service.prisma.website.findUnique({
       where: { campaignId: campaign.id },
     })
-    expect(story).toBeNull()
+    expect(website).toBeNull()
   })
 
   it('409s routing a blocked contrast (not routable)', async () => {
@@ -218,7 +260,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: theirContrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('403s route when no self-research pass is completed (the gate)', async () => {
@@ -238,7 +280,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('routes an approved contrast (approved is routable)', async () => {
@@ -253,14 +295,14 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
     const result = await route(contrast.id, 'story')
 
     expect(result.status).toBe(201)
-    expect(result.data.routedStoryId).toBeGreaterThan(0)
+    expect(result.data.routedWebsiteId).toBeGreaterThan(0)
     expect(result.data.contrast.status).toBe(RaceOpponentContrastStatus.used)
 
     const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.used)
-    expect(row.routedStoryId).toBe(result.data.routedStoryId)
+    expect(row.routedWebsiteId).toBe(result.data.routedWebsiteId)
   })
 
   it('403s route for a non-Pro campaign', async () => {
@@ -279,7 +321,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 
   it('403s route when the feature flag is off', async () => {
@@ -301,6 +343,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: contrast.id },
     })
     expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedStoryId).toBeNull()
+    expect(row.routedWebsiteId).toBeNull()
   })
 })

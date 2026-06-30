@@ -9,18 +9,9 @@ model CampaignStory {
   why        String?
   background String?
 
-  // The candidate-facing "issues" moved to the website (Website.content.about
-  // .issues, shared with the Pro-upgrade flow); the Campaign Story page and the
-  // agent readers now use those. This column is retained ONLY because race
-  // opponent's contrast-routing still reads/writes it (ContrastRoutingService).
-  // Drop it once that feature is migrated to website issues — see ENG-10524.
-  issues     String?
-
   // Lifetime count of AI "Help me rewrite" attempts for this campaign, capped
   // server-side to bound Gemini cost/abuse. Counts attempts, not successes.
   rewriteCount Int @default(0) @map("rewrite_count")
-
-  raceOpponentContrasts RaceOpponentContrast[]
 
   @@map("campaign_story")
 }

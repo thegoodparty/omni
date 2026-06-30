@@ -30,7 +30,7 @@ const validContrast = {
   status: 'draft',
   editCount: 0,
   findingId: 1,
-  routedStoryId: null,
+  routedWebsiteId: null,
   routedOutreachId: null,
   createdAt: '2026-06-27T00:00:00.000Z',
   updatedAt: '2026-06-27T00:00:00.000Z',

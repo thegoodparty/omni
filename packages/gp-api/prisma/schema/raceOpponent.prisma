@@ -116,8 +116,8 @@ model RaceOpponentContrast {
   routing          String
   status           RaceOpponentContrastStatus @default(draft)
   editCount        Int                        @default(0) @map("edit_count")
-  routedStory      CampaignStory?             @relation(fields: [routedStoryId], references: [id], onDelete: SetNull)
-  routedStoryId    Int?                       @map("routed_story_id")
+  routedWebsite    Website?                   @relation(fields: [routedWebsiteId], references: [id], onDelete: SetNull)
+  routedWebsiteId  Int?                       @map("routed_website_id")
   routedOutreach   Outreach?                  @relation(fields: [routedOutreachId], references: [id], onDelete: SetNull)
   routedOutreachId Int?                       @map("routed_outreach_id")
 

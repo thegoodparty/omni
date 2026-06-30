@@ -1040,7 +1040,7 @@ export type ContrastRecord = {
   status: ContrastStatus
   editCount: number
   findingId: number | null
-  routedStoryId: number | null
+  routedWebsiteId: number | null
   routedOutreachId: number | null
   createdAt: string
   updatedAt: string
@@ -1060,9 +1060,9 @@ export type ContrastResponse = {
 }
 
 // The route endpoint returns one of two channel-specific shapes: a story route
-// carries routedStoryId, a texting route carries routedOutreachId.
+// carries routedWebsiteId, a texting route carries routedOutreachId.
 export type RouteContrastResponse =
-  | { contrast: ContrastRecord; routedStoryId: number }
+  | { contrast: ContrastRecord; routedWebsiteId: number }
   | { contrast: ContrastRecord; routedOutreachId: number }
 
 export type CommunityIssueCard = {
