@@ -49,9 +49,11 @@ change "opponent research", be explicit about which one.
 Every route is owner-scoped (`@UseCampaign`) and gated by **`assertAccess`** (Pro +
 `win-know-your-opponent`). On top of that:
 
-- `collect`, `opponents/identify·research·profile·activity`, `contrasts/*` also call
+- `collect`, `opponents/identify·research·profile·activity`,
+  `contrasts/generate·route·edit` also call
   `selfResearchGate.assertSelfResearchComplete` → **403** until the self-research pass
-  is `completed`. `opponents/manual` does **not** (manual entry is confirmed input).
+  is `completed`. `opponents/manual` (confirmed input) and `GET contrasts` (read-only
+  list — `assertAccess` only) do **not**.
 - `contrasts/:id/review-verdict` is **admin-only** (`@Roles(admin)`) and intentionally
   skips owner scope — it acts on one contrast across campaigns and needs a reviewer
   identity (no pure-M2M caller).
