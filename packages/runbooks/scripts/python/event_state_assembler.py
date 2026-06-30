@@ -44,6 +44,10 @@ def _blank(value: Any) -> Any:
     return "" if value is None else value
 
 
+def _num(value: Any) -> Any:
+    return 0 if value is None else value
+
+
 def build_rows(
     records: Sequence[Mapping[str, Any]],
     catalog_by_type: Mapping[str, Mapping[str, Any]],
@@ -68,8 +72,8 @@ def build_rows(
                 "family": _blank(rec.get("family") or cat.get("family")),
                 "first_seen_date": _blank(cat.get("first_seen_date")),
                 "last_seen_date": _blank(cat.get("last_seen_date")),
-                "event_count_30d": cat.get("event_count_30d") or rec.get("event_count_30d") or 0,
-                "event_count": cat.get("event_count") or 0,
+                "event_count_30d": _num(cat.get("event_count_30d", rec.get("event_count_30d", 0))),
+                "event_count": _num(cat.get("event_count", 0)),
                 "description": _blank(gpmeta.get("purpose")),
                 "tags": format_tags(cat.get("govern_tags")),
                 "instrumented_pr": _blank(prov.get("instrumented_pr")),

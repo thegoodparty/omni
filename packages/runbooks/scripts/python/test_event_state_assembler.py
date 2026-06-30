@@ -95,3 +95,26 @@ def test_build_rows_nulls_sort_last():
     code = {"HasDate": {"last_code_change_date": "2026-01-01"}}  # NoProv absent
     rows = esa.build_rows(records, catalog, code)
     assert [r["event"] for r in rows] == ["HasDate", "NoProv"]
+
+
+def test_build_rows_preserves_catalog_zero_counts():
+    # Regression: old `or` chain treated 0 as falsy and fell through to the next value.
+    # Catalog has event_count_30d=0 and event_count=0 (dormant event).
+    # Record has event_count_30d=99 (from elsewhere).
+    # Build must preserve catalog zeros, not use record's value.
+    records = [
+        _record("DormantEvent", "dormant", event_count_30d=99)
+    ]
+    catalog = {
+        "DormantEvent": {
+            "govern_display_name": "DormantEvent",
+            "event_count_30d": 0,
+            "event_count": 0,
+        }
+    }
+    code = {"DormantEvent": {"last_code_change_date": "2026-01-01"}}
+    rows = esa.build_rows(records, catalog, code)
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["event_count_30d"] == 0, "Catalog zero should be preserved, not replaced by record value"
+    assert r["event_count"] == 0, "Catalog zero should be preserved"
