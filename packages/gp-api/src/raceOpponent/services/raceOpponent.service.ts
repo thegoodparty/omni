@@ -178,38 +178,46 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     // (scheme + www. stripped) so the hint matches the canonical form the rest
     // of the repo persists. ballotpedia_url is a deep page link — keep its path
     // intact, only trim. Both are validated https URLs by the request schema.
-    const params: CollectionInput['opponents'][number][] = opponents.map(
+    // Normalized once here and used for both persist and dispatch, so a later
+    // collect() re-dispatch reads back the same hints.
+    const normalized = opponents.map((opponent) => ({
+      fullName: opponent.name,
+      ballotpediaUrl: opponent.ballotpediaUrl ?? null,
+      websiteUrl: opponent.website ? apexDomain(opponent.website) : null,
+    }))
+
+    await this.persistManualOpponents(campaign.id, normalized)
+
+    const params: CollectionInput['opponents'][number][] = normalized.map(
       (opponent) => ({
-        full_name: opponent.name,
+        full_name: opponent.fullName,
         ...(opponent.ballotpediaUrl
           ? { ballotpedia_url: opponent.ballotpediaUrl }
           : {}),
-        ...(opponent.website
-          ? { website_url: apexDomain(opponent.website) }
-          : {}),
+        ...(opponent.websiteUrl ? { website_url: opponent.websiteUrl } : {}),
       }),
-    )
-
-    await this.persistManualOpponents(
-      campaign.id,
-      opponents.map((opponent) => opponent.name),
     )
 
     return this.dispatchCollection(campaign, clerkUserId, params)
   }
 
-  // Reconcile the candidate-supplied names into the same campaignStrategyOpponent
-  // store collect()/loadOpposition() read, so a later refresh resolves the same
-  // opponents instead of re-running discovery. Upsert the plan row, then add only
-  // the names not already present (normalized match, mirroring loadRoster) —
-  // additive so a manual add never clobbers a discovered roster. partyAffiliation
-  // is required and unknown for a manual entry, so it takes the discovery
-  // contract's 'Unknown' sentinel. oppositionPersistedAt is stamped so collect()
-  // treats the roster as real (its "discovered, uncontested -> idle" branch keys
-  // on this marker) rather than re-triggering discovery on the next poll.
+  // Reconcile the candidate-supplied opponents into the same
+  // campaignStrategyOpponent store collect()/loadOpposition() read, so a later
+  // refresh resolves the same opponents (and their URL hints) instead of
+  // re-running discovery. Upsert the plan row, then add only the names not
+  // already present (normalized match, mirroring loadRoster) — additive so a
+  // manual add never clobbers a discovered roster. partyAffiliation is required
+  // and unknown for a manual entry, so it takes the discovery contract's
+  // 'Unknown' sentinel. oppositionPersistedAt is stamped so collect() treats the
+  // roster as real (its "discovered, uncontested -> idle" branch keys on this
+  // marker) rather than re-triggering discovery on the next poll.
   private async persistManualOpponents(
     campaignId: number,
-    names: string[],
+    opponents: {
+      fullName: string
+      ballotpediaUrl: string | null
+      websiteUrl: string | null
+    }[],
   ): Promise<void> {
     await this.client.$transaction(async (tx) => {
       const plan = await tx.campaignStrategy.upsert({
@@ -223,18 +231,20 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
           opponent.fullName.trim().toLowerCase(),
         ),
       )
-      const toAdd = names.filter((name) => {
-        const key = name.trim().toLowerCase()
+      const toAdd = opponents.filter((opponent) => {
+        const key = opponent.fullName.trim().toLowerCase()
         if (existing.has(key)) return false
         existing.add(key)
         return true
       })
       if (toAdd.length > 0) {
         await tx.campaignStrategyOpponent.createMany({
-          data: toAdd.map((fullName) => ({
+          data: toAdd.map((opponent) => ({
             campaignStrategyId: plan.id,
-            fullName,
+            fullName: opponent.fullName,
             partyAffiliation: 'Unknown',
+            ballotpediaUrl: opponent.ballotpediaUrl,
+            websiteUrl: opponent.websiteUrl,
           })),
         })
       }
@@ -495,15 +505,19 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   private async buildOpponents(
     campaignId: number,
-  ): Promise<{ full_name: string }[]> {
+  ): Promise<CollectionInput['opponents'][number][]> {
     return (await this.loadOpposition(campaignId)).opponents
   }
 
-  // The plan's opponent names plus its opposition persist marker, read in one
-  // query. collect() needs both: the marker distinguishes "never discovered"
-  // (trigger discovery) from "discovered, uncontested" (settle to idle).
+  // The plan's opponents plus its opposition persist marker, read in one query.
+  // collect() needs both: the marker distinguishes "never discovered" (trigger
+  // discovery) from "discovered, uncontested" (settle to idle). The persisted
+  // URL hints (set on the manual-entry path; null for discovery-seeded
+  // opponents) ride along so a collect() re-dispatch — e.g. a retry after a
+  // FAILED run — keeps the candidate-supplied Ballotpedia/website starting
+  // points. Absent hints omit the key so the discovery-seeded path is unchanged.
   private async loadOpposition(campaignId: number): Promise<{
-    opponents: { full_name: string }[]
+    opponents: CollectionInput['opponents'][number][]
     oppositionPersistedAt: Date | null
   }> {
     const plan = await this.client.campaignStrategy.findUnique({
@@ -513,6 +527,8 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     return {
       opponents: (plan?.opponents ?? []).map((o) => ({
         full_name: o.fullName,
+        ...(o.ballotpediaUrl ? { ballotpedia_url: o.ballotpediaUrl } : {}),
+        ...(o.websiteUrl ? { website_url: o.websiteUrl } : {}),
       })),
       oppositionPersistedAt: plan?.oppositionPersistedAt ?? null,
     }

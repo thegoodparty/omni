@@ -1,7 +1,11 @@
 import { useTestService } from '@/test-service'
 import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
-import { ExperimentRunStatus } from '@/generated/prisma'
+import {
+  ExperimentRunStatus,
+  RaceOpponentFindingKind,
+  RaceOpponentResearchStatus,
+} from '@/generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -9,7 +13,20 @@ const service = useTestService()
 const SLUG = 'campaign-koo'
 const ORG_SLUG_HEADER = 'X-Organization-Slug'
 const MANUAL_PATH = '/v1/campaigns/mine/race-opponent/opponents/manual'
+const COLLECT_PATH = '/v1/campaigns/mine/race-opponent/collect'
 const JANE = 'Jane Rival'
+
+// collect() is gated server-side on a completed self-research pass; the
+// re-collect round-trip test seeds one so it reaches the dispatch path.
+const seedCompletedSelfPass = (campaignId: number) =>
+  service.prisma.raceOpponentResearch.create({
+    data: {
+      campaignId,
+      kind: RaceOpponentFindingKind.self,
+      status: RaceOpponentResearchStatus.completed,
+      runId: 'self-done',
+    },
+  })
 
 const seedCampaign = (opts: { isPro: boolean }) =>
   service.prisma.organization
@@ -84,7 +101,16 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
       'dispatchRun',
     ).mockResolvedValue({ runId: 'run-manual' } as never)
 
-    await post({ opponents: [{ name: JANE }, { name: 'John Foe' }] })
+    await post({
+      opponents: [
+        {
+          name: JANE,
+          ballotpediaUrl: 'https://ballotpedia.org/Jane_Rival',
+          website: 'https://www.janerival.com/about',
+        },
+        { name: 'John Foe' },
+      ],
+    })
 
     const plan = await service.prisma.campaignStrategy.findUnique({
       where: { campaignId: campaign.id },
@@ -93,6 +119,61 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
     expect(plan?.oppositionPersistedAt).not.toBeNull()
     expect(plan?.opponents.map((opponent) => opponent.fullName).sort()).toEqual(
       [JANE, 'John Foe'].sort(),
+    )
+    // URL hints persist (website apex-normalized, ballotpedia path intact); an
+    // opponent with no hints stores null.
+    const jane = plan?.opponents.find((opponent) => opponent.fullName === JANE)
+    expect(jane?.ballotpediaUrl).toBe('https://ballotpedia.org/Jane_Rival')
+    expect(jane?.websiteUrl).toBe('janerival.com')
+    const john = plan?.opponents.find(
+      (opponent) => opponent.fullName === 'John Foe',
+    )
+    expect(john?.ballotpediaUrl).toBeNull()
+    expect(john?.websiteUrl).toBeNull()
+  })
+
+  it('round-trips persisted URL hints into a later collect() re-dispatch', async () => {
+    const campaign = await seedCampaign({ isPro: true })
+    await seedCompletedSelfPass(campaign.id)
+    flagOn()
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'run-manual' } as never)
+
+    await post({
+      opponents: [
+        {
+          name: JANE,
+          ballotpediaUrl: 'https://ballotpedia.org/Jane_Rival',
+          website: 'https://www.janerival.com/about',
+        },
+      ],
+    })
+    dispatchRun.mockClear()
+
+    // A retry after a FAILED run hits collect(), which reads the persisted
+    // roster via loadOpposition() — the URL hints must survive the round-trip.
+    const result = await service.client.post(
+      COLLECT_PATH,
+      {},
+      { headers: { [ORG_SLUG_HEADER]: SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'race_opponent_collection',
+        params: expect.objectContaining({
+          opponents: [
+            {
+              full_name: JANE,
+              ballotpedia_url: 'https://ballotpedia.org/Jane_Rival',
+              website_url: 'janerival.com',
+            },
+          ],
+        }),
+      }),
     )
   })
 
