@@ -258,6 +258,16 @@ def test_augment_call_site_columns_returns_early_when_helper_missing(monkeypatch
     assert rows[0]["call_site_count"] == "5"  # not wiped
 
 
+def test_augment_call_site_columns_warns_and_returns_on_empty_events_map(monkeypatch, capsys):
+    # File present but EVENTS const absent/renamed -> parse_events_map returns {} -> warn and
+    # return, leaving rows untouched rather than silently nulling every event's call-site signal.
+    monkeypatch.setattr(bf, "git_show_file", lambda *a, **k: "const OTHER = { a: 'b' }\n")
+    rows = [{c: None for c in bf.PROVENANCE_COLUMNS} | {"event_type": "Dash Viewed", "call_site_count": "5"}]
+    bf.augment_call_site_columns(rows, "/root", "origin/develop")
+    assert rows[0]["call_site_count"] == "5"  # untouched
+    assert "returned empty" in capsys.readouterr().err
+
+
 # --------------------------------------------------------------------------- #
 # find_events
 # --------------------------------------------------------------------------- #

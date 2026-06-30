@@ -753,6 +753,17 @@ def augment_call_site_columns(
     except subprocess.CalledProcessError:
         return
     events_map = parse_events_map(ts_text)
+    if not events_map:
+        # File present but the EVENTS const is missing/renamed/empty: every row would get a
+        # null call-site signal, indistinguishable from backend/dynamic events, silently
+        # suppressing the zero-call-site flag for the whole run. Warn loudly instead of letting
+        # the watermark advance on an unchecked CSV with no signal.
+        print(
+            f"WARNING: parse_events_map returned empty for {ANALYTICS_HELPER_PATH} at {ref} — "
+            "EVENTS const not found or empty; call_site_count left as None for all events.",
+            file=sys.stderr,
+        )
+        return
     grep_text = git_grep_call_sites_text(root, list(events_map.values()), paths, ref)
     lookup = make_call_site_retired_lookup(root, ref, paths)
     fields = compute_call_site_fields(events_map, grep_text, lookup)
