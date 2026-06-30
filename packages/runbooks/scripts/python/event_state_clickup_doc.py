@@ -78,6 +78,7 @@ def load_doc_state(path: Path = DOC_STATE) -> dict:
 
 
 def save_doc_state(path: Path, page_id: str) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_text(json.dumps({"page_id": page_id}, indent=2) + "\n", encoding="utf-8")
 
 

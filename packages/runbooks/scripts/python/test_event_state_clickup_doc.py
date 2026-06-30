@@ -1,3 +1,5 @@
+import json
+
 import event_state_clickup_doc as doc
 
 
@@ -19,7 +21,7 @@ def test_render_markdown_has_header_legend_and_table():
     assert "orphaned_firing" in md                     # status legend present
     assert "| event | status | supersession |" in md.replace("  ", " ") or "| event |" in md
     assert "Live Event" in md and "active" in md
-    assert "1 events" in md or "1 event" in md         # count surfaced
+    assert "1 events" in md                             # count surfaced
 
 
 def test_render_markdown_escapes_pipes_in_cells():
@@ -27,9 +29,6 @@ def test_render_markdown_escapes_pipes_in_cells():
     md = doc.render_markdown(rows, SAMPLE_META)
     # a literal pipe inside a cell must be escaped so it does not break the column
     assert "a \\| b" in md
-
-
-import json
 
 
 def test_doc_state_round_trip(tmp_path):
@@ -92,3 +91,16 @@ def test_main_dry_run_prints_markdown_and_does_not_write(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert rc == 0
     assert "# Analytics event state" in out
+
+
+def test_main_missing_env_returns_2_and_no_clickup_write(monkeypatch):
+    monkeypatch.delenv("CLICKUP_API_KEY", raising=False)
+    monkeypatch.delenv("CLICKUP_TEAM_ID", raising=False)
+    monkeypatch.setattr(doc.esa, "assemble", lambda *a, **k: {"rows": [], "meta": {
+        "refreshed_at": "2026-06-30T00:00:00+00:00", "event_count": 0,
+        "provenance_path": "p.csv"}})
+    calls = []
+    monkeypatch.setattr(doc, "upsert_page", lambda *a, **k: calls.append(1) or "")
+    rc = doc.main(["refresh"])
+    assert rc == 2
+    assert calls == []
