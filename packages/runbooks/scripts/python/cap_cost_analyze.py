@@ -240,17 +240,34 @@ def main() -> None:
             tables["coverage"] = json.load(f)
 
     milestones_present = has_milestones(df)
+    marked_runs = int(df[df["milestone"].notna()]["run_id"].nunique()) if milestones_present else 0
+    total_runs = int(df["run_id"].nunique())
+    mixed = milestones_present and marked_runs < total_runs
     if milestones_present:
         tables["milestone_costs"] = milestone_costs(df)
-        tables["milestone_note"] = (
-            "Per-milestone cost attribution is LIVE — markers present. Heatmap keyed "
-            "on ordered milestone; runs without markers (if any) appear only in the "
-            "turn-progress fallback heatmap."
-        )
+        tables["milestone_coverage"] = {
+            "runs_with_markers": marked_runs,
+            "total_runs": total_runs,
+            "mixed_cohort": mixed,
+        }
+        if mixed:
+            tables["milestone_note"] = (
+                f"MIXED cohort: {marked_runs}/{total_runs} runs carry milestone markers. "
+                "Per-milestone attribution and population_heatmap.png cover ONLY the marked "
+                f"runs; the {total_runs - marked_runs} unmarked runs are shown in "
+                "turn_progress_heatmap.png and remain in the cost distributions. "
+                "Per-milestone shares are fractions of TOTAL cohort spend, so they sum to "
+                "less than 1.0."
+            )
+        else:
+            tables["milestone_note"] = (
+                "Per-milestone cost attribution is LIVE: every run carries markers. "
+                "Heatmap keyed on ordered milestone."
+            )
     else:
         tables["milestone_note"] = (
             "No milestone markers in this cohort (pre-primitive runs or agents that "
-            "emitted none) — analysis is turn-level and the heatmap is keyed on "
+            "emitted none): analysis is turn-level and the heatmap is keyed on "
             "normalized turn progress."
         )
     with open(os.path.join(outdir, "distributions.json"), "w") as f:
@@ -261,6 +278,10 @@ def main() -> None:
     plot_cost_velocity(df, os.path.join(outdir, "cost_velocity.png"))
     if milestones_present:
         plot_milestone_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
+        if mixed:
+            # Mixed cohort: the milestone heatmap omits unmarked runs, so also emit a
+            # full-population turn-progress heatmap rather than silently dropping them.
+            plot_population_heatmap(df, os.path.join(outdir, "turn_progress_heatmap.png"))
     else:
         plot_population_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
     print(f"wrote plots + distributions.json to {outdir}")

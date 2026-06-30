@@ -9,7 +9,7 @@ NAIVE turn vs an aware marker, must compare without raising. No S3/DB.
 import pandas as pd
 
 from cap_cost_extract import parse_milestones, milestone_at
-from cap_cost_analyze import milestone_costs
+from cap_cost_analyze import milestone_costs, has_milestones
 from cap_cost_hotspots import detect_hot_milestones
 
 
@@ -96,3 +96,28 @@ def test_detect_hot_milestones_flags_outsized_share():
     # uniform share across 2 milestones = 0.5; "work" at 0.8 >= 0.5*1.5=0.75 -> hot.
     # "setup" at 0.2 is not.
     assert names == ["work"]
+
+
+def _mixed_df():
+    marked = _milestone_df()
+    unmarked = pd.DataFrame(
+        [
+            {"run_id": "r3", "milestone": None, "est_cost": 5.0, "turn_idx": 0,
+             "tool_calls": "Bash", "cache_read": 30, "tokens": 300, "run_cost_usd": 5.0,
+             "status": "completed"},
+        ]
+    )
+    return pd.concat([marked, unmarked], ignore_index=True)
+
+
+def test_mixed_cohort_uses_total_spend_and_reports_partial_coverage():
+    df = _mixed_df()
+    assert has_milestones(df) is True
+    out = milestone_costs(df)
+    # Only the 2 marked runs appear in the per-milestone view (r3 is unmarked).
+    assert out["runs_with_milestones"] == 2
+    # Shares are fractions of TOTAL cohort spend (incl. r3's $5), so they sum to
+    # < 1.0 rather than silently treating marked spend as the whole cohort.
+    total_share = sum(r["share_of_spend"] for r in out["ordered"])
+    # marked spend is 10 of 15 total cohort spend -> ~2/3, and strictly < 1.0
+    assert 0.6 < total_share < 0.7
