@@ -63,5 +63,5 @@ const combineAiContentAndCategories = (
     .map(({ title, order }) => ({
       name: title,
       order,
-      templates: categoriesHash[title],
+      templates: categoriesHash[title] ?? [],
     }))

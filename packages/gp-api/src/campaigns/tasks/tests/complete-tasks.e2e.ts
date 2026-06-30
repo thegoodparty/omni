@@ -10,6 +10,7 @@ import {
   RegisterResponse,
 } from '../../../../e2e-tests/utils/auth.util'
 import { CampaignTask } from '../campaignTasks.types'
+import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 
 const TASKS_BASE_PATH = '/v1/campaigns/tasks'
 
@@ -112,7 +113,7 @@ test.describe('Campaigns Tasks - Complete Tasks', () => {
     )
 
     const tasks = (await listResponse.json()) as CampaignTask[]
-    testTaskId = tasks[0].id!
+    testTaskId = firstOrThrow(tasks).id!
 
     const response = await request.put(
       `${TASKS_BASE_PATH}/complete/${testTaskId}`,
@@ -141,7 +142,7 @@ test.describe('Campaigns Tasks - Complete Tasks', () => {
     )
 
     const tasks = (await listResponse.json()) as CampaignTask[]
-    testTaskId = tasks[0].id!
+    testTaskId = firstOrThrow(tasks).id!
 
     await request.put(`${TASKS_BASE_PATH}/complete/${testTaskId}`, {
       headers: authHeaders(reg.token, orgSlug),

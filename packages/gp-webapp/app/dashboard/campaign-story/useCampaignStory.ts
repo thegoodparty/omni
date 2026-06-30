@@ -11,15 +11,17 @@ const STORY_ROUTE = 'GET /v1/campaigns/mine/story' as const
 export const isStoryFieldAnswered = (value?: string | null): boolean =>
   !!value?.trim()
 
-// The story is "complete" once all three prompts have non-whitespace text —
-// the gate for offering campaign-plan generation. Type guard so callers narrow
-// away `undefined` after the check.
+// The story is "complete" once the candidate has a why, a background, and at
+// least one issue — the gate for offering campaign-plan generation. Only
+// `background` lives on the story now; the `why` (bio) and issues are the
+// website fields shared with the Pro-upgrade flow, so `hasWhy` and `hasIssues`
+// are passed in. Type guard so callers narrow away `undefined` after the check.
 export const isCampaignStoryComplete = (
   story: CampaignStory | undefined,
+  hasWhy: boolean,
+  hasIssues: boolean,
 ): story is CampaignStory =>
-  isStoryFieldAnswered(story?.why) &&
-  isStoryFieldAnswered(story?.background) &&
-  isStoryFieldAnswered(story?.issues)
+  hasWhy && isStoryFieldAnswered(story?.background) && hasIssues
 
 interface UseCampaignStoryResult {
   data: CampaignStory | undefined

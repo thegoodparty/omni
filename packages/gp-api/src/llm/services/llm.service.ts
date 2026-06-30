@@ -525,6 +525,7 @@ export class LlmService {
 
         for (let i = 0; i < models.length; i++) {
           const currentModel = models[i]
+          if (currentModel === undefined) continue
 
           try {
             const result = await fn(currentModel)

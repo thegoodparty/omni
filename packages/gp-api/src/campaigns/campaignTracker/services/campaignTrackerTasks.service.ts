@@ -3,6 +3,7 @@ import { addDays, format, startOfDay } from 'date-fns'
 import { z } from 'zod'
 import {
   Campaign,
+  CampaignTaskType,
   ExperimentRun,
   ExperimentRunStatus,
   Prisma,
@@ -18,9 +19,14 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
+import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
+import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
-import { buildStaticTrackerTaskRows } from './staticTrackerTasks.util'
+import {
+  buildOutreachTrackerTaskRows,
+  buildStaticTrackerTaskRows,
+} from './staticTrackerTasks.util'
 import {
   CAMPAIGN_TRACKER_EXPERIMENT_TYPE,
   CHANNEL_TO_FLOW_TYPE,
@@ -91,12 +97,34 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     // tasks would otherwise all land in the past. Stamped once (idempotent);
     // election-relative tasks still key off the election date.
     const start = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
-    const rows = buildStaticTrackerTaskRows(
-      campaign.id,
-      start,
-      this.resolveElectionDate(campaign),
-    )
+    const electionDate = this.resolveElectionDate(campaign)
+    const rows = [
+      ...buildStaticTrackerTaskRows(campaign.id, start, electionDate),
+      // The plan's 7 text/robocall sends are deterministic, not agent-picked.
+      // Suppressed entirely if the candidate lost their primary.
+      ...buildOutreachTrackerTaskRows(
+        campaign.id,
+        start,
+        electionDate,
+        campaign.primaryResult === 'lost',
+      ),
+    ]
     const { count } = await this.model.createMany({ data: rows })
+    return count
+  }
+
+  // Remove the deterministic outreach (text/robocall) rows. Called from the
+  // weekly cron when the candidate has lost their primary: a lost-primary race
+  // is over, so the plan's general-election contact schedule no longer applies
+  // and the tracker must stop suggesting texts/robocalls.
+  async removeOutreachTasks(campaignId: number): Promise<number> {
+    const { count } = await this.model.deleteMany({
+      where: {
+        campaignId,
+        isDefaultTask: true,
+        flowType: { in: [CampaignTaskType.text, CampaignTaskType.robocall] },
+      },
+    })
     return count
   }
 
@@ -199,7 +227,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     campaignPlan: string | null
     campaignStory: string | null
   }> {
-    const [story, strategy] = await Promise.all([
+    const [story, strategy, website] = await Promise.all([
       this.client.campaignStory.findUnique({ where: { campaignId } }),
       this.client.campaignStrategy.findUnique({
         where: { campaignId },
@@ -209,12 +237,22 @@ export class CampaignTrackerTasksService extends createPrismaBase(
           opponents: true,
         },
       }),
+      // The "why" and issues live on the website now (shared with Pro-upgrade),
+      // not the story.
+      this.client.website.findUnique({
+        where: { campaignId },
+        select: { content: true },
+      }),
     ])
 
+    const why = serializeWebsiteBio(website?.content?.about?.bio)
+    const issuesText = serializeWebsiteIssues(
+      website?.content?.about?.issues ?? [],
+    )
     const storyParts = [
-      story?.why ? `Why I'm running:\n${story.why}` : null,
+      why ? `Why I'm running:\n${why}` : null,
       story?.background ? `Background:\n${story.background}` : null,
-      story?.issues ? `Key issues:\n${story.issues}` : null,
+      issuesText ? `Key issues:\n${issuesText}` : null,
     ].filter((part): part is string => part !== null)
     const campaignStory = storyParts.length ? storyParts.join('\n\n') : null
 
@@ -266,7 +304,13 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     try {
       const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
       if (!raw) throw new Error('artifact is missing or empty')
-      const { tasks } = trackerArtifactSchema.parse(JSON.parse(raw))
+      const parsed = trackerArtifactSchema.parse(JSON.parse(raw))
+      // Outreach (text/robocall) is owned deterministically by the plan's
+      // contact schedule, not the agent — drop any the CAP returns. The catalog
+      // attachment already excludes these channels; this is the safety net.
+      const tasks = parsed.tasks.filter(
+        (task) => task.channel !== 'text' && task.channel !== 'robocall',
+      )
 
       // Date dateless tasks across the upcoming Mon-Sun week (index 0 = next
       // Monday). nextMondayUtcMidnight is timezone-aware and shared with the

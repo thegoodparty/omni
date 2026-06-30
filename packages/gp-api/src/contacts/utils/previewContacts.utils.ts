@@ -51,8 +51,13 @@ const PARTIES: Person['politicalParty'][] = [
 ]
 const GENDERS: NonNullable<Person['gender']>[] = ['Male', 'Female']
 
-const pick = <T>(list: readonly T[], index: number): T =>
-  list[index % list.length]
+const pick = <T>(list: readonly T[], index: number): T => {
+  const item = list[index % list.length]
+  if (item === undefined) {
+    throw new Error('pick called with an empty list')
+  }
+  return item
+}
 
 const buildPreviewPerson = (index: number): Person => {
   const houseNumber = 100 + index * 7

@@ -24,6 +24,10 @@ export type PositionWithTopIssue = Prisma.CampaignPositionGetPayload<{
   include: { topIssue: true }
 }>
 
+type WebsiteIssue = NonNullable<
+  NonNullable<PrismaJson.WebsiteContent['about']>['issues']
+>[number]
+
 const COMPLIANCE_DEFAULT_ISSUE_TITLE = 'Local Solutions, Not Party Politics'
 
 const hasText = (value?: string | null): boolean =>
@@ -191,6 +195,22 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
     }
   }
 
+  // The candidate's issues live on the website content (shared with the
+  // Pro-upgrade flow), not the campaign story. Returns [] when the campaign
+  // has no website yet.
+  async getIssuesForCampaign(campaignId: number): Promise<WebsiteIssue[]> {
+    const website = await this.model.findUnique({ where: { campaignId } })
+    return website?.content?.about?.issues ?? []
+  }
+
+  // The candidate's "why" lives on the website bio (shared with the Pro-upgrade
+  // flow), not the campaign story. Returns null when the campaign has no
+  // website/bio yet.
+  async getBioForCampaign(campaignId: number): Promise<string | null> {
+    const website = await this.model.findUnique({ where: { campaignId } })
+    return website?.content?.about?.bio ?? null
+  }
+
   async findByDomainName(domainName: string, include?: Prisma.WebsiteInclude) {
     const domainRecord = await this.client.domain.findUniqueOrThrow({
       where: { name: domainName },
@@ -343,8 +363,11 @@ export const ssrfSafeLookup: NonNullable<https.AgentOptions['lookup']> = (
     if (typeof options === 'object' && options?.all) {
       return callback(null, addresses)
     }
-    const [{ address, family }] = addresses
-    callback(null, address, family)
+    const first = addresses[0]
+    if (!first) {
+      return callback(new Error(`No addresses resolved for ${hostname}`), '', 0)
+    }
+    callback(null, first.address, first.family)
   })
 }
 

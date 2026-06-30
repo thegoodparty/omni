@@ -71,6 +71,10 @@ import {
   RaceOpponentCollectResponse,
   RaceOpponentCollectResponseSchema,
 } from './schemas/raceOpponentCollect.schema'
+import {
+  ManualOpponentsRequest,
+  ManualOpponentsRequestSchema,
+} from './schemas/manualOpponents.schema'
 
 @Controller('campaigns/mine/race-opponent')
 @UsePipes(ZodValidationPipe)
@@ -88,18 +92,38 @@ export class RaceOpponentController {
     private readonly contrastEdit: ContrastEditService,
   ) {}
 
-  // collect is the functional opponent trigger (it dispatches opponent
-  // discovery/collection runs), so PRD Requirement B's gate must hold here too,
-  // not only on the identify stub: opponent research stays blocked until the
-  // self-research pass has completed.
+  // collect drives the relaxed race_opponent_collection -> race_opponent_summary
+  // path the live /opponent page renders. That path sources the candidate's own
+  // platform from Website.content.about (buildCandidatePlatform), not the strict
+  // self_research engine, so it is gated on Pro+flag only (assertAccess inside
+  // collect) — NOT on a completed RaceOpponentResearch(kind=self) row, which the
+  // relaxed page never produces. The strict engine's own endpoints
+  // (opponents/research, contrasts/*) keep the self-research gate.
   @Post('collect')
   @ResponseSchema(RaceOpponentCollectResponseSchema)
   @UseCampaign({ include: { user: true } })
   async collect(
     @ReqCampaign() campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentCollectResponse> {
-    await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
     return this.raceOpponent.collect(campaign)
+  }
+
+  // Manual opponent entry: when discovery finds nobody, the candidate names
+  // opponents by hand (Lovable add-opponents screen) and runs collection on
+  // them. Reconciles the names into the same store collect() reads, then
+  // dispatches race_opponent_collection through the shared dispatch path. Gated
+  // on Pro+flag inside collectManual (same assertAccess as the rest of the
+  // module); unlike collect it does NOT require a completed self-research pass,
+  // since manual entry is the candidate's own confirmed input.
+  @Post('opponents/manual')
+  @ResponseSchema(RaceOpponentCollectResponseSchema)
+  @UseCampaign({ include: { user: true } })
+  async collectManualOpponents(
+    @ReqCampaign() campaign: CampaignWith<'user'>,
+    @Body(new ZodValidationPipe(ManualOpponentsRequestSchema))
+    body: ManualOpponentsRequest,
+  ): Promise<RaceOpponentCollectResponse> {
+    return this.raceOpponent.collectManual(campaign, body.opponents)
   }
 
   @Get()
@@ -230,12 +254,7 @@ export class RaceOpponentController {
   ): Promise<RouteContrastResponse> {
     await this.raceOpponent.assertAccess(campaign)
     await this.selfResearchGate.assertSelfResearchComplete(campaign.id)
-    return this.contrastRouting.route(
-      campaign.id,
-      campaign.userId,
-      id,
-      body.target,
-    )
+    return this.contrastRouting.route(campaign, id, body.target)
   }
 
   // Candidate edits a contrast's text before routing it. Owner-scoped and gated

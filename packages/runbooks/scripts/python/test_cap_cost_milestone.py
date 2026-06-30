@@ -1,0 +1,134 @@
+"""Behavioral contract for the milestone cost-attribution path.
+
+These lock the PURE functions that consume agent-emitted milestone markers:
+parse_milestones (extract) and milestone_at (extract), plus milestone_costs and
+detect_hot_milestones (analyze/hotspots). The mixed-tzinfo cases here are the ones
+that motivated the tz-normalization fix — a 'Z' turn vs a '+00:00' marker, and a
+NAIVE turn vs an aware marker, must compare without raising. No S3/DB.
+"""
+import pandas as pd
+
+from cap_cost_extract import parse_milestones, milestone_at
+from cap_cost_analyze import milestone_costs, has_milestones
+from cap_cost_hotspots import detect_hot_milestones
+
+
+def test_parse_milestones_sorts_and_drops_malformed():
+    text = "\n".join(
+        [
+            '{"ts": "2026-01-01T00:00:02+00:00", "name": "second"}',
+            '{"ts": "2026-01-01T00:00:01+00:00", "name": "first"}',
+            "not json at all",
+            '{"ts": "2026-01-01T00:00:03+00:00"}',  # no name -> dropped
+            '{"name": "no_ts"}',  # no ts -> dropped
+            "",
+        ]
+    )
+    markers = parse_milestones(text)
+    assert [m["name"] for m in markers] == ["first", "second"]
+
+
+def test_milestone_at_boundary_z_vs_offset():
+    # Marker written with +00:00, turn written with Z, equal instant -> at/before
+    # is inclusive, so the marker is active on its own boundary.
+    markers = [{"ts": "2026-01-01T00:00:00+00:00", "name": "alpha"}]
+    assert milestone_at(markers, "2026-01-01T00:00:00Z") == "alpha"
+
+
+def test_milestone_at_naive_turn_vs_aware_marker_does_not_raise():
+    # The bug: a naive turn_ts (no offset) compared to an aware marker raised
+    # TypeError. Naive is treated as UTC, so this resolves rather than crashes.
+    markers = [{"ts": "2026-01-01T00:00:00+00:00", "name": "alpha"}]
+    assert milestone_at(markers, "2026-01-01T00:00:05") == "alpha"
+
+
+def test_milestone_at_naive_marker_vs_aware_turn_does_not_raise():
+    markers = [{"ts": "2026-01-01T00:00:00", "name": "alpha"}]
+    assert milestone_at(markers, "2026-01-01T00:00:05Z") == "alpha"
+
+
+def test_milestone_at_no_marker_before_turn_is_none():
+    markers = [{"ts": "2026-01-01T00:00:10+00:00", "name": "alpha"}]
+    assert milestone_at(markers, "2026-01-01T00:00:05Z") is None
+
+
+def test_milestone_at_picks_most_recent_preceding():
+    markers = [
+        {"ts": "2026-01-01T00:00:01+00:00", "name": "first"},
+        {"ts": "2026-01-01T00:00:05+00:00", "name": "second"},
+    ]
+    assert milestone_at(markers, "2026-01-01T00:00:03Z") == "first"
+    assert milestone_at(markers, "2026-01-01T00:00:09Z") == "second"
+
+
+def _milestone_df():
+    return pd.DataFrame(
+        [
+            {"run_id": "r1", "milestone": "setup", "est_cost": 1.0, "turn_idx": 0,
+             "tool_calls": "Read", "cache_read": 10, "tokens": 100, "run_cost_usd": 9.0,
+             "status": "completed"},
+            {"run_id": "r1", "milestone": "work", "est_cost": 8.0, "turn_idx": 1,
+             "tool_calls": "Bash", "cache_read": 20, "tokens": 200, "run_cost_usd": 9.0,
+             "status": "completed"},
+            {"run_id": "r2", "milestone": "setup", "est_cost": 1.0, "turn_idx": 0,
+             "tool_calls": "Read", "cache_read": 10, "tokens": 100, "run_cost_usd": 1.0,
+             "status": "completed"},
+        ]
+    )
+
+
+def test_milestone_costs_share_of_total():
+    out = milestone_costs(_milestone_df())
+    by_name = {r["milestone"]: r for r in out["ordered"]}
+    # total = 1 + 8 + 1 = 10; "work" = 8 -> 0.8 share.
+    assert by_name["work"]["total"] == 8.0
+    assert by_name["work"]["share_of_spend"] == 0.8
+    assert by_name["setup"]["total"] == 2.0
+    assert by_name["setup"]["share_of_spend"] == 0.2
+    assert out["runs_with_milestones"] == 2
+    # run-sequence order: setup (turn 0) before work (turn 1).
+    assert [r["milestone"] for r in out["ordered"]] == ["setup", "work"]
+
+
+def test_detect_hot_milestones_flags_outsized_share():
+    hot = detect_hot_milestones(_milestone_df(), margin=1.5)
+    names = [r["milestone"] for r in hot]
+    # uniform share across 2 milestones = 0.5; "work" at 0.8 >= 0.5*1.5=0.75 -> hot.
+    # "setup" at 0.2 is not.
+    assert names == ["work"]
+
+
+def _mixed_df():
+    marked = _milestone_df()
+    unmarked = pd.DataFrame(
+        [
+            {"run_id": "r3", "milestone": None, "est_cost": 5.0, "turn_idx": 0,
+             "tool_calls": "Bash", "cache_read": 30, "tokens": 300, "run_cost_usd": 5.0,
+             "status": "completed"},
+        ]
+    )
+    return pd.concat([marked, unmarked], ignore_index=True)
+
+
+def test_mixed_cohort_uses_total_spend_and_reports_partial_coverage():
+    df = _mixed_df()
+    assert has_milestones(df)
+    out = milestone_costs(df)
+    # Only the 2 marked runs appear in the per-milestone view (r3 is unmarked).
+    assert out["runs_with_milestones"] == 2
+    # Shares are fractions of TOTAL cohort spend (incl. r3's $5), so they sum to
+    # < 1.0 rather than silently treating marked spend as the whole cohort.
+    total_share = sum(r["share_of_spend"] for r in out["ordered"])
+    # marked spend is 10 of 15 total cohort spend -> ~2/3, and strictly < 1.0
+    assert 0.6 < total_share < 0.7
+
+
+def test_detect_hot_milestones_mixed_reports_total_share():
+    hot = detect_hot_milestones(_mixed_df(), margin=1.5)
+    by = {r["milestone"]: r for r in hot}
+    # "work" is still flagged (8/10 of MARKED spend exceeds the even split * 1.5)
+    assert "work" in by
+    # ...but cost_share is a fraction of TOTAL cohort spend (8/15 ~ 0.53),
+    # consistent with milestone_costs, not the marked-only 8/10.
+    assert 0.5 < by["work"]["cost_share"] < 0.56
+    assert 0.7 < by["work"]["share_among_milestones"] < 0.85

@@ -18,6 +18,7 @@ test.describe('Elections', () => {
     expect(Array.isArray(races)).toBe(true)
     if (races.length > 0) {
       const firstRace = races[0]
+      if (!firstRace) return
       expect(typeof firstRace.id).toBe('string')
       expect(typeof firstRace.brPositionId).toBe('string')
       expect(typeof firstRace.election.electionDay).toBe('string')

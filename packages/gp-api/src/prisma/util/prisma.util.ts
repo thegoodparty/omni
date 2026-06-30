@@ -154,13 +154,14 @@ export function createPrismaBase<T extends Prisma.ModelName>(modelName: T) {
             data: { ...patch, updatedAt: new Date() },
           } as Parameters<ModelDelegate['updateManyAndReturn']>[0])
 
-          if (result.length === 0) {
+          const updated = result[0]
+          if (!updated) {
             const msg = `[optimistic locking update] Record has been modified since it was fetched for where clause: ${JSON.stringify(params.where)} attempt ${attempt}`
             this.logger.info(msg)
             throw new ConflictException(msg)
           }
 
-          return result[0]
+          return updated
         },
         {
           shouldRetry: (error) => error instanceof ConflictException,

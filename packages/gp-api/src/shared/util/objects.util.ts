@@ -4,7 +4,10 @@
 export function flip(obj: Record<string, string>): Record<string, string> {
   const ret: Record<string, string> = {}
   Object.keys(obj).forEach((key) => {
-    ret[obj[key]] = key
+    const value = obj[key]
+    if (value !== undefined) {
+      ret[value] = key
+    }
   })
   return ret
 }
@@ -26,7 +29,13 @@ export const pick = (
   return keys
     .filter((key) => key in obj)
     .reduce(
-      (obj2, key) => ((obj2[key] = obj[key]), obj2),
+      (obj2, key) => {
+        const value = obj[key]
+        if (value !== undefined) {
+          obj2[key] = value
+        }
+        return obj2
+      },
       {} as Record<string, string | number | boolean | null>,
     )
 }

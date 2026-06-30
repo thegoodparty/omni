@@ -33,9 +33,7 @@ describe('CampaignStoryService.upsertForCampaign', () => {
   it('applies the field as an update when the create races into P2002', async () => {
     mockPrisma.campaignStory.upsert.mockRejectedValue(uniqueConstraintError)
     mockPrisma.campaignStory.update.mockResolvedValue({
-      why: null,
       background: 'b',
-      issues: null,
     })
 
     const result = await service.upsertForCampaign(99, { background: 'b' })
@@ -44,15 +42,15 @@ describe('CampaignStoryService.upsertForCampaign', () => {
       where: { campaignId: 99 },
       data: { background: 'b' },
     })
-    expect(result).toEqual({ why: null, background: 'b', issues: null })
+    expect(result).toEqual({ background: 'b' })
   })
 
   it('rethrows errors that are not unique-constraint violations', async () => {
     mockPrisma.campaignStory.upsert.mockRejectedValue(new Error('boom'))
 
-    await expect(service.upsertForCampaign(99, { why: 'x' })).rejects.toThrow(
-      'boom',
-    )
+    await expect(
+      service.upsertForCampaign(99, { background: 'x' }),
+    ).rejects.toThrow('boom')
     expect(mockPrisma.campaignStory.update).not.toHaveBeenCalled()
   })
 })

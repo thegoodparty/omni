@@ -102,9 +102,10 @@ describe('Campaigns Tasks - List Tasks', () => {
     expect(result.data.length).toBeGreaterThan(0)
 
     for (let i = 1; i < result.data.length; i++) {
-      expect(result.data[i - 1].week).toBeGreaterThanOrEqual(
-        result.data[i].week,
-      )
+      const prev = result.data[i - 1]
+      const cur = result.data[i]
+      if (!prev || !cur) continue
+      expect(prev.week).toBeGreaterThanOrEqual(cur.week)
     }
   })
 

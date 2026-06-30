@@ -123,8 +123,8 @@ describe('EcanvasserAttributionService', () => {
       attributionSource: VoterOutreachAttributionSource.recipient,
       sourceId: '900',
     })
-    expect(rows[0].occurredAt.toISOString()).toBe('2026-03-01T12:00:00.000Z')
-    expect(rows[0].metadata).toEqual({
+    expect(rows[0]?.occurredAt.toISOString()).toBe('2026-03-01T12:00:00.000Z')
+    expect(rows[0]?.metadata).toEqual({
       ecanvasserInteractionId: 900,
       rating: 4,
     })

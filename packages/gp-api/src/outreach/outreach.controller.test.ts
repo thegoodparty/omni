@@ -6,6 +6,7 @@ import {
   User,
 } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachController } from './outreach.controller'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 
@@ -240,7 +241,7 @@ describe('OutreachController', () => {
         mockImage as never,
       )
 
-      const createCall = mockOutreachService.create.mock.calls[0]
+      const createCall = firstOrThrow(mockOutreachService.create.mock.calls)
       // signature: (user, campaign, dto, imageUrl, p2pImage) — position 4 is p2pImage
       expect(createCall[4]).toBeUndefined()
     })

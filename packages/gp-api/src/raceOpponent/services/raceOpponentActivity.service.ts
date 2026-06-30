@@ -24,6 +24,7 @@ const REFRESH_STATUS_MAP: Record<
   [ExperimentRunStatus.QUEUED]: 'running',
   [ExperimentRunStatus.RUNNING]: 'running',
   [ExperimentRunStatus.AWAITING_RESUME]: 'running',
+  [ExperimentRunStatus.SUPERSEDED]: 'running',
   [ExperimentRunStatus.COMPLETED]: 'completed',
   [ExperimentRunStatus.FAILED]: 'failed',
 }

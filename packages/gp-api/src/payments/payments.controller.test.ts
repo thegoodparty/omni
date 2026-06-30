@@ -5,7 +5,6 @@ import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { IS_PUBLIC_KEY } from '../authentication/decorators/PublicAccess.decorator'
 import { ROLES_KEY } from '../authentication/decorators/Roles.decorator'
-import { CampaignsService } from '../campaigns/services/campaigns.service'
 import { StripeService } from '../vendors/stripe/services/stripe.service'
 import { PaymentsController } from './payments.controller'
 import { PaymentEventsService } from './services/paymentEventsService'
@@ -30,7 +29,6 @@ describe('PaymentsController', () => {
     controller = new PaymentsController(
       stripeService as unknown as StripeService,
       stripeEvents as unknown as PaymentEventsService,
-      {} as CampaignsService,
       paymentsService as unknown as PaymentsService,
       createMockLogger(),
     )

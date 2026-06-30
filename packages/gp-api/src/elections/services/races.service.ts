@@ -503,8 +503,7 @@ export class RacesService {
       }
       const { races } = ballotReadyData
       const results = races?.edges || []
-      for (let i = 0; i < results.length; i++) {
-        const result = results[i]
+      for (const result of results) {
         const { position, election } = result.node
         if (position?.name && election?.electionDay) {
           if (position.name.toLowerCase() === officeName.toLowerCase()) {

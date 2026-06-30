@@ -26,3 +26,6 @@ export const isPrismaError = (
 
 export const isUniqueConstraintError = (err: unknown): boolean =>
   isPrismaError(err, 'P2002')
+
+export const isSerializationError = (err: unknown): boolean =>
+  isPrismaError(err, 'P2034')

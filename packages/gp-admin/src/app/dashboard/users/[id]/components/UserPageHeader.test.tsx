@@ -44,6 +44,8 @@ const mockUser: User = {
   email: 'john@example.com',
   hasPassword: true,
   avatar: 'https://example.com/avatar.jpg',
+  zip: null,
+  phone: null,
 }
 
 function renderWithUser(user: User, props: { isEditMode?: boolean } = {}) {

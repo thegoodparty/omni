@@ -126,6 +126,7 @@ export class OpponentResearchScheduleService extends createPrismaBase(
             ExperimentRunStatus.QUEUED,
             ExperimentRunStatus.RUNNING,
             ExperimentRunStatus.AWAITING_RESUME,
+            ExperimentRunStatus.SUPERSEDED,
           ],
         },
       },

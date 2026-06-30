@@ -12,6 +12,11 @@ interface RichEditorProps {
   useOnChange?: boolean
   // Renders the editor with a destructive border to flag a validation error.
   error?: boolean
+  // Hides the Quill bubble formatting toolbar so the field behaves like a
+  // plain-text input. The stored value is still Quill HTML, so it stays
+  // readable/editable by surfaces that keep the toolbar (e.g. the website /
+  // Pro-upgrade policy editor).
+  hideToolbar?: boolean
 }
 
 const RichEditor = ({
@@ -19,9 +24,11 @@ const RichEditor = ({
   onChangeCallback = noop,
   onTextLengthChange,
   error = false,
+  hideToolbar = false,
 }: RichEditorProps): React.JSX.Element => {
   const { quill, quillRef } = useQuill({
     theme: 'bubble',
+    modules: hideToolbar ? { toolbar: false } : undefined,
   })
 
   useEffect(() => {

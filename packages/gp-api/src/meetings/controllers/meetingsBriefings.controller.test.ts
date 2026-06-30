@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ElectionsService } from '@/elections/services/elections.service'
@@ -297,9 +298,9 @@ describe('GET /v1/meetings', () => {
     const probe = await service.client.get('/v1/meetings', {
       headers: { 'x-organization-slug': orgSlug },
     })
-    const targetDate = (
-      probe.data.meetings as Array<{ meetingDate: string }>
-    )[0].meetingDate
+    const targetDate = firstOrThrow(
+      probe.data.meetings as Array<{ meetingDate: string }>,
+    ).meetingDate
 
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -387,9 +388,9 @@ describe('GET /v1/meetings', () => {
     const probe = await service.client.get('/v1/meetings', {
       headers: { 'x-organization-slug': orgSlug },
     })
-    const targetDate = (
-      probe.data.meetings as Array<{ meetingDate: string }>
-    )[0].meetingDate
+    const targetDate = firstOrThrow(
+      probe.data.meetings as Array<{ meetingDate: string }>,
+    ).meetingDate
 
     const briefingRun = await service.prisma.experimentRun.create({
       data: {
@@ -441,9 +442,9 @@ describe('GET /v1/meetings', () => {
     const probe = await service.client.get('/v1/meetings', {
       headers: { 'x-organization-slug': orgSlug },
     })
-    const targetDate = (
-      probe.data.meetings as Array<{ meetingDate: string }>
-    )[0].meetingDate
+    const targetDate = firstOrThrow(
+      probe.data.meetings as Array<{ meetingDate: string }>,
+    ).meetingDate
 
     const briefingRun = await service.prisma.experimentRun.create({
       data: {

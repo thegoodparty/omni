@@ -16,7 +16,8 @@ const FIELD_GUIDANCE: Record<RewriteCampaignStoryInput['field'], string> = {
   why: 'why they are running — the moment, people, or breaking point that pushed them to put their name on the ballot. This is their stump-speech opener.',
   background:
     'their background — childhood, career, and community ties; the human story behind the candidate.',
-  issues: 'the two to four concrete issues they will fight for if elected.',
+  issue:
+    'their focus on one of the concrete issues they will fight for if elected — what they will do about it and why it matters to their community.',
 }
 
 const SYSTEM_INSTRUCTION = [
@@ -74,6 +75,7 @@ export class CampaignStoryRewriteService {
     return [
       `Candidate name: ${candidateName || 'The candidate'}.`,
       `This passage is about ${FIELD_GUIDANCE[input.field]}`,
+      ...(input.title ? [`This policy is titled: "${input.title}".`] : []),
       'Here is what the candidate wrote (it may be rough, short, or',
       'unpolished):',
       '"""',

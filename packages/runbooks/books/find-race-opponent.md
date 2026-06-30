@@ -1,6 +1,6 @@
 Given an opponent's name and the race context, find their Ballotpedia page and their campaign website, fetch both, and capture the page text as collected, tagged by source and the exact URL fetched. This is web-only as-collected capture — no interpretation, scoring, or comparison.
 
-This is the source runbook — it captures the human-runnable version of the workflow. Once it's stable, port it into a PMF agent experiment by following `books/convert-runbook-to-experiment.md`. The paired experiment is `experiments/race_opponent_collection/`.
+This is the source runbook — it captures the human-runnable version of the workflow. Once it's stable, port it into a PMF agent experiment by following `.claude/skills/build-cap-agent/SKILL.md`. The paired experiment is `experiments/race_opponent_collection/`.
 
 ## Prerequisites
 
@@ -105,7 +105,7 @@ An opponent with neither a findable Ballotpedia page nor a findable website cont
 
 ## Promote to a self-service experiment
 
-This runbook is the human-runnable precursor. To make it a self-service CAP background agent (`race_opponent_collection`), follow `books/convert-runbook-to-experiment.md`. The pairing:
+This runbook is the human-runnable precursor. To make it a self-service CAP background agent (`race_opponent_collection`), follow `.claude/skills/build-cap-agent/SKILL.md`. The pairing:
 
 - This runbook: `find-race-opponent.md`
 - The PMF experiment: `experiments/race_opponent_collection/`

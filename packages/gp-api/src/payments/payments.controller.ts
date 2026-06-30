@@ -14,7 +14,6 @@ import { UserRole } from '../generated/prisma'
 import { Roles } from 'src/authentication/decorators/Roles.decorator'
 import { Stripe } from 'stripe'
 import { PublicAccess } from '../authentication/decorators/PublicAccess.decorator'
-import { CampaignsService } from '../campaigns/services/campaigns.service'
 import { StripeService } from '../vendors/stripe/services/stripe.service'
 import { PaymentEventsService } from './services/paymentEventsService'
 import { PaymentsService } from './services/payments.service'
@@ -25,7 +24,6 @@ export class PaymentsController {
   constructor(
     private readonly stripeService: StripeService,
     private readonly stripeEvents: PaymentEventsService,
-    private readonly campaignsService: CampaignsService,
     private readonly paymentsService: PaymentsService,
     private readonly logger: PinoLogger,
   ) {

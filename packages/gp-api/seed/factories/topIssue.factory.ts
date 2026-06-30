@@ -7,7 +7,7 @@ const uniqueTopIssueNames = faker.helpers.uniqueArray(
   20,
 )
 
-export const topIssueFactory = generateFactory<TopIssue>((overrides = {}) => {
+export const topIssueFactory = generateFactory<TopIssue>(() => {
   return {
     name: uniqueTopIssueNames.pop() || `fallback-${faker.string.uuid()}`,
   }

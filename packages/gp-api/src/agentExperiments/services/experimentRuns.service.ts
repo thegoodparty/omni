@@ -308,7 +308,10 @@ export class ExperimentRunsService extends createPrismaBase(
 
     // A successor run was created; terminalize the old row so it can't linger
     // forever as a non-terminal orphan (the resume sweep ignores a null
-    // resumeScheduledFor, and the stale sweep only touches RUNNING).
+    // resumeScheduledFor, and the stale sweep only touches RUNNING). SUPERSEDED
+    // (not FAILED): the predecessor did real work (e.g. bought the domain +
+    // published the site) and handed off to its successor — it is not an error,
+    // so the admin renders it as a benign "Part 1 completed", not a red failure.
     try {
       await this.model.updateMany({
         where: {
@@ -316,7 +319,7 @@ export class ExperimentRunsService extends createPrismaBase(
           status: ExperimentRunStatus.AWAITING_RESUME,
         },
         data: {
-          status: ExperimentRunStatus.FAILED,
+          status: ExperimentRunStatus.SUPERSEDED,
           error: 'Superseded by resumed run',
         },
       })

@@ -121,7 +121,7 @@ const stubRaceContext = (candidates: string[]) =>
       candidateCount: candidates.length,
       candidates: candidates.map((fullName) => ({
         gpCandidateId: null,
-        firstName: fullName.split(' ')[0],
+        firstName: fullName.split(' ')[0] ?? '',
         lastName: fullName.split(' ').slice(1).join(' '),
         fullName,
         email: null,
@@ -479,10 +479,10 @@ describe('Opponent research dispatch + persist', () => {
         where: { research: { campaignId } },
       })
       expect(findings).toHaveLength(1)
-      expect(findings[0].sourceUrl).toBe(REACHABLE)
-      expect(findings[0].sourceReachableAt).not.toBeNull()
+      expect(findings[0]?.sourceUrl).toBe(REACHABLE)
+      expect(findings[0]?.sourceReachableAt).not.toBeNull()
       // Opponent findings carry no drafted response.
-      expect(findings[0].draftedResponse).toBeNull()
+      expect(findings[0]?.draftedResponse).toBeNull()
     })
 
     it('persists a dataset (l2:) finding with sourceReachableAt and no network call', async () => {
@@ -511,8 +511,8 @@ describe('Opponent research dispatch + persist', () => {
         where: { research: { campaignId } },
       })
       expect(findings).toHaveLength(1)
-      expect(findings[0].sourceUrl).toBe(DATASET_REF)
-      expect(findings[0].sourceReachableAt).not.toBeNull()
+      expect(findings[0]?.sourceUrl).toBe(DATASET_REF)
+      expect(findings[0]?.sourceReachableAt).not.toBeNull()
       expect(checkReachable).not.toHaveBeenCalled()
     })
 
@@ -595,7 +595,7 @@ describe('Opponent research dispatch + persist', () => {
         where: { campaignId },
       })
       expect(contrasts).toHaveLength(1)
-      expect(contrasts[0].opponentFact).toBe(opponentFinding().claim)
+      expect(contrasts[0]?.opponentFact).toBe(opponentFinding().claim)
     })
 
     it('a contrast-generation failure does not fail the persist', async () => {
@@ -676,7 +676,7 @@ describe('Opponent research dispatch + persist', () => {
       expect(result.status).toBe(200)
       expect(result.data.research.status).toBe('completed')
       expect(result.data.research.findings).toHaveLength(1)
-      expect(result.data.research.findings[0].sourceUrl).toBe(REACHABLE)
+      expect(result.data.research.findings[0]?.sourceUrl).toBe(REACHABLE)
     })
   })
 })

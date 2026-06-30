@@ -5,11 +5,7 @@ import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponent
 import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { StrategicLandscapeParamsService } from '@/campaignStrategy/services/strategicLandscapeParams.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import {
-  ExperimentRunStatus,
-  RaceOpponentFindingKind,
-  RaceOpponentResearchStatus,
-} from '@/generated/prisma'
+import { ExperimentRunStatus } from '@/generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -43,19 +39,6 @@ const seedCampaign = async (opts: {
     },
   })
 }
-
-// collect is now gated server-side on a completed self-research pass, so the
-// happy-path collect tests must seed one. The gate is exercised on its own in
-// the "403s collect when no self pass is completed" test below.
-const seedCompletedSelfPass = (campaignId: number) =>
-  service.prisma.raceOpponentResearch.create({
-    data: {
-      campaignId,
-      kind: RaceOpponentFindingKind.self,
-      status: RaceOpponentResearchStatus.completed,
-      runId: 'self-done',
-    },
-  })
 
 const seedOpponents = async (campaignId: number, names: string[]) => {
   const plan = await service.prisma.campaignStrategy.upsert({
@@ -96,7 +79,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE, 'John Foe'])
-    await seedCompletedSelfPass(campaign.id)
     flagOn()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
@@ -133,7 +115,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE])
-    await seedCompletedSelfPass(campaign.id)
     await service.prisma.experimentRun.create({
       data: {
         runId: 'run-inflight',
@@ -160,13 +141,12 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
   })
 
   it('dispatches opposition_research (not a 400) when there are no plan opponents but a resolvable race', async () => {
-    const campaign = await seedCampaign({
+    await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
       raceId: RACE_HASH,
     })
-    await seedCompletedSelfPass(campaign.id)
     flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi
@@ -214,7 +194,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
         oppositionRunId: 'opp-inflight',
       },
     })
-    await seedCompletedSelfPass(campaign.id)
     flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi.spyOn(
@@ -237,12 +216,11 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
   })
 
   it('settles to idle (no 500, no dispatch) when there is no resolvable race', async () => {
-    const campaign = await seedCampaign({
+    await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
     })
-    await seedCompletedSelfPass(campaign.id)
     flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
@@ -275,7 +253,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
         oppositionPersistedAt: new Date(),
       },
     })
-    await seedCompletedSelfPass(campaign.id)
     flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi.spyOn(
@@ -294,20 +271,20 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     expect(dispatchRun).not.toHaveBeenCalled()
   })
 
-  it('403s collect when no self-research pass is completed (the gate)', async () => {
+  it('dispatches without a completed self-research pass (relaxed path is not gated on it)', async () => {
+    // ENG-10613: the relaxed /opponent page drives collect and never runs the
+    // strict self_research engine, so a RaceOpponentResearch(kind=self) row
+    // never exists. collect must still dispatch — Pro+flag is the only gate.
     const campaign = await seedCampaign({
       slug: SLUG,
       ownerId: service.user.id,
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE])
-    // No completed self pass seeded — the gate must block the real opponent
-    // trigger, not just the identify stub.
     flagOn()
-    const dispatchRun = vi.spyOn(
-      service.app.get(ExperimentRunsService),
-      'dispatchRun',
-    )
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'run-no-self' } as never)
 
     const result = await service.client.post(
       COLLECT_PATH,
@@ -315,8 +292,11 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       { headers: { [ORG_SLUG_HEADER]: SLUG } },
     )
 
-    expect(result.status).toBe(403)
-    expect(dispatchRun).not.toHaveBeenCalled()
+    expect(result.status).toBe(201)
+    expect(result.data).toEqual({ runId: 'run-no-self', status: 'running' })
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_collection' }),
+    )
   })
 
   it('403s when know-your-opponent is off', async () => {
@@ -326,7 +306,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE])
-    await seedCompletedSelfPass(campaign.id)
     vi.spyOn(
       service.app.get(FeaturesService),
       'isFeatureEnabled',
@@ -353,9 +332,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: false,
     })
     await seedOpponents(campaign.id, [JANE])
-    // A completed self pass clears the self-research gate so this test exercises
-    // the Pro gate specifically, not the gate added in this change.
-    await seedCompletedSelfPass(campaign.id)
     const isFeatureEnabled = flagOn()
 
     const result = await service.client.post(
@@ -706,8 +682,8 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].opponentName).toBe(JANE)
-    expect(rows[0].sourceType).toBe('ballotpedia')
+    expect(rows[0]?.opponentName).toBe(JANE)
+    expect(rows[0]?.sourceType).toBe('ballotpedia')
   })
 
   it('replaces prior rows on re-run (idempotent)', async () => {
@@ -741,8 +717,8 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].opponentName).toBe('John Foe')
-    expect(rows[0].runId).toBe('run-b')
+    expect(rows[0]?.opponentName).toBe('John Foe')
+    expect(rows[0]?.runId).toBe('run-b')
   })
 
   it('is a no-op for opposition_research (discovery does not auto-chain collection)', async () => {
@@ -799,7 +775,7 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].opponentName).toBe(JANE)
+    expect(rows[0]?.opponentName).toBe(JANE)
     const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
       where: { runId: 'run-mixed' },
     })
@@ -846,7 +822,7 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].runId).toBe('prior-run')
+    expect(rows[0]?.runId).toBe('prior-run')
     const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
       where: { runId: 'run-empty-rerun' },
     })
@@ -887,8 +863,8 @@ describe('RaceOpponentPersistService.onExperimentRunCompleted', () => {
       where: { campaignId },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].runId).toBe('prior-run')
-    expect(rows[0].opponentName).toBe(JANE)
+    expect(rows[0]?.runId).toBe('prior-run')
+    expect(rows[0]?.opponentName).toBe(JANE)
     const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
       where: { runId: 'run-all-invalid' },
     })
@@ -1133,7 +1109,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       where: { campaignId },
     })
     expect(stored).toHaveLength(1)
-    expect(stored[0].opponentName).toBe(JANE)
+    expect(stored[0]?.opponentName).toBe(JANE)
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -1223,7 +1199,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       where: { campaignId },
     })
     expect(stored).toHaveLength(1)
-    expect(stored[0].runId).toBe('summary-second')
+    expect(stored[0]?.runId).toBe('summary-second')
   })
 
   it('rejects an artifact whose section has no source_url and persists nothing', async () => {
@@ -1271,7 +1247,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       where: { campaignId },
     })
     expect(stored).toHaveLength(1)
-    expect(stored[0].runId).toBe('summary-ok')
+    expect(stored[0]?.runId).toBe('summary-ok')
   })
 
   it('drops an uncollected (hallucinated) source URL rather than admitting it', async () => {
@@ -1503,7 +1479,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       .get(RaceOpponentService)
       .dispatchSummary(await loadCampaign())
 
-    const params = dispatchRun.mock.calls[0][0].params as {
+    const params = dispatchRun.mock.calls[0]?.[0].params as {
       candidate_platform?: unknown
     }
     expect(params.candidate_platform).toBeUndefined()

@@ -63,6 +63,7 @@ export const Playground: Story = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <HoverCard>
       <HoverCardTrigger asChild>
@@ -94,6 +95,7 @@ export const Default: Story = {
 }
 
 export const InlineMention: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <p className="max-w-md text-sm">
       Independent candidate{' '}
@@ -122,6 +124,7 @@ export const InlineMention: Story = {
 }
 
 export const WithOpenDelay: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <HoverCard openDelay={500} closeDelay={200}>
       <HoverCardTrigger asChild>

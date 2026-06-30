@@ -20,12 +20,14 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Basic: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     mode: 'single',
   },
 }
 
 export const WithSelectedDate: Story = {
+  parameters: { controls: { disable: true } },
   render: (args) => {
     const [date, setDate] = React.useState<Date | undefined>(new Date())
     return <Calendar {...args} selected={date} onSelect={setDate} />
@@ -36,6 +38,7 @@ export const WithSelectedDate: Story = {
 }
 
 export const RangeSelection: Story = {
+  parameters: { controls: { disable: true } },
   render: (args) => {
     const today = new Date()
     const [range, setRange] = React.useState<
@@ -57,6 +60,7 @@ export const RangeSelection: Story = {
 }
 
 export const DisabledDays: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     mode: 'single',
     disabled: [{ dayOfWeek: [0, 6] }],
@@ -64,6 +68,7 @@ export const DisabledDays: Story = {
 }
 
 export const WithoutOutsideDays: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     mode: 'single',
     showOutsideDays: false,
@@ -71,6 +76,7 @@ export const WithoutOutsideDays: Story = {
 }
 
 export const DropdownCaption: Story = {
+  parameters: { controls: { disable: true } },
   render: (args) => {
     return (
       <div className="rounded-lg border shadow-sm overflow-hidden">
@@ -85,6 +91,7 @@ export const DropdownCaption: Story = {
 }
 
 export const MultipleMonths: Story = {
+  parameters: { controls: { disable: true } },
   args: {
     mode: 'single',
     numberOfMonths: 2,
