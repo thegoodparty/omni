@@ -649,6 +649,7 @@ def test_run_backfill_writes_csv_and_state(monkeypatch, tmp_path):
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "headsha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 7)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
 
     rows = bf.run_backfill(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
 
@@ -1024,6 +1025,7 @@ def test_run_backfill_preserves_provisional_rows(monkeypatch, tmp_path):
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "sha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 1)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
 
     rows = bf.run_backfill(cur, "/root", "2024-06-01", DT, csv_path=str(csv_path), state_path=str(tmp_path / "s.json"))
 
@@ -1047,6 +1049,7 @@ def test_run_backfill_preserves_exact_instrumentation_predating_since(monkeypatc
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "sha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 1)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
 
     rows = bf.run_backfill(cur, "/root", "2024-06-01", DT, csv_path=str(csv_path), state_path=str(tmp_path / "s.json"))
 
@@ -1071,6 +1074,7 @@ def test_run_backfill_drops_stale_provisional_retirement_when_re_added(monkeypat
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "sha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 1)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
 
     rows = bf.run_backfill(cur, "/root", "2024-06-01", DT, csv_path=str(csv_path), state_path=str(tmp_path / "s.json"))
 
@@ -1114,6 +1118,7 @@ def test_run_refresh_updates_affected_and_carries_forward_unaffected(monkeypatch
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 11)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
     cur = FakeCursor(["Event A", "Event B"])
 
     rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
@@ -1135,6 +1140,7 @@ def test_run_refresh_advances_watermark_when_nothing_changed(monkeypatch, tmp_pa
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
     cur = FakeCursor(["Event A", "Event B"])
     rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
     assert {r["event_type"] for r in rows} == {"Event A", "Event B"}
@@ -1175,6 +1181,7 @@ def test_run_refresh_onboards_new_universe_event_via_full_history(monkeypatch, t
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
 
     rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
 
@@ -1215,6 +1222,7 @@ def test_run_refresh_onboards_from_full_history_ignoring_since(monkeypatch, tmp_
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 10)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
 
     rows = bf.run_refresh(cur, "/root", "2024-06-01", DT, csv_path=str(csv_path), state_path=str(state_path))
 
@@ -1287,6 +1295,7 @@ def test_run_refresh_does_not_fabricate_instrumented_for_predates_window_event(m
     monkeypatch.setattr(bf, "git_head_sha", lambda *a, **k: "newsha")
     monkeypatch.setattr(bf, "git_head_ref", lambda *a, **k: "origin/develop")
     monkeypatch.setattr(bf, "git_commit_count", lambda *a, **k: 11)
+    monkeypatch.setattr(bf, "augment_call_site_columns", lambda *a, **k: None)
     cur = FakeCursor(["Event P", "Event Q"])
 
     rows = bf.run_refresh(cur, "/root", None, DT, csv_path=str(csv_path), state_path=str(state_path))
@@ -1482,3 +1491,33 @@ def test_upsert_output_is_byte_identical_to_full_write(tmp_path):
     rows = list(bf.read_provenance_rows(csv).values())
     bf.write_provenance(rows, str(tmp_path / "e.csv"))
     assert produced == (tmp_path / "e.csv").read_text()  # deterministic sort: A before B
+
+
+# --------------------------------------------------------------------------- #
+# new call-site columns round-trip through the CSV
+# --------------------------------------------------------------------------- #
+
+
+def test_provenance_columns_include_call_site_fields():
+    assert "call_site_count" in bf.PROVENANCE_COLUMNS
+    assert "call_site_retired_date" in bf.PROVENANCE_COLUMNS
+
+
+def test_call_site_columns_round_trip_through_csv(tmp_path):
+    csv_path = str(tmp_path / "prov.csv")
+    rows = [
+        {c: None for c in bf.PROVENANCE_COLUMNS} | {
+            "event_type": "Dash Viewed", "event_type_slug": "dash_viewed",
+            "call_site_count": 0, "call_site_retired_date": "2026-06-13",
+        },
+        {c: None for c in bf.PROVENANCE_COLUMNS} | {
+            "event_type": "Live Event", "event_type_slug": "live_event",
+            "call_site_count": 3, "call_site_retired_date": None,
+        },
+    ]
+    bf.write_provenance(rows, csv_path)
+    back = bf.read_provenance_rows(csv_path)
+    assert back["Dash Viewed"]["call_site_count"] == "0"
+    assert back["Dash Viewed"]["call_site_retired_date"] == "2026-06-13"
+    assert back["Live Event"]["call_site_count"] == "3"
+    assert back["Live Event"]["call_site_retired_date"] is None  # empty field -> None

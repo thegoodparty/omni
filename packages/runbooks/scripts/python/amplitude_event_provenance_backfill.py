@@ -424,6 +424,8 @@ PROVENANCE_COLUMNS = [
     "retired_pr",
     "retired_date",
     "last_code_change_date",
+    "call_site_count",
+    "call_site_retired_date",
     "updated_at",
 ]
 
@@ -457,6 +459,8 @@ def build_provenance_row(
         "retired_pr": None,
         "retired_date": None,
         "last_code_change_date": last_change["date"] if last_change else None,
+        "call_site_count": None,
+        "call_site_retired_date": None,
         "updated_at": updated_at,
     }
     if code_status == "removed" and retired:
@@ -660,6 +664,75 @@ def git_grep_present_text(root: str, events: Sequence[str], paths: Sequence[str]
     if proc.returncode not in (0, 1):
         raise subprocess.CalledProcessError(proc.returncode, argv, stderr=proc.stderr)
     return proc.stdout
+
+
+def git_show_file(root: str, ref: str, rel_path: str) -> str:
+    """Contents of ``rel_path`` at ``ref`` via ``git show``. Raises on a missing file/ref."""
+    return subprocess.run(
+        ["git", "-C", root, "show", f"{ref}:{rel_path}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def git_grep_call_sites_text(root: str, key_paths: Sequence[str], paths: Sequence[str], ref: str = "HEAD") -> str:
+    """Dump of ``ref`` lines containing any ``EVENTS.X.Y`` key-path (fixed-string git grep).
+
+    Mirrors ``git_grep_present_text``: ``-F`` literal, ``-h`` drops filenames, exit 1 (no
+    matches) is fine, exit 2+ raises so a corrupt grep is never read as 'no call sites'.
+    """
+    if not key_paths:
+        return ""
+    patterns: list[str] = []
+    for p in key_paths:
+        patterns += ["-e", p]
+    argv = ["git", "-C", root, "grep", "-F", "-h", "--no-color", *patterns, ref, "--", *paths]
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode not in (0, 1):
+        raise subprocess.CalledProcessError(proc.returncode, argv, stderr=proc.stderr)
+    return proc.stdout
+
+
+def make_call_site_retired_lookup(
+    root: str, ref: str, paths: Sequence[str]
+) -> Callable[[str], str | None]:
+    """A ``key_path -> retired_date`` lookup for zero-count events, via a pickaxe walk.
+
+    ``git log -S<key_path>`` streams only commits that changed the key-path's occurrence
+    count. Reusing ``parse_git_log`` with a key-path-capturing pattern, the 'retired' slot is
+    the latest commit that net-removed it -- exactly the date the count last hit zero (there is
+    no later add, or the HEAD count would not be zero). Returns the date string, or None.
+    """
+
+    def lookup(key_path: str) -> str | None:
+        lines = run_git_log(root, None, paths, ref, pickaxe=key_path)
+        pattern = re.compile("(" + re.escape(key_path) + r")(?![\w$.])")
+        entry = parse_git_log(lines, pattern).get(key_path)
+        retired = entry["retired"] if entry else None
+        return retired["date"] if retired else None
+
+    return lookup
+
+
+def augment_call_site_columns(
+    rows: Sequence[dict], root: str, ref: str, paths: Sequence[str] = INSTRUMENTATION_PATHS
+) -> None:
+    """Populate ``call_site_count`` / ``call_site_retired_date`` on each row, in place.
+
+    Resolves the EVENTS map at ``ref``, counts call sites at ``ref`` in one grep, and looks
+    up the retirement date only for zero-count events. Events with no resolvable key-path
+    (backend/dynamic) get None for both -- null, never zero, so they are never flagged.
+    """
+    ts_text = git_show_file(root, ref, ANALYTICS_HELPER_PATH)
+    events_map = parse_events_map(ts_text)
+    grep_text = git_grep_call_sites_text(root, list(events_map.values()), paths, ref)
+    lookup = make_call_site_retired_lookup(root, ref, paths)
+    fields = compute_call_site_fields(events_map, grep_text, lookup)
+    for row in rows:
+        f = fields.get(row["event_type"])
+        row["call_site_count"] = f["call_site_count"] if f else None
+        row["call_site_retired_date"] = f["call_site_retired_date"] if f else None
 
 
 def git_head_sha(root: str, ref: str = "HEAD") -> str:
@@ -968,6 +1041,7 @@ def run_backfill(
     if pr_resolver is not None:
         print(f"Merge-walk PR backfill: filled {filled} *_pr gaps", file=sys.stderr)
 
+    augment_call_site_columns(rows, root, ref)
     write_provenance(rows, csv_path)
     write_watermark(
         state_path,
@@ -1097,6 +1171,7 @@ def run_refresh(
             existing[row["event_type"]] = row
 
     rows = list(existing.values())
+    augment_call_site_columns(rows, root, ref)
     write_provenance(rows, csv_path)
     write_watermark(
         state_path,
