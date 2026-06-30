@@ -56,19 +56,21 @@ def test_build_values_none_becomes_blank():
     assert matrix[1] == ["" for _ in esa.COLUMNS]
 
 
-def test_write_sheet_clears_then_updates_and_returns_count():
+def test_write_sheet_updates_then_clears_trailing_and_returns_count():
     svc = _FakeService()
     n = gs.write_sheet(SAMPLE, service=svc, spreadsheet_id="sheet1", tab="events")
     assert n == 2
     kinds = [k for k, _ in svc.log]
-    assert kinds == ["clear", "update"]              # clear before update
-    clear_kw = svc.log[0][1]
-    update_kw = svc.log[1][1]
-    assert clear_kw["spreadsheetId"] == "sheet1" and clear_kw["range"] == "events"
+    assert kinds == ["update", "clear"]              # update before clear, never empty
+    update_kw = svc.log[0][1]
+    clear_kw = svc.log[1][1]
+    assert update_kw["spreadsheetId"] == "sheet1"
     assert update_kw["range"] == "events!A1"
     assert update_kw["valueInputOption"] == "RAW"
     assert update_kw["body"]["values"][0] == list(esa.COLUMNS)
     assert len(update_kw["body"]["values"]) == 3
+    # trailing clear starts just below the written rows (header + 2 data = 3 rows)
+    assert clear_kw["spreadsheetId"] == "sheet1" and clear_kw["range"] == "events!A4:ZZ"
 
 
 def test_main_dry_run_prints_dims_no_auth(monkeypatch, capsys):

@@ -40,16 +40,20 @@ def build_values(rows: list[dict]) -> list[list[str]]:
 
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:
     """Full-overwrite `tab` with the assembled rows. Returns the data row count (excl. header).
-    `service` is a googleapiclient Sheets resource (injected in tests)."""
+    `service` is a googleapiclient Sheets resource (injected in tests).
+
+    Writes the new values first, then clears only the rows below them. Clearing first would
+    leave the consumer sheet empty if the update then failed; this order leaves the prior
+    contents intact on a failed update and never produces an empty window."""
     values = build_values(rows)
     sheets = service.spreadsheets()
-    sheets.values().clear(spreadsheetId=spreadsheet_id, range=tab).execute()
     sheets.values().update(
         spreadsheetId=spreadsheet_id,
         range=f"{tab}!A1",
         valueInputOption="RAW",
         body={"values": values},
     ).execute()
+    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
     return len(values) - 1
 
 

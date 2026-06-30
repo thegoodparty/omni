@@ -2,7 +2,7 @@
 
 Joins the Amplitude event catalog (Databricks), the git-provenance CSV, and the SOP status
 derived by analytics_event_health.reconcile() into one ordered, output-agnostic list of row
-dicts. The ClickUp / gSheet sinks consume build_rows()'s output; the status column is
+dicts. The gSheet sink consumes build_rows()'s output; the status column is
 byte-identical to the health monitor's because both go through reconcile()/classify_status().
 """
 
