@@ -89,12 +89,15 @@ export const EVENTS = {
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
     ClickFinishLater: 'Onboarding: Click Finish Later',
-    // Top of the serve (elected-official) magic-link funnel. The recipient
-    // landed on the /serve/welcome redemption page (client-side, fired once on
-    // landing). Its paired top-of-funnel event "Onboarding - Magic Link Sent"
-    // is emitted server-side in gp-api. The `Onboarding -` prefix is
-    // intentional (these two are funnel siblings of the Onboarding group, not
-    // the per-screen `Serve Onboarding -` stages below).
+    // Top of the magic-link funnel. The recipient landed on the redemption
+    // page (client-side, fired once on landing) — `/serve/welcome` for the
+    // elected-official flow and `/win/welcome` for the candidate flow. Both
+    // fire this single event, carrying a `type: 'serve' | 'win'` property that
+    // mirrors its server-side funnel sibling "Onboarding - Magic Link Sent"
+    // (gp-api), so the sent → clicked rate is a per-flow property filter in
+    // Amplitude rather than two separate events. The `Onboarding -` prefix is
+    // intentional (a funnel sibling of the Onboarding group, not the per-screen
+    // `Serve Onboarding -` stages below).
     MagicLinkClicked: 'Onboarding - Magic Link Clicked',
     OfficeStep: {
       ClickNext: 'Onboarding - Office Step: Click Next',
