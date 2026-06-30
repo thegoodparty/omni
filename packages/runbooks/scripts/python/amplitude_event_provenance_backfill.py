@@ -712,11 +712,19 @@ def make_call_site_retired_lookup(
     count. Reusing ``parse_git_log`` with a key-path-capturing pattern, the 'retired' slot is
     the latest commit that net-removed it -- exactly the date the count last hit zero (there is
     no later add, or the HEAD count would not be zero). Returns the date string, or None.
+
+    The pattern anchors on a call-argument position (preceded by ``(`` or ``,``) or a
+    line-leading position (Prettier wraps a long ``trackEvent(`` call so the key-path sits on
+    its own line) -- never bare prose. Without this, removing a comment that merely names the
+    key-path (``// drop EVENTS.X.Y``) would register as a net-remove and stamp a spurious
+    retirement date. Mirrors the call-context anchoring of ``compile_event_pattern``; the
+    prefix guarantees a non-identifier char precedes the key-path, so no separate lookbehind
+    is needed.
     """
 
     def lookup(key_path: str) -> str | None:
         lines = run_git_log(root, None, paths, ref, pickaxe=key_path)
-        pattern = re.compile("(" + re.escape(key_path) + r")(?![\w$.])")
+        pattern = re.compile(r"(?:[(,]\s*|^\s*)(" + re.escape(key_path) + r")(?![\w$.])", re.MULTILINE)
         entry = parse_git_log(lines, pattern).get(key_path)
         retired = entry["retired"] if entry else None
         return retired["date"] if retired else None

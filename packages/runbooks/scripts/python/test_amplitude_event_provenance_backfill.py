@@ -221,6 +221,18 @@ def test_make_call_site_retired_lookup_none_when_never_removed(monkeypatch):
     assert lookup("EVENTS.Dashboard.Viewed") is None
 
 
+def test_make_call_site_retired_lookup_ignores_comment_removal(monkeypatch):
+    # Removing a comment that merely names the key-path is NOT a call-site removal: the
+    # call-context anchor excludes prose, so no spurious retirement date is stamped.
+    lines = [
+        _header("a" * 40, "aaaaaaa", "2026-06-20", "tidy comments (#99)"),
+        "-  // drop EVENTS.Dashboard.Viewed soon",
+    ]
+    monkeypatch.setattr(bf, "run_git_log", lambda *a, **k: iter(lines))
+    lookup = bf.make_call_site_retired_lookup("/root", "origin/develop", bf.INSTRUMENTATION_PATHS)
+    assert lookup("EVENTS.Dashboard.Viewed") is None
+
+
 # --------------------------------------------------------------------------- #
 # find_events
 # --------------------------------------------------------------------------- #
