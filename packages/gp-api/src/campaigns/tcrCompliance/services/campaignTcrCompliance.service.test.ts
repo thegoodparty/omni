@@ -1316,6 +1316,24 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     )
   })
 
+  it('does not fire the event when the Peerly identity already exists', async () => {
+    mockPeerly.getIdentities.mockResolvedValueOnce([
+      {
+        identity_name: 'Jane Doe - 12-3456789',
+        identity_id: 'peerly-existing-1',
+      },
+    ])
+
+    await service.submitToPeerlyForAgent(user, campaign, input)
+
+    expect(mockPeerly.createIdentity).not.toHaveBeenCalled()
+    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.PeerlyIdentityIdCreated,
+      expect.anything(),
+    )
+  })
+
   it('submits to Peerly, persists results (including peerlyCvVerificationId), and returns awaiting_pin on the happy path', async () => {
     const result = await service.submitToPeerlyForAgent(user, campaign, input)
 

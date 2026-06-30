@@ -479,12 +479,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // Push the Peerly identity id onto the campaign's HubSpot company (via
     // Segment) so Campaign Success can match Peerly's 10DLC Slack
     // notifications, which carry only this id, to the right company record.
-    void this.analytics
-      .track(user.id, EVENTS.Outreach.PeerlyIdentityIdCreated, {
-        peerlyIdentityId,
-        campaignId: campaign.id,
-      })
-      .catch(() => undefined)
+    // Only when we just created the identity — an existing-identity pass
+    // (idempotent retry or account-level reuse) already emitted this, so
+    // re-firing would duplicate the event for the same id.
+    if (!existingIdentity) {
+      void this.analytics
+        .track(user.id, EVENTS.Outreach.PeerlyIdentityIdCreated, {
+          peerlyIdentityId,
+          campaignId: campaign.id,
+        })
+        .catch(() => undefined)
+    }
 
     let existingIdentityProfileResponse: PeerlyIdentityProfileResponseBody | null =
       null
