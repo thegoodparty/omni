@@ -7,6 +7,7 @@
   "scripts": {
     "ai-rules:update": "npm --prefix ../.. run ai-rules:update",
     "build": "next build && serwist build serwist.config.mjs",
+    "check:use-client": "node scripts/check-use-client-count.mjs",
     "build-local": "cross-env NODE_ENV=production NEXT_PUBLIC_APP_BASE=http://localhost:4000 NEXT_PUBLIC_API_BASE=http://localhost:3000 next build && serwist build serwist.config.mjs",
     "generate-agent-job-types": "tsx scripts/generate-agent-job-types.ts",
     "dev": "cross-env NODE_OPTIONS=\"--max_old_space_size=8192\" NEXT_PUBLIC_APP_BASE=http://localhost:4000 NEXT_PUBLIC_API_BASE=http://localhost:3000 next dev -p 4000",
