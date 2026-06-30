@@ -1306,13 +1306,31 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(claimCallOrder).toBeLessThan(peerlyCallOrder)
   })
 
-  it('fires the Peerly Identity ID Created event with the new identity id', async () => {
+  it('fires the event with the new identity id and the company hubspot id', async () => {
+    const campaignWithHs = {
+      ...campaign,
+      data: { ...campaign.data, hubspotId: 'company-hs-1' },
+    }
+
+    await service.submitToPeerlyForAgent(user, campaignWithHs, input)
+
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.PeerlyIdentityIdCreated,
+      {
+        peerly_identity_id: 'peerly-id-1',
+        company_hubspot_id: 'company-hs-1',
+      },
+    )
+  })
+
+  it('omits the company hubspot id when the company is not yet known', async () => {
     await service.submitToPeerlyForAgent(user, campaign, input)
 
     expect(mockAnalytics.track).toHaveBeenCalledWith(
       user.id,
       EVENTS.Outreach.PeerlyIdentityIdCreated,
-      { peerlyIdentityId: 'peerly-id-1', campaignId: campaign.id },
+      { peerly_identity_id: 'peerly-id-1' },
     )
   })
 

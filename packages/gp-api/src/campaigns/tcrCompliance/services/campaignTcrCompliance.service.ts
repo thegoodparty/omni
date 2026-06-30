@@ -481,12 +481,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // notifications, which carry only this id, to the right company record.
     // Only when we just created the identity — an existing-identity pass
     // (idempotent retry or account-level reuse) already emitted this, so
-    // re-firing would duplicate the event for the same id.
+    // re-firing would duplicate the event for the same id. companyHubspotId is
+    // where Campaign Success wants peerly_identity_id to land; the contact id
+    // already rides along in the event's context traits. Omitted when the
+    // company record isn't known yet.
     if (!existingIdentity) {
       void this.analytics
         .track(user.id, EVENTS.Outreach.PeerlyIdentityIdCreated, {
-          peerlyIdentityId,
-          campaignId: campaign.id,
+          peerly_identity_id: peerlyIdentityId,
+          ...(campaign.data.hubspotId
+            ? { company_hubspot_id: campaign.data.hubspotId }
+            : {}),
         })
         .catch(() => undefined)
     }
