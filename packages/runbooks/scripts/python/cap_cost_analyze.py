@@ -260,8 +260,9 @@ def main() -> None:
     plot_cumulative_curves(df, os.path.join(outdir, "cumulative_cost.png"))
     plot_cost_velocity(df, os.path.join(outdir, "cost_velocity.png"))
     if milestones_present:
-        plot_milestone_heatmap(df, os.path.join(outdir, "milestone_heatmap.png"))
-    plot_population_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
+        plot_milestone_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
+    else:
+        plot_population_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
     print(f"wrote plots + distributions.json to {outdir}")
 
 

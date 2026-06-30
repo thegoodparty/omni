@@ -38,7 +38,7 @@ import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 
 import boto3
 import pandas as pd
@@ -137,20 +137,25 @@ def parse_milestones(text: str) -> list[dict]:
 def milestone_at(markers: list[dict], turn_ts: str | None) -> str | None:
     """The name of the most recent marker at/before turn_ts. Parses both sides
     as aware datetimes so the comparison is correct regardless of whether the
-    source wrote 'Z' or '+00:00'. None when no marker precedes the turn (older
-    runs have no markers at all -> always None)."""
+    source wrote 'Z' or '+00:00'. A naive timestamp (no offset) is treated as
+    UTC so the comparison never raises offset-naive vs offset-aware. None when no
+    marker precedes the turn (older runs have no markers at all -> always None)."""
     if not markers or not turn_ts:
         return None
     try:
         turn_dt = datetime.fromisoformat(turn_ts)
     except ValueError:
         return None
+    if turn_dt.tzinfo is None:
+        turn_dt = turn_dt.replace(tzinfo=timezone.utc)
     active = None
     for m in markers:
         try:
             marker_dt = datetime.fromisoformat(m["ts"])
         except ValueError:
             continue
+        if marker_dt.tzinfo is None:
+            marker_dt = marker_dt.replace(tzinfo=timezone.utc)
         if marker_dt <= turn_dt:
             active = m["name"]
         else:
