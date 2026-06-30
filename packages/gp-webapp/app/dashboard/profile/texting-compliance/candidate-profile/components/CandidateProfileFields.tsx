@@ -56,7 +56,7 @@ export default function CandidateProfileFields({
       )}
 
       <div>
-        <div className="block text-sm font-medium">Why are you running?</div>
+        <div className="block text-sm font-medium">Your why</div>
         <p className="mb-1.5 text-sm text-muted-foreground">
           {WHY_RUNNING_PROMPT}
         </p>
