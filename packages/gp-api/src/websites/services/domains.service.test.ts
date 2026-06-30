@@ -17,6 +17,7 @@ import { QueueProducerService } from 'src/queue/producer/queueProducer.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { DomainsService } from './domains.service'
 import { RegisterDomainSchema } from '../schemas/RegisterDomain.schema'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -436,7 +437,7 @@ describe('DomainsService', () => {
       )
 
       expect(result.candidates).toHaveLength(1)
-      expect(result.candidates[0].domain).toMatch(/^vote-oneill-\d{4}\.run$/)
+      expect(result.candidates[0]?.domain).toMatch(/^vote-oneill-\d{4}\.run$/)
     })
 
     it('skips (does not fail the whole request) when one availability call fails', async () => {
@@ -756,7 +757,7 @@ describe('DomainsService', () => {
 
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
       expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1)
-      const lockArgs = mockPrisma.$executeRaw.mock.calls[0]
+      const lockArgs = firstOrThrow(mockPrisma.$executeRaw.mock.calls)
       expect(lockArgs[0].join('?')).toContain('pg_advisory_xact_lock')
       expect(lockArgs).toContain(campaign.id)
     })
@@ -800,7 +801,9 @@ describe('DomainsService', () => {
         mockRoute53.checkDomainAvailability.mock.invocationCallOrder[0]
       const vercelPriceOrder =
         mockVercel.checkDomainPrice.mock.invocationCallOrder[0]
-      const txOrder = mockPrisma.$transaction.mock.invocationCallOrder[0]
+      const txOrder = firstOrThrow(
+        mockPrisma.$transaction.mock.invocationCallOrder,
+      )
       expect(route53Order).toBeLessThan(txOrder)
       expect(vercelPriceOrder).toBeLessThan(txOrder)
     })
@@ -855,7 +858,9 @@ describe('DomainsService', () => {
         where: { id: stale.id },
       })
       const deleteOrder = mockPrisma.domain.delete.mock.invocationCallOrder[0]
-      const createOrder = mockPrisma.domain.create.mock.invocationCallOrder[0]
+      const createOrder = firstOrThrow(
+        mockPrisma.domain.create.mock.invocationCallOrder,
+      )
       expect(deleteOrder).toBeLessThan(createOrder)
 
       expect(mockPrisma.domain.create).toHaveBeenCalledWith({
@@ -1031,11 +1036,13 @@ describe('DomainsService', () => {
       )
 
       expect(completeSpy).toHaveBeenCalledTimes(1)
-      const [websiteIdArg, , optionsArg] = completeSpy.mock.calls[0]
+      const [websiteIdArg, , optionsArg] = firstOrThrow(completeSpy.mock.calls)
       expect(websiteIdArg).toBe(baseWebsite.id)
       expect(optionsArg).toEqual({ skipPaymentVerification: true })
       const completeOrder = completeSpy.mock.invocationCallOrder[0]
-      const createOrder = mockPrisma.domain.create.mock.invocationCallOrder[0]
+      const createOrder = firstOrThrow(
+        mockPrisma.domain.create.mock.invocationCallOrder,
+      )
       expect(completeOrder).toBeGreaterThan(createOrder)
     })
 
@@ -1074,7 +1081,7 @@ describe('DomainsService', () => {
         DomainSource.manual,
       )
 
-      const [, contactArg] = completeSpy.mock.calls[0]
+      const [, contactArg] = firstOrThrow(completeSpy.mock.calls)
       expect(contactArg).toMatchObject({
         firstName: 'Tomer',
         lastName: 'Almog',
@@ -1463,7 +1470,9 @@ describe('DomainsService', () => {
       expect(mockPrisma.website.findUnique).toHaveBeenCalledOnce()
       expect(
         mockPrisma.website.findUnique.mock.invocationCallOrder[0],
-      ).toBeGreaterThan(mockPrisma.$transaction.mock.invocationCallOrder[0])
+      ).toBeGreaterThan(
+        firstOrThrow(mockPrisma.$transaction.mock.invocationCallOrder),
+      )
     })
 
     it('skips persistence when no Website row exists for the domain', async () => {

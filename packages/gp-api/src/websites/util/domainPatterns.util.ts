@@ -47,7 +47,7 @@ const buildSubstitutions = (
     last_initial: normalizedLast.charAt(0),
     mm: String(monthIndex + 1).padStart(2, '0'),
     yyyy: String(ctx.electionDate.getUTCFullYear()),
-    month_abbreviation: MONTH_ABBREVIATIONS[monthIndex],
+    month_abbreviation: MONTH_ABBREVIATIONS[monthIndex] ?? '',
   }
 }
 
@@ -98,7 +98,8 @@ const substituteAndExpand = (
   const subs = buildSubstitutions(ctx)
   let substituted = pattern
   for (const m of pattern.matchAll(/\{([a-z_]+)\}/g)) {
-    const value = subs[m[1]]
+    const key = m[1]
+    const value = key === undefined ? undefined : subs[key]
     if (value === undefined || value === '') {
       return []
     }

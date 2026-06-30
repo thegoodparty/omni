@@ -2,6 +2,7 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { Campaign, User } from '../../generated/prisma'
 import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { CheckoutSessionMode, WebhookEventType } from '../payments.types'
 import { PaymentEventsService } from './paymentEventsService'
@@ -196,8 +197,10 @@ describe('PaymentEventsService', () => {
       expect(
         campaignsService.setIsPro.mock.invocationCallOrder[0],
       ).toBeLessThan(
-        tcrComplianceService.enqueueAgenticKickoffIfNeeded.mock
-          .invocationCallOrder[0],
+        firstOrThrow(
+          tcrComplianceService.enqueueAgenticKickoffIfNeeded.mock
+            .invocationCallOrder,
+        ),
       )
     })
 

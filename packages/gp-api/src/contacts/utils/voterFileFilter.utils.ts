@@ -22,22 +22,23 @@ export type FilterObject = Record<string, FilterValue>
 type NumericRange = { min: number; max: number | null }
 
 const processNumericRanges = (ranges: NumericRange[]): FilterValue => {
-  if (ranges.length === 1) {
-    const range = ranges[0]
-    if (range.max === null) {
-      return { gte: range.min }
+  const [firstRange] = ranges
+  if (ranges.length === 1 && firstRange) {
+    if (firstRange.max === null) {
+      return { gte: firstRange.min }
     }
-    return { gte: range.min, lte: range.max }
+    return { gte: firstRange.min, lte: firstRange.max }
   }
 
   const sortedRanges = [...ranges].sort((a, b) => a.min - b.min)
   const hasUnbounded = sortedRanges.some((r) => r.max === null)
-  const minValue = sortedRanges[0].min
+  const minValue = sortedRanges[0]?.min ?? 0
 
   const isContiguous = sortedRanges.every((range, index) => {
     if (index === 0) return true
     const prevRange = sortedRanges[index - 1]
     return (
+      prevRange != null &&
       prevRange.max !== null &&
       (range.min === prevRange.max || range.min === prevRange.max + 1)
     )
@@ -158,7 +159,7 @@ export const convertVoterFileFilterToFilters = (
         }
         const normalizedLanguages: string[] = value
           .map((lang: string) => filterMap[lang])
-          .filter(Boolean)
+          .filter((lang): lang is string => Boolean(lang))
 
         filters['language'] =
           normalizedLanguages.length === 1
@@ -221,17 +222,17 @@ export const convertVoterFileFilterToFilters = (
 
   const shouldIncludeNull = segment.ageUnknown
   if (ageRanges.length > 0) {
-    if (ageRanges.length === 1) {
-      const range = ageRanges[0]
-      if (range.max === null) {
-        filters['ageInt'] = { gte: range.min }
+    const [firstAgeRange] = ageRanges
+    if (ageRanges.length === 1 && firstAgeRange) {
+      if (firstAgeRange.max === null) {
+        filters['ageInt'] = { gte: firstAgeRange.min }
       } else {
-        filters['ageInt'] = { gte: range.min, lte: range.max }
+        filters['ageInt'] = { gte: firstAgeRange.min, lte: firstAgeRange.max }
       }
     } else {
       const sortedRanges = ageRanges.sort((a, b) => a.min - b.min)
       const hasUnbounded = sortedRanges.some((r) => r.max === null)
-      const minAge = sortedRanges[0].min
+      const minAge = sortedRanges[0]?.min ?? 0
       const maxAge = hasUnbounded
         ? null
         : Math.max(...sortedRanges.map((r) => r.max ?? 0))
@@ -240,6 +241,7 @@ export const convertVoterFileFilterToFilters = (
         if (index === 0) return true
         const prevRange = sortedRanges[index - 1]
         return (
+          prevRange != null &&
           prevRange.max !== null &&
           (range.min === prevRange.max || range.min === prevRange.max + 1)
         )

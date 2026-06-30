@@ -206,10 +206,12 @@ export class AiChatService extends createPrismaBase(MODELS.AiChat) {
     if (regenerate) {
       // regenerate last chat response
       const aiMessage = messages[messages.length - 1]
-      messageId = aiMessage.id
-      messages.pop()
-      message = messages[messages.length - 1]?.content
-      messages.pop()
+      if (aiMessage) {
+        messageId = aiMessage.id
+        messages.pop()
+        message = messages[messages.length - 1]?.content
+        messages.pop()
+      }
     }
 
     const chatMessage: AiChatMessage = {
@@ -802,8 +804,8 @@ export class AiChatService extends createPrismaBase(MODELS.AiChat) {
       user.email,
       threadId,
       message,
-      chatData.messages[lastMsgIndex - 1]?.content,
-      chatData.messages[lastMsgIndex]?.content,
+      chatData.messages[lastMsgIndex - 1]?.content ?? '',
+      chatData.messages[lastMsgIndex]?.content ?? '',
     )
 
     await this.slack.message(slackBlocks, SlackChannel.userFeedback)

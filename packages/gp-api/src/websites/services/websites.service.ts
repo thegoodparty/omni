@@ -335,8 +335,11 @@ export const ssrfSafeLookup: NonNullable<https.AgentOptions['lookup']> = (
     if (typeof options === 'object' && options?.all) {
       return callback(null, addresses)
     }
-    const [{ address, family }] = addresses
-    callback(null, address, family)
+    const first = addresses[0]
+    if (!first) {
+      return callback(new Error(`No addresses resolved for ${hostname}`), '', 0)
+    }
+    callback(null, first.address, first.family)
   })
 }
 

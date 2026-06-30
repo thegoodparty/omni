@@ -80,12 +80,21 @@ async function readJsonFromS3(bucketName: string, keyName: string) {
   }
 }
 
-async function processRow(prisma: PrismaClient, entity: string[]) {
+async function processRow(prisma: PrismaClient, entity: string[] | undefined) {
   try {
     if (!entity) {
       return
     }
     const [mtfcc, mtfcc_type, geo_id, name, state] = entity
+    if (
+      mtfcc === undefined ||
+      mtfcc_type === undefined ||
+      geo_id === undefined ||
+      name === undefined ||
+      state === undefined
+    ) {
+      throw new Error('Row is missing required MTFCC columns')
+    }
 
     await prisma.censusEntity.upsert({
       where: {

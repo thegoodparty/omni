@@ -754,7 +754,8 @@ describe('CampaignTasksService', () => {
 
       await service.addEventTasks(1, tasks)
 
-      const createCall = mockModel.createMany.mock.calls[0][0]
+      const createCall = mockModel.createMany.mock.calls[0]?.[0]
+      if (!createCall) throw new Error('expected createMany to be called')
       expect(createCall.data).toHaveLength(2)
       expect(createCall.data[1]).toEqual(
         expect.objectContaining({
@@ -801,7 +802,8 @@ describe('CampaignTasksService', () => {
 
       await service.addEventTasks(1, tasks)
 
-      const createCall = mockModel.createMany.mock.calls[0][0]
+      const createCall = mockModel.createMany.mock.calls[0]?.[0]
+      if (!createCall) throw new Error('expected createMany to be called')
       expect(createCall.data).toHaveLength(2)
       expect(createCall.data.map((t: { id: string }) => t.id)).toEqual([
         'before',
@@ -946,6 +948,7 @@ describe('CampaignTasksService', () => {
 
       const messageMock = vi.mocked(mockSlackService.message!)
       const slackCall = messageMock.mock.calls[0]
+      if (!slackCall) throw new Error('expected slack message call')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const slackBody = (slackCall[0] as any).blocks[0].text.text as string
       expect(slackBody).toContain('Jane Doe')
@@ -1135,7 +1138,7 @@ describe('CampaignTasksService', () => {
     }
 
     const getCreatedTaskData = () => {
-      const call = mockTxModel.createMany.mock.calls[0][0] as {
+      const call = mockTxModel.createMany.mock.calls[0]?.[0] as {
         data: {
           id: string
           title: string
@@ -1153,6 +1156,7 @@ describe('CampaignTasksService', () => {
           flowType: CampaignTaskType | null
         }[]
       }
+      if (!call) throw new Error('expected createMany to be called')
       return call.data
     }
 
@@ -1204,10 +1208,10 @@ describe('CampaignTasksService', () => {
           SIGNUP_WEEK_AWARENESS_PLUS_ONE_ELECTION_DAY,
       )
       expect(recurring).toHaveLength(169)
-      expect(tasks[0].date).toBeInstanceOf(Date)
-      expect(tasks[0].isDefaultTask).toBe(true)
-      expect(tasks[tasks.length - 1].date).toBeInstanceOf(Date)
-      expect(tasks[tasks.length - 1].isDefaultTask).toBe(true)
+      expect(tasks[0]?.date).toBeInstanceOf(Date)
+      expect(tasks[0]?.isDefaultTask).toBe(true)
+      expect(tasks[tasks.length - 1]?.date).toBeInstanceOf(Date)
+      expect(tasks[tasks.length - 1]?.isDefaultTask).toBe(true)
     })
 
     it('distributes primary tasks when only primary date is future', async () => {
@@ -1227,8 +1231,8 @@ describe('CampaignTasksService', () => {
           SIGNUP_WEEK_AWARENESS_PLUS_ONE_ELECTION_DAY,
       )
       expect(recurring).toHaveLength(85)
-      expect(tasks[0].date).toBeInstanceOf(Date)
-      expect(tasks[0].isDefaultTask).toBe(true)
+      expect(tasks[0]?.date).toBeInstanceOf(Date)
+      expect(tasks[0]?.isDefaultTask).toBe(true)
     })
 
     it('distributes both sets when both dates are future', async () => {
@@ -1253,8 +1257,8 @@ describe('CampaignTasksService', () => {
           SIGNUP_WEEK_AWARENESS_PLUS_TWO_ELECTION_DAYS,
       )
       expect(recurring).toHaveLength(169)
-      expect(tasks[0].date).toBeInstanceOf(Date)
-      expect(tasks[0].isDefaultTask).toBe(true)
+      expect(tasks[0]?.date).toBeInstanceOf(Date)
+      expect(tasks[0]?.isDefaultTask).toBe(true)
     })
 
     it('returns empty when both dates are in the past', async () => {
@@ -1347,9 +1351,9 @@ describe('CampaignTasksService', () => {
       )
       expect(financeTasks).toHaveLength(1)
       const [financeTask] = financeTasks
-      expect(financeTask.flowType).toBe(CampaignTaskType.awareness)
-      expect(financeTask.isDefaultTask).toBe(true)
-      expect(financeTask.date).toEqual(
+      expect(financeTask?.flowType).toBe(CampaignTaskType.awareness)
+      expect(financeTask?.isDefaultTask).toBe(true)
+      expect(financeTask?.date).toEqual(
         startOfDay(parseIsoDateString('2025-06-07')),
       )
     })
@@ -1472,10 +1476,10 @@ describe('CampaignTasksService', () => {
       )
       expect(electionDayTasks).toHaveLength(1)
       const [electionDayTask] = electionDayTasks
-      expect(electionDayTask.flowType).toBe(CampaignTaskType.awareness)
-      expect(electionDayTask.isDefaultTask).toBe(true)
-      expect(electionDayTask.week).toBe(0)
-      expect(electionDayTask.date).toEqual(
+      expect(electionDayTask?.flowType).toBe(CampaignTaskType.awareness)
+      expect(electionDayTask?.isDefaultTask).toBe(true)
+      expect(electionDayTask?.week).toBe(0)
+      expect(electionDayTask?.date).toEqual(
         startOfDay(parseIsoDateString(FUTURE_GENERAL)),
       )
     })
@@ -1494,7 +1498,7 @@ describe('CampaignTasksService', () => {
         (t) => t.title === 'Primary Election Day',
       )
       expect(electionDayTasks).toHaveLength(1)
-      expect(electionDayTasks[0].date).toEqual(
+      expect(electionDayTasks[0]?.date).toEqual(
         startOfDay(parseIsoDateString(FUTURE_PRIMARY)),
       )
     })
@@ -1561,8 +1565,8 @@ describe('CampaignTasksService', () => {
 
       const tasks = getCreatedTaskData()
       for (let i = 1; i < tasks.length; i++) {
-        expect(tasks[i].date!.getTime()).toBeGreaterThanOrEqual(
-          tasks[i - 1].date!.getTime(),
+        expect(tasks[i]?.date?.getTime()).toBeGreaterThanOrEqual(
+          tasks[i - 1]?.date?.getTime() ?? 0,
         )
       }
     })
@@ -1579,7 +1583,7 @@ describe('CampaignTasksService', () => {
 
       const tasks = getCreatedTaskData()
       for (let i = 1; i < tasks.length; i++) {
-        expect(tasks[i].week).toBeLessThanOrEqual(tasks[i - 1].week)
+        expect(tasks[i]?.week).toBeLessThanOrEqual(tasks[i - 1]?.week ?? 0)
       }
     })
 
@@ -1599,9 +1603,9 @@ describe('CampaignTasksService', () => {
           CAMPAIGN_FINANCE_AWARENESS_COUNT +
           ELECTION_DAY_AWARENESS_COUNT_PER_DATE,
       )
-      expect(tasks[0].date).toBeInstanceOf(Date)
-      expect(tasks[0].isDefaultTask).toBe(true)
-      expect(tasks[tasks.length - 1].date).toBeInstanceOf(Date)
+      expect(tasks[0]?.date).toBeInstanceOf(Date)
+      expect(tasks[0]?.isDefaultTask).toBe(true)
+      expect(tasks[tasks.length - 1]?.date).toBeInstanceOf(Date)
     })
 
     it('generates weekly recurring tasks on the correct day each week', async () => {
@@ -1830,13 +1834,13 @@ describe('CampaignTasksService', () => {
         campaignId: 1,
         completed: false,
       })
-      expect(recurring[0].date).toBeInstanceOf(Date)
+      expect(recurring[0]?.date).toBeInstanceOf(Date)
       expect(recurring[recurring.length - 1]).toMatchObject({
         isDefaultTask: true,
         campaignId: 1,
         completed: false,
       })
-      expect(recurring[recurring.length - 1].date).toBeInstanceOf(Date)
+      expect(recurring[recurring.length - 1]?.date).toBeInstanceOf(Date)
     })
 
     it('does not generate any tasks when no election dates exist', async () => {
@@ -1879,14 +1883,16 @@ describe('CampaignTasksService', () => {
       )
 
       expect(result).toHaveLength(1)
-      expect(result[0].title).toBe(
+      expect(result[0]?.title).toBe(
         'Contact Parade Organizers for 4th of July Parade',
       )
-      expect(result[0].description).toBe('Get signed up to march in the parade')
-      expect(result[0].flowType).toBe(CampaignTaskType.awareness)
-      expect(result[0].date).toBe('2026-06-01')
-      expect(result[0].week).toBe(23)
-      expect(result[0].isDefaultTask).toBe(false)
+      expect(result[0]?.description).toBe(
+        'Get signed up to march in the parade',
+      )
+      expect(result[0]?.flowType).toBe(CampaignTaskType.awareness)
+      expect(result[0]?.date).toBe('2026-06-01')
+      expect(result[0]?.week).toBe(23)
+      expect(result[0]?.isDefaultTask).toBe(false)
     })
 
     it('detects parade in the description (case-insensitive)', () => {
@@ -1906,7 +1912,7 @@ describe('CampaignTasksService', () => {
       )
 
       expect(result).toHaveLength(1)
-      expect(result[0].title).toBe(
+      expect(result[0]?.title).toBe(
         'Contact Parade Organizers for Community March Event',
       )
     })
@@ -1992,8 +1998,8 @@ describe('CampaignTasksService', () => {
       )
 
       expect(result).toHaveLength(2)
-      expect(result[0].id).toBe('aw-parade-parade-1')
-      expect(result[1].id).toBe('aw-parade-parade-2')
+      expect(result[0]?.id).toBe('aw-parade-parade-1')
+      expect(result[1]?.id).toBe('aw-parade-parade-2')
     })
 
     it('returns empty when no election date is provided', () => {

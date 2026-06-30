@@ -13,6 +13,7 @@ import {
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { ComplianceStateService } from './complianceState.service'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
@@ -267,7 +268,9 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
     await service.createAgentic(user, campaign, basePayload)
 
     expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-    const [message, group, options] = mockQueue.sendMessage.mock.calls[0]
+    const [message, group, options] = firstOrThrow(
+      mockQueue.sendMessage.mock.calls,
+    )
     expect(message).toEqual({
       type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
       data: {
@@ -450,7 +453,7 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         data: { kickoffSentAt: expect.any(Date) },
       })
       expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message] = mockQueue.sendMessage.mock.calls[0]
+      const [message] = firstOrThrow(mockQueue.sendMessage.mock.calls)
       expect(message.data).toEqual({
         campaignId: campaign.id,
         tcrComplianceId: 'tcr-paid',
@@ -522,7 +525,9 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         }),
       )
       expect(mockQueue.sendMessage).toHaveBeenCalledTimes(1)
-      const [message, group, options] = mockQueue.sendMessage.mock.calls[0]
+      const [message, group, options] = firstOrThrow(
+        mockQueue.sendMessage.mock.calls,
+      )
       expect(message).toEqual({
         type: QueueType.AGENTIC_COMPLIANCE_KICKOFF,
         data: {
@@ -713,15 +718,16 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     const provisionOrder =
       mockWebsites.ensureCompliancePublishableWebsite.mock
         .invocationCallOrder[0]
-    const dispatchOrder =
-      mockExperimentRuns.dispatchRun.mock.invocationCallOrder[0]
+    const dispatchOrder = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.invocationCallOrder,
+    )
     expect(provisionOrder).toBeLessThan(dispatchOrder)
   })
 
   it('claims the dispatch slot atomically before calling dispatchRun', async () => {
     await service.handleAgenticKickoff(kickoff)
 
-    const claimCall = mockModel.updateMany.mock.calls[0][0]
+    const claimCall = firstOrThrow(mockModel.updateMany.mock.calls)[0]
     expect(claimCall.where).toMatchObject({
       id: kickoff.tcrComplianceId,
       agenticRunId: null,
@@ -732,8 +738,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     })
     expect(claimCall.data.agenticDispatchAttemptedAt).toBeInstanceOf(Date)
 
-    const dispatchCallOrder =
-      mockExperimentRuns.dispatchRun.mock.invocationCallOrder[0]
+    const dispatchCallOrder = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.invocationCallOrder,
+    )
     const claimCallOrder = mockModel.updateMany.mock.invocationCallOrder[0]
     expect(claimCallOrder).toBeLessThan(dispatchCallOrder)
   })
@@ -761,10 +768,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     // Last updateMany is the success stamp; scoped to our claim timestamp so
     // a TTL re-claimant's stamp isn't clobbered.
-    const stampCall =
-      mockModel.updateMany.mock.calls[
-        mockModel.updateMany.mock.calls.length - 1
-      ][0]
+    const stampCall = nthOrThrow(
+      mockModel.updateMany.mock.calls,
+      mockModel.updateMany.mock.calls.length - 1,
+    )[0]
     expect(stampCall.where).toMatchObject({
       id: kickoff.tcrComplianceId,
       agenticDispatchAttemptedAt: expect.any(Date),
@@ -792,7 +799,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     await service.handleAgenticKickoff(kickoff)
 
-    const dispatchArg = mockExperimentRuns.dispatchRun.mock.calls[0][0]
+    const dispatchArg = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.calls,
+    )[0]
     expect(dispatchArg.params.candidate_first_name).toBe('')
     expect(dispatchArg.params.candidate_last_name).toBe('')
   })
@@ -800,7 +809,9 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
   it('does not include actor_token_url in the dispatch params', async () => {
     await service.handleAgenticKickoff(kickoff)
 
-    const dispatchCall = mockExperimentRuns.dispatchRun.mock.calls[0][0]
+    const dispatchCall = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.calls,
+    )[0]
     expect(JSON.stringify(dispatchCall)).not.toContain('actor_token_url')
     expect(JSON.stringify(dispatchCall)).not.toContain('actorTokenUrl')
   })
@@ -851,10 +862,12 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     await service.handleAgenticKickoff(kickoff)
 
     expect(mockExperimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
-    const dispatchArg = mockExperimentRuns.dispatchRun.mock.calls[0][0]
+    const dispatchArg = firstOrThrow(
+      mockExperimentRuns.dispatchRun.mock.calls,
+    )[0]
     expect(dispatchArg.params.trigger).toBe('recovery_resume')
 
-    const retakeCall = mockModel.updateMany.mock.calls[1][0]
+    const retakeCall = nthOrThrow(mockModel.updateMany.mock.calls, 1)[0]
     expect(retakeCall.where).toMatchObject({
       id: kickoff.tcrComplianceId,
       agenticRunId: 'run-failed',
@@ -1028,8 +1041,8 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     await expect(service.handleAgenticKickoff(kickoff)).rejects.toBe(err)
 
-    const claimTimestamp =
-      mockModel.updateMany.mock.calls[0][0].data.agenticDispatchAttemptedAt
+    const claimTimestamp = firstOrThrow(mockModel.updateMany.mock.calls)[0].data
+      .agenticDispatchAttemptedAt
     expect(mockModel.updateMany).toHaveBeenLastCalledWith({
       where: {
         id: kickoff.tcrComplianceId,
@@ -1046,8 +1059,8 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
 
     await expect(service.handleAgenticKickoff(kickoff)).resolves.toBeUndefined()
 
-    const claimTimestamp =
-      mockModel.updateMany.mock.calls[0][0].data.agenticDispatchAttemptedAt
+    const claimTimestamp = firstOrThrow(mockModel.updateMany.mock.calls)[0].data
+      .agenticDispatchAttemptedAt
     expect(mockModel.updateMany).toHaveBeenLastCalledWith({
       where: {
         id: kickoff.tcrComplianceId,
@@ -1275,7 +1288,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   it('claims the submission slot atomically before calling Peerly', async () => {
     await service.submitToPeerlyForAgent(user, campaign, input)
 
-    const firstUpdateMany = mockTcrModel.updateMany.mock.calls[0]
+    const firstUpdateMany = firstOrThrow(mockTcrModel.updateMany.mock.calls)
     expect(firstUpdateMany[0]).toEqual({
       where: {
         id: existingRecord.id,
@@ -1289,7 +1302,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     })
     // Claim happens BEFORE Peerly is invoked
     const claimCallOrder = mockTcrModel.updateMany.mock.invocationCallOrder[0]
-    const peerlyCallOrder = mockPeerly.getIdentities.mock.invocationCallOrder[0]
+    const peerlyCallOrder = firstOrThrow(
+      mockPeerly.getIdentities.mock.invocationCallOrder,
+    )
     expect(claimCallOrder).toBeLessThan(peerlyCallOrder)
   })
 
@@ -1437,8 +1452,8 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
 
     // Two updateMany calls: claim, then rollback
     expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
-    const claimCall = mockTcrModel.updateMany.mock.calls[0][0]
-    const rollbackCall = mockTcrModel.updateMany.mock.calls[1][0]
+    const claimCall = firstOrThrow(mockTcrModel.updateMany.mock.calls)[0]
+    const rollbackCall = nthOrThrow(mockTcrModel.updateMany.mock.calls, 1)[0]
     const claimTimestamp = claimCall.data.peerlySubmissionStartedAt
     expect(claimTimestamp).toBeInstanceOf(Date)
     // Rollback scopes to the exact timestamp we wrote, so a TTL re-claim by
@@ -1517,8 +1532,8 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
 
     // Two updateMany calls: claim, then rollback scoped to our own timestamp.
     expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
-    const claimCall = mockTcrModel.updateMany.mock.calls[0][0]
-    const rollbackCall = mockTcrModel.updateMany.mock.calls[1][0]
+    const claimCall = firstOrThrow(mockTcrModel.updateMany.mock.calls)[0]
+    const rollbackCall = nthOrThrow(mockTcrModel.updateMany.mock.calls, 1)[0]
     expect(rollbackCall).toEqual({
       where: {
         id: existingRecord.id,

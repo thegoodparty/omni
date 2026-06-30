@@ -507,10 +507,11 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   }
 
   private lastCollectedAt(rows: RaceOpponentRow[]): Date | null {
-    if (rows.length === 0) return null
+    const [first] = rows
+    if (!first) return null
     return rows.reduce(
       (latest, row) => (row.createdAt > latest ? row.createdAt : latest),
-      rows[0].createdAt,
+      first.createdAt,
     )
   }
 

@@ -2,4 +2,10 @@ import { Transformer, PledgeAugmented, PledgeRaw } from '../content.types'
 
 export const pledgeTransformer: Transformer<PledgeRaw, PledgeAugmented> = (
   pledges: PledgeRaw[],
-): PledgeAugmented => ({ ...pledges[0].data })
+): PledgeAugmented => {
+  const first = pledges[0]
+  if (!first) {
+    throw new Error('pledgeTransformer requires at least one pledge')
+  }
+  return { ...first.data }
+}

@@ -427,7 +427,8 @@ export class MeetingBriefingsService extends createPrismaBase(
       from: now,
       to: windowEnd,
     })
-    if (upcoming.length === 0) {
+    const [meetingDate] = upcoming
+    if (!meetingDate) {
       this.logger.info(
         { electedOfficeId, windowDays },
         'skipping briefing: no projected meeting inside window',
@@ -435,7 +436,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       return null
     }
     return {
-      meetingDate: upcoming[0],
+      meetingDate,
       meetingTime: schedule.time,
       meetingTimezone: schedule.timezone,
     }

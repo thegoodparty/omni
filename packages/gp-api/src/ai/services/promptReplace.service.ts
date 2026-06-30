@@ -200,15 +200,17 @@ export class PromptReplaceService {
 
     if (updates) {
       for (const u of updates) {
-        history.allTime[u.type] += u.quantity
-        history.allTime.total += u.quantity
+        history.allTime[u.type] = (history.allTime[u.type] ?? 0) + u.quantity
+        history.allTime.total = (history.allTime.total ?? 0) + u.quantity
 
         if (u.createdAt > thisWeek) {
-          history.thisWeek[u.type] += u.quantity
-          history.thisWeek.total += u.quantity
+          history.thisWeek[u.type] =
+            (history.thisWeek[u.type] ?? 0) + u.quantity
+          history.thisWeek.total = (history.thisWeek.total ?? 0) + u.quantity
         } else if (u.createdAt > twoWeeksAgo) {
-          history.lastWeek[u.type] += u.quantity
-          history.lastWeek.total += u.quantity
+          history.lastWeek[u.type] =
+            (history.lastWeek[u.type] ?? 0) + u.quantity
+          history.lastWeek.total = (history.lastWeek.total ?? 0) + u.quantity
         }
       }
     }

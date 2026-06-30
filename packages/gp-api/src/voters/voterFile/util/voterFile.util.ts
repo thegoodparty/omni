@@ -327,7 +327,14 @@ function fixCityCountyColumns(value: string) {
 }
 
 function customFiltersToQuery(filters: CustomFilter[]) {
-  const filterConditions: { [key: string]: string[] } = {
+  const filterConditions: {
+    audience: string[]
+    party: string[]
+    age: string[]
+    gender: string[]
+    phone: string[]
+    ethnicity: string[]
+  } = {
     audience: [],
     party: [],
     age: [],

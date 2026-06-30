@@ -63,7 +63,7 @@ const truncateToBytes = (value: string, maxBytes: number): string => {
   if (buf.length <= maxBytes) return value
   let end = maxBytes
   // Back off out of a continuation byte (0b10xxxxxx) to cut on a char boundary.
-  while (end > 0 && (buf[end] & 0xc0) === 0x80) end--
+  while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) end--
   return buf.toString('utf8', 0, end)
 }
 

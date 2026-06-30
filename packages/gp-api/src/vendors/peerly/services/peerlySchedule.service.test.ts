@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { P2P_SCHEDULE_DEFAULTS } from '../constants/p2pJob.constants'
 import { PeerlyScheduleService } from './peerlySchedule.service'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
@@ -93,7 +94,7 @@ describe('PeerlyScheduleService', () => {
     it('includes account number in request body', async () => {
       await service.createSchedule('Test')
 
-      const postCall = mockHttpService.post.mock.calls[0]
+      const postCall = firstOrThrow(mockHttpService.post.mock.calls)
       expect(postCall[1].account).toBe(service.accountNumber)
     })
 

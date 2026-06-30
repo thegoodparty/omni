@@ -218,11 +218,11 @@ describe('ContactEngagementService', () => {
       expect(result.results).toHaveLength(2)
 
       // Polls should be in order of first encounter (newest messages first = poll-2 first)
-      expect(result.results[0].data.pollId).toBe('poll-2')
-      expect(result.results[1].data.pollId).toBe('poll-1')
+      expect(result.results[0]?.data.pollId).toBe('poll-2')
+      expect(result.results[1]?.data.pollId).toBe('poll-1')
 
       // Events within poll-2 should be oldest first
-      expect(result.results[0].data.events).toEqual([
+      expect(result.results[0]?.data.events).toEqual([
         {
           type: ConstituentActivityEventType.SENT,
           date: '2025-01-20T10:00:00.000Z',
@@ -234,7 +234,7 @@ describe('ContactEngagementService', () => {
       ])
 
       // Events within poll-1 should be oldest first
-      expect(result.results[1].data.events).toEqual([
+      expect(result.results[1]?.data.events).toEqual([
         {
           type: ConstituentActivityEventType.SENT,
           date: '2025-01-15T10:00:00.000Z',
@@ -267,7 +267,7 @@ describe('ContactEngagementService', () => {
 
       const result = await service.getIndividualActivities(baseInput)
 
-      expect(result.results[0].data.events[0].type).toBe(
+      expect(result.results[0]?.data.events[0]?.type).toBe(
         ConstituentActivityEventType.OPTED_OUT,
       )
     })
@@ -367,7 +367,7 @@ describe('ContactEngagementService', () => {
         orderBy: { sentAt: 'desc' },
       })
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].data.pollId).toBe('poll-2')
+      expect(result.results[0]?.data.pollId).toBe('poll-2')
     })
 
     it('returns nextCursor when more results exist', async () => {
@@ -600,8 +600,8 @@ describe('ContactEngagementService', () => {
       )
 
       expect(result.results).toHaveLength(2)
-      expect(result.results[0].issueTitle).toBe('A')
-      expect(result.results[1].issueTitle).toBe('B')
+      expect(result.results[0]?.issueTitle).toBe('A')
+      expect(result.results[1]?.issueTitle).toBe('B')
       expect(result.nextCursor).toBe('2')
     })
 
@@ -623,7 +623,7 @@ describe('ContactEngagementService', () => {
       )
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].issueTitle).toBe('C')
+      expect(result.results[0]?.issueTitle).toBe('C')
       expect(result.nextCursor).toBeNull()
       expect(mockPollIndividualMessageService.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 2, take: 3 }),
@@ -648,7 +648,7 @@ describe('ContactEngagementService', () => {
       )
 
       expect(result.results).toHaveLength(1)
-      expect(result.results[0].issueTitle).toBe('Only')
+      expect(result.results[0]?.issueTitle).toBe('Only')
       expect(result.nextCursor).toBeNull()
     })
   })

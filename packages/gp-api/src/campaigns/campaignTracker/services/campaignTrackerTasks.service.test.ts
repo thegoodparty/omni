@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { ExperimentRunStatus } from '../../../generated/prisma'
 import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
 import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
@@ -87,7 +88,7 @@ describe('CampaignTrackerTasksService.dispatchGeneration', () => {
     await h.service.dispatchGeneration(campaign(), 'initial')
 
     expect(h.experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
-    const arg = h.experimentRuns.dispatchRun.mock.calls[0][0]
+    const arg = firstOrThrow(h.experimentRuns.dispatchRun.mock.calls)[0]
     expect(arg.type).toBe(CAMPAIGN_TRACKER_EXPERIMENT_TYPE)
     expect(arg.organizationSlug).toBe('org-1')
     expect(arg.clerkUserId).toBe('clk_1')
@@ -104,7 +105,7 @@ describe('CampaignTrackerTasksService.dispatchGeneration', () => {
 
   it('does not query the DB for prior tasks (weekly fetches them via MCP)', async () => {
     await h.service.dispatchGeneration(campaign(), 'weekly')
-    const p = h.experimentRuns.dispatchRun.mock.calls[0][0].params
+    const p = firstOrThrow(h.experimentRuns.dispatchRun.mock.calls)[0].params
     expect(p.mode).toBe('weekly')
     expect(p).not.toHaveProperty('prior_tasks')
     // no prior-tasks read against the tracker model
@@ -124,7 +125,7 @@ describe('CampaignTrackerTasksService.dispatchGeneration', () => {
     })
     await h.service.dispatchGeneration(campaign(), 'initial')
 
-    const p = h.experimentRuns.dispatchRun.mock.calls[0][0].params
+    const p = firstOrThrow(h.experimentRuns.dispatchRun.mock.calls)[0].params
     expect(p.campaign_story).toContain('I care')
     expect(p.campaign_story).toContain('Housing')
     expect(p.campaign_plan).toContain('Engaged renters')
@@ -133,7 +134,7 @@ describe('CampaignTrackerTasksService.dispatchGeneration', () => {
 
   it('sends null plan/story when neither exists', async () => {
     await h.service.dispatchGeneration(campaign(), 'initial')
-    const p = h.experimentRuns.dispatchRun.mock.calls[0][0].params
+    const p = firstOrThrow(h.experimentRuns.dispatchRun.mock.calls)[0].params
     expect(p.campaign_plan).toBeNull()
     expect(p.campaign_story).toBeNull()
   })
@@ -153,9 +154,9 @@ describe('CampaignTrackerTasksService.bootstrapForCampaign', () => {
     })
     expect(h.prisma.campaignTrackerTask.createMany).toHaveBeenCalled()
     expect(h.experimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
-    expect(h.experimentRuns.dispatchRun.mock.calls[0][0].params.mode).toBe(
-      'initial',
-    )
+    expect(
+      firstOrThrow(h.experimentRuns.dispatchRun.mock.calls)[0].params.mode,
+    ).toBe('initial')
   })
 
   it('no-ops when the bootstrap flag is already claimed (concurrent completion)', async () => {
@@ -257,8 +258,9 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
 
     // Append, not replace — completion on prior generations survives.
     expect(h.prisma.campaignTrackerTask.deleteMany).not.toHaveBeenCalled()
-    const created =
-      h.prisma.campaignTrackerTask.createMany.mock.calls[0][0].data
+    const created = firstOrThrow(
+      h.prisma.campaignTrackerTask.createMany.mock.calls,
+    )[0].data
     expect(created).toHaveLength(2)
     expect(created[0].isDefaultTask).toBe(false)
     // first generation when none exist yet
@@ -272,8 +274,9 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 2 })
     h.s3.getFile.mockResolvedValueOnce(artifact())
     await h.service.onExperimentRunCompleted(run())
-    const created =
-      h.prisma.campaignTrackerTask.createMany.mock.calls[0][0].data
+    const created = firstOrThrow(
+      h.prisma.campaignTrackerTask.createMany.mock.calls,
+    )[0].data
     expect(created.every((r: { week: number }) => r.week === 3)).toBe(true)
   })
 

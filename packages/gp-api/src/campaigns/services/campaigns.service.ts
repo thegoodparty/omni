@@ -44,7 +44,6 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { AiContentInputValues } from '../ai/content/aiContent.types'
 import {
   CampaignPlanVersionData,
-  PlanVersion,
   UpdateCampaignFieldsInput,
 } from '../campaigns.types'
 import { CreateFollowOnCampaignBody } from '../schemas/updateCampaign.schema'
@@ -908,7 +907,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
 
     const newVersion = {
       date: new Date().toString(),
-      text: aiContent[key]?.content,
+      text: aiContent[key]?.content ?? '',
       // if new inputValues are specified we use those
       // otherwise we use the inputValues from the prior generation.
       inputValues:
@@ -928,12 +927,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       versions = existingVersions?.data as CampaignPlanVersionData
     }
 
-    let foundKey = false
-    if (!versions[key]) {
-      versions[key] = []
-    } else {
-      foundKey = true
-    }
+    const foundKey = versions[key] != null
+    const keyVersions = (versions[key] ??= [])
 
     // determine if we should update the current version or add a new one.
     // if regenerate is true, we should always add a new version.
@@ -941,8 +936,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     // we should update the existing version.
 
     let updateExistingVersion = false
-    if (regenerate === false && foundKey === true && versions[key].length > 0) {
-      const lastVersion = versions[key][0] as PlanVersion
+    if (regenerate === false && foundKey === true && keyVersions.length > 0) {
+      const lastVersion = keyVersions[0]
       const lastVersionDate = new Date(lastVersion?.date || 0)
       const diff = differenceInMilliseconds(new Date(), lastVersionDate)
       if (diff < 300000) {
@@ -951,14 +946,13 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     }
 
     if (updateExistingVersion === true) {
-      for (let i = 0; i < versions[key].length; i++) {
-        const version = versions[key][i]
+      for (const version of keyVersions) {
         if (
           JSON.stringify(version.inputValues) === JSON.stringify(inputValues)
         ) {
           // this version already exists. lets update it.
-          versions[key][i].text = newVersion.text
-          versions[key][i].date = new Date().toString()
+          version.text = newVersion.text
+          version.date = new Date().toString()
           break
         }
       }
@@ -969,7 +963,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       // here, we determine if we need to save an older version of the content.
       // because in the past we didn't create a Content version for every new generation.
       // otherwise if they translate they won't have the old version to go back to.
-      versions[key].push({
+      keyVersions.push({
         ...oldVersion,
         date: oldVersion.date.toString(),
       })
@@ -978,9 +972,9 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
     if (updateExistingVersion === false) {
       this.logger.info('adding new version')
       // add new version to the top of the list.
-      const length = versions[key].unshift(newVersion)
+      const length = keyVersions.unshift(newVersion)
       if (length > 10) {
-        versions[key].length = 10
+        keyVersions.length = 10
       }
     }
 
