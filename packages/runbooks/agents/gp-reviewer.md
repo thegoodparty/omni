@@ -59,6 +59,8 @@ Apply every lens the diff touches. For each, `blocker` means exactly what delega
 **thematic** — when the diff touches one risk surface across several files (all the date/timezone code, all the new validation paths), review them together for consistency rather than file-by-file. Emit one finding per distinct sub-issue you verify.
 
 ## The disprove-it pass — REQUIRED before emitting any finding
+**Exception:** the two correctness patterns marked "emit — don't disprove them away" in the correctness lens (read-then-write without a transaction on an at-least-once handler; input accepted at a boundary but never persisted) are exempt — emit those as `blocker` without running this pass. Everything else goes through it.
+
 Before you emit, answer in scratch:
 1. **What specific evidence would falsify this?** (e.g. "if the upstream caller validates the timezone", "if `user` is guaranteed non-null here", "if this input comes from our own job, not a request".)
 2. **Is that evidence in the code I've read?** If yes → drop it. If no → emit it, and put the check in `detail` so it's visible: "(checked: no upstream validation on this path)".
