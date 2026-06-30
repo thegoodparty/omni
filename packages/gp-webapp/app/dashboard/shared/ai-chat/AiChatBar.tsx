@@ -1,7 +1,8 @@
 'use client'
 
 import { IconButton } from '@styleguide'
-import { MicIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import { MicIcon } from '@styleguide/components/ui/icons'
+import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import { CHAT_MAX_W } from './constants'
 import AiChatHistoryPopover from './AiChatHistoryPopover'
 import ChatPill from './ChatPill'
@@ -77,7 +78,7 @@ export default function AiChatBar({
               className="bg-primary text-primary-foreground"
               onClick={onOpen}
             >
-              <SparklesIcon className="size-4" aria-hidden />
+              <AiIcon className="size-4" aria-hidden />
             </IconButton>
           </ChatPill>
         </div>

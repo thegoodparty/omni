@@ -1,5 +1,6 @@
 import { icons } from 'lucide-react'
 import { createElement, useState } from 'react'
+import { AiIcon } from '../components/ui/ai-icon'
 import { PAGE_STYLE, PageHeader, STORY_PARAMS } from './_storyShell'
 
 const meta = {
@@ -168,3 +169,54 @@ export const IconGallery = () => {
 
 IconGallery.storyName = 'Icon Gallery'
 IconGallery.parameters = STORY_PARAMS
+
+// =============================================================================
+// Custom Icons — hand-authored GoodParty glyphs not in the Lucide set.
+// Add new entries here as they are ported from Figma.
+// =============================================================================
+const CUSTOM_ICONS = [{ name: 'AiIcon', Icon: AiIcon }]
+
+export const CustomIcons = () => (
+  <div style={PAGE_STYLE} className="space-y-8">
+    <PageHeader
+      title="Custom Icons"
+      description="GoodParty glyphs outside the Lucide catalog. Filled icons that inherit color via currentColor. Import from @styleguide."
+    />
+
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+        gap: 32,
+      }}
+    >
+      {CUSTOM_ICONS.map(({ name, Icon }) => (
+        <div
+          key={name}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div
+            className="flex items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 w-full text-foreground"
+            style={{ aspectRatio: '1' }}
+          >
+            <Icon className="size-6" aria-hidden />
+          </div>
+          <span
+            className="text-gray-500 text-center w-full font-mono"
+            style={{ fontSize: 11 }}
+          >
+            {name}
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
+CustomIcons.storyName = 'Custom Icons'
+CustomIcons.parameters = STORY_PARAMS

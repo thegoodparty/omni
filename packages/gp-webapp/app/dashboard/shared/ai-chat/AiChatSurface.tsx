@@ -8,7 +8,7 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from '@styleguide'
-import { SparklesIcon } from '@styleguide/components/ui/icons'
+import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import AiChatBody from './AiChatBody'
 import { CHAT_MAX_W } from './constants'
 import type { AiChatClient, AiChatConfig } from './types'
@@ -73,7 +73,7 @@ export default function AiChatSurface({
                 'linear-gradient(135deg, var(--ai-gradient-from), var(--ai-gradient-to))',
             }}
           >
-            <SparklesIcon className="size-4" aria-hidden />
+            <AiIcon className="size-4" aria-hidden />
           </span>
           <div className="flex flex-col text-left">
             <DrawerTitle className="text-base font-semibold">

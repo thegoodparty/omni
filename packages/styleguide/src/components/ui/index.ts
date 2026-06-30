@@ -1,4 +1,5 @@
 export * from './icons'
+export * from './ai-icon'
 export * from './accordion'
 export * from './alert'
 export * from './alert-dialog'
