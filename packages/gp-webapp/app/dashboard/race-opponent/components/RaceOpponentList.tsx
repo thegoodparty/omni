@@ -580,27 +580,54 @@ const RaceOpponentList = ({
   // both disable a fresh Collect to avoid stacking paid runs.
   const isBusy = status === 'running' || status === 'discovering'
 
-  // While the real run is busy, show the cosmetic 4-step processing screen
+  // Two-call discovery briefly reports 'idle' between discovery finishing and
+  // the auto-fired collect flipping the run to 'running'. Treating that gap as
+  // not-processing would flicker the screen out to the empty/report view and
+  // snap back. The gap is exactly the window where the auto-fired collect is
+  // pending or in flight, so key "idle still processing" off that — NOT a sticky
+  // session flag, which would also wedge the screen when collect legitimately
+  // settles to a terminal 'idle' (uncontested/unavailable race, where no
+  // collection run is dispatched). `justLeftDiscovery` covers the one render
+  // before the auto-fire effect flips `collecting` on; `collecting` covers the
+  // in-flight collect. A brand-new 'idle' user (never discovered, never
+  // collecting) stays out of the processing screen.
+  const justLeftDiscovery = prevStatus.current === 'discovering'
+  const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
+  const isProcessing = isBusy || idleMidRun
+
+  // While the real run is processing, show the cosmetic 4-step progress screen
   // instead of the bare empty/status row. The steps advance on their own timer
   // (inside OpponentResearchProgress) and are decoupled from this real status —
   // the timer only drives the label/counter; this real status decides when to
   // leave the screen, so a fast fake timer can't transition before data lands.
   //
-  // On the busy -> completed transition, hold the progress screen in its "ready"
-  // terminal state briefly so the user sees it snap to "report is ready" before
-  // the report (or, for zero opponents, ENG-10609's manual form) replaces it.
+  // On the processing -> completed transition, hold the progress screen in its
+  // "ready" terminal state briefly so the user sees it snap to "report is ready"
+  // before the report (or, for zero opponents, ENG-10609's manual form) replaces
+  // it.
+  //
+  // The hold is latched in state on the render where 'completed' first lands
+  // after a real run (prevProcessing was true), using the "store previous value
+  // in state, update during render" pattern. That detection is pure render
+  // logic with no ref mutation, so it is Strict-Mode safe — the double-invoked
+  // setup/cleanup of the dismissal timer below re-arms the same timer rather
+  // than skipping the hold, and the latch stays set across re-renders until the
+  // timer dismisses it.
   const [readyHold, setReadyHold] = useState(false)
-  const wasBusy = useRef(isBusy)
+  const [prevProcessing, setPrevProcessing] = useState(isProcessing)
+  if (prevProcessing !== isProcessing) {
+    setPrevProcessing(isProcessing)
+    if (prevProcessing && !isProcessing && status === 'completed') {
+      setReadyHold(true)
+    }
+  }
   useEffect(() => {
-    const leftBusy = wasBusy.current && !isBusy
-    wasBusy.current = isBusy
-    if (!leftBusy || status !== 'completed') return
-    setReadyHold(true)
+    if (!readyHold) return
     const id = setTimeout(() => setReadyHold(false), READY_HOLD_MS)
     return () => clearTimeout(id)
-  }, [isBusy, status])
+  }, [readyHold])
 
-  if (isBusy || readyHold) {
+  if (isProcessing || readyHold) {
     return (
       <>
         <div className="border-b border-border bg-background">

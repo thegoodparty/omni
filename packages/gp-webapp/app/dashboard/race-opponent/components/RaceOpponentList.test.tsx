@@ -769,6 +769,147 @@ describe('<RaceOpponentList>', () => {
     }
   })
 
+  it('keeps the processing screen during the transient idle gap of an active run (no flicker)', async () => {
+    // Two-call discovery reports 'idle' between discovery finishing and the
+    // auto-fired collect flipping to 'running'. The processing screen must NOT
+    // flicker out to the empty/report view during that gap.
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      // First poll lands the transient idle, which auto-fires collect -> running.
+      { status: 200, data: { ...empty, collectionStatus: 'idle' } },
+    ])
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
+      status: 200,
+      data: { runId: 'collection-1', status: 'running' },
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'discovering' }}
+        />,
+      )
+
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+
+      // Poll lands the transient idle; the auto-fired collect then flips to
+      // running. Throughout, the screen must stay up and never flash the empty
+      // "no opponent research yet" state.
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText('Researching your opponents'),
+        ).toBeInTheDocument(),
+      )
+      expect(
+        screen.queryByText(/no opponent research yet/i),
+      ).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('leaves the processing screen when an uncontested run settles to a terminal idle', async () => {
+    // collect() returns a terminal 'idle' for an uncontested/unavailable race
+    // (no collection run dispatched). The screen must NOT wedge — once the
+    // in-flight collect resolves to idle, the user drops to the empty state.
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: { ...empty, collectionStatus: 'idle' } },
+    ])
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
+      status: 200,
+      data: { runId: null, status: 'idle' },
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'discovering' }}
+        />,
+      )
+
+      expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+
+      // Poll lands idle (auto-fires collect, which settles back to idle); the
+      // screen must give way to the empty state rather than spin forever.
+      await vi.advanceTimersByTimeAsync(5000)
+
+      await waitFor(() =>
+        expect(
+          screen.getByText(/no opponent research yet/i),
+        ).toBeInTheDocument(),
+      )
+      expect(
+        screen.queryByText('Researching your opponents'),
+      ).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('does not show the processing screen for a brand-new idle user who has never run', () => {
+    render(
+      <RaceOpponentList initialData={{ ...empty, lastCollectedAt: null }} />,
+    )
+
+    // A genuine never-ran idle user sees the empty state, not the processing UI.
+    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText('Researching your opponents'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /collect now/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps the ready state latched across the full hold window before revealing the report', async () => {
+    // The ready hold must not be dropped by an interim re-render (e.g. the
+    // in-run tracking flipping off when 'completed' lands). It stays latched for
+    // the entire hold window, then the report appears. Advancing in two sub-hold
+    // steps proves the ready state persists mid-window rather than dropping early.
+    api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
+      { status: 200, data: withSummary },
+    ])
+    vi.useFakeTimers()
+    try {
+      render(
+        <RaceOpponentList
+          initialData={{ ...empty, collectionStatus: 'running' }}
+        />,
+      )
+
+      // Poll flips real status to completed -> ready terminal state latches.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5000)
+      })
+      expect(
+        screen.getByText('Your opponent report is ready'),
+      ).toBeInTheDocument()
+
+      // Part-way through the 1.5s hold the ready state is still shown (the
+      // latch isn't dropped by an interim re-render) and the report isn't up yet.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(700)
+      })
+      expect(
+        screen.getByText('Your opponent report is ready'),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /Jane Rival/i }),
+      ).not.toBeInTheDocument()
+
+      // After the remainder of the hold, the report replaces the screen.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(800)
+      })
+      expect(
+        screen.getByRole('button', { name: /Jane Rival/i }),
+      ).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('does not auto-fire collect when discovery fails (no re-dispatch loop)', async () => {
     api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
       { status: 200, data: { ...empty, collectionStatus: 'failed' } },
