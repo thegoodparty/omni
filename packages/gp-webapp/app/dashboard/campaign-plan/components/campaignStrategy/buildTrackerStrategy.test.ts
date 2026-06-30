@@ -47,14 +47,15 @@ describe('buildTrackerStrategy', () => {
     expect(gotv?.groups).toHaveLength(0)
   })
 
-  it('shows all active tasks at once, with nothing withheld', () => {
+  it('shows every task in an active week at once, nothing withheld', () => {
+    // All six land in the same Mon-Sun week (Feb 2-8), so they share one week.
     const active = Array.from({ length: 6 }, (_, i) =>
-      row({ id: `t${i}`, phase: 'active', date: `2026-02-0${i + 1}` }),
+      row({ id: `t${i}`, phase: 'active', date: `2026-02-0${i + 2}` }),
     )
     const data = buildTrackerStrategy(active, { electionDate: null, today })
     const phase = data.phases.find((p) => p.key === 'active')
-    expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(6)
-    expect(phase?.hiddenCount ?? 0).toBe(0)
+    expect(phase?.weeks).toHaveLength(1)
+    expect(phase?.weeks?.flatMap((w) => w.tasks)).toHaveLength(6)
   })
 
   it('withholds nothing for the static launch checklist', () => {
@@ -64,21 +65,35 @@ describe('buildTrackerStrategy', () => {
     const data = buildTrackerStrategy(pre, { electionDate: null, today })
     const phase = data.phases.find((p) => p.key === 'preLaunch')
     expect(phase?.groups.flatMap((g) => g.tasks)).toHaveLength(6)
-    expect(phase?.hiddenCount ?? 0).toBe(0)
   })
 
-  it('renders only the latest dynamic generation, keeping static rows', () => {
+  it('splits active tasks into Mon-Sun weeks and flags the current one', () => {
     const data = buildTrackerStrategy(
       [
-        row({ id: 'old', phase: 'active', week: 1, date: '2026-02-01' }),
-        row({ id: 'new', phase: 'active', week: 2, date: '2026-02-08' }),
+        row({ id: 'a', phase: 'active', date: '2026-01-14' }),
+        row({ id: 'b', phase: 'active', date: '2026-01-21' }),
+      ],
+      { electionDate: null, today },
+    )
+    const weeks = data.phases.find((p) => p.key === 'active')?.weeks ?? []
+    expect(weeks.map((w) => w.start)).toEqual(['2026-01-12', '2026-01-19'])
+    expect(weeks[0]?.isCurrent).toBe(true)
+    expect(weeks[1]?.isCurrent).toBe(false)
+    expect(weeks[0]?.tasks.map((t) => t.id)).toEqual(['a'])
+  })
+
+  it('within an active week keeps the latest generation; static rows stay', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({ id: 'old', phase: 'active', week: 1, date: '2026-02-03' }),
+        row({ id: 'new', phase: 'active', week: 2, date: '2026-02-04' }),
         row({ id: 'static', phase: 'preLaunch', week: 5, isDefaultTask: true }),
       ],
       { electionDate: null, today },
     )
     const active = data.phases
       .find((p) => p.key === 'active')
-      ?.groups.flatMap((g) => g.tasks)
+      ?.weeks?.flatMap((w) => w.tasks)
       .map((t) => t.id)
     expect(active).toEqual(['new'])
     const pre = data.phases

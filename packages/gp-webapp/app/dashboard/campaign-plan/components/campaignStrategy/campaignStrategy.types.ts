@@ -57,6 +57,16 @@ export interface CampaignStrategyGate {
   message: string
 }
 
+// One Monday-Sunday week of active-phase tasks for the week navigator. `start`
+// is the Monday (ISO date). The navigator shows one week at a time and lets the
+// candidate move to the immediately previous / next week.
+export interface CampaignStrategyWeek {
+  start: string
+  tasks: CampaignStrategyTask[]
+  // The week that contains "today" — the navigator's default view.
+  isCurrent: boolean
+}
+
 export interface CampaignStrategyPhase {
   key: CampaignStrategyPhaseKey
   title: string
@@ -64,10 +74,10 @@ export interface CampaignStrategyPhase {
   summary: string
   groups: CampaignStrategyGroup[]
   gate?: CampaignStrategyGate
-  // Progressive reveal: dynamic weekly tasks beyond the shown top-N uncompleted
-  // are withheld until earlier ones are completed. Count of those withheld
-  // tasks, so the UI can tell the candidate more will unlock.
-  hiddenCount?: number
+  // The active phase renders as a week navigator (one Mon-Sun week at a time,
+  // back/forward one week) rather than a flat group list. When set, the UI uses
+  // this instead of `groups`.
+  weeks?: CampaignStrategyWeek[]
 }
 
 export interface CampaignStrategyData {

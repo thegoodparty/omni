@@ -14,8 +14,8 @@ cards the candidate checks off. Feature overview + backend:
 | `buildTrackerStrategy.ts` | Builds the render shape from persisted rows (the only path). |
 | `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then the accordion. Renders only from persisted rows. |
 | `CampaignStrategyTaskRow.tsx` | One task card (date chip, channel icon, completion toggle). |
-| `CampaignStrategyPhase.tsx` | A phase accordion item + the "N more unlock" hint. |
-| `campaignStrategy.types.ts` | Render-shape types shared by both builders. |
+| `CampaignStrategyPhase.tsx` | A phase accordion item; the Active phase renders the `WeekNavigator` (one Mon-Sun week, back/forward one). |
+| `campaignStrategy.types.ts` | Render-shape types (`CampaignStrategyPhase`, `…Week`, `…Task`). |
 
 ## Patterns / non-obvious logic
 
@@ -27,10 +27,15 @@ cards the candidate checks off. Feature overview + backend:
   "happening now" (active) is date-driven (the first non-empty phase still in
   play). Empty intermediate phases are skipped so they can't strand a later
   populated phase as `upcoming`.
-- **No per-week display cap:** every phase renders all of its tasks at once
-  (the page shows everything; the weekly digest is what caps at 3). GOTV is the
-  one gated phase: hidden behind a window message until the election is within
-  30 days. That gate is deterministic here, not in the agent.
+- **Pre-launch / Launch render all tasks; Active is a week navigator.** No
+  progressive-reveal cap (the weekly digest is what caps at 3). The Active phase
+  is built by `buildActiveWeeks`: it buckets every active task (all generations,
+  not just `max(week)`) into Monday-Sunday weeks, flags the week containing
+  today, and `CampaignStrategyPhase`'s `WeekNavigator` shows one week at a time,
+  bounded to the current week ±1 (older generations stay out of reach). GOTV is
+  the one gated phase: hidden behind a window message until the election is
+  within 30 days. Both the navigator window and the GOTV gate are deterministic
+  here, not in the agent.
 - **The section renders only for the story cohort, only from persisted rows.**
   `CampaignPlanView` branches on the `campaign-story` flag: story cohort gets
   the tracker, story-off gets the legacy plan content (incl. community events)
@@ -40,12 +45,15 @@ cards the candidate checks off. Feature overview + backend:
 
 ## Gotchas
 
-- **Date strings come in two shapes.** The catalog fallback emits date-only
-  (`2026-07-11`); the tracker/API emits full ISO (`2026-07-11T00:00:00.000Z`).
-  `formatTaskDate` slices to the date portion before the Safari-safe
-  dash->slash parse. The full-ISO form would otherwise be an Invalid Date and
-  `format()` would throw, crashing the row. Keep any new date parsing tolerant
-  of both.
+- **Date strings come in two shapes, always parse as LOCAL midnight.** The
+  catalog fallback emits date-only (`2026-07-11`); the tracker/API emits full ISO
+  at UTC midnight (`2026-07-11T00:00:00.000Z`). Both `formatTaskDate` (the chip)
+  and `buildActiveWeeks` (`localMidnight`) slice to the date portion before the
+  Safari-safe dash->slash parse. This is not just Safari-safety: a raw
+  `new Date(isoUtc)` is UTC midnight, which in US timezones is the *previous* day
+  locally, so the week navigator would bucket a task into the wrong calendar week
+  (and disagree with its own date chip). Keep any new date parsing tolerant of
+  both shapes and anchored to local midnight.
 - `useTrackerTasks` can't tell "generation failed/never-dispatched" from "still
   generating" (no backend signal yet); the fast-poll budget caps the cost, but
   the spinner can persist for a malformed campaign. Backend signal is a follow-up.
