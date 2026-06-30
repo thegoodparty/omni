@@ -542,12 +542,19 @@ const RaceOpponentList = ({
       }))
     } catch {
       errorSnackbar('Failed to start collection. Please try again.')
+      // The POST may have reached the server and started a run before the
+      // client deadline fired, leaving collectionStatus stale at 'idle'. Re-sync
+      // from the server so the poll re-activates on a real 'running' rather than
+      // dropping to the list view where a second click double-dispatches a run.
+      // A failed re-sync is non-actionable here — the collect failure already
+      // surfaced — so the snackbar isn't fired twice.
+      void loadStatus().catch(() => undefined)
     } finally {
       clearTimeout(deadlineId)
       collectingRef.current = false
       setCollecting(false)
     }
-  }, [errorSnackbar])
+  }, [errorSnackbar, loadStatus])
 
   const status = data.collectionStatus
 

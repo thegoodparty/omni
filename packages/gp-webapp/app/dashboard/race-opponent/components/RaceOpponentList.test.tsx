@@ -809,17 +809,28 @@ describe('<RaceOpponentList>', () => {
     }
   })
 
-  it('escapes the processing screen if the collect POST hangs past its deadline', async () => {
+  it('re-syncs from the server and recovers if the collect POST hangs past its deadline', async () => {
     // The processing screen treats an in-flight collect as still-running and the
     // status poll is paused during that window, so a collect that never resolves
-    // would otherwise trap the user. The 30s deadline must reject, reset
-    // `collecting`, surface the error, and let the screen give way.
+    // would otherwise trap the user. The 30s deadline must reject, surface the
+    // error, and re-sync from the server — picking up a run the POST may have
+    // started server-side before the client deadline fired (stale 'idle' would
+    // otherwise let a second click double-dispatch a paid run).
     const errorSnackbar = vi.fn()
     vi.mocked(useSnackbar).mockReturnValue({
       successSnackbar: vi.fn(),
       errorSnackbar,
       displaySnackbar: vi.fn(),
     })
+    // First GET = the poll that lands the transient idle (a one-time handler
+    // registered last, so MSW serves it first). Every later GET — the
+    // post-timeout re-sync — falls through to this persistent handler, which
+    // reports the server actually started the run ('running').
+    const getStatus = vi.fn(() => ({
+      status: 200 as const,
+      data: { ...empty, collectionStatus: 'running' as const },
+    }))
+    api.mock('GET /v1/campaigns/mine/race-opponent', getStatus)
     api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
       { status: 200, data: { ...empty, collectionStatus: 'idle' } },
     ])
@@ -843,7 +854,7 @@ describe('<RaceOpponentList>', () => {
       expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
 
       // Past the 30s deadline the collect rejects: the error surfaces and the
-      // screen gives way to the empty state rather than spinning forever.
+      // component re-syncs status from the server.
       await vi.advanceTimersByTimeAsync(30000)
 
       await waitFor(() =>
@@ -851,14 +862,15 @@ describe('<RaceOpponentList>', () => {
           'Failed to start collection. Please try again.',
         ),
       )
+      // The catch path issued a status re-fetch (the second GET handler).
+      await waitFor(() => expect(getStatus).toHaveBeenCalled())
+      // The re-sync reports the server started the run, so the screen recovers
+      // into the processing state rather than dropping to the navigable list.
       await waitFor(() =>
         expect(
-          screen.getByText(/no opponent research yet/i),
+          screen.getByText('Researching your opponents'),
         ).toBeInTheDocument(),
       )
-      expect(
-        screen.queryByText('Researching your opponents'),
-      ).not.toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
