@@ -52,8 +52,9 @@ Every route is owner-scoped (`@UseCampaign`) and gated by **`assertAccess`** (Pr
 - `collect`, `opponents/identify·research·profile·activity`,
   `contrasts/generate·route·edit` also call
   `selfResearchGate.assertSelfResearchComplete` → **403** until the self-research pass
-  is `completed`. `opponents/manual` (confirmed input) and `GET contrasts` (read-only
-  list — `assertAccess` only) do **not**.
+  is `completed`. `opponents/manual` (confirmed input), `GET contrasts` (read-only
+  list — `assertAccess` only), and **`self-research/*`** (the front door for the pass
+  itself — gating it here would be circular) do **not**.
 - `contrasts/:id/review-verdict` is **admin-only** (`@Roles(admin)`) and intentionally
   skips owner scope — it acts on one contrast across campaigns and needs a reviewer
   identity (no pure-M2M caller).
