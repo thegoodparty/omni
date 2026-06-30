@@ -32,10 +32,10 @@ def _epoch(date):
     return str(int(datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=UTC).timestamp()))
 
 
-def _header(full, short, date, subject, ts=None):
-    # ts (commit epoch, %at) sits between the short date and the subject; defaults to the
-    # date's midnight so existing single-date streams keep their chronological ordering.
-    return "\x00" + SEP.join([full, short, date, ts or _epoch(date), subject])
+def _header(full, short, date, subject, ts=None, email="dev@example.com"):
+    # ts (commit epoch, %at) then ae (author email) sit between the short date and the
+    # subject; both default so existing single-date streams keep their ordering.
+    return "\x00" + SEP.join([full, short, date, ts or _epoch(date), email, subject])
 
 
 # --------------------------------------------------------------------------- #
@@ -498,7 +498,7 @@ def test_build_git_log_argv_single_pass_with_since():
     argv = build_git_log_argv("/repo", "2024-06-01", ["packages/gp-webapp"])
     assert argv[:4] == ["git", "-C", "/repo", "log"]
     assert "-p" in argv
-    assert "--format=%x00%H%x1f%h%x1f%ad%x1f%at%x1f%s" in argv
+    assert "--format=%x00%H%x1f%h%x1f%ad%x1f%at%x1f%ae%x1f%s" in argv
     assert argv[argv.index("--since") + 1] == "2024-06-01"
     assert argv[argv.index("--") + 1 :] == ["packages/gp-webapp"]
 
@@ -1521,3 +1521,65 @@ def test_call_site_columns_round_trip_through_csv(tmp_path):
     assert back["Dash Viewed"]["call_site_retired_date"] == "2026-06-13"
     assert back["Live Event"]["call_site_count"] == "3"
     assert back["Live Event"]["call_site_retired_date"] is None  # empty field -> None
+
+
+# --------------------------------------------------------------------------- #
+# author email columns
+# --------------------------------------------------------------------------- #
+
+
+def test_commit_from_header_parses_author_email():
+    line = _header("a" * 40, "aaaaaaa", "2026-06-01", "feat: add (#1)", email="dev@goodparty.org")
+    commit = bf._commit_from_header(line)
+    assert commit["email"] == "dev@goodparty.org"
+    assert commit["pr"] == "1"  # subject still parsed correctly after the new field
+
+
+def test_provenance_columns_include_author_emails():
+    assert "instrumented_author_email" in bf.PROVENANCE_COLUMNS
+    assert "retired_author_email" in bf.PROVENANCE_COLUMNS
+
+
+def test_build_provenance_row_emits_instrumented_author_email():
+    instrumented = {"commit": "a" * 40, "short": "aaaaaaa", "date": "2026-01-01",
+                    "ts": "1", "email": "writer@goodparty.org", "subject": "x", "pr": "1"}
+    entry = {"instrumented": instrumented, "retired": None, "last_change": instrumented}
+    row = bf.build_provenance_row("My Event", entry, present_in_head=True, updated_at="2026-06-30T00:00:00")
+    assert row["instrumented_author_email"] == "writer@goodparty.org"
+    assert row["retired_author_email"] is None  # still present in code -> no retirement
+
+
+def test_build_provenance_row_emits_retired_author_email_when_removed():
+    instrumented = {"commit": "a" * 40, "short": "aaaaaaa", "date": "2026-01-01",
+                    "ts": "1", "email": "writer@goodparty.org", "subject": "x", "pr": "1"}
+    retired = {"commit": "b" * 40, "short": "bbbbbbb", "date": "2026-06-13",
+               "ts": "2", "email": "remover@goodparty.org", "subject": "y", "pr": "2"}
+    entry = {"instrumented": instrumented, "retired": retired, "last_change": retired}
+    row = bf.build_provenance_row("My Event", entry, present_in_head=False, updated_at="2026-06-30T00:00:00")
+    assert row["retired_author_email"] == "remover@goodparty.org"
+    assert row["instrumented_author_email"] == "writer@goodparty.org"
+
+
+def test_author_email_columns_round_trip_through_csv(tmp_path):
+    csv_path = str(tmp_path / "prov.csv")
+    rows = [
+        {c: None for c in bf.PROVENANCE_COLUMNS} | {
+            "event_type": "Removed Event", "event_type_slug": "removed_event",
+            "instrumented_author_email": "writer@goodparty.org",
+            "retired_author_email": "remover@goodparty.org",
+        },
+    ]
+    bf.write_provenance(rows, csv_path)
+    back = bf.read_provenance_rows(csv_path)
+    assert back["Removed Event"]["instrumented_author_email"] == "writer@goodparty.org"
+    assert back["Removed Event"]["retired_author_email"] == "remover@goodparty.org"
+
+
+def test_merge_provenance_entry_preserves_instrumented_author_email():
+    existing = {
+        "instrumented_commit": "a" * 40, "instrumented_pr": "1", "instrumented_date": "2026-01-01",
+        "instrumented_author_email": "writer@goodparty.org",
+    }
+    new_entry = {"instrumented": None, "retired": None, "last_change": None}
+    merged = bf.merge_provenance_entry(existing, new_entry, present_before_window=True)
+    assert merged["instrumented"]["email"] == "writer@goodparty.org"

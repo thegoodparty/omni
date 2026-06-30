@@ -328,19 +328,20 @@ def find_events(text: str, pattern: re.Pattern[str]) -> set[str]:
 # precise ordering key, so same-day commits break ties by true time, not stream order.
 _HEADER_PREFIX = "\x00"
 _FIELD_SEP = "\x1f"
-_GIT_LOG_FORMAT = "--format=%x00%H%x1f%h%x1f%ad%x1f%at%x1f%s"
+_GIT_LOG_FORMAT = "--format=%x00%H%x1f%h%x1f%ad%x1f%at%x1f%ae%x1f%s"
 
 Commit = dict[str, str | None]
 
 
 def _commit_from_header(line: str) -> Commit:
     """Parse a NUL-prefixed header line into a commit dict (pr derived from subject)."""
-    full, short, cdate, ts, subject = line[len(_HEADER_PREFIX) :].split(_FIELD_SEP, 4)
+    full, short, cdate, ts, email, subject = line[len(_HEADER_PREFIX) :].split(_FIELD_SEP, 5)
     return {
         "commit": full,
         "short": short,
         "date": cdate,
         "ts": ts,
+        "email": email,
         "subject": subject,
         "pr": parse_pr_number(subject),
     }
@@ -420,9 +421,11 @@ PROVENANCE_COLUMNS = [
     "instrumented_commit",
     "instrumented_pr",
     "instrumented_date",
+    "instrumented_author_email",
     "retired_commit",
     "retired_pr",
     "retired_date",
+    "retired_author_email",
     "last_code_change_date",
     "call_site_count",
     "call_site_retired_date",
@@ -455,9 +458,11 @@ def build_provenance_row(
         "instrumented_commit": instrumented["commit"] if instrumented else None,
         "instrumented_pr": instrumented["pr"] if instrumented else None,
         "instrumented_date": instrumented["date"] if instrumented else None,
+        "instrumented_author_email": instrumented.get("email") if instrumented else None,
         "retired_commit": None,
         "retired_pr": None,
         "retired_date": None,
+        "retired_author_email": None,
         "last_code_change_date": last_change["date"] if last_change else None,
         "call_site_count": None,
         "call_site_retired_date": None,
@@ -467,17 +472,18 @@ def build_provenance_row(
         row["retired_commit"] = retired["commit"]
         row["retired_pr"] = retired["pr"]
         row["retired_date"] = retired["date"]
+        row["retired_author_email"] = retired.get("email")
     return row
 
 
-def _pseudo_commit(commit: str | None, pr: str | None, date: str | None) -> dict:
+def _pseudo_commit(commit: str | None, pr: str | None, date: str | None, email: str | None = None) -> dict:
     """A minimal commit dict reconstructed from a stored row.
 
-    Carries only the keys ``build_provenance_row`` reads (commit, pr, date). It is never
+    Carries only the keys ``build_provenance_row`` reads (commit, pr, date, email). It is never
     fed to ``_record``, so the epoch ``ts`` ordering key is not needed: the windowed
     commits are strictly newer than the watermark, so precedence is positional, not timed.
     """
-    return {"commit": commit, "pr": pr, "date": date}
+    return {"commit": commit, "pr": pr, "date": date, "email": email}
 
 
 def merge_provenance_entry(
@@ -502,6 +508,7 @@ def merge_provenance_entry(
             existing_row["instrumented_commit"],
             existing_row["instrumented_pr"],
             existing_row["instrumented_date"],
+            existing_row.get("instrumented_author_email"),
         )
     elif present_before_window:
         instrumented = None
@@ -514,6 +521,7 @@ def merge_provenance_entry(
             existing_row["retired_commit"],
             existing_row["retired_pr"],
             existing_row["retired_date"],
+            existing_row.get("retired_author_email"),
         )
 
     return {"instrumented": instrumented, "retired": retired, "last_change": new_entry["last_change"]}
@@ -999,6 +1007,7 @@ def _carry_forward_provisional(
             row["instrumented_pr"] = prior.get("instrumented_pr")
             row["instrumented_date"] = prior.get("instrumented_date")
             row["instrumented_commit"] = prior.get("instrumented_commit")
+            row["instrumented_author_email"] = prior.get("instrumented_author_email")
             if not row.get("last_code_change_date"):
                 row["last_code_change_date"] = prior.get("last_code_change_date")
         event_present = present.get(row["event_type"], False) if present is not None else False
@@ -1011,6 +1020,7 @@ def _carry_forward_provisional(
             row["retired_pr"] = prior.get("retired_pr")
             row["retired_date"] = prior.get("retired_date")
             row["retired_commit"] = None
+            row["retired_author_email"] = prior.get("retired_author_email")
 
 
 def run_backfill(
