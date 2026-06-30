@@ -82,14 +82,19 @@ def detect_hot_milestones(df: pd.DataFrame, margin: float = 1.5) -> list[dict]:
     across the present milestones by `margin`. Only over turns that carry a
     marker. Ordered by run-sequence (mean turn position)."""
     m = df[df["milestone"].notna()].copy()
-    total = m["est_cost"].sum()
+    total_marked = m["est_cost"].sum()
+    total_cohort = df["est_cost"].sum()
     names = m.groupby("milestone")["turn_idx"].mean().sort_values().index.tolist()
     uniform_share = 1.0 / len(names) if names else 0.0
     regions = []
     for order_idx, name in enumerate(names):
         g = m[m["milestone"] == name]
-        share = (g["est_cost"].sum() / total) if total else 0.0
-        if share >= uniform_share * margin:
+        seg = g["est_cost"].sum()
+        # Hotness is measured AMONG milestones (disproportion vs an even split),
+        # so compare against marked spend; but report cost_share as a fraction of
+        # TOTAL cohort spend to stay consistent with milestone_costs.
+        share_among = (seg / total_marked) if total_marked else 0.0
+        if share_among >= uniform_share * margin:
             tool_mix = (
                 pd.Series(
                     [t for row in g["tool_calls"].fillna("") for t in row.split(",") if t]
@@ -102,8 +107,9 @@ def detect_hot_milestones(df: pd.DataFrame, margin: float = 1.5) -> list[dict]:
                 {
                     "milestone": name,
                     "order": order_idx,
-                    "cost_share": round(float(share), 3),
-                    "cost_total": round(float(g["est_cost"].sum()), 2),
+                    "cost_share": round(float(seg / total_cohort), 3) if total_cohort else 0.0,
+                    "share_among_milestones": round(float(share_among), 3),
+                    "cost_total": round(float(seg), 2),
                     "turn_rows": int(len(g)),
                     "runs": int(g["run_id"].nunique()),
                     "mean_cache_read": int(g["cache_read"].mean()),

@@ -237,7 +237,7 @@ def main() -> None:
             if rows is None:
                 continue
             parsed += 1
-            if had_markers:
+            if had_markers and rows:
                 with_milestones += 1
             all_rows.extend(rows)
 

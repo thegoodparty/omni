@@ -121,3 +121,14 @@ def test_mixed_cohort_uses_total_spend_and_reports_partial_coverage():
     total_share = sum(r["share_of_spend"] for r in out["ordered"])
     # marked spend is 10 of 15 total cohort spend -> ~2/3, and strictly < 1.0
     assert 0.6 < total_share < 0.7
+
+
+def test_detect_hot_milestones_mixed_reports_total_share():
+    hot = detect_hot_milestones(_mixed_df(), margin=1.5)
+    by = {r["milestone"]: r for r in hot}
+    # "work" is still flagged (8/10 of MARKED spend exceeds the even split * 1.5)
+    assert "work" in by
+    # ...but cost_share is a fraction of TOTAL cohort spend (8/15 ~ 0.53),
+    # consistent with milestone_costs, not the marked-only 8/10.
+    assert 0.5 < by["work"]["cost_share"] < 0.56
+    assert 0.7 < by["work"]["share_among_milestones"] < 0.85
