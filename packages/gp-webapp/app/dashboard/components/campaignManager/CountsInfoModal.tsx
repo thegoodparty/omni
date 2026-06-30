@@ -30,12 +30,15 @@ export const CountsInfoModal = ({
   const registeredVoters = data?.totalConstituents ?? null
   const showRegisteredVoters = registeredVoters !== null && registeredVoters > 0
 
+  // Only report while the modal is open: the shared query stays subscribed to
+  // the ['contacts-stats'] cache even when disabled, so without the open gate a
+  // failure from another consumer would surface here and report while closed.
   useEffect(() => {
-    if (!error) return
+    if (!open || !error) return
     reportErrorToSentry(error, {
       context: 'dashboard.countsInfoModal.fetchContactsStats',
     })
-  }, [error])
+  }, [open, error])
 
   return (
     <ModalOrDrawer
