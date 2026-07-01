@@ -533,6 +533,67 @@ def check_discovered_agenda_location(artifact: dict, findings: list[Finding]) ->
         ))
 
 
+# Data-source internals that must never reach an elected official. Constituent
+# sentiment is framed as GoodParty.org's data; the hs_* column id lives only in
+# the hidden haystaq_column metadata field. Regression gate for the
+# "Constituent-data framing" rule in instruction.md.
+_FORBIDDEN_FRAMING_RE = re.compile(
+    r"hs_[a-z0-9_]+|\bhaystaq\b|\bdatabricks\b|\bl2\b|goodparty_data_catalog",
+    re.IGNORECASE,
+)
+
+
+def _candidate_facing_strings(artifact: dict):
+    """Yield (field_path, text) for every string an elected official actually reads
+    in the UI. Deliberately excludes QA/provenance-only fields (claims[],
+    sources[].retrieved_text_or_snapshot, run_decisions[], research.*)."""
+    es = artifact.get("executive_summary") or {}
+    yield ("executive_summary.lead_in", es.get("lead_in") or "")
+    for i, e in enumerate(es.get("items") or []):
+        yield (f"executive_summary.items[{i}].overview", e.get("overview") or "")
+    for it in artifact.get("items") or []:
+        iid = it.get("id")
+        d = it.get("display") or {}
+        yield (f"items[{iid}].display.summary", d.get("summary") or "")
+        cs = d.get("constituent_sentiment")
+        if isinstance(cs, dict):
+            for k in ("summary", "detail", "score_direction"):
+                yield (f"items[{iid}].display.constituent_sentiment.{k}", cs.get(k) or "")
+        for j, tp in enumerate(d.get("talking_points") or []):
+            yield (f"items[{iid}].display.talking_points[{j}]", tp or "")
+        bi = d.get("budget_impact")
+        if isinstance(bi, dict):
+            yield (f"items[{iid}].display.budget_impact.summary", bi.get("summary") or "")
+    for s in artifact.get("sources") or []:
+        yield (f"sources[{s.get('id')}].name", s.get("name") or "")
+
+
+def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Finding]) -> None:
+    """Candidate-facing text must never expose data-source internals (hs_* column
+    names, Haystaq, L2, Databricks, table names), nor the instruction's own
+    "posture override" directive leaking into talking_points."""
+    for field, text in _candidate_facing_strings(artifact):
+        if not text:
+            continue
+        m = _FORBIDDEN_FRAMING_RE.search(text)
+        if m:
+            findings.append(Finding(
+                "candidate_text.data_source_internal_leak",
+                "error",
+                f"{field} exposes a data-source internal ('{m.group(0)}') to the official. "
+                f"Describe constituent data in plain English as GoodParty.org's data; keep "
+                f"hs_*/Haystaq/L2/Databricks out of candidate-facing text. Text: {text[:120]!r}",
+            ))
+        if "talking_points" in field and "posture override" in text.lower():
+            findings.append(Finding(
+                "candidate_text.posture_override_in_talking_points",
+                "error",
+                f"{field} contains a 'posture override' directive — that is internal "
+                f"authorization, not content. talking_points must be bullets only. "
+                f"Text: {text[:120]!r}",
+            ))
+
+
 CHECKS = [
     check_briefing_status_consistency,
     check_cross_reference_integrity,
@@ -544,4 +605,5 @@ CHECKS = [
     check_run_decisions_meaningful,
     check_awaiting_agenda_discovery_depth,
     check_discovered_agenda_location,
+    check_no_data_internals_in_candidate_text,
 ]

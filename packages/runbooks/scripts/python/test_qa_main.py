@@ -253,12 +253,13 @@ class TestSingleSourceLink:
         assert main.Finding is qc.Finding
         assert main.Report is qc.Report
 
-    def test_qa_checks_list_has_all_ten_checks(self):
+    def test_qa_checks_list_has_all_checks(self):
         qc = _qa_checks()
-        assert len(qc.CHECKS) == 10
+        assert len(qc.CHECKS) == 11
         names = [c.__name__ for c in qc.CHECKS]
         assert "check_cross_reference_integrity" in names
         assert "check_disclosure_present" in names
+        assert "check_no_data_internals_in_candidate_text" in names
 
     def test_qa_checks_dead_driver_surface_removed(self):
         """The old qa_checks driver surface is gone — qa_checks is now a pure
@@ -695,3 +696,64 @@ class TestChannel0ConfirmedBailExemption:
         assert any(f.check == "run_decisions.discovery_channels_incomplete" for f in findings), (
             "mislabeled channel-0 bail (status/decision mismatch) must not be exempted"
         )
+
+
+class TestNoDataInternalsInCandidateText:
+    """Regression gate: data-source internals + posture-override directives must
+    never appear in candidate-facing fields."""
+
+    def test_clean_briefing_has_no_framing_findings(self):
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert findings == [], f"clean briefing flagged: {[f.check for f in findings]}"
+
+    def test_hs_column_in_summary_is_flagged(self):
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["items"][0]["display"]["summary"] = "Modeled hs_tax_cuts_support leans high here."
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "candidate_text.data_source_internal_leak" for f in findings)
+
+    def test_l2_and_haystaq_in_sentiment_flagged(self):
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["items"][0]["display"]["constituent_sentiment"] = {
+            "summary": "Derived from L2 voter file via Haystaq.",
+            "detail": None, "district_note": None,
+            "haystaq_column": "hs_gun_control_support", "mean_score": 55.0,
+            "score_direction": "supports gun control", "voter_count": 100,
+            "haystaq_status": "ok", "source_ids": [],
+        }
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "candidate_text.data_source_internal_leak" for f in findings)
+
+    def test_posture_override_in_talking_points_flagged(self):
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["items"][0]["display"]["talking_points"] = [
+            "## Posture override\nThis section operates as an approved posture override.",
+            "A real talking point.",
+        ]
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "candidate_text.posture_override_in_talking_points" for f in findings)
+
+    def test_haystaq_column_metadata_field_not_flagged(self):
+        # the hidden haystaq_column metadata field is allowed to hold the id
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        cs = (art["items"][0]["display"].get("constituent_sentiment") or {})
+        art["items"][0]["display"]["constituent_sentiment"] = {
+            "summary": "GoodParty.org's data shows a modeled lean toward supporting gun control: 55.",
+            "detail": "A modeled estimate from GoodParty.org's constituent data.",
+            "district_note": None, "haystaq_column": "hs_gun_control_support",
+            "mean_score": 55.0, "score_direction": "supports gun control",
+            "voter_count": 100, "haystaq_status": "ok", "source_ids": [],
+        }
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert findings == [], f"clean sentiment flagged: {[(f.check) for f in findings]}"

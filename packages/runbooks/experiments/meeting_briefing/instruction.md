@@ -899,7 +899,7 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 - For the agenda packet:
   - If `agendaPacketUrl` is set in PARAMS (URL-paste path), use it verbatim as the permanent URL — it is the user's own pasted URL and is stable.
   - If the packet was pre-staged at `/workspace/input/agenda.pdf` (upload path), there is no permanent URL — set `run_metadata.agenda_packet_url` to `null` and cite the agenda packet sources[] entry with `url: null`. Record the decision in `run_metadata.run_decisions[]` (e.g. `decision: "agenda_packet_user_uploaded_no_url"`).
-- For Haystaq data: set `url` to `null`. There is no public URL for modeled constituent data.
+- For GoodParty.org constituent data: set `url` to `null`. There is no public URL for modeled constituent data.
 
 #### Allowed sources
 
@@ -907,7 +907,7 @@ Do not truncate to a single sentence. A QA reader must be able to verify the cla
 - Local government website for the jurisdiction
 - Local news outlets (see Step 11 for credibility guidance)
 - Campaign website for the elected official (contextual only)
-- Databricks Haystaq L2 modeled scores
+- GoodParty.org modeled constituent data (cite per the Constituent-data framing rule — never "Haystaq", "L2", or "Databricks" in the source name)
 
 ### Step 15 — Set `briefing_status` and emit `required_data_points`
 
