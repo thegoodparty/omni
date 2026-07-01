@@ -71,7 +71,7 @@ export default function WhyRunningSection(): React.JSX.Element {
     seededRef.current = true
   }, [isSuccess, website])
 
-  const bioError = getBioError(bioPlainLength)
+  const bioError = getBioError(bioPlainLength, bio)
 
   const handleSave = async () => {
     if (saving) return

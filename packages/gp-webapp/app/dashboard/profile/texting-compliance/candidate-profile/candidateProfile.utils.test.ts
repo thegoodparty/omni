@@ -5,7 +5,17 @@ import {
   getBioError,
   getPolicyPrioritiesError,
   getPolicyFormValidation,
+  isCandidateProfileComplete,
 } from './candidateProfile.utils'
+import type { Website } from 'helpers/types'
+
+const websiteWith = (
+  bio: string,
+  issues: { title: string; description: string }[],
+): Website => ({ content: { about: { bio, issues } } }) as unknown as Website
+
+const genuineBio = `<p>${'a'.repeat(MIN_BIO_LENGTH)}</p>`
+const realIssue = { title: 'Clean Water', description: 'Protect our lakes.' }
 
 describe('getBioError', () => {
   it('asks the user to add a bio when it is empty', () => {
@@ -21,17 +31,79 @@ describe('getBioError', () => {
   it('returns null once the bio meets the minimum length', () => {
     expect(getBioError(MIN_BIO_LENGTH)).toBeNull()
   })
+
+  it('rejects a long-enough bio that is still the fallback template', () => {
+    const templateBio = `<p>${'word '.repeat(120)}running on local solutions over party politics</p>`
+    expect(getBioError(MIN_BIO_LENGTH, templateBio)).toBe(
+      'Please write your bio in your own words',
+    )
+  })
+
+  it('accepts a long, genuine bio when the raw text is passed', () => {
+    expect(getBioError(MIN_BIO_LENGTH, genuineBio)).toBeNull()
+  })
+})
+
+describe('isCandidateProfileComplete', () => {
+  it('is true for a genuine bio and a real issue', () => {
+    expect(
+      isCandidateProfileComplete(websiteWith(genuineBio, [realIssue])),
+    ).toBe(true)
+  })
+
+  it('is false for a genuine bio but only the default-title issue', () => {
+    // The old count-only check said complete; the API submit gate rejects it,
+    // so the UI must agree (this was the real regression, e.g. a legacy site
+    // with a real bio but only the fallback default issue).
+    expect(
+      isCandidateProfileComplete(
+        websiteWith(genuineBio, [
+          {
+            title: 'Local Solutions, Not Party Politics',
+            description: 'focused on practical, community-first leadership',
+          },
+        ]),
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for a genuine bio but an issue with an empty description', () => {
+    expect(
+      isCandidateProfileComplete(
+        websiteWith(genuineBio, [{ title: 'Roads', description: '' }]),
+      ),
+    ).toBe(false)
+  })
+
+  it('is false when the bio is under the minimum length', () => {
+    expect(
+      isCandidateProfileComplete(websiteWith('<p>short</p>', [realIssue])),
+    ).toBe(false)
+  })
 })
 
 describe('getPolicyPrioritiesError', () => {
-  it('asks for at least one priority when there are none', () => {
-    expect(getPolicyPrioritiesError(0)).toBe(
+  it('asks for a priority when there are none', () => {
+    expect(getPolicyPrioritiesError([])).toBe(
       'Please add at least one policy priority',
     )
   })
 
-  it('returns null once at least one priority exists', () => {
-    expect(getPolicyPrioritiesError(1)).toBeNull()
+  it('asks for a priority when the only issue is the default title', () => {
+    // Matches isCandidateProfileComplete: a lone placeholder issue is not
+    // enough, so the form must not let the user through into a redirect loop.
+    expect(
+      getPolicyPrioritiesError([
+        {
+          title: 'Local Solutions, Not Party Politics',
+          description: 'focused on practical, community-first leadership',
+        },
+      ]),
+    ).toBe('Please add at least one policy priority')
+  })
+
+  it('returns null once a genuine priority exists', () => {
+    expect(getPolicyPrioritiesError([realIssue])).toBeNull()
   })
 })
 
