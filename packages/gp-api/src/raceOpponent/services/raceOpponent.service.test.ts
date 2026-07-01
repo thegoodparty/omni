@@ -89,6 +89,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   const COLLECTED_AT = new Date('2026-06-30T10:00:00.000Z')
   const SUMMARY_AFTER = new Date('2026-06-30T10:05:00.000Z')
   const SUMMARY_STALE = new Date('2026-06-30T09:55:00.000Z')
+  const COLLECTION_RUN_ID = 'collection-run'
 
   const campaign = {
     id: 42,
@@ -100,7 +101,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   const collectedRow = {
     id: 1,
     campaignId: 42,
-    runId: 'collection-run',
+    runId: COLLECTION_RUN_ID,
     opponentName: 'Jane Doe',
     sourceType: 'ballotpedia',
     sourceUrl: 'https://ballotpedia.org/Jane_Doe',
@@ -115,14 +116,14 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
     collectionRun,
     summaryRun,
     rows = [],
-    persistedSummaries = 0,
   }: {
-    collectionRun: { status: ExperimentRunStatus; createdAt: Date } | null
+    collectionRun: {
+      runId: string
+      status: ExperimentRunStatus
+      createdAt: Date
+    } | null
     summaryRun: { status: ExperimentRunStatus; createdAt: Date } | null
     rows?: (typeof collectedRow)[]
-    // Count of persisted RaceOpponentSummary rows — independent of the report
-    // grouping (findMany), which postCollectionStatus does not read.
-    persistedSummaries?: number
   }): RaceOpponentService => {
     const service = new RaceOpponentService(
       features as unknown as FeaturesService,
@@ -134,13 +135,19 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
       value: {
         raceOpponent: {
           findMany: vi.fn().mockResolvedValue(rows),
-          count: vi.fn().mockResolvedValue(rows.length),
+          // Respect a runId filter so postCollectionStatus's "rows from THIS
+          // collection run" check is exercised, not stubbed past.
+          count: vi.fn(
+            ({ where }: { where: { runId?: string } }): Promise<number> =>
+              Promise.resolve(
+                where.runId === undefined
+                  ? rows.length
+                  : rows.filter((row) => row.runId === where.runId).length,
+              ),
+          ),
         },
         campaignStrategy: { findUnique: vi.fn().mockResolvedValue(null) },
-        raceOpponentSummary: {
-          findMany: vi.fn().mockResolvedValue([]),
-          count: vi.fn().mockResolvedValue(persistedSummaries),
-        },
+        raceOpponentSummary: { findMany: vi.fn().mockResolvedValue([]) },
         experimentRun: {
           findFirst: vi.fn(({ where }: { where: { experimentType: string } }) =>
             Promise.resolve(
@@ -169,6 +176,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   it("reports 'running' while the chained summary run is still in flight", async () => {
     const service = setup({
       collectionRun: {
+        runId: COLLECTION_RUN_ID,
         status: ExperimentRunStatus.COMPLETED,
         createdAt: COLLECTED_AT,
       },
@@ -187,6 +195,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   it("reports 'completed' once the summary run has completed", async () => {
     const service = setup({
       collectionRun: {
+        runId: COLLECTION_RUN_ID,
         status: ExperimentRunStatus.COMPLETED,
         createdAt: COLLECTED_AT,
       },
@@ -205,6 +214,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   it("degrades to 'completed' when the summary run failed (shows raw rows)", async () => {
     const service = setup({
       collectionRun: {
+        runId: COLLECTION_RUN_ID,
         status: ExperimentRunStatus.COMPLETED,
         createdAt: COLLECTED_AT,
       },
@@ -223,6 +233,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   it("reports 'running' after collection when rows exist but no summary run has been created yet", async () => {
     const service = setup({
       collectionRun: {
+        runId: COLLECTION_RUN_ID,
         status: ExperimentRunStatus.COMPLETED,
         createdAt: COLLECTED_AT,
       },
@@ -238,6 +249,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   it("reports 'completed' for an empty collection (no rows, no summary to await)", async () => {
     const service = setup({
       collectionRun: {
+        runId: COLLECTION_RUN_ID,
         status: ExperimentRunStatus.COMPLETED,
         createdAt: COLLECTED_AT,
       },
@@ -250,21 +262,25 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
     expect(collectionStatus).toBe('completed')
   })
 
-  it("reports 'completed' when an empty re-collection preserved prior rows and summaries", async () => {
+  it("reports 'completed' when an empty re-collection preserved a prior cycle's rows", async () => {
     const service = setup({
       // The empty re-collection is the latest completed collection; its early
-      // return preserved the prior cycle's rows AND summaries and dispatched no
-      // summary, so no summary run post-dates it.
+      // return preserved the PRIOR cycle's rows (which carry the prior run's id)
+      // and dispatched no summary. Since none of the preserved rows carry this
+      // empty run's id, no summary is coming for it — settle, don't strand. This
+      // also covers the prior-summary-FAILED sub-case: the preserved rows are
+      // still from an earlier run regardless of whether that cycle's summary
+      // ever landed.
       collectionRun: {
+        runId: 'empty-recollection-run',
         status: ExperimentRunStatus.COMPLETED,
-        createdAt: COLLECTED_AT,
+        createdAt: SUMMARY_AFTER,
       },
       summaryRun: {
         status: ExperimentRunStatus.COMPLETED,
         createdAt: SUMMARY_STALE,
       },
       rows: [collectedRow],
-      persistedSummaries: 1,
     })
 
     const { collectionStatus } = await service.get(campaign)
@@ -275,6 +291,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   it("reports 'running' when only a stale prior-cycle summary run exists", async () => {
     const service = setup({
       collectionRun: {
+        runId: COLLECTION_RUN_ID,
         status: ExperimentRunStatus.COMPLETED,
         createdAt: COLLECTED_AT,
       },
@@ -295,6 +312,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   it("still reports 'running' while the collection run itself is in flight", async () => {
     const service = setup({
       collectionRun: {
+        runId: COLLECTION_RUN_ID,
         status: ExperimentRunStatus.RUNNING,
         createdAt: COLLECTED_AT,
       },

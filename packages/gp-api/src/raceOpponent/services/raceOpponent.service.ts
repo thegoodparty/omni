@@ -702,7 +702,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         experimentType: RACE_OPPONENT_COLLECTION,
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { status: true, createdAt: true },
+      select: { runId: true, status: true, createdAt: true },
     })
     if (run) {
       switch (run.status) {
@@ -710,6 +710,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
           return this.postCollectionStatus(
             campaignId,
             organizationSlug,
+            run.runId,
             run.createdAt,
           )
         case ExperimentRunStatus.FAILED:
@@ -752,6 +753,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   private async postCollectionStatus(
     campaignId: number,
     organizationSlug: string,
+    collectionRunId: string,
     collectionRunCreatedAt: Date,
   ): Promise<RaceOpponentCollectionStatus> {
     const summary = await this.client.experimentRun.findFirst({
@@ -775,23 +777,22 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       return settled ? 'completed' : 'running'
     }
 
-    // No summary for this cycle yet. Zero rows is an empty/uncontested
-    // collection with no summary to wait for.
-    const collectedRows = await this.model.count({ where: { campaignId } })
-    if (collectedRows === 0) return 'completed'
-
-    // Rows exist but this cycle has no summary run. Two sub-cases: (a) a fresh
-    // collection just replaced the rows and cleared the summaries, and its
-    // chained summary is imminent/in flight — keep processing; (b) an empty
-    // re-collection preserved a PRIOR cycle's rows AND its summaries (that path
-    // writes nothing and dispatches nothing), so the analysis is already
-    // present — don't strand on 'running'. Persisted-summary presence
-    // distinguishes them: replaceForCampaign clears summaries whenever it lands
-    // fresh rows, so summaries can only survive alongside rows in case (b).
-    const persistedSummaries = await this.client.raceOpponentSummary.count({
-      where: { campaignId },
+    // No summary run belongs to this cycle. Did THIS collection run produce the
+    // current rows? replaceForCampaign stamps every row it writes with the
+    // collection's runId, and an empty re-collection writes nothing (early
+    // return, dispatching no summary). So rows carrying this run's id mean it
+    // collected fresh data whose chained summary is in flight or imminent (the
+    // brief gap before dispatchSummary creates the run) — keep processing.
+    // Otherwise there are no rows at all, or only a prior cycle's rows a later
+    // empty re-collection preserved: no summary is coming for this run, so the
+    // status settles to 'completed' rather than stranding on 'running'
+    // (ENG-10614). This also self-heals the overlapping-collection case: the
+    // fresh rows read 'running' until the re-chained summary lands and, being
+    // newer, is caught by the branch above.
+    const freshRows = await this.model.count({
+      where: { campaignId, runId: collectionRunId },
     })
-    return persistedSummaries > 0 ? 'completed' : 'running'
+    return freshRows > 0 ? 'running' : 'completed'
   }
 }
 
