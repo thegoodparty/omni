@@ -110,7 +110,16 @@ The **Voice and register** and **Tone** rules above govern every section of the 
 
 **Always in force, including for override sections:** the **Source discipline** and **Verbosity** rules below, and the rule against speculation beyond source materials.
 
-Each override section must open with a `## Posture override` declaration block that names which rules in this file it suspends and cites this section. See Step 10 (talking points) for the canonical pattern.
+The posture override is INTERNAL authorization for how you write the section — it is NOT content. **Never emit a `## Posture override` block, a rules declaration, or any meta/preamble into the artifact.** The `talking_points` array contains ONLY the actual talking-point bullets the official reads; its first element must be a real talking point, never a statement about voice, rules, or which posture applies.
+
+### Constituent-data framing (never expose data internals)
+
+Every constituent-sentiment figure in a briefing comes from **GoodParty.org's modeled constituent data**. In every candidate-facing field — `display.constituent_sentiment.summary` / `detail` / `score_direction`, `talking_points`, item `summary` and executive-summary overviews, and every `sources[].name` — describe this data in plain English and attribute it to **GoodParty.org's constituent data** (or "GoodParty.org's modeled constituent sentiment"). NEVER surface data-source internals in these fields: no `hs_*` column names, no "Haystaq", "L2", "Databricks", "voter file", table names, or SQL. The `hs_*` column name belongs ONLY in the structured `haystaq_column` metadata field (never in prose or a source name).
+
+- Good: "GoodParty.org's data shows constituents in this district lean toward supporting tax cuts — a modeled 59 on a 0–100 scale."
+- Bad: "hs_tax_cuts_support is a modeled estimate of how strongly each L2-active voter aligns..." / source name "Haystaq L2 — hs_tax_cuts_support".
+
+This applies even when NO data maps to an item: if no constituent-sentiment topic fits, simply set `constituent_sentiment` to `null` and say nothing about it — do NOT explain the absence by naming the source (never write "no Haystaq column maps to this item" or similar in any candidate-facing field; the words "Haystaq"/"L2"/`hs_*` must not appear at all, present or absent).
 
 ### Source discipline
 
@@ -739,7 +748,7 @@ For **queued items**: talking points are optional. If the item does not warrant 
 
 #### Format
 
-Up to five bullet points. Each bullet is one or two sentences. Address the official directly.
+Up to five bullet points. Each bullet is one or two sentences. Address the official directly. Each array element is a single talking point and nothing else — do NOT prepend a `## Posture override` block, a rules/voice declaration, or any header/preamble. The first element must be a real talking point.
 
 #### What a useful talking point does
 
@@ -879,7 +888,7 @@ The `url` for each remains `agendaPacketUrl` from PARAMS when present (the perma
 - **Agenda packet**: the verbatim extracted text of the relevant section(s), not the full document. Include enough surrounding context for a QA reader to verify the claim without re-fetching.
 - **News articles**: the article body text captured via `http.get()`. If the page is paywalled or returns no usable body, note that and do not cite the article.
 - **Government websites**: the relevant paragraph(s) from the page body.
-- **Haystaq**: a structured summary of the query result — column name, mean score, district filter used, total voters in denominator.
+- **GoodParty.org constituent data** (the modeled-sentiment source): set the source `name` to **`GoodParty.org modeled constituent sentiment — <topic> (<jurisdiction>)`** — never "Haystaq", "L2", "Databricks", or the `hs_*` column in the name (it renders as a citation pill the official sees). The `retrieved_text_or_snapshot` is a plain-English structured summary — the modeled position/topic, the mean score (0–100), the geographic scope (district or state), and the voter count in the denominator — attributed to GoodParty.org's data. Do not put the raw `hs_*` column name, the table name, or SQL in it.
 - **Campaign**: the verbatim passage from the campaign site.
 
 Do not truncate to a single sentence. A QA reader must be able to verify the claim solely from `retrieved_text_or_snapshot` without re-fetching the URL.
@@ -997,8 +1006,8 @@ For each featured/queued item where Step 6/6b picked a column from the inline ca
 
 Fields:
 
-- `summary` — short prose using the column's directional `meaning` and the `mean_score`. Always label as a modeled estimate. Example: `"Modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
-- `detail` — one sentence describing what the score measures as a modeled estimate, not a survey result.
+- `summary` — short plain-English prose using the direction (from the column's `meaning`) and the `mean_score`, attributed to GoodParty.org's data. Always label as a modeled estimate. Never name the underlying column or data source (see "Constituent-data framing" in CRITICAL RULES). Example: `"GoodParty.org's data shows a modeled lean toward supporting gun control: 62.4 on a 0-100 scale."`
+- `detail` — one plain-English sentence describing what the modeled estimate measures, attributed to GoodParty.org's constituent data, not a survey result. Do NOT name the `hs_*` column, "Haystaq", "L2", or any table/source. Example: `"A modeled estimate, from GoodParty.org's constituent data, of how strongly residents in this district lean toward supporting gun control."`
 - `mean_score` — the `AVG(...)` result from Step 8 (float, 0–100). District scope when `l2DistrictType` was set and confirmed in Step 7; state scope otherwise.
 - `score_direction` — the column's `meaning` line from the inline catalog (e.g. for `hs_gun_control_support` use `"supports gun control"`).
 - `voter_count` — the `COUNT(*) AS voter_count` from Step 8 (district or state scope, matching `mean_score`).
