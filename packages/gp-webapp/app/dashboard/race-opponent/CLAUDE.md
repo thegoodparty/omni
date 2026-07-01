@@ -54,6 +54,12 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
 - **Analytical view (P3)**: `OpponentOverviewCard`, `ThreatTierBadge` (a colored
   dot + label, right-aligned on the roster row — "Main threat" reads in blue),
   `IssueContrastCard`, `OpponentHandbook`, `OpponentSection`, `OpponentPageHeader`.
+- **PDF export (P4)**: `pdf/` — the header's "Export brief" button downloads one
+  PDF holding a brief per opponent that has a summary. `opponentBriefContent.ts` is
+  the pure page→PDF mapping (mirrors `OpponentSummaryView`'s section conditionals;
+  reuses `descriptorFor` + `threatTierLabel` for the snapshot line). It renders
+  **only what the page shows** — no finance, no issue `salience` label, no
+  recommended actions (those are Lovable-sample extras our page never renders).
 - **Strict engine (P1)**: `OpponentResearch`, `SelfResearch`, `SelfResearchIntakeForm`,
   `SelfResearchReport`, `ContrastList`, `ContrastCard`, `RegenerateContrasts`,
   `SourceAttribution`, `OpponentActivityFeed`.

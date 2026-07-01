@@ -37,6 +37,7 @@ import IssueContrastCard from './IssueContrastCard'
 import OpponentResearchProgress from './OpponentResearchProgress'
 import AddOpponentsForm from './AddOpponentsForm'
 import type { ManualOpponentInput } from './AddOpponentsForm'
+import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
 
 const initialsFor = (name: string): string =>
   name
@@ -576,6 +577,29 @@ const RaceOpponentList = ({
     [errorSnackbar, campaign?.id],
   )
 
+  // Export the on-screen briefs to a PDF (one section per opponent that has a
+  // structured summary).
+  const [exporting, setExporting] = useState(false)
+  // Synchronous in-flight guard, mirroring collectingRef: setExporting only
+  // disables the button after a re-render, so two rapid clicks could both fire
+  // before React repaints. The ref is set before the await, so the second
+  // synchronous call sees it and bails immediately.
+  const exportingRef = useRef(false)
+  const hasExportableBrief = data.opponents.some((opponent) => opponent.summary)
+  const exportBriefs = useCallback(async () => {
+    if (exportingRef.current) return
+    exportingRef.current = true
+    setExporting(true)
+    try {
+      await downloadOpponentBriefsPdf(data.opponents, raceContext)
+    } catch {
+      errorSnackbar('Failed to export the brief. Please try again.')
+    } finally {
+      exportingRef.current = false
+      setExporting(false)
+    }
+  }, [data.opponents, raceContext, errorSnackbar])
+
   const status = data.collectionStatus
 
   // Two-call discovery: collect() dispatches opposition_research and returns
@@ -773,8 +797,8 @@ const RaceOpponentList = ({
             actions={
               <Button
                 variant="outline"
-                disabled
-                title="Export brief — coming soon"
+                onClick={exportBriefs}
+                disabled={!hasExportableBrief || exporting}
                 icon={<DownloadIcon className="size-4" aria-hidden />}
               >
                 Export brief
