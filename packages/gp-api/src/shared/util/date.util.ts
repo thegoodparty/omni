@@ -9,6 +9,7 @@ import {
   parse,
   parseISO,
   startOfDay,
+  startOfWeek,
   subDays,
 } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
@@ -28,6 +29,17 @@ export const nextMondayUtcMidnight = (now: Date, timeZone: string): Date => {
   // runs on a Monday (async CAP completion or a Monday plan-page load) the week
   // would land 7 days ahead. Use today when it's already Monday.
   const monday = isMonday(nowInZone) ? nowInZone : nextMonday(nowInZone)
+  return new Date(
+    Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
+  )
+}
+
+// The Monday (UTC midnight) of the week containing `date`, read by its UTC
+// calendar day. Aligns an arbitrary stored task date to its Mon-Sun week (task
+// dates are naive UTC-midnight), e.g. to window the Pro-upgrade Slack post from
+// the earliest task, which may fall on any weekday.
+export const mondayOfWeekUtc = (date: Date): Date => {
+  const monday = startOfWeek(toZonedTime(date, 'UTC'), { weekStartsOn: 1 })
   return new Date(
     Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
   )

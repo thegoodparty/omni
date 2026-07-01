@@ -1,9 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
   CENTRAL_TIMEZONE,
+  mondayOfWeekUtc,
   nextMondayUtcMidnight,
   parseIsoDateAsUTC,
 } from './date.util'
+
+describe('mondayOfWeekUtc', () => {
+  it("floors a mid-week UTC date to that week's Monday", () => {
+    // 2026-07-08 is a Wednesday; its week's Monday is 2026-07-06.
+    expect(mondayOfWeekUtc(new Date('2026-07-08T00:00:00Z')).getTime()).toBe(
+      Date.UTC(2026, 6, 6),
+    )
+  })
+
+  it('returns the same day for a Monday', () => {
+    expect(mondayOfWeekUtc(new Date('2026-07-06T00:00:00Z')).getTime()).toBe(
+      Date.UTC(2026, 6, 6),
+    )
+  })
+})
 
 describe('nextMondayUtcMidnight', () => {
   it('returns the same Monday when today is already Monday', () => {

@@ -11,6 +11,7 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CENTRAL_TIMEZONE,
+  mondayOfWeekUtc,
   nextMondayUtcMidnight,
   parseIsoDateString,
 } from 'src/shared/util/date.util'
@@ -436,9 +437,12 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       select: { date: true },
     })
     if (!earliest) return
+    // Floor to the earliest task's Monday so postCampaignWeekToSlack's Mon-Sun
+    // window (and label) align to a real calendar week — earliest.date may fall
+    // on any weekday.
     await this.postCampaignWeekToSlack(
       campaign,
-      earliest.date,
+      mondayOfWeekUtc(earliest.date),
       ':tada: *Pro upgrade: your campaign tasks*',
     )
   }
