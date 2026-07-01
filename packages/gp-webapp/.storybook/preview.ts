@@ -18,13 +18,19 @@ if (typeof window !== 'undefined' && window.parent !== window) {
     }
   }
   syncFromParent()
+  let parentObserver: MutationObserver | undefined
   try {
-    new MutationObserver(syncFromParent).observe(window.parent.document.body, {
+    parentObserver = new MutationObserver(syncFromParent)
+    parentObserver.observe(window.parent.document.body, {
       attributes: true,
       attributeFilter: ['class'],
     })
   } catch {
     // cross-origin — skip
+  }
+  // Disconnect on HMR so reloads don't stack observers on the parent frame.
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => parentObserver?.disconnect())
   }
 }
 
