@@ -152,8 +152,11 @@ const Sources = ({
 
 const Bullets = ({ items }: { items: string[] }): React.JSX.Element => (
   <View>
-    {items.map((item) => (
-      <View key={item} style={styles.bulletRow}>
+    {/* Index keys: whatYouNeedToKnow is free-text from the LLM with no
+        uniqueness guarantee, so a repeated string would collide on a
+        text-based key and react-pdf would silently drop the duplicate. */}
+    {items.map((item, index) => (
+      <View key={index} style={styles.bulletRow}>
         <Text style={styles.bulletDot}>•</Text>
         <Text style={styles.bulletText}>{item}</Text>
       </View>
@@ -198,8 +201,11 @@ const Section = ({
       return (
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Where they&apos;re soft</Text>
-          {section.items.map((item) => (
-            <View key={item.text} style={styles.card}>
+          {/* Index keys: whereSoft item text is free-text with no uniqueness
+              guarantee; a repeated description on a text-based key would be
+              silently dropped by react-pdf. */}
+          {section.items.map((item, index) => (
+            <View key={index} style={styles.card}>
               <Text>{item.text}</Text>
               <Sources sources={item.sources} />
             </View>
