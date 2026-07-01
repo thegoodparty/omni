@@ -10,8 +10,9 @@ import {
   Query,
   Req,
   Res,
+  UseGuards,
 } from '@nestjs/common'
-import { ElectedOffice, User } from '../../../generated/prisma'
+import { User } from '../../../generated/prisma'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -21,8 +22,8 @@ import type {
   CreateChatResponse,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
-import { ReqElectedOffice } from '@/electedOffice/decorators/ReqElectedOffice.decorator'
-import { UseElectedOffice } from '@/electedOffice/decorators/UseElectedOffice.decorator'
+import { ReqChatOrgSlug } from '../decorators/reqChatOrgSlug.decorator'
+import { ChatOrgGuard } from '../guards/chatOrg.guard'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { GeneralChatsService } from '../services/general-chats.service'
@@ -107,6 +108,7 @@ const waitForDrain = (
   })
 
 @Controller('chats')
+@UseGuards(ChatOrgGuard)
 export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
@@ -116,17 +118,16 @@ export class GeneralChatsController {
   }
 
   @Post()
-  @UseElectedOffice()
   @ResponseSchema(CreateChatResponseSchema)
   async createChat(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqChatOrgSlug() organizationSlug: string,
     @Body(ZodValidationPipe) body: CreateChatDto,
   ): Promise<CreateChatResponse> {
     return this.chats.resolveConversation(
       {
         scope: body.scope,
-        organizationSlug: office.organizationSlug,
+        organizationSlug,
         anchor: body.anchor,
       },
       user.id,
@@ -134,26 +135,23 @@ export class GeneralChatsController {
   }
 
   @Get()
-  @UseElectedOffice()
   @ResponseSchema(ChatHistoryResponseSchema)
   async listChats(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqChatOrgSlug() organizationSlug: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatHistoryResponse> {
     const conversations = await this.chats.listConversations({
       scope: query.scope,
       userId: user.id,
-      organizationSlug: office.organizationSlug,
+      organizationSlug,
     })
     return { conversations }
   }
 
-  @Post(':conversationId/messages')
-  @UseElectedOffice()
-  async streamMessage(
+  @Post(':conversationId/messages') async streamMessage(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqChatOrgSlug() organizationSlug: string,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
     @Body(ZodValidationPipe) body: SendChatMessageDto,
@@ -164,7 +162,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
-      office.organizationSlug,
+      organizationSlug,
     )
 
     const abortController = new AbortController()
@@ -182,7 +180,7 @@ export class GeneralChatsController {
       conversationId,
       scope: query.scope,
       userId: user.id,
-      organizationSlug: office.organizationSlug,
+      organizationSlug,
       userMessage: body.content,
       signal: abortController.signal,
       ...(body.clientMessageId && { clientMessageId: body.clientMessageId }),
@@ -230,11 +228,10 @@ export class GeneralChatsController {
   }
 
   @Get(':conversationId')
-  @UseElectedOffice()
   @ResponseSchema(ChatConversationSchema)
   async getConversation(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqChatOrgSlug() organizationSlug: string,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatConversationResponse> {
@@ -242,7 +239,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
-      office.organizationSlug,
+      organizationSlug,
     )
     return {
       conversationId,
@@ -265,11 +262,10 @@ export class GeneralChatsController {
   }
 
   @Delete(':conversationId')
-  @UseElectedOffice()
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConversation(
     @ReqUser() user: User,
-    @ReqElectedOffice() office: ElectedOffice,
+    @ReqChatOrgSlug() organizationSlug: string,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<void> {
@@ -277,7 +273,7 @@ export class GeneralChatsController {
       conversationId,
       query.scope,
       user.id,
-      office.organizationSlug,
+      organizationSlug,
     )
   }
 }
