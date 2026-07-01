@@ -10,10 +10,9 @@ import {
   cn,
 } from '@styleguide'
 import {
+  DownloadIcon,
   ExternalLinkIcon,
-  InfoIcon,
   RefreshIcon,
-  SwordsIcon,
   TriangleAlertIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
@@ -21,6 +20,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import type {
+  RaceOpponentIssueContrast,
   RaceOpponentItem,
   RaceOpponentResponse,
   RaceOpponentSummary,
@@ -60,8 +60,10 @@ const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   campaign_plan_db: 'Campaign plan',
 }
 
-// Renders the source citations attached to a summary section/item. The contract
-// guarantees sources.min(1), so this always has at least one to show.
+// Renders the source citations attached to a summary section/item. The Lovable
+// design labels every citation generically as "source" rather than by source
+// type (which stays on the raw-research fallback). The contract guarantees
+// sources.min(1), so this always has at least one to show.
 const SummarySources = ({
   sources,
 }: {
@@ -72,30 +74,48 @@ const SummarySources = ({
       <SourceAttribution
         key={`${source.sourceType}-${source.sourceUrl}`}
         sourceUrl={source.sourceUrl}
-        sourceType={SOURCE_TYPE_LABELS[source.sourceType]}
+        sourceType="source"
         label={source.sourceUrl}
       />
     ))}
   </div>
 )
 
-const SummaryProseSection = ({
-  heading,
-  section,
+// The overview section (no "Overview" heading, per the Lovable design). The
+// background prose is merged in right after the overview paragraph rather than
+// living in its own titled section; their citations are shown together.
+const OverviewSection = ({
+  overview,
+  background,
 }: {
-  heading: string
-  section: RaceOpponentSummarySection
-}): React.JSX.Element => (
-  <section className="flex w-full min-w-0 flex-col gap-2">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {heading}
-    </h3>
-    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
-      {section.text}
-    </p>
-    <SummarySources sources={section.sources} />
-  </section>
-)
+  overview: RaceOpponentSummarySection | null
+  background: RaceOpponentSummarySection | null
+}): React.JSX.Element => {
+  const seen = new Set<string>()
+  const sources = [
+    ...(overview?.sources ?? []),
+    ...(background?.sources ?? []),
+  ].filter((source) => {
+    if (seen.has(source.sourceUrl)) return false
+    seen.add(source.sourceUrl)
+    return true
+  })
+  return (
+    <section className="flex w-full min-w-0 flex-col gap-2">
+      {overview?.text && (
+        <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+          {overview.text}
+        </p>
+      )}
+      {background?.text && (
+        <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+          {background.text}
+        </p>
+      )}
+      {sources.length > 0 && <SummarySources sources={sources} />}
+    </section>
+  )
+}
 
 const KeyPositionItem = ({
   position,
@@ -113,15 +133,16 @@ const KeyPositionItem = ({
   </li>
 )
 
-// Phase 3: the "why they matter most" callout, a tinted info block shown under
-// the opponent header. Hidden when the analysis has no whyTheyMatter.
+// Phase 3: the "why they matter most" callout. Rendered as a plain inline
+// section (not a blue tinted box) to match the Lovable design. Hidden when the
+// analysis has no whyTheyMatter.
 const WhyTheyMatterCallout = ({
   text,
 }: {
   text: string
 }): React.JSX.Element => (
-  <section className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-info-600/20 bg-info-50 p-4">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-info-600">
+  <section className="flex w-full min-w-0 flex-col gap-1">
+    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
       Why they matter most
     </h3>
     <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
@@ -131,7 +152,8 @@ const WhyTheyMatterCallout = ({
 )
 
 // Phase 3: the "what you need to know" takeaways list, with an item count in
-// the section header. Hidden when the list is empty/absent.
+// the section header. Bullets use the primary foreground color (not the blue
+// accent). Hidden when the list is empty/absent.
 const WhatYouNeedToKnow = ({
   items,
 }: {
@@ -139,7 +161,6 @@ const WhatYouNeedToKnow = ({
 }): React.JSX.Element => (
   <OpponentSection
     title="What you need to know"
-    icon={<InfoIcon className="size-4" aria-hidden />}
     meta={`${items.length} ${items.length === 1 ? 'item' : 'items'}`}
   >
     <ul className="flex w-full min-w-0 list-none flex-col gap-2">
@@ -149,7 +170,7 @@ const WhatYouNeedToKnow = ({
           className="flex w-full min-w-0 items-start gap-2 text-sm text-foreground"
         >
           <span
-            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-info-600"
+            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground"
             aria-hidden
           />
           <span className="w-full min-w-0 break-words">{item}</span>
@@ -190,14 +211,62 @@ const WhereTheySoft = ({
   </OpponentSection>
 )
 
+// The "Where you contrast" section: each issue is its own accordion item,
+// expanded by default (per the Lovable design) so the contrasts read at a glance
+// while still collapsing individually.
+const WhereYouContrast = ({
+  contrasts,
+  opponentName,
+}: {
+  contrasts: RaceOpponentIssueContrast[]
+  opponentName: string
+}): React.JSX.Element => (
+  <section className="flex w-full min-w-0 flex-col gap-3">
+    <h3 className="text-base font-semibold text-foreground">
+      Where you contrast, and what to do about it
+    </h3>
+    <Accordion
+      type="multiple"
+      // The issue label is free-text from the LLM with no uniqueness guarantee
+      // in the contract, so suffix the index to keep React keys and Radix
+      // open-state values distinct when two contrasts share an issue name.
+      defaultValue={contrasts.map(
+        (contrast, index) => `${contrast.issue}-${index}`,
+      )}
+      className="flex flex-col gap-3"
+    >
+      {contrasts.map((contrast, index) => (
+        <AccordionItem
+          key={`${contrast.issue}-${index}`}
+          value={`${contrast.issue}-${index}`}
+          className="rounded-lg border border-border bg-card px-4"
+        >
+          <AccordionTrigger className="text-sm font-semibold text-foreground hover:no-underline focus-visible:no-underline">
+            <span className="min-w-0 break-words">{contrast.issue}</span>
+          </AccordionTrigger>
+          <AccordionContent className="border-t border-border pt-4">
+            <IssueContrastCard
+              contrast={contrast}
+              opponentName={opponentName}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      ))}
+    </Accordion>
+  </section>
+)
+
 const OpponentSummaryView = ({
   summary,
 }: {
   summary: RaceOpponentSummary
 }): React.JSX.Element => (
   <div className="flex w-full min-w-0 flex-col gap-5">
-    {summary.overview && (
-      <SummaryProseSection heading="Overview" section={summary.overview} />
+    {(summary.overview || summary.background) && (
+      <OverviewSection
+        overview={summary.overview}
+        background={summary.background}
+      />
     )}
     {summary.whyTheyMatter && (
       <WhyTheyMatterCallout text={summary.whyTheyMatter} />
@@ -205,8 +274,14 @@ const OpponentSummaryView = ({
     {summary.whatYouNeedToKnow && summary.whatYouNeedToKnow.length > 0 && (
       <WhatYouNeedToKnow items={summary.whatYouNeedToKnow} />
     )}
-    {summary.background && (
-      <SummaryProseSection heading="Background" section={summary.background} />
+    {summary.whereSoft && summary.whereSoft.length > 0 && (
+      <WhereTheySoft items={summary.whereSoft} />
+    )}
+    {summary.issueContrasts && summary.issueContrasts.length > 0 && (
+      <WhereYouContrast
+        contrasts={summary.issueContrasts}
+        opponentName={summary.opponentName}
+      />
     )}
     {summary.keyPositions.length > 0 && (
       <section className="flex w-full min-w-0 flex-col gap-2">
@@ -218,25 +293,6 @@ const OpponentSummaryView = ({
             <KeyPositionItem key={position.label} position={position} />
           ))}
         </ul>
-      </section>
-    )}
-    {summary.whereSoft && summary.whereSoft.length > 0 && (
-      <WhereTheySoft items={summary.whereSoft} />
-    )}
-    {summary.issueContrasts && summary.issueContrasts.length > 0 && (
-      <section className="flex w-full min-w-0 flex-col gap-3">
-        <div className="flex w-full min-w-0 flex-col gap-1">
-          <h3 className="text-base font-semibold text-foreground">
-            Where you contrast
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            How your positions differ from theirs on the issues voters care
-            about.
-          </p>
-        </div>
-        {summary.issueContrasts.map((contrast) => (
-          <IssueContrastCard key={contrast.issue} contrast={contrast} />
-        ))}
       </section>
     )}
   </div>
@@ -342,8 +398,7 @@ const RawResearch = ({
 // The expanded detail for an opponent, rendered inline inside its accordion
 // panel. Identity (avatar, name, party/incumbency, threat tier) lives in the
 // accordion trigger row, so this body omits a header and shows only the
-// structured summary (or readable raw-text fallback), with the raw scrape tucked
-// into a collapsible when a summary exists.
+// structured summary (or a readable raw-text fallback when no summary exists).
 const OpponentDetailBody = ({
   opponent,
 }: {
@@ -354,12 +409,6 @@ const OpponentDetailBody = ({
       <OpponentSummaryView summary={opponent.summary} />
     ) : (
       <RawResearch items={opponent.items} />
-    )}
-
-    {opponent.summary && opponent.items.length > 0 && (
-      <OpponentSection title="View source research" defaultOpen={false}>
-        <RawResearch items={opponent.items} />
-      </OpponentSection>
     )}
   </div>
 )
@@ -717,6 +766,7 @@ const RaceOpponentList = ({
                 variant="outline"
                 disabled
                 title="Export brief — coming soon"
+                icon={<DownloadIcon className="size-4" aria-hidden />}
               >
                 Export brief
               </Button>
@@ -765,8 +815,7 @@ const RaceOpponentList = ({
         ) : (
           <section className="flex flex-col gap-3">
             <div className="flex flex-col gap-0.5">
-              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 The field
               </span>
               <h2 className="text-lg font-semibold text-foreground">
@@ -798,12 +847,6 @@ const RaceOpponentList = ({
                     'rounded-lg border border-border bg-card px-4 transition last:border-b',
                     'hover:border-info-600/40',
                     'data-[state=open]:border-info-600 data-[state=open]:ring-1 data-[state=open]:ring-info-600/20',
-                    // Emphasize the primary threat (Lovable highlights it). The
-                    // open-state variants are re-specified for the destructive
-                    // emphasis, or the unconditional data-[state=open]:*-info-600
-                    // rules above win and the highlight vanishes when open.
-                    opponent.threatTier === 'primary_threat' &&
-                      'border-destructive/40 ring-1 ring-destructive/20 hover:border-destructive/60 data-[state=open]:border-destructive data-[state=open]:ring-destructive/20',
                   )}
                 >
                   <AccordionTrigger className="items-center hover:no-underline focus-visible:no-underline">
