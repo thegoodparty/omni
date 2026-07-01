@@ -37,6 +37,7 @@ import IssueContrastCard from './IssueContrastCard'
 import OpponentResearchProgress from './OpponentResearchProgress'
 import AddOpponentsForm from './AddOpponentsForm'
 import type { ManualOpponentInput } from './AddOpponentsForm'
+import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
 
 const initialsFor = (name: string): string =>
   name
@@ -567,6 +568,23 @@ const RaceOpponentList = ({
     [errorSnackbar, campaign?.id],
   )
 
+  // Export the on-screen briefs to a PDF (one section per opponent that has a
+  // structured summary). Guarded against double-clicks while the (async)
+  // react-pdf render runs.
+  const [exporting, setExporting] = useState(false)
+  const hasExportableBrief = data.opponents.some((opponent) => opponent.summary)
+  const exportBriefs = useCallback(async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      await downloadOpponentBriefsPdf(data.opponents, raceContext)
+    } catch {
+      errorSnackbar('Failed to export the brief. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }, [exporting, data.opponents, raceContext, errorSnackbar])
+
   const status = data.collectionStatus
 
   // Two-call discovery: collect() dispatches opposition_research and returns
@@ -764,8 +782,8 @@ const RaceOpponentList = ({
             actions={
               <Button
                 variant="outline"
-                disabled
-                title="Export brief — coming soon"
+                onClick={exportBriefs}
+                disabled={!hasExportableBrief || exporting}
                 icon={<DownloadIcon className="size-4" aria-hidden />}
               >
                 Export brief

@@ -12,7 +12,7 @@ type Props = {
   threatTier?: RaceOpponentThreatTier
 }
 
-const descriptorFor = (
+export const descriptorFor = (
   party: string | null | undefined,
   isIncumbent: boolean | null | undefined,
 ): string | null => {

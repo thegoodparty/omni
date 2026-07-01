@@ -7,9 +7,17 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
 import RaceOpponentList from './RaceOpponentList'
+import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
+}))
+
+// react-pdf's rendering path can't run in jsdom; the button's contract is that
+// it hands the on-screen opponents to the download helper, so mock the helper
+// and assert the wiring.
+vi.mock('../pdf/downloadOpponentBriefPdf', () => ({
+  downloadOpponentBriefsPdf: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -494,6 +502,29 @@ describe('<RaceOpponentList>', () => {
     expect(
       screen.getByText('Two-term incumbent with strong party backing.'),
     ).toBeInTheDocument()
+  })
+
+  it('exports the on-screen opponents when Export brief is clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      <RaceOpponentList initialData={withSummary} raceContext="Test race" />,
+    )
+
+    const exportButton = screen.getByRole('button', { name: /Export brief/i })
+    expect(exportButton).toBeEnabled()
+
+    await user.click(exportButton)
+
+    expect(downloadOpponentBriefsPdf).toHaveBeenCalledWith(
+      withSummary.opponents,
+      'Test race',
+    )
+  })
+
+  it('disables Export brief when no opponent has a structured summary', () => {
+    render(<RaceOpponentList initialData={nullSummary} />)
+
+    expect(screen.getByRole('button', { name: /Export brief/i })).toBeDisabled()
   })
 
   it('never renders a finance summary card', () => {
