@@ -134,6 +134,10 @@ Responsiveness is the product here. Optimize the loop:
   the test suite, or `next build` — they burn seconds the loop can't spare. Save,
   let HMR refresh, screenshot only if you need to self-check. Run gates once, at
   ship time.
+- **Build must pass before any PR.** Run `npm run build -w packages/prototypes` and
+  repair all errors before opening a pull request. CI runs `next build` on every PR
+  and will block merge on failure. If the build fails, fix the error, re-run, and
+  repeat until it exits clean — do not skip or defer this step.
 - **Fan out independent work to subagents — grouped by file.** A batch of feedback
   becomes parallel subagents: items touching _different_ files run at once; items
   touching the _same_ file chain serially (to avoid clobbering). Give each a tight
