@@ -65,8 +65,10 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (generation 1, "first week" title) and weekly regens. Best-effort: wrapped in a
   `.catch` so a Slack failure is logged but never reaches the run's catch (which
   would `markFailed` + redeliver).
-- **Pro upgrade posts the current week (Pro only).** `notifyProUpgrade` posts the
-  week the candidate is in now (via `currentMondayUtcMidnight`), routed from
+- **Pro upgrade posts the upcoming week (Pro only).** `notifyProUpgrade` posts
+  the upcoming Mon-Sun week via the same `nextMondayUtcMidnight` anchor the tasks
+  are dated to (a current-week window would miss them, since static rows and every
+  generation target the upcoming week). Routed from
   `CampaignTasksService.notifySlackOnProUpgrade` for tracker-cohort campaigns. All
   three Slack messages share `postCampaignWeekToSlack` + the casClickupTasks
   channel; every one is Pro-gated.

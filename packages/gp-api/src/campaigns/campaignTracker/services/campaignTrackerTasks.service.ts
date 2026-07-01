@@ -11,7 +11,6 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CENTRAL_TIMEZONE,
-  currentMondayUtcMidnight,
   nextMondayUtcMidnight,
   parseIsoDateString,
 } from 'src/shared/util/date.util'
@@ -419,10 +418,11 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     await this.postCampaignWeekToSlack(campaign, weekStart, title)
   }
 
-  // One-shot on Pro upgrade: post the CURRENT week's tasks (the week the
-  // candidate is in now) so CAS can start executing immediately. Weekly regens
-  // post the upcoming week; this posts the current one. Cohort gating (tracker
-  // rows) and idempotency live in the pro-upgrade caller.
+  // One-shot on Pro upgrade: post the upcoming Mon-Sun week's tasks so CAS can
+  // start executing. Uses the same nextMondayUtcMidnight anchor the tasks are
+  // dated to — static rows and every generation target the upcoming week — so
+  // the window always matches where the tasks live (a current-week window would
+  // miss them). Cohort gating (tracker rows) + idempotency live in the caller.
   async notifyProUpgrade(campaignId: number): Promise<void> {
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },
@@ -431,7 +431,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     if (!campaign?.isPro) return
     await this.postCampaignWeekToSlack(
       campaign,
-      currentMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE),
+      nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE),
       ":tada: *Pro upgrade: this week's tasks*",
     )
   }

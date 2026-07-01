@@ -9,7 +9,6 @@ import {
   parse,
   parseISO,
   startOfDay,
-  startOfWeek,
   subDays,
 } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
@@ -29,16 +28,6 @@ export const nextMondayUtcMidnight = (now: Date, timeZone: string): Date => {
   // runs on a Monday (async CAP completion or a Monday plan-page load) the week
   // would land 7 days ahead. Use today when it's already Monday.
   const monday = isMonday(nowInZone) ? nowInZone : nextMonday(nowInZone)
-  return new Date(
-    Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
-  )
-}
-
-// The Monday of the week that contains `now`, at UTC midnight, picked in
-// `timeZone`; the current-week counterpart to nextMondayUtcMidnight. Used to
-// window "this week's" tracker tasks (e.g. the Pro-upgrade Slack notification).
-export const currentMondayUtcMidnight = (now: Date, timeZone: string): Date => {
-  const monday = startOfWeek(toZonedTime(now, timeZone), { weekStartsOn: 1 })
   return new Date(
     Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
   )

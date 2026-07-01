@@ -378,7 +378,8 @@ candidates, all mirroring the legacy campaign-plan message format:
   fires on the initial bootstrap (generation 1, "first week" title) and every
   weekly regen ("weekly" title), posting the **upcoming** Mon-Sun week.
 - **Pro upgrade** (`notifyProUpgrade`): when a tracker campaign upgrades to Pro,
-  posts the **current** week's tasks so CAS can start immediately. Routed from
+  posts the **upcoming** Mon-Sun week's tasks (the same `nextMondayUtcMidnight`
+  anchor the tasks are dated to) so CAS can start immediately. Routed from
   `notifySlackOnProUpgrade`: tracker-cohort campaigns (which have
   `campaign_tracker_tasks` and no legacy default tasks) get this message; legacy
   campaigns keep the plan-summary message. The existing `proUpgradeSlackNotifiedAt`
