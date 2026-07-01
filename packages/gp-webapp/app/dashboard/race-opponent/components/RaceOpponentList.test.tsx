@@ -593,6 +593,35 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('drops the never-ran idle-mount auto-start to the manual form when collect settles to idle (uncontested)', async () => {
+    // The idle-MOUNT auto-start path (neverRan + autoStartPending) is distinct
+    // from the discovering-mount auto-fire. For an already-discovered uncontested
+    // race, /collect returns idle without dispatching a paid run. Once the
+    // in-flight collect resolves, autoStartPending must drop (autoStartedRef set +
+    // collecting cleared) and the screen give way to AddOpponentsForm — it must
+    // NOT wedge on the processing screen.
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: null, status: 'idle' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    // On mount the processing screen holds while the auto-start is pending/in flight.
+    expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+
+    // Once collect() settles to idle, the manual form replaces the screen.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByText('Researching your opponents'),
+    ).not.toBeInTheDocument()
+    // collect fired exactly once — no re-dispatch loop.
+    expect(collectHandler).toHaveBeenCalledTimes(1)
+  })
+
   it('shows the processing screen (not the manual form) while discovering', () => {
     render(
       <RaceOpponentList
