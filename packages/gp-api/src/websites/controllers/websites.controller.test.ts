@@ -509,6 +509,30 @@ describe('WebsitesController', () => {
       })
     })
 
+    it('blocks publish when a mixed array has an incomplete issue', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: {
+            ...completeContent.about,
+            issues: [
+              { title: 'Real issue', description: 'Meaningful text.' },
+              { title: 'Incomplete', description: '' },
+            ],
+          },
+        },
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('about.issues'),
+      })
+    })
+
     it('blocks publish when any contact field is missing', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {

@@ -83,14 +83,27 @@ describe('isCandidateProfileComplete', () => {
 })
 
 describe('getPolicyPrioritiesError', () => {
-  it('asks for at least one priority when there are none', () => {
-    expect(getPolicyPrioritiesError(0)).toBe(
+  it('asks for a priority when there are none', () => {
+    expect(getPolicyPrioritiesError([])).toBe(
       'Please add at least one policy priority',
     )
   })
 
-  it('returns null once at least one priority exists', () => {
-    expect(getPolicyPrioritiesError(1)).toBeNull()
+  it('asks for a priority when the only issue is the default title', () => {
+    // Matches isCandidateProfileComplete: a lone placeholder issue is not
+    // enough, so the form must not let the user through into a redirect loop.
+    expect(
+      getPolicyPrioritiesError([
+        {
+          title: 'Local Solutions, Not Party Politics',
+          description: 'focused on practical, community-first leadership',
+        },
+      ]),
+    ).toBe('Please add at least one policy priority')
+  })
+
+  it('returns null once a genuine priority exists', () => {
+    expect(getPolicyPrioritiesError([realIssue])).toBeNull()
   })
 })
 

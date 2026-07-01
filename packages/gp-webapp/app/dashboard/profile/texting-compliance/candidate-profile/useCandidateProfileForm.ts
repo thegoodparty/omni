@@ -109,7 +109,7 @@ export const useCandidateProfileForm = ({
   }, [trackViewEvent])
 
   const bioError = getBioError(bioPlainLength, bio)
-  const prioritiesError = getPolicyPrioritiesError(issues.length)
+  const prioritiesError = getPolicyPrioritiesError(issues)
 
   const handleSubmit = async (): Promise<void> => {
     if (submitting) return

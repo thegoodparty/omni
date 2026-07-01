@@ -56,7 +56,7 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
-import { isBioPublishable, hasGenuineIssue } from '../util/genericContent.util'
+import { isBioPublishable, isGenuineIssue } from '../util/genericContent.util'
 
 const PUBLISHABLE_DOMAIN_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -94,8 +94,14 @@ const REQUIRED_PUBLISH_FIELDS: Array<{
   { path: 'main.title', check: (c) => isNonEmpty(c.main?.title) },
   { path: 'about.bio', check: (c) => isBioPublishable(c.about?.bio) },
   {
+    // Every issue must be genuine (real title+description, not the default),
+    // not just one — otherwise a mixed array publishes with a blank-description
+    // issue visible on the live site. Requires at least one issue.
     path: 'about.issues',
-    check: (c) => hasGenuineIssue(c.about?.issues),
+    check: (c) =>
+      Array.isArray(c.about?.issues) &&
+      c.about.issues.length > 0 &&
+      c.about.issues.every(isGenuineIssue),
   },
   { path: 'contact.email', check: (c) => isNonEmpty(c.contact?.email) },
 ]

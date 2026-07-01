@@ -2,6 +2,7 @@ import {
   COMPLIANCE_DEFAULT_ISSUE_TITLE,
   TEMPLATE_BIO_MARKER,
   hasGenuineIssue,
+  isGenuineIssue,
   isGenuineBioPlainText,
 } from '@goodparty_org/contracts'
 import { serializeWebsiteBio } from './serializeWebsiteBio.util'
@@ -9,7 +10,7 @@ import { serializeWebsiteBio } from './serializeWebsiteBio.util'
 // Genuineness rules live in @goodparty_org/contracts so the API gate and the
 // webapp profile-complete check share one definition. gp-api strips the bio's
 // Quill HTML to plain text first, then applies the shared length/marker rule.
-export { COMPLIANCE_DEFAULT_ISSUE_TITLE, hasGenuineIssue }
+export { COMPLIANCE_DEFAULT_ISSUE_TITLE, hasGenuineIssue, isGenuineIssue }
 
 // Publish-level bio bar for ALL candidate websites: a non-empty bio that is not
 // the agentic fallback template. Deliberately NOT the 500-char genuineness bar

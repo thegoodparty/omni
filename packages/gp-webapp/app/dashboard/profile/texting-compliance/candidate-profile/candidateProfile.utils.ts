@@ -44,12 +44,15 @@ export const getBioError = (
 
 /**
  * Error message for the policy-priorities requirement, or null when at least
- * the minimum number of priorities exist.
+ * one GENUINE priority exists. Matches isCandidateProfileComplete /
+ * hasGenuineIssue so the form doesn't accept a lone placeholder-titled issue
+ * that the completeness check (and API) then reject — which would loop the
+ * user back to the wizard with no visible error.
  */
-export const getPolicyPrioritiesError = (count: number): string | null =>
-  count < MIN_POLICY_PRIORITIES
-    ? 'Please add at least one policy priority'
-    : null
+export const getPolicyPrioritiesError = (
+  issues: { title?: string | null; description?: string | null }[] | null,
+): string | null =>
+  hasGenuineIssue(issues) ? null : 'Please add at least one policy priority'
 
 export interface PolicyFormValidation {
   titleInvalid: boolean
