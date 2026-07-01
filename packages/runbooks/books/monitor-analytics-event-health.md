@@ -143,6 +143,20 @@ entries to the event-metadata skill:
    (`.claude/skills/event-metadata`), which writes the `gp-meta` block into the Amplitude event
    description (read-modify-write, dev + prod). Client (Amplitude) events only.
 
+## Stage 5 — refresh the consumer surface (independent, non-fatal)
+
+After the monitor's run and log/state write-back (Stage 1), bring the event-state Google
+Sheet current. Its status column is recomputed live from the underlying data, so this path
+needs no override — a plain refresh is enough:
+
+```bash
+scripts/shell/refresh-event-state.sh
+```
+
+If it fails, note the failure and continue — the monitor run has already completed its own
+work; re-run the wrapper manually once the issue is resolved. Do not fail the monitor run on
+a refresh error.
+
 ## gp-meta parsing spec (from the SOP)
 
 Block delimited by `<!-- gp-meta -->` … `<!-- /gp-meta -->` inside the description:
