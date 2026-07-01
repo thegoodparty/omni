@@ -466,6 +466,28 @@ def test_load_prior_state_reads_valid_flagged(tmp_path):
     assert eh.load_prior_state(p) == {"A": "dormant"}
 
 
+# --- load_prior_anomalous robustness (DATA-2057) -----------------------------
+
+
+def test_load_prior_anomalous_tolerates_corrupt_json(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text("{truncated mid-write")
+    assert eh.load_prior_anomalous(p) is None
+
+
+def test_load_prior_anomalous_missing_key_returns_none(tmp_path):
+    # Pre-existing state file written before this PR has no 'anomalous' key.
+    p = tmp_path / "state.json"
+    p.write_text('{"run_date": "2026-06-29", "flagged": {"A": "dormant"}}')
+    assert eh.load_prior_anomalous(p) is None
+
+
+def test_load_prior_anomalous_reads_valid_list(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text('{"run_date": "2026-06-29", "anomalous": ["B", "C"]}')
+    assert eh.load_prior_anomalous(p) == {"B", "C"}
+
+
 # --- metadata coverage -------------------------------------------------------
 
 
