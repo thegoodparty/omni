@@ -48,7 +48,12 @@ export const RaceOpponentResponseSchema = z.object({
       // roster can tier and order without opening the detail. Optional until an
       // opponent has analysis.
       threatTier: RaceOpponentThreatTierSchema.optional(),
-      items: z.array(RaceOpponentSchema),
+      // Raw per-source research rows. Sent only as the no-summary fallback the
+      // page renders when an opponent has no structured summary yet; once a
+      // summary exists these are redundant and gp-api omits them rather than
+      // shipping the full scraped page text (ENG-10622). Optional for that
+      // omit.
+      items: z.array(RaceOpponentSchema).optional(),
       // Optional + nullable: ENG-10588 wires the producer to populate this from
       // the race_opponent_summary step. Until then gp-api's get() omits the
       // field, so it must be optional (not just nullable) to validate.

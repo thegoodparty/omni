@@ -73,16 +73,8 @@ const withSummary: RaceOpponentResponse = {
         ],
         generatedAt: '2026-06-20T12:00:00.000Z',
       },
-      items: [
-        {
-          id: 1,
-          opponentName: 'Jane Rival',
-          sourceType: 'ballotpedia',
-          sourceUrl: 'https://ballotpedia.org/Jane_Rival',
-          content: 'Raw scraped Ballotpedia text about Jane Rival.',
-          collectedAt: '2026-06-20T12:00:00.000Z',
-        },
-      ],
+      // No items: gp-api omits the raw source-research rows once a structured
+      // summary exists (ENG-10622). The summary is the only view here.
     },
   ],
 }
