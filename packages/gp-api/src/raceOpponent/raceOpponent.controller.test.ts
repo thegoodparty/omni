@@ -1540,7 +1540,11 @@ describe('race_opponent_summary dispatch / persist / read', () => {
   const analysisOverrides = {
     threat_tier: 'primary_threat',
     why_they_matter: 'The only incumbent in the field.',
-    what_you_need_to_know: ['Two-term incumbent.', 'Backed by the local PAC.'],
+    what_you_need_to_know: [
+      { text: 'Two-term incumbent.', sources: [BALLOTPEDIA_URL] },
+      // relaxed: an interpretive takeaway with no source still persists
+      { text: 'Backed by the local PAC.' },
+    ],
     where_soft: [
       { text: 'No published water position.', sources: [BALLOTPEDIA_URL] },
       // relaxed: an item with no source still persists
@@ -1630,6 +1634,15 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     )
     expect(opponent.summary.threatTier).toBe('primary_threat')
     expect(opponent.summary.whatYouNeedToKnow).toHaveLength(2)
+    // relaxed sourcing: the sourced takeaway keeps its upgraded source ref, the
+    // interpretive one persists with no sources key.
+    expect(opponent.summary.whatYouNeedToKnow[0]).toEqual({
+      text: 'Two-term incumbent.',
+      sources: [{ sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL }],
+    })
+    expect(opponent.summary.whatYouNeedToKnow[1]).toEqual({
+      text: 'Backed by the local PAC.',
+    })
     // relaxed sourcing: the sourced soft spot keeps its upgraded source, the
     // unsourced one persists with no sources key.
     expect(opponent.summary.whereSoft).toHaveLength(2)
@@ -1645,6 +1658,35 @@ describe('race_opponent_summary dispatch / persist / read', () => {
         { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
       ],
     })
+  })
+
+  it('tolerates a legacy string[] what_you_need_to_know from an in-flight run', async () => {
+    // A summary run dispatched before the {text, sources?} migration completes
+    // after this deploy and still emits bare strings. The persist parse must
+    // normalize them to { text } rather than failing the whole summary.
+    await seedCollectedRow()
+    const run = await seedSummaryRun('summary-legacy-wynk')
+    stubSummaryArtifact(
+      summaryArtifact({
+        what_you_need_to_know: ['Legacy takeaway one.', 'Legacy takeaway two.'],
+      }),
+    )
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary.whatYouNeedToKnow).toEqual([
+      { text: 'Legacy takeaway one.' },
+      { text: 'Legacy takeaway two.' },
+    ])
   })
 
   it('persists a descriptive-only artifact (no analysis) without 500ing', async () => {

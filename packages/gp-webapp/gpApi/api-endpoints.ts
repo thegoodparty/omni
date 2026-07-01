@@ -991,7 +991,10 @@ export type RaceOpponentSummary = {
   threatTier?: RaceOpponentThreatTier
   // Phase 3 analytical fields, all optional (the analysis may be absent).
   whyTheyMatter?: string
-  whatYouNeedToKnow?: string[]
+  whatYouNeedToKnow?: Array<{
+    text: string
+    sources?: RaceOpponentSummarySourceRef[]
+  }>
   // Relaxed sourcing: an item cites a source where one is direct, else omits it.
   whereSoft?: Array<{ text: string; sources?: RaceOpponentSummarySourceRef[] }>
   issueContrasts?: RaceOpponentIssueContrast[]
