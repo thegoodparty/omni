@@ -33,6 +33,8 @@ export {
   CircleAlert as CircleAlertIcon,
   CircleUserRound as CircleUserRoundIcon,
   ClipboardList as ClipboardListIcon,
+  ThumbsDown as ThumbsDownIcon,
+  ThumbsUp as ThumbsUpIcon,
   Copy as CopyIcon,
   Crop as CropIcon,
   Download as DownloadIcon,
