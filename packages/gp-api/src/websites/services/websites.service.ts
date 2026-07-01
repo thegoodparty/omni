@@ -17,6 +17,7 @@ import {
   VerifyLiveReason,
   VerifyLiveResponse,
 } from '../schemas/VerifyLive.schema'
+import { isGenuineIssue } from '@goodparty_org/contracts'
 
 const dnsLookup = promisify(dns.lookup)
 
@@ -85,19 +86,20 @@ export const applyCompliancePublishFallbacks = (
   }
 
   // Only real candidate-authored issues or real campaign positions ship.
+  // isGenuineIssue drops malformed AND default-title entries (the publish gate
+  // rejects those too), so a site carrying only the legacy default issue gets
+  // it replaced with real positions or left empty — never silently retained.
   // No genuine source => leave issues empty so the publish gate rejects the
   // site and the agent fails profile_incomplete (no generic content reaches
-  // Peerly). Keeps valid candidate-authored issues intact, else real positions.
-  const validIssues = (about.issues ?? []).filter(
-    (issue) => hasText(issue.title) && hasText(issue.description),
-  )
-  const droppedMalformed = validIssues.length !== (about.issues ?? []).length
+  // Peerly).
+  const validIssues = (about.issues ?? []).filter(isGenuineIssue)
+  const droppedNonGenuine = validIssues.length !== (about.issues ?? []).length
   const realIssues =
     validIssues.length === 0 ? realIssuesFromCampaign(campaign) : []
-  // Fire only on a real change: malformed entries to strip, or real positions
-  // to seed when there are none. Skip when issues are already valid or simply
+  // Fire only on a real change: non-genuine entries to strip, or real positions
+  // to seed when there are none. Skip when issues are already genuine or simply
   // absent with nothing to seed — writing [] there is a spurious DB write.
-  if (droppedMalformed || realIssues.length > 0) {
+  if (droppedNonGenuine || realIssues.length > 0) {
     nextAbout.issues = validIssues.length > 0 ? validIssues : realIssues
     changed = true
   }

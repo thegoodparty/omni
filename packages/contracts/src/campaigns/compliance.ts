@@ -21,17 +21,20 @@ export const isGenuineBioPlainText = (plainText: string): boolean =>
   plainText.trim().length >= MIN_BIO_LENGTH &&
   !plainText.toLowerCase().includes(TEMPLATE_BIO_MARKER)
 
-// Genuine issues = at least one issue with a real title AND description whose
-// title is not the fallback default. Guards each element as a non-null object
-// because website content is a JSON column that can carry a malformed entry.
+// A genuine issue has a real title AND description and is not the fallback
+// default. Guards a non-null object because website content is a JSON column
+// that can carry a malformed entry. Shared so the publish gate, the fallback's
+// "keep valid issues" filter, and the webapp all agree on what counts.
+export const isGenuineIssue = (
+  issue?: { title?: string | null; description?: string | null } | null,
+): boolean =>
+  typeof issue === 'object' &&
+  issue !== null &&
+  (issue.title?.trim().length ?? 0) > 0 &&
+  (issue.description?.trim().length ?? 0) > 0 &&
+  issue.title?.trim() !== COMPLIANCE_DEFAULT_ISSUE_TITLE
+
+// Genuine issues = at least one genuine issue.
 export const hasGenuineIssue = (
   issues?: { title?: string | null; description?: string | null }[] | null,
-): boolean =>
-  (issues ?? []).some(
-    (issue) =>
-      typeof issue === 'object' &&
-      issue !== null &&
-      (issue.title?.trim().length ?? 0) > 0 &&
-      (issue.description?.trim().length ?? 0) > 0 &&
-      issue.title?.trim() !== COMPLIANCE_DEFAULT_ISSUE_TITLE,
-  )
+): boolean => (issues ?? []).some(isGenuineIssue)

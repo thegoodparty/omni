@@ -25,10 +25,19 @@ export const getBioPlainLength = (rawBio: string | undefined | null): number =>
  * bio meets the minimum length. Consumed by every surface that gates a
  * Submit/Save on the bio so the copy stays consistent.
  */
-export const getBioError = (bioPlainLength: number): string | null => {
+export const getBioError = (
+  bioPlainLength: number,
+  rawBio?: string | null,
+): string | null => {
   if (bioPlainLength === 0) return 'Please add your bio'
   if (bioPlainLength < MIN_BIO_LENGTH) {
     return `Your bio requires ${MIN_BIO_LENGTH} characters`
+  }
+  // Match the API's genuineness gate: a long-enough bio that is still the
+  // fallback template must be rejected in-form, not silently saved and then
+  // blocked by isCandidateProfileComplete with no explanation.
+  if (rawBio && !isGenuineBioPlainText(stripHtml(rawBio).result.trim())) {
+    return 'Please write your bio in your own words'
   }
   return null
 }

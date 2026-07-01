@@ -108,7 +108,7 @@ export const useCandidateProfileForm = ({
     trackEvent(EVENTS.ProUpgrade.Compliance.CandidateProfileViewed)
   }, [trackViewEvent])
 
-  const bioError = getBioError(bioPlainLength)
+  const bioError = getBioError(bioPlainLength, bio)
   const prioritiesError = getPolicyPrioritiesError(issues.length)
 
   const handleSubmit = async (): Promise<void> => {

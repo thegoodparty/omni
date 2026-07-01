@@ -497,6 +497,28 @@ describe('applyCompliancePublishFallbacks', () => {
     expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
   })
 
+  it('strips a lone default-title issue instead of retaining it', () => {
+    const content = {
+      main: { title: 'Vote For Rick Bennett' },
+      contact: { email: 'rick@example.com' },
+      about: {
+        bio: '<p>A real candidate bio.</p>',
+        issues: [
+          {
+            title: 'Local Solutions, Not Party Politics',
+            description: 'focused on practical, community-first leadership',
+          },
+        ],
+      },
+    }
+
+    // The default issue is not genuine, so it is dropped; with no positions to
+    // seed the site is left with empty issues (the publish gate then rejects
+    // it) rather than silently keeping the template issue.
+    const patched = applyCompliancePublishFallbacks(content, user, campaign)
+    expect(patched?.about?.issues).toEqual([])
+  })
+
   it('returns null when all publish-gated fields are already present', () => {
     const content = {
       main: { title: 'Vote For Rick Bennett' },

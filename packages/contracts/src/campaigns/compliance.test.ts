@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   MIN_BIO_LENGTH,
   isGenuineBioPlainText,
+  isGenuineIssue,
   hasGenuineIssue,
 } from './compliance'
 
@@ -33,6 +34,25 @@ describe('isGenuineBioPlainText', () => {
       'a '.repeat(300) + 'running on local solutions over party politics'
     expect(longTemplate.length).toBeGreaterThanOrEqual(MIN_BIO_LENGTH)
     expect(isGenuineBioPlainText(longTemplate)).toBe(false)
+  })
+})
+
+describe('isGenuineIssue', () => {
+  it('is false for malformed, empty, or default-title issues', () => {
+    expect(isGenuineIssue(null)).toBe(false)
+    expect(isGenuineIssue({ title: 'X', description: '' })).toBe(false)
+    expect(
+      isGenuineIssue({
+        title: 'Local Solutions, Not Party Politics',
+        description: 'focused on practical, community-first leadership',
+      }),
+    ).toBe(false)
+  })
+
+  it('is true for a real non-default issue', () => {
+    expect(
+      isGenuineIssue({ title: 'Roads', description: 'Fix the potholes.' }),
+    ).toBe(true)
   })
 })
 

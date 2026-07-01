@@ -31,6 +31,17 @@ describe('getBioError', () => {
   it('returns null once the bio meets the minimum length', () => {
     expect(getBioError(MIN_BIO_LENGTH)).toBeNull()
   })
+
+  it('rejects a long-enough bio that is still the fallback template', () => {
+    const templateBio = `<p>${'word '.repeat(120)}running on local solutions over party politics</p>`
+    expect(getBioError(MIN_BIO_LENGTH, templateBio)).toBe(
+      'Please write your bio in your own words',
+    )
+  })
+
+  it('accepts a long, genuine bio when the raw text is passed', () => {
+    expect(getBioError(MIN_BIO_LENGTH, genuineBio)).toBeNull()
+  })
 })
 
 describe('isCandidateProfileComplete', () => {
