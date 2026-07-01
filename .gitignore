@@ -32,3 +32,4 @@ scratch/
 
 # Local briefing gallery data (dev-only; see app/dev/briefings + scripts/pull-local-briefings.sh)
 .local-briefings/
+.local-briefings-*/
