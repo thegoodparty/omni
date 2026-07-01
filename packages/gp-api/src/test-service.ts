@@ -1,14 +1,9 @@
 import { UnauthorizedException } from '@nestjs/common'
 import { NestFastifyApplication } from '@nestjs/platform-fastify'
 import { User } from './generated/prisma'
-import {
-  PostgreSqlContainer,
-  StartedPostgreSqlContainer,
-} from '@testcontainers/postgresql'
+import { StartedPostgreSqlContainer } from '@testcontainers/postgresql'
 import axios, { AxiosInstance } from 'axios'
 import { randomBytes } from 'crypto'
-import { sync as glob } from 'fast-glob'
-import { readFileSync } from 'fs'
 import jwt from 'jsonwebtoken'
 import { Client } from 'pg'
 import { afterAll, beforeAll, beforeEach, vi } from 'vitest'
@@ -19,6 +14,7 @@ import {
 } from './authentication/interfaces/auth-provider.interface'
 import './configrc'
 import { PrismaService } from './prisma/prisma.service'
+import { TEMPLATE_DB, startTestPostgres } from './test-postgres'
 
 export const TEST_CLERK_ID = 'user_test_123'
 
@@ -65,39 +61,22 @@ export const useTestService = (): TestServiceContext => {
     // database names per suite to ensure that suites are isolated from each other.
     const uniqueDbName = `test_db_${randomBytes(8).toString('hex')}`
 
-    // Start PostgreSQL container
-    container = await new PostgreSqlContainer('postgres:16-alpine')
-      .withDatabase('postgres') // Connect to default postgres database initially
-      .withUsername('test_user')
-      .withPassword('test_password')
-      .withReuse()
-      .start()
+    container = await startTestPostgres()
 
     const baseConnectionUri = container.getConnectionUri()
 
-    const runQuery = async (connectionString: string, query: string) => {
-      const pgClient = new Client({ connectionString })
-      await pgClient.connect()
-      await pgClient.query(query)
-      await pgClient.end()
-    }
-
-    // Create the unique database.
-    await runQuery(
-      container.getConnectionUri(),
-      `CREATE DATABASE ${uniqueDbName}`,
-    )
+    // Clone the schema template that globalSetup built once, rather than
+    // replaying every migration here. The copy is a near-instant Postgres
+    // operation, which is what keeps 60+ suites off a per-suite migration
+    // replay against the one shared container.
+    const admin = new Client({ connectionString: baseConnectionUri })
+    await admin.connect()
+    await admin.query(`CREATE DATABASE ${uniqueDbName} TEMPLATE ${TEMPLATE_DB}`)
+    await admin.end()
 
     const databaseUrl = baseConnectionUri.replace(
       '/postgres',
       `/${uniqueDbName}`,
-    )
-    // Run the migrations
-    await runQuery(
-      databaseUrl,
-      glob(`${__dirname}/../prisma/schema/migrations/*/*.sql`)
-        .map((file) => readFileSync(file, 'utf8'))
-        .join('\n'),
     )
     // Set DATABASE_URL for Prisma with the unique database
     process.env.DATABASE_URL = databaseUrl
