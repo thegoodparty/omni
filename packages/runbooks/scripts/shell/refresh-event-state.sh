@@ -39,7 +39,7 @@ fi
 # still honored (python migrates it on first use). Resolve after the .env load so a token path set
 # there is respected.
 if [[ -n "${GP_SHEETS_TOKEN_PATH:-}" ]]; then
-  TOKEN="$GP_SHEETS_TOKEN_PATH"
+  TOKEN="${GP_SHEETS_TOKEN_PATH/#\~/$HOME}"   # expand a leading ~ so the -f gate matches Python's expanduser()
 else
   TOKEN="${XDG_CONFIG_HOME:-$HOME/.config}/gp-event-state/gsheet_token.pickle"
 fi
