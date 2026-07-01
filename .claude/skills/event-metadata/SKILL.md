@@ -198,7 +198,9 @@ back or blocked by a refresh problem.
 3. **On a clean skip:** the wrapper exits 0 with `…not configured on this host…; skipping`
    when the machine lacks the shared Sheets credentials (no cached token, no sheet id). This
    is expected on most engineers' machines — report `surface refresh — skipped (host not
-   configured)` and move on. It is not an error, and it does not trigger op or a browser.
+   configured)` and move on. It is not an error, and it does not trigger op or a browser. (To
+   configure a host, mint the token once with `scripts/shell/mint-sheets-token.sh`; it caches
+   outside the checkout so it persists across worktrees — DATA-2061.)
 4. **On failure:** do not fail the skill. Report the two outcomes separately —
    `metadata written ✓; surface refresh ⚠ (<reason>) — re-run refresh-event-state.sh`.
    The surface is eventually-consistent; the next trigger or a run on a configured host
