@@ -668,6 +668,20 @@ def load_prior_state(path: Path | None) -> dict[str, str] | None:
     return flagged if isinstance(flagged, dict) else None
 
 
+def load_prior_anomalous(path: Path | None) -> set[str] | None:
+    """Read the prior run's anomalous-event set from the state file (DATA-2057). Lets the
+    Slack quiet gate tell a *newly* anomalous event from a persistent one. None when the
+    file is absent/corrupt or predates this key (first Slack-aware run)."""
+    if not path or not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    anomalous = data.get("anomalous")
+    return set(anomalous) if isinstance(anomalous, list) else None
+
+
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -765,7 +779,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             try:
                 prior_state = load_prior_state(args.state)
-                ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel)
+                prior_anomalous = load_prior_anomalous(args.state)
+                ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel,
+                                     prior_anomalous=prior_anomalous)
                 print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
                 print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)
@@ -774,6 +790,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         state = {
             "run_date": today.isoformat(),
             "flagged": {r["event_type"]: r["status"] for r in result["flagged"]},
+            # anomalous set persisted for the Slack quiet gate (DATA-2057): distinguishes a
+            # newly anomalous event from one that was already anomalous last run.
+            "anomalous": sorted(r["event_type"] for r in result["flagged"] if r["anomaly"]),
         }
         _atomic_write(args.state, json.dumps(state, indent=2) + "\n")
     return 0

@@ -109,20 +109,26 @@ def _current_status_map(result: dict) -> dict[str, str]:
     return {r["event_type"]: r["status"] for r in result.get("flagged", [])}
 
 
-def _new_anomalies(result: dict, changes: dict) -> list[dict]:
-    """Newly flagged events that carry a firing-volume anomaly — the noisy-signal set the
-    quiet gate must never suppress."""
-    new = set(changes.get("new", []))
-    return [r for r in result.get("flagged", []) if r["event_type"] in new and r.get("anomaly")]
+def _new_anomalies(result: dict, prior_anomalous: set[str] | None = None) -> list[dict]:
+    """Flagged events carrying a firing-volume anomaly that was NOT present last run — the
+    noisy signal the quiet gate must never suppress. ``prior_anomalous`` is the set of
+    event_types that were anomalous on the previous run (``None`` on the first run → every
+    anomaly counts as new). This catches both a newly flagged anomalous event and a
+    still-flagged event that *develops* an anomaly, while a persistent anomaly (already
+    reported on a prior run) stays quiet — so the digest doesn't re-post it every run."""
+    prior = prior_anomalous or set()
+    return [r for r in result.get("flagged", [])
+            if r.get("anomaly") and r["event_type"] not in prior]
 
 
-def should_post(result: dict, changes: dict) -> bool:
+def should_post(result: dict, changes: dict, prior_anomalous: set[str] | None = None) -> bool:
     """Quiet gate: post only when something changed. True if any event was newly flagged,
-    escalated (status changed), or resolved, or if a newly flagged event carries an
-    anomaly. ``still_open`` alone (same flags, same status as last run) is not news."""
+    escalated (status changed), or resolved, or if any flagged event carries an anomaly it
+    did not have last run. ``still_open`` alone (same flags, same status, same anomaly
+    state as last run) is not news."""
     if any(changes.get(k) for k in ("new", "escalated", "resolved")):
         return True
-    return bool(_new_anomalies(result, changes))
+    return bool(_new_anomalies(result, prior_anomalous))
 
 
 def _transition_lines(result: dict, changes: dict, prior_state: dict | None) -> list[str]:
@@ -146,7 +152,7 @@ def _pct(current: float, baseline: float) -> str:
 
 
 def build_digest_blocks(
-    result: dict, changes: dict, prior_state: dict | None
+    result: dict, changes: dict, prior_state: dict | None, prior_anomalous: set[str] | None = None
 ) -> tuple[list[dict], list[dict]]:
     """Return ``(parent_blocks, thread_blocks)`` for a Source B health-digest post.
 
@@ -155,9 +161,11 @@ def build_digest_blocks(
     detail: per-event firing anomalies with numbers, watchlist proposals, and the full
     status breakdown. ``prior_state`` (``{event_type: status}`` from the last run) lets
     escalated events render as ``prior → current``; ``None`` (first run) degrades to ``?``.
+    ``prior_anomalous`` scopes the headline to *newly* anomalous events (the thread still
+    lists all of them).
     """
     n_changes = sum(len(changes.get(k, [])) for k in ("new", "escalated", "resolved"))
-    anomalies = _new_anomalies(result, changes)
+    anomalies = _new_anomalies(result, prior_anomalous)
     proposals = result.get("proposals") or []
     sheet_url = os.environ.get("GP_EVENT_STATE_SHEET_URL")
 
@@ -257,12 +265,13 @@ def post_digest(
     token: str,
     channel: str,
     transport: Callable[..., Any] | None = None,
+    prior_anomalous: set[str] | None = None,
 ) -> str | None:
     """Post the health digest: parent message, then the detail as a threaded reply.
     No-op (returns None) when the quiet gate says nothing changed."""
-    if not should_post(result, changes):
+    if not should_post(result, changes, prior_anomalous):
         return None
-    parent, thread = build_digest_blocks(result, changes, prior_state)
+    parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous)
     ts = post_message(parent, token=token, channel=channel,
                       text=f"Analytics event health — {result.get('run_date')}", transport=transport)
     # The parent is meaningful on its own and already advertises "details in thread", so a
@@ -324,9 +333,16 @@ def main(argv: list[str] | None = None) -> int:
         "sheet_url": args.sheet_url,
         "changed": [c.strip() for c in args.changed.split(",")] if args.changed else None,
     }
-    ts = post_message(build_metadata_blocks(change), token=token, channel=channel,
-                      text=f"{args.change}: {args.event}")
-    print(f"posted metadata update for {args.event} (ts {ts})")
+    # Non-fatal, like Source B: the Amplitude write (via the event-metadata skill) has
+    # already succeeded, and the shell wrapper runs under `set -e`, so a raised RuntimeError
+    # (Slack ok:false / rate limit / network) would fail the skill step it must never fail.
+    try:
+        ts = post_message(build_metadata_blocks(change), token=token, channel=channel,
+                          text=f"{args.change}: {args.event}")
+        print(f"posted metadata update for {args.event} (ts {ts})")
+    except Exception as exc:  # noqa: BLE001
+        print(f"slack: metadata notify failed ({exc}); Amplitude write already succeeded.",
+              file=sys.stderr)
     return 0
 
 

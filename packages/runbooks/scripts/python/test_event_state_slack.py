@@ -113,16 +113,23 @@ def test_should_post_true_on_escalated_only():
     assert slk.should_post(RESULT, {"new": [], "resolved": [], "still_open": [], "escalated": ["poll_created"]}) is True
 
 
-def test_should_post_false_when_quiet_and_no_new_anomaly():
-    # still_open only, and the only anomaly (donation_submitted) is not in `new`
-    quiet_result = dict(RESULT)
-    assert slk.should_post(quiet_result, QUIET) is False
+def test_should_post_false_when_quiet_and_persistent_anomaly():
+    # nothing changed and the only anomaly (donation_submitted) was already anomalous last
+    # run → not news, stay quiet (don't re-post a persistent anomaly every run)
+    assert slk.should_post(RESULT, QUIET, prior_anomalous={"donation_submitted"}) is False
 
 
 def test_should_post_true_on_new_anomaly_even_if_no_changes():
-    # a newly flagged event that carries an anomaly forces a post
-    changes = {"new": ["donation_submitted"], "resolved": [], "still_open": [], "escalated": []}
-    assert slk.should_post(RESULT, changes) is True
+    # no status changes, but donation_submitted's anomaly is new (absent from prior run)
+    assert slk.should_post(RESULT, QUIET, prior_anomalous=set()) is True
+
+
+def test_should_post_true_when_still_open_event_develops_anomaly():
+    # the delegate scenario: an event flagged in both runs (still_open) that develops an
+    # anomaly this run must surface; once the anomaly persists to the next run, go quiet
+    changes = {"new": [], "resolved": [], "still_open": ["donation_submitted"], "escalated": []}
+    assert slk.should_post(RESULT, changes, prior_anomalous=set()) is True
+    assert slk.should_post(RESULT, changes, prior_anomalous={"donation_submitted"}) is False
 
 
 # --- Source B: build_digest_blocks -------------------------------------------
@@ -241,7 +248,9 @@ def test_post_digest_survives_thread_failure_and_returns_parent_ts():
 
 def test_post_digest_noop_when_quiet():
     tx = _FakeTransport()
-    ts = slk.post_digest(RESULT, QUIET, PRIOR, token="xoxb-t", channel="C0BECEK0603", transport=tx)
+    # quiet: no status changes and the anomaly persisted from last run
+    ts = slk.post_digest(RESULT, QUIET, PRIOR, token="xoxb-t", channel="C0BECEK0603",
+                         transport=tx, prior_anomalous={"donation_submitted"})
     assert ts is None
     assert tx.calls == []
 
@@ -267,3 +276,18 @@ def test_main_notify_metadata_posts_when_configured(monkeypatch):
     assert rc == 0
     assert len(tx.calls) == 1
     assert tx.calls[0]["json"]["channel"] == "C0BECEK0603"
+
+
+def test_main_notify_metadata_is_nonfatal_on_slack_error(monkeypatch, capsys):
+    # the shell wrapper runs under `set -e`, so a Slack failure must NOT become a non-zero
+    # exit — the Amplitude write it follows has already succeeded.
+    monkeypatch.setenv(slk.TOKEN_ENV, "xoxb-t")
+    monkeypatch.setenv(slk.CHANNEL_ENV, "C0BECEK0603")
+
+    def failing_post(url, **kwargs):
+        return _FakeResp({"ok": False, "error": "ratelimited"})
+
+    monkeypatch.setattr(slk.requests, "post", failing_post)
+    rc = slk.main(["notify-metadata", "--event", "X", "--change", "created", "--status", "active"])
+    assert rc == 0
+    assert "failed" in capsys.readouterr().err.lower()
