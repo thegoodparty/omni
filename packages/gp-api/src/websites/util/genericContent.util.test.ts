@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isBioGenuine,
+  isBioPublishable,
   hasGenuineIssue,
   isGenericComplianceContent,
 } from './genericContent.util'
@@ -23,6 +24,21 @@ describe('isBioGenuine', () => {
     const longTemplateBio = `<p>${templateBio.repeat(10)}</p>`
     expect(longTemplateBio.length).toBeGreaterThanOrEqual(500)
     expect(isBioGenuine(longTemplateBio)).toBe(false)
+  })
+})
+
+describe('isBioPublishable', () => {
+  it('is false for an empty bio or the fallback template', () => {
+    expect(isBioPublishable(null)).toBe(false)
+    expect(isBioPublishable('<p>   </p>')).toBe(false)
+    expect(isBioPublishable(templateBio)).toBe(false)
+  })
+  it('is true for a short but non-template bio (builder is not forced to 500)', () => {
+    // The general website builder allows a 100-char bio; the publish gate must
+    // not require the compliance 500-char bar.
+    expect(
+      isBioPublishable('<p>A short, genuine, candidate-written bio.</p>'),
+    ).toBe(true)
   })
 })
 

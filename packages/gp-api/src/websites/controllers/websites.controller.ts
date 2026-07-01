@@ -56,7 +56,7 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
-import { isBioGenuine, hasGenuineIssue } from '../util/genericContent.util'
+import { isBioPublishable, hasGenuineIssue } from '../util/genericContent.util'
 
 const PUBLISHABLE_DOMAIN_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -92,7 +92,7 @@ const REQUIRED_PUBLISH_FIELDS: Array<{
   check: (content: PrismaJson.WebsiteContent) => boolean
 }> = [
   { path: 'main.title', check: (c) => isNonEmpty(c.main?.title) },
-  { path: 'about.bio', check: (c) => isBioGenuine(c.about?.bio) },
+  { path: 'about.bio', check: (c) => isBioPublishable(c.about?.bio) },
   {
     path: 'about.issues',
     check: (c) => hasGenuineIssue(c.about?.issues),

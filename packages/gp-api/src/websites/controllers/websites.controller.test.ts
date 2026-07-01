@@ -558,6 +558,26 @@ describe('WebsitesController', () => {
       expect(mockWebsitesService.update).toHaveBeenCalled()
     })
 
+    it('allows publish with a short non-template bio (500-char bar is compliance-only)', async () => {
+      // The general website builder enforces its own 100-char minimum; the
+      // shared publish gate must not require the compliance 500-char bar.
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: {
+            ...completeContent.about,
+            bio: '<p>A short, genuine, candidate-written bio.</p>',
+          },
+        },
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      await controller.updateWebsite(mockUser, mockCampaign, publishBody())
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
     it('fills contact.address and contact.phone from GP_DOMAIN_CONTACT when blank, then publishes', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {
