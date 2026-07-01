@@ -4,3 +4,34 @@
 // divergence would let a candidate author a bio one side accepts and the
 // other rejects.
 export const MIN_BIO_LENGTH = 500
+
+// The agentic compliance flow's old fallback copy. Peerly rejects it as "not
+// genuine", so the publish gate, the Peerly-submit gate, and the webapp's
+// profile-complete check all treat it as not-genuine. Shared here so the API
+// and the webapp agree on exactly what "generic" means.
+export const TEMPLATE_BIO_MARKER =
+  'running on local solutions over party politics'
+export const COMPLIANCE_DEFAULT_ISSUE_TITLE =
+  'Local Solutions, Not Party Politics'
+
+// Genuine bio = long enough AND not the fallback template. `plainText` must be
+// HTML-stripped by the caller (gp-api strips with serializeWebsiteBio, the
+// webapp with stripHtml) so the length and marker checks run on real text.
+export const isGenuineBioPlainText = (plainText: string): boolean =>
+  plainText.trim().length >= MIN_BIO_LENGTH &&
+  !plainText.toLowerCase().includes(TEMPLATE_BIO_MARKER)
+
+// Genuine issues = at least one issue with a real title AND description whose
+// title is not the fallback default. Guards each element as a non-null object
+// because website content is a JSON column that can carry a malformed entry.
+export const hasGenuineIssue = (
+  issues?: { title?: string | null; description?: string | null }[] | null,
+): boolean =>
+  (issues ?? []).some(
+    (issue) =>
+      typeof issue === 'object' &&
+      issue !== null &&
+      (issue.title?.trim().length ?? 0) > 0 &&
+      (issue.description?.trim().length ?? 0) > 0 &&
+      issue.title?.trim() !== COMPLIANCE_DEFAULT_ISSUE_TITLE,
+  )

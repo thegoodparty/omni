@@ -91,8 +91,13 @@ export const applyCompliancePublishFallbacks = (
   const validIssues = (about.issues ?? []).filter(
     (issue) => hasText(issue.title) && hasText(issue.description),
   )
-  if (validIssues.length !== about.issues?.length) {
-    const realIssues = realIssuesFromCampaign(campaign)
+  const droppedMalformed = validIssues.length !== (about.issues ?? []).length
+  const realIssues =
+    validIssues.length === 0 ? realIssuesFromCampaign(campaign) : []
+  // Fire only on a real change: malformed entries to strip, or real positions
+  // to seed when there are none. Skip when issues are already valid or simply
+  // absent with nothing to seed — writing [] there is a spurious DB write.
+  if (droppedMalformed || realIssues.length > 0) {
     nextAbout.issues = validIssues.length > 0 ? validIssues : realIssues
     changed = true
   }

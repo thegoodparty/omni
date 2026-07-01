@@ -1,6 +1,10 @@
 import { stripHtml } from 'string-strip-html'
 import { Website, WebsiteIssue } from 'helpers/types'
-import { MIN_BIO_LENGTH } from '@goodparty_org/contracts'
+import {
+  MIN_BIO_LENGTH,
+  isGenuineBioPlainText,
+  hasGenuineIssue,
+} from '@goodparty_org/contracts'
 
 export { MIN_BIO_LENGTH }
 export const MIN_POLICY_FOCUS_LENGTH = 100
@@ -88,9 +92,10 @@ export const normalizeIssues = (
 export const isCandidateProfileComplete = (
   website: Website | null | undefined,
 ): boolean => {
-  const bioPlainLength = getBioPlainLength(website?.content?.about?.bio)
-  const issues = website?.content?.about?.issues ?? []
+  const bio = website?.content?.about?.bio
+  const plainBio = bio ? stripHtml(bio).result.trim() : ''
   return (
-    bioPlainLength >= MIN_BIO_LENGTH && issues.length >= MIN_POLICY_PRIORITIES
+    isGenuineBioPlainText(plainBio) &&
+    hasGenuineIssue(website?.content?.about?.issues)
   )
 }

@@ -275,7 +275,7 @@ export {
   type ListCampaignsPagination,
 } from './campaigns/ListCampaignsPagination.schema'
 
-export { MIN_BIO_LENGTH } from './campaigns/compliance'
+export * from './campaigns/compliance'
 
 export {
   UpdateCampaignM2MSchema,

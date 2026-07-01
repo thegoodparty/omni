@@ -5,7 +5,17 @@ import {
   getBioError,
   getPolicyPrioritiesError,
   getPolicyFormValidation,
+  isCandidateProfileComplete,
 } from './candidateProfile.utils'
+import type { Website } from 'helpers/types'
+
+const websiteWith = (
+  bio: string,
+  issues: { title: string; description: string }[],
+): Website => ({ content: { about: { bio, issues } } }) as unknown as Website
+
+const genuineBio = `<p>${'a'.repeat(MIN_BIO_LENGTH)}</p>`
+const realIssue = { title: 'Clean Water', description: 'Protect our lakes.' }
 
 describe('getBioError', () => {
   it('asks the user to add a bio when it is empty', () => {
@@ -20,6 +30,44 @@ describe('getBioError', () => {
 
   it('returns null once the bio meets the minimum length', () => {
     expect(getBioError(MIN_BIO_LENGTH)).toBeNull()
+  })
+})
+
+describe('isCandidateProfileComplete', () => {
+  it('is true for a genuine bio and a real issue', () => {
+    expect(
+      isCandidateProfileComplete(websiteWith(genuineBio, [realIssue])),
+    ).toBe(true)
+  })
+
+  it('is false for a genuine bio but only the default-title issue', () => {
+    // The old count-only check said complete; the API submit gate rejects it,
+    // so the UI must agree (this was the real regression, e.g. a legacy site
+    // with a real bio but only the fallback default issue).
+    expect(
+      isCandidateProfileComplete(
+        websiteWith(genuineBio, [
+          {
+            title: 'Local Solutions, Not Party Politics',
+            description: 'focused on practical, community-first leadership',
+          },
+        ]),
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for a genuine bio but an issue with an empty description', () => {
+    expect(
+      isCandidateProfileComplete(
+        websiteWith(genuineBio, [{ title: 'Roads', description: '' }]),
+      ),
+    ).toBe(false)
+  })
+
+  it('is false when the bio is under the minimum length', () => {
+    expect(
+      isCandidateProfileComplete(websiteWith('<p>short</p>', [realIssue])),
+    ).toBe(false)
   })
 })
 

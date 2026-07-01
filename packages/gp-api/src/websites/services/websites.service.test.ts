@@ -486,6 +486,17 @@ describe('applyCompliancePublishFallbacks', () => {
     expect(patched?.about?.issues ?? []).toEqual([])
   })
 
+  it('does not write empty issues when title+email are set and there is nothing to seed', () => {
+    const content = {
+      main: { title: 'Vote For Rick Bennett' },
+      contact: { email: 'rick@example.com' },
+    }
+
+    // issues is undefined and the campaign has no positions: seeding [] here
+    // would be a spurious DB write, so nothing changed => null.
+    expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
+  })
+
   it('returns null when all publish-gated fields are already present', () => {
     const content = {
       main: { title: 'Vote For Rick Bennett' },
