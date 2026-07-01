@@ -51,9 +51,9 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   status, and the precedence ladder above).
 - **Activation/UX (P4)**: `OpponentProLockedView`, `AddOpponentsForm`,
   `OpponentResearchProgress`.
-- **Analytical view (P3)**: `OpponentOverviewCard`, `ThreatTierBadge`,
-  `IssueContrastCard`, `OpponentHandbook`, `OpponentSection`, `OpponentPageHeader`,
-  `OpponentBadge`.
+- **Analytical view (P3)**: `OpponentOverviewCard`, `ThreatTierBadge` (a colored
+  dot + label, right-aligned on the roster row — "Main threat" reads in blue),
+  `IssueContrastCard`, `OpponentHandbook`, `OpponentSection`, `OpponentPageHeader`.
 - **Strict engine (P1)**: `OpponentResearch`, `SelfResearch`, `SelfResearchIntakeForm`,
   `SelfResearchReport`, `ContrastList`, `ContrastCard`, `RegenerateContrasts`,
   `SourceAttribution`, `OpponentActivityFeed`.

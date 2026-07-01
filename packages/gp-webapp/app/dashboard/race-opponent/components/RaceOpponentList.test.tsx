@@ -142,20 +142,19 @@ describe('<RaceOpponentList>', () => {
       screen.getByRole('button', { name: /Jane Rival/i }),
     ).toBeInTheDocument()
 
-    // Overview + background prose render as the primary content. The overview
-    // text also appears in the card's truncated summary line, so it renders in
-    // two places.
-    expect(screen.getByText('Overview')).toBeInTheDocument()
+    // Overview + background prose render as the primary content, with no
+    // "Overview"/"Background" section headings (the background is merged into
+    // the overview per the Lovable design).
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    expect(screen.queryByText('Background')).not.toBeInTheDocument()
     expect(
-      screen.getAllByText('Two-term incumbent with strong party backing.')
-        .length,
-    ).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('Background')).toBeInTheDocument()
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Served on the city council before the legislature.'),
     ).toBeInTheDocument()
 
-    // Each section carries a citation from summary.sources.
+    // The merged overview carries citations from both sections' sources.
     expect(
       screen.getByRole('link', { name: /ballotpedia\.org\/Jane_Rival$/i }),
     ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival')
@@ -301,11 +300,17 @@ describe('<RaceOpponentList>', () => {
     ],
   }
 
-  it('renders an issue contrast card with both stances, source, and salience', () => {
+  it('renders an issue contrast (expanded) with both stances and source, no salience label', () => {
     render(<RaceOpponentList initialData={withContrasts} />)
 
-    expect(screen.getByText('Where you contrast')).toBeInTheDocument()
-    expect(screen.getByText('High voter salience')).toBeInTheDocument()
+    expect(
+      screen.getByText('Where you contrast, and what to do about it'),
+    ).toBeInTheDocument()
+    // The per-issue accordion trigger names the issue; it opens by default so
+    // the stances are visible without a click.
+    expect(screen.getByRole('button', { name: /Housing/i })).toBeInTheDocument()
+    // The salience label is dropped.
+    expect(screen.queryByText('High voter salience')).not.toBeInTheDocument()
     expect(
       screen.getByText('Families are being priced out of the district.'),
     ).toBeInTheDocument()
@@ -315,6 +320,9 @@ describe('<RaceOpponentList>', () => {
     expect(
       screen.getByText('Supports more starter homes near transit.'),
     ).toBeInTheDocument()
+    // The opponent's stance is labeled with the opponent's name; the candidate's
+    // with "You".
+    expect(screen.getByText('You')).toBeInTheDocument()
     expect(
       screen.getByRole('link', {
         name: /ballotpedia\.org\/Jane_Rival#contrast/i,
@@ -322,17 +330,21 @@ describe('<RaceOpponentList>', () => {
     ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#contrast')
   })
 
-  it('renders no Start or What-to-do action on a contrast card', () => {
+  it('renders no Start or What-to-do sub-card on a contrast', () => {
     render(<RaceOpponentList initialData={withContrasts} />)
     expect(
-      screen.queryByRole('button', { name: /start|what to do/i }),
+      screen.queryByRole('button', { name: /^start$/i }),
     ).not.toBeInTheDocument()
-    expect(screen.queryByText(/what to do/i)).not.toBeInTheDocument()
+    // The "What to do" sub-card is out of scope for the relaxed view. (The
+    // section heading "...what to do about it" is a distinct, longer string.)
+    expect(screen.queryByText('What to do')).not.toBeInTheDocument()
   })
 
   it('hides the where-you-contrast section when there are no contrasts', () => {
     render(<RaceOpponentList initialData={withSummary} />)
-    expect(screen.queryByText('Where you contrast')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Where you contrast, and what to do about it'),
+    ).not.toBeInTheDocument()
   })
 
   it('fires Win - Opponent Profile Viewed when an opponent detail is shown', () => {
@@ -464,18 +476,24 @@ describe('<RaceOpponentList>', () => {
     const user = userEvent.setup()
     render(<RaceOpponentList initialData={withSummary} />)
 
-    // Jane opens by default, so her detail (Overview) is visible.
-    expect(screen.getByText('Overview')).toBeInTheDocument()
+    // Jane opens by default, so her detail (the overview prose) is visible.
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
 
     // Clicking the already-open row collapses it — the panel content is gone.
     await user.click(screen.getByRole('button', { name: /Jane Rival/i }))
     await waitFor(() =>
-      expect(screen.queryByText('Overview')).not.toBeInTheDocument(),
+      expect(
+        screen.queryByText('Two-term incumbent with strong party backing.'),
+      ).not.toBeInTheDocument(),
     )
 
     // Clicking the row again re-opens it.
     await user.click(screen.getByRole('button', { name: /Jane Rival/i }))
-    expect(screen.getByText('Overview')).toBeInTheDocument()
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
   })
 
   it('never renders a finance summary card', () => {
@@ -483,29 +501,17 @@ describe('<RaceOpponentList>', () => {
     expect(screen.queryByText(/finance|fundraising|cash on hand/i)).toBeNull()
   })
 
-  it('keeps the raw source research collapsed by default when a summary is present', () => {
+  it('does not render a "View source research" section when a summary is present', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    const trigger = screen.getByRole('button', {
-      name: /view source research/i,
-    })
-    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    // The raw-scrape disclosure was removed: the summary is the only view, and
+    // the raw scrape is not surfaced when a summary exists.
+    expect(
+      screen.queryByRole('button', { name: /view source research/i }),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByText('Raw scraped Ballotpedia text about Jane Rival.'),
     ).not.toBeInTheDocument()
-  })
-
-  it('reveals the raw source research when the section is expanded', async () => {
-    const user = userEvent.setup()
-    render(<RaceOpponentList initialData={withSummary} />)
-
-    await user.click(
-      screen.getByRole('button', { name: /view source research/i }),
-    )
-
-    expect(
-      screen.getByText('Raw scraped Ballotpedia text about Jane Rival.'),
-    ).toBeInTheDocument()
   })
 
   it('falls back to readable, source-linked raw text when summary is null', () => {
