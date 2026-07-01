@@ -3,6 +3,7 @@ import {
   endOfDay,
   format,
   isBefore,
+  isMonday,
   isValid,
   nextMonday,
   parse,
@@ -24,7 +25,10 @@ export const CENTRAL_TIMEZONE = 'America/Chicago'
 // boundary (tasks are stored as naive UTC-midnight calendar dates).
 export const nextMondayUtcMidnight = (now: Date, timeZone: string): Date => {
   const nowInZone = toZonedTime(now, timeZone)
-  const monday = nextMonday(nowInZone)
+  // date-fns nextMonday on a Monday returns the FOLLOWING Monday, so when this
+  // runs on a Monday (async CAP completion or a Monday plan-page load) the week
+  // would land 7 days ahead. Use today when it's already Monday.
+  const monday = isMonday(nowInZone) ? nowInZone : nextMonday(nowInZone)
   return new Date(
     Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
   )

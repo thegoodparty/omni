@@ -424,7 +424,16 @@ export class CampaignTasksService extends createPrismaBase(
         const defaultTasksCount = await this.model.count({
           where: { campaignId, isDefaultTask: true },
         })
-        if (defaultTasksCount === 0) return
+        // A campaign can upgrade (Stripe webhook) before any tasks exist — no
+        // tracker rows and no legacy defaults. This one-shot has no retry, so the
+        // CAS Pro-upgrade message is dropped; log it so the gap is observable.
+        if (defaultTasksCount === 0) {
+          this.logger.warn(
+            { campaignId },
+            'Pro upgrade with no tracker or default tasks; Slack notification skipped',
+          )
+          return
+        }
         await this.sendCampaignPlanSlackMessage(campaignId)
       }
 

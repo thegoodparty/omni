@@ -172,8 +172,13 @@ const CampaignPlanView = ({
   const metrics = campaign?.raceTargetMetrics
   const primaryDateIso =
     metrics?.primaryElectionDate ?? campaign?.details?.primaryElectionDate
+  // Only true general-election sources (never relevantElectionDate, which is the
+  // primary during the primary phase). If none exist, show no date rather than a
+  // stage-anchored one mislabeled "Election Day".
   const generalDateIso =
-    metrics?.generalElectionDate ?? campaign?.details?.electionDate
+    metrics?.generalElectionDate ??
+    campaign?.details?.electionDate ??
+    campaign?.electionDate
 
   // Story cohort: campaign tracker on top, then the plan below it (the plan's
   // own hero + bottom download are hidden — the tracker hero owns them, and
@@ -186,11 +191,7 @@ const CampaignPlanView = ({
           race={data.plan.race}
           district={campaign?.details?.district ?? ''}
           primaryDate={primaryDateIso ? dateUsHelper(primaryDateIso) : ''}
-          electionDate={
-            generalDateIso
-              ? dateUsHelper(generalDateIso)
-              : data.plan.electionDate
-          }
+          electionDate={generalDateIso ? dateUsHelper(generalDateIso) : ''}
           onDownload={handleHeroDownload}
           downloading={heroDownloading}
           canDownload={data.planReady}

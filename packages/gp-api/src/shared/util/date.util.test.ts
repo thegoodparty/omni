@@ -2,8 +2,30 @@ import { describe, expect, it } from 'vitest'
 import {
   CENTRAL_TIMEZONE,
   currentMondayUtcMidnight,
+  nextMondayUtcMidnight,
   parseIsoDateAsUTC,
 } from './date.util'
+
+describe('nextMondayUtcMidnight', () => {
+  it('returns the same Monday when today is already Monday', () => {
+    // 2026-06-29 is a Monday (midday Central, so unambiguously Monday locally).
+    // date-fns nextMonday would jump 7 days ahead here; the guard must not.
+    const monday = nextMondayUtcMidnight(
+      new Date('2026-06-29T17:00:00Z'),
+      CENTRAL_TIMEZONE,
+    )
+    expect(monday.getTime()).toBe(Date.UTC(2026, 5, 29))
+  })
+
+  it('returns the upcoming Monday on a non-Monday', () => {
+    // 2026-07-01 is a Wednesday; the next Monday is 2026-07-06.
+    const monday = nextMondayUtcMidnight(
+      new Date('2026-07-01T15:00:00Z'),
+      CENTRAL_TIMEZONE,
+    )
+    expect(monday.getTime()).toBe(Date.UTC(2026, 6, 6))
+  })
+})
 
 describe('currentMondayUtcMidnight', () => {
   it('returns the Monday of the current week at UTC midnight', () => {
