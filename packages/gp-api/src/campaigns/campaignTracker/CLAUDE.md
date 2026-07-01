@@ -33,6 +33,16 @@ overview: `docs/features/campaign-tracker-v3.md`.
   messages, so `bootstrapForCampaign` claims `CampaignStrategy.trackerBootstrapped`
   with one conditional `updateMany` (false->true); only the winner materializes +
   dispatches, and the claim is released on failure so a later trigger retries.
+- **Static rows materialize eagerly, at plan-generation start.**
+  `getOrGenerateStrategicLandscape` calls `materializeStaticTasks` (story-gated,
+  best-effort) so the static checklist + outreach render immediately, without
+  waiting for the SQS-driven completion bootstrap (which never fires in local
+  dev). The dynamic `dispatchGeneration` still runs only from the completion
+  bootstrap (it needs the finished plan). `materializeStaticTasks` is idempotent
+  and race-safe via a per-campaign `pg_advisory_xact_lock`
+  (`TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY`), because the plan endpoint is polled
+  and the count-check alone isn't atomic, so the eager call and the bootstrap
+  call can't double-insert the catalog.
 - **The model only selects/ranks/voices/finds-events.** Gates, caps, and the
   generation/dating logic are deterministic here, not in the agent. Dateless
   dynamic tasks are dated across the upcoming Mon-Sun week (counter skips dated

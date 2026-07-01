@@ -148,6 +148,17 @@ calls `CampaignTrackerTasksService.bootstrapForCampaign`:
    election (skipped entirely if the primary was already lost; see below).
 3. **Dispatch** the initial CAP run (`mode = initial`, high priority).
 
+**Static rows are also materialized eagerly, at plan-generation start.**
+`getOrGenerateStrategicLandscape` calls `materializeStaticTasks` (story-gated,
+best-effort) as soon as plan generation is requested, so the static checklist +
+outreach render immediately, without waiting for the CAP-completion bootstrap
+above (which is SQS-driven and, notably, never fires in local dev). The dynamic
+`dispatchGeneration` still happens only from the completion bootstrap, since it
+needs the finished plan as context. `materializeStaticTasks` is idempotent and
+race-safe (a per-campaign `pg_advisory_xact_lock`, since the plan endpoint is
+polled), so the eager call and the bootstrap's call can't double-insert; whichever
+runs first wins and the other no-ops.
+
 ### Deterministic outreach and primary-loss suppression
 
 The **7 outreach sends** (4 texts + 3 robocalls) are the only text/robocall

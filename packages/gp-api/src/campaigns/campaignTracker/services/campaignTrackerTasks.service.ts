@@ -26,7 +26,10 @@ import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
-import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
+import {
+  TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY,
+  VOTER_GOALS_ADVISORY_LOCK_KEY,
+} from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
 import {
   buildOutreachTrackerTaskRows,
@@ -88,35 +91,42 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   }
 
   // Create the static (global) launch/pre-launch rows from the catalog so the
-  // tracker can render immediately. Idempotent: a no-op once they exist.
+  // tracker can render immediately. Idempotent and race-safe: the plan endpoint
+  // that triggers this at generation start is polled, so an advisory lock keyed
+  // on the campaign serializes concurrent first-loads (the count check alone
+  // isn't atomic, so two callers could both read zero and each insert the rows).
   async materializeStaticTasks(campaign: Campaign): Promise<number> {
-    const existing = await this.model.count({
-      where: { campaignId: campaign.id, isDefaultTask: true },
-    })
-    if (existing > 0) return 0
+    return this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`
 
-    // Anchor the relative (asap / onboarding / preLaunch / launch) static tasks
-    // to the upcoming Monday — the same week the initial dynamic generation is
-    // dated to — so a freshly-bootstrapped campaign schedules them for the
-    // coming week instead of relative to its creation date. That matters most
-    // for an existing campaign onboarded long ago, whose createdAt-anchored
-    // tasks would otherwise all land in the past. Stamped once (idempotent);
-    // election-relative tasks still key off the election date.
-    const start = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
-    const electionDate = this.resolveElectionDate(campaign)
-    const rows = [
-      ...buildStaticTrackerTaskRows(campaign.id, start, electionDate),
-      // The plan's 7 text/robocall sends are deterministic, not agent-picked.
-      // Suppressed entirely if the candidate lost their primary.
-      ...buildOutreachTrackerTaskRows(
-        campaign.id,
-        start,
-        electionDate,
-        campaign.primaryResult === 'lost',
-      ),
-    ]
-    const { count } = await this.model.createMany({ data: rows })
-    return count
+      const existing = await tx.campaignTrackerTask.count({
+        where: { campaignId: campaign.id, isDefaultTask: true },
+      })
+      if (existing > 0) return 0
+
+      // Anchor the relative (asap / onboarding / preLaunch / launch) static tasks
+      // to the upcoming Monday (the same week the initial dynamic generation is
+      // dated to), so a freshly-bootstrapped campaign schedules them for the
+      // coming week instead of relative to its creation date. That matters most
+      // for an existing campaign onboarded long ago, whose createdAt-anchored
+      // tasks would otherwise all land in the past. Stamped once (idempotent);
+      // election-relative tasks still key off the election date.
+      const start = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
+      const electionDate = this.resolveElectionDate(campaign)
+      const rows = [
+        ...buildStaticTrackerTaskRows(campaign.id, start, electionDate),
+        // The plan's 7 text/robocall sends are deterministic, not agent-picked.
+        // Suppressed entirely if the candidate lost their primary.
+        ...buildOutreachTrackerTaskRows(
+          campaign.id,
+          start,
+          electionDate,
+          campaign.primaryResult === 'lost',
+        ),
+      ]
+      const { count } = await tx.campaignTrackerTask.createMany({ data: rows })
+      return count
+    })
   }
 
   // Remove the deterministic outreach (text/robocall) rows. Called from the
