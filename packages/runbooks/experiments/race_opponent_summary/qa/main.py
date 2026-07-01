@@ -111,6 +111,7 @@ def collect_analysis_items(artifact: dict) -> list[dict]:
         if not isinstance(opp, dict):
             continue
         items.extend(opp.get("where_soft") or [])
+        items.extend(opp.get("what_you_need_to_know") or [])
         for contrast in opp.get("issue_contrasts") or []:
             if isinstance(contrast, dict):
                 items.append({"sources": contrast.get("opponent_sources")})
@@ -199,10 +200,10 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
         ),
     })
 
-    # Phase 3 analytical items (where_soft, issue_contrasts) use relaxed sourcing
-    # — cite where direct. Report the citation rate as an observe-only metric;
-    # never fail the shape check on a relaxed item that legitimately omits a
-    # source.
+    # Phase 3 analytical items (where_soft, what_you_need_to_know,
+    # issue_contrasts) use relaxed sourcing — cite where direct. Report the
+    # citation rate as an observe-only metric; never fail the shape check on a
+    # relaxed item that legitimately omits a source.
     analysis_items = collect_analysis_items(artifact)
     analysis_sourced = sum(1 for s in analysis_items if has_valid_sources(s))
     analysis_total = len(analysis_items)
@@ -214,8 +215,8 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
         "severity": "warning",
         "detail": (
             f"{analysis_sourced}/{analysis_total} analytical items "
-            f"(where_soft + issue contrasts) cite a source ({analysis_rate:.0%}) "
-            "— relaxed, optional by design"
+            f"(where_soft + what_you_need_to_know + issue contrasts) cite a "
+            f"source ({analysis_rate:.0%}) — relaxed, optional by design"
             if analysis_total
             else "not applicable — no analytical items emitted"
         ),

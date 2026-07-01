@@ -1,8 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  RaceOpponentSummarySchema,
-  RaceOpponentResponseSchema,
-} from './index'
+import { RaceOpponentSummarySchema, RaceOpponentResponseSchema } from './index'
 
 const validSummary = {
   opponentName: 'Jane Doe',
@@ -108,7 +105,19 @@ describe('RaceOpponentSummarySchema', () => {
 const analysisFields = {
   threatTier: 'primary_threat',
   whyTheyMatter: 'The only incumbent in the field.',
-  whatYouNeedToKnow: ['Two-term incumbent.', 'Backed by the local PAC.'],
+  whatYouNeedToKnow: [
+    {
+      text: 'Two-term incumbent.',
+      sources: [
+        {
+          sourceType: 'ballotpedia',
+          sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+        },
+      ],
+    },
+    // relaxed sourcing: an interpretive takeaway with no source still parses
+    { text: 'Backed by the local PAC.' },
+  ],
   whereSoft: [
     {
       text: 'No published long-term water position.',
@@ -148,6 +157,29 @@ describe('RaceOpponentSummarySchema analysis fields', () => {
     expect(result.threatTier).toBe('primary_threat')
     expect(result.issueContrasts?.[0].salience).toBe('high')
     expect(result.whereSoft?.[1].sources).toBeUndefined()
+    // relaxed sourcing on takeaways: the sourced one keeps its ref, the
+    // interpretive one persists with no sources key.
+    expect(result.whatYouNeedToKnow?.[0].sources).toEqual([
+      {
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+      },
+    ])
+    expect(result.whatYouNeedToKnow?.[1].sources).toBeUndefined()
+  })
+
+  it('normalizes a legacy string[] whatYouNeedToKnow to { text } items', () => {
+    // Summaries persisted before the {text, sources?} migration are stored as a
+    // JSONB blob and re-validated on read; the legacy bare-string form must
+    // parse (and normalize) rather than being dropped.
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      whatYouNeedToKnow: ['Two-term incumbent.', 'Backed by the local PAC.'],
+    })
+    expect(result.whatYouNeedToKnow).toEqual([
+      { text: 'Two-term incumbent.' },
+      { text: 'Backed by the local PAC.' },
+    ])
   })
 
   it('parses a summary with no analysis fields (all optional)', () => {

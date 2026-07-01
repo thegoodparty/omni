@@ -192,8 +192,17 @@ describe('<RaceOpponentList>', () => {
           ...withSummary.opponents[0]!.summary!,
           whyTheyMatter: 'The only incumbent with party-backed funding.',
           whatYouNeedToKnow: [
-            'Two-term incumbent with name recognition.',
-            'Backed by the county party committee.',
+            {
+              text: 'Two-term incumbent with name recognition.',
+              sources: [
+                {
+                  sourceType: 'ballotpedia',
+                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#known',
+                },
+              ],
+            },
+            // relaxed sourcing: an interpretive takeaway with no source
+            { text: 'Backed by the county party committee.' },
           ],
         },
       },
@@ -216,6 +225,12 @@ describe('<RaceOpponentList>', () => {
     expect(
       screen.getByText('Backed by the county party committee.'),
     ).toBeInTheDocument()
+    // A sourced takeaway renders its citation link.
+    expect(
+      screen.getByRole('link', {
+        name: /ballotpedia\.org\/Jane_Rival#known/i,
+      }),
+    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#known')
   })
 
   it('hides both sections when the analysis fields are absent', () => {
