@@ -6,7 +6,13 @@ import { Badge, Button, CalendarIcon, cn } from '@styleguide'
 import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 
+// Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
+
+// Each card links to the task's own action (its `link`, the task-to-action
+// routing the Campaign Tracker owns), falling back to the tracker page.
+const taskHref = (task: { link: string | null }): string =>
+  task.link ?? TRACKER_HREF
 
 // Tracker dates arrive as UTC-midnight ISO; slice to the date portion so the
 // local render does not land on the previous day in US timezones.
@@ -63,7 +69,7 @@ export default function CampaignManagerTasks({
             {top.map((task) => (
               <li key={task.id}>
                 <Link
-                  href={TRACKER_HREF}
+                  href={taskHref(task)}
                   className={cn(
                     'flex items-center justify-between gap-3 rounded-lg border',
                     'border-border bg-card p-4 transition-colors hover:bg-muted',

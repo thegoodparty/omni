@@ -75,6 +75,30 @@ describe('CampaignManagerTasks', () => {
     expect(screen.queryByText('Done already')).not.toBeInTheDocument()
   })
 
+  it('links each card to the task action, falling back to the tracker', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'With link',
+          week: 1,
+          link: '/dashboard/outreach/doors',
+        }),
+        task({ title: 'No link', week: 1, link: null }),
+      ]),
+    )
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    expect(screen.getByRole('link', { name: /With link/i })).toHaveAttribute(
+      'href',
+      '/dashboard/outreach/doors',
+    )
+    expect(screen.getByRole('link', { name: /No link/i })).toHaveAttribute(
+      'href',
+      '/dashboard/campaign-plan',
+    )
+  })
+
   it('shows the "meet your campaign manager" button and fires the callback', async () => {
     const onMeet = vi.fn()
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
