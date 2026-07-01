@@ -572,8 +572,14 @@ const RaceOpponentList = ({
   // lastCollectedAt null) it returns idle WITHOUT dispatching a fresh paid run,
   // so firing this blind can't stack paid runs. Ref-guarded to once per mount so
   // an uncontested race that settles back to idle can't re-fire into a loop.
+  //
+  // Seeded true when mounting on `failed`: a failed state means a run already
+  // ran (never-ran + failed is contradictory), so the manual "Try again" collect
+  // that lands there must not re-arm the auto-start — otherwise a Try-again that
+  // resolves to idle would flip `neverRan` true with the guard still down and
+  // fire a second collect().
   const neverRan = status === 'idle' && data.lastCollectedAt === null
-  const autoStartedRef = useRef(false)
+  const autoStartedRef = useRef(initialData.collectionStatus === 'failed')
   useEffect(() => {
     if (autoStartedRef.current || !neverRan) return
     autoStartedRef.current = true
@@ -594,10 +600,17 @@ const RaceOpponentList = ({
   const autoStartPending = neverRan && !autoStartedRef.current
   const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
   const isProcessing = isBusy || idleMidRun || autoStartPending
+  // Analytics-only variant that EXCLUDES autoStartPending: the run-start event
+  // must fire off a confirmed dispatch, not the pre-dispatch pending intent.
+  // autoStartPending is true on the render before collect() runs, so firing the
+  // event off isProcessing would count a run before its POST — and if that POST
+  // then fails, the guard resets and a later manual submit re-counts it. Gating
+  // on collecting/busy fires only once collect() is actually in flight.
+  const isConfirmedProcessing = isBusy || idleMidRun || collecting
 
-  // Fire one Opponent Research Started per run, keyed off isProcessing (not the
-  // raw busy status) so the transient idle-mid-run gap of the two-call discovery
-  // flow doesn't release the guard and re-fire. One ref-guarded fire covers
+  // Fire one Opponent Research Started per run, keyed off isConfirmedProcessing
+  // (not the raw busy status) so the transient idle-mid-run gap of the two-call
+  // discovery flow doesn't release the guard and re-fire. One ref-guarded fire covers
   // every entry point — Collect (idle -> discovering -> running), manual submit
   // (-> running), and the auto-fired collection after discovery — counting the
   // whole run once. The guard releases only when the run truly settles
@@ -611,15 +624,15 @@ const RaceOpponentList = ({
       initialData.collectionStatus === 'discovering',
   )
   useEffect(() => {
-    if (isProcessing && !researchStartedRef.current) {
+    if (isConfirmedProcessing && !researchStartedRef.current) {
       researchStartedRef.current = true
       trackEvent(EVENTS.RaceOpponent.ResearchStarted, {
         campaignId: campaign?.id,
       })
-    } else if (!isProcessing) {
+    } else if (!isConfirmedProcessing) {
       researchStartedRef.current = false
     }
-  }, [isProcessing, campaign?.id])
+  }, [isConfirmedProcessing, campaign?.id])
 
   // While the real run is processing, show the cosmetic 4-step progress screen
   // instead of the bare empty/status row. The steps advance on their own timer

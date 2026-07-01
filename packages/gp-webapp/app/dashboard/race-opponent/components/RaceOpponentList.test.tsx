@@ -685,6 +685,34 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('does not double-dispatch collect when "Try again" on a failed mount settles to idle', async () => {
+    // Mounting on 'failed' arms the auto-start guard (a failed run means a run
+    // already ran). So when the manual "Try again" collect resolves to a terminal
+    // 'idle' (uncontested server path), `neverRan` flips true but the auto-start
+    // must NOT re-fire a second collect() — that would risk a double paid run.
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: null, status: 'idle' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+    const user = userEvent.setup()
+
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'failed' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+
+    // The idle result surfaces the manual form; collect fired exactly once (the
+    // click), with no auto-start re-dispatch.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
+    expect(collectHandler).toHaveBeenCalledTimes(1)
+  })
+
   it('surfaces the manual submit directly on a completed run that found no opponents', () => {
     render(
       <RaceOpponentList
