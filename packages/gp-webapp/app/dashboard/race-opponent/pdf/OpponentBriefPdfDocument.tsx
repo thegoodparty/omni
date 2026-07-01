@@ -134,12 +134,22 @@ const Sources = ({
 }: {
   sources: RaceOpponentSummarySourceRef[]
 }): React.JSX.Element | null => {
-  if (sources.length === 0) return null
+  // De-dupe by URL: per-item source lists carry no uniqueness guarantee, so a
+  // repeated sourceUrl from the LLM would collide on the React key and react-pdf
+  // would silently drop the second link. Mirrors the overview+background merge
+  // dedup in opponentBriefContent.
+  const seen = new Set<string>()
+  const unique = sources.filter((source) => {
+    if (seen.has(source.sourceUrl)) return false
+    seen.add(source.sourceUrl)
+    return true
+  })
+  if (unique.length === 0) return null
   return (
     <View>
-      {sources.map((source) => (
+      {unique.map((source) => (
         <Link
-          key={`${source.sourceType}-${source.sourceUrl}`}
+          key={source.sourceUrl}
           src={source.sourceUrl}
           style={styles.source}
         >

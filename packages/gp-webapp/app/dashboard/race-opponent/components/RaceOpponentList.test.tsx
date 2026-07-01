@@ -527,6 +527,32 @@ describe('<RaceOpponentList>', () => {
     expect(screen.getByRole('button', { name: /Export brief/i })).toBeDisabled()
   })
 
+  it('shows an error snackbar and re-enables the button when pdf export fails', async () => {
+    const errorSnackbar = vi.fn()
+    vi.mocked(useSnackbar).mockReturnValue({
+      successSnackbar: vi.fn(),
+      errorSnackbar,
+      displaySnackbar: vi.fn(),
+    })
+    vi.mocked(downloadOpponentBriefsPdf).mockRejectedValueOnce(
+      new Error('render failed'),
+    )
+    const user = userEvent.setup()
+    render(
+      <RaceOpponentList initialData={withSummary} raceContext="Test race" />,
+    )
+
+    const exportButton = screen.getByRole('button', { name: /Export brief/i })
+    await user.click(exportButton)
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Failed to export the brief. Please try again.',
+      ),
+    )
+    expect(exportButton).toBeEnabled()
+  })
+
   it('never renders a finance summary card', () => {
     render(<RaceOpponentList initialData={withSummary} />)
     expect(screen.queryByText(/finance|fundraising|cash on hand/i)).toBeNull()
