@@ -1,5 +1,6 @@
 export {
   Swords as SwordsIcon,
+  ChartColumn as ChartColumnIcon,
   Scale as ScaleIcon,
   Building2 as Building2Icon,
   UserCheck as UserCheckIcon,

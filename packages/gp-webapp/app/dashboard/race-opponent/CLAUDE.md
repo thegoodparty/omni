@@ -22,16 +22,21 @@ Resolved in `page.tsx` + `RaceOpponentList`. Get the order right or a just-upgra
 user flickers into the wrong state on first paint:
 
 ```
-flag off                         → no nav item, no page (FeatureFlagGuard hides/bounces)
-flag on, !isPro                  → <OpponentProLockedView/> (in-page upgrade pitch, NOT a redirect)
+flag off                          → no nav item, no page (FeatureFlagGuard hides/bounces)
+flag on, !isPro                   → <OpponentProLockedView/> (in-page upgrade pitch, NOT a redirect)
 flag on, isPro:
-  status running/discovering, or → <OpponentResearchProgress/>   (4-step cosmetic screen)
-    idle-mid-run
-  completed, opponents > 0       → the report (list + threat tiers + issue contrasts)
-  completed, opponents = 0       → <AddOpponentsForm ranAlready/>  (manual entry)
-  idle (never ran), opponents=0  → "No opponent research yet" + Collect now prompt
-  failed                         → failure / retry card
+  running/discovering, idle-mid-  → <OpponentResearchProgress/>   (4-step cosmetic screen)
+    run, or never-ran auto-start
+  completed, opponents > 0        → the report (list + threat tiers + issue contrasts)
+  settled empty, non-failed       → <AddOpponentsForm/>  (manual entry, shown directly) —
+    (completed-0 OR uncontested       "we looked and found nobody, add them by hand"
+     idle that already ran)
+  failed                          → failure card + "Try again" (re-dispatches collect)
 ```
+
+There is **no "Collect now" / "Refresh" control** and no idle "start" prompt: a Pro
+user who lands with the agent never having run auto-starts the flow (see below). The
+only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysis").
 
 - **The flag gates the ENTIRE surface, the locked view included.** Flag-off must show
   nothing (per ENG-10608 AC) — the non-Pro `OpponentProLockedView` stays _inside_
@@ -65,16 +70,27 @@ alone.
 `collectionStatus` enum: `idle | discovering | running | completed | failed` (there is
 no `queued`).
 
+## Auto-start on mount (never-ran Pro users)
+
+A Pro user can reach this page with the agent never having run — e.g. a legacy Pro
+who upgraded before the pro-upgrade auto-dispatch (ENG-10605) shipped. Rather than a
+manual "start" control, `RaceOpponentList` auto-fires `collect()` **once per mount**
+(`autoStartedRef`) when `neverRan = status === 'idle' && lastCollectedAt === null`, and
+holds the processing screen while that's pending (`autoStartPending`). This is safe
+against stacking paid runs: `/collect` is **idempotent** against the server-side
+`oppositionPersistedAt` marker — an already-discovered uncontested race (also idle +
+`lastCollectedAt` null on the FE) returns `idle` WITHOUT dispatching a fresh run. Such
+a race settles back to idle and the manual `AddOpponentsForm` takes over — it does NOT
+wedge on the processing screen. Do **not** re-fire on every idle render; the ref is
+the guard.
+
 ## Two-call discovery + the idle-mid-run gap (subtle)
 
 Discovery and collection are two dispatches. When discovery finishes, status briefly
 reads `idle` before the auto-fired collect flips it to `running`. `RaceOpponentList`
 treats that transient `idle` as still-processing (`idleMidRun = status === 'idle' &&
-(justLeftDiscovery || collecting)`) so the screen doesn't flicker out. A **brand-new**
-`idle` user (never discovered, no in-flight collect) correctly shows the "Collect now"
-prompt — do not key this off a sticky session flag, which would wedge an uncontested
-race (terminal `idle`) on the processing screen forever. `collect()` also races a 30s
-deadline + re-sync so a hung POST can't strand the user mid-run.
+(justLeftDiscovery || collecting)`) so the screen doesn't flicker out. `collect()` also
+races a 30s deadline + re-sync so a hung POST can't strand the user mid-run.
 
 ## Analytics (`helpers/analyticsHelper.ts`, `EVENTS.RaceOpponent`)
 
