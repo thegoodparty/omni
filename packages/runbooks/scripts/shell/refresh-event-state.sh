@@ -20,6 +20,9 @@ if [[ -f "$ENV_FILE" ]]; then
   while IFS='=' read -r _k _v; do
     [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue   # skip comments/blank lines
     [[ -n "${!_k:-}" ]] && continue                        # already set → shell env wins
+    _v="${_v%$'\r'}"                                       # strip a trailing CR (CRLF .env)
+    _v="${_v#\"}" ; _v="${_v%\"}"                          # strip surrounding double quotes
+    _v="${_v#\'}" ; _v="${_v%\'}"                          # strip surrounding single quotes
     export "$_k=$_v"
   done < "$ENV_FILE"
 fi

@@ -177,10 +177,14 @@ separately** — the Amplitude write above has already succeeded and must never 
 back or blocked by a refresh problem.
 
 1. From the **prod** (`694490`) `get_events` re-read in Verify, build an override JSON in
-   the scratchpad, one entry per event you touched (a supersession touches two):
+   the scratchpad, one entry per event you touched (a supersession touches two). Key each
+   entry on the **`event_type`** — the raw Amplitude event name as fired in code (e.g.
+   `Onboarding V2 - Welcome Completed`) — **not** the Govern display name, even if it
+   differs. The refresh matches overrides to catalog rows by `event_type`; keying on a
+   divergent display name would silently inject a phantom row and leave the real one stale.
 
    ```json
-   { "<exact event name>": {
+   { "<event_type — raw event name as fired in code>": {
        "govern_display_name": "<name>",
        "govern_description": "<the full merged description you just wrote>",
        "govern_tags": ["product:win", "..."] } }
