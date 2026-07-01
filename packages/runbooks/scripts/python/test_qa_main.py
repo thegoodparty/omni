@@ -751,13 +751,41 @@ class TestNoDataInternalsInCandidateText:
         qc.check_no_data_internals_in_candidate_text(art, findings)
         assert any(f.check == "candidate_text.posture_override_leak" for f in findings)
 
-    def test_voter_file_phrase_flagged(self):
+    def test_voter_file_in_sentiment_prose_flagged(self):
+        # "voter file" is ambiguous, so it is flagged only in our modeled-data prose
         qc = _qa_checks()
         art = _briefing_ready_artifact()
-        art["items"][0]["display"]["summary"] = "Derived from the voter file for this district."
+        art["items"][0]["display"]["constituent_sentiment"] = {
+            "summary": "Derived from the voter file for this district.",
+            "detail": None, "district_note": None, "haystaq_column": "hs_tax_cuts_support",
+            "mean_score": 50.0, "score_direction": "supports tax cuts", "voter_count": 10,
+            "haystaq_status": "ok", "source_ids": [],
+        }
         findings = []
         qc.check_no_data_internals_in_candidate_text(art, findings)
         assert any(f.check == "candidate_text.data_source_internal_leak" for f in findings)
+
+    def test_ambiguous_term_in_agenda_summary_not_flagged(self):
+        # an agenda item legitimately about an "L2 Corridor" must NOT false-positive
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["items"][0]["display"]["summary"] = "Approves the L2 Corridor Improvement Plan."
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert findings == [], f"agenda 'L2 Corridor' false-positived: {[f.check for f in findings]}"
+
+    def test_databricks_in_agenda_source_not_flagged(self):
+        # an agenda/news source discussing a Databricks IT contract must NOT trip
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["sources"].append({
+            "id": "src_it", "name": "IT Committee — Databricks Contract Agenda Packet",
+            "source_type": "agenda_packet", "retrieved_at": art["sources"][0]["retrieved_at"],
+            "retrieved_text_or_snapshot": "The city will procure a Databricks license for the L2 data warehouse.",
+        })
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert findings == [], f"agenda Databricks source false-positived: {[f.check for f in findings]}"
 
     def test_hs_column_in_source_snapshot_flagged(self):
         qc = _qa_checks()
