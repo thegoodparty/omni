@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { dateUsHelper } from 'helpers/dateHelper'
 import type { User } from 'helpers/types'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
@@ -165,6 +166,15 @@ const CampaignPlanView = ({
     )
   }
 
+  // The hero shows the primary and general dates separately. Use the *general*
+  // date for "Election Day" (not data.plan.electionDate, which is stage-anchored
+  // to relevantElectionDate and would be the primary during the primary phase).
+  const metrics = campaign?.raceTargetMetrics
+  const primaryDateIso =
+    metrics?.primaryElectionDate ?? campaign?.details?.primaryElectionDate
+  const generalDateIso =
+    metrics?.generalElectionDate ?? campaign?.details?.electionDate
+
   // Story cohort: campaign tracker on top, then the plan below it (the plan's
   // own hero + bottom download are hidden — the tracker hero owns them, and
   // community events come from the tracker, not the legacy events section).
@@ -175,7 +185,12 @@ const CampaignPlanView = ({
           candidateName={data.plan.candidateName}
           race={data.plan.race}
           district={campaign?.details?.district ?? ''}
-          electionDate={data.plan.electionDate}
+          primaryDate={primaryDateIso ? dateUsHelper(primaryDateIso) : ''}
+          electionDate={
+            generalDateIso
+              ? dateUsHelper(generalDateIso)
+              : data.plan.electionDate
+          }
           onDownload={handleHeroDownload}
           downloading={heroDownloading}
           canDownload={data.planReady}
