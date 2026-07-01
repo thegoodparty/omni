@@ -29,3 +29,6 @@ docs/superpowers
 .worktrees/
 scratch/
 .playwright-mcp/
+
+# Local briefing gallery data (dev-only; see app/dev/briefings + scripts/pull-local-briefings.sh)
+.local-briefings/
