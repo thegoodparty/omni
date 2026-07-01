@@ -33,6 +33,26 @@ automatically; a cohort spanning the cutover will be mixed, and coverage reports
 milestone share. Do not infer milestone boundaries from tool-call regex — markers are
 the only milestone source.
 
+### Cost per milestone (how to read it)
+
+The `milestone_costs` table and the `milestone_costs.png` bar chart report the
+**marginal** cost of each phase: a milestone's cost is the spend on the turns between
+that marker firing and the next one, NOT cumulative spend up to that point. Read a row
+as "this phase of the run added $X." The columns:
+
+- **marginal $ / share** — the phase's spend and its fraction of cohort spend.
+- **cumulative** — running share in run order; a Pareto over phases (the point where
+  it crosses ~80% is where the bulk of a run's money has been spent).
+- **$ / turn** — marginal spend divided by the turns tagged with that milestone;
+  because cost is `cache_read × turns`, a phase can be expensive from many cheap turns
+  (high $, low $/turn) or few heavy ones (high $/turn) — this column tells them apart.
+- **median / run** — the per-run distribution of that phase's cost.
+
+For the 30-case Sonnet cohort, three milestones held ~76% of spend — discovery ~33%,
+assemble ~23%, validate ~20% — which is why the cost lever is turn count in those
+phases, not the cheap tail. The top-3 phases are highlighted in the bar chart, and the
+report's concentration callout states their combined share.
+
 ## Standing findings (validated, carry into any analysis)
 
 - **Cost is dominated by `cache_read` x turn-count on Opus.** The agent re-reads its
