@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common'
+import { isAfter } from 'date-fns'
 import { z } from 'zod'
 import {
   RaceOpponent,
@@ -390,6 +391,37 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
   }
 
+  // Re-chain a summary when a collection newer than the just-finished summary
+  // run has completed. Called on summary completion: if a fresh collection
+  // landed while this summary was in flight, its rows replaced the ones this
+  // summary structured (and replaceForCampaign cleared the summaries), but
+  // dispatchSummary's in-flight dedup skipped chaining a summary for it. Now
+  // that this run is terminal, dispatch the deferred summary so the new rows get
+  // structured — otherwise collectionStatus stays 'running' forever, because the
+  // newest summary run pre-dates the newest collection and never counts as the
+  // current cycle's summary (ENG-10614). No-op in the common single-cycle case:
+  // the only completed collection there pre-dates its own chained summary run.
+  async rechainSummaryForNewerCollection(
+    campaign: CampaignWith<'user'>,
+    summaryRunCreatedAt: Date,
+  ): Promise<void> {
+    const latestCollection = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: RACE_OPPONENT_COLLECTION,
+        status: ExperimentRunStatus.COMPLETED,
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { createdAt: true },
+    })
+    if (
+      latestCollection &&
+      isAfter(latestCollection.createdAt, summaryRunCreatedAt)
+    ) {
+      await this.dispatchSummary(campaign)
+    }
+  }
+
   // The candidate's own platform (bio + issues), read from
   // Website.content.about — the pre-Pro-upgrade CandidateProfileStep capture,
   // NOT CampaignStory (the self-research duplicate we avoid). Returns undefined
@@ -670,12 +702,17 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         experimentType: RACE_OPPONENT_COLLECTION,
       },
       orderBy: { createdAt: Prisma.SortOrder.desc },
-      select: { status: true },
+      select: { runId: true, status: true, createdAt: true },
     })
     if (run) {
       switch (run.status) {
         case ExperimentRunStatus.COMPLETED:
-          return 'completed'
+          return this.postCollectionStatus(
+            campaignId,
+            organizationSlug,
+            run.runId,
+            run.createdAt,
+          )
         case ExperimentRunStatus.FAILED:
           return 'failed'
         default:
@@ -701,6 +738,61 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       discovery.status === ExperimentRunStatus.AWAITING_RESUME ||
       discovery.status === ExperimentRunStatus.SUPERSEDED
     return inFlight ? 'discovering' : 'idle'
+  }
+
+  // The relaxed path chains a race_opponent_summary run off a completed
+  // collection to structure the raw collected text into the analysis the page
+  // renders. So a COMPLETED collection run is NOT the whole pipeline finishing:
+  // report 'running' until that summary phase settles, otherwise the page
+  // leaves the progress screen and flashes the raw collected rows while the
+  // summary is still in flight (ENG-10614). Still derived purely from run state
+  // (+ whether any rows were collected), so nothing strands: an empty
+  // collection has no summary to await, and a FAILED summary degrades to
+  // 'completed' — the raw rows are shown as a fallback rather than trapping the
+  // user on the progress screen forever.
+  private async postCollectionStatus(
+    campaignId: number,
+    organizationSlug: string,
+    collectionRunId: string,
+    collectionRunCreatedAt: Date,
+  ): Promise<RaceOpponentCollectionStatus> {
+    const summary = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug,
+        experimentType: RACE_OPPONENT_SUMMARY,
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { status: true, createdAt: true },
+    })
+
+    // Only a summary dispatched AFTER this collection run belongs to its cycle
+    // (dispatchSummary fires once the collection COMPLETES, so its run is always
+    // newer). An older COMPLETED summary is from a prior collection whose rows
+    // were since replaced, so it must not mask the current cycle's pending
+    // summary as 'completed'.
+    if (summary && isAfter(summary.createdAt, collectionRunCreatedAt)) {
+      const settled =
+        summary.status === ExperimentRunStatus.COMPLETED ||
+        summary.status === ExperimentRunStatus.FAILED
+      return settled ? 'completed' : 'running'
+    }
+
+    // No summary run belongs to this cycle. Did THIS collection run produce the
+    // current rows? replaceForCampaign stamps every row it writes with the
+    // collection's runId, and an empty re-collection writes nothing (early
+    // return, dispatching no summary). So rows carrying this run's id mean it
+    // collected fresh data whose chained summary is in flight or imminent (the
+    // brief gap before dispatchSummary creates the run) — keep processing.
+    // Otherwise there are no rows at all, or only a prior cycle's rows a later
+    // empty re-collection preserved: no summary is coming for this run, so the
+    // status settles to 'completed' rather than stranding on 'running'
+    // (ENG-10614). This also self-heals the overlapping-collection case: the
+    // fresh rows read 'running' until the re-chained summary lands and, being
+    // newer, is caught by the branch above.
+    const freshRows = await this.model.count({
+      where: { campaignId, runId: collectionRunId },
+    })
+    return freshRows > 0 ? 'running' : 'completed'
   }
 }
 

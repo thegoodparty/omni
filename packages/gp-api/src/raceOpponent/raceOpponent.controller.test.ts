@@ -375,13 +375,27 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
       ownerId: service.user.id,
       isPro: true,
     })
-    await service.prisma.experimentRun.create({
-      data: {
-        runId: 'run-done',
-        organizationSlug: SLUG,
-        experimentType: 'race_opponent_collection',
-        status: ExperimentRunStatus.COMPLETED,
-      },
+    // A fully-settled pipeline: the collection run completed AND the chained
+    // summary run completed after it. collectionStatus only reports 'completed'
+    // once the summary phase settles (ENG-10614), so seed both, with the
+    // summary run explicitly newer than the collection run.
+    await service.prisma.experimentRun.createMany({
+      data: [
+        {
+          runId: 'run-done',
+          organizationSlug: SLUG,
+          experimentType: 'race_opponent_collection',
+          status: ExperimentRunStatus.COMPLETED,
+          createdAt: new Date('2026-06-30T10:00:00.000Z'),
+        },
+        {
+          runId: 'summary-done',
+          organizationSlug: SLUG,
+          experimentType: 'race_opponent_summary',
+          status: ExperimentRunStatus.COMPLETED,
+          createdAt: new Date('2026-06-30T10:05:00.000Z'),
+        },
+      ],
     })
     await service.prisma.raceOpponent.createMany({
       data: [
@@ -1077,6 +1091,116 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     await service.app
       .get(RaceOpponentPersistService)
       .onExperimentRunCompleted(collectionRun)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_summary' }),
+    )
+  })
+
+  it('re-chains a summary when a FAILED summary leaves a newer collection unsummarized', async () => {
+    await seedCollectedRow()
+    // summary#1 FAILED at T1; collection#2 completed at T2 > T1 (its rows are
+    // the ones seeded above) but its chained summary was skipped by the
+    // in-flight dedup while summary#1 was running.
+    const failedSummary = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-failed',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-06-30T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-newer',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-06-30T10:05:00.000Z'),
+      },
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'rechained-summary' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedSummary)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_summary' }),
+    )
+  })
+
+  it('does not re-chain on a FAILED summary when no newer collection exists', async () => {
+    await seedCollectedRow()
+    const failedSummary = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-failed-solo',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-06-30T10:05:00.000Z'),
+      },
+    })
+    // The only collection completed BEFORE this summary (its own cycle), so
+    // there is nothing newer to re-chain for — re-dispatching would loop.
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-older',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-06-30T10:00:00.000Z'),
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedSummary)
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('re-chains for a newer collection even when the summary artifact fails to persist', async () => {
+    await seedCollectedRow()
+    const summary = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-bad',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'bucket',
+        artifactKey: 'summary-bad.json',
+        createdAt: new Date('2026-06-30T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-after-bad',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-06-30T10:05:00.000Z'),
+      },
+    })
+    // Unparseable artifact → onSummaryCompleted marks the run FAILED and
+    // rethrows, but the finally must still re-chain for the newer collection.
+    stubSummaryArtifact({ notOpponents: true })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'rechained-after-bad' } as never)
+
+    await expect(
+      service.app
+        .get(RaceOpponentPersistService)
+        .onExperimentRunCompleted(summary),
+    ).rejects.toThrow()
 
     expect(dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'race_opponent_summary' }),
