@@ -34,7 +34,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 SLACK_POST_URL = "https://slack.com/api/chat.postMessage"
-TOKEN_ENV = "SLACK_APP_BOT_TOKEN"                       # reuses gp-api's canonical name
+TOKEN_ENV = "SLACK_APP_BOT_TOKEN"                       # gp-api's env-var name; dedicated app's token
 CHANNEL_ENV = "SLACK_EVENT_LIFECYCLE_CHANNEL_ID"
 
 # emoji + headline per Source A change type
