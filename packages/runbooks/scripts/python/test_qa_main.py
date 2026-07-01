@@ -740,7 +740,36 @@ class TestNoDataInternalsInCandidateText:
         ]
         findings = []
         qc.check_no_data_internals_in_candidate_text(art, findings)
-        assert any(f.check == "candidate_text.posture_override_in_talking_points" for f in findings)
+        assert any(f.check == "candidate_text.posture_override_leak" for f in findings)
+
+    def test_posture_override_in_summary_flagged(self):
+        # posture-preamble must be caught in ANY candidate field, not just talking_points
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["items"][0]["display"]["summary"] = "## Posture override\nThen the actual summary."
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "candidate_text.posture_override_leak" for f in findings)
+
+    def test_voter_file_phrase_flagged(self):
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["items"][0]["display"]["summary"] = "Derived from the voter file for this district."
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "candidate_text.data_source_internal_leak" for f in findings)
+
+    def test_hs_column_in_source_snapshot_flagged(self):
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["sources"].append({
+            "id": "src_hs", "name": "GoodParty.org modeled constituent sentiment — Taxes (City)",
+            "source_type": "haystaq", "retrieved_at": art["sources"][0]["retrieved_at"],
+            "retrieved_text_or_snapshot": "SELECT AVG(hs_tax_cuts_support) FROM goodparty_data_catalog...",
+        })
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "source_snapshot.data_source_internal_leak" for f in findings)
 
     def test_haystaq_column_metadata_field_not_flagged(self):
         # the hidden haystaq_column metadata field is allowed to hold the id

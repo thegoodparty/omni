@@ -536,17 +536,30 @@ def check_discovered_agenda_location(artifact: dict, findings: list[Finding]) ->
 # Data-source internals that must never reach an elected official. Constituent
 # sentiment is framed as GoodParty.org's data; the hs_* column id lives only in
 # the hidden haystaq_column metadata field. Regression gate for the
-# "Constituent-data framing" rule in instruction.md.
+# "Constituent-data framing" rule in instruction.md. Includes "voter file" and the
+# data-table names — real SQL leaks always reference our table, so the table tokens
+# catch them; a bare SELECT...FROM pattern is intentionally omitted because it
+# false-positives on ordinary prose ("select from the staff's options").
 _FORBIDDEN_FRAMING_RE = re.compile(
-    r"hs_[a-z0-9_]+|\bhaystaq\b|\bdatabricks\b|\bl2\b|goodparty_data_catalog",
+    r"hs_[a-z0-9_]+|\bhaystaq\b|\bdatabricks\b|\bl2\b|\bvoter file\b"
+    r"|goodparty_data_catalog|int__l2\w*|Voters_Active",
     re.IGNORECASE,
 )
+# Unambiguous internal identifiers — safe to scan even against verbatim external
+# snapshots (agenda/news text can legitimately contain "L2" or "voter file", but
+# never our hs_* columns, table names, or the words "Haystaq"/"Databricks").
+_INTERNAL_TOKEN_RE = re.compile(
+    r"hs_[a-z0-9_]+|\bhaystaq\b|\bdatabricks\b|goodparty_data_catalog|int__l2\w*|Voters_Active",
+    re.IGNORECASE,
+)
+_POSTURE_RE = re.compile(r"posture override", re.IGNORECASE)
 
 
 def _candidate_facing_strings(artifact: dict):
-    """Yield (field_path, text) for every string an elected official actually reads
-    in the UI. Deliberately excludes QA/provenance-only fields (claims[],
-    sources[].retrieved_text_or_snapshot, run_decisions[], research.*)."""
+    """Yield (field_path, text) for every prose string an elected official actually
+    reads in the UI. Excludes QA/provenance-only fields (claims[], run_decisions[],
+    research.*); sources[].retrieved_text_or_snapshot is scanned separately below
+    with the narrower internal-token pattern."""
     es = artifact.get("executive_summary") or {}
     yield ("executive_summary.lead_in", es.get("lead_in") or "")
     for i, e in enumerate(es.get("items") or []):
@@ -570,8 +583,8 @@ def _candidate_facing_strings(artifact: dict):
 
 def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Finding]) -> None:
     """Candidate-facing text must never expose data-source internals (hs_* column
-    names, Haystaq, L2, Databricks, table names), nor the instruction's own
-    "posture override" directive leaking into talking_points."""
+    names, Haystaq, L2, Databricks, "voter file", table names, raw SQL), nor the
+    instruction's own "posture override" directive leaking into ANY field."""
     for field, text in _candidate_facing_strings(artifact):
         if not text:
             continue
@@ -582,15 +595,32 @@ def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Fin
                 "error",
                 f"{field} exposes a data-source internal ('{m.group(0)}') to the official. "
                 f"Describe constituent data in plain English as GoodParty.org's data; keep "
-                f"hs_*/Haystaq/L2/Databricks out of candidate-facing text. Text: {text[:120]!r}",
+                f"hs_*/Haystaq/L2/Databricks/voter-file/SQL out of candidate-facing text. "
+                f"Text: {text[:120]!r}",
             ))
-        if "talking_points" in field and "posture override" in text.lower():
+        # The posture-override directive is internal authorization, not content, and
+        # must not leak into ANY candidate-facing field (instruction.md forbids it globally).
+        if _POSTURE_RE.search(text):
             findings.append(Finding(
-                "candidate_text.posture_override_in_talking_points",
+                "candidate_text.posture_override_leak",
                 "error",
                 f"{field} contains a 'posture override' directive — that is internal "
-                f"authorization, not content. talking_points must be bullets only. "
-                f"Text: {text[:120]!r}",
+                f"authorization, not content. Text: {text[:120]!r}",
+            ))
+    # The GoodParty.org constituent-data source's retrieved_text_or_snapshot must not
+    # carry raw hs_* columns, table names, or SQL (instruction.md Step 14). Scan every
+    # source snapshot for the UNAMBIGUOUS internals only (bare "L2"/"voter file" are
+    # allowed there — agenda/news snapshots quote verbatim external text).
+    for s in artifact.get("sources") or []:
+        snap = s.get("retrieved_text_or_snapshot") or ""
+        m = _INTERNAL_TOKEN_RE.search(snap)
+        if m:
+            findings.append(Finding(
+                "source_snapshot.data_source_internal_leak",
+                "error",
+                f"sources[{s.get('id')}].retrieved_text_or_snapshot contains a data-source "
+                f"internal ('{m.group(0)}'). Summarize constituent data as GoodParty.org's "
+                f"data; keep hs_* columns, table names, and SQL out of the snapshot.",
             ))
 
 
