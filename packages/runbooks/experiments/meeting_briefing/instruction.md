@@ -1096,7 +1096,7 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 
 **Milestone — run `milestone("grounding_check")`** (per BEFORE YOU START item 6) before this step's work.
 
-The deterministic QA gate checks every claim's `source_extracts[]` against the `retrieved_text_or_snapshot` of its cited source(s) using a **whitespace-normalized, case-folded substring match** (it collapses runs of whitespace to one space and lowercases both sides before comparing); an extract that isn't found that way is a grounding failure. Catch those in-loop with the SAME normalization the gate uses — so case- or spacing-only differences do NOT get you dropping a valid claim:
+The deterministic QA gate checks every claim's `source_extracts[]` against the `retrieved_text_or_snapshot` of its cited source(s) using a **whitespace-normalized, case-folded substring match** (it collapses runs of whitespace to one space and lowercases both sides before comparing), and it treats an extract whose **first 60 characters** still match as an acceptable partial (a warning, not a failure). Catch true grounding failures in-loop with the SAME logic the gate uses — so case-only, spacing-only, or trailing-drift differences do NOT get you dropping a valid claim:
 
 ```python
 import json, re
@@ -1107,8 +1107,19 @@ srcs = {s["id"]: _norm(s.get("retrieved_text_or_snapshot")) for s in art.get("so
 ungrounded = []
 for c in art.get("claims", []):
     for ex in c.get("source_extracts", []):
-        if not any(_norm(ex) in srcs.get(sid, "") for sid in c.get("source_ids", [])):
-            ungrounded.append((c.get("claim_id"), ex))
+        needle = _norm(ex)
+        if not needle:
+            continue
+        cited = [srcs.get(sid, "") for sid in c.get("source_ids", [])]
+        if any(needle in hay for hay in cited):
+            continue
+        # Mirror the QA gate's 60-char partial-match fallback (qa_checks.py):
+        # an extract whose first 60 chars appear in the source is a WARNING,
+        # not a grounding failure — do NOT flag it ungrounded / drop the claim.
+        head = needle[:60]
+        if len(head) >= 20 and any(head in hay for hay in cited):
+            continue
+        ungrounded.append((c.get("claim_id"), ex))
 for cid, ex in ungrounded:
     print("UNGROUNDED", cid, "::", repr(ex[:120]))
 print(f"{len(ungrounded)} ungrounded extract(s)")
