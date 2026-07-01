@@ -15,7 +15,10 @@ const Nav = (): React.JSX.Element => {
     // with its own logo + stepper chrome (mirroring /onboarding), so the global
     // marketing nav is suppressed here too — pairs with isProductRoute, which
     // already hides the global footer on /serve.
-    pathname?.startsWith('/serve')
+    pathname?.startsWith('/serve') ||
+    // Dev-only surfaces (e.g. the /dev/briefings gallery) reuse dashboard
+    // chrome and should not show the marketing nav.
+    pathname?.startsWith('/dev')
 
   return (
     <>
