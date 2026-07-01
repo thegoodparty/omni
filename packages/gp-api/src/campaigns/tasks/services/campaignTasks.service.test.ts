@@ -51,6 +51,10 @@ const mockCampaignModel = {
   update: vi.fn(),
 }
 
+const mockCampaignTrackerTaskModel = {
+  count: vi.fn().mockResolvedValue(0),
+}
+
 const mockUserModel = {
   findUnique: vi.fn().mockResolvedValue(null),
 }
@@ -77,6 +81,10 @@ const mockSlackService: Partial<SlackService> = {
 
 const mockCampaignsService = {
   patchCampaignDetails: vi.fn(),
+}
+
+const mockTrackerTasks = {
+  notifyProUpgrade: vi.fn(),
 }
 
 type CampaignOverrides = Partial<
@@ -132,11 +140,13 @@ describe('CampaignTasksService', () => {
       mockAiGeneration as AiGenerationService,
       mockSlackService as SlackService,
       mockCampaignsService as never,
+      mockTrackerTasks as never,
     )
     Object.defineProperty(service, '_prisma', {
       get: () => ({
         campaignTask: mockModel,
         campaign: mockCampaignModel,
+        campaignTrackerTask: mockCampaignTrackerTaskModel,
         campaignUpdateHistory: mockCampaignUpdateHistoryModel,
         user: mockUserModel,
         $transaction: mockTransaction,
@@ -1010,6 +1020,25 @@ describe('CampaignTasksService', () => {
         },
       ],
     }
+
+    it('routes tracker-cohort campaigns to the tracker current-week message', async () => {
+      mockCampaignModel.findUnique = vi.fn().mockResolvedValue({ details: {} })
+      mockCampaignTrackerTaskModel.count.mockResolvedValueOnce(5)
+      mockCampaignsService.patchCampaignDetails.mockResolvedValue({})
+
+      await service.notifySlackOnProUpgrade(1)
+
+      expect(mockTrackerTasks.notifyProUpgrade).toHaveBeenCalledWith(1)
+      // the legacy plan message is skipped for tracker campaigns
+      expect(mockModel.count).not.toHaveBeenCalled()
+      expect(mockSlackService.message).not.toHaveBeenCalled()
+      expect(mockCampaignsService.patchCampaignDetails).toHaveBeenCalledWith(
+        1,
+        {
+          proUpgradeSlackNotifiedAt: expect.any(Number),
+        },
+      )
+    })
 
     it('sends slack and persists the notified-at flag when default tasks exist', async () => {
       mockCampaignModel.findUnique = vi.fn().mockResolvedValue({ details: {} })

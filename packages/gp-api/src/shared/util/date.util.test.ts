@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest'
-import { parseIsoDateAsUTC } from './date.util'
+import {
+  CENTRAL_TIMEZONE,
+  currentMondayUtcMidnight,
+  parseIsoDateAsUTC,
+} from './date.util'
+
+describe('currentMondayUtcMidnight', () => {
+  it('returns the Monday of the current week at UTC midnight', () => {
+    // 2026-07-01 is a Wednesday; the week's Monday is 2026-06-29.
+    const monday = currentMondayUtcMidnight(
+      new Date('2026-07-01T15:00:00Z'),
+      CENTRAL_TIMEZONE,
+    )
+    expect(monday.getTime()).toBe(Date.UTC(2026, 5, 29))
+  })
+
+  it('returns the same day when today is already Monday', () => {
+    // 2026-06-29 is a Monday (midday Central, so unambiguously Monday locally).
+    const monday = currentMondayUtcMidnight(
+      new Date('2026-06-29T17:00:00Z'),
+      CENTRAL_TIMEZONE,
+    )
+    expect(monday.getTime()).toBe(Date.UTC(2026, 5, 29))
+  })
+})
 
 describe('parseIsoDateAsUTC', () => {
   // Asserting against Date.UTC(...) makes these checks TZ-independent —

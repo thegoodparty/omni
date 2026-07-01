@@ -11,6 +11,7 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CENTRAL_TIMEZONE,
+  currentMondayUtcMidnight,
   nextMondayUtcMidnight,
   parseIsoDateString,
 } from 'src/shared/util/date.util'
@@ -364,22 +365,20 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
       if (rows.length > 0) {
         await this.model.createMany({ data: rows })
-        // generation > 1 means this is a weekly regen (the initial bootstrap is
-        // generation 1) — i.e. tasks generated for the following week, so notify
-        // CAS in Slack. Best-effort: the rows are already committed, so a Slack
-        // failure must not reach the catch below (which markFailed + redelivers).
-        if (generation > 1) {
-          await this.notifyWeeklyTasksGenerated(
-            campaign.id,
-            weekStart,
-            generation,
-          ).catch((error: unknown) =>
-            this.logger.warn(
-              { error, campaignId: campaign.id },
-              'weekly tracker Slack notification failed',
-            ),
-          )
-        }
+        // Notify CAS with the week's tasks (Pro candidates only). Fires for the
+        // initial bootstrap (first week) and every weekly regen; the title
+        // reflects which. Best-effort: the rows are already committed, so a Slack
+        // failure must not reach the catch below (markFailed + redeliver).
+        await this.notifyTasksGenerated(
+          campaign.id,
+          weekStart,
+          generation,
+        ).catch((error: unknown) =>
+          this.logger.warn(
+            { error, campaignId: campaign.id },
+            'tracker Slack notification failed',
+          ),
+        )
       }
     } catch (error) {
       await this.experimentRuns.markFailed(
@@ -390,12 +389,10 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     }
   }
 
-  // Post the upcoming Mon-Sun week's tasks to the CAS Slack channel when a
-  // weekly regen lands. Pro-only (CAS actions outreach for Pro candidates),
-  // mirroring the legacy campaign-plan message. The list is what the candidate
-  // sees for the week: the latest generation's dynamic tasks plus any
-  // deterministic outreach/static tasks due that week.
-  private async notifyWeeklyTasksGenerated(
+  // Post the week's tasks to the CAS Slack channel after a generation lands
+  // (Pro candidates only). Fires for the initial bootstrap and every weekly
+  // regen; the title distinguishes the first week from an ongoing week.
+  private async notifyTasksGenerated(
     campaignId: number,
     weekStart: Date,
     generation: number,
@@ -405,14 +402,51 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       include: { user: true },
     })
     if (!campaign?.isPro) return
+    const title =
+      generation === 1
+        ? ":rocket: *Campaign tracker launched: first week's tasks*"
+        : ':calendar: *Weekly campaign tasks generated*'
+    await this.postCampaignWeekToSlack(campaign, weekStart, title)
+  }
 
+  // One-shot on Pro upgrade: post the CURRENT week's tasks (the week the
+  // candidate is in now) so CAS can start executing immediately. Weekly regens
+  // post the upcoming week; this posts the current one. Cohort gating (tracker
+  // rows) and idempotency live in the pro-upgrade caller.
+  async notifyProUpgrade(campaignId: number): Promise<void> {
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign?.isPro) return
+    await this.postCampaignWeekToSlack(
+      campaign,
+      currentMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE),
+      ":tada: *Pro upgrade: this week's tasks*",
+    )
+  }
+
+  // Build + post one Mon-Sun week's task list for a Pro campaign to
+  // casClickupTasks: the latest dynamic generation plus any deterministic
+  // outreach/static tasks due that week (what the candidate sees). Mirrors the
+  // legacy campaign-plan message format.
+  private async postCampaignWeekToSlack(
+    campaign: CampaignWith<'user'>,
+    weekStart: Date,
+    title: string,
+  ): Promise<void> {
     const windowEnd = addDays(weekStart, 7)
+    const latest = await this.model.findFirst({
+      where: { campaignId: campaign.id, isDefaultTask: false },
+      orderBy: { week: Prisma.SortOrder.desc },
+      select: { week: true },
+    })
     const tasks = await this.model.findMany({
       where: {
-        campaignId,
+        campaignId: campaign.id,
         completed: false,
         date: { gte: weekStart, lt: windowEnd },
-        OR: [{ isDefaultTask: true }, { week: generation }],
+        OR: [{ isDefaultTask: true }, { week: latest?.week ?? 0 }],
       },
       orderBy: { date: Prisma.SortOrder.asc },
     })
@@ -430,7 +464,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       return `- ${channel}${task.title} (${due})`
     })
     const body = [
-      ':calendar: *Weekly Campaign Tasks Generated*',
+      title,
       `Candidate: ${candidateName}`,
       `HubSpot ID: ${hubspotId ?? 'N/A'}`,
       `Week of ${startLabel} - ${endLabel}`,

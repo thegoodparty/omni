@@ -199,14 +199,16 @@ stay deterministic in gp-api / webapp.
 the rest (events keep their real date; dateless tasks dated across the upcoming
 week). Fail-closed: a bad artifact marks the run failed and rethrows.
 
-After the rows commit, a **weekly regen** (generation > 1, i.e. not the initial
-bootstrap) posts the upcoming Monday-Sunday week's tasks to the `casClickupTasks`
-Slack channel for **Pro** candidates, mirroring the legacy campaign-plan message
-(`notifyWeeklyTasksGenerated`). The list is what the candidate sees for the week
-(latest generation's dynamic tasks plus any deterministic outreach/static tasks
-due that week). It is best-effort: a Slack failure is logged but never fails the
-run (the rows are already persisted). Lost-primary campaigns never reach here —
-the weekly cron skips dispatch for them, so no run completes and nothing posts.
+After the rows commit, `notifyTasksGenerated` posts the upcoming Monday-Sunday
+week's tasks to the `casClickupTasks` Slack channel for **Pro** candidates,
+mirroring the legacy campaign-plan message. It fires for **both** the initial
+bootstrap (generation 1, "first week" title) and every weekly regen ("weekly"
+title). The list is what the candidate sees for the week (latest generation's
+dynamic tasks plus any deterministic outreach/static tasks due that week). It is
+best-effort: a Slack failure is logged but never fails the run (the rows are
+already persisted). Lost-primary campaigns never reach here: the weekly cron
+skips dispatch for them, so no run completes and nothing posts. Every Slack
+notification in the tracker is **Pro-only**.
 
 ### Weekly regeneration
 
@@ -356,21 +358,25 @@ that cleanup PR.
 **Flags:** retire the `campaign-story` flag in Amplitude (and revisit
 `campaign-strategy`) once the UI no longer reads it.
 
-### Slack notifications: what's covered and what's still open
+### Slack notifications (all Pro-only, all to `casClickupTasks`)
 
-The **weekly regen** now posts the upcoming week to `casClickupTasks` for Pro
-candidates (`notifyWeeklyTasksGenerated`, in the completion handler above). Two
-legacy-parity gaps remain, both tied to the legacy-Slack cleanup task:
+Three triggers post the relevant week's tasks to the CAS channel for **Pro**
+candidates, all mirroring the legacy campaign-plan message format:
 
-- **Initial bootstrap has no message.** The notification fires only on a weekly
-  regen (generation > 1), so a Pro candidate's *first* tracker week is silent.
-  The legacy `notifySlackDefaultTasksCreated` posted on first task creation; port
-  it onto the bootstrap / first CAP completion if CAS wants the kickoff message.
-- **Pro-upgrade one-shot still counts legacy rows.** `notifySlackOnProUpgrade`
-  counts `campaign_task` rows, so a story-on Pro campaign (which has only
-  `campaign_tracker_tasks`) fires nothing when it upgrades. Decide whether that
-  still matters; if so, point it at the tracker table, else drop it with the rest
-  of the legacy Slack code above.
+- **Generation** (`notifyTasksGenerated`, in the completion handler above):
+  fires on the initial bootstrap (generation 1, "first week" title) and every
+  weekly regen ("weekly" title), posting the **upcoming** Mon-Sun week.
+- **Pro upgrade** (`notifyProUpgrade`): when a tracker campaign upgrades to Pro,
+  posts the **current** week's tasks so CAS can start immediately. Routed from
+  `notifySlackOnProUpgrade`: tracker-cohort campaigns (which have
+  `campaign_tracker_tasks` and no legacy default tasks) get this message; legacy
+  campaigns keep the plan-summary message. The existing `proUpgradeSlackNotifiedAt`
+  stamp is shared, so a campaign is announced once regardless of cohort.
+
+All are best-effort (a Slack failure is logged, never fails the caller) and
+Pro-gated. The legacy `notifySlackOnProUpgrade` / `notifySlackDefaultTasksCreated`
+plan-summary path stays for the legacy cohort until the legacy-Slack cleanup task
+retires it.
 
 ## How this diverged from the original TDD
 

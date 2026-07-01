@@ -77,6 +77,17 @@ const campaign = (over: Record<string, unknown> = {}) =>
     ...over,
   }) as never
 
+// A Pro campaign as returned by findUnique({ include: { user } }): the shape
+// the Slack notifications read (isPro gate, name, hubspotId).
+const proCampaign = (over: Record<string, unknown> = {}) =>
+  ({
+    id: 42,
+    isPro: true,
+    data: { name: 'Jordan Nguyen', hubspotId: 'hs-9' },
+    user: { firstName: 'Jordan', lastName: 'Nguyen' },
+    ...over,
+  }) as never
+
 describe('CampaignTrackerTasksService.dispatchGeneration', () => {
   let h: ReturnType<typeof makeService>
   beforeEach(() => {
@@ -290,13 +301,7 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     expect(created.every((r: { week: number }) => r.week === 3)).toBe(true)
   })
 
-  describe('weekly Slack notification', () => {
-    const proCampaign = {
-      id: 42,
-      isPro: true,
-      data: { name: 'Jordan Nguyen', hubspotId: 'hs-9' },
-      user: { firstName: 'Jordan', lastName: 'Nguyen' },
-    }
+  describe('Slack notification on generation (Pro only)', () => {
     const weekTasks = [
       {
         id: 'k1',
@@ -315,7 +320,7 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     it('posts the week to casClickupTasks for a Pro weekly regen', async () => {
       // prior dynamic rows exist → generation 2 → a weekly regen, not bootstrap
       h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 1 })
-      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign)
+      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
       h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce(weekTasks)
       h.s3.getFile.mockResolvedValueOnce(artifact())
 
@@ -325,22 +330,27 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
       const [message, channel] = firstOrThrow(h.slack.message.mock.calls)
       expect(channel).toBe(SlackChannel.casClickupTasks)
       const text = message.blocks[0].text.text
-      expect(text).toContain('Weekly Campaign Tasks Generated')
+      expect(text).toContain('Weekly campaign tasks generated')
       expect(text).toContain('Jordan Nguyen')
       expect(text).toContain('hs-9')
       expect(text).toContain('DOORKNOCKING: Knock doors')
     })
 
-    it('does not notify on the initial bootstrap generation', async () => {
-      // no prior dynamic rows → generation 1 → initial, not a weekly regen
-      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign)
+    it('notifies with the first-week title on the initial generation', async () => {
+      // no prior dynamic rows → generation 1 → initial bootstrap
+      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+      h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce(weekTasks)
       h.s3.getFile.mockResolvedValueOnce(artifact())
+
       await h.service.onExperimentRunCompleted(run())
-      expect(h.slack.message).not.toHaveBeenCalled()
+
+      expect(h.slack.message).toHaveBeenCalledTimes(1)
+      const text = firstOrThrow(h.slack.message.mock.calls)[0].blocks[0].text
+        .text
+      expect(text).toContain('Campaign tracker launched')
     })
 
     it('does not notify a non-Pro campaign', async () => {
-      h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 1 })
       // campaign.findUnique defaults to isPro: false
       h.s3.getFile.mockResolvedValueOnce(artifact())
       await h.service.onExperimentRunCompleted(run())
@@ -348,8 +358,7 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     })
 
     it('keeps the run successful when the Slack post fails', async () => {
-      h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 1 })
-      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign)
+      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
       h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce(weekTasks)
       h.s3.getFile.mockResolvedValueOnce(artifact())
       h.slack.message.mockRejectedValueOnce(new Error('slack down'))
@@ -378,6 +387,39 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
     await h.service.onExperimentRunCompleted(run())
     expect(h.s3.getFile).not.toHaveBeenCalled()
     expect(h.prisma.$transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+  })
+
+  it("posts the current week's tasks to casClickupTasks for a Pro campaign", async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce([
+      {
+        id: 't1',
+        title: 'Door knock',
+        date: new Date('2026-07-01'),
+        flowType: 'doorKnocking',
+      },
+    ])
+    await h.service.notifyProUpgrade(42)
+
+    expect(h.slack.message).toHaveBeenCalledTimes(1)
+    const [message, channel] = firstOrThrow(h.slack.message.mock.calls)
+    expect(channel).toBe(SlackChannel.casClickupTasks)
+    const text = message.blocks[0].text.text
+    expect(text).toContain('Pro upgrade')
+    expect(text).toContain('Door knock')
+  })
+
+  it('does nothing for a non-Pro campaign', async () => {
+    // findUnique defaults to isPro: false
+    await h.service.notifyProUpgrade(42)
+    expect(h.slack.message).not.toHaveBeenCalled()
   })
 })
 

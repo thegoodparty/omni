@@ -49,13 +49,17 @@ overview: `docs/features/campaign-tracker-v3.md`.
   before the date/dedup checks; if lost it calls `removeOutreachTasks` (deletes
   the default text/robocall rows) and returns without dispatching. Checked in the
   dispatcher, not bootstrap, because the loss is recorded after outreach exists.
-- **Weekly regen posts to Slack.** After `onExperimentRunCompleted` commits the
-  rows, a weekly run (generation > 1, not the initial bootstrap) posts the
-  upcoming Mon-Sun week to `casClickupTasks` for **Pro** candidates
-  (`notifyWeeklyTasksGenerated`). Best-effort: wrapped in a `.catch` so a Slack
-  failure is logged but never reaches the run's catch (which would `markFailed` +
-  redeliver). Initial bootstrap and Pro-upgrade messages are still gaps — see the
-  feature doc's Slack section.
+- **Generation posts to Slack (Pro only).** After `onExperimentRunCompleted`
+  commits the rows, `notifyTasksGenerated` posts the upcoming Mon-Sun week to
+  `casClickupTasks` for **Pro** candidates, for both the initial bootstrap
+  (generation 1, "first week" title) and weekly regens. Best-effort: wrapped in a
+  `.catch` so a Slack failure is logged but never reaches the run's catch (which
+  would `markFailed` + redeliver).
+- **Pro upgrade posts the current week (Pro only).** `notifyProUpgrade` posts the
+  week the candidate is in now (via `currentMondayUtcMidnight`), routed from
+  `CampaignTasksService.notifySlackOnProUpgrade` for tracker-cohort campaigns. All
+  three Slack messages share `postCampaignWeekToSlack` + the casClickupTasks
+  channel; every one is Pro-gated.
 - **Catalog ships as an experiment attachment, not a param** (6 KB SQS limit);
   prior tasks come back to the agent via the MCP tracker-tasks tool. The
   generator filters to `type === 'dynamic'` **and** excludes text/robocall (the
