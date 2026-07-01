@@ -424,7 +424,7 @@ export class CampaignTasksService extends createPrismaBase(
         const defaultTasksCount = await this.model.count({
           where: { campaignId, isDefaultTask: true },
         })
-        // A campaign can upgrade (Stripe webhook) before any tasks exist — no
+        // A campaign can upgrade (Stripe webhook) before any tasks exist: no
         // tracker rows and no legacy defaults. This one-shot has no retry, so the
         // CAS Pro-upgrade message is dropped; log it so the gap is observable.
         if (defaultTasksCount === 0) {

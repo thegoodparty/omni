@@ -464,7 +464,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
         completed: false,
         date: { gte: weekStart, lt: windowEnd },
         // Latest dynamic generation + the deterministic (default) rows. Only add
-        // the generation clause when one exists — generation indices start at 1,
+        // the generation clause when one exists; generation indices start at 1,
         // so a `week: 0` fallback would be a no-op that reads as intentional.
         OR: [
           { isDefaultTask: true },
