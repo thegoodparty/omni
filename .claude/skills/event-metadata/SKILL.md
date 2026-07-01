@@ -169,6 +169,32 @@ other — that is normal given different data volumes):
 Re-read each affected event via `get_events` in **both** projects; confirm the `gp-meta`
 block, the `product:*` tag, and the status line are present and correct.
 
+### Refresh the consumer surface (independent, non-fatal)
+
+After the writes are verified, refresh the event-state Google Sheet so the change shows
+without waiting for the daily Databricks sync. This is a **separate step that must fail
+separately** — the Amplitude write above has already succeeded and must never be rolled
+back or blocked by a refresh problem.
+
+1. From the **prod** (`694490`) `get_events` re-read in Verify, build an override JSON in
+   the scratchpad, one entry per event you touched (a supersession touches two):
+
+   ```json
+   { "<exact event name>": {
+       "govern_display_name": "<name>",
+       "govern_description": "<the full merged description you just wrote>",
+       "govern_tags": ["product:win", "..."] } }
+   ```
+
+2. Run the wrapper with that file (resolve the runbooks path the same way other steps do —
+   `$RUNBOOKS_DIR` or the repo checkout):
+
+   `"$RUNBOOKS_DIR"/scripts/shell/refresh-event-state.sh --override <file>`
+
+3. **On failure:** do not fail the skill. Report the two outcomes separately —
+   `metadata written ✓; surface refresh ⚠ (<reason>) — re-run refresh-event-state.sh`.
+   The surface is eventually-consistent; the next trigger or a manual run recovers it.
+
 ## Handoff (when called by instrument-analytics-event)
 
 The caller passes a payload; honor it instead of re-asking:
@@ -199,3 +225,5 @@ Adds and removes are routed independently — the caller never pairs a removal w
 - Appending a second `gp-meta` block instead of replacing the existing one in place.
 - Writing to only one project — write dev and prod both.
 - Writing `isOfficial`/`is_active`/visibility or an `owner:` tag — out of scope.
+- Letting a surface-refresh failure fail the skill or roll back the Amplitude write — the
+  refresh is a separate, non-fatal step that runs only after the confirmed write.
