@@ -215,6 +215,23 @@ export class RaceOpponentPersistService extends createPrismaBase(
       )
       throw error
     }
+
+    // Fire-and-forget: if a newer collection completed while this summary ran,
+    // its rows were never structured (dispatchSummary's in-flight dedup skipped
+    // them), so re-chain now that this run is terminal. A dispatch failure must
+    // not fail this already-persisted summary run — the next collection re-
+    // chains — so log rather than rethrow.
+    try {
+      await this.raceOpponent.rechainSummaryForNewerCollection(
+        campaign,
+        run.createdAt,
+      )
+    } catch (error) {
+      this.logger.error(
+        { runId: run.runId, error },
+        'failed to re-chain race_opponent_summary after a newer collection',
+      )
+    }
   }
 
   private loadCampaign(

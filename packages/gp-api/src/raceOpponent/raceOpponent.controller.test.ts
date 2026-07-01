@@ -375,13 +375,27 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
       ownerId: service.user.id,
       isPro: true,
     })
-    await service.prisma.experimentRun.create({
-      data: {
-        runId: 'run-done',
-        organizationSlug: SLUG,
-        experimentType: 'race_opponent_collection',
-        status: ExperimentRunStatus.COMPLETED,
-      },
+    // A fully-settled pipeline: the collection run completed AND the chained
+    // summary run completed after it. collectionStatus only reports 'completed'
+    // once the summary phase settles (ENG-10614), so seed both, with the
+    // summary run explicitly newer than the collection run.
+    await service.prisma.experimentRun.createMany({
+      data: [
+        {
+          runId: 'run-done',
+          organizationSlug: SLUG,
+          experimentType: 'race_opponent_collection',
+          status: ExperimentRunStatus.COMPLETED,
+          createdAt: new Date('2026-06-30T10:00:00.000Z'),
+        },
+        {
+          runId: 'summary-done',
+          organizationSlug: SLUG,
+          experimentType: 'race_opponent_summary',
+          status: ExperimentRunStatus.COMPLETED,
+          createdAt: new Date('2026-06-30T10:05:00.000Z'),
+        },
+      ],
     })
     await service.prisma.raceOpponent.createMany({
       data: [
