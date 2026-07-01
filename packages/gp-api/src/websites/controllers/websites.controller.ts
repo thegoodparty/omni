@@ -56,6 +56,7 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
+import { isBioGenuine, hasGenuineIssue } from '../util/genericContent.util'
 
 const PUBLISHABLE_DOMAIN_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -86,32 +87,23 @@ const WEBSITE_CONTENT_INCLUDES = {
 const isNonEmpty = (value: string | undefined | null) =>
   typeof value === 'string' && value.trim().length > 0
 
-type WebsiteIssueForPublish = {
-  title?: string | null
-  description?: string | null
-}
-
-const isIssueReadyToPublish = (
-  issue: WebsiteIssueForPublish,
-): issue is { title: string; description: string } =>
-  isNonEmpty(issue.title) && isNonEmpty(issue.description)
-
 const REQUIRED_PUBLISH_FIELDS: Array<{
   path: string
   check: (content: PrismaJson.WebsiteContent) => boolean
 }> = [
   { path: 'main.title', check: (c) => isNonEmpty(c.main?.title) },
-  { path: 'about.bio', check: (c) => isNonEmpty(c.about?.bio) },
+  { path: 'about.bio', check: (c) => isBioGenuine(c.about?.bio) },
   {
     path: 'about.issues',
+    // content is a JSON column: legacy rows can carry a malformed (non-object)
+    // issues entry that never passed through UpdateWebsiteSchema's array
+    // validation, so filter before handing the array to the detector.
     check: (c) =>
-      Array.isArray(c.about?.issues) &&
-      c.about.issues.length > 0 &&
-      c.about.issues.every(
-        (issue) =>
-          typeof issue === 'object' &&
-          issue !== null &&
-          isIssueReadyToPublish(issue as WebsiteIssueForPublish),
+      hasGenuineIssue(
+        c.about?.issues?.filter(
+          (issue): issue is { title?: string; description?: string } =>
+            typeof issue === 'object' && issue !== null,
+        ),
       ),
   },
   { path: 'contact.email', check: (c) => isNonEmpty(c.contact?.email) },
