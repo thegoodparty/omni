@@ -1303,6 +1303,55 @@ describe('<RaceOpponentList>', () => {
     }
   })
 
+  it('fires Win - Opponent Research Started exactly once when a failed auto-start precedes a manual submit', async () => {
+    // The auto-start collect() fails before any run is server-confirmed (status
+    // never leaves idle), so ResearchStarted must NOT fire for it — it only fires
+    // off a confirmed run (discovering/running). A later manual submit that does
+    // start a run then fires it exactly once, with no double count.
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
+      status: 500,
+      data: { error: 'boom' },
+    })
+    // The catch-path re-sync reports still-idle (the run never started).
+    api.mock('GET /v1/campaigns/mine/race-opponent', {
+      status: 200,
+      data: empty,
+    })
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: 'manual-run-1', status: 'running' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    // The failed auto-start drops to the manual form; no run-start counted yet.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+        ),
+    ).toHaveLength(0)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    // The manual submit starts a confirmed run → exactly one run-start total.
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+          ),
+      ).toHaveLength(1),
+    )
+  })
+
   it('does not fire Win - Opponent Research Started for a run already in flight on mount', () => {
     // A page that loads mid-run (reload, or a just-upgraded candidate whose run
     // is already running) must NOT count a run-start — only a start observed in

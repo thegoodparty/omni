@@ -602,13 +602,17 @@ const RaceOpponentList = ({
   const autoStartPending = neverRan && !autoStartedRef.current
   const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
   const isProcessing = isBusy || idleMidRun || autoStartPending
-  // Analytics-only variant that EXCLUDES autoStartPending: the run-start event
-  // must fire off a confirmed dispatch, not the pre-dispatch pending intent.
-  // autoStartPending is true on the render before collect() runs, so firing the
-  // event off isProcessing would count a run before its POST — and if that POST
-  // then fails, the guard resets and a later manual submit re-counts it. Gating
-  // on collecting/busy fires only once collect() is actually in flight.
-  const isConfirmedProcessing = isBusy || idleMidRun || collecting
+  // Analytics-only variant: the run-start event must fire only once a run is
+  // SERVER-confirmed — status is discovering/running (isBusy), or the transient
+  // post-discovery idle gap (justLeftDiscovery) where the auto-fired collect is
+  // flipping to running. It deliberately EXCLUDES both autoStartPending (the
+  // pre-dispatch render) and the bare `collecting` window (the auto-start POST in
+  // flight while status is still idle): those cover collects that may fail or
+  // return a terminal idle (uncontested race) WITHOUT a run ever starting. Firing
+  // during that window would count a run that never began — and if the collect
+  // then fails, the guard resets and a later manual submit re-counts it.
+  const isConfirmedProcessing =
+    isBusy || (status === 'idle' && justLeftDiscovery)
 
   // Fire one Opponent Research Started per run, keyed off isConfirmedProcessing
   // (not the raw busy status) so the transient idle-mid-run gap of the two-call
