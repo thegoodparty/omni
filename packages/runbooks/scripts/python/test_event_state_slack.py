@@ -223,6 +223,22 @@ def test_post_digest_posts_parent_then_threaded_reply():
     assert tx.calls[1]["json"]["thread_ts"] == "1111.1"
 
 
+def test_post_digest_survives_thread_failure_and_returns_parent_ts():
+    # parent posts fine; the threaded reply raises — the parent is meaningful on its own,
+    # so post_digest must swallow the thread error and still return the parent ts.
+    calls = []
+
+    def flaky(url, **kwargs):
+        calls.append(kwargs["json"])
+        if "thread_ts" in kwargs["json"]:
+            raise RuntimeError("rate_limited")
+        return _FakeResp({"ok": True, "ts": "1111.1"})
+
+    ts = slk.post_digest(RESULT, CHANGES, PRIOR, token="xoxb-t", channel="C0BECEK0603", transport=flaky)
+    assert ts == "1111.1"
+    assert len(calls) == 2  # parent + attempted thread reply
+
+
 def test_post_digest_noop_when_quiet():
     tx = _FakeTransport()
     ts = slk.post_digest(RESULT, QUIET, PRIOR, token="xoxb-t", channel="C0BECEK0603", transport=tx)

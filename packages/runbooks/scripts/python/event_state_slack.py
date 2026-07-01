@@ -265,8 +265,15 @@ def post_digest(
     parent, thread = build_digest_blocks(result, changes, prior_state)
     ts = post_message(parent, token=token, channel=channel,
                       text=f"Analytics event health — {result.get('run_date')}", transport=transport)
-    post_message(thread, token=token, channel=channel, thread_ts=ts,
-                 text="Health digest detail", transport=transport)
+    # The parent is meaningful on its own and already advertises "details in thread", so a
+    # failed reply is a partial success, not a whole-digest failure: log it and still return
+    # the parent ts rather than propagating (which the monitor would report as the post failing).
+    try:
+        post_message(thread, token=token, channel=channel, thread_ts=ts,
+                     text="Health digest detail", transport=transport)
+    except Exception as exc:  # noqa: BLE001
+        print(f"slack: thread reply failed ({exc}); parent message already posted (ts {ts}).",
+              file=sys.stderr)
     return ts
 
 
