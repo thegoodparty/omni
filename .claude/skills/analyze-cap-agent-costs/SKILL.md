@@ -49,6 +49,7 @@ never re-pulls S3.
 | 4. Hot-region detector            | `cap_cost_hotspots.py` | Population-level hot **milestones** when markers are present, else hot turn-progress bands; `--label` calls the Anthropic SDK on ONLY the hot slices to name what work is expensive there.                                                                          |
 | 5. Per-job profile                | `cap_cost_profiles.py` | Buckets outcomes from the S3 artifact and computes the job's headline metric. Profiles live in `PROFILES` (see below).                                                                                            |
 | 6. District segmentation (opt-in) | `cap_cost_segment.py`  | Joins cohort orgs -> `int__icp_offices.voter_count`, buckets `<10k/10k-50k/50k-100k/>100k`, reports cost per segment. Only when the question implies district scaling.                                            |
+| 7. HTML report                    | `cap_cost_report.py`   | Turns the stage 1/3/5 outputs (`scope.json`, `plots/distributions.json`, `profile.json`) + the plot PNGs into ONE `report.html`. **Self-contained / shareable / print-to-PDF**: each PNG is embedded as a base64 `data:` URI and the CSS is inlined, so the file has NO external URLs, renders offline, and the browser's "Save as PDF" yields a clean doc. Data-driven (every number read from the JSONs, nothing hardcoded) so it works for any cohort, and degrades gracefully — missing milestone data, a null headline ("n/a (0 delivered)"), non-standard outcome statuses, or no `profile.json` all render. Reads `turns.parquet` for an optional cost-driver block (cache_read share of tokens, cost<->turns correlation). |
 
 ## Scope resolver — English first
 
@@ -81,9 +82,12 @@ uv run python cap_cost_profiles.py --scope $S/scope.json
 
 # opt-in, only when the question is about district scaling:
 uv run python cap_cost_segment.py --scope $S/scope.json
+
+# one self-contained, shareable, print-to-PDF HTML report (reads the cached outputs):
+uv run python cap_cost_report.py --exp-dir $S
 ```
 
-Re-analysis (stages 3-6) reads `turns.parquet` / `scope.json` — never re-pulls S3.
+Re-analysis (stages 3-7) reads `turns.parquet` / `scope.json` / the cached JSONs — never re-pulls S3.
 
 ## Per-job profiles
 
