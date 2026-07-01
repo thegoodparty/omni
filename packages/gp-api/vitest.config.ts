@@ -20,6 +20,7 @@ export default defineConfig({
     tsconfigPaths(),
   ],
   test: {
+    globalSetup: ['./src/test-global-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],
