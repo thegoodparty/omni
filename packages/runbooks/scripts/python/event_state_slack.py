@@ -223,6 +223,8 @@ def build_digest_blocks(
         rows = "\n".join(
             f"• `{p['event_type']}`  family: {p.get('family') or '—'}" for p in proposals[:TRANSITION_CAP]
         )
+        if len(proposals) > TRANSITION_CAP:
+            rows += f"\n…and {len(proposals) - TRANSITION_CAP} more (see the sheet)"
         thread.append(_section(f"*Watchlist proposals*\n{rows}"))
     if sc:
         thread.append(_section(f"*Status breakdown*\n{breakdown}"))

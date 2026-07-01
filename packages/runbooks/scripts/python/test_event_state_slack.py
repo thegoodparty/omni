@@ -189,6 +189,22 @@ def test_digest_escalated_without_prior_state_is_graceful():
     assert "poll_created" in text  # still rendered even when prior status unknown
 
 
+def test_digest_thread_truncates_proposals_with_overflow_indicator():
+    # >TRANSITION_CAP proposals must show an overflow hint, not silently drop entries.
+    many = {
+        **RESULT,
+        "proposals": [
+            {"event_type": f"evt_{i}", "family": "win_ai", "first_seen_date": "2026-06-20"}
+            for i in range(slk.TRANSITION_CAP + 5)
+        ],
+    }
+    _, thread = slk.build_digest_blocks(many, CHANGES, PRIOR)
+    text = _flatten_text(thread)
+    assert "evt_0" in text                              # first proposal shown
+    assert "evt_19" not in text                         # entry past the cap is dropped from the list
+    assert "…and 5 more" in text                        # overflow indicator present
+
+
 # --- poster (injected transport) ---------------------------------------------
 
 
