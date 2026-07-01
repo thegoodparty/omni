@@ -49,6 +49,13 @@ overview: `docs/features/campaign-tracker-v3.md`.
   before the date/dedup checks; if lost it calls `removeOutreachTasks` (deletes
   the default text/robocall rows) and returns without dispatching. Checked in the
   dispatcher, not bootstrap, because the loss is recorded after outreach exists.
+- **Weekly regen posts to Slack.** After `onExperimentRunCompleted` commits the
+  rows, a weekly run (generation > 1, not the initial bootstrap) posts the
+  upcoming Mon-Sun week to `casClickupTasks` for **Pro** candidates
+  (`notifyWeeklyTasksGenerated`). Best-effort: wrapped in a `.catch` so a Slack
+  failure is logged but never reaches the run's catch (which would `markFailed` +
+  redeliver). Initial bootstrap and Pro-upgrade messages are still gaps — see the
+  feature doc's Slack section.
 - **Catalog ships as an experiment attachment, not a param** (6 KB SQS limit);
   prior tasks come back to the agent via the MCP tracker-tasks tool. The
   generator filters to `type === 'dynamic'` **and** excludes text/robocall (the

@@ -16,6 +16,11 @@ import {
 } from 'src/shared/util/date.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
+import {
+  SlackChannel,
+  SlackMessageType,
+} from '@/vendors/slack/slackService.types'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
@@ -63,6 +68,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly s3: S3Service,
+    private readonly slack: SlackService,
   ) {
     super()
   }
@@ -358,6 +364,22 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
       if (rows.length > 0) {
         await this.model.createMany({ data: rows })
+        // generation > 1 means this is a weekly regen (the initial bootstrap is
+        // generation 1) — i.e. tasks generated for the following week, so notify
+        // CAS in Slack. Best-effort: the rows are already committed, so a Slack
+        // failure must not reach the catch below (which markFailed + redelivers).
+        if (generation > 1) {
+          await this.notifyWeeklyTasksGenerated(
+            campaign.id,
+            weekStart,
+            generation,
+          ).catch((error: unknown) =>
+            this.logger.warn(
+              { error, campaignId: campaign.id },
+              'weekly tracker Slack notification failed',
+            ),
+          )
+        }
       }
     } catch (error) {
       await this.experimentRuns.markFailed(
@@ -366,6 +388,68 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       )
       throw error
     }
+  }
+
+  // Post the upcoming Mon-Sun week's tasks to the CAS Slack channel when a
+  // weekly regen lands. Pro-only (CAS actions outreach for Pro candidates),
+  // mirroring the legacy campaign-plan message. The list is what the candidate
+  // sees for the week: the latest generation's dynamic tasks plus any
+  // deterministic outreach/static tasks due that week.
+  private async notifyWeeklyTasksGenerated(
+    campaignId: number,
+    weekStart: Date,
+    generation: number,
+  ): Promise<void> {
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign?.isPro) return
+
+    const windowEnd = addDays(weekStart, 7)
+    const tasks = await this.model.findMany({
+      where: {
+        campaignId,
+        completed: false,
+        date: { gte: weekStart, lt: windowEnd },
+        OR: [{ isDefaultTask: true }, { week: generation }],
+      },
+      orderBy: { date: Prisma.SortOrder.asc },
+    })
+
+    const candidateName =
+      (campaign.user ? getUserFullName(campaign.user) : '') ||
+      campaign.data.name ||
+      'Unknown'
+    const { hubspotId } = campaign.data
+    const startLabel = format(weekStart, 'MMM d')
+    const endLabel = format(addDays(weekStart, 6), 'MMM d')
+    const taskLines = tasks.map((task) => {
+      const due = task.date ? format(task.date, 'MMM d') : 'No date set'
+      const channel = task.flowType ? `${task.flowType.toUpperCase()}: ` : ''
+      return `- ${channel}${task.title} (${due})`
+    })
+    const body = [
+      ':calendar: *Weekly Campaign Tasks Generated*',
+      `Candidate: ${candidateName}`,
+      `HubSpot ID: ${hubspotId ?? 'N/A'}`,
+      `Week of ${startLabel} - ${endLabel}`,
+      '',
+      `*Tasks (${tasks.length}):*`,
+      ...(taskLines.length > 0 ? taskLines : ['None']),
+    ].join('\n')
+
+    await this.slack.message(
+      {
+        blocks: [
+          {
+            type: SlackMessageType.SECTION,
+            text: { type: SlackMessageType.MRKDWN, text: body },
+          },
+        ],
+      },
+      SlackChannel.casClickupTasks,
+    )
   }
 
   async completeTask(

@@ -3,6 +3,7 @@ import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { ExperimentRunStatus } from '../../../generated/prisma'
 import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
 import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
+import { SlackChannel } from 'src/vendors/slack/slackService.types'
 
 // Direct-instantiation unit test (mirrors campaignStrategy.cap.test.ts): the
 // service reads through this.model / this.client (both resolved from _prisma),
@@ -20,6 +21,9 @@ const makeService = () => {
     },
     campaign: {
       findFirst: vi.fn().mockResolvedValue({ id: 42 }),
+      findUnique: vi
+        .fn()
+        .mockResolvedValue({ id: 42, isPro: false, data: {}, user: null }),
       findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 42, data: {} }),
       update: vi.fn().mockResolvedValue({}),
     },
@@ -45,15 +49,17 @@ const makeService = () => {
     markFailed: vi.fn().mockResolvedValue(undefined),
   }
   const s3 = { getFile: vi.fn() }
+  const slack = { message: vi.fn().mockResolvedValue('ok') }
   const service = new CampaignTrackerTasksService(
     experimentRuns as never,
     s3 as never,
+    slack as never,
   )
   Object.defineProperty(service, '_prisma', { value: prisma })
   Object.assign(service, {
     logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
   })
-  return { service, prisma, experimentRuns, s3 }
+  return { service, prisma, experimentRuns, s3, slack }
 }
 
 const campaign = (over: Record<string, unknown> = {}) =>
@@ -282,6 +288,79 @@ describe('CampaignTrackerTasksService.onExperimentRunCompleted', () => {
       h.prisma.campaignTrackerTask.createMany.mock.calls,
     )[0].data
     expect(created.every((r: { week: number }) => r.week === 3)).toBe(true)
+  })
+
+  describe('weekly Slack notification', () => {
+    const proCampaign = {
+      id: 42,
+      isPro: true,
+      data: { name: 'Jordan Nguyen', hubspotId: 'hs-9' },
+      user: { firstName: 'Jordan', lastName: 'Nguyen' },
+    }
+    const weekTasks = [
+      {
+        id: 'k1',
+        title: 'Knock doors',
+        date: new Date('2026-07-13'),
+        flowType: 'doorKnocking',
+      },
+      {
+        id: 's1',
+        title: 'Send intro text',
+        date: new Date('2026-07-14'),
+        flowType: 'text',
+      },
+    ]
+
+    it('posts the week to casClickupTasks for a Pro weekly regen', async () => {
+      // prior dynamic rows exist → generation 2 → a weekly regen, not bootstrap
+      h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 1 })
+      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign)
+      h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce(weekTasks)
+      h.s3.getFile.mockResolvedValueOnce(artifact())
+
+      await h.service.onExperimentRunCompleted(run())
+
+      expect(h.slack.message).toHaveBeenCalledTimes(1)
+      const [message, channel] = firstOrThrow(h.slack.message.mock.calls)
+      expect(channel).toBe(SlackChannel.casClickupTasks)
+      const text = message.blocks[0].text.text
+      expect(text).toContain('Weekly Campaign Tasks Generated')
+      expect(text).toContain('Jordan Nguyen')
+      expect(text).toContain('hs-9')
+      expect(text).toContain('DOORKNOCKING: Knock doors')
+    })
+
+    it('does not notify on the initial bootstrap generation', async () => {
+      // no prior dynamic rows → generation 1 → initial, not a weekly regen
+      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign)
+      h.s3.getFile.mockResolvedValueOnce(artifact())
+      await h.service.onExperimentRunCompleted(run())
+      expect(h.slack.message).not.toHaveBeenCalled()
+    })
+
+    it('does not notify a non-Pro campaign', async () => {
+      h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 1 })
+      // campaign.findUnique defaults to isPro: false
+      h.s3.getFile.mockResolvedValueOnce(artifact())
+      await h.service.onExperimentRunCompleted(run())
+      expect(h.slack.message).not.toHaveBeenCalled()
+    })
+
+    it('keeps the run successful when the Slack post fails', async () => {
+      h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({ week: 1 })
+      h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign)
+      h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce(weekTasks)
+      h.s3.getFile.mockResolvedValueOnce(artifact())
+      h.slack.message.mockRejectedValueOnce(new Error('slack down'))
+
+      await expect(
+        h.service.onExperimentRunCompleted(run()),
+      ).resolves.toBeUndefined()
+      // rows were committed and the run was not marked failed
+      expect(h.prisma.campaignTrackerTask.createMany).toHaveBeenCalled()
+      expect(h.experimentRuns.markFailed).not.toHaveBeenCalled()
+    })
   })
 
   it('fail-closed: a bad artifact marks failed and rethrows', async () => {
