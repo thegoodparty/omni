@@ -1590,6 +1590,24 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockTcrModel.update).not.toHaveBeenCalled()
   })
 
+  it('does not throw or 500 when about.issues has a genuine issue mixed with a malformed (null) entry', async () => {
+    mockWebsites.getContentForCampaign.mockResolvedValueOnce({
+      about: {
+        bio: `<p>${'A'.repeat(600)}</p>`,
+        issues: [
+          { title: 'Lower property taxes', description: 'A real plan' },
+          null,
+        ],
+      },
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, input),
+    ).resolves.not.toThrow()
+
+    expect(mockTcrModel.updateMany).toHaveBeenCalled()
+  })
+
   it('preserves persisted peerlyCvVerificationId when Peerly already has a CV request (existing-CV branch)', async () => {
     // Existing record carries a CV id from a prior partial run.
     const recordWithExistingCv = {

@@ -19,6 +19,11 @@ describe('isBioGenuine', () => {
   it('is true for a real bio at or over the minimum length', () => {
     expect(isBioGenuine(realBio)).toBe(true)
   })
+  it('is false for a long bio that still contains the template marker', () => {
+    const longTemplateBio = `<p>${templateBio.repeat(10)}</p>`
+    expect(longTemplateBio.length).toBeGreaterThanOrEqual(500)
+    expect(isBioGenuine(longTemplateBio)).toBe(false)
+  })
 })
 
 describe('hasGenuineIssue', () => {
@@ -38,6 +43,17 @@ describe('hasGenuineIssue', () => {
     expect(
       hasGenuineIssue([
         { title: 'Addressing PFAS', description: 'clean water for families' },
+      ]),
+    ).toBe(true)
+  })
+  it('is false, not throwing, for a null element', () => {
+    expect(hasGenuineIssue([null as never])).toBe(false)
+  })
+  it('finds the genuine issue and skips a null element without throwing', () => {
+    expect(
+      hasGenuineIssue([
+        { title: 'PFAS', description: 'clean water' },
+        null as never,
       ]),
     ).toBe(true)
   })

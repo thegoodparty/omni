@@ -15,11 +15,18 @@ export const isBioGenuine = (bio?: string | null): boolean => {
   return !text.toLowerCase().includes(TEMPLATE_BIO_MARKER)
 }
 
-export const hasGenuineIssue = (
-  issues?: { title?: string | null; description?: string | null }[] | null,
-): boolean =>
+type WebsiteIssue = { title?: string | null; description?: string | null }
+
+// content is a JSON column: legacy rows can carry a malformed (non-object,
+// e.g. null) issues entry that never passed through UpdateWebsiteSchema's
+// array validation, so guard each element here rather than at every call
+// site. The `object` check narrows out `null` too, since `typeof null` is
+// `'object'`.
+export const hasGenuineIssue = (issues?: WebsiteIssue[] | null): boolean =>
   (issues ?? []).some(
     (issue) =>
+      typeof issue === 'object' &&
+      issue !== null &&
       (issue.title?.trim().length ?? 0) > 0 &&
       (issue.description?.trim().length ?? 0) > 0 &&
       issue.title?.trim() !== COMPLIANCE_DEFAULT_ISSUE_TITLE,

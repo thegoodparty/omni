@@ -95,16 +95,7 @@ const REQUIRED_PUBLISH_FIELDS: Array<{
   { path: 'about.bio', check: (c) => isBioGenuine(c.about?.bio) },
   {
     path: 'about.issues',
-    // content is a JSON column: legacy rows can carry a malformed (non-object)
-    // issues entry that never passed through UpdateWebsiteSchema's array
-    // validation, so filter before handing the array to the detector.
-    check: (c) =>
-      hasGenuineIssue(
-        c.about?.issues?.filter(
-          (issue): issue is { title?: string; description?: string } =>
-            typeof issue === 'object' && issue !== null,
-        ),
-      ),
+    check: (c) => hasGenuineIssue(c.about?.issues),
   },
   { path: 'contact.email', check: (c) => isNonEmpty(c.contact?.email) },
 ]
