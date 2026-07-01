@@ -28,7 +28,10 @@ const fullSummary: RaceOpponentSummary = {
   generatedAt: null,
   threatTier: 'primary_threat',
   whyTheyMatter: 'Her air war is the real obstacle.',
-  whatYouNeedToKnow: ['Voted YES on SB-1421.', 'Aligned with leadership.'],
+  whatYouNeedToKnow: [
+    { text: 'Voted YES on SB-1421.' },
+    { text: 'Aligned with leadership.' },
+  ],
   whereSoft: [{ text: 'No town hall in 14 months.', sources: undefined }],
   issueContrasts: [
     {
