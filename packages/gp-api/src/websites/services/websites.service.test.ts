@@ -477,15 +477,13 @@ describe('applyCompliancePublishFallbacks', () => {
     campaignPositions: [],
   }
 
-  it('backfills bio and a publishable issue when about is empty', () => {
+  it('backfills title and email but not bio or issues', () => {
     const patched = applyCompliancePublishFallbacks({}, user, campaign)
 
-    expect(patched).not.toBeNull()
-    expect(patched?.about?.bio?.trim()).toBeTruthy()
-    expect(patched?.about?.bio).toContain('Rick Bennett')
-    const issue = patched?.about?.issues?.[0]
-    expect(issue?.title?.trim()).toBeTruthy()
-    expect(issue?.description?.trim()).toBeTruthy()
+    expect(patched?.main?.title).toBe('Vote For Rick Bennett')
+    expect(patched?.contact?.email).toBe(user.email)
+    expect(patched?.about?.bio ?? '').toBe('')
+    expect(patched?.about?.issues ?? []).toEqual([])
   })
 
   it('returns null when all publish-gated fields are already present', () => {
@@ -501,24 +499,51 @@ describe('applyCompliancePublishFallbacks', () => {
     expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
   })
 
-  it('backfills only the bio without clobbering existing issues', () => {
+  it('never backfills a bio, even with existing issues present', () => {
     const content = {
+      main: { title: 'Set' },
+      contact: { email: 'x@example.com' },
       about: { issues: [{ title: 'Housing', description: 'More homes' }] },
     }
 
-    const patched = applyCompliancePublishFallbacks(content, user, campaign)
-
-    expect(patched?.about?.bio?.trim()).toBeTruthy()
-    expect(patched?.about?.issues).toEqual(content.about.issues)
+    expect(applyCompliancePublishFallbacks(content, user, campaign)).toBeNull()
   })
 
-  it('backfills only issues without clobbering an existing bio', () => {
+  it('seeds real campaign positions as issues, never a default', () => {
+    const positions: PositionWithTopIssue[] = [
+      {
+        id: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        description: 'Build more affordable housing.',
+        order: 0,
+        campaignId: 1,
+        positionId: 1,
+        topIssueId: 5,
+        topIssue: {
+          id: 5,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          name: 'Housing',
+        },
+      },
+    ]
+    const campaignWithPositions: CampaignWith<'campaignPositions'> = {
+      ...createMockCampaign({ details: { state: 'ME' } }),
+      campaignPositions: positions,
+    }
     const content = { about: { bio: '<p>A real candidate bio.</p>' } }
 
-    const patched = applyCompliancePublishFallbacks(content, user, campaign)
+    const patched = applyCompliancePublishFallbacks(
+      content,
+      user,
+      campaignWithPositions,
+    )
 
     expect(patched?.about?.bio).toBe('<p>A real candidate bio.</p>')
-    expect(patched?.about?.issues?.length).toBeGreaterThan(0)
+    expect(patched?.about?.issues).toEqual([
+      { title: 'Housing', description: 'Build more affordable housing.' },
+    ])
   })
 
   it('backfills main.title and contact.email when they are empty', () => {
@@ -547,11 +572,9 @@ describe('applyCompliancePublishFallbacks', () => {
     const patched = applyCompliancePublishFallbacks({}, namelessUser, campaign)
 
     expect(patched?.main?.title).toBe('Vote For The Candidate')
-    expect(patched?.about?.bio).toContain('The Candidate')
-    expect(patched?.about?.bio).not.toContain('<p> is')
   })
 
-  it('replaces issues that have blank title or description', () => {
+  it('drops issues with blank title or description, seeding none by default', () => {
     const content = {
       about: {
         bio: '<p>Real bio.</p>',
@@ -563,12 +586,7 @@ describe('applyCompliancePublishFallbacks', () => {
 
     const patched = applyCompliancePublishFallbacks(content, user, campaign)
 
-    const issues = patched?.about?.issues ?? []
-    expect(issues.length).toBeGreaterThan(0)
-    issues.forEach((issue) => {
-      expect(issue.title?.trim()).toBeTruthy()
-      expect(issue.description?.trim()).toBeTruthy()
-    })
+    expect(patched?.about?.issues).toEqual([])
   })
 
   it('keeps valid issues while dropping malformed ones', () => {
@@ -672,7 +690,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     vi.clearAllMocks()
   })
 
-  it('creates a website then backfills publishable content when none exists', async () => {
+  it('creates a website and does not backfill once title/email are set', async () => {
     mockPrisma.website.findUnique.mockResolvedValue(null)
     mockPrisma.website.create.mockResolvedValue({
       id: 5,
@@ -687,11 +705,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     await service.ensureCompliancePublishableWebsite(user, campaign)
 
     expect(mockPrisma.website.create).toHaveBeenCalledTimes(1)
-    expect(mockPrisma.website.update).toHaveBeenCalledTimes(1)
-    const updateArg = firstOrThrow(mockPrisma.website.update.mock.calls)[0]
-    expect(updateArg.where).toEqual({ campaignId: 99 })
-    expect(updateArg.data.content.about.bio.trim()).toBeTruthy()
-    expect(updateArg.data.content.about.issues.length).toBeGreaterThan(0)
+    expect(mockPrisma.website.update).not.toHaveBeenCalled()
   })
 
   it('does not create or update when the website is already publishable', async () => {
@@ -731,7 +745,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     expect(createArg.data.content.main.title).toBe('Vote For The Candidate')
   })
 
-  it('drops incomplete positions and seeds a default instead of placeholder copy', async () => {
+  it('drops incomplete positions, leaving issues empty rather than a default', async () => {
     // A description-only position (no topIssue → empty title) is incomplete;
     // it must be dropped rather than emitted as "Issue 1: <description>".
     const campaignWithIncompletePosition: CampaignWith<'campaignPositions'> = {
@@ -764,11 +778,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     )
 
     const createArg = firstOrThrow(mockPrisma.website.create.mock.calls)[0]
-    const issues = createArg.data.content.about.issues
-    expect(issues).toHaveLength(1)
-    expect(issues[0].title).not.toMatch(/^Issue \d/)
-    expect(issues[0].title?.trim()).toBeTruthy()
-    expect(issues[0].description?.trim()).toBeTruthy()
+    expect(createArg.data.content.about.issues).toEqual([])
   })
 
   it('backfills an existing website with gaps without creating a new one', async () => {
@@ -776,9 +786,7 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
       id: 7,
       campaignId: 99,
       content: {
-        main: { title: 'Vote For Rick Bennett' },
         about: { issues: [] },
-        contact: { email: 'rick@example.com' },
       },
     })
 
@@ -788,7 +796,76 @@ describe('WebsitesService.ensureCompliancePublishableWebsite', () => {
     expect(mockPrisma.website.update).toHaveBeenCalledTimes(1)
     const updateArg = firstOrThrow(mockPrisma.website.update.mock.calls)[0]
     expect(updateArg.where).toEqual({ campaignId: 99 })
-    expect(updateArg.data.content.about.bio.trim()).toBeTruthy()
-    expect(updateArg.data.content.about.issues.length).toBeGreaterThan(0)
+    expect(updateArg.data.content.main.title).toBe('Vote For Rick Bennett')
+    expect(updateArg.data.content.contact.email).toBe(user.email)
+    expect(updateArg.data.content.about.issues).toEqual([])
+  })
+})
+
+describe('WebsitesService.createByCampaign', () => {
+  let service: WebsitesService
+  let mockPrisma: {
+    website: { create: ReturnType<typeof vi.fn> }
+  }
+  const user = createMockUser({ firstName: 'Rick', lastName: 'Bennett' })
+  const campaign: CampaignWith<'campaignPositions'> = {
+    ...createMockCampaign({ id: 99, details: { state: 'ME' } }),
+    campaignPositions: [],
+  }
+
+  beforeEach(async () => {
+    mockPrisma = { website: { create: vi.fn() } }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        WebsitesService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: PinoLogger, useValue: createMockLogger() },
+      ],
+    }).compile()
+
+    service = module.get<WebsitesService>(WebsitesService)
+  })
+
+  it('seeds empty issues and no tagline when the campaign has no positions', () => {
+    service.createByCampaign(user, campaign)
+
+    const createArg = firstOrThrow(mockPrisma.website.create.mock.calls)[0]
+    expect(createArg.data.content.main.title).toBe('Vote For Rick Bennett')
+    expect(createArg.data.content.main.tagline).toBeUndefined()
+    expect(createArg.data.content.about.issues).toEqual([])
+    expect(createArg.data.content.contact.email).toBe(user.email)
+  })
+
+  it('seeds real campaign positions as issues', () => {
+    const positions: PositionWithTopIssue[] = [
+      {
+        id: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        description: 'Build more affordable housing.',
+        order: 0,
+        campaignId: 99,
+        positionId: 1,
+        topIssueId: 5,
+        topIssue: {
+          id: 5,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          name: 'Housing',
+        },
+      },
+    ]
+    const campaignWithPositions: CampaignWith<'campaignPositions'> = {
+      ...createMockCampaign({ id: 99, details: { state: 'ME' } }),
+      campaignPositions: positions,
+    }
+
+    service.createByCampaign(user, campaignWithPositions)
+
+    const createArg = firstOrThrow(mockPrisma.website.create.mock.calls)[0]
+    expect(createArg.data.content.about.issues).toEqual([
+      { title: 'Housing', description: 'Build more affordable housing.' },
+    ])
   })
 })

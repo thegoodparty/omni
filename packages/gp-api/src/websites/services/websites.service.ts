@@ -28,8 +28,6 @@ type WebsiteIssue = NonNullable<
   NonNullable<PrismaJson.WebsiteContent['about']>['issues']
 >[number]
 
-const COMPLIANCE_DEFAULT_ISSUE_TITLE = 'Local Solutions, Not Party Politics'
-
 const hasText = (value?: string | null): boolean =>
   typeof value === 'string' && value.trim().length > 0
 
@@ -40,13 +38,6 @@ const getDisplayName = (user: User): string => {
   const fullName = getUserFullName(user)
   return hasText(fullName) ? fullName : 'The Candidate'
 }
-
-const buildDefaultComplianceIssue = (displayName: string) => ({
-  title: COMPLIANCE_DEFAULT_ISSUE_TITLE,
-  description:
-    `${displayName} is focused on practical, community-first leadership ` +
-    'and bringing neighbors together to solve local problems.',
-})
 
 // Map a campaign's positions to publishable issues, keeping only complete ones
 // (real title AND description). Placeholder copy like "Issue 1" would survive
@@ -66,10 +57,12 @@ const realIssuesFromCampaign = (
 // The compliance_setup agent publishes an existing website but cannot author
 // missing copy. Legacy-Pro candidates reach the agentic flow without the
 // pre-payment candidate-profile step that creates the site, so the agent's
-// publish call would 400 on the empty publish-gated fields. Backfill every
-// field assertReadyToPublish requires (main.title, about.bio, about.issues,
-// contact.email) with templated defaults matching createByCampaign, but never
-// overwrite candidate-authored content. Returns patched content, or null when
+// publish call would 400 on the empty publish-gated fields. Backfill the
+// mechanical fields (main.title, contact.email) and seed about.issues from
+// real campaign positions when present, but never invent a bio or a default
+// issue — Peerly rejects templated content as "not genuine". A site with no
+// genuine bio/issues simply stays unpublishable (the publish gate rejects it;
+// the agent fails profile_incomplete). Returns patched content, or null when
 // nothing needed filling.
 export const applyCompliancePublishFallbacks = (
   content: PrismaJson.WebsiteContent,
@@ -91,34 +84,16 @@ export const applyCompliancePublishFallbacks = (
     changed = true
   }
 
-  if (!hasText(about.bio)) {
-    const office = campaign.details.normalizedOffice
-    const role = hasText(office) ? `a candidate for ${office}` : 'a candidate'
-    const where = hasText(campaign.details.state)
-      ? ` in ${campaign.details.state}`
-      : ''
-    nextAbout.bio =
-      `<p>${displayName} is ${role}${where}, running on local solutions ` +
-      'over party politics and committed to putting the community first.</p>'
-    changed = true
-  }
-
-  // assertReadyToPublish requires every issue to have a non-empty title AND
-  // description, so drop any malformed ones; seed only when none survive.
-  // Keeps valid candidate-authored issues intact, and prefers the candidate's
-  // real campaign positions over the generic default (legacy-Pro candidates
-  // often have positions but an empty about.issues — ENG-10602).
+  // Only real candidate-authored issues or real campaign positions ship.
+  // No genuine source => leave issues empty so the publish gate rejects the
+  // site and the agent fails profile_incomplete (no generic content reaches
+  // Peerly). Keeps valid candidate-authored issues intact, else real positions.
   const validIssues = (about.issues ?? []).filter(
     (issue) => hasText(issue.title) && hasText(issue.description),
   )
-  if (validIssues.length === 0 || validIssues.length !== about.issues?.length) {
+  if (validIssues.length !== about.issues?.length) {
     const realIssues = realIssuesFromCampaign(campaign)
-    nextAbout.issues =
-      validIssues.length > 0
-        ? validIssues
-        : realIssues.length > 0
-          ? realIssues
-          : [buildDefaultComplianceIssue(displayName)]
+    nextAbout.issues = validIssues.length > 0 ? validIssues : realIssues
     changed = true
   }
 
@@ -135,13 +110,9 @@ export const applyCompliancePublishFallbacks = (
 @Injectable()
 export class WebsitesService extends createPrismaBase(MODELS.Website) {
   createByCampaign(user: User, campaign: CampaignWith<'campaignPositions'>) {
-    // Seed a default when no real positions survive so this stays publishable
-    // for the direct POST /websites caller too (which has no fallback after).
-    const realIssues = realIssuesFromCampaign(campaign)
-    const issues =
-      realIssues.length > 0
-        ? realIssues
-        : [buildDefaultComplianceIssue(getDisplayName(user))]
+    // Seed only real positions; a site with none stays unpublishable until the
+    // candidate authors genuine issues (the publish gate enforces this).
+    const issues = realIssuesFromCampaign(campaign)
 
     // NOTE: this is in a WIP state, better default content generation TBD
     // TODO: generate AI content here for any missing fields
@@ -153,7 +124,6 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
           theme: 'light',
           main: {
             title: `Vote For ${getDisplayName(user)}`,
-            tagline: 'Local Solutions, Not Party Politics',
           },
           about: {
             issues,
