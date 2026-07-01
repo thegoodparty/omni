@@ -1,3 +1,5 @@
+import json
+
 import event_state_gsheet as gs
 import event_state_assembler as esa
 
@@ -85,3 +87,20 @@ def test_main_missing_sheet_id_returns_2(monkeypatch):
     monkeypatch.setattr(gs.esa, "assemble", lambda *a, **k: {"rows": SAMPLE, "meta": {}})
     monkeypatch.delenv("GP_EVENT_STATE_SHEET_ID", raising=False)
     assert gs.main(["refresh"]) == 2
+
+
+def test_main_override_threads_into_assemble(tmp_path, monkeypatch, capsys):
+    override = {"New Event": {"govern_display_name": "New Event",
+                              "govern_description": "brand new", "govern_tags": ["product:win"]}}
+    ov_file = tmp_path / "override.json"
+    ov_file.write_text(json.dumps(override))
+
+    seen = {}
+    def fake_assemble(today, **kwargs):
+        seen["overrides"] = kwargs.get("overrides")
+        return {"rows": [], "meta": {}}
+    monkeypatch.setattr(gs.esa, "assemble", fake_assemble)
+
+    rc = gs.main(["refresh", "--dry-run", "--override", str(ov_file)])
+    assert rc == 0
+    assert seen["overrides"] == override
