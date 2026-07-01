@@ -21,5 +21,9 @@ export const startTestPostgres = (): Promise<StartedPostgreSqlContainer> =>
 
 export const loadMigrationsSql = (): string =>
   glob(`${__dirname}/../prisma/schema/migrations/*/*.sql`)
+    // fast-glob does not guarantee order; migrations are timestamp-prefixed and
+    // order-dependent (later files ALTER tables the earliest one CREATEs), so
+    // sort the paths to replay them chronologically.
+    .sort()
     .map((file) => readFileSync(file, 'utf8'))
     .join('\n')
