@@ -751,6 +751,23 @@ class TestNoDataInternalsInCandidateText:
         qc.check_no_data_internals_in_candidate_text(art, findings)
         assert any(f.check == "candidate_text.posture_override_leak" for f in findings)
 
+    def test_posture_override_in_executive_summary_flagged(self):
+        # the executive summary (lead_in + items[].overview) is scanned too
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["executive_summary"]["lead_in"] = "## Posture override — then the lead-in."
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "candidate_text.posture_override_leak"
+                   and "executive_summary.lead_in" in f.message for f in findings)
+
+        art2 = _briefing_ready_artifact()
+        art2["executive_summary"]["items"][0]["overview"] = "## Posture override in the overview."
+        findings2 = []
+        qc.check_no_data_internals_in_candidate_text(art2, findings2)
+        assert any(f.check == "candidate_text.posture_override_leak"
+                   and "executive_summary.items[0].overview" in f.message for f in findings2)
+
     def test_voter_file_in_sentiment_prose_flagged(self):
         # "voter file" is ambiguous, so it is flagged only in our modeled-data prose
         qc = _qa_checks()
