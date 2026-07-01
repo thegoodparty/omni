@@ -791,6 +791,18 @@ class TestNoDataInternalsInCandidateText:
         qc.check_no_data_internals_in_candidate_text(art, findings)
         assert findings == [], f"agenda 'L2 Corridor' false-positived: {[f.check for f in findings]}"
 
+    def test_posture_override_in_source_snapshot_flagged(self):
+        qc = _qa_checks()
+        art = _briefing_ready_artifact()
+        art["sources"].append({
+            "id": "src_p", "name": "City Council Agenda Packet",
+            "source_type": "agenda_packet", "retrieved_at": art["sources"][0]["retrieved_at"],
+            "retrieved_text_or_snapshot": "## Posture override\nThis section operates as an override.",
+        })
+        findings = []
+        qc.check_no_data_internals_in_candidate_text(art, findings)
+        assert any(f.check == "source_snapshot.posture_override_leak" for f in findings)
+
     def test_databricks_in_agenda_source_not_flagged(self):
         # an agenda/news source discussing a Databricks IT contract must NOT trip
         qc = _qa_checks()
