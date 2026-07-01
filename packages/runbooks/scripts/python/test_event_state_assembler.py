@@ -278,3 +278,48 @@ def test_assemble_override_reflects_new_description_without_databricks(tmp_path)
     )
     foo = {r["event"]: r for r in result["rows"]}["Foo Event"]
     assert foo["description"] == "fresh purpose"
+
+
+def test_assemble_override_injects_event_absent_from_catalog_and_csv(tmp_path):
+    # Override event present in NEITHER the fake catalog NOR the provenance CSV — the
+    # exact KeyError-guard path _INJECT_SKELETON exists for. Must not raise, and the
+    # injected event must still land as a row (in_code=None → status "code_unknown",
+    # per classify_status in analytics_event_health.py:227-242).
+    catalog_df = pd.DataFrame(
+        [
+            {"event_type": "Foo Event", "govern_display_name": "Foo Event",
+             "family": "win_onboarding", "first_seen_date": "2026-01-01",
+             "last_seen_date": "2026-06-01", "event_count": 100, "event_count_30d": 40,
+             "govern_description": "stale desc", "govern_tags": ["product:win"]},
+        ]
+    )
+    prov = tmp_path / "prov.csv"
+    with prov.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=[
+            "event_type", "instrumented_pr", "instrumented_date",
+            "retired_pr", "retired_date", "last_code_change_date"])
+        w.writeheader()
+        w.writerow({"event_type": "Foo Event", "instrumented_pr": "p1",
+                    "instrumented_date": "2026-01-01", "retired_pr": "", "retired_date": "",
+                    "last_code_change_date": "2026-01-01"})
+
+    result = esa.assemble(
+        date(2026, 6, 30),
+        run_query=lambda _sql: catalog_df,
+        code_csv=prov,
+        overrides={
+            "Brand New Event": {
+                "govern_display_name": "Brand New Event",
+                "govern_description": "<!-- gp-meta -->\nfresh purpose\nsupersession: original\nin use: 2026-06-30\n<!-- /gp-meta -->",
+                "govern_tags": ["product:win"],
+            }
+        },
+    )
+    rows = {r["event"]: r for r in result["rows"]}
+    assert "Brand New Event" in rows
+    brand_new = rows["Brand New Event"]
+    assert brand_new["status"] == "code_unknown"
+    assert brand_new["description"] == "fresh purpose"
+    assert brand_new["event_count_30d"] == 0
+    assert brand_new["event_count"] == 0
+    assert brand_new["family"] == ""

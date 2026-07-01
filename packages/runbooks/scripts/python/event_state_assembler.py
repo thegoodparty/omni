@@ -138,7 +138,8 @@ def _apply_overrides(
     before the daily Databricks catalog sync. Only the three govern_* fields are overridden;
     status, provenance, and volume still come from their own sources. A missing event is
     injected with the full skeleton reconcile() requires (a zero-volume brand-new event then
-    classifies as dormant)."""
+    classifies as dormant when it also has a provenance-CSV row; absent both catalog and CSV
+    it is ``code_unknown``)."""
     if not overrides:
         return catalog
     by_type = {row["event_type"]: row for row in catalog}
