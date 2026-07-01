@@ -227,13 +227,18 @@ const WhereYouContrast = ({
     </h3>
     <Accordion
       type="multiple"
-      defaultValue={contrasts.map((contrast) => contrast.issue)}
+      // The issue label is free-text from the LLM with no uniqueness guarantee
+      // in the contract, so suffix the index to keep React keys and Radix
+      // open-state values distinct when two contrasts share an issue name.
+      defaultValue={contrasts.map(
+        (contrast, index) => `${contrast.issue}-${index}`,
+      )}
       className="flex flex-col gap-3"
     >
-      {contrasts.map((contrast) => (
+      {contrasts.map((contrast, index) => (
         <AccordionItem
-          key={contrast.issue}
-          value={contrast.issue}
+          key={`${contrast.issue}-${index}`}
+          value={`${contrast.issue}-${index}`}
           className="rounded-lg border border-border bg-card px-4"
         >
           <AccordionTrigger className="text-sm font-semibold text-foreground hover:no-underline focus-visible:no-underline">
