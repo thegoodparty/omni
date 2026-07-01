@@ -352,26 +352,59 @@ def render(
         )
     parts.append("</section>")
 
-    # ---- milestone attribution (only when present) ----
+    # ---- cost per milestone (marginal), only when present ----
     milestone = dist.get("milestone_costs")
     if milestone and milestone.get("ordered"):
+        ordered = milestone["ordered"]
         parts.append("<section>")
-        parts.append("<h2>Where the cost lands by milestone</h2>")
+        parts.append("<h2>Cost per milestone</h2>")
+        parts.append(
+            '<p class="section-note">'
+            "Each milestone's cost is the <b>marginal</b> spend from the previous "
+            "milestone firing until this one — the turns tagged with that milestone. "
+            "It shows which phase of the run the money actually goes to; the cumulative "
+            "column is a Pareto over phases."
+            "</p>"
+        )
         note = dist.get("milestone_note", "")
         if note:
             parts.append(f'<p class="section-note">{esc(note)}</p>')
+
+        top3 = sorted(ordered, key=lambda r: r.get("total") or 0, reverse=True)[:3]
+        top3_share = sum((r.get("share_of_spend") or 0) for r in top3)
+        top3_names = ", ".join(esc(r.get("milestone")) for r in top3)
+        parts.append('<div class="callout"><h3>Concentration</h3>')
+        parts.append(
+            f"<p>The top {len(top3)} milestones (<b>{top3_names}</b>) account for "
+            f"<b>{top3_share * 100:.0f}%</b> of cohort spend.</p></div>"
+        )
+
+        ms_chart = images.get("milestone_costs.png")
+        if ms_chart:
+            parts.append(
+                f'<figure><img src="{ms_chart}" alt="cost per milestone" />'
+                "<figcaption><b>Marginal cost per milestone.</b> Each bar is the dollar "
+                "spend on the turns in that milestone, in run order; the top 3 phases are "
+                "highlighted.</figcaption></figure>"
+            )
+
         parts.append('<div class="tbl-wrap"><table><thead><tr>')
         parts.append(
-            "<th>Milestone</th><th class='num'>Total</th><th class='num'>Share</th>"
+            "<th>Milestone</th><th class='num'>Marginal $</th><th class='num'>Share</th>"
+            "<th class='num'>Cumul.</th><th class='num'>$ / turn</th>"
             "<th class='num'>Median / run</th></tr></thead><tbody>"
         )
-        for row in milestone["ordered"]:
+        for row in ordered:
             share = row.get("share_of_spend")
             share_txt = f"{share * 100:.1f}%" if share is not None else "n/a"
+            cumul = row.get("cumulative_share")
+            cumul_txt = f"{cumul * 100:.0f}%" if cumul is not None else "n/a"
             parts.append(
                 f"<tr><td>{esc(row.get('milestone'))}</td>"
                 f"<td class='num'>{fmt_usd(row.get('total'))}</td>"
                 f"<td class='num'>{share_txt}</td>"
+                f"<td class='num'>{cumul_txt}</td>"
+                f"<td class='num'>{fmt_usd(row.get('cost_per_turn'))}</td>"
                 f"<td class='num'>{fmt_usd(row.get('median_per_run'))}</td></tr>"
             )
         parts.append("</tbody></table></div>")
@@ -801,6 +834,7 @@ def build_report(
             "cumulative_cost.png",
             "cost_velocity.png",
             "population_heatmap.png",
+            "milestone_costs.png",
             "milestone_heatmap.png",
             "turn_progress_heatmap.png",
         )

@@ -57,9 +57,11 @@ def _write_outputs(tmp_path, *, with_profile=True, with_milestones=False):
     if with_milestones:
         dist["milestone_costs"] = {
             "ordered": [
-                {"milestone": "setup", "total": 6.0, "share_of_spend": 0.2, "runs": 3,
+                {"milestone": "setup", "total": 6.0, "share_of_spend": 0.2,
+                 "cumulative_share": 0.2, "runs": 3, "turns": 12, "cost_per_turn": 0.5,
                  "median_per_run": 2.0, "p90_per_run": 2.5},
-                {"milestone": "work", "total": 24.0, "share_of_spend": 0.8, "runs": 3,
+                {"milestone": "work", "total": 24.0, "share_of_spend": 0.8,
+                 "cumulative_share": 1.0, "runs": 3, "turns": 24, "cost_per_turn": 1.0,
                  "median_per_run": 8.0, "p90_per_run": 9.0},
             ],
             "runs_with_milestones": 3,
@@ -71,6 +73,7 @@ def _write_outputs(tmp_path, *, with_profile=True, with_milestones=False):
         (plots / name).write_bytes(_PNG_1x1)
     if with_milestones:
         (plots / "milestone_heatmap.png").write_bytes(_PNG_1x1)
+        (plots / "milestone_costs.png").write_bytes(_PNG_1x1)
 
     profile_path = None
     if with_profile:
@@ -124,8 +127,8 @@ def test_report_renders_without_milestone_data(tmp_path):
     scope, plots, profile = _write_outputs(tmp_path, with_profile=True, with_milestones=False)
     doc = build_report(scope, plots, profile, None)
     _assert_self_contained(doc)
-    # No milestone section when the data is absent.
-    assert "by milestone" not in doc
+    # No cost-per-milestone section when the data is absent.
+    assert "Cost per milestone" not in doc
     # The footer caveat names the missing milestone attribution.
     assert "milestone" in doc.lower()
 
@@ -134,10 +137,16 @@ def test_report_with_milestones_renders_table(tmp_path):
     scope, plots, profile = _write_outputs(tmp_path, with_profile=True, with_milestones=True)
     doc = build_report(scope, plots, profile, None)
     _assert_self_contained(doc)
-    assert "by milestone" in doc
+    assert "Cost per milestone" in doc
     assert "setup" in doc and "work" in doc
-    # The milestone heatmap is embedded too -> 4 charts.
-    assert doc.count('src="data:image/png;base64,') == 4
+    # Marginal framing and the new cumulative/$-per-turn columns render.
+    assert "Marginal $" in doc
+    assert "Cumul." in doc
+    # The concentration callout names the top phases and their combined share.
+    assert "Concentration" in doc
+    # The milestone heatmap and the cost-per-milestone bar chart are embedded
+    # too -> 5 charts.
+    assert doc.count('src="data:image/png;base64,') == 5
 
 
 def test_report_degrades_without_profile(tmp_path):
