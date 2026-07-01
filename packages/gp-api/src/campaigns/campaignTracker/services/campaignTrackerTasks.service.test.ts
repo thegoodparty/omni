@@ -396,13 +396,17 @@ describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
     h = makeService()
   })
 
-  it("posts the current week's tasks to casClickupTasks for a Pro campaign", async () => {
+  it('posts the earliest incomplete task window to casClickupTasks for Pro', async () => {
     h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+    // The window is anchored to the earliest incomplete task, not the clock.
+    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({
+      date: new Date('2026-07-06'),
+    })
     h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce([
       {
         id: 't1',
         title: 'Door knock',
-        date: new Date('2026-07-01'),
+        date: new Date('2026-07-06'),
         flowType: 'doorKnocking',
       },
     ])
@@ -414,6 +418,13 @@ describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
     const text = message.blocks[0].text.text
     expect(text).toContain('Pro upgrade')
     expect(text).toContain('Door knock')
+  })
+
+  it('does nothing when there are no incomplete tasks', async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+    // findFirst (earliest incomplete task) defaults to null
+    await h.service.notifyProUpgrade(42)
+    expect(h.slack.message).not.toHaveBeenCalled()
   })
 
   it('does nothing for a non-Pro campaign', async () => {

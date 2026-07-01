@@ -418,21 +418,28 @@ export class CampaignTrackerTasksService extends createPrismaBase(
     await this.postCampaignWeekToSlack(campaign, weekStart, title)
   }
 
-  // One-shot on Pro upgrade: post the upcoming Mon-Sun week's tasks so CAS can
-  // start executing. Uses the same nextMondayUtcMidnight anchor the tasks are
-  // dated to — static rows and every generation target the upcoming week — so
-  // the window always matches where the tasks live (a current-week window would
-  // miss them). Cohort gating (tracker rows) + idempotency live in the caller.
+  // One-shot on Pro upgrade: post the candidate's next week of tasks so CAS can
+  // start executing. Tasks are anchored to a Monday fixed at bootstrap/generation
+  // time, which can predate this upgrade (Stripe webhook, no time constraint), so
+  // deriving the window from the current clock can land on an empty future week.
+  // Anchor it to the earliest incomplete task instead, so it always lands on real
+  // tasks. Cohort gating (tracker rows) + idempotency live in the caller.
   async notifyProUpgrade(campaignId: number): Promise<void> {
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },
       include: { user: true },
     })
     if (!campaign?.isPro) return
+    const earliest = await this.model.findFirst({
+      where: { campaignId, completed: false },
+      orderBy: { date: Prisma.SortOrder.asc },
+      select: { date: true },
+    })
+    if (!earliest) return
     await this.postCampaignWeekToSlack(
       campaign,
-      nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE),
-      ":tada: *Pro upgrade: this week's tasks*",
+      earliest.date,
+      ':tada: *Pro upgrade: your campaign tasks*',
     )
   }
 
