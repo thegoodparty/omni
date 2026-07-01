@@ -117,7 +117,7 @@ const empty: RaceOpponentResponse = {
 }
 
 // A completed run that found no opponents — the state that surfaces the manual
-// entry form (behind the "Add opponents manually" disclosure).
+// entry form directly.
 const completedEmpty: RaceOpponentResponse = {
   ...empty,
   collectionStatus: 'completed',
@@ -530,23 +530,6 @@ describe('<RaceOpponentList>', () => {
     expect(container.querySelector('pre')).toBeNull()
   })
 
-  // The non-busy states still surface the status pill on the list view.
-  it.each([
-    ['idle', 'Idle'],
-    ['completed', 'Completed'],
-    ['failed', 'Failed'],
-  ] as const)(
-    'renders the %s status indicator with its label',
-    (status, label) => {
-      render(
-        <RaceOpponentList
-          initialData={{ ...empty, collectionStatus: status }}
-        />,
-      )
-      expect(screen.getByText(label)).toBeInTheDocument()
-    },
-  )
-
   // While the run is busy (discovering/running) the page shows the cosmetic
   // processing screen instead of the bare status pill.
   it.each(['discovering', 'running'] as const)(
@@ -561,51 +544,52 @@ describe('<RaceOpponentList>', () => {
     },
   )
 
-  it('omits the "last collected" line when lastCollectedAt is null', () => {
-    render(
-      <RaceOpponentList initialData={{ ...empty, lastCollectedAt: null }} />,
-    )
-    expect(screen.queryByText(/last collected/i)).not.toBeInTheDocument()
-  })
-
-  it('shows a "last collected" line when lastCollectedAt is set', () => {
-    render(
-      <RaceOpponentList
-        initialData={{ ...empty, lastCollectedAt: '2026-06-20T12:00:00.000Z' }}
-      />,
-    )
-    expect(screen.getByText(/last collected/i)).toBeInTheDocument()
-  })
-
-  it('shows the manual entry form when collection completed with no opponents', () => {
+  it('shows the manual entry form directly when collection completed with no opponents', () => {
     render(
       <RaceOpponentList
         initialData={{ ...empty, collectionStatus: 'completed' }}
       />,
     )
 
+    // The form's fields are live up front — no "Add opponents manually"
+    // disclosure to click through first.
+    expect(screen.getByText('No opponents found')).toBeInTheDocument()
     expect(
-      screen.getByText(/no opponents found in this analysis/i),
+      screen.getByText(/add the opponents you want to analyze/i),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Name')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /run the analysis/i }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: /add opponents manually/i }),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByText(/no opponent research yet/i),
     ).not.toBeInTheDocument()
   })
 
-  it('shows the never-run prompt (not the manual form) when idle', () => {
+  it('auto-starts collection and shows the processing screen for a never-ran idle user', async () => {
+    // A Pro user landing here with no prior run (idle + lastCollectedAt null)
+    // should not have to click anything — the agentic flow kicks off on mount
+    // and the processing screen takes over, with no manual "start" prompt.
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'run-1', status: 'running' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+
     render(<RaceOpponentList initialData={empty} />)
 
-    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
-    // idle has never run, so it must not claim a finished analysis or offer the
-    // manual form.
+    await waitFor(() =>
+      expect(
+        screen.getByText('Researching your opponents'),
+      ).toBeInTheDocument(),
+    )
+    // Dispatched exactly once, and no legacy "start" prompt is shown.
+    expect(collectHandler).toHaveBeenCalledTimes(1)
     expect(
-      screen.queryByText(/no opponents found in this analysis/i),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /add opponents manually/i }),
+      screen.queryByText(/no opponent research yet/i),
     ).not.toBeInTheDocument()
   })
 
@@ -633,9 +617,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -671,9 +652,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     const submit = screen.getByRole('button', { name: /run the analysis/i })
     const form = submit.closest('form')
@@ -688,54 +666,6 @@ describe('<RaceOpponentList>', () => {
 
     await waitFor(() => expect(requestSpy).toHaveBeenCalledTimes(1))
     expect(requestSpy).toHaveBeenCalledTimes(1)
-  })
-
-  it('disables "Collect now" while a manual submit is in flight', async () => {
-    // Hold the manual POST pending so submittingManual stays true; "Collect
-    // now" must not be clickable during that window (no concurrent paid run).
-    api.mock(
-      'POST /v1/campaigns/mine/race-opponent/opponents/manual',
-      pendingForever,
-    )
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={completedEmpty} />)
-
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
-    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
-    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /collect now/i }),
-      ).toBeDisabled(),
-    )
-  })
-
-  it('disables the manual submit while a collect is in flight', async () => {
-    // Hold the collect POST pending so collecting stays true; the form's "Run
-    // the analysis" must be disabled during that window.
-    api.mock('POST /v1/campaigns/mine/race-opponent/collect', pendingForever)
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={completedEmpty} />)
-
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
-    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
-    await user.click(screen.getByRole('button', { name: /collect now/i }))
-
-    // While collecting, the form's submit enters its loading state ("Starting…")
-    // and is disabled — so no concurrent manual run can be triggered.
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /starting/i })).toBeDisabled(),
-    )
-    expect(
-      screen.queryByRole('button', { name: /run the analysis/i }),
-    ).not.toBeInTheDocument()
   })
 
   it('shows a failure state (not the manual form) when collection failed', () => {
@@ -755,27 +685,16 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('acknowledges a completed run that found no opponents and gates a fresh submit', async () => {
-    const user = userEvent.setup()
+  it('surfaces the manual submit directly on a completed run that found no opponents', () => {
     render(
       <RaceOpponentList
         initialData={{ ...empty, collectionStatus: 'completed' }}
       />,
     )
 
-    // Acknowledges the run rather than implying it never ran, and does NOT
-    // surface an always-live submit that invites repeated paid re-runs.
-    expect(
-      screen.getByText(/no opponents found in this analysis/i),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /run the analysis/i }),
-    ).not.toBeInTheDocument()
-
-    // The manual form is still reachable behind an explicit disclosure.
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
+    // The completed-with-zero state drops the candidate straight into the
+    // manual form — the submit is live without a disclosure step.
+    expect(screen.getByText('No opponents found')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /run the analysis/i }),
     ).toBeInTheDocument()
@@ -800,71 +719,21 @@ describe('<RaceOpponentList>', () => {
     expect(screen.queryByText('Incumbent')).not.toBeInTheDocument()
   })
 
-  it('refreshes the opponent accordion in sync with the research list', async () => {
-    // Start with no opponents, then Refresh returns an enriched roster. The
-    // accordion is driven by the same client state, so the new opponent's row
-    // and its expanded research must both appear after the refresh.
-    api.mock('GET /v1/campaigns/mine/race-opponent', {
-      status: 200,
-      data: withSummary,
-    })
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={empty} />)
-    expect(screen.queryByText('Democrat · Incumbent')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /refresh/i }))
-
-    // The opponent row appears (its descriptor), and the panel auto-opens to
-    // the first opponent (activeName fallback), rendering the Overview prose.
-    await waitFor(() =>
-      expect(screen.getByText('Democrat · Incumbent')).toBeInTheDocument(),
-    )
-    expect(
-      screen.getByRole('button', { name: /Jane Rival/i }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Overview')).toBeInTheDocument()
-  })
-
-  it('triggers a collection and shows the processing screen for the returned running status', async () => {
-    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
-      status: 200,
-      data: { runId: 'run-1', status: 'running' },
-    })
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={empty} />)
-
-    await user.click(screen.getByRole('button', { name: /collect now/i }))
-
-    await waitFor(() =>
-      expect(
-        screen.getByText('Researching your opponents'),
-      ).toBeInTheDocument(),
-    )
-  })
-
-  it('shows the processing screen when collection enters the discovering state', async () => {
+  it('auto-starts into the processing screen when collect returns the discovering state', async () => {
+    // The two-call flow: the auto-started collect first dispatches discovery
+    // (status 'discovering'), which must land the user on the processing screen.
     api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
       status: 200,
       data: { runId: 'opposition-1', status: 'discovering' },
     })
-    const user = userEvent.setup()
 
     render(<RaceOpponentList initialData={empty} />)
-
-    await user.click(screen.getByRole('button', { name: /collect now/i }))
 
     await waitFor(() =>
       expect(
         screen.getByText('Researching your opponents'),
       ).toBeInTheDocument(),
     )
-    // The Collect button is part of the list view, which the processing screen
-    // replaces while busy — so it's no longer on screen to re-fire a paid run.
-    expect(
-      screen.queryByRole('button', { name: /collect now/i }),
-    ).not.toBeInTheDocument()
   })
 
   it('polls while discovering and auto-fires collect once discovery completes', async () => {
@@ -1157,10 +1026,11 @@ describe('<RaceOpponentList>', () => {
     }
   })
 
-  it('leaves the processing screen when an uncontested run settles to a terminal idle', async () => {
+  it('leaves the processing screen for the manual form when an uncontested run settles to a terminal idle', async () => {
     // collect() returns a terminal 'idle' for an uncontested/unavailable race
     // (no collection run dispatched). The screen must NOT wedge — once the
-    // in-flight collect resolves to idle, the user drops to the empty state.
+    // in-flight collect resolves to idle, the user drops to the manual entry
+    // form ("we looked and found nobody, add them by hand").
     api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
       { status: 200, data: { ...empty, collectionStatus: 'idle' } },
     ])
@@ -1179,13 +1049,11 @@ describe('<RaceOpponentList>', () => {
       expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
 
       // Poll lands idle (auto-fires collect, which settles back to idle); the
-      // screen must give way to the empty state rather than spin forever.
+      // screen must give way to the manual form rather than spin forever.
       await vi.advanceTimersByTimeAsync(5000)
 
       await waitFor(() =>
-        expect(
-          screen.getByText(/no opponent research yet/i),
-        ).toBeInTheDocument(),
+        expect(screen.getByText('No opponents found')).toBeInTheDocument(),
       )
       expect(
         screen.queryByText('Researching your opponents'),
@@ -1193,21 +1061,6 @@ describe('<RaceOpponentList>', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('does not show the processing screen for a brand-new idle user who has never run', () => {
-    render(
-      <RaceOpponentList initialData={{ ...empty, lastCollectedAt: null }} />,
-    )
-
-    // A genuine never-ran idle user sees the empty state, not the processing UI.
-    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
-    expect(
-      screen.queryByText('Researching your opponents'),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /collect now/i }),
-    ).toBeInTheDocument()
   })
 
   it('keeps the ready state latched across the full hold window before revealing the report', async () => {
@@ -1281,10 +1134,12 @@ describe('<RaceOpponentList>', () => {
       await vi.advanceTimersByTimeAsync(5000)
 
       await waitFor(() =>
-        expect(screen.getByText('Failed')).toBeInTheDocument(),
+        expect(screen.getByText(/collection failed/i)).toBeInTheDocument(),
       )
+      // Failure is terminal: collect is NOT auto-dispatched (retry is manual,
+      // via the "Try again" button on the failure card).
       expect(collectHandler).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: /collect now/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /try again/i })).toBeEnabled()
     } finally {
       vi.useRealTimers()
     }
@@ -1299,9 +1154,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -1328,9 +1180,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -1349,15 +1198,15 @@ describe('<RaceOpponentList>', () => {
   })
 
   it('fires Win - Opponent Research Started once across the discovering -> running progression of one run', async () => {
-    // A Collect click starts a run that goes idle -> discovering ->
+    // The auto-start on mount begins a run that goes idle -> discovering ->
     // (transient idle) -> (auto-collect) -> running. ResearchStarted must fire
     // exactly once for the whole run, not on each busy sub-status, since both
     // legs are one research run.
     api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
       { status: 200, data: { ...empty, collectionStatus: 'idle' } },
     ])
-    // First collect (the click) returns discovering; the auto-fired collect
-    // after discovery returns running. Both are the same run.
+    // The auto-started collect returns discovering; the auto-fired collect after
+    // discovery returns running. Both are the same run.
     const collectHandler = vi.fn()
     collectHandler
       .mockReturnValueOnce({
@@ -1373,19 +1222,7 @@ describe('<RaceOpponentList>', () => {
     try {
       render(<RaceOpponentList initialData={empty} />)
 
-      // Idle on mount: no run in flight, so nothing has fired yet.
-      expect(
-        vi
-          .mocked(trackEvent)
-          .mock.calls.filter(
-            ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
-          ),
-      ).toHaveLength(0)
-
-      // Click Collect: the run starts (idle -> discovering), firing once.
-      await userEvent.click(
-        screen.getByRole('button', { name: /collect now/i }),
-      )
+      // Auto-start on mount begins the run (idle -> discovering), firing once.
       await waitFor(() =>
         expect(trackEvent).toHaveBeenCalledWith(
           EVENTS.RaceOpponent.ResearchStarted,

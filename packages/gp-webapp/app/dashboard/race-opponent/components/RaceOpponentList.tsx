@@ -10,16 +10,11 @@ import {
   cn,
 } from '@styleguide'
 import {
-  CheckCircleIcon,
-  CircleIcon,
   ExternalLinkIcon,
   InfoIcon,
-  Loader2Icon,
   RefreshIcon,
-  SearchIcon,
   SwordsIcon,
   TriangleAlertIcon,
-  XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -63,76 +58,6 @@ const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   ballotpedia: 'Ballotpedia',
   opponent_website: 'Opponent website',
   campaign_plan_db: 'Campaign plan',
-}
-
-type CollectionStatus = RaceOpponentResponse['collectionStatus']
-
-type StatusDescriptor = {
-  label: string
-  Icon: typeof CircleIcon
-  // Container tone classes for the styled indicator pill.
-  className: string
-  spin?: boolean
-}
-
-const STATUS_DESCRIPTORS: Record<CollectionStatus, StatusDescriptor> = {
-  idle: {
-    label: 'Idle',
-    Icon: CircleIcon,
-    className: 'bg-muted text-muted-foreground border-border',
-  },
-  discovering: {
-    label: 'Discovering opponents',
-    Icon: SearchIcon,
-    className: 'bg-info-50 text-info-600 border-info-600/20',
-    spin: false,
-  },
-  running: {
-    label: 'Running',
-    Icon: Loader2Icon,
-    className: 'bg-info-50 text-info-600 border-info-600/20',
-    spin: true,
-  },
-  completed: {
-    label: 'Completed',
-    Icon: CheckCircleIcon,
-    className: 'bg-success-light text-success-dark border-success/20',
-  },
-  failed: {
-    label: 'Failed',
-    Icon: XCircleIcon,
-    className: 'bg-destructive/10 text-destructive border-destructive/20',
-  },
-}
-
-const CollectionStatusIndicator = ({
-  status,
-}: {
-  status: CollectionStatus
-}): React.JSX.Element => {
-  const { label, Icon, className, spin } = STATUS_DESCRIPTORS[status]
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
-        className,
-      )}
-    >
-      <Icon
-        className={cn('size-3.5 shrink-0', spin && 'animate-spin')}
-        aria-hidden
-      />
-      {label}
-    </span>
-  )
-}
-
-const formatTimestamp = (iso: string | null): string => {
-  if (!iso) {
-    return 'never'
-  }
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? 'never' : date.toLocaleString()
 }
 
 // Renders the source citations attached to a summary section/item. The contract
@@ -465,7 +390,6 @@ const RaceOpponentList = ({
 }: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const [data, setData] = useState<RaceOpponentResponse>(initialData)
-  const [refreshing, setRefreshing] = useState(false)
   const [collecting, setCollecting] = useState(false)
   // Synchronous in-flight guard. `collecting` state is stale in the auto-fire
   // effect's closure and doesn't disable the button until React re-renders, so
@@ -510,17 +434,6 @@ const RaceOpponentList = ({
     )
     setData(latest)
   }, [])
-
-  const refresh = async () => {
-    setRefreshing(true)
-    try {
-      await loadStatus()
-    } catch {
-      errorSnackbar('Failed to refresh opponent data. Please try again.')
-    } finally {
-      setRefreshing(false)
-    }
-  }
 
   const collect = useCallback(async () => {
     if (collectingRef.current) return
@@ -647,24 +560,40 @@ const RaceOpponentList = ({
     }
   }, [status, collect])
 
-  // Discovery (opposition_research) and collection both keep the run busy, so
-  // both disable a fresh Collect to avoid stacking paid runs.
+  // Discovery (opposition_research) and collection both keep the run busy.
   const isBusy = status === 'running' || status === 'discovering'
 
-  // Two-call discovery briefly reports 'idle' between discovery finishing and
-  // the auto-fired collect flipping the run to 'running'. Treating that gap as
-  // not-processing would flicker the screen out to the empty/report view and
-  // snap back. The gap is exactly the window where the auto-fired collect is
-  // pending or in flight, so key "idle still processing" off that — NOT a sticky
-  // session flag, which would also wedge the screen when collect legitimately
-  // settles to a terminal 'idle' (uncontested/unavailable race, where no
-  // collection run is dispatched). `justLeftDiscovery` covers the one render
-  // before the auto-fire effect flips `collecting` on; `collecting` covers the
-  // in-flight collect. A brand-new 'idle' user (never discovered, never
-  // collecting) stays out of the processing screen.
+  // A Pro user reaches this page with the agent never having run (idle + no
+  // prior collection) when the pro-upgrade auto-dispatch didn't fire — e.g. a
+  // legacy Pro who upgraded before that shipped. Rather than a manual "start"
+  // prompt, kick off the agentic flow automatically and drop them on the
+  // processing screen. `/collect` is idempotent against the server-side discovery
+  // marker: for an already-discovered uncontested race (also idle +
+  // lastCollectedAt null) it returns idle WITHOUT dispatching a fresh paid run,
+  // so firing this blind can't stack paid runs. Ref-guarded to once per mount so
+  // an uncontested race that settles back to idle can't re-fire into a loop.
+  const neverRan = status === 'idle' && data.lastCollectedAt === null
+  const autoStartedRef = useRef(false)
+  useEffect(() => {
+    if (autoStartedRef.current || !neverRan) return
+    autoStartedRef.current = true
+    void collect()
+  }, [neverRan, collect])
+
+  // Two-call discovery briefly reports 'idle' between discovery finishing and the
+  // auto-fired collect flipping the run to 'running'; treating that gap as
+  // not-processing would flicker the screen out and snap back. `justLeftDiscovery`
+  // covers the one render before the auto-fire effect flips `collecting` on;
+  // `collecting` covers the in-flight collect. `autoStartPending` extends the same
+  // idea to the initial mount: hold the processing screen while the never-ran
+  // auto-start is pending/in flight so a fresh Pro user never flashes the empty
+  // state. Once auto-start has fired (ref set) and an uncontested race settles
+  // back to idle, this drops so the manual form takes over — it does NOT wedge on
+  // a terminal idle.
   const justLeftDiscovery = prevStatus.current === 'discovering'
+  const autoStartPending = neverRan && !autoStartedRef.current
   const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
-  const isProcessing = isBusy || idleMidRun
+  const isProcessing = isBusy || idleMidRun || autoStartPending
 
   // Fire one Opponent Research Started per run, keyed off isProcessing (not the
   // raw busy status) so the transient idle-mid-run gap of the two-call discovery
@@ -778,46 +707,15 @@ const RaceOpponentList = ({
       </div>
 
       <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
-            <CollectionStatusIndicator status={data.collectionStatus} />
-            {data.lastCollectedAt && (
-              <span>
-                Last collected {formatTimestamp(data.lastCollectedAt)}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={collect}
-              disabled={collecting || isBusy || submittingManual}
-              className="flex items-center gap-1.5"
-            >
-              <RefreshIcon className="size-4" aria-hidden />
-              Collect now
-            </Button>
-            <Button
-              variant="outline"
-              onClick={refresh}
-              disabled={refreshing}
-              className="flex items-center gap-1.5"
-            >
-              <RefreshIcon className="size-4" aria-hidden />
-              Refresh
-            </Button>
-          </div>
-        </div>
-
         {data.opponents.length === 0 ? (
-          // No opponents yet — the branch depends on collection status. A run in
-          // flight (running/discovering/idle-mid-run) is handled above by the
-          // processing screen early return, so this block only reaches the
-          // settled states: a failed run shows a failure/retry message;
-          // completed-with-zero is the "we ran it and found nobody" case, so the
-          // form acknowledges the prior run (ranAlready) and gates a fresh submit
-          // behind a disclosure rather than inviting indefinite (paid) re-runs;
-          // idle/never-run prompts to start collection. The full status
-          // state-machine is ENG-10611.
+          // No opponents and not processing — a run in flight (incl. the never-ran
+          // auto-start and the idle-mid-run gap) is handled above by the processing
+          // screen early return, so this block only reaches the SETTLED-empty
+          // states. A failed run shows a retry card; every other settled-empty case
+          // (completed-with-zero, or an uncontested race that ran discovery and
+          // settled back to idle) means "we looked and found nobody", so the
+          // manual-entry form is shown directly for the candidate to add opponents
+          // by hand. The full status state-machine is ENG-10611.
           status === 'failed' ? (
             <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
               <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
@@ -828,34 +726,22 @@ const RaceOpponentList = ({
                   Collection failed
                 </h2>
                 <p className="max-w-sm text-sm text-muted-foreground">
-                  Something went wrong gathering research on your race. Use
-                  &quot;Collect now&quot; above to try again.
+                  Something went wrong gathering research on your race.
                 </p>
               </div>
+              <Button
+                onClick={collect}
+                disabled={collecting || isBusy}
+                icon={<RefreshIcon className="size-4" aria-hidden />}
+              >
+                Try again
+              </Button>
             </div>
-          ) : status === 'completed' ? (
+          ) : (
             <AddOpponentsForm
               submitting={submittingManual || collecting}
               onSubmit={submitManualOpponents}
-              ranAlready
             />
-          ) : (
-            // idle / never-run: no collection has fired yet, so don't claim "no
-            // opponents found" — prompt the candidate to start collection.
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
-              <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <SwordsIcon className="size-6" aria-hidden />
-              </span>
-              <div className="flex flex-col gap-1">
-                <h2 className="text-base font-semibold text-foreground">
-                  No opponent research yet
-                </h2>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  Hit &quot;Collect now&quot; to gather sourced research on the
-                  candidates in your race.
-                </p>
-              </div>
-            </div>
           )
         ) : (
           <section className="flex flex-col gap-3">
