@@ -153,9 +153,11 @@ needs no override — a plain refresh is enough:
 scripts/shell/refresh-event-state.sh
 ```
 
-If it fails, note the failure and continue — the monitor run has already completed its own
-work; re-run the wrapper manually once the issue is resolved. Do not fail the monitor run on
-a refresh error.
+On a host without the shared Sheets credentials the wrapper exits 0 with `…not configured…;
+skipping` — that is expected, not an error; the sheet is refreshed by whichever configured
+host runs the monitor. If it fails for another reason, note it and continue — the monitor run
+has already completed its own work; re-run the wrapper manually once the issue is resolved.
+Do not fail the monitor run on a refresh error.
 
 ## gp-meta parsing spec (from the SOP)
 

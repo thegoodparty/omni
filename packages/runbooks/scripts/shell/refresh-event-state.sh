@@ -6,6 +6,12 @@
 # Requires: uv; Databricks env vars; GP_EVENT_STATE_SHEET_ID. On the FIRST run only (no
 # cached Google token) it also needs `op` (1Password CLI, unlocked) to fetch the OAuth
 # client secrets and a browser for consent. Not for headless/cloud use — DATA-2045 owns that.
+#
+# Host gate: on a machine NOT set up for the refresh (no cached token AND no sheet id) this
+# exits 0 without contacting op/OAuth, so the event-metadata/monitor triggers are a clean,
+# silent no-op for engineers without the shared Sheets credentials — never a prompt or a
+# bottleneck. The sheet stays eventually-consistent: a configured host (currently the data
+# owner; ultimately a service account via DATA-2044/2045) brings it current on its next run.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,6 +31,14 @@ if [[ -f "$ENV_FILE" ]]; then
     _v="${_v#\'}" ; _v="${_v%\'}"                          # strip surrounding single quotes
     export "$_k=$_v"
   done < "$ENV_FILE"
+fi
+
+# Configured? Skip cleanly if not — a cached token, an exported/`.env` sheet id, or an
+# explicit --spreadsheet-id all count. Unconfigured hosts no-op here, before any op/OAuth.
+case " $* " in *" --spreadsheet-id"*) _explicit_id=1 ;; *) _explicit_id=0 ;; esac
+if [[ ! -f "$TOKEN" && -z "${GP_EVENT_STATE_SHEET_ID:-}" && "$_explicit_id" -eq 0 ]]; then
+  echo "event-state refresh not configured on this host (no cached Google token, no sheet id); skipping." >&2
+  exit 0
 fi
 
 secret_args=()

@@ -195,9 +195,14 @@ back or blocked by a refresh problem.
 
    `"$RUNBOOKS_DIR"/scripts/shell/refresh-event-state.sh --override <file>`
 
-3. **On failure:** do not fail the skill. Report the two outcomes separately —
+3. **On a clean skip:** the wrapper exits 0 with `…not configured on this host…; skipping`
+   when the machine lacks the shared Sheets credentials (no cached token, no sheet id). This
+   is expected on most engineers' machines — report `surface refresh — skipped (host not
+   configured)` and move on. It is not an error, and it does not trigger op or a browser.
+4. **On failure:** do not fail the skill. Report the two outcomes separately —
    `metadata written ✓; surface refresh ⚠ (<reason>) — re-run refresh-event-state.sh`.
-   The surface is eventually-consistent; the next trigger or a manual run recovers it.
+   The surface is eventually-consistent; the next trigger or a run on a configured host
+   (currently the data owner's) recovers it.
 
 ## Handoff (when called by instrument-analytics-event)
 

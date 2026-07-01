@@ -17,7 +17,12 @@ id, and runs the refresh. The `uv run` steps below are the underlying detail.
 ## Automated triggers (DATA-2053)
 
 Beyond the manual command, the refresh fires automatically, each as an independent,
-non-fatal step (a failure never blocks the triggering work):
+non-fatal step (a failure never blocks the triggering work). The wrapper is **host-gated**:
+on a machine without the shared Sheets credentials (no cached token and no
+`GP_EVENT_STATE_SHEET_ID`) it exits 0 without contacting 1Password or OAuth, so the triggers
+are a clean no-op for engineers who are not set up. Only a configured host actually writes
+the sheet, keeping it eventually-consistent until a shared service account lands
+(DATA-2044/2045).
 
 - **Metadata write** — the `event-metadata` skill, after writing to Amplitude, calls the
   wrapper with `--override <file>` carrying the just-written `govern_*` fields, so the change
