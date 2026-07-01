@@ -115,6 +115,46 @@ def build_rows(
     return rows
 
 
+# Fields reconcile() reads by direct subscript; an injected catalog row must carry them all.
+_INJECT_SKELETON = {
+    "family": None,
+    "govern_display_name": None,
+    "govern_description": None,
+    "govern_tags": None,
+    "first_seen_date": None,
+    "last_seen_date": None,
+    "event_count": None,
+    "event_count_30d": None,
+}
+_OVERRIDE_FIELDS = ("govern_display_name", "govern_description", "govern_tags")
+
+
+def _apply_overrides(
+    catalog: list[dict],
+    overrides: Mapping[str, Mapping[str, Any]] | None,
+) -> list[dict]:
+    """Replace-or-inject catalog rows from an Amplitude-direct override (DATA-2053), keyed on
+    event_type, so an event-driven refresh reflects govern_* metadata written to Amplitude
+    before the daily Databricks catalog sync. Only the three govern_* fields are overridden;
+    status, provenance, and volume still come from their own sources. A missing event is
+    injected with the full skeleton reconcile() requires (a zero-volume brand-new event then
+    classifies as dormant when it also has a provenance-CSV row; absent both catalog and CSV
+    it is ``code_unknown``)."""
+    if not overrides:
+        return catalog
+    by_type = {row["event_type"]: row for row in catalog}
+    for event_type, fields in overrides.items():
+        row = by_type.get(event_type)
+        if row is None:
+            row = {"event_type": event_type, **_INJECT_SKELETON}
+            catalog.append(row)
+            by_type[event_type] = row
+        for key in _OVERRIDE_FIELDS:
+            if key in fields:
+                row[key] = fields[key]
+    return catalog
+
+
 def fetch_catalog(run_query=execute_query) -> list[dict]:
     """Run the wider catalog query and return list-of-dict rows."""
     return run_query(EVENT_STATE_SQL).to_dict("records")
@@ -125,11 +165,15 @@ def assemble(
     *,
     run_query=execute_query,
     code_csv: Path | None = None,
+    overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
     into the 16-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
-    to this surface — while still yielding the authoritative status for every event."""
+    to this surface — while still yielding the authoritative status for every event.
+    ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
+    (or inject rows into) the Databricks catalog (DATA-2053)."""
     catalog = fetch_catalog(run_query)
+    catalog = _apply_overrides(catalog, overrides)
     code_map = aeh.load_code_axis(code_csv) if code_csv else aeh.load_code_axis()
     reconciled = aeh.reconcile(catalog, weekly_rows=[], code=code_map, today=today)
     catalog_by_type = {row["event_type"]: row for row in catalog}

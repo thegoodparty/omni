@@ -155,6 +155,61 @@ def test_build_rows_coerces_nan_counts_to_zero():
     assert rows[0]["event_count"] == 0
 
 
+def test_apply_overrides_replaces_govern_fields_on_existing_row():
+    catalog = [
+        {
+            "event_type": "Foo Event",
+            "family": "win_onboarding",
+            "govern_display_name": "Foo Event",
+            "govern_description": "old desc",
+            "govern_tags": ["product:win"],
+            "event_count": 10,
+            "event_count_30d": 5,
+            "first_seen_date": "2026-01-01",
+            "last_seen_date": "2026-06-01",
+        }
+    ]
+    out = esa._apply_overrides(
+        catalog,
+        {"Foo Event": {"govern_description": "new desc", "govern_tags": ["product:serve"]}},
+    )
+    row = {r["event_type"]: r for r in out}["Foo Event"]
+    assert row["govern_description"] == "new desc"
+    assert row["govern_tags"] == ["product:serve"]
+    # untouched fields survive
+    assert row["event_count_30d"] == 5
+    assert row["govern_display_name"] == "Foo Event"
+
+
+def test_apply_overrides_injects_missing_event_with_reconcile_required_keys():
+    catalog = []
+    out = esa._apply_overrides(
+        catalog,
+        {
+            "New Event": {
+                "govern_display_name": "New Event",
+                "govern_description": "brand new",
+                "govern_tags": ["product:win"],
+            }
+        },
+    )
+    assert len(out) == 1
+    row = out[0]
+    # every field reconcile() subscripts directly must be present
+    for key in ("event_type", "family", "govern_description", "event_count_30d", "last_seen_date"):
+        assert key in row, f"injected row missing {key}"
+    assert row["event_type"] == "New Event"
+    assert row["govern_description"] == "brand new"
+    assert row["family"] is None
+    assert row["event_count_30d"] in (0, None)
+
+
+def test_apply_overrides_none_is_noop():
+    catalog = [{"event_type": "Foo", "family": None, "govern_description": None,
+                "event_count_30d": 0, "last_seen_date": None}]
+    assert esa._apply_overrides(catalog, None) is catalog
+
+
 def test_assemble_uses_real_reconcile_for_status(tmp_path):
     # Two catalog events: one firing (active), one quiet & code-present (dormant).
     catalog_df = pd.DataFrame(
@@ -194,3 +249,77 @@ def test_assemble_uses_real_reconcile_for_status(tmp_path):
     assert rows["Live Event"]["description"] == "Live purpose."
     assert result["meta"]["event_count"] == 2
     assert result["meta"]["refreshed_at"]  # ISO timestamp present
+
+
+def test_assemble_override_reflects_new_description_without_databricks(tmp_path):
+    catalog_df = pd.DataFrame(
+        [
+            {"event_type": "Foo Event", "govern_display_name": "Foo Event",
+             "family": "win_onboarding", "first_seen_date": "2026-01-01",
+             "last_seen_date": "2026-06-01", "event_count": 100, "event_count_30d": 40,
+             "govern_description": "stale desc", "govern_tags": ["product:win"]},
+        ]
+    )
+    prov = tmp_path / "prov.csv"
+    with prov.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=[
+            "event_type", "instrumented_pr", "instrumented_date",
+            "retired_pr", "retired_date", "last_code_change_date"])
+        w.writeheader()
+        w.writerow({"event_type": "Foo Event", "instrumented_pr": "p1",
+                    "instrumented_date": "2026-01-01", "retired_pr": "", "retired_date": "",
+                    "last_code_change_date": "2026-01-01"})
+
+    result = esa.assemble(
+        date(2026, 6, 30),
+        run_query=lambda _sql: catalog_df,
+        code_csv=prov,
+        overrides={"Foo Event": {"govern_description": "<!-- gp-meta -->\nfresh purpose\nsupersession: original\nin use: 2026-06-30\n<!-- /gp-meta -->"}},
+    )
+    foo = {r["event"]: r for r in result["rows"]}["Foo Event"]
+    assert foo["description"] == "fresh purpose"
+
+
+def test_assemble_override_injects_event_absent_from_catalog_and_csv(tmp_path):
+    # Override event present in NEITHER the fake catalog NOR the provenance CSV — the
+    # exact KeyError-guard path _INJECT_SKELETON exists for. Must not raise, and the
+    # injected event must still land as a row (in_code=None → status "code_unknown",
+    # per classify_status in analytics_event_health.py:227-242).
+    catalog_df = pd.DataFrame(
+        [
+            {"event_type": "Foo Event", "govern_display_name": "Foo Event",
+             "family": "win_onboarding", "first_seen_date": "2026-01-01",
+             "last_seen_date": "2026-06-01", "event_count": 100, "event_count_30d": 40,
+             "govern_description": "stale desc", "govern_tags": ["product:win"]},
+        ]
+    )
+    prov = tmp_path / "prov.csv"
+    with prov.open("w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=[
+            "event_type", "instrumented_pr", "instrumented_date",
+            "retired_pr", "retired_date", "last_code_change_date"])
+        w.writeheader()
+        w.writerow({"event_type": "Foo Event", "instrumented_pr": "p1",
+                    "instrumented_date": "2026-01-01", "retired_pr": "", "retired_date": "",
+                    "last_code_change_date": "2026-01-01"})
+
+    result = esa.assemble(
+        date(2026, 6, 30),
+        run_query=lambda _sql: catalog_df,
+        code_csv=prov,
+        overrides={
+            "Brand New Event": {
+                "govern_display_name": "Brand New Event",
+                "govern_description": "<!-- gp-meta -->\nfresh purpose\nsupersession: original\nin use: 2026-06-30\n<!-- /gp-meta -->",
+                "govern_tags": ["product:win"],
+            }
+        },
+    )
+    rows = {r["event"]: r for r in result["rows"]}
+    assert "Brand New Event" in rows
+    brand_new = rows["Brand New Event"]
+    assert brand_new["status"] == "code_unknown"
+    assert brand_new["description"] == "fresh purpose"
+    assert brand_new["event_count_30d"] == 0
+    assert brand_new["event_count"] == 0
+    assert brand_new["family"] == ""
