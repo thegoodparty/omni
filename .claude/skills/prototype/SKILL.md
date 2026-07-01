@@ -134,10 +134,16 @@ Responsiveness is the product here. Optimize the loop:
   the test suite, or `next build` — they burn seconds the loop can't spare. Save,
   let HMR refresh, screenshot only if you need to self-check. Run gates once, at
   ship time.
-- **Build must pass before any PR.** Run `npm run build -w packages/prototypes` and
-  repair all errors before opening a pull request. CI runs `next build` on every PR
-  and will block merge on failure. If the build fails, fix the error, re-run, and
-  repeat until it exits clean — do not skip or defer this step.
+- **Verify the preview loads after every change.** After each edit to a prototype
+  file, check `preview_logs` for errors and `preview_snapshot` (or
+  `preview_screenshot`) to confirm the page renders. If the preview is broken
+  (build error, blank page, uncaught exception), enter a self-repair loop:
+  1. Read the error from `preview_logs`.
+  2. Fix the root cause in source.
+  3. Re-check `preview_logs` and `preview_snapshot`.
+  4. Repeat up to **5 turns total**.
+  If the preview is still broken after 5 repair turns, stop and surface the
+  error to the user — do not keep iterating silently.
 - **Fan out independent work to subagents — grouped by file.** A batch of feedback
   becomes parallel subagents: items touching _different_ files run at once; items
   touching the _same_ file chain serially (to avoid clobbering). Give each a tight
