@@ -181,6 +181,14 @@ export class WebsitesService extends createPrismaBase(MODELS.Website) {
     return website?.content?.about?.bio ?? null
   }
 
+  // Full persisted content for the campaign's website; null when none exists.
+  async getContentForCampaign(
+    campaignId: number,
+  ): Promise<PrismaJson.WebsiteContent | null> {
+    const website = await this.model.findUnique({ where: { campaignId } })
+    return website?.content ?? null
+  }
+
   async findByDomainName(domainName: string, include?: Prisma.WebsiteInclude) {
     const domainRecord = await this.client.domain.findUniqueOrThrow({
       where: { name: domainName },
