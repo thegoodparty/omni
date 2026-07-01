@@ -1,7 +1,8 @@
 import { stripHtml } from 'string-strip-html'
 import { Website, WebsiteIssue } from 'helpers/types'
+import { MIN_BIO_LENGTH } from '@goodparty_org/contracts'
 
-export const MIN_BIO_LENGTH = 500
+export { MIN_BIO_LENGTH }
 export const MIN_POLICY_FOCUS_LENGTH = 100
 export const MIN_POLICY_PRIORITIES = 1
 
