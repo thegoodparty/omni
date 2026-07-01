@@ -79,6 +79,17 @@ describe('buildOpponentBrief', () => {
     ])
   })
 
+  it('extracts text strings from whatYouNeedToKnow items', () => {
+    const brief = buildOpponentBrief(opponent())
+    const section = brief.sections.find((s) => s.kind === 'whatYouNeedToKnow')
+    if (section?.kind !== 'whatYouNeedToKnow')
+      throw new Error('expected whatYouNeedToKnow')
+    expect(section.items).toEqual([
+      'Voted YES on SB-1421.',
+      'Aligned with leadership.',
+    ])
+  })
+
   it('de-dupes overview + background sources and keeps both paragraphs', () => {
     const brief = buildOpponentBrief(opponent())
     const overview = brief.sections.find((s) => s.kind === 'overview')
