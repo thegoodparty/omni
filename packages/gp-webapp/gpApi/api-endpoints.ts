@@ -1022,7 +1022,9 @@ export type RaceOpponentResponse = {
     // roster can tier and order without opening the detail. Optional until an
     // opponent has analysis.
     threatTier?: RaceOpponentThreatTier
-    items: RaceOpponentItem[]
+    // Sent only as the no-summary fallback; gp-api omits it once a structured
+    // summary exists (ENG-10622).
+    items?: RaceOpponentItem[]
     // Optional + nullable: ENG-10588 wires the producer to populate this from
     // the race_opponent_summary step; until then gp-api omits the field.
     summary?: RaceOpponentSummary | null

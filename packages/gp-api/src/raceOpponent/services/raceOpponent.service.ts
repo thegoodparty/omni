@@ -656,7 +656,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         // Surfaced on the opponent object (mirrors summary.threatTier) so the
         // roster can tier and order without opening the detail.
         threatTier: summary?.threatTier,
-        items,
+        // Raw items back only the no-summary fallback in the UI; once a
+        // structured summary exists they are redundant, so omit them instead
+        // of shipping the full scraped page text (ENG-10622).
+        ...(summary ? {} : { items }),
         summary,
       }
     })

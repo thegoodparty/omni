@@ -1252,7 +1252,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     expect(opponent.summary.keyPositions).toHaveLength(1)
   })
 
-  it('read endpoint returns summary null when no summary row exists', async () => {
+  it('read endpoint returns summary null + raw items when no summary row exists', async () => {
     await seedCollectedRow()
 
     const result = await service.client.get(GET_PATH, {
@@ -1263,6 +1263,43 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       (o: { opponentName: string }) => o.opponentName === JANE,
     )
     expect(opponent.summary).toBeNull()
+    // The no-summary fallback still needs the raw items to render (ENG-10622).
+    expect(opponent.items).toHaveLength(1)
+  })
+
+  it('omits raw items when a structured summary is present (ENG-10622)', async () => {
+    await seedCollectedRow()
+    await service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: 'summary-omits-items',
+        opponentName: JANE,
+        sections: {
+          opponentName: JANE,
+          overview: {
+            text: 'who they are',
+            sources: [
+              { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+            ],
+          },
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-06-28T00:00:00.000Z',
+        },
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary).not.toBeNull()
+    // Raw scraped page text is redundant once a summary exists; the response
+    // drops it rather than shipping it to the client.
+    expect(opponent.items).toBeUndefined()
   })
 
   it('resolves a summary onto its opponent despite a name casing/whitespace mismatch', async () => {

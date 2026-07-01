@@ -417,7 +417,7 @@ const OpponentDetailBody = ({
     {opponent.summary ? (
       <OpponentSummaryView summary={opponent.summary} />
     ) : (
-      <RawResearch items={opponent.items} />
+      <RawResearch items={opponent.items ?? []} />
     )}
   </div>
 )
