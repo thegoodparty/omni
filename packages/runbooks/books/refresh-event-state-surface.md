@@ -26,9 +26,12 @@ non-fatal step (a failure never blocks the triggering work):
 - **Health monitor** — `books/monitor-analytics-event-health.md` calls the plain wrapper
   after its run (status is recomputed live, so no override).
 
-The `--override` file is `{ "<event name>": { govern_display_name, govern_description,
-govern_tags } }`, built from the prod Amplitude project. `assemble()` overlays it onto (or
-injects it into) the Databricks catalog.
+The `--override` file is `{ "<event_type — raw event name as fired in code>": {
+govern_display_name, govern_description, govern_tags } }`, built from the prod Amplitude
+project. Key on the raw `event_type`, not the Govern display name (which can differ) —
+`assemble()` matches overrides to catalog rows by `event_type`, so a mismatched key would
+inject a phantom row and leave the real one stale. `assemble()` overlays it onto (or injects
+it into) the Databricks catalog.
 
 ## Steps
 

@@ -131,8 +131,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--override",
         default=None,
-        help="path to a JSON file {event name: {govern_display_name, govern_description, "
-        "govern_tags}} overlaid onto the Databricks catalog (DATA-2053 event-driven refresh)",
+        help="path to a JSON file {event_type: {govern_display_name, govern_description, "
+        "govern_tags}} overlaid onto the Databricks catalog (DATA-2053 event-driven refresh); "
+        "key on the raw event_type (as fired in code), not the Govern display name",
     )
     args = parser.parse_args(argv)
 
