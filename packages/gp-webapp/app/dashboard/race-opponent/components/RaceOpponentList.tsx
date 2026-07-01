@@ -573,13 +573,15 @@ const RaceOpponentList = ({
   // so firing this blind can't stack paid runs. Ref-guarded to once per mount so
   // an uncontested race that settles back to idle can't re-fire into a loop.
   //
-  // Seeded true when mounting on `failed`: a failed state means a run already
-  // ran (never-ran + failed is contradictory), so the manual "Try again" collect
-  // that lands there must not re-arm the auto-start — otherwise a Try-again that
-  // resolves to idle would flip `neverRan` true with the guard still down and
-  // fire a second collect().
+  // Seeded true for ANY non-idle initial status: non-idle means a run already
+  // ran or is running (never-ran is idle-only), so the auto-start must stay
+  // disarmed. Otherwise a manual action from a non-idle state (the failed card's
+  // "Try again", or a manual-form submit) that resolves to a terminal `idle`
+  // (the uncontested server path patches only collectionStatus, leaving
+  // lastCollectedAt null) would flip `neverRan` true with the guard down and
+  // fire a second (paid) collect().
   const neverRan = status === 'idle' && data.lastCollectedAt === null
-  const autoStartedRef = useRef(initialData.collectionStatus === 'failed')
+  const autoStartedRef = useRef(initialData.collectionStatus !== 'idle')
   useEffect(() => {
     if (autoStartedRef.current || !neverRan) return
     autoStartedRef.current = true

@@ -713,6 +713,35 @@ describe('<RaceOpponentList>', () => {
     expect(collectHandler).toHaveBeenCalledTimes(1)
   })
 
+  it('does not auto-dispatch collect when a manual submit from a completed mount settles to idle', async () => {
+    // Mounting on any non-idle status (here 'completed') arms the auto-start
+    // guard. If the manual-form submit resolves to a terminal 'idle' (uncontested
+    // server path, which patches only collectionStatus and leaves lastCollectedAt
+    // null), `neverRan` flips true — but the armed guard must stop the auto-start
+    // effect from firing a second, paid collect().
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: null, status: 'idle' },
+    })
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'should-not-fire', status: 'discovering' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    // Settles back to the manual form, and collect was never auto-dispatched.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
+    expect(collectHandler).not.toHaveBeenCalled()
+  })
+
   it('surfaces the manual submit directly on a completed run that found no opponents', () => {
     render(
       <RaceOpponentList
