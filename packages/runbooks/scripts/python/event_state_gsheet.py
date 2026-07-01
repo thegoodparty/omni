@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import pickle
+import shutil
 import sys
 from datetime import date
 from pathlib import Path
@@ -22,7 +23,23 @@ import event_state_assembler as esa
 
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "instrumentation_data"
-TOKEN_PATH = DATA_DIR / "gsheet_token.pickle"          # cached OAuth token (gitignored)
+# The cached OAuth token lives OUTSIDE the checkout (DATA-2061) so one consent survives worktree
+# removal and is shared across checkouts — a per-checkout token is lost when its worktree is
+# pruned, forcing a fresh browser consent. Resolution: GP_SHEETS_TOKEN_PATH override, then
+# $XDG_CONFIG_HOME/gp-event-state, else ~/.config/gp-event-state.
+LEGACY_TOKEN_PATH = DATA_DIR / "gsheet_token.pickle"   # pre-DATA-2061 in-checkout location
+
+
+def _default_token_path() -> Path:
+    override = os.environ.get("GP_SHEETS_TOKEN_PATH")
+    if override:
+        return Path(override).expanduser()
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(config_home).expanduser() if config_home else Path.home() / ".config"
+    return base / "gp-event-state" / "gsheet_token.pickle"
+
+
+TOKEN_PATH = _default_token_path()
 SHEET_TAB = "events"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]   # read/write (not the readonly default)
 # Reuse the existing GoogleSheets OAuth client registration by default (same env names the
@@ -76,7 +93,14 @@ def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str |
     from googleapiclient.discovery import build
 
     creds = None
-    if Path(token_path).exists():
+    token_path = Path(token_path)
+    # One-time migration: adopt an existing in-checkout token when the default path (now outside
+    # the checkout) has none yet, so a prior consent is not lost (DATA-2061). Skip when the caller
+    # passed an explicit override.
+    if token_path == TOKEN_PATH and not token_path.exists() and LEGACY_TOKEN_PATH.exists():
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(LEGACY_TOKEN_PATH, token_path)
+    if token_path.exists():
         with open(token_path, "rb") as fh:
             creds = pickle.load(fh)
     if not creds or not creds.valid:
