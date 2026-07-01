@@ -682,3 +682,16 @@ class TestChannel0ConfirmedBailExemption:
         assert any(f.check == "run_decisions.discovery_channels_incomplete" for f in findings), (
             "unreachable channel 0 must NOT exempt; the 4-channel finding should fire"
         )
+
+    def test_mislabeled_bail_is_not_exempted(self):
+        # no_meeting_found carrying the awaiting_agenda bail label is a semantic
+        # contradiction; the exemption is status-gated so it must NOT pass through.
+        qc = _qa_checks()
+        art = _minimal_valid_artifact()
+        art["briefing_status"] = "no_meeting_found"
+        art["run_metadata"]["run_decisions"] = self._decisions("channel_0_confirmed_no_agenda_yet")
+        findings = []
+        qc.check_awaiting_agenda_discovery_depth(art, findings)
+        assert any(f.check == "run_decisions.discovery_channels_incomplete" for f in findings), (
+            "mislabeled channel-0 bail (status/decision mismatch) must not be exempted"
+        )

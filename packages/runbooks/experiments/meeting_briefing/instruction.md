@@ -1096,16 +1096,18 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 
 **Milestone — run `milestone("grounding_check")`** (per BEFORE YOU START item 6) before this step's work.
 
-The deterministic QA gate substring-checks every claim's `source_extracts[]` against the `retrieved_text_or_snapshot` of its cited source(s); an extract that is not a literal substring is a grounding failure. Catch those in-loop with the SAME check the gate runs, so you fix them precisely instead of re-reading the whole artifact:
+The deterministic QA gate checks every claim's `source_extracts[]` against the `retrieved_text_or_snapshot` of its cited source(s) using a **whitespace-normalized, case-folded substring match** (it collapses runs of whitespace to one space and lowercases both sides before comparing); an extract that isn't found that way is a grounding failure. Catch those in-loop with the SAME normalization the gate uses — so case- or spacing-only differences do NOT get you dropping a valid claim:
 
 ```python
-import json
+import json, re
+def _norm(s):
+    return re.sub(r"\s+", " ", s or "").strip().lower()
 art = json.load(open("/workspace/output/meeting_briefing.json"))
-srcs = {s["id"]: (s.get("retrieved_text_or_snapshot") or "") for s in art.get("sources", [])}
+srcs = {s["id"]: _norm(s.get("retrieved_text_or_snapshot")) for s in art.get("sources", [])}
 ungrounded = []
 for c in art.get("claims", []):
     for ex in c.get("source_extracts", []):
-        if not any(ex in srcs.get(sid, "") for sid in c.get("source_ids", [])):
+        if not any(_norm(ex) in srcs.get(sid, "") for sid in c.get("source_ids", [])):
             ungrounded.append((c.get("claim_id"), ex))
 for cid, ex in ungrounded:
     print("UNGROUNDED", cid, "::", repr(ex[:120]))
@@ -1114,7 +1116,7 @@ print(f"{len(ungrounded)} ungrounded extract(s)")
 
 For each `UNGROUNDED` line, fix it by exactly one of:
 
-1. **Copy the verbatim substring.** Replace the `source_extracts` entry with text copied character-for-character from the cited source's `retrieved_text_or_snapshot`. Do not paraphrase, re-wrap, or normalize punctuation — the check is a literal substring match.
+1. **Copy the verbatim substring.** Replace the `source_extracts` entry with text copied from the cited source's `retrieved_text_or_snapshot`. Case and whitespace differences are tolerated (the check normalizes both), but the words themselves must appear in the source — don't paraphrase or drop/insert words.
 2. **Widen the snapshot.** If the passage the claim relies on is real but not in the captured snapshot, expand that source's `retrieved_text_or_snapshot` to include it (Step 14 explicitly allows generous snapshots).
 3. **Drop the claim.** If the extract cannot be grounded in any real source (it was paraphrased from memory or inferred), remove the claim, or route it per its `route_if_unsupported` (Step 13). A dropped claim is better than an ungrounded one.
 
