@@ -602,7 +602,7 @@ def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Fin
         scan(f"items[{iid}].display.summary", d.get("summary") or "", False)
         cs = d.get("constituent_sentiment")
         if isinstance(cs, dict):
-            for k in ("summary", "detail", "score_direction"):
+            for k in ("summary", "detail", "score_direction", "district_note"):
                 scan(f"items[{iid}].display.constituent_sentiment.{k}", cs.get(k) or "", True)
         for j, tp in enumerate(d.get("talking_points") or []):
             scan(f"items[{iid}].display.talking_points[{j}]", tp or "", False)
@@ -624,6 +624,13 @@ def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Fin
                 f"sources[{s.get('id')}].retrieved_text_or_snapshot contains a data-source "
                 f"internal ('{m.group(0)}'). Keep hs_* columns, table names, and SQL out; "
                 f"summarize constituent data as GoodParty.org's data.",
+            ))
+        if snap and _POSTURE_RE.search(snap):
+            findings.append(Finding(
+                "source_snapshot.posture_override_leak",
+                "error",
+                f"sources[{s.get('id')}].retrieved_text_or_snapshot contains a 'posture "
+                f"override' directive — internal authorization, not content.",
             ))
 
 
