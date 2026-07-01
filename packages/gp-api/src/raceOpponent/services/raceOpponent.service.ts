@@ -775,15 +775,23 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
       return settled ? 'completed' : 'running'
     }
 
-    // No summary for this cycle yet. If collection persisted rows, the chained
-    // summary is imminent or in flight (dispatchSummary runs immediately after
-    // the rows commit), so keep the page processing. Every persisted row is a
-    // summary-eligible web source — the collection artifact only ever emits
-    // ballotpedia/opponent_website rows — so row presence is a sound proxy for
-    // "a summary will run". Zero rows is an empty/uncontested collection with
-    // no summary to wait for.
+    // No summary for this cycle yet. Zero rows is an empty/uncontested
+    // collection with no summary to wait for.
     const collectedRows = await this.model.count({ where: { campaignId } })
-    return collectedRows > 0 ? 'running' : 'completed'
+    if (collectedRows === 0) return 'completed'
+
+    // Rows exist but this cycle has no summary run. Two sub-cases: (a) a fresh
+    // collection just replaced the rows and cleared the summaries, and its
+    // chained summary is imminent/in flight — keep processing; (b) an empty
+    // re-collection preserved a PRIOR cycle's rows AND its summaries (that path
+    // writes nothing and dispatches nothing), so the analysis is already
+    // present — don't strand on 'running'. Persisted-summary presence
+    // distinguishes them: replaceForCampaign clears summaries whenever it lands
+    // fresh rows, so summaries can only survive alongside rows in case (b).
+    const persistedSummaries = await this.client.raceOpponentSummary.count({
+      where: { campaignId },
+    })
+    return persistedSummaries > 0 ? 'completed' : 'running'
   }
 }
 

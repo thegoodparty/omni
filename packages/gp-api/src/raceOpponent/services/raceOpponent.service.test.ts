@@ -115,10 +115,14 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
     collectionRun,
     summaryRun,
     rows = [],
+    persistedSummaries = 0,
   }: {
     collectionRun: { status: ExperimentRunStatus; createdAt: Date } | null
     summaryRun: { status: ExperimentRunStatus; createdAt: Date } | null
     rows?: (typeof collectedRow)[]
+    // Count of persisted RaceOpponentSummary rows — independent of the report
+    // grouping (findMany), which postCollectionStatus does not read.
+    persistedSummaries?: number
   }): RaceOpponentService => {
     const service = new RaceOpponentService(
       features as unknown as FeaturesService,
@@ -133,7 +137,10 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
           count: vi.fn().mockResolvedValue(rows.length),
         },
         campaignStrategy: { findUnique: vi.fn().mockResolvedValue(null) },
-        raceOpponentSummary: { findMany: vi.fn().mockResolvedValue([]) },
+        raceOpponentSummary: {
+          findMany: vi.fn().mockResolvedValue([]),
+          count: vi.fn().mockResolvedValue(persistedSummaries),
+        },
         experimentRun: {
           findFirst: vi.fn(({ where }: { where: { experimentType: string } }) =>
             Promise.resolve(
@@ -236,6 +243,28 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
       },
       summaryRun: null,
       rows: [],
+    })
+
+    const { collectionStatus } = await service.get(campaign)
+
+    expect(collectionStatus).toBe('completed')
+  })
+
+  it("reports 'completed' when an empty re-collection preserved prior rows and summaries", async () => {
+    const service = setup({
+      // The empty re-collection is the latest completed collection; its early
+      // return preserved the prior cycle's rows AND summaries and dispatched no
+      // summary, so no summary run post-dates it.
+      collectionRun: {
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: COLLECTED_AT,
+      },
+      summaryRun: {
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: SUMMARY_STALE,
+      },
+      rows: [collectedRow],
+      persistedSummaries: 1,
     })
 
     const { collectionStatus } = await service.get(campaign)
