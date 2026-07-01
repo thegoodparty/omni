@@ -49,6 +49,8 @@ import { ComplianceStateService } from './complianceState.service'
 import { SubmitToPeerlyDto } from '../schemas/submitToPeerlyDto.schema'
 import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
 import { ComplianceStage, SubmitToPeerlyOutput } from '@goodparty_org/contracts'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
@@ -101,6 +103,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private readonly complianceStateService: ComplianceStateService,
     private queueService: QueueProducerService,
     private readonly experimentRunsService: ExperimentRunsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -472,6 +475,26 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
     const peerlyIdentityId = tcrComplianceIdentity.identity_id
+
+    // Push the Peerly identity id onto the campaign's HubSpot company (via
+    // Segment) so Campaign Success can match Peerly's 10DLC Slack
+    // notifications, which carry only this id, to the right company record.
+    // Only when we just created the identity — an existing-identity pass
+    // (idempotent retry or account-level reuse) already emitted this, so
+    // re-firing would duplicate the event for the same id. companyHubspotId is
+    // where Campaign Success wants peerly_identity_id to land; the contact id
+    // already rides along in the event's context traits. Omitted when the
+    // company record isn't known yet.
+    if (!existingIdentity) {
+      void this.analytics
+        .track(user.id, EVENTS.Outreach.PeerlyIdentityIdCreated, {
+          peerly_identity_id: peerlyIdentityId,
+          ...(campaign.data.hubspotId
+            ? { company_hubspot_id: campaign.data.hubspotId }
+            : {}),
+        })
+        .catch(() => undefined)
+    }
 
     let existingIdentityProfileResponse: PeerlyIdentityProfileResponseBody | null =
       null

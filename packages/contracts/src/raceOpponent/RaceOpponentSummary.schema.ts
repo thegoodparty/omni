@@ -39,11 +39,23 @@ export type RaceOpponentThreatTier = z.infer<
 export const IssueSalienceSchema = z.enum(['high', 'medium', 'low'])
 export type IssueSalience = z.infer<typeof IssueSalienceSchema>
 
-const WhereSoftItemSchema = z.object({
+// A relaxed-sourced text item: prose plus optional citations. Cites a source
+// only where the item rests directly on the collected text.
+const SourcedTextItemSchema = z.object({
   text: z.string(),
   sources: z.array(SummarySourceRefSchema).optional(),
 })
-export type WhereSoftItem = z.infer<typeof WhereSoftItemSchema>
+export type WhereSoftItem = z.infer<typeof SourcedTextItemSchema>
+
+// what_you_need_to_know migrated from a bare string[] to {text, sources?}[]
+// (ENG-10621). Accept the legacy string form and normalize it to { text }:
+// summaries persisted before the migration are stored as a JSONB blob and
+// re-validated through this schema on read, so without this a legacy row fails
+// validation and the summary is silently dropped from the response.
+const WhatYouNeedToKnowItemSchema = z
+  .union([z.string(), SourcedTextItemSchema])
+  .transform((item) => (typeof item === 'string' ? { text: item } : item))
+export type WhatYouNeedToKnowItem = z.infer<typeof WhatYouNeedToKnowItemSchema>
 
 const IssueContrastSchema = z.object({
   issue: z.string(),
@@ -65,8 +77,8 @@ export const RaceOpponentSummarySchema = z.object({
   // analysis yet, so every analytical field is optional.
   threatTier: RaceOpponentThreatTierSchema.optional(),
   whyTheyMatter: z.string().optional(),
-  whatYouNeedToKnow: z.array(z.string()).optional(),
-  whereSoft: z.array(WhereSoftItemSchema).optional(),
+  whatYouNeedToKnow: z.array(WhatYouNeedToKnowItemSchema).optional(),
+  whereSoft: z.array(SourcedTextItemSchema).optional(),
   issueContrasts: z.array(IssueContrastSchema).optional(),
 })
 export type RaceOpponentSummary = z.infer<typeof RaceOpponentSummarySchema>

@@ -63,6 +63,14 @@ const ArtifactWhereSoftSchema = z.object({
   text: z.string(),
   sources: z.array(z.string().min(1)).optional(),
 })
+// what_you_need_to_know migrated from a bare string[] to {text, sources?}[]
+// (ENG-10621). Accept the legacy string form during the rollout window — a
+// summary run dispatched before this deploy completes after it and still emits
+// bare strings — and normalize it, so such a run persists rather than failing
+// the whole summary parse.
+const ArtifactWhatYouNeedToKnowItemSchema = z
+  .union([z.string(), ArtifactWhereSoftSchema])
+  .transform((item) => (typeof item === 'string' ? { text: item } : item))
 const ArtifactIssueContrastSchema = z.object({
   issue: z.string(),
   salience: z.enum(['high', 'medium', 'low']),
@@ -80,7 +88,9 @@ const ArtifactSummaryOpponentSchema = z.object({
     .enum(['primary_threat', 'watch_closely', 'low_priority'])
     .optional(),
   why_they_matter: z.string().optional(),
-  what_you_need_to_know: z.array(z.string()).optional(),
+  what_you_need_to_know: z
+    .array(ArtifactWhatYouNeedToKnowItemSchema)
+    .optional(),
   where_soft: z.array(ArtifactWhereSoftSchema).optional(),
   issue_contrasts: z.array(ArtifactIssueContrastSchema).optional(),
 })
@@ -102,14 +112,23 @@ export class RaceOpponentPersistService extends createPrismaBase(
     super()
   }
 
-  // Queue-consumer hook: route a completed race_opponent run to its handler.
-  // No-op for any other experiment type or a non-COMPLETED status.
+  // Queue-consumer hook: route a terminal race_opponent run to its handler.
+  // No-op for any other experiment type. Collection persists on COMPLETED only.
+  // A summary is handled on BOTH terminal states: COMPLETED persists the
+  // analysis, and either outcome re-chains a summary for a newer collection its
+  // in-flight dedup skipped — a FAILED summary that skipped the re-chain would
+  // otherwise strand collectionStatus on 'running' forever (ENG-10614).
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
-    if (run.status !== ExperimentRunStatus.COMPLETED) return
     if (run.experimentType === RACE_OPPONENT_COLLECTION) {
-      await this.onCollectionCompleted(run)
+      if (run.status === ExperimentRunStatus.COMPLETED) {
+        await this.onCollectionCompleted(run)
+      }
     } else if (run.experimentType === RACE_OPPONENT_SUMMARY) {
-      await this.onSummaryCompleted(run)
+      if (run.status === ExperimentRunStatus.COMPLETED) {
+        await this.onSummaryCompleted(run)
+      } else if (run.status === ExperimentRunStatus.FAILED) {
+        await this.onSummaryFailed(run)
+      }
     }
   }
 
@@ -189,31 +208,73 @@ export class RaceOpponentPersistService extends createPrismaBase(
     const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
 
-    if (!run.artifactBucket || !run.artifactKey) {
-      await this.experimentRuns.markFailed(
-        run.runId,
-        'completed run has no artifact location',
-      )
-      throw new Error(`run ${run.runId} completed without an artifact location`)
-    }
-
+    // The re-chain must fire on EVERY terminal outcome of this run — a clean
+    // persist, a missing artifact, or an artifact that fails processing — so it
+    // sits in a finally. Without it, the throw paths below would skip the re-
+    // chain and strand collectionStatus on 'running' when a newer collection is
+    // waiting on the summary this run's dedup skipped (ENG-10614).
     try {
-      const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
-      if (!raw) throw new Error('artifact is missing or empty')
-      const envelope = ArtifactSummaryEnvelopeSchema.parse(JSON.parse(raw))
+      if (!run.artifactBucket || !run.artifactKey) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          'completed run has no artifact location',
+        )
+        throw new Error(
+          `run ${run.runId} completed without an artifact location`,
+        )
+      }
 
-      const sourceTypeByUrl = await this.sourceTypeByUrl(campaign.id)
-      const summaries = envelope.opponents.map((opponent) =>
-        this.mapSummary(opponent, envelope.generated_at, sourceTypeByUrl),
+      try {
+        const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
+        if (!raw) throw new Error('artifact is missing or empty')
+        const envelope = ArtifactSummaryEnvelopeSchema.parse(JSON.parse(raw))
+
+        const sourceTypeByUrl = await this.sourceTypeByUrl(campaign.id)
+        const summaries = envelope.opponents.map((opponent) =>
+          this.mapSummary(opponent, envelope.generated_at, sourceTypeByUrl),
+        )
+
+        await this.replaceSummaries(campaign.id, run.runId, summaries)
+      } catch (error) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          error instanceof Error ? error.message : String(error),
+        )
+        throw error
+      }
+    } finally {
+      await this.rechainAfterSummary(campaign, run.createdAt)
+    }
+  }
+
+  // A race_opponent_summary run FAILED at the queue level (no artifact to
+  // persist). Still re-chain: a newer collection may be waiting on the summary
+  // this run's in-flight dedup skipped.
+  private async onSummaryFailed(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterSummary(campaign, run.createdAt)
+  }
+
+  // Fire-and-forget re-chain, run on every terminal summary outcome. A dispatch
+  // failure must not fail an already-persisted (or already-terminal) run — the
+  // next collection re-chains — so log rather than rethrow. Placed in a finally
+  // by onSummaryCompleted, so it must never throw or it would mask the original
+  // persist error the caller re-raises for redelivery visibility.
+  private async rechainAfterSummary(
+    campaign: CampaignWith<'user'>,
+    summaryRunCreatedAt: Date,
+  ): Promise<void> {
+    try {
+      await this.raceOpponent.rechainSummaryForNewerCollection(
+        campaign,
+        summaryRunCreatedAt,
       )
-
-      await this.replaceSummaries(campaign.id, run.runId, summaries)
     } catch (error) {
-      await this.experimentRuns.markFailed(
-        run.runId,
-        error instanceof Error ? error.message : String(error),
+      this.logger.error(
+        { error },
+        'failed to re-chain race_opponent_summary after a newer collection',
       )
-      throw error
     }
   }
 
@@ -349,7 +410,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
       generatedAt,
       threatTier: opponent.threat_tier,
       whyTheyMatter: opponent.why_they_matter,
-      whatYouNeedToKnow: opponent.what_you_need_to_know,
+      whatYouNeedToKnow: opponent.what_you_need_to_know?.map((item) => {
+        const sources = optionalRefs(item.sources)
+        return { text: item.text, ...(sources.length > 0 ? { sources } : {}) }
+      }),
       whereSoft: opponent.where_soft?.map((item) => {
         const sources = optionalRefs(item.sources)
         return { text: item.text, ...(sources.length > 0 ? { sources } : {}) }

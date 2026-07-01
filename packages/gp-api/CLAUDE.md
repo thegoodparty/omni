@@ -39,28 +39,40 @@ npm run verify -w packages/gp-api    # lint + tsc --noEmit + vitest run
 
 In CI (`.github/workflows/gp-api.yml`) the same work is split for speed: a
 `Checks` job runs lint, typecheck, and `prisma migrate diff ... --exit-code`
-against a shadow DB; a `Test` job fans the vitest suite out across 4 shards
-(`--shard=N/4`, no coverage); and an empty `Validate` gate `needs` both so the
+against a shadow DB; a `Test` job fans the vitest suite across 2 shards
+(`--shard=N/2`, no coverage), one runner each, so the whole suite finishes in
+about 4-5 min of wall clock; and an empty `Validate` gate `needs` both so the
 branch-protection-required `Validate` check is green only when all of them pass.
 The local `npm run verify` is unchanged — it runs the whole suite in one pass.
+
+The unit-test DB is provisioned by cloning a schema template, not by replaying
+every migration per suite. `vitest.config.ts` runs `src/test-global-setup.ts`
+once, which builds the full schema into a `gp_api_test_template` database in the
+shared testcontainer; each `useTestService` suite then does
+`CREATE DATABASE ... TEMPLATE gp_api_test_template` (a near-instant Postgres
+copy) instead of re-running all 258 migrations. `src/test-postgres.ts` owns the
+container config that both paths share — keep it identical in both or
+testcontainers' reuse hash stops matching and suites get a fresh, template-less
+container. Suites still run with `isolate: true`; sharding is what keeps wall
+clock down, since the per-file cost is re-importing the Nest app graph.
 
 If you touched `prisma/`, make sure there are no undeclared schema changes (the
 migration-diff step in `Checks` will fail otherwise — see `npm run migrate:dev`).
 
 ## Pointer table — when in doubt
 
-| Doing                        | Read                                               |
-| ---------------------------- | -------------------------------------------------- |
-| **Writing or editing code**  | **`.cursor/rules/*.mdc` — read first, every time** |
-| Adding an endpoint           | `docs/architecture.md` § Module shape              |
+| Doing                                        | Read                                                             |
+| -------------------------------------------- | ---------------------------------------------------------------- |
+| **Writing or editing code**                  | **`.cursor/rules/*.mdc` — read first, every time**               |
+| Adding an endpoint                           | `docs/architecture.md` § Module shape                            |
 | Adding or changing analytics instrumentation | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
-| Touching contracts           | `docs/contracts.md`                                |
-| Writing or fixing a test     | `docs/writing-tests.md`                            |
-| Adding/debugging an alert    | `docs/observability.md`                            |
-| Reproducing a reported bug   | `docs/debugging.md`                                |
-| First-time setup             | `docs/getting-started.md` + `docs/team-setup.md`   |
-| Why a thing is the way it is | `docs/adr/`                                        |
-| AI rule-by-rule code review  | `ai-rules/` (git submodule)                        |
+| Touching contracts                           | `docs/contracts.md`                                              |
+| Writing or fixing a test                     | `docs/writing-tests.md`                                          |
+| Adding/debugging an alert                    | `docs/observability.md`                                          |
+| Reproducing a reported bug                   | `docs/debugging.md`                                              |
+| First-time setup                             | `docs/getting-started.md` + `docs/team-setup.md`                 |
+| Why a thing is the way it is                 | `docs/adr/`                                                      |
+| AI rule-by-rule code review                  | `ai-rules/` (git submodule)                                      |
 
 ## Cursor rules (`alwaysApply: true`) — read before writing code
 
@@ -107,21 +119,22 @@ Use `date-fns` for parse / format / arithmetic / compare / diff / start-or-end-o
 
 Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for the dirs you'll touch most:
 
-| Working in                        | Read                                        |
-| --------------------------------- | ------------------------------------------- |
-| Campaigns / plans / tasks         | `src/campaigns/CLAUDE.md`                   |
-| Campaign plan PDF sharing         | `src/campaignPlanShares/CLAUDE.md`          |
-| Voter file / L2 lookups           | `src/voters/CLAUDE.md`                      |
-| Stripe payments / pro upgrades    | `src/payments/CLAUDE.md`                    |
-| Campaign websites / domains       | `src/websites/CLAUDE.md`                    |
-| SQS producer/consumer / async     | `src/queue/CLAUDE.md`                       |
-| Auth, JWT, Clerk M2M, roles       | `src/authentication/CLAUDE.md`              |
-| Agent experiments                 | `src/agentExperiments/CLAUDE.md`            |
-| Schema / migrations               | `prisma/CLAUDE.md`                          |
-| `@goodparty_org/contracts`        | `contracts/CLAUDE.md` + `docs/contracts.md` |
-| Pulumi / Docker / Grafana         | `deploy/CLAUDE.md`                          |
-| One-off / build scripts           | `scripts/CLAUDE.md`                         |
-| Seed data / factories / scenarios | `seed/CLAUDE.md`                            |
+| Working in                               | Read                                        |
+| ---------------------------------------- | ------------------------------------------- |
+| Campaigns / plans / tasks                | `src/campaigns/CLAUDE.md`                   |
+| Campaign plan PDF sharing                | `src/campaignPlanShares/CLAUDE.md`          |
+| Voter file / L2 lookups                  | `src/voters/CLAUDE.md`                      |
+| Stripe payments / pro upgrades           | `src/payments/CLAUDE.md`                    |
+| Campaign websites / domains              | `src/websites/CLAUDE.md`                    |
+| Opposition research (Know Your Opponent) | `src/raceOpponent/CLAUDE.md`                |
+| SQS producer/consumer / async            | `src/queue/CLAUDE.md`                       |
+| Auth, JWT, Clerk M2M, roles              | `src/authentication/CLAUDE.md`              |
+| Agent experiments                        | `src/agentExperiments/CLAUDE.md`            |
+| Schema / migrations                      | `prisma/CLAUDE.md`                          |
+| `@goodparty_org/contracts`               | `contracts/CLAUDE.md` + `docs/contracts.md` |
+| Pulumi / Docker / Grafana                | `deploy/CLAUDE.md`                          |
+| One-off / build scripts                  | `scripts/CLAUDE.md`                         |
+| Seed data / factories / scenarios        | `seed/CLAUDE.md`                            |
 
 ## Module shape (enforced by `.cursor/rules/rules.mdc` Rule 7)
 
