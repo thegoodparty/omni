@@ -1092,6 +1092,34 @@ Every briefing must include the following disclaimer at the `disclosure` field:
 
 > This briefing was generated with AI assistance and may contain errors. Inferred or synthesized content represents model-generated interpretation, not verified fact. Constituent sentiment data, where present, reflects modeled estimates for constituents in that jurisdiction.
 
+### Step 17b — Grounding self-check (run once, before Step 18)
+
+**Milestone — run `milestone("grounding_check")`** (per BEFORE YOU START item 6) before this step's work.
+
+The deterministic QA gate substring-checks every claim's `source_extracts[]` against the `retrieved_text_or_snapshot` of its cited source(s); an extract that is not a literal substring is a grounding failure. Catch those in-loop with the SAME check the gate runs, so you fix them precisely instead of re-reading the whole artifact:
+
+```python
+import json
+art = json.load(open("/workspace/output/meeting_briefing.json"))
+srcs = {s["id"]: (s.get("retrieved_text_or_snapshot") or "") for s in art.get("sources", [])}
+ungrounded = []
+for c in art.get("claims", []):
+    for ex in c.get("source_extracts", []):
+        if not any(ex in srcs.get(sid, "") for sid in c.get("source_ids", [])):
+            ungrounded.append((c.get("claim_id"), ex))
+for cid, ex in ungrounded:
+    print("UNGROUNDED", cid, "::", repr(ex[:120]))
+print(f"{len(ungrounded)} ungrounded extract(s)")
+```
+
+For each `UNGROUNDED` line, fix it by exactly one of:
+
+1. **Copy the verbatim substring.** Replace the `source_extracts` entry with text copied character-for-character from the cited source's `retrieved_text_or_snapshot`. Do not paraphrase, re-wrap, or normalize punctuation — the check is a literal substring match.
+2. **Widen the snapshot.** If the passage the claim relies on is real but not in the captured snapshot, expand that source's `retrieved_text_or_snapshot` to include it (Step 14 explicitly allows generous snapshots).
+3. **Drop the claim.** If the extract cannot be grounded in any real source (it was paraphrased from memory or inferred), remove the claim, or route it per its `route_if_unsupported` (Step 13). A dropped claim is better than an ungrounded one.
+
+**Bounded fix loop — at most TWO fix passes, then finalize no matter what.** The artifact is already written (Step 17); this check only repairs grounding, it must never block delivery. Run the block, apply fixes, re-run it once more. If a second pass still shows ungrounded extracts, **drop those specific claims** (remove them, honoring `route_if_unsupported`) and move on — do NOT keep looping. Two passes maximum: a delivered briefing with a couple of dropped claims always beats a run that exhausts its turn budget chasing grounding and delivers nothing. Once the block prints `0 ungrounded extract(s)`, or you have completed the second pass, stop and go to Step 18.
+
 ### Step 18 — Self-check the artifact shape
 
 **Milestone — run `milestone("validate")`** (per BEFORE YOU START item 6) before this step's work.

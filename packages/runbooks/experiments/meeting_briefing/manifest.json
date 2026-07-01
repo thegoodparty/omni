@@ -2,9 +2,12 @@
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
   "version": 12,
-  "model": "opus",
+  "model": "sonnet",
   "max_turns": 200,
   "timeout_seconds": 3000,
+  "runtime": {
+    "max_thinking_tokens": 0
+  },
   "scope": {
     "allowed_tables": [
       "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
