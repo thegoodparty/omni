@@ -49,6 +49,18 @@ _HEADLINES = {
 TRANSITION_CAP = 15
 
 
+def sheet_url() -> str | None:
+    """The event-state sheet link for post footers. Prefer an explicit
+    ``GP_EVENT_STATE_SHEET_URL`` override, else derive it from ``GP_EVENT_STATE_SHEET_ID``
+    (already set for the DATA-2052 gSheet sink, so no new config is needed). None when
+    neither is set — the post then just omits the link."""
+    explicit = os.environ.get("GP_EVENT_STATE_SHEET_URL")
+    if explicit:
+        return explicit
+    sheet_id = os.environ.get("GP_EVENT_STATE_SHEET_ID")
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit" if sheet_id else None
+
+
 # --- Block Kit helpers (pure) -------------------------------------------------
 
 
@@ -167,7 +179,7 @@ def build_digest_blocks(
     n_changes = sum(len(changes.get(k, [])) for k in ("new", "escalated", "resolved"))
     anomalies = _new_anomalies(result, prior_anomalous)
     proposals = result.get("proposals") or []
-    sheet_url = os.environ.get("GP_EVENT_STATE_SHEET_URL")
+    link = sheet_url()
 
     parent: list[dict] = [_header(f"📊 Analytics event health — {result.get('run_date')}")]
     lines = _transition_lines(result, changes, prior_state)
@@ -192,8 +204,8 @@ def build_digest_blocks(
     breakdown = " · ".join(f"{k} {v}" for k, v in sorted(sc.items(), key=lambda x: -x[1]))
     parent.append(_context(f"Catalog: {breakdown}  ({result.get('total_events', sum(sc.values()))} total)"))
 
-    if sheet_url:
-        parent.append(_context(f"<{sheet_url}|🔗 Full event-state sheet> · 🧵 details in thread"))
+    if link:
+        parent.append(_context(f"<{link}|🔗 Full event-state sheet> · 🧵 details in thread"))
     else:
         parent.append(_context("🧵 details in thread"))
 
@@ -307,8 +319,9 @@ def main(argv: list[str] | None = None) -> int:
     m.add_argument("--source", help="PR # or 'manual (dev feedback)'")
     m.add_argument("--author", help="author handle (no @)")
     m.add_argument("--supersession", help="supersession lineage line")
-    m.add_argument("--sheet-url", default=os.environ.get("GP_EVENT_STATE_SHEET_URL"),
-                   help="event-state sheet URL (or GP_EVENT_STATE_SHEET_URL env)")
+    m.add_argument("--sheet-url", default=sheet_url(),
+                   help="event-state sheet URL (defaults to GP_EVENT_STATE_SHEET_URL, else "
+                   "derived from GP_EVENT_STATE_SHEET_ID)")
     m.add_argument("--changed", help="comma-separated changed fields (for --change updated)")
     args = parser.parse_args(argv)
 

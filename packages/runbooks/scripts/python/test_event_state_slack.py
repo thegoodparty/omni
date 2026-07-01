@@ -67,6 +67,27 @@ CHANGES = {"new": ["donation_submitted", "meeting_rsvp"], "resolved": [],
 QUIET = {"new": [], "resolved": [], "still_open": ["x"], "escalated": []}
 
 
+# --- sheet_url derivation ----------------------------------------------------
+
+
+def test_sheet_url_prefers_explicit_override(monkeypatch):
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_URL", "https://custom/link")
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "abc123")
+    assert slk.sheet_url() == "https://custom/link"
+
+
+def test_sheet_url_derives_from_sheet_id(monkeypatch):
+    monkeypatch.delenv("GP_EVENT_STATE_SHEET_URL", raising=False)
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "abc123")
+    assert slk.sheet_url() == "https://docs.google.com/spreadsheets/d/abc123/edit"
+
+
+def test_sheet_url_none_when_unset(monkeypatch):
+    monkeypatch.delenv("GP_EVENT_STATE_SHEET_URL", raising=False)
+    monkeypatch.delenv("GP_EVENT_STATE_SHEET_ID", raising=False)
+    assert slk.sheet_url() is None
+
+
 # --- Source A: build_metadata_blocks -----------------------------------------
 
 
