@@ -99,7 +99,9 @@ export const buildOpponentBrief = (opponent: Opponent): OpponentBrief => {
   if (summary.whatYouNeedToKnow && summary.whatYouNeedToKnow.length > 0) {
     sections.push({
       kind: 'whatYouNeedToKnow',
-      items: summary.whatYouNeedToKnow,
+      // whatYouNeedToKnow items became { text, sources? } (ENG-10621); this
+      // section renders text bullets, so take the text.
+      items: summary.whatYouNeedToKnow.map((item) => item.text),
     })
   }
 
