@@ -714,6 +714,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="prior-run state JSON for the changes diff (default: instrumentation_data/)",
     )
     parser.add_argument(
+        "--slack",
+        action="store_true",
+        help="post the delta-led health digest to Slack (Source B, DATA-2057). Reads "
+        "SLACK_APP_BOT_TOKEN + SLACK_EVENT_LIFECYCLE_CHANNEL_ID; quiet when nothing changed. "
+        "A Slack failure warns but never changes the exit code.",
+    )
+    parser.add_argument(
         "--today",
         help="override the run date (YYYY-MM-DD); default = system date. Shifts only the "
         "local reconciliation (dormant window, week cutoff, run-date label). The firing axis "
@@ -740,6 +747,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         append_log(args.log, section)
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, default=_json_default) + "\n")
+
+    # Source B (DATA-2057): post the digest BEFORE the state write below advances the diff.
+    # `changes` was computed against the prior state; once _atomic_write runs, that prior is
+    # gone, so a separate process would see an already-consumed diff. Re-read the prior state
+    # here (cheap) only to render escalated events as prior -> current. Non-fatal: a Slack
+    # error warns and never changes the exit code — the log/state write-back is the real work.
+    if args.slack:
+        import event_state_slack as slk
+
+        token, channel = os.environ.get(slk.TOKEN_ENV), os.environ.get(slk.CHANNEL_ENV)
+        if not token or not channel:
+            print(
+                f"--slack set but {slk.TOKEN_ENV}/{slk.CHANNEL_ENV} unset; skipping the Slack post.",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                prior_state = load_prior_state(args.state)
+                ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel)
+                print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
+                print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)
+
     if args.state:
         state = {
             "run_date": today.isoformat(),

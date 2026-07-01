@@ -204,6 +204,37 @@ back or blocked by a refresh problem.
    The surface is eventually-consistent; the next trigger or a run on a configured host
    (currently the data owner's) recovers it.
 
+### Announce in Slack (independent, non-fatal)
+
+After the writes are verified, push a real-time notice of the change to the analytics
+event-lifecycle Slack channel (DATA-2057, Source A). Like the surface refresh, this is a
+**separate step that must fail separately** — the Amplitude write has already succeeded and
+must never be blocked or rolled back by a Slack problem. Post **one notice per event you
+touched** (a supersession touches two — the new event as `created`/`superseded` and the
+predecessor as `retired`/`superseded`).
+
+1. Run the wrapper with the fields already in scope (resolve the runbooks path the same way
+   the other steps do — `$RUNBOOKS_DIR` or the repo checkout). `--change` is
+   `created` for a net-new add, `superseded` for a supersession, `retired` for a
+   retirement, `updated` for a pure metadata enrich/backfill. `--source` is the PR (`PR
+   #NNNN`) when one was detected, else `manual (dev feedback)`:
+
+   ```bash
+   "$RUNBOOKS_DIR"/scripts/shell/notify-event-slack.sh \
+     --event "<event name>" --change created --status "<in use|not in use status>" \
+     --product product:win --family "<family>" --purpose "<the one-line purpose>" \
+     --source "PR #NNNN" --author "<handle>" --supersession "<lineage line, if any>"
+   ```
+
+   For `--change updated`, add `--changed "purpose, tags"` (the fields that changed).
+
+2. **On a clean skip:** the wrapper exits 0 with `…not configured on this host…; skipping`
+   when the machine lacks the shared Slack bot credentials (`SLACK_APP_BOT_TOKEN` /
+   `SLACK_EVENT_LIFECYCLE_CHANNEL_ID`). Expected on most engineers' machines — report
+   `Slack notification — skipped (host not configured)` and move on. Not an error.
+3. **On failure:** do not fail the skill. Report all three outcomes separately —
+   `metadata written ✓; surface refresh ✓/⚠; Slack notification ⚠ (<reason>)`.
+
 ## Handoff (when called by instrument-analytics-event)
 
 The caller passes a payload; honor it instead of re-asking:
