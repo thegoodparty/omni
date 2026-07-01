@@ -70,75 +70,20 @@ export interface OnboardingCardsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// slice 3 — general chat (/v1/chats, scope=chief_of_staff)
+// slice 3 — general chat (/v1/chats). The scope-generic chat contracts now live
+// in the shared manager-chat client; re-export them so this seam stays the
+// single chat-types import site for Chief of Staff.
 // ---------------------------------------------------------------------------
 
-export type ChatScope =
-  | 'briefing_annotation'
-  | 'chief_of_staff'
-  | 'campaign_assistant'
-
-export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
-
-export type ChatMessageSegmentKind = 'text' | 'tool'
-
-// One ordered display block of an assistant turn (mirrors the persisted
-// ChatMessageSegment). Consecutive `tool` segments are grouped into one pill
-// row by the renderer. Present only on assistant turns that used tools.
-export interface ChatMessageSegment {
-  kind: ChatMessageSegmentKind
-  text?: string | null
-  toolName?: string | null
-}
-
-export interface ChatMessageDto {
-  id: string
-  conversationId: string
-  role: ChatMessageRole
-  content: string
-  createdAt: string
-  segments?: ChatMessageSegment[]
-}
-
-export interface ChatConversationDto {
-  conversationId: string
-  scope: ChatScope
-  title: string | null
-  organizationSlug: string | null
-  ownerUserId: number
-  deletedAt: string | null
-  createdAt: string
-  updatedAt: string
-}
-
-export interface ChatConversationListResponse {
-  conversations: ChatConversationDto[]
-}
-
-export interface ChatConversationMessagesResponse {
-  conversationId: string
-  messages: ChatMessageDto[]
-}
-
-export type ChatErrorCode =
-  | 'conversation_not_found'
-  | 'upstream_unavailable'
-  | 'rate_limited'
-  | 'aborted'
-  | 'internal'
-
-/**
- * SSE union streamed by `POST /v1/chats/:id/messages`. Treat `done` and
- * `error` as terminal.
- */
-export type ChatStreamEvent =
-  | { type: 'text'; delta: string }
-  | { type: 'tool_call'; toolName: string; args?: unknown }
-  | { type: 'tool_result'; toolName: string; result?: unknown }
-  | { type: 'done'; assistantMessageId?: string }
-  | {
-      type: 'error'
-      code: ChatErrorCode
-      message: string
-      retryable: boolean
-    }
+export type {
+  ChatScope,
+  ChatMessageRole,
+  ChatMessageSegmentKind,
+  ChatMessageSegment,
+  ChatMessageDto,
+  ChatConversationDto,
+  ChatConversationListResponse,
+  ChatConversationMessagesResponse,
+  ChatErrorCode,
+  ChatStreamEvent,
+} from '../../shared/manager-chat/chatClient'
