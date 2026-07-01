@@ -244,8 +244,11 @@ const Section = ({
       return (
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Key positions</Text>
-          {section.positions.map((position) => (
-            <View key={position.label} style={styles.card}>
+          {/* Index keys: position.label is LLM free-text with no uniqueness
+              guarantee; a duplicate label on a text-based key would be silently
+              dropped by react-pdf. */}
+          {section.positions.map((position, index) => (
+            <View key={index} style={styles.card}>
               <Text style={styles.positionLabel}>{position.label}</Text>
               <Text>{position.detail}</Text>
               <Sources sources={position.sources} />
@@ -295,9 +298,12 @@ export const OpponentBriefPdfDocument = ({
           {raceContext}
         </Text>
       ) : null}
+      {/* Index keys: opponent names carry no uniqueness guarantee, so two
+          same-named opponents on a name-based key would collide and one brief
+          would be silently dropped. */}
       {briefs.map(({ brief, opponentName }, index) => (
         <OpponentBriefView
-          key={opponentName}
+          key={index}
           brief={brief}
           opponentName={opponentName}
           breakBefore={index > 0}

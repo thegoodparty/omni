@@ -569,21 +569,27 @@ const RaceOpponentList = ({
   )
 
   // Export the on-screen briefs to a PDF (one section per opponent that has a
-  // structured summary). Guarded against double-clicks while the (async)
-  // react-pdf render runs.
+  // structured summary).
   const [exporting, setExporting] = useState(false)
+  // Synchronous in-flight guard, mirroring collectingRef: setExporting only
+  // disables the button after a re-render, so two rapid clicks could both fire
+  // before React repaints. The ref is set before the await, so the second
+  // synchronous call sees it and bails immediately.
+  const exportingRef = useRef(false)
   const hasExportableBrief = data.opponents.some((opponent) => opponent.summary)
   const exportBriefs = useCallback(async () => {
-    if (exporting) return
+    if (exportingRef.current) return
+    exportingRef.current = true
     setExporting(true)
     try {
       await downloadOpponentBriefsPdf(data.opponents, raceContext)
     } catch {
       errorSnackbar('Failed to export the brief. Please try again.')
     } finally {
+      exportingRef.current = false
       setExporting(false)
     }
-  }, [exporting, data.opponents, raceContext, errorSnackbar])
+  }, [data.opponents, raceContext, errorSnackbar])
 
   const status = data.collectionStatus
 
