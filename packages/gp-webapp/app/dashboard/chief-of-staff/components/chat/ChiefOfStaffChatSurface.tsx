@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
+import type { ManagerChatClient } from '../../../shared/manager-chat/chatClient'
 
 interface Props {
   open: boolean
@@ -14,6 +15,14 @@ interface Props {
   opener?: string[]
   /** Identity of the opener — changes remount the body for a fresh chat. */
   openerKey?: string | null
+  /** Header title/subtitle. Default to Chief of Staff. */
+  title?: string
+  subtitle?: string
+  /** Scope config threaded to the body. All default to Chief of Staff. */
+  chatApi?: ManagerChatClient
+  analyticsLabel?: string
+  historyKey?: readonly unknown[]
+  defaultIntro?: string[]
 }
 
 /**
@@ -27,6 +36,12 @@ export default function ChiefOfStaffChatSurface({
   initialConversationId,
   opener,
   openerKey,
+  title = 'Chief of Staff',
+  subtitle = 'Always on, working on your week',
+  chatApi,
+  analyticsLabel,
+  historyKey,
+  defaultIntro,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -49,10 +64,8 @@ export default function ChiefOfStaffChatSurface({
             <SparklesIcon className="size-4" aria-hidden />
           </span>
           <div className="flex flex-col text-left">
-            <DrawerTitle>Chief of Staff</DrawerTitle>
-            <span className="text-xs text-muted-foreground">
-              Always on, working on your week
-            </span>
+            <DrawerTitle>{title}</DrawerTitle>
+            <span className="text-xs text-muted-foreground">{subtitle}</span>
           </div>
         </DrawerHeader>
 
@@ -65,6 +78,10 @@ export default function ChiefOfStaffChatSurface({
           conversationIdOverride={selectedId ?? undefined}
           opener={opener}
           onSelectConversation={setSelectedId}
+          chatApi={chatApi}
+          analyticsLabel={analyticsLabel}
+          historyKey={historyKey}
+          defaultIntro={defaultIntro}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />
       </DrawerContent>

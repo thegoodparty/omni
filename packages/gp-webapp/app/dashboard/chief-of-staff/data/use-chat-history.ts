@@ -7,25 +7,33 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 import { chiefOfStaffChatApi } from './chat-api'
+import type { ManagerChatClient } from '../../shared/manager-chat/chatClient'
 import type { ChatConversationDto } from './contracts'
 
+// Chief of Staff's history query key; also the default so existing CoS callers
+// need not pass one. Other scopes (e.g. Campaign Manager) pass their own.
 const HISTORY_KEY = ['chief-of-staff', 'chat-history'] as const
 
 export const useChatHistory = (
   enabled: boolean,
+  client: ManagerChatClient = chiefOfStaffChatApi,
+  historyKey: readonly unknown[] = HISTORY_KEY,
 ): UseQueryResult<ChatConversationDto[]> =>
   useQuery({
-    queryKey: HISTORY_KEY,
-    queryFn: () => chiefOfStaffChatApi.listConversations(),
+    queryKey: historyKey,
+    queryFn: () => client.listConversations(),
     enabled,
   })
 
-export const useDeleteConversation = () => {
+export const useDeleteConversation = (
+  client: ManagerChatClient = chiefOfStaffChatApi,
+  historyKey: readonly unknown[] = HISTORY_KEY,
+) => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => chiefOfStaffChatApi.softDelete(id),
+    mutationFn: (id: string) => client.softDelete(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: HISTORY_KEY })
+      void queryClient.invalidateQueries({ queryKey: historyKey })
     },
   })
 }

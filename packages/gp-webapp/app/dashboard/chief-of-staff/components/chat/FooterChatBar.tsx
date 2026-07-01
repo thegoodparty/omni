@@ -3,6 +3,7 @@
 import { IconButton } from '@styleguide'
 import { MicIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import ChatHistoryPopover from './ChatHistoryPopover'
+import type { ManagerChatClient } from '../../../shared/manager-chat/chatClient'
 
 interface Props {
   firstName?: string
@@ -10,6 +11,10 @@ interface Props {
   onOpen: () => void
   /** Open the chat surface into a past conversation (from the clock popover). */
   onOpenConversation: (conversationId: string) => void
+  /** Chat client for this scope's history popover. Defaults to Chief of Staff. */
+  chatApi?: ManagerChatClient
+  /** History query key for this scope. Defaults to Chief of Staff. */
+  historyKey?: readonly unknown[]
 }
 
 /**
@@ -23,6 +28,8 @@ export default function FooterChatBar({
   firstName,
   onOpen,
   onOpenConversation,
+  chatApi,
+  historyKey,
 }: Props): React.JSX.Element {
   const placeholder = firstName
     ? `Hi, ${firstName}, how can I help?`
@@ -33,7 +40,11 @@ export default function FooterChatBar({
       <div className="mx-auto flex w-full max-w-[608px] items-center px-4 py-4 lg:px-6">
         <div className="relative w-full rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
-            <ChatHistoryPopover onSelect={onOpenConversation} />
+            <ChatHistoryPopover
+              onSelect={onOpenConversation}
+              chatApi={chatApi}
+              historyKey={historyKey}
+            />
             <button
               type="button"
               onClick={onOpen}

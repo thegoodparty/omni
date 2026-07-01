@@ -16,7 +16,8 @@ import {
 import { SearchIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
-import { chiefOfStaffChatApi as chatApi } from '../../data/chat-api'
+import { chiefOfStaffChatApi } from '../../data/chat-api'
+import type { ManagerChatClient } from '../../../shared/manager-chat/chatClient'
 import type {
   ChatErrorCode,
   ChatMessageDto,
@@ -49,6 +50,15 @@ interface Props {
   /** Open a past conversation picked from the input pill's history popover. */
   onSelectConversation?: (conversationId: string) => void
   bodyClassName?: string
+  /**
+   * Scope config. All default to Chief of Staff so existing CoS/Community
+   * Issues callers are unchanged; Campaign Manager passes its own.
+   */
+  chatApi?: ManagerChatClient
+  analyticsLabel?: string
+  historyKey?: readonly unknown[]
+  /** Default intro played on the first chat when no `opener` is given. */
+  defaultIntro?: string[]
 }
 
 type ChatItem =
@@ -200,6 +210,10 @@ export default function ChiefOfStaffChatBody({
   onConversationCreated,
   onSelectConversation,
   bodyClassName,
+  chatApi = chiefOfStaffChatApi,
+  analyticsLabel = 'chief-of-staff-chat',
+  historyKey = HISTORY_KEY,
+  defaultIntro = COS_INTRO_MESSAGES,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -212,7 +226,7 @@ export default function ChiefOfStaffChatBody({
   const dictation = useDictationAppend({
     value: composer,
     onChange: setComposer,
-    analyticsLabel: 'chief-of-staff-chat',
+    analyticsLabel,
   })
   const [error, setError] = useState<ErrorState | null>(null)
   const [creating, setCreating] = useState(false)
@@ -230,6 +244,8 @@ export default function ChiefOfStaffChatBody({
   // messages in character by character like a streamed assistant reply.
   const { data: priorConversations } = useChatHistory(
     active && !conversationIdOverride,
+    chatApi,
+    historyKey,
   )
   const isFirstChat =
     !conversationIdOverride &&
@@ -238,7 +254,7 @@ export default function ChiefOfStaffChatBody({
 
   // An onboarding-card opener always plays; otherwise the default intro plays
   // only on the user's first chat. Either way it's the same typed animation.
-  const introMessages = opener ?? COS_INTRO_MESSAGES
+  const introMessages = opener ?? defaultIntro
   const introTotal = useMemo(
     () => introMessages.reduce((sum, m) => sum + m.length, 0),
     [introMessages],
@@ -370,7 +386,7 @@ export default function ChiefOfStaffChatBody({
       // Surface the new conversation in the history list right away — the cache
       // is otherwise only refreshed on delete, so a fresh chat wouldn't appear
       // until a later refetch.
-      void queryClient.invalidateQueries({ queryKey: HISTORY_KEY })
+      void queryClient.invalidateQueries({ queryKey: historyKey })
       return id
     } catch (err) {
       reportErrorToSentry(err, {
@@ -799,7 +815,11 @@ export default function ChiefOfStaffChatBody({
         <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
             {onSelectConversation && (
-              <ChatHistoryPopover onSelect={onSelectConversation} />
+              <ChatHistoryPopover
+                onSelect={onSelectConversation}
+                chatApi={chatApi}
+                historyKey={historyKey}
+              />
             )}
             <Input
               value={composer}
