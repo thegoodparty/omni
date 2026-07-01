@@ -47,8 +47,10 @@ export default function CampaignManagerHome({
   }
 
   return (
-    <>
-      <CampaignManagerTasks onMeetManager={openMeet} />
+    <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">
+      <div className="pb-40">
+        <CampaignManagerTasks onMeetManager={openMeet} />
+      </div>
       <FooterChatBar
         firstName={firstName}
         onOpen={openNew}
@@ -70,6 +72,6 @@ export default function CampaignManagerHome({
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         defaultIntro={CAMPAIGN_MANAGER_INTRO}
       />
-    </>
+    </div>
   )
 }
