@@ -153,6 +153,14 @@ def test_should_post_true_when_still_open_event_develops_anomaly():
     assert slk.should_post(RESULT, changes, prior_anomalous={"donation_submitted"}) is False
 
 
+def test_should_post_suppresses_anomaly_flood_when_prior_unknown():
+    # prior_anomalous=None: no prior-anomaly knowledge (no state file, corrupt, or a file
+    # written before the key existed — the first --slack run on an established deployment).
+    # A pre-existing anomaly must NOT flood the channel; None is distinct from an empty set,
+    # which means the prior run is known to have had zero anomalies.
+    assert slk.should_post(RESULT, QUIET, prior_anomalous=None) is False
+
+
 # --- Source B: build_digest_blocks -------------------------------------------
 
 

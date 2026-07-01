@@ -124,13 +124,21 @@ def _current_status_map(result: dict) -> dict[str, str]:
 def _new_anomalies(result: dict, prior_anomalous: set[str] | None = None) -> list[dict]:
     """Flagged events carrying a firing-volume anomaly that was NOT present last run — the
     noisy signal the quiet gate must never suppress. ``prior_anomalous`` is the set of
-    event_types that were anomalous on the previous run (``None`` on the first run → every
-    anomaly counts as new). This catches both a newly flagged anomalous event and a
-    still-flagged event that *develops* an anomaly, while a persistent anomaly (already
-    reported on a prior run) stays quiet — so the digest doesn't re-post it every run."""
-    prior = prior_anomalous or set()
+    event_types that were anomalous on the previous run. This catches both a newly flagged
+    anomalous event and a still-flagged event that *develops* an anomaly, while a persistent
+    anomaly (already reported on a prior run) stays quiet — so the digest doesn't re-post it
+    every run.
+
+    ``None`` means we have no prior-anomaly knowledge at all — no state file, a corrupt one,
+    or one written before this key existed (the first ``--slack`` run on an established
+    deployment). We can't tell a new anomaly from a weeks-old one, so we suppress rather than
+    flood the channel with every pre-existing anomaly; this run's state write seeds the set
+    and subsequent runs diff correctly. An empty *set* is different: it means the prior run
+    is known to have had zero anomalies, so a current anomaly is genuinely new and posts."""
+    if prior_anomalous is None:
+        return []
     return [r for r in result.get("flagged", [])
-            if r.get("anomaly") and r["event_type"] not in prior]
+            if r.get("anomaly") and r["event_type"] not in prior_anomalous]
 
 
 def should_post(result: dict, changes: dict, prior_anomalous: set[str] | None = None) -> bool:
