@@ -37,6 +37,7 @@ import IssueContrastCard from './IssueContrastCard'
 import OpponentResearchProgress from './OpponentResearchProgress'
 import AddOpponentsForm from './AddOpponentsForm'
 import type { ManualOpponentInput } from './AddOpponentsForm'
+import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
 
 const initialsFor = (name: string): string =>
   name
@@ -153,27 +154,36 @@ const WhyTheyMatterCallout = ({
 
 // Phase 3: the "what you need to know" takeaways list, with an item count in
 // the section header. Bullets use the primary foreground color (not the blue
-// accent). Hidden when the list is empty/absent.
+// accent). Relaxed sourcing: a takeaway shows its citation when one is present.
+// Keyed by text+index because the takeaway text is free-form and not guaranteed
+// unique. Hidden when the list is empty/absent.
 const WhatYouNeedToKnow = ({
   items,
 }: {
-  items: string[]
+  items: NonNullable<RaceOpponentSummary['whatYouNeedToKnow']>
 }): React.JSX.Element => (
   <OpponentSection
     title="What you need to know"
     meta={`${items.length} ${items.length === 1 ? 'item' : 'items'}`}
   >
     <ul className="flex w-full min-w-0 list-none flex-col gap-2">
-      {items.map((item) => (
+      {items.map((item, index) => (
         <li
-          key={item}
-          className="flex w-full min-w-0 items-start gap-2 text-sm text-foreground"
+          key={`${item.text}-${index}`}
+          className="flex w-full min-w-0 flex-col gap-1 text-sm text-foreground"
         >
-          <span
-            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground"
-            aria-hidden
-          />
-          <span className="w-full min-w-0 break-words">{item}</span>
+          <span className="flex w-full min-w-0 items-start gap-2">
+            <span
+              className="mt-1.5 size-1.5 shrink-0 rounded-full bg-foreground"
+              aria-hidden
+            />
+            <span className="w-full min-w-0 break-words">{item.text}</span>
+          </span>
+          {item.sources && item.sources.length > 0 && (
+            <div className="pl-3.5">
+              <SummarySources sources={item.sources} />
+            </div>
+          )}
         </li>
       ))}
     </ul>
@@ -567,6 +577,29 @@ const RaceOpponentList = ({
     [errorSnackbar, campaign?.id],
   )
 
+  // Export the on-screen briefs to a PDF (one section per opponent that has a
+  // structured summary).
+  const [exporting, setExporting] = useState(false)
+  // Synchronous in-flight guard, mirroring collectingRef: setExporting only
+  // disables the button after a re-render, so two rapid clicks could both fire
+  // before React repaints. The ref is set before the await, so the second
+  // synchronous call sees it and bails immediately.
+  const exportingRef = useRef(false)
+  const hasExportableBrief = data.opponents.some((opponent) => opponent.summary)
+  const exportBriefs = useCallback(async () => {
+    if (exportingRef.current) return
+    exportingRef.current = true
+    setExporting(true)
+    try {
+      await downloadOpponentBriefsPdf(data.opponents, raceContext)
+    } catch {
+      errorSnackbar('Failed to export the brief. Please try again.')
+    } finally {
+      exportingRef.current = false
+      setExporting(false)
+    }
+  }, [data.opponents, raceContext, errorSnackbar])
+
   const status = data.collectionStatus
 
   // Two-call discovery: collect() dispatches opposition_research and returns
@@ -764,8 +797,8 @@ const RaceOpponentList = ({
             actions={
               <Button
                 variant="outline"
-                disabled
-                title="Export brief — coming soon"
+                onClick={exportBriefs}
+                disabled={!hasExportableBrief || exporting}
                 icon={<DownloadIcon className="size-4" aria-hidden />}
               >
                 Export brief

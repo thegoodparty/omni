@@ -5,6 +5,39 @@ Refresh the consumer-facing analytics event-state surface (the Google Sheet).
 **scripts/.env variables**: `GP_EVENT_STATE_SHEET_ID`, `DATABRICKS_SERVER_HOSTNAME`, `DATABRICKS_HTTP_PATH`, `DATABRICKS_API_KEY`
 **Tools**: `uv`, Databricks access, a Google OAuth client (Sheets write scope)
 
+## Manual trigger (one command)
+
+`scripts/shell/refresh-event-state.sh`            — full refresh
+`scripts/shell/refresh-event-state.sh --dry-run`  — preview only (no Google write)
+
+The wrapper fetches the Google OAuth client secrets from 1Password on the first run only
+(browser consent, then the token caches and later runs are non-interactive), sets the sheet
+id, and runs the refresh. The `uv run` steps below are the underlying detail.
+
+## Automated triggers (DATA-2053)
+
+Beyond the manual command, the refresh fires automatically, each as an independent,
+non-fatal step (a failure never blocks the triggering work). The wrapper is **host-gated**:
+on a machine without the shared Sheets credentials (no cached token and no
+`GP_EVENT_STATE_SHEET_ID`) it exits 0 without contacting 1Password or OAuth, so the triggers
+are a clean no-op for engineers who are not set up. Only a configured host actually writes
+the sheet, keeping it eventually-consistent until a shared service account lands
+(DATA-2044/2045).
+
+- **Metadata write** — the `event-metadata` skill, after writing to Amplitude, calls the
+  wrapper with `--override <file>` carrying the just-written `govern_*` fields, so the change
+  shows before the daily Databricks sync. Covers new events, governance updates, and
+  retire/supersede.
+- **Health monitor** — `books/monitor-analytics-event-health.md` calls the plain wrapper
+  after its run (status is recomputed live, so no override).
+
+The `--override` file is `{ "<event_type — raw event name as fired in code>": {
+govern_display_name, govern_description, govern_tags } }`, built from the prod Amplitude
+project. Key on the raw `event_type`, not the Govern display name (which can differ) —
+`assemble()` matches overrides to catalog rows by `event_type`, so a mismatched key would
+inject a phantom row and leave the real one stale. `assemble()` overlays it onto (or injects
+it into) the Databricks catalog.
+
 ## Steps
 
 1. Make sure the provenance CSV is current — run the provenance walk first if needed:

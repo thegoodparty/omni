@@ -6246,9 +6246,18 @@ export interface OpponentSummaryArtifact {
        */
       threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
       /**
-       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. Relaxed sourcing: cite the source where a takeaway rests directly on the collected text; sources optional.
        */
-      what_you_need_to_know: string[]
+      what_you_need_to_know: {
+        /**
+         * Optional. Where the takeaway rests directly on the collected text, the input source_url(s) it draws from, verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The takeaway, synthesized from this opponent's collected text.
+         */
+        text: string
+      }[]
       /**
        * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
        */
@@ -6345,9 +6354,18 @@ export interface OpponentSummaryArtifact {
        */
       threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
       /**
-       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.
+       * The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. Relaxed sourcing: cite the source where a takeaway rests directly on the collected text; sources optional.
        */
-      what_you_need_to_know: string[]
+      what_you_need_to_know: {
+        /**
+         * Optional. Where the takeaway rests directly on the collected text, the input source_url(s) it draws from, verbatim from THIS opponent's input sources.
+         */
+        sources?: string[]
+        /**
+         * The takeaway, synthesized from this opponent's collected text.
+         */
+        text: string
+      }[]
       /**
        * This opponent's openings / vulnerabilities (an unaddressed issue, a skipped survey, a thin platform), each grounded in the collected text. Empty when the text grounds none. Relaxed sourcing: cite the source where the gap is directly evidenced; sources optional.
        */

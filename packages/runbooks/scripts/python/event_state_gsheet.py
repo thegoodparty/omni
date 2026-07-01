@@ -10,6 +10,7 @@ against an injected Sheets service.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import pickle
 import sys
@@ -127,11 +128,22 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("GP_SHEETS_GOOGLE_CLIENT_SECRETS"),
         help="path to the OAuth client-secrets JSON (or GP_SHEETS_GOOGLE_CLIENT_SECRETS env)",
     )
+    parser.add_argument(
+        "--override",
+        default=None,
+        help="path to a JSON file {event_type: {govern_display_name, govern_description, "
+        "govern_tags}} overlaid onto the Databricks catalog (DATA-2053 event-driven refresh); "
+        "key on the raw event_type (as fired in code), not the Govern display name",
+    )
     args = parser.parse_args(argv)
 
     # Dry-run previews the real output dimensions, so it still runs the (read-only)
     # Databricks query — it only skips the Google auth and the sheet write.
-    result = esa.assemble(date.today())
+    overrides = None
+    if args.override:
+        with open(args.override) as fh:
+            overrides = json.load(fh)
+    result = esa.assemble(date.today(), overrides=overrides)
     rows = result["rows"]
 
     if args.dry_run:

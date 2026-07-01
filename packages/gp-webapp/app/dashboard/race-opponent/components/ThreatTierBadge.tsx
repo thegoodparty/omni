@@ -25,6 +25,12 @@ const TIER_CONFIG: Record<
   },
 }
 
+// The bare tier label (no dot/color), reused by the PDF export so the brief's
+// snapshot line reads the same wording as the on-screen roster badge.
+export const threatTierLabel = (
+  tier: RaceOpponentThreatTier,
+): string | undefined => TIER_CONFIG[tier]?.label
+
 type Props = {
   tier: RaceOpponentThreatTier
   className?: string

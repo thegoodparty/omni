@@ -63,6 +63,14 @@ const ArtifactWhereSoftSchema = z.object({
   text: z.string(),
   sources: z.array(z.string().min(1)).optional(),
 })
+// what_you_need_to_know migrated from a bare string[] to {text, sources?}[]
+// (ENG-10621). Accept the legacy string form during the rollout window — a
+// summary run dispatched before this deploy completes after it and still emits
+// bare strings — and normalize it, so such a run persists rather than failing
+// the whole summary parse.
+const ArtifactWhatYouNeedToKnowItemSchema = z
+  .union([z.string(), ArtifactWhereSoftSchema])
+  .transform((item) => (typeof item === 'string' ? { text: item } : item))
 const ArtifactIssueContrastSchema = z.object({
   issue: z.string(),
   salience: z.enum(['high', 'medium', 'low']),
@@ -80,7 +88,9 @@ const ArtifactSummaryOpponentSchema = z.object({
     .enum(['primary_threat', 'watch_closely', 'low_priority'])
     .optional(),
   why_they_matter: z.string().optional(),
-  what_you_need_to_know: z.array(z.string()).optional(),
+  what_you_need_to_know: z
+    .array(ArtifactWhatYouNeedToKnowItemSchema)
+    .optional(),
   where_soft: z.array(ArtifactWhereSoftSchema).optional(),
   issue_contrasts: z.array(ArtifactIssueContrastSchema).optional(),
 })
@@ -400,7 +410,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
       generatedAt,
       threatTier: opponent.threat_tier,
       whyTheyMatter: opponent.why_they_matter,
-      whatYouNeedToKnow: opponent.what_you_need_to_know,
+      whatYouNeedToKnow: opponent.what_you_need_to_know?.map((item) => {
+        const sources = optionalRefs(item.sources)
+        return { text: item.text, ...(sources.length > 0 ? { sources } : {}) }
+      }),
       whereSoft: opponent.where_soft?.map((item) => {
         const sources = optionalRefs(item.sources)
         return { text: item.text, ...(sources.length > 0 ? { sources } : {}) }
