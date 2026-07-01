@@ -14,18 +14,26 @@ ENV_FILE="$HERE/../.env"
 TOKEN="$PY_DIR/instrumentation_data/gsheet_token.pickle"
 OP_ITEM="${GP_SHEETS_OP_ITEM:-GoodParty Sheets OAuth client}"
 
-# Pull non-secret config (e.g. GP_EVENT_STATE_SHEET_ID) if present; an already-exported
-# shell env value still wins because `source` only sets unset-or-overwrites, and callers
-# typically have it globally.
-if [[ -f "$ENV_FILE" ]]; then set -a; source "$ENV_FILE"; set +a; fi
+# Load non-secret fallback config, but let an already-exported shell env value win
+# (source would otherwise overwrite it). Only fill vars that are currently unset.
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS='=' read -r _k _v; do
+    [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue   # skip comments/blank lines
+    [[ -n "${!_k:-}" ]] && continue                        # already set → shell env wins
+    export "$_k=$_v"
+  done < "$ENV_FILE"
+fi
 
 secret_args=()
 if [[ ! -f "$TOKEN" ]]; then
   secrets_file="$(mktemp -t gp-sheets-oauth.XXXXXX)"
   trap 'rm -f "$secrets_file"' EXIT
-  op document get "$OP_ITEM" --out-file "$secrets_file" >/dev/null
+  op document get "$OP_ITEM" --out-file "$secrets_file" >/dev/null || {
+    echo "Failed to fetch OAuth client secrets from 1Password. Is 'op' signed in?" >&2
+    exit 1
+  }
   secret_args=(--client-secrets "$secrets_file")
 fi
 
 cd "$PY_DIR"
-uv run python event_state_gsheet.py refresh "${secret_args[@]}" "$@"
+uv run python event_state_gsheet.py refresh "${secret_args[@]+"${secret_args[@]}"}" "$@"
