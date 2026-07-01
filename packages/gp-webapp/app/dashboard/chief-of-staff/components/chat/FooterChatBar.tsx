@@ -15,6 +15,8 @@ interface Props {
   chatApi?: ManagerChatClient
   /** History query key for this scope. Defaults to Chief of Staff. */
   historyKey?: readonly unknown[]
+  /** aria-label for the open button. Defaults to Chief of Staff. */
+  openLabel?: string
 }
 
 /**
@@ -30,6 +32,7 @@ export default function FooterChatBar({
   onOpenConversation,
   chatApi,
   historyKey,
+  openLabel = 'Open Chief of Staff chat',
 }: Props): React.JSX.Element {
   const placeholder = firstName
     ? `Hi, ${firstName}, how can I help?`
@@ -65,7 +68,7 @@ export default function FooterChatBar({
             <IconButton
               type="button"
               size="small"
-              aria-label="Open Chief of Staff chat"
+              aria-label={openLabel}
               className="size-10 bg-primary text-primary-foreground"
               onClick={onOpen}
             >
