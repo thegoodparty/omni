@@ -1,5 +1,6 @@
 export {
   Swords as SwordsIcon,
+  ChartColumn as ChartColumnIcon,
   Scale as ScaleIcon,
   Building2 as Building2Icon,
   UserCheck as UserCheckIcon,
@@ -33,6 +34,8 @@ export {
   CircleAlert as CircleAlertIcon,
   CircleUserRound as CircleUserRoundIcon,
   ClipboardList as ClipboardListIcon,
+  ThumbsDown as ThumbsDownIcon,
+  ThumbsUp as ThumbsUpIcon,
   Copy as CopyIcon,
   Crop as CropIcon,
   Download as DownloadIcon,

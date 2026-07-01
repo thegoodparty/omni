@@ -375,13 +375,27 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
       ownerId: service.user.id,
       isPro: true,
     })
-    await service.prisma.experimentRun.create({
-      data: {
-        runId: 'run-done',
-        organizationSlug: SLUG,
-        experimentType: 'race_opponent_collection',
-        status: ExperimentRunStatus.COMPLETED,
-      },
+    // A fully-settled pipeline: the collection run completed AND the chained
+    // summary run completed after it. collectionStatus only reports 'completed'
+    // once the summary phase settles (ENG-10614), so seed both, with the
+    // summary run explicitly newer than the collection run.
+    await service.prisma.experimentRun.createMany({
+      data: [
+        {
+          runId: 'run-done',
+          organizationSlug: SLUG,
+          experimentType: 'race_opponent_collection',
+          status: ExperimentRunStatus.COMPLETED,
+          createdAt: new Date('2026-06-30T10:00:00.000Z'),
+        },
+        {
+          runId: 'summary-done',
+          organizationSlug: SLUG,
+          experimentType: 'race_opponent_summary',
+          status: ExperimentRunStatus.COMPLETED,
+          createdAt: new Date('2026-06-30T10:05:00.000Z'),
+        },
+      ],
     })
     await service.prisma.raceOpponent.createMany({
       data: [
@@ -1083,6 +1097,116 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     )
   })
 
+  it('re-chains a summary when a FAILED summary leaves a newer collection unsummarized', async () => {
+    await seedCollectedRow()
+    // summary#1 FAILED at T1; collection#2 completed at T2 > T1 (its rows are
+    // the ones seeded above) but its chained summary was skipped by the
+    // in-flight dedup while summary#1 was running.
+    const failedSummary = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-failed',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-06-30T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-newer',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-06-30T10:05:00.000Z'),
+      },
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'rechained-summary' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedSummary)
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_summary' }),
+    )
+  })
+
+  it('does not re-chain on a FAILED summary when no newer collection exists', async () => {
+    await seedCollectedRow()
+    const failedSummary = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-failed-solo',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-06-30T10:05:00.000Z'),
+      },
+    })
+    // The only collection completed BEFORE this summary (its own cycle), so
+    // there is nothing newer to re-chain for — re-dispatching would loop.
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-older',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-06-30T10:00:00.000Z'),
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedSummary)
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('re-chains for a newer collection even when the summary artifact fails to persist', async () => {
+    await seedCollectedRow()
+    const summary = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-bad',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'bucket',
+        artifactKey: 'summary-bad.json',
+        createdAt: new Date('2026-06-30T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-after-bad',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-06-30T10:05:00.000Z'),
+      },
+    })
+    // Unparseable artifact → onSummaryCompleted marks the run FAILED and
+    // rethrows, but the finally must still re-chain for the newer collection.
+    stubSummaryArtifact({ notOpponents: true })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'rechained-after-bad' } as never)
+
+    await expect(
+      service.app
+        .get(RaceOpponentPersistService)
+        .onExperimentRunCompleted(summary),
+    ).rejects.toThrow()
+
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_summary' }),
+    )
+  })
+
   it('persists the artifact into race_opponent_summary and exposes it on the read endpoint', async () => {
     await seedCollectedRow({
       sourceType: 'ballotpedia',
@@ -1128,7 +1252,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     expect(opponent.summary.keyPositions).toHaveLength(1)
   })
 
-  it('read endpoint returns summary null when no summary row exists', async () => {
+  it('read endpoint returns summary null + raw items when no summary row exists', async () => {
     await seedCollectedRow()
 
     const result = await service.client.get(GET_PATH, {
@@ -1139,6 +1263,43 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       (o: { opponentName: string }) => o.opponentName === JANE,
     )
     expect(opponent.summary).toBeNull()
+    // The no-summary fallback still needs the raw items to render (ENG-10622).
+    expect(opponent.items).toHaveLength(1)
+  })
+
+  it('omits raw items when a structured summary is present (ENG-10622)', async () => {
+    await seedCollectedRow()
+    await service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: 'summary-omits-items',
+        opponentName: JANE,
+        sections: {
+          opponentName: JANE,
+          overview: {
+            text: 'who they are',
+            sources: [
+              { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+            ],
+          },
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-06-28T00:00:00.000Z',
+        },
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary).not.toBeNull()
+    // Raw scraped page text is redundant once a summary exists; the response
+    // drops it rather than shipping it to the client.
+    expect(opponent.items).toBeUndefined()
   })
 
   it('resolves a summary onto its opponent despite a name casing/whitespace mismatch', async () => {
@@ -1416,7 +1577,11 @@ describe('race_opponent_summary dispatch / persist / read', () => {
   const analysisOverrides = {
     threat_tier: 'primary_threat',
     why_they_matter: 'The only incumbent in the field.',
-    what_you_need_to_know: ['Two-term incumbent.', 'Backed by the local PAC.'],
+    what_you_need_to_know: [
+      { text: 'Two-term incumbent.', sources: [BALLOTPEDIA_URL] },
+      // relaxed: an interpretive takeaway with no source still persists
+      { text: 'Backed by the local PAC.' },
+    ],
     where_soft: [
       { text: 'No published water position.', sources: [BALLOTPEDIA_URL] },
       // relaxed: an item with no source still persists
@@ -1506,6 +1671,15 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     )
     expect(opponent.summary.threatTier).toBe('primary_threat')
     expect(opponent.summary.whatYouNeedToKnow).toHaveLength(2)
+    // relaxed sourcing: the sourced takeaway keeps its upgraded source ref, the
+    // interpretive one persists with no sources key.
+    expect(opponent.summary.whatYouNeedToKnow[0]).toEqual({
+      text: 'Two-term incumbent.',
+      sources: [{ sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL }],
+    })
+    expect(opponent.summary.whatYouNeedToKnow[1]).toEqual({
+      text: 'Backed by the local PAC.',
+    })
     // relaxed sourcing: the sourced soft spot keeps its upgraded source, the
     // unsourced one persists with no sources key.
     expect(opponent.summary.whereSoft).toHaveLength(2)
@@ -1521,6 +1695,35 @@ describe('race_opponent_summary dispatch / persist / read', () => {
         { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
       ],
     })
+  })
+
+  it('tolerates a legacy string[] what_you_need_to_know from an in-flight run', async () => {
+    // A summary run dispatched before the {text, sources?} migration completes
+    // after this deploy and still emits bare strings. The persist parse must
+    // normalize them to { text } rather than failing the whole summary.
+    await seedCollectedRow()
+    const run = await seedSummaryRun('summary-legacy-wynk')
+    stubSummaryArtifact(
+      summaryArtifact({
+        what_you_need_to_know: ['Legacy takeaway one.', 'Legacy takeaway two.'],
+      }),
+    )
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary.whatYouNeedToKnow).toEqual([
+      { text: 'Legacy takeaway one.' },
+      { text: 'Legacy takeaway two.' },
+    ])
   })
 
   it('persists a descriptive-only artifact (no analysis) without 500ing', async () => {

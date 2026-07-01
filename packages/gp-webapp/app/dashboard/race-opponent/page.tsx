@@ -116,7 +116,7 @@ export default async function Page(): Promise<React.JSX.Element> {
     : []
 
   const raceContext = raceContextFor(
-    campaign.details?.normalizedOffice ?? undefined,
+    campaign.details?.normalizedOffice ?? campaign.positionName ?? undefined,
     campaign.details?.district,
     campaign.details?.electionDate,
   )

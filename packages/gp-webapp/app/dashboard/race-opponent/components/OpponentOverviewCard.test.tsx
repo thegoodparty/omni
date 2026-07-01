@@ -51,19 +51,19 @@ describe('OpponentOverviewCard', () => {
   })
 
   it.each([
-    ['primary_threat', 'Primary threat'],
+    ['primary_threat', 'Main threat'],
     ['watch_closely', 'Watch closely'],
     ['low_priority', 'Low priority'],
-  ] as const)('renders the %s tier badge label', (tier, label) => {
+  ] as const)('renders the %s tier label', (tier, label) => {
     render(
       <OpponentOverviewCard name="Chuck B" initials="CB" threatTier={tier} />,
     )
     expect(screen.getByText(label)).toBeInTheDocument()
   })
 
-  it('renders no threat-tier badge when threatTier is undefined', () => {
+  it('renders no threat-tier label when threatTier is undefined', () => {
     render(<OpponentOverviewCard name="Chuck B" initials="CB" />)
-    expect(screen.queryByText('Primary threat')).not.toBeInTheDocument()
+    expect(screen.queryByText('Main threat')).not.toBeInTheDocument()
     expect(screen.queryByText('Watch closely')).not.toBeInTheDocument()
     expect(screen.queryByText('Low priority')).not.toBeInTheDocument()
   })

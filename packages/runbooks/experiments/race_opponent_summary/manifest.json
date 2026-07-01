@@ -291,10 +291,30 @@
             },
             "what_you_need_to_know": {
               "type": "array",
-              "description": "The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. No per-item source required.",
+              "description": "The few key takeaways a candidate must walk in knowing about this opponent. Interpretive synthesis across the collected text; may be empty for a thin-data opponent. Relaxed sourcing: cite the source where a takeaway rests directly on the collected text; sources optional.",
               "items": {
-                "type": "string",
-                "minLength": 1
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The takeaway, synthesized from this opponent's collected text."
+                  },
+                  "sources": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "description": "Optional. Where the takeaway rests directly on the collected text, the input source_url(s) it draws from, verbatim from THIS opponent's input sources.",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^https?://",
+                      "minLength": 1
+                    }
+                  }
+                }
               }
             },
             "where_soft": {

@@ -90,6 +90,20 @@ def test_milestone_costs_share_of_total():
     assert [r["milestone"] for r in out["ordered"]] == ["setup", "work"]
 
 
+def test_milestone_costs_marginal_fields():
+    out = milestone_costs(_milestone_df())
+    by_name = {r["milestone"]: r for r in out["ordered"]}
+    # cumulative share runs in sequence order and reaches 1.0 on a fully-marked cohort.
+    assert by_name["setup"]["cumulative_share"] == 0.2
+    assert by_name["work"]["cumulative_share"] == 1.0
+    # $/turn within the phase = marginal spend / turns tagged with that milestone.
+    # setup: $2 over 2 turns (r1 t0, r2 t0) -> 1.0; work: $8 over 1 turn -> 8.0.
+    assert by_name["setup"]["turns"] == 2
+    assert by_name["setup"]["cost_per_turn"] == 1.0
+    assert by_name["work"]["turns"] == 1
+    assert by_name["work"]["cost_per_turn"] == 8.0
+
+
 def test_detect_hot_milestones_flags_outsized_share():
     hot = detect_hot_milestones(_milestone_df(), margin=1.5)
     names = [r["milestone"] for r in hot]
