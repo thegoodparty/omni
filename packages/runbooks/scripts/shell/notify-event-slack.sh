@@ -33,7 +33,7 @@ fi
 
 # Configured? Skip cleanly if either credential is missing, before invoking uv/Python.
 if [[ -z "${SLACK_APP_BOT_TOKEN:-}" || -z "${SLACK_EVENT_LIFECYCLE_CHANNEL_ID:-}" ]]; then
-  echo "Slack event-lifecycle notify not configured on this host (SLACK_APP_BOT_TOKEN/SLACK_EVENT_LIFECYCLE_CHANNEL_ID unset); skipping." >&2
+  echo "Slack event-lifecycle notify not configured on this host (SLACK_APP_BOT_TOKEN/SLACK_EVENT_LIFECYCLE_CHANNEL_ID unset); skipping. To enable, populate them in scripts/.env — see scripts/.env.example for the 1Password bootstrap." >&2
   exit 0
 fi
 

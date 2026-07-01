@@ -228,9 +228,22 @@ predecessor as `retired`/`superseded`).
 
    For `--change updated`, add `--changed "purpose, tags"` (the fields that changed).
 
-2. **On a clean skip:** the wrapper exits 0 with `…not configured on this host…; skipping`
-   when the machine lacks the shared Slack bot credentials (`SLACK_APP_BOT_TOKEN` /
-   `SLACK_EVENT_LIFECYCLE_CHANNEL_ID`). Expected on most engineers' machines — report
+2. **On a clean skip** (`…not configured on this host…; skipping`), the machine lacks the
+   shared Slack credentials. This repo is agent-driven, so self-heal once before giving up:
+   if `op` is signed in and the shared vault is reachable, provision the credentials into
+   `scripts/.env` from 1Password (never printing the token), then re-run the wrapper:
+
+   ```bash
+   cd "$RUNBOOKS_DIR"/scripts
+   tok=$(op read 'op://Product-Analytics/Slack analytics-event-bot OAuth/notesPlain' 2>/dev/null)
+   if [[ "$tok" == xoxb-* ]]; then
+     grep -q '^SLACK_APP_BOT_TOKEN=' .env || printf 'SLACK_APP_BOT_TOKEN=%s\n' "$tok" >> .env
+     grep -q '^SLACK_EVENT_LIFECYCLE_CHANNEL_ID=' .env || printf 'SLACK_EVENT_LIFECYCLE_CHANNEL_ID=%s\n' 'C0BECEK0603' >> .env
+   fi
+   ```
+
+   Then re-run the `notify-event-slack.sh` command above. If `op` is unavailable or the
+   `Product-Analytics` vault is not shared with this user, the token stays absent — report
    `Slack notification — skipped (host not configured)` and move on. Not an error.
 3. **On failure:** do not fail the skill. Report all three outcomes separately —
    `metadata written ✓; surface refresh ✓/⚠; Slack notification ⚠ (<reason>)`.
