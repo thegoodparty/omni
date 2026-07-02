@@ -29,7 +29,7 @@ export type OpponentBriefSection =
       sourceLines: string[]
     }
   | { kind: 'whyTheyreRunning'; text: string }
-  | { kind: 'background'; text: string }
+  | { kind: 'background'; text: string; sourceLines: string[] }
   | { kind: 'issuesThatMatter'; items: string[]; sourceLines: string[] }
 
 export type OpponentBrief = {
@@ -111,9 +111,11 @@ export const buildOpponentBrief = (opponent: Opponent): OpponentBrief => {
   }
 
   if (summary.background) {
-    // No source line: the page's "Their background" section shares the
-    // overview's sourcing and doesn't render its own SourceRow.
-    sections.push({ kind: 'background', text: summary.background.text })
+    sections.push({
+      kind: 'background',
+      text: summary.background.text,
+      sourceLines: sourceLinesFor(summary.background.sources),
+    })
   }
 
   if (summary.issuesThatMatter) {

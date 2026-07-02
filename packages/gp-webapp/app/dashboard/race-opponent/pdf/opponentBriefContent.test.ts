@@ -149,12 +149,13 @@ describe('buildOpponentBrief', () => {
     })
   })
 
-  it('renders the background section with no source line, matching the page', () => {
+  it('renders the background section with its own source lines, matching the page', () => {
     const brief = buildOpponentBrief(opponent())
     const background = brief.sections.find((s) => s.kind === 'background')
     expect(background).toEqual({
       kind: 'background',
       text: 'Two-term incumbent with party backing.',
+      sourceLines: ['Ballotpedia — https://a.example'],
     })
   })
 

@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
 
 // Compact citation lines in print: an italic "source:" label followed by one
 // "publisher — url" line per source (no hover carousel, per ENG-10637).
-// Shared by every sourced section (overview, issues that matter).
+// Shared by every sourced section (overview, background, issues that matter).
 const Sources = ({ lines }: { lines: string[] }): React.JSX.Element | null => {
   if (lines.length === 0) return null
   return (
@@ -165,6 +165,7 @@ const Section = ({
         <View style={styles.section}>
           <Text style={styles.sectionHeading}>Their background</Text>
           <Text>{section.text}</Text>
+          <Sources lines={section.sourceLines} />
         </View>
       )
     case 'issuesThatMatter':
