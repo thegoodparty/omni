@@ -86,9 +86,10 @@ lifetime caps (`MAX_SELF_RESEARCH_ATTEMPTS`, `MAX_OPPONENT_RESEARCH_ATTEMPTS`) s
 ## Prisma models (`prisma/schema/raceOpponent.prisma`)
 
 `RaceOpponent` (relaxed raw text) · `RaceOpponentSummary` (relaxed analysis: threat
-tier, issue contrasts) · `RaceOpponentResearch` (strict pass, `kind` self|opponent) ·
-`RaceOpponentFinding` (sourced, `source_url` required) · `RaceOpponentContrast`
-(`source_url`, status lifecycle, routing FKs).
+tier, issue contrasts) · `RaceOpponentFieldAnalysis` (campaign-level SWOT
+`sections`, one row per campaign) · `RaceOpponentResearch` (strict pass, `kind`
+self|opponent) · `RaceOpponentFinding` (sourced, `source_url` required) ·
+`RaceOpponentContrast` (`source_url`, status lifecycle, routing FKs).
 
 ## Gotchas
 
