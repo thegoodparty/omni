@@ -83,6 +83,7 @@ const ISSUES_BASE = '/dashboard/community-issues'
 const ArtifactView = ({ entry }: { entry: GalleryEntry }) => {
   const { artifact } = entry
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const cards = useMemo(
     () =>
@@ -109,17 +110,30 @@ const ArtifactView = ({ entry }: { entry: GalleryEntry }) => {
     if (!href.startsWith(ISSUES_BASE)) return
     e.preventDefault()
     const rest = href.slice(ISSUES_BASE.length).replace(/^\//, '')
-    setSelectedId(
-      rest === '' ? null : decodeURIComponent(rest.split('/')[0] ?? ''),
-    )
+    const id = rest === '' ? null : decodeURIComponent(rest.split('/')[0] ?? '')
+    if (id !== null && !artifact.issues.some((i) => issueId(i) === id)) {
+      setNotice('Only issue detail pages are viewable in the artifact viewer.')
+      return
+    }
+    setNotice(null)
+    setSelectedId(id)
   }
 
   return (
     <div onClickCapture={handleClickCapture}>
+      {notice ? (
+        <p className="mx-auto w-full max-w-[640px] px-6 pt-3 text-sm text-muted-foreground">
+          {notice}
+        </p>
+      ) : null}
       {selectedIssue ? (
         <IssueDetail issue={toDetail(selectedIssue, artifact.list)} />
       ) : (
-        <IssueFeedList topCommunity={topCommunity} trending={trending} />
+        <IssueFeedList
+          topCommunity={topCommunity}
+          trending={trending}
+          hideStaffControls
+        />
       )}
     </div>
   )

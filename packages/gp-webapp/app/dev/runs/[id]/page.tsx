@@ -1,30 +1,25 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useParams } from 'next/navigation'
+import { Suspense, useEffect, useState } from 'react'
+import { useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import AgentRunDetail from '../../shared/AgentRunDetail'
 import type { AgentRun } from '../../shared/agent-run'
 
 // Which gallery the run was opened from. Both galleries stamp ?from= on their
-// "View agent run" links; absent/unknown falls back to briefings. Read off
-// window rather than useSearchParams to avoid a Suspense-boundary build error.
+// "View agent run" links; absent/unknown falls back to briefings.
 const backHref = (from: string | null): string =>
   from === 'issues' ? '/dev/issues' : '/dev/briefings'
 
 // Job-agnostic agent-run viewer. Reads /api/dev/runs/[id] (which parses the
 // run's session.jsonl + milestones.jsonl server-side) and renders the reusable
 // AgentRunDetail. Any CAP job's run can be viewed here by its runId.
-const DevAgentRunPage = () => {
+const DevAgentRunView = () => {
   const params = useParams<{ id: string }>()
   const id = params?.id
-  const [from, setFrom] = useState<string | null>(null)
+  const from = useSearchParams()?.get('from') ?? null
   const [run, setRun] = useState<AgentRun | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setFrom(new URLSearchParams(window.location.search).get('from'))
-  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -64,5 +59,11 @@ const DevAgentRunPage = () => {
     </div>
   )
 }
+
+const DevAgentRunPage = () => (
+  <Suspense>
+    <DevAgentRunView />
+  </Suspense>
+)
 
 export default DevAgentRunPage
