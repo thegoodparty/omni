@@ -82,6 +82,7 @@ class _RecordingS3:
 
     def __init__(self, fail_on_key_prefix=None):
         self.keys = []
+        self.deleted = []
         self.fail_on_key_prefix = fail_on_key_prefix
 
     def put_object(self, Bucket, Key, Body, ContentType):
@@ -91,6 +92,13 @@ class _RecordingS3:
 
     def get_object(self, Bucket, Key):
         raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+
+    def list_objects_v2(self, Bucket, Prefix):
+        live = [k for k in self.keys if k.startswith(Prefix) and k not in self.deleted]
+        return {"Contents": [{"Key": k} for k in live]}
+
+    def delete_objects(self, Bucket, Delete):
+        self.deleted.extend(o["Key"] for o in Delete["Objects"])
 
 
 @pytest.fixture

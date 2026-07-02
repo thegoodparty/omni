@@ -23,7 +23,8 @@ _STATES = [
 _CLIENTS = {
     10: [{"ClientID": 999, "ClientName": "Alpharetta"}],
     17: [{"ClientID": 100, "ClientName": "Herington"}],   # Kansas, no Horton
-    25: [{"ClientID": 200, "ClientName": "Kansas City"}],  # the small-town trap target
+    25: [{"ClientID": 200, "ClientName": "Kansas City"},   # the small-town trap target
+         {"ClientID": 201, "ClientName": "St. Louis"}],
     4: [{"ClientID": 300, "ClientName": "Little Rock"}],   # Arkansas, no Melbourne
     9: [{"ClientID": 400, "ClientName": "Melbourne"}],      # Florida Melbourne (the trap)
 }
@@ -77,8 +78,25 @@ def test_municode_exact_match_returns_stable_handles():
     assert out["resolved"] is True
     assert out["source"] == "municode"
     assert out["matched"] == "Alpharetta"
-    assert out["client_id"] == 999
-    assert out["product_id"] == 12100  # picked the "Code of Ordinances" product
+    # Strings, matching the experiment manifest's output_schema (["string", "null"]).
+    assert out["client_id"] == "999"
+    assert out["product_id"] == "12100"  # picked the "Code of Ordinances" product
+
+
+def test_municode_slug_keeps_trailing_body_word():
+    # Municode's own slugs keep the full ClientName ("Kansas City" -> kansas_city);
+    # slugging via norm() would strip the trailing "City" and 404 the real code.
+    out = r.resolve("MO", "Kansas City Council")
+    assert out["resolved"] is True
+    assert out["code_url"] == "https://library.municode.com/mo/kansas_city/codes/code_of_ordinances"
+
+
+def test_municode_slug_preserves_punctuation():
+    # library.municode.com's UrlEncodeComponent only encodes / \ space ~ then
+    # lowercases; periods and apostrophes stay ("St. Louis" -> st._louis).
+    out = r.resolve("MO", "St. Louis City Council")
+    assert out["resolved"] is True
+    assert out["code_url"] == "https://library.municode.com/mo/st._louis/codes/code_of_ordinances"
 
 
 def test_same_name_trap_is_not_matched_across_states():

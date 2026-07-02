@@ -5,7 +5,7 @@ Given an elected official's jurisdiction (state + place), locate and verify the 
 ## BEFORE YOU START
 1. Read this entire instruction end-to-end before executing anything.
 2. Maintain a TodoWrite list mirroring the TODO CHECKLIST.
-3. Params are in `PARAMS_JSON`. Read once: `organization_slug`, `state`, `office` (the EO's office name, e.g. "Ramsey City Council"), optional `county`, optional `user_provided_code_url`. **Derive the place name from `office`** by stripping the trailing governing-body phrase (Step 1 shows how); if what remains is empty or generic, WebSearch `office` + `state` first to identify the municipality. For `generated_for_run_id`, prefer the `RUN_ID` env var, fall back to `run_id` in `PARAMS_JSON` (must be non-empty).
+3. Params are in `PARAMS_JSON`. Read once: `organization_slug`, `state`, `office` (the EO's office name, e.g. "Ramsey City Council"), optional `county`, optional `user_provided_code_url`. **Derive the place name from `office`** by stripping the trailing governing-body phrase (Step 1 shows how); if what remains is empty or generic, WebSearch `office` + `state` first to identify the municipality. For `generated_for_run_id`, use the `RUN_ID` env var, falling back to `"unknown"` when unset (`run_id` is never in `PARAMS_JSON` — the input schema rejects it — and the field must be non-empty).
 4. **Keep a `FETCHED` cache and never fetch the same URL twice** (fetch-once rule below). Biggest efficiency rule.
 5. **Parallelize independent verifications.** When a search yields several candidate hosts to check, verify them concurrently (dispatch one research subagent per candidate via the Agent tool). Do NOT verify candidates one at a time, and do NOT wrap a single sequential step in a subagent.
 6. Write the artifact to `/workspace/output/find_existing_ordinances.json`, run `python3 /workspace/validate_output.py`, then do the spot-check.
@@ -71,7 +71,7 @@ d = http.download(pdf_url)          # -> {"path", "byte_size", "source_url", "co
 ```python
 import json, os, re
 P = json.loads(os.environ["PARAMS_JSON"])
-RUN_ID = os.environ.get("RUN_ID") or P.get("run_id", "")
+RUN_ID = os.environ.get("RUN_ID") or "unknown"
 state = P["state"]; office = P["office"]; user_url = P.get("user_provided_code_url")
 county = P.get("county")
 
@@ -108,11 +108,15 @@ elif kind == "municipal":
 # If place is empty, generic, or nothing was stripped (unknown office shape), WebSearch office + state
 # to identify the municipality BEFORE anything else; that search counts toward the budget.
 FETCHED = {}
-def fetch(url):
-    if url in FETCHED: return FETCHED[url]
+def fetch(url, need_body=False):
+    r = FETCHED.get(url)
+    if r is not None and (not need_body or "body" in r): return r
     from pmf_runtime import http
-    r = http.head(url)
-    if r["status"] in (403, 405): r = http.get(url)   # escalate ONCE
+    if need_body:
+        r = http.get(url)      # http.head returns {"status","final_url"} ONLY — it has no body
+    else:
+        r = http.head(url)
+        if r["status"] in (403, 405): r = http.get(url)   # escalate ONCE
     FETCHED[url] = r; return r
 ```
 
@@ -120,19 +124,23 @@ def fetch(url):
 If `user_url` is set, fetch once; if it names the correct state+place, record it (`confidence` high) and skip to Step 7.
 
 ### Step 3: Tier 1: Municode client API (deterministic)
-Public JSON API, no auth. Fetch each endpoint once via `fetch`; parse JSON from `r["body"]`.
+Public JSON API, no auth. Fetch each endpoint once via `fetch(url, need_body=True)` (JSON needs the body; a plain HEAD has none); parse JSON from `r["body"]`.
 ```python
 def japi(url):
-    b = fetch(url)["body"]
+    b = fetch(url, need_body=True)["body"]
     try: return json.loads(b)
     except Exception: return json.loads(re.search(r"[\[{].*[\]}]", b, re.S).group(0))
+def nrm(s):   # for MATCHING only — never build the URL from this
+    s = re.sub(r"^(city|town|village|borough|township) of\s+", "", s.lower().strip())
+    return re.sub(r"\s+(city|town|village|borough|township)$", "", s).strip()
 states  = japi("https://api.municode.com/States")
 sid     = next(s["StateID"] for s in states if s["StateAbbreviation"] == state)
 clients = japi(f"https://api.municode.com/Clients/stateId/{sid}")   # state-scoped -> cannot leak another state
-# exact match: normalize(ClientName)==normalize(place) [lowercase; strip leading "City/Town/Village/Borough of" + trailing body word]
-prods   = japi(f"https://api.municode.com/Products/clientId/{ClientID}")  # pick ProductName containing "Ordinance"
+client  = next((c for c in clients if nrm(c["ClientName"]) == nrm(place)), None)   # exact match only
+prods   = japi(f"https://api.municode.com/Products/clientId/{client['ClientID']}") if client else []  # pick ProductName containing "Ordinance"
+slug    = client["ClientName"].lower().replace(" ", "_") if client else None   # keep punctuation: "St. Louis" -> "st._louis", "Kansas City" -> "kansas_city"
 ```
-Exact match -> `host_type` "municode", `client_id`/`product_id` (strings), `url` `https://library.municode.com/<st>/<place-slug>/codes/code_of_ordinances`, `confidence` "high". Trust the API's exact `ClientName`; do NOT re-fetch the browse page to confirm. No match -> Step 4. (Do not fetch the General Code text-library page: it renders link-less here and cannot yield a URL.)
+Exact match -> `host_type` "municode", `client_id`/`product_id` (strings — `str()` the API's integer `ClientID`/`ProductID`), `url` `https://library.municode.com/<st>/{slug}/codes/code_of_ordinances`, `confidence` "high". Trust the API's exact `ClientName`; do NOT re-fetch the browse page to confirm. No match -> Step 4. (Do not fetch the General Code text-library page: it renders link-less here and cannot yield a URL.)
 
 ### Step 4: Tier 2: one WebSearch, triage by RESOLUTION ORDER, parallel-verify
 ```python

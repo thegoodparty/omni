@@ -55,7 +55,11 @@ def _get(url, timeout=30):
 
 
 def norm(name):
-    """Reduce a raw office/place string to a bare, comparable place name."""
+    """Reduce a raw office/place string to a bare, comparable place name.
+
+    For MATCHING only — never build URLs from this: it strips trailing body
+    words, so "Kansas City" would slug to /mo/kansas. Use _muni_slug for URLs.
+    """
     n = name.lower().strip()
     n = re.sub(r"\(unexpired term\)", "", n)
     n = re.sub(r"^(city|town|village|borough|township|municipality|county) of ", "", n)
@@ -63,6 +67,16 @@ def norm(name):
     n = re.sub(r"\(est\.?\)", "", n)
     n = re.sub(r"[^a-z0-9 ]", "", n)
     return re.sub(r"\s+", " ", n).strip()
+
+
+def _muni_slug(client_name):
+    """library.municode.com's own UrlEncodeComponent (from its JS bundle):
+    encode / \\ space ~, then lowercase. All other punctuation is kept —
+    "St. Louis" -> "st._louis", "Kansas City" -> "kansas_city"."""
+    s = client_name.strip()
+    for ch, code in (("/", "-fs-"), ("\\", "-bs-"), (" ", "_"), ("~", "-t-")):
+        s = s.replace(ch, code)
+    return s.lower()
 
 
 @functools.lru_cache(maxsize=1)
@@ -88,12 +102,13 @@ def resolve_municode(state, name):
             except Exception:
                 prods = []
             code = next((p for p in prods if "ordinance" in (p.get("ProductName") or "").lower()), None)
-            slug = re.sub(r"\s+", "_", norm(c["ClientName"]))
+            pid = (code or (prods[0] if prods else {})).get("ProductID")
+            slug = _muni_slug(c["ClientName"])
             return {
                 "source": "municode",
                 "matched": c["ClientName"],
-                "client_id": cid,
-                "product_id": (code or (prods[0] if prods else {})).get("ProductID"),
+                "client_id": str(cid),
+                "product_id": str(pid) if pid is not None else None,
                 "code_url": f"https://library.municode.com/{state.lower()}/{slug}/codes/code_of_ordinances",
                 "confidence": "high",
             }
