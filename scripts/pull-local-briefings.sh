@@ -4,6 +4,11 @@
 # The gallery (packages/gp-webapp app/dev/briefings) reads one <runId>.json per
 # briefing from LOCAL_BRIEFINGS_DIR, or the omni repo-root .local-briefings/.
 #
+# For each run this also pulls the agent-run logs (logs/session.jsonl and
+# logs/milestones.jsonl) into <runId>.session.jsonl / <runId>.milestones.jsonl,
+# which power the agent-run detail viewer (/dev/runs/<runId>). Missing logs are
+# tolerated — the artifact pull is what determines ok/fail.
+#
 # Usage:
 #   scripts/pull-local-briefings.sh --exp meeting_briefing --run-ids ID1,ID2,ID3
 #   scripts/pull-local-briefings.sh --rounds path/to/rounds/r0-baseline.json
@@ -58,6 +63,14 @@ for id in $IDS; do
   else
     echo "  MISS $id ($src)"
     fail=$((fail + 1))
+  fi
+
+  logs_src="s3://gp-agent-artifacts-dev/$EXP/$id/logs"
+  if aws --profile gp-admin --region us-west-2 s3 cp "$logs_src/session.jsonl" "$DIR/$id.session.jsonl" >/dev/null 2>&1; then
+    echo "       + session.jsonl"
+  fi
+  if aws --profile gp-admin --region us-west-2 s3 cp "$logs_src/milestones.jsonl" "$DIR/$id.milestones.jsonl" >/dev/null 2>&1; then
+    echo "       + milestones.jsonl"
   fi
 done
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Button } from '@styleguide'
 import type { MeetingBriefingFull } from 'gpApi/generated/agent-job-contracts'
 import type { Briefing, AwaitingBriefing } from '@shared/briefings/types'
@@ -14,7 +15,9 @@ import {
 import ExecutiveSummaryCard from '../../dashboard/briefings/components/detail/ExecutiveSummaryCard'
 import AgendaItemCard from '../../dashboard/briefings/components/detail/AgendaItemCard'
 import AnnotationsScope from '../../dashboard/briefings/components/annotations/AnnotationsScope'
+import ActiveCardScrollSpy from '../../dashboard/briefings/components/detail/ActiveCardScrollSpy'
 import DetailHeader from '../../dashboard/briefings/components/detail/DetailHeader'
+import DetailToc from '../../dashboard/briefings/components/detail/DetailToc'
 import ShareScope from '../../dashboard/briefings/components/detail/ShareScope'
 import BriefingAwaitingPage from '../../dashboard/briefings/components/BriefingAwaitingPage'
 
@@ -59,12 +62,12 @@ const isFullArtifact = (artifact: MeetingBriefingFull): boolean =>
   artifact.briefing_status === 'briefing_ready' ||
   artifact.briefing_status === 'agenda_provided_by_user'
 
-// Just the briefing page BODY: DetailHeader + a single content column of the
-// real cards, inside the same bg-muted wrapper / max-w-[1120px] container /
-// content-pane spacing as app/dashboard/briefings/[slug]/layout.tsx — minus the
-// global DashboardLayout nav and the DetailToc sidebar. AnnotationsScope is
-// required by the cards' useAnnotationsCtx; ShareScope by DetailHeaderActions'
-// useShareScope (canShare is false with an empty briefing_id, so no share UI).
+// The briefing page BODY, replicating app/dashboard/briefings/[slug]/layout.tsx
+// exactly — same bg-muted wrapper, DetailHeader, DetailToc sidebar + scrolling
+// content pane (via ActiveCardScrollSpy) — minus only the global DashboardLayout
+// nav. AnnotationsScope is required by the cards' useAnnotationsCtx; ShareScope
+// by DetailHeaderActions' useShareScope (canShare is false with an empty
+// briefing_id, so no share UI).
 const FullBriefingView = ({ slug, artifact }: GalleryEntry) => {
   const briefing = toBriefing(artifact)
   return (
@@ -78,32 +81,43 @@ const FullBriefingView = ({ slug, artifact }: GalleryEntry) => {
         title: 'Executive Summary',
       }}
     >
+      <ActiveCardScrollSpy items={briefing.items} />
       <ShareScope briefing={briefing}>
-        <div className="flex min-h-svh flex-col bg-muted pb-20">
+        <div className="flex min-h-svh flex-col bg-muted pb-20 lg:h-svh lg:min-h-0 lg:overflow-hidden lg:pb-20">
           <DetailHeader briefing={briefing} />
 
-          <div className="mx-auto w-full max-w-[1120px] px-4 py-6 lg:px-8">
-            <div className="flex flex-col gap-4">
-              <ExecutiveSummaryCard
-                summary={briefing.executive_summary}
-                agendaItemIds={briefing.items.map((item) => item.id)}
-                domId={BRIEFING_EXECUTIVE_SUMMARY_DOM_ID}
-              />
-              {briefing.items.map((item, index) => {
-                const isFeatured = item.tier === 'featured'
-                return (
-                  <AgendaItemCard
-                    key={item.id}
-                    item={item}
-                    itemIndex={index}
-                    sources={briefing.sources}
-                    domId={briefingItemDomId(item.id)}
-                    meetingDate={slug}
-                    showFeedback={isFeatured}
-                    variant={isFeatured ? 'full' : 'whatToExpectOnly'}
-                  />
-                )
-              })}
+          <div className="mx-auto w-full max-w-[1120px] px-4 py-6 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden lg:px-8">
+            <div className="lg:flex lg:min-h-0 lg:flex-1 lg:items-stretch lg:gap-8 lg:overflow-hidden">
+              <aside className="hidden rounded-2xl border border-border bg-card p-3 lg:block lg:w-[260px] lg:shrink-0 lg:overflow-y-auto">
+                <DetailToc briefingSlug={slug} items={briefing.items} />
+              </aside>
+
+              <div
+                id="briefing-detail-pane"
+                data-briefing-scroll-container
+                className="flex flex-col gap-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-0.5"
+              >
+                <ExecutiveSummaryCard
+                  summary={briefing.executive_summary}
+                  agendaItemIds={briefing.items.map((item) => item.id)}
+                  domId={BRIEFING_EXECUTIVE_SUMMARY_DOM_ID}
+                />
+                {briefing.items.map((item, index) => {
+                  const isFeatured = item.tier === 'featured'
+                  return (
+                    <AgendaItemCard
+                      key={item.id}
+                      item={item}
+                      itemIndex={index}
+                      sources={briefing.sources}
+                      domId={briefingItemDomId(item.id)}
+                      meetingDate={slug}
+                      showFeedback={isFeatured}
+                      variant={isFeatured ? 'full' : 'whatToExpectOnly'}
+                    />
+                  )
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -122,6 +136,7 @@ const DevBriefingGallery = () => {
   const [index, setIndex] = useState(0)
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return
     fetch('/api/dev/briefings')
       .then((res) => res.json())
       .then((data: { briefings?: GalleryEntry[] }) => {
@@ -179,6 +194,12 @@ const DevBriefingGallery = () => {
         >
           Next
         </Button>
+        <Link
+          href={`/dev/runs/${current.slug}`}
+          className="rounded-full border border-border px-3 py-1 text-sm font-semibold underline"
+        >
+          View agent run
+        </Link>
       </div>
       <View key={current.slug} {...current} />
     </>
