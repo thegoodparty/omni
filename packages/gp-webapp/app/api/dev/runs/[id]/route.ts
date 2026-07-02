@@ -6,12 +6,16 @@ import { parseAgentRun } from '../../../../dev/shared/agent-run'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Same local dir as the briefings gallery (LOCAL_BRIEFINGS_DIR, else repo-root
-// .local-briefings/). Each run's logs are pulled alongside its artifact as
-// <runId>.session.jsonl and <runId>.milestones.jsonl by pull-local-briefings.sh.
-const briefingsDir = (): string =>
+// Same local dirs as the briefings and issues galleries (LOCAL_BRIEFINGS_DIR /
+// LOCAL_ISSUES_DIR, else repo-root .local-briefings/ and .local-issues/). Each
+// run's logs are pulled alongside its artifact as <runId>.session.jsonl and
+// <runId>.milestones.jsonl by pull-local-briefings.sh / pull-local-issues.sh.
+const runDirs = (): string[] => [
   process.env.LOCAL_BRIEFINGS_DIR ??
-  path.resolve(process.cwd(), '../../.local-briefings')
+    path.resolve(process.cwd(), '../../.local-briefings'),
+  process.env.LOCAL_ISSUES_DIR ??
+    path.resolve(process.cwd(), '../../.local-issues'),
+]
 
 // session.jsonl can be ~1MB. Parsing here (not on the client) means we ship the
 // small typed structure over the wire, never the raw log.
@@ -28,14 +32,22 @@ export const GET = async (
     return NextResponse.json({ error: 'Invalid run id' }, { status: 400 })
   }
 
-  const dir = briefingsDir()
+  const dirs = runDirs()
 
-  let sessionText: string
-  try {
-    sessionText = await readFile(path.join(dir, `${id}.session.jsonl`), 'utf8')
-  } catch {
+  let sessionText: string | null = null
+  let dir: string | null = null
+  for (const d of dirs) {
+    try {
+      sessionText = await readFile(path.join(d, `${id}.session.jsonl`), 'utf8')
+      dir = d
+      break
+    } catch {
+      // Not in this dir — try the next gallery's dir.
+    }
+  }
+  if (sessionText === null || dir === null) {
     return NextResponse.json(
-      { error: `No session.jsonl for run ${id}`, dir },
+      { error: `No session.jsonl for run ${id}`, dirs },
       { status: 404 },
     )
   }

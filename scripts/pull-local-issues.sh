@@ -49,8 +49,15 @@ fail=0
 pull_one() {
   local exp="$1" id="$2"
   local src="s3://$BUCKET/$exp/$id/artifact.json"
+  local logs_src="s3://$BUCKET/$exp/$id/logs"
   if aws --profile "$PROFILE" --region us-west-2 s3 cp "$src" "$DIR/$id.json" >/dev/null 2>&1; then
     echo "  ok   $id ($exp)"
+    if aws --profile "$PROFILE" --region us-west-2 s3 cp "$logs_src/session.jsonl" "$DIR/$id.session.jsonl" >/dev/null 2>&1; then
+      echo "       + session.jsonl"
+    fi
+    if aws --profile "$PROFILE" --region us-west-2 s3 cp "$logs_src/milestones.jsonl" "$DIR/$id.milestones.jsonl" >/dev/null 2>&1; then
+      echo "       + milestones.jsonl"
+    fi
     ok=$((ok + 1))
     return 0
   fi
