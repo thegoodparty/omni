@@ -56,12 +56,14 @@ const withSummary: RaceOpponentResponse = {
         background: {
           text: 'Served on the city council before the legislature.',
           sources: [
+            // Rich-only v2 shape (no legacy sourceType/sourceUrl): a freshly
+            // persisted v2 row's sources look like this once ENG-10635 drops
+            // the passthrough, so this pins the `sourceUrl ?? url` fallback —
+            // the citation link below must come from `url`.
             {
               url: 'https://janerival.example.com/about',
               title: 'Source title',
               publisher: 'Campaign website',
-              sourceType: 'opponent_website',
-              sourceUrl: 'https://janerival.example.com/about',
             },
           ],
         },

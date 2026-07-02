@@ -27,14 +27,16 @@ const fullSummary: RaceOpponentSummary = {
   },
   background: {
     text: 'Two-term incumbent with party backing.',
-    // Duplicate URL to prove overview+background sources are de-duped.
+    // Duplicate URL to prove overview+background sources are de-duped — and
+    // deliberately rich-only (no legacy sourceType/sourceUrl; the v2 wire
+    // shape once ENG-10635 drops the passthrough): collapsing it against the
+    // legacy-shaped overview source only works if the dedup key falls back
+    // `sourceUrl ?? url`.
     sources: [
       {
         url: 'https://a.example',
         title: 'Candidate profile',
         publisher: 'Ballotpedia',
-        sourceType: 'ballotpedia',
-        sourceUrl: 'https://a.example',
       },
     ],
   },
@@ -112,13 +114,14 @@ describe('buildOpponentBrief', () => {
     ])
   })
 
-  it('de-dupes overview + background sources and keeps both paragraphs', () => {
+  it('de-dupes a rich-only background source against a legacy overview source', () => {
     const brief = buildOpponentBrief(opponent())
     const overview = brief.sections.find((s) => s.kind === 'overview')
     expect(overview).toBeDefined()
     if (overview?.kind !== 'overview') throw new Error('expected overview')
     expect(overview.paragraphs).toHaveLength(2)
     expect(overview.sources).toHaveLength(1)
+    expect(overview.sources[0]?.url).toBe('https://a.example')
   })
 
   it('drops the salience label from issue contrasts (the page never renders it)', () => {

@@ -14,6 +14,7 @@ import {
   ExternalLinkIcon,
 } from '@styleguide/components/ui/icons'
 import type { SummarySource } from '@goodparty_org/contracts'
+import { hostnameFromUrl, sourceInitial } from '@shared/briefings/displaySource'
 
 // A leading citation with no URL to open — the SWOT's "Good Party internal
 // data" entry is the only caller today. Renders in the chip and carousel
@@ -27,21 +28,13 @@ type SourceChipEntry = SummarySource | SourceChipNonLinkedSource
 const isLinked = (entry: SourceChipEntry): entry is SummarySource =>
   'url' in entry
 
-// Apex domain, no scheme/www — matches the hostname convention used for
-// persisted Domain records elsewhere in the app.
-const hostnameOf = (url: string): string => {
-  try {
-    return new URL(url).hostname.replace(/^www\./, '')
-  } catch {
-    return url
-  }
-}
-
 const letterFor = (entry: SourceChipEntry): string =>
-  (entry.publisher.trim().charAt(0) || '?').toUpperCase()
+  sourceInitial(entry.publisher)
 
+// A raw-string fallback (unlike hostnameFromUrl's null) so a malformed URL
+// still labels the chip with something identifying.
 const labelFor = (entry: SourceChipEntry): string =>
-  isLinked(entry) ? hostnameOf(entry.url) : entry.publisher
+  isLinked(entry) ? (hostnameFromUrl(entry.url) ?? entry.url) : entry.publisher
 
 const entryKey = (entry: SourceChipEntry, index: number): string =>
   isLinked(entry) ? entry.url : `${entry.publisher}-${index}`
@@ -72,16 +65,28 @@ type Props = {
 }
 
 // Compact citation primitive: a chip (favicon-letter + domain + "+N") that
-// opens a hover-card carousel over every cited source, plus focus/tap so the
-// citation is reachable without a mouse. This is the shared primitive every
-// redesigned brief section renders its "source:" row through.
+// opens a hover-card carousel over every cited source. Opens on hover and
+// keyboard focus; tap opens it only where the browser focuses buttons on tap
+// (not iOS Safari) — the mobile affordance is an ENG-10635/QA follow-up. This
+// is the shared primitive every redesigned brief section renders its
+// "source:" row through.
 const SourceChip = ({
   sources,
   nonLinkedSource,
 }: Props): React.JSX.Element | null => {
+  // Per-item source lists carry no uniqueness guarantee; a repeated URL from
+  // the LLM would collide on the badge-strip React key and inflate "N
+  // sources", so dedup once here and let count/badges/carousel all agree.
+  // Mirrors the overview+background merge dedup in RaceOpponentList.
+  const seen = new Set<string>()
+  const uniqueSources = sources.filter((source) => {
+    if (seen.has(source.url)) return false
+    seen.add(source.url)
+    return true
+  })
   const entries: SourceChipEntry[] = nonLinkedSource
-    ? [nonLinkedSource, ...sources]
-    : sources
+    ? [nonLinkedSource, ...uniqueSources]
+    : uniqueSources
   const [currentIndex, setCurrentIndex] = useState(0)
 
   const first = entries[0]

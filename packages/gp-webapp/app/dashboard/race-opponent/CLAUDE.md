@@ -94,15 +94,23 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   redesigned citation primitive — a compact chip (favicon-letter + domain +
   "+N") that opens a Radix `HoverCard` carousel over every cited source
   (`SummarySource` from `@goodparty_org/contracts`), with prev/next, a "1/N"
-  counter, and an external-link to the source currently shown. Opens on hover,
-  keyboard focus, and tap (a real `<button>` via `HoverCardTrigger asChild`, not
+  counter, and an external-link to the source currently shown. Opens on hover
+  and keyboard focus (a real `<button>` via `HoverCardTrigger asChild`, not
   `HoverCardTrigger`'s own default `<a>`, so it's focusable and has the right
-  semantics). `SourceChip` also accepts a `nonLinkedSource` — a leading entry
-  with no URL (e.g. the field-SWOT's "Good Party internal data" citation) that
-  renders in the chip and carousel without an anchor. Not yet wired into the
-  page: it lands standalone here so ENG-10635/ENG-10636 can consume it without
-  redoing the citation UI; `SourceAttribution` (the old `source: <url>` line)
-  keeps rendering on this page until ENG-10635 swaps it out — don't delete
+  semantics); tap opens it only where the browser focuses buttons on tap —
+  Radix HoverCard ignores touch pointerenter and iOS Safari doesn't focus
+  buttons on tap, so the mobile affordance is an ENG-10635/QA concern.
+  `SourceChip` also accepts a `nonLinkedSource` — a leading entry with no URL
+  (e.g. the field-SWOT's "Good Party internal data" citation) that renders in
+  the chip and carousel without an anchor. It intentionally does NOT converge
+  with `app/shared/citations/SectionSourcePills.tsx` (the briefings pill +
+  single-source popover): the HoverCard + carousel design is pinned by the
+  Phase 5 Lovable design, so keep the components separate — they do share the
+  `hostnameFromUrl`/`sourceInitial` helpers from
+  `@shared/briefings/displaySource`. Not yet wired into the page: it lands
+  standalone here so ENG-10635/ENG-10636 can consume it without redoing the
+  citation UI; `SourceAttribution` (the old `source: <url>` line) keeps
+  rendering on this page until ENG-10635 swaps it out — don't delete
   `SourceAttribution`, the strict-engine surfaces above still use it.
 
 ## Status polling — one poller, it is the source of truth

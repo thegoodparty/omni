@@ -117,9 +117,13 @@ describe('SourceChip', () => {
     await screen.findByText('1/4', {}, { timeout: 2000 })
 
     // The internal entry's publisher name renders in the body but is never a
-    // link, since it has no url to open.
+    // link, since it has no url to open — and the header's external-link
+    // anchor disappears too while the internal entry is the current one.
     expect(
       screen.queryByRole('link', { name: /Good Party internal data/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Open source in a new tab' }),
     ).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Next source' }))
@@ -127,5 +131,22 @@ describe('SourceChip', () => {
     expect(
       screen.getByRole('link', { name: /Jane Rival candidate profile/i }),
     ).toBeInTheDocument()
+    // The header external-link returns, pointing at the source now shown.
+    expect(
+      screen.getByRole('link', { name: 'Open source in a new tab' }),
+    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival')
+  })
+
+  it('dedups repeated URLs so count, badges, and carousel agree', async () => {
+    render(<SourceChip sources={[...threeSources, { ...threeSources[0]! }]} />)
+
+    // 4 raw entries, 3 unique URLs: the chip must not overcount.
+    const trigger = screen.getByRole('button', {
+      name: /3 sources: ballotpedia\.org/i,
+    })
+    expect(screen.getByText('+2')).toBeInTheDocument()
+
+    trigger.focus()
+    await screen.findByText('1/3', {}, { timeout: 2000 })
   })
 })
