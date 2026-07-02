@@ -13,10 +13,15 @@ import {
   useChatHistory,
   useDeleteConversation,
 } from '../../data/use-chat-history'
+import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
 interface Props {
   /** Open the selected conversation. */
   onSelect: (conversationId: string) => void
+  /** Chat client for this scope. Defaults to Chief of Staff. */
+  chatApi?: AgentChatClient
+  /** History query key for this scope. Defaults to Chief of Staff. */
+  historyKey?: readonly unknown[]
 }
 
 function label(title: string | null, createdAt: string): string {
@@ -35,10 +40,16 @@ function label(title: string | null, createdAt: string): string {
  */
 export default function ChatHistoryPopover({
   onSelect,
+  chatApi,
+  historyKey,
 }: Props): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const { data: conversations, isPending, isFetching } = useChatHistory(open)
-  const deleteConversation = useDeleteConversation()
+  const {
+    data: conversations,
+    isPending,
+    isFetching,
+  } = useChatHistory(open, chatApi, historyKey)
+  const deleteConversation = useDeleteConversation(chatApi, historyKey)
   const hasConversations = !!conversations && conversations.length > 0
 
   return (
