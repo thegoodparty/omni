@@ -74,9 +74,25 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   PDF export header).
 - **Activation/UX (P4)**: `OpponentProLockedView`, `AddOpponentsForm`,
   `OpponentResearchProgress`.
-- **Analytical view (P3)**: `OpponentOverviewCard`, `ThreatTierBadge` (a colored
-  dot + label, right-aligned on the roster row — "Main threat" reads in blue),
-  `IssueContrastCard`, `OpponentHandbook`, `OpponentSection`.
+- **Opponent card v2 (P5, ENG-10635)**: `OpponentOverviewCard` (the accordion
+  trigger row) + `ThreatTierBadge` (a colored dot + label, right-aligned on
+  the row — `bg-primary`/`text-primary` for the primary threat, `bg-warning-600`
+  or `bg-muted-foreground/50` + `text-foreground` for the other two tiers).
+  `RaceOpponentList`'s expanded detail body (`OpponentDetailBody` →
+  `OpponentSummaryView`) is a **flat stack of sections** — no nested
+  Accordion/Collapsible inside. Sections, each rendered only when its field is
+  non-null (sourced-or-silent): overview (no heading) + an optional "Campaign
+  website" link (`opponent.websiteUrl`) + its `SourceRow`; "Why they're
+  running" (interpretive, no sources); "Their background" (no separate source
+  row — shares the overview's sourcing per the Lovable design); "Issues that
+  matter most to them" (a bulleted list + its own `SourceRow`). A legacy
+  summary with only the pre-v2 fields renders just overview + background — the
+  retired sections (why they matter most, what you need to know, where
+  they're soft, per-opponent contrasts, key positions) never render again,
+  even off a summary row that still carries those deprecated fields.
+  `IssueContrastCard` and `OpponentSection` were deleted in this pass (their
+  only callers were the retired sections). `OpponentHandbook` (P3, unrelated
+  strict-engine surface) is untouched.
 - **PDF export (P4)**: `pdf/` — the field header's "Export brief" button downloads
   one PDF holding a brief per opponent that has a summary. `opponentBriefContent.ts`
   is the pure page→PDF mapping (mirrors `OpponentSummaryView`'s section conditionals;
@@ -107,11 +123,15 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   single-source popover): the HoverCard + carousel design is pinned by the
   Phase 5 Lovable design, so keep the components separate — they do share the
   `hostnameFromUrl`/`sourceInitial` helpers from
-  `@shared/briefings/displaySource`. Not yet wired into the page: it lands
-  standalone here so ENG-10635/ENG-10636 can consume it without redoing the
-  citation UI; `SourceAttribution` (the old `source: <url>` line) keeps
-  rendering on this page until ENG-10635 swaps it out — don't delete
-  `SourceAttribution`, the strict-engine surfaces above still use it.
+  `@shared/briefings/displaySource`. ENG-10635 wired `SourceRow` into the
+  opponent card's detail body (overview + issues-that-matter citations) via
+  the `RaceOpponentSummarySourceRef`/`SummarySource` rich fields (`url`
+  directly, no `sourceUrl ??` fallback). `SourceAttribution` (the old
+  `source: <url>` line) has no production callers left on this page — it was
+  only used by the now-deleted `IssueContrastCard` and the old merged-overview
+  renderer — but stays in the tree (its own test still exercises it)
+  following the same "kept for a future pass" precedent as
+  `ContrastList`/`RegenerateContrasts` above.
 
 ## Status polling — one poller, it is the source of truth
 
@@ -165,13 +185,20 @@ mount), `Win - Opponents Manually Added` (manual submit, with `opponentCount`),
 - Components with hooks/timers/state need `'use client'`.
 - Long opponent URLs in the manual form must wrap (`min-w-0 break-words`) — see the
   StyledAlert/grid overflow gotcha in the gp-webapp root doc.
-- `RaceOpponentSummarySourceRef` in `gpApi/api-endpoints.ts` is transitional: the
-  rich fields (`url`/`title`/`publisher`) are required (the contract backfills
-  them for legacy rows), but `sourceType`/`sourceUrl` are optional — gp-api still
-  sends them today, but ENG-10635 will stop. Existing readers (`RaceOpponentList`,
-  `IssueContrastCard`, `OpponentBriefPdfDocument`, `opponentBriefContent`) fall
-  back with `source.sourceUrl ?? source.url` rather than assuming `sourceUrl` is
-  present — keep that pattern in any new reader until ENG-10635 migrates
-  everything onto the rich fields and the legacy two are dropped.
+- `RaceOpponentSummarySourceRef` in `gpApi/api-endpoints.ts` is still transitional:
+  the rich fields (`url`/`title`/`publisher`) are required (the contract
+  backfills them for legacy rows), and `sourceType`/`sourceUrl` stay optional —
+  gp-api still sends them, and the PDF export (`OpponentBriefPdfDocument`,
+  `opponentBriefContent`, ENG-10637's scope) still falls back with
+  `source.sourceUrl ?? source.url`. `RaceOpponentList` no longer needs that
+  fallback (ENG-10635 migrated it onto `SourceRow`/`SourceChip`, which read
+  `.url` directly), but don't drop `sourceType`/`sourceUrl` from the mirror
+  type or the contract until the PDF migrates too.
 - Add new API routes to `gpApi/api-endpoints.ts`; keep client URL validation in
   lockstep with the server (https-only, name required, 1–10 cap for manual opponents).
+- `api-endpoints.ts`'s `RaceOpponentSummary`/`RaceOpponentResponse` mirrors add
+  v2 fields incrementally per ticket (`whyTheyreRunning`/`issuesThatMatter`/
+  `websiteUrl` landed with ENG-10635; `fieldAnalysis` is ENG-10636's field, not
+  added here) — when adding a mirror field, scope it to the ticket that reads
+  it rather than mirroring the whole contract shape at once, to avoid
+  cross-ticket merge conflicts on this shared file.

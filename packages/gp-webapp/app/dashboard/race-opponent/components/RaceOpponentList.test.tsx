@@ -39,6 +39,7 @@ const withSummary: RaceOpponentResponse = {
       opponentName: 'Jane Rival',
       party: 'Democrat',
       isIncumbent: true,
+      websiteUrl: 'https://janerival.example.com',
       summary: {
         opponentName: 'Jane Rival',
         overview: {
@@ -53,17 +54,31 @@ const withSummary: RaceOpponentResponse = {
             },
           ],
         },
+        whyTheyreRunning: {
+          text: 'Running to defend her record on housing affordability.',
+        },
         background: {
           text: 'Served on the city council before the legislature.',
           sources: [
             // Rich-only v2 shape (no legacy sourceType/sourceUrl): a freshly
-            // persisted v2 row's sources look like this once ENG-10635 drops
-            // the passthrough, so this pins the `sourceUrl ?? url` fallback —
-            // the citation link below must come from `url`.
+            // persisted v2 row's sources look like this — the card v2 rewrite
+            // (ENG-10635) reads sources off `url` directly, no fallback.
             {
               url: 'https://janerival.example.com/about',
               title: 'Source title',
               publisher: 'Campaign website',
+            },
+          ],
+        },
+        issuesThatMatter: {
+          items: ['Housing affordability', 'Transit expansion'],
+          sources: [
+            // A distinct host from the overview source so the two SourceRow
+            // chips are individually addressable by their accessible name.
+            {
+              url: 'https://localnews.example.com/jane-rival-issues',
+              title: 'Source title',
+              publisher: 'Local News',
             },
           ],
         },
@@ -86,6 +101,78 @@ const withSummary: RaceOpponentResponse = {
       },
       // No items: gp-api omits the raw source-research rows once a structured
       // summary exists (ENG-10622). The summary is the only view here.
+    },
+  ],
+}
+
+// A summary with only the pre-v2 fields (overview/background/keyPositions),
+// no whyTheyreRunning/issuesThatMatter — the shape an unregenerated legacy row
+// still parses as. The removed sections (why they matter, what you need to
+// know, where soft, contrasts, key positions) must never render, even though
+// this fixture's keyPositions is non-empty.
+const legacySummary: RaceOpponentResponse = {
+  collectionStatus: 'completed',
+  lastCollectedAt: '2026-06-20T12:00:00.000Z',
+  opponents: [
+    {
+      opponentName: 'Legacy Rival',
+      party: 'Republican',
+      isIncumbent: false,
+      summary: {
+        opponentName: 'Legacy Rival',
+        overview: {
+          text: 'Legacy overview text.',
+          sources: [
+            {
+              url: 'https://ballotpedia.org/Legacy_Rival',
+              title: 'Source title',
+              publisher: 'Ballotpedia',
+              sourceType: 'ballotpedia',
+              sourceUrl: 'https://ballotpedia.org/Legacy_Rival',
+            },
+          ],
+        },
+        background: {
+          text: 'Legacy background text.',
+          sources: [
+            {
+              url: 'https://ballotpedia.org/Legacy_Rival#bg',
+              title: 'Source title',
+              publisher: 'Ballotpedia',
+              sourceType: 'ballotpedia',
+              sourceUrl: 'https://ballotpedia.org/Legacy_Rival#bg',
+            },
+          ],
+        },
+        keyPositions: [
+          {
+            label: 'Housing',
+            detail: 'A legacy key position.',
+            sources: [
+              {
+                url: 'https://ballotpedia.org/Legacy_Rival#housing',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
+                sourceType: 'ballotpedia',
+                sourceUrl: 'https://ballotpedia.org/Legacy_Rival#housing',
+              },
+            ],
+          },
+        ],
+        whyTheyMatter: 'A legacy why-they-matter callout.',
+        whatYouNeedToKnow: [{ text: 'A legacy takeaway.' }],
+        whereSoft: [{ text: 'A legacy soft spot.' }],
+        issueContrasts: [
+          {
+            issue: 'Housing',
+            salience: 'high',
+            whyItMatters: 'A legacy contrast reason.',
+            opponentStance: 'A legacy opponent stance.',
+            candidateStance: 'A legacy candidate stance.',
+          },
+        ],
+        generatedAt: '2026-06-20T12:00:00.000Z',
+      },
     },
   ],
 }
@@ -144,7 +231,7 @@ beforeEach(() => {
 })
 
 describe('<RaceOpponentList>', () => {
-  it('renders the structured summary sections with citations and never a <pre> dump', () => {
+  it('renders the four v2 sections with citations and never a <pre> dump', () => {
     const { container } = render(<RaceOpponentList initialData={withSummary} />)
 
     // The candidate's name renders in its accordion trigger row (a button), not
@@ -153,233 +240,147 @@ describe('<RaceOpponentList>', () => {
       screen.getByRole('button', { name: /Jane Rival/i }),
     ).toBeInTheDocument()
 
-    // Overview + background prose render as the primary content, with no
-    // "Overview"/"Background" section headings (the background is merged into
-    // the overview per the Lovable design).
+    // Overview has no heading; the other three sections show their uppercase
+    // blue label.
     expect(screen.queryByText('Overview')).not.toBeInTheDocument()
-    expect(screen.queryByText('Background')).not.toBeInTheDocument()
+    expect(screen.getByText("Why they're running")).toBeInTheDocument()
+    expect(screen.getByText('Their background')).toBeInTheDocument()
+    expect(
+      screen.getByText('Issues that matter most to them'),
+    ).toBeInTheDocument()
+
     expect(
       screen.getByText('Two-term incumbent with strong party backing.'),
     ).toBeInTheDocument()
     expect(
+      screen.getByText(
+        'Running to defend her record on housing affordability.',
+      ),
+    ).toBeInTheDocument()
+    expect(
       screen.getByText('Served on the city council before the legislature.'),
     ).toBeInTheDocument()
+    expect(screen.getByText('Housing affordability')).toBeInTheDocument()
+    expect(screen.getByText('Transit expansion')).toBeInTheDocument()
 
-    // The merged overview carries citations from both sections' sources.
+    // Removed sections never render, even though this fixture's summary still
+    // carries a legacy, non-empty keyPositions array.
+    expect(screen.queryByText('Key positions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Why they matter most')).not.toBeInTheDocument()
+    expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
+    expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: /ballotpedia\.org\/Jane_Rival$/i }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival')
-    expect(
-      screen.getByRole('link', {
-        name: /janerival\.example\.com\/about/i,
-      }),
-    ).toHaveAttribute('href', 'https://janerival.example.com/about')
+      screen.queryByText('Where you contrast, and what to do about it'),
+    ).not.toBeInTheDocument()
 
     // No raw JSON dump on the page.
     expect(container.querySelector('pre')).toBeNull()
   })
 
-  it('renders a key position with its label, detail, and source link', () => {
+  it('renders the overview citation via the source chip, reading sources.url directly', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    expect(screen.getByText('Key positions')).toBeInTheDocument()
-    expect(screen.getByText('Housing')).toBeInTheDocument()
+    // The source chip's accessible name includes the domain; the chip opens a
+    // hover-card carousel rather than rendering a plain citation link.
     expect(
-      screen.getByText('Backed the developer tax-credit version of the bill.'),
+      screen.getByRole('button', { name: /source: ballotpedia\.org/i }),
     ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', {
-        name: /ballotpedia\.org\/Jane_Rival#housing/i,
-      }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#housing')
   })
 
-  const withAnalysis: RaceOpponentResponse = {
-    ...withSummary,
-    opponents: [
-      {
-        ...withSummary.opponents[0]!,
-        summary: {
-          ...withSummary.opponents[0]!.summary!,
-          whyTheyMatter: 'The only incumbent with party-backed funding.',
-          whatYouNeedToKnow: [
-            {
-              text: 'Two-term incumbent with name recognition.',
-              sources: [
-                {
-                  url: 'https://ballotpedia.org/Jane_Rival#known',
-                  title: 'Source title',
-                  publisher: 'Ballotpedia',
-                  sourceType: 'ballotpedia',
-                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#known',
-                },
-              ],
-            },
-            // relaxed sourcing: an interpretive takeaway with no source
-            { text: 'Backed by the county party committee.' },
-          ],
-        },
-      },
-    ],
-  }
-
-  it('renders the why-they-matter callout and what-you-need-to-know list', () => {
-    render(<RaceOpponentList initialData={withAnalysis} />)
-
-    expect(screen.getByText('Why they matter most')).toBeInTheDocument()
-    expect(
-      screen.getByText('The only incumbent with party-backed funding.'),
-    ).toBeInTheDocument()
-
-    expect(screen.getByText('What you need to know')).toBeInTheDocument()
-    expect(screen.getByText('2 items')).toBeInTheDocument()
-    expect(
-      screen.getByText('Two-term incumbent with name recognition.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Backed by the county party committee.'),
-    ).toBeInTheDocument()
-    // A sourced takeaway renders its citation link.
-    expect(
-      screen.getByRole('link', {
-        name: /ballotpedia\.org\/Jane_Rival#known/i,
-      }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#known')
-  })
-
-  it('hides both sections when the analysis fields are absent', () => {
+  it('renders the Campaign website link when websiteUrl is present, opening in a new tab', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    expect(screen.queryByText('Why they matter most')).not.toBeInTheDocument()
-    expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /campaign website/i })
+    expect(link).toHaveAttribute('href', 'https://janerival.example.com')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
-  const withWhereSoft: RaceOpponentResponse = {
-    ...withSummary,
-    opponents: [
-      {
-        ...withSummary.opponents[0]!,
-        summary: {
-          ...withSummary.opponents[0]!.summary!,
-          whereSoft: [
-            {
-              text: 'No published long-term water position.',
-              sources: [
-                {
-                  url: 'https://ballotpedia.org/Jane_Rival#water',
-                  title: 'Source title',
-                  publisher: 'Ballotpedia',
-                  sourceType: 'ballotpedia',
-                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#water',
-                },
-              ],
-            },
-            // relaxed sourcing: an item with no source still renders
-            { text: 'Skipped the 2026 candidate survey.' },
-          ],
-        },
-      },
-    ],
-  }
-
-  it('renders the where-theyre-soft section with a count and relaxed sourcing', () => {
-    render(<RaceOpponentList initialData={withWhereSoft} />)
-
-    expect(screen.getByText("Where they're soft")).toBeInTheDocument()
-    expect(screen.getByText('2 openings')).toBeInTheDocument()
+  it('omits the Campaign website link when websiteUrl is absent', () => {
+    render(<RaceOpponentList initialData={legacySummary} />)
     expect(
-      screen.getByText('No published long-term water position.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', {
-        name: /ballotpedia\.org\/Jane_Rival#water/i,
-      }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#water')
-    expect(
-      screen.getByText('Skipped the 2026 candidate survey.'),
-    ).toBeInTheDocument()
-  })
-
-  it('hides the where-theyre-soft section when there are no items', () => {
-    render(<RaceOpponentList initialData={withSummary} />)
-    expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
-  })
-
-  const withContrasts: RaceOpponentResponse = {
-    ...withSummary,
-    opponents: [
-      {
-        ...withSummary.opponents[0]!,
-        summary: {
-          ...withSummary.opponents[0]!.summary!,
-          issueContrasts: [
-            {
-              issue: 'Housing',
-              salience: 'high',
-              whyItMatters: 'Families are being priced out of the district.',
-              opponentStance: 'Backs the developer tax-credit bill.',
-              opponentSources: [
-                {
-                  url: 'https://ballotpedia.org/Jane_Rival#contrast',
-                  title: 'Source title',
-                  publisher: 'Ballotpedia',
-                  sourceType: 'ballotpedia',
-                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#contrast',
-                },
-              ],
-              candidateStance: 'Supports more starter homes near transit.',
-            },
-          ],
-        },
-      },
-    ],
-  }
-
-  it('renders an issue contrast (expanded) with both stances and source, no salience label', () => {
-    render(<RaceOpponentList initialData={withContrasts} />)
-
-    expect(
-      screen.getByText('Where you contrast, and what to do about it'),
-    ).toBeInTheDocument()
-    // The per-issue accordion trigger names the issue; it opens by default so
-    // the stances are visible without a click.
-    expect(screen.getByRole('button', { name: /Housing/i })).toBeInTheDocument()
-    // The salience label is dropped.
-    expect(screen.queryByText('High voter salience')).not.toBeInTheDocument()
-    expect(
-      screen.getByText('Families are being priced out of the district.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Backs the developer tax-credit bill.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Supports more starter homes near transit.'),
-    ).toBeInTheDocument()
-    // The opponent's stance is labeled with the opponent's name; the candidate's
-    // with "You".
-    expect(screen.getByText('You')).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', {
-        name: /ballotpedia\.org\/Jane_Rival#contrast/i,
-      }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#contrast')
-  })
-
-  it('renders no Start or What-to-do sub-card on a contrast', () => {
-    render(<RaceOpponentList initialData={withContrasts} />)
-    expect(
-      screen.queryByRole('button', { name: /^start$/i }),
+      screen.queryByRole('link', { name: /campaign website/i }),
     ).not.toBeInTheDocument()
-    // The "What to do" sub-card is out of scope for the relaxed view. (The
-    // section heading "...what to do about it" is a distinct, longer string.)
-    expect(screen.queryByText('What to do')).not.toBeInTheDocument()
   })
 
-  it('hides the where-you-contrast section when there are no contrasts', () => {
-    render(<RaceOpponentList initialData={withSummary} />)
+  it('renders only overview and background for a legacy summary, without crashing', () => {
+    render(<RaceOpponentList initialData={legacySummary} />)
+
+    expect(screen.getByText('Legacy overview text.')).toBeInTheDocument()
+    expect(screen.getByText('Their background')).toBeInTheDocument()
+    expect(screen.getByText('Legacy background text.')).toBeInTheDocument()
+
+    // The removed sections never render, even though this legacy summary
+    // still carries their (now-deprecated) fields.
+    expect(screen.queryByText("Why they're running")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Issues that matter most to them'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Key positions')).not.toBeInTheDocument()
+    expect(screen.queryByText('A legacy key position.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Why they matter most')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('A legacy why-they-matter callout.'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
+    expect(screen.queryByText('A legacy takeaway.')).not.toBeInTheDocument()
+    expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
+    expect(screen.queryByText('A legacy soft spot.')).not.toBeInTheDocument()
     expect(
       screen.queryByText('Where you contrast, and what to do about it'),
     ).not.toBeInTheDocument()
+  })
+
+  it('opens exactly one candidate at a time: opening the second collapses the first', async () => {
+    const user = userEvent.setup()
+    const twoOpponents: RaceOpponentResponse = {
+      ...withSummary,
+      opponents: [
+        withSummary.opponents[0]!,
+        {
+          opponentName: 'Legacy Rival',
+          party: 'Republican',
+          isIncumbent: false,
+          summary: legacySummary.opponents[0]!.summary,
+        },
+      ],
+    }
+    render(<RaceOpponentList initialData={twoOpponents} />)
+
+    // Jane (the primary threat by default-open logic, here just opponents[0])
+    // is open on mount.
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Legacy Rival/i }))
+
+    // Opening the second candidate closes the first — only one detail body is
+    // visible at a time (type=single accordion).
+    expect(screen.getByText('Legacy overview text.')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Two-term incumbent with strong party backing.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('wires the expanded blue-ring and collapsed hover-state classes onto the card', () => {
+    // jsdom doesn't compute CSS, so both accordion items carry the same static
+    // data-state-scoped Tailwind tokens regardless of which is currently open
+    // — Radix resolves them via its own `data-state` attribute at runtime.
+    // This pins the literal class tokens the design calls for onto the card.
+    const { container } = render(<RaceOpponentList initialData={withSummary} />)
+
+    const card = container.querySelector('[data-state]')
+    expect(card).not.toBeNull()
+    expect(card).toHaveClass(
+      'overflow-hidden',
+      'rounded-xl',
+      'data-[state=open]:border-primary',
+      'data-[state=open]:ring-2',
+      'data-[state=open]:ring-primary/30',
+      'data-[state=closed]:border-border',
+      'data-[state=closed]:hover:border-foreground/30',
+    )
   })
 
   it('fires Win - Opponent Profile Viewed when an opponent detail is shown', () => {

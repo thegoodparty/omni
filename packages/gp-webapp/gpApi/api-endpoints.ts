@@ -1001,6 +1001,13 @@ export type RaceOpponentSummary = {
   keyPositions: RaceOpponentSummaryKeyPosition[]
   generatedAt: string | null
   threatTier?: RaceOpponentThreatTier
+  // v2 (ENG-10630/ENG-10635): interpretive, no required sources.
+  whyTheyreRunning?: { text: string } | null
+  // v2 (ENG-10630/ENG-10635): sourced-or-silent, like overview/background.
+  issuesThatMatter?: {
+    items: string[]
+    sources: RaceOpponentSummarySourceRef[]
+  } | null
   // Phase 3 analytical fields, all optional (the analysis may be absent).
   whyTheyMatter?: string
   whatYouNeedToKnow?: Array<{
@@ -1040,6 +1047,9 @@ export type RaceOpponentResponse = {
     // Optional + nullable: ENG-10588 wires the producer to populate this from
     // the race_opponent_summary step; until then gp-api omits the field.
     summary?: RaceOpponentSummary | null
+    // v2 (ENG-10630/ENG-10635): populated from the opponent's roster/collected
+    // data; nullish so older gp-api payloads that predate this field still parse.
+    websiteUrl?: string | null
   }>
   lastCollectedAt: string | null
   collectionStatus: RaceOpponentCollectionStatus
