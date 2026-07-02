@@ -6,6 +6,7 @@ import { CONSTITUENT_TABLES } from '../chief-of-staff/services/constituentDataSc
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { CampaignManagerHandler } from './campaignManager.handler'
 import type { CampaignManagerContext } from './campaignManagerPrompt'
+import type { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -22,12 +23,15 @@ const ctxWith = (
   over: Partial<CampaignManagerContext>,
 ): CampaignManagerContext => ({
   candidateFirstName: null,
+  candidateName: '',
+  campaignId: null,
   officeName: null,
   location: null,
   weeksToElection: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
+  story: null,
   ...over,
 })
 
@@ -63,5 +67,40 @@ describe('CampaignManagerHandler.buildTools — constituent data gating', () => 
   it('omits them when no Databricks provider is configured', () => {
     const tools = buildHandler(undefined).buildTools(ctxWith(ENABLED))
     expect(Object.keys(tools)).not.toContain('query_constituent_data')
+  })
+})
+
+const buildHandlerWithStory = (): CampaignManagerHandler =>
+  new CampaignManagerHandler(
+    {} as GeneralChatStoreService,
+    {} as CampaignsService,
+    {} as ChatStoreService,
+    CONSTITUENT_TABLES,
+    undefined,
+    undefined,
+    undefined,
+    {} as CampaignStoryIntakeService,
+  )
+
+describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
+  it('registers campaign_story when the intake service + campaign are present', () => {
+    const tools = buildHandlerWithStory().buildTools(
+      ctxWith({ campaignId: 42 }),
+    )
+    expect(Object.keys(tools)).toContain('campaign_story')
+  })
+
+  it('omits campaign_story without a resolved campaign', () => {
+    const tools = buildHandlerWithStory().buildTools(
+      ctxWith({ campaignId: null }),
+    )
+    expect(Object.keys(tools)).not.toContain('campaign_story')
+  })
+
+  it('omits campaign_story when no intake service is wired', () => {
+    const tools = buildHandler(undefined).buildTools(
+      ctxWith({ campaignId: 42 }),
+    )
+    expect(Object.keys(tools)).not.toContain('campaign_story')
   })
 })

@@ -26,6 +26,12 @@ import {
   CampaignManagerContext,
 } from './campaignManagerPrompt'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
+import {
+  CampaignStoryIntakeService,
+  type StoryField,
+  type StoryState,
+} from './campaignStoryIntake.service'
+import { buildCampaignStoryTool } from './campaignStoryTool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -46,6 +52,44 @@ export const CAMPAIGN_MANAGER_GREETING = [
     'you handle it.',
 ].join('\n\n')
 
+// The next-question prompt per story field, in the Story page's wording.
+const STORY_QUESTION_PROMPTS: Record<StoryField, string> = {
+  why:
+    'your why: the moment, the people, the breaking point, your stump-speech ' +
+    'opener. What made you decide to run?',
+  background:
+    'your background: childhood, career, and community ties, the human story ' +
+    'behind you. Tell me a little about yourself.',
+  positions:
+    'your positions: the two to four concrete fights you would take on in ' +
+    'your first term. What are they?',
+}
+
+// Story-aware, resume-aware opener seeded when the Campaign Story is unfinished:
+// introduces the manager (or welcomes them back if they've answered some), then
+// asks the FIRST still-missing question so reopening picks up where they left
+// off. Uses the Story page's wording.
+export const buildStoryGreeting = (story: StoryState): string => {
+  const next = story.missing[0] ?? 'why'
+  const answered = 3 - story.missing.length
+  const intro =
+    answered === 0
+      ? [
+          "Hi, I'm your campaign manager. Before I build your plan and " +
+            "tracker, let's get your Campaign Story down, since it's what " +
+            'personalizes your Campaign Plan, Campaign Tracker, and your ' +
+            'GoodParty.org experience.',
+          "It's just three short questions, in your own words, and I can " +
+            'help sharpen anything you write.',
+        ]
+      : [
+          "Welcome back. Let's finish your Campaign Story so I can build " +
+            'your plan and tracker.',
+        ]
+  const lead = answered === 0 ? 'First' : 'Next'
+  return [...intro, `${lead}, ${STORY_QUESTION_PROMPTS[next]}`].join('\n\n')
+}
+
 // Campaign Manager's own rollout flag for the constituent-data tool, distinct
 // from Chief of Staff's. Off until enabled per internal tester while the tool
 // runs against the shared (broad) Databricks credential.
@@ -58,12 +102,15 @@ export const CM_CONSTITUENT_TABLES_CONFIG = 'CM_CONSTITUENT_TABLES_CONFIG'
 
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
+  candidateName: '',
+  campaignId: null,
   officeName: null,
   location: null,
   weeksToElection: null,
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
+  story: null,
 }
 
 @Injectable()
@@ -85,6 +132,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly districtResolver?: DistrictResolverService,
     @Optional()
     private readonly features?: FeaturesService,
+    @Optional()
+    private readonly storyIntake?: CampaignStoryIntakeService,
   ) {}
 
   // Mirrors Chief of Staff: every open creates a fresh conversation. Resuming a
@@ -110,9 +159,26 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     await this.chatStore.appendMessage({
       conversationId: created.id,
       role: ChatMessageRole.assistant,
-      content: CAMPAIGN_MANAGER_GREETING,
+      content: await this.resolveGreeting(params.organizationSlug),
     })
     return { conversationId: created.id, created: true }
+  }
+
+  // Seed the story-intake opener when the Campaign Story is unfinished (so the
+  // manager greets and asks its first question on open); otherwise the standard
+  // greeting. Best-effort: any lookup miss falls back to the standard greeting.
+  private async resolveGreeting(
+    organizationSlug: string | null,
+  ): Promise<string> {
+    if (!organizationSlug || !this.storyIntake) return CAMPAIGN_MANAGER_GREETING
+    const campaign = await this.campaigns.findFirst({
+      where: { organizationSlug },
+    })
+    if (!campaign) return CAMPAIGN_MANAGER_GREETING
+    const story = await this.storyIntake.read(campaign.id)
+    return story.complete
+      ? CAMPAIGN_MANAGER_GREETING
+      : buildStoryGreeting(story)
   }
 
   async loadContext(
@@ -125,14 +191,23 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const organizationSlug = conversation?.organizationSlug
     if (!organizationSlug) return EMPTY_CONTEXT
 
-    const campaign = await this.campaigns.findFirst({
+    const campaign = await this.campaigns.client.campaign.findFirst({
       where: { organizationSlug },
+      include: { user: true },
     })
     if (!campaign) return EMPTY_CONTEXT
 
     const tasks = await this.campaigns.client.campaignTrackerTask.findMany({
       where: { campaignId: campaign.id },
     })
+    const candidateName = campaign.user
+      ? [campaign.user.firstName, campaign.user.lastName]
+          .filter(Boolean)
+          .join(' ')
+      : ''
+    const story = this.storyIntake
+      ? await this.storyIntake.read(campaign.id)
+      : null
     const details = campaign.details
     const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
@@ -154,7 +229,9 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       (await this.isConstituentToolFlagOn(userId))
 
     return {
-      candidateFirstName: null,
+      candidateFirstName: campaign.user?.firstName ?? null,
+      candidateName,
+      campaignId: campaign.id,
       officeName: details.normalizedOffice ?? null,
       location,
       weeksToElection: electionDate
@@ -166,6 +243,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })),
       districtFilters,
       constituentToolEnabled,
+      story,
     }
   }
 
@@ -221,6 +299,18 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           scope,
         })
       }
+    }
+
+    // Campaign Story intake: read/elaborate/save the candidate's story and,
+    // once complete, kick off plan + tracker generation. Registered whenever
+    // the intake service + campaign are resolved; the prompt drives when to run
+    // it (unfinished story) vs. leave it (finished, edit-on-request only).
+    if (this.storyIntake && ctx.campaignId !== null) {
+      tools.campaign_story = buildCampaignStoryTool({
+        intake: this.storyIntake,
+        campaignId: ctx.campaignId,
+        candidateName: ctx.candidateName,
+      })
     }
 
     return tools
