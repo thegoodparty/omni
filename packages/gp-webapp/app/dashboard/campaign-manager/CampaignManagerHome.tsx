@@ -1,7 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
+import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import CampaignManagerTasks from './CampaignManagerTasks'
+import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
+import ProgressSection from '../components/campaignManager/ProgressSection'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import {
@@ -49,6 +53,14 @@ export default function CampaignManagerHome({
   return (
     <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">
       <div className="pb-40">
+        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-4 pt-6">
+          <ProUpgradeBanner />
+          <VoterContactsProvider>
+            <CampaignUpdateHistoryProvider>
+              <ProgressSection />
+            </CampaignUpdateHistoryProvider>
+          </VoterContactsProvider>
+        </div>
         <CampaignManagerTasks onMeetManager={openMeet} />
       </div>
       <FooterChatBar

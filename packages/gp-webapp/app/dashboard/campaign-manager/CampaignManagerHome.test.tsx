@@ -13,6 +13,16 @@ vi.mock('../campaign-plan/components/campaignStrategy/useTrackerTasks', () => ({
   }),
 }))
 
+// The Pro banner + progress section are the legacy dashboard widgets (their own
+// campaign/voter-contact providers); this smoke test only covers the home's
+// composition, so stub them out.
+vi.mock('../components/campaignManager/ProUpgradeBanner', () => ({
+  default: () => null,
+}))
+vi.mock('../components/campaignManager/ProgressSection', () => ({
+  default: () => null,
+}))
+
 describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     render(<CampaignManagerHome firstName="Renee" />)
