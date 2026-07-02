@@ -21,6 +21,13 @@ export interface TaskCardProps {
   skipDisabled?: boolean
 }
 
+// A task action can point off-app (a state SOS page, a form). Those must open
+// in a new tab via a plain anchor; internal routes go through the client router.
+const isExternalHref = (href: string): boolean =>
+  /^(https?:)?\/\//.test(href) ||
+  href.startsWith('mailto:') ||
+  href.startsWith('tel:')
+
 /**
  * Shared card for the dashboard task list, the onboarding cards, and the
  * Archive list. Eyebrow + title + meta/summary are plain elements; the CTA
@@ -64,9 +71,17 @@ export default function TaskCard({
       <div className="flex flex-col gap-3 pt-2">
         {ctaLabel &&
           (ctaHref ? (
-            <Button asChild className="w-full">
-              <Link href={ctaHref}>{ctaLabel}</Link>
-            </Button>
+            isExternalHref(ctaHref) ? (
+              <Button asChild className="w-full">
+                <a href={ctaHref} target="_blank" rel="noreferrer">
+                  {ctaLabel}
+                </a>
+              </Button>
+            ) : (
+              <Button asChild className="w-full">
+                <Link href={ctaHref}>{ctaLabel}</Link>
+              </Button>
+            )
           ) : (
             <Button type="button" className="w-full" onClick={onCta}>
               {ctaLabel}

@@ -115,6 +115,39 @@ describe('CampaignManagerTasks', () => {
     )
   })
 
+  it('opens an external task link in a new tab, like the tracker', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'File your paperwork',
+          week: 1,
+          cta: null,
+          link: 'https://www.sos.state.co.us/candidate',
+        }),
+      ]),
+    )
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    const cta = screen.getByRole('link', { name: 'Open' })
+    expect(cta).toHaveAttribute('href', 'https://www.sos.state.co.us/candidate')
+    expect(cta).toHaveAttribute('target', '_blank')
+    expect(cta).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
+  })
+
+  it('treats an empty-string link as no link (no broken href)', () => {
+    mockResult.mockReturnValue(
+      settled([task({ title: 'Empty link', week: 1, cta: null, link: '' })]),
+    )
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    expect(screen.getByRole('link', { name: 'See details' })).toHaveAttribute(
+      'href',
+      '/dashboard/campaign-plan',
+    )
+  })
+
   it('renders each task as a rich card with a category eyebrow and summary', () => {
     mockResult.mockReturnValue(
       settled([

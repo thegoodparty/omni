@@ -23,10 +23,15 @@ import {
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
 
-// Each card links to the task's own action (its `link`, the task-to-action
-// routing the Campaign Tracker owns), falling back to the tracker page.
+// A task's own action link, if it has a non-empty one. Trimmed so an empty or
+// whitespace string (which the agent can emit) counts as "no link" rather than
+// rendering a broken href — matching the tracker, which hides the link then.
+const taskLink = (task: { link: string | null }): string | null =>
+  task.link?.trim() ? task.link : null
+
+// Each card links to the task's own action, falling back to the tracker page.
 const taskHref = (task: { link: string | null }): string =>
-  task.link ?? TRACKER_HREF
+  taskLink(task) ?? TRACKER_HREF
 
 // Eyebrow label + icon per tracker flowType (same set buildTrackerStrategy maps
 // to channels). Unknown/static rows fall back to a generic priority label.
@@ -119,7 +124,12 @@ export default function CampaignManagerTasks({
                   title={task.title}
                   meta={[formatDue(task.date)]}
                   summary={task.description || undefined}
-                  ctaLabel={task.cta ?? 'See details'}
+                  // With its own action link, "Open" it (like the tracker);
+                  // otherwise route to the tracker to act on it there.
+                  ctaLabel={
+                    task.cta?.trim() ||
+                    (taskLink(task) ? 'Open' : 'See details')
+                  }
                   ctaHref={taskHref(task)}
                 />
               )
