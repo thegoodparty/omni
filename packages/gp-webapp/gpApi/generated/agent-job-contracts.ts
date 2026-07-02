@@ -153,6 +153,10 @@ export interface AgentJobContracts {
     Input: OpponentDataCollectionInputParams
     Output: OpponentDataCollectionArtifact
   }
+  race_opponent_summary: {
+    Input: OpponentSummaryInputParams
+    Output: OpponentSummaryArtifact
+  }
   self_research: {
     Input: SelfResearchInputParams
     Output: SelfResearchArtifact
@@ -5639,21 +5643,17 @@ export interface MeetingScheduleNotFound {
 }
 export interface OpponentResearchInputParams {
   /**
-   * The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Any field may be null when unwritten.
+   * The candidate's own platform / positions, for context only. Used to frame which contrasts matter; the agent does NOT research the candidate here, only the opponent. Sourced from the candidate's website (the Pro-upgrade profile capture). Any field may be null when unwritten.
    */
   candidate_platform?: {
     /**
-     * The candidate's background.
+     * The candidate's background / bio.
      */
     background?: string | null
     /**
      * The issues the candidate is running on.
      */
     issues?: string | null
-    /**
-     * Why the candidate is running.
-     */
-    why?: string | null
   } | null
   /**
    * The named opponent to research. The lawful-use case for the L2 residency lookup on this named person has been confirmed.
@@ -6060,6 +6060,487 @@ export interface OpponentDataCollectionArtifact {
      */
     source_url: string
   }[]
+}
+export interface OpponentSummaryInputParams {
+  /**
+   * The candidate's own platform, hydrated by gp-api from Website.content.about (NOT CampaignStory). Used to rank threat tiers relative to the candidate and to pair each issue contrast against the candidate's own stance. Absent when the campaign has no website bio yet, in which case issue_contrasts are omitted (empty array).
+   */
+  candidate_platform?: {
+    /**
+     * The candidate's own biography paragraph, as captured for their candidate site.
+     */
+    bio?: string
+    /**
+     * The candidate's own issue positions. An issue contrast's candidate_stance is drawn only from these, never invented and never from CampaignStory.
+     */
+    issues?: {
+      /**
+       * The candidate's own stated stance on this issue.
+       */
+      description: string
+      /**
+       * Short issue title (e.g. 'Water security').
+       */
+      title: string
+    }[]
+  }
+  /**
+   * The opponents to structure, with the already-collected per-source text gp-api hydrated from race_opponent.content.text (Phase 0). This is the ONLY text the agent works from — there is no fetching or discovery.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    },
+    ...{
+      /**
+       * The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry.
+       */
+      opponent_name: string
+      /**
+       * The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.
+       */
+      sources: {
+        /**
+         * Which collected source this text came from.
+         */
+        source_type: 'ballotpedia' | 'opponent_website'
+        /**
+         * The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here.
+         */
+        source_url: string
+        /**
+         * The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it.
+         */
+        text: string
+      }[]
+    }[],
+  ]
+  /**
+   * The race the opponents are running in, hydrated by gp-api. Light context for phrasing only (office / jurisdiction). The agent does NOT reason over it to add facts and never cites it.
+   */
+  race_context: {
+    /**
+     * City / jurisdiction name, or null.
+     */
+    city?: string | null
+    /**
+     * The election date for this race, or null.
+     */
+    election_date?: string | null
+    /**
+     * Readable office name (e.g. 'Fayetteville City Council').
+     */
+    office_name?: string | null
+    /**
+     * 2-letter state code (e.g. NC), or null.
+     */
+    state?: string | null
+    [k: string]: unknown
+  }
+}
+export interface OpponentSummaryArtifact {
+  /**
+   * Campaign-level SWOT. Bullets are interpretive syntheses across the whole field and carry no required source; sources may be empty.
+   */
+  field_analysis?: {
+    /**
+     * Short bullets, up to 5, only as many as the field genuinely supports.
+     */
+    opportunities: string[]
+    /**
+     * Optional citations. Empty unless a bullet rests directly on a specific cited claim worth pinning down.
+     */
+    sources: {
+      /**
+       * Optional. One sentence on what the source is, derived from the page's own content.
+       */
+      description?: string
+      /**
+       * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+       */
+      publisher: string
+      /**
+       * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+       */
+      title: string
+      /**
+       * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+       */
+      url: string
+    }[]
+    /**
+     * Short bullets, up to 5, only as many as the field genuinely supports.
+     */
+    strengths: string[]
+    /**
+     * Short bullets, up to 5, only as many as the field genuinely supports.
+     */
+    threats: string[]
+    /**
+     * Short bullets, up to 5, only as many as the field genuinely supports.
+     */
+    weaknesses: string[]
+  } | null
+  generated_at: string
+  /**
+   * One entry per input opponent, in input order. opponent_name echoes the input verbatim. Descriptive sections (overview, background, issues_that_matter) are sourced-or-silent: null when the provided text supports none, otherwise carrying >=1 rich source drawn from that opponent's input source_urls. threat_tier and why_theyre_running are interpretive and carry no source.
+   *
+   * @minItems 1
+   */
+  opponents: [
+    {
+      /**
+       * Sourced-or-silent: a descriptive paragraph drawn only from the provided text (overview: short who-they-are; background: career/community ties/prior roles), or null when the text supports none. Used for both overview and background.
+       */
+      background?: {
+        /**
+         * One or more rich sources this text was drawn from, verbatim from that opponent's input source_urls.
+         *
+         * @minItems 1
+         */
+        sources: [
+          {
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          },
+          ...{
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          }[],
+        ]
+        text: string
+      } | null
+      issues_that_matter?: {
+        /**
+         * Short bullet strings capturing the issues/themes the opponent's own text emphasizes.
+         *
+         * @minItems 1
+         */
+        items: [string, ...string[]]
+        /**
+         * One or more rich sources shared across the section, verbatim from that opponent's input source_urls.
+         *
+         * @minItems 1
+         */
+        sources: [
+          {
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          },
+          ...{
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          }[],
+        ]
+      } | null
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * Sourced-or-silent: a descriptive paragraph drawn only from the provided text (overview: short who-they-are; background: career/community ties/prior roles), or null when the text supports none. Used for both overview and background.
+       */
+      overview?: {
+        /**
+         * One or more rich sources this text was drawn from, verbatim from that opponent's input source_urls.
+         *
+         * @minItems 1
+         */
+        sources: [
+          {
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          },
+          ...{
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          }[],
+        ]
+        text: string
+      } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's own issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * Interpretive: no sources property exists on this shape.
+       */
+      why_theyre_running?: {
+        text: string
+      } | null
+    },
+    ...{
+      /**
+       * Sourced-or-silent: a descriptive paragraph drawn only from the provided text (overview: short who-they-are; background: career/community ties/prior roles), or null when the text supports none. Used for both overview and background.
+       */
+      background?: {
+        /**
+         * One or more rich sources this text was drawn from, verbatim from that opponent's input source_urls.
+         *
+         * @minItems 1
+         */
+        sources: [
+          {
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          },
+          ...{
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          }[],
+        ]
+        text: string
+      } | null
+      issues_that_matter?: {
+        /**
+         * Short bullet strings capturing the issues/themes the opponent's own text emphasizes.
+         *
+         * @minItems 1
+         */
+        items: [string, ...string[]]
+        /**
+         * One or more rich sources shared across the section, verbatim from that opponent's input source_urls.
+         *
+         * @minItems 1
+         */
+        sources: [
+          {
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          },
+          ...{
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          }[],
+        ]
+      } | null
+      /**
+       * Matches an input opponent's opponent_name verbatim.
+       */
+      opponent_name: string
+      /**
+       * Sourced-or-silent: a descriptive paragraph drawn only from the provided text (overview: short who-they-are; background: career/community ties/prior roles), or null when the text supports none. Used for both overview and background.
+       */
+      overview?: {
+        /**
+         * One or more rich sources this text was drawn from, verbatim from that opponent's input source_urls.
+         *
+         * @minItems 1
+         */
+        sources: [
+          {
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          },
+          ...{
+            /**
+             * Optional. One sentence on what the source is, derived from the page's own content.
+             */
+            description?: string
+            /**
+             * The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization.
+             */
+            publisher: string
+            /**
+             * The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none.
+             */
+            title: string
+            /**
+             * Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform.
+             */
+            url: string
+          }[],
+        ]
+        text: string
+      } | null
+      /**
+       * This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's own issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source.
+       */
+      threat_tier: 'primary_threat' | 'watch_closely' | 'low_priority'
+      /**
+       * Interpretive: no sources property exists on this shape.
+       */
+      why_theyre_running?: {
+        text: string
+      } | null
+    }[],
+  ]
 }
 export interface SelfResearchInputParams {
   /**
