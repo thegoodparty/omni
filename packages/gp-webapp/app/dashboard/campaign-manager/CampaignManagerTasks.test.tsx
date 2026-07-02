@@ -7,9 +7,21 @@ import type { TrackerTasksResult } from '../campaign-plan/components/campaignStr
 import CampaignManagerTasks from './CampaignManagerTasks'
 
 const mockResult = vi.fn<() => TrackerTasksResult>()
-vi.mock('../campaign-plan/components/campaignStrategy/useTrackerTasks', () => ({
-  useTrackerTasks: () => mockResult(),
-}))
+const mockToggle = vi.fn()
+// Partial-mock: keep the real isVoterContactFlowType, stub the data + mutation.
+vi.mock(
+  '../campaign-plan/components/campaignStrategy/useTrackerTasks',
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('../campaign-plan/components/campaignStrategy/useTrackerTasks')
+    >()),
+    useTrackerTasks: () => mockResult(),
+    useToggleTrackerTaskComplete: () => ({
+      mutate: mockToggle,
+      isPending: false,
+    }),
+  }),
+)
 
 // The first-run "meet" card gates on whether the candidate has ever opened the
 // manager (a conversation exists). Control that here; default to none.
@@ -18,11 +30,31 @@ vi.mock('../chief-of-staff/data/use-chat-history', () => ({
   useChatHistory: () => mockHistory(),
 }))
 
+// Stub the count modal to a submit button so we can assert the completion
+// wiring (type + quantity) without driving its internals.
+vi.mock('../components/tasks/CountModal', () => ({
+  default: ({
+    flowType,
+    onSubmit,
+  }: {
+    flowType: string
+    onSubmit: (count: number) => void
+  }) => (
+    <div>
+      <span>count-modal:{flowType}</span>
+      <button type="button" onClick={() => onSubmit(42)}>
+        submit-count
+      </button>
+    </div>
+  ),
+}))
+
 const meetButton = () =>
   screen.queryByRole('button', { name: /meet your campaign manager/i })
 
 beforeEach(() => {
   mockHistory.mockReturnValue({ data: [] })
+  mockToggle.mockClear()
 })
 
 const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
@@ -115,6 +147,39 @@ describe('CampaignManagerTasks', () => {
     )
   })
 
+  it('opens an external task link in a new tab, like the tracker', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'File your paperwork',
+          week: 1,
+          cta: null,
+          link: 'https://www.sos.state.co.us/candidate',
+        }),
+      ]),
+    )
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    const cta = screen.getByRole('link', { name: 'Open' })
+    expect(cta).toHaveAttribute('href', 'https://www.sos.state.co.us/candidate')
+    expect(cta).toHaveAttribute('target', '_blank')
+    expect(cta).toHaveAttribute('rel', expect.stringContaining('noreferrer'))
+  })
+
+  it('treats an empty-string link as no link (no broken href)', () => {
+    mockResult.mockReturnValue(
+      settled([task({ title: 'Empty link', week: 1, cta: null, link: '' })]),
+    )
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    expect(screen.getByRole('link', { name: 'See details' })).toHaveAttribute(
+      'href',
+      '/dashboard/campaign-plan',
+    )
+  })
+
   it('renders each task as a rich card with a category eyebrow and summary', () => {
     mockResult.mockReturnValue(
       settled([
@@ -168,6 +233,46 @@ describe('CampaignManagerTasks', () => {
     render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
 
     expect(meetButton()).not.toBeInTheDocument()
+  })
+
+  it('marks a non-count task done directly, without a voter count', async () => {
+    const t = task({
+      title: 'Get Meta verified',
+      week: 1,
+      flowType: 'awareness',
+    })
+    mockResult.mockReturnValue(settled([t]))
+    const user = userEvent.setup()
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Mark done' }))
+
+    expect(mockToggle).toHaveBeenCalledWith({ id: t.id, completed: true })
+    expect(screen.queryByText(/count-modal/)).not.toBeInTheDocument()
+  })
+
+  it('records a voter-contact count when completing a community-event task', async () => {
+    const t = task({
+      title: 'Greet voters at the polls',
+      week: 1,
+      flowType: 'events',
+    })
+    mockResult.mockReturnValue(settled([t]))
+    const user = userEvent.setup()
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    // Completing an events task opens the count prompt instead of completing.
+    await user.click(screen.getByRole('button', { name: 'Mark done' }))
+    expect(mockToggle).not.toHaveBeenCalled()
+    expect(screen.getByText('count-modal:events')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'submit-count' }))
+    expect(mockToggle).toHaveBeenCalledWith({
+      id: t.id,
+      completed: true,
+      type: 'events',
+      quantity: 42,
+    })
   })
 
   it('shows a generating state while dynamic tasks are still being produced', () => {

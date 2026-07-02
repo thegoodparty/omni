@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 
 const TRACKER_TASKS_ROUTE = 'GET /v1/campaigns/tracker-tasks' as const
 const TRACKER_TASKS_QUERY_KEY = ['campaign-tracker-tasks', 'mine'] as const
@@ -53,6 +54,22 @@ const trackerTasksQueryOptions = () =>
     },
   })
 
+// flowTypes whose completion records a voter-contact count (each a valid
+// CampaignUpdateHistoryType the complete endpoint accepts), matching the legacy
+// task flow: community events + the outreach channels. Everything else (e.g.
+// awareness, setup) completes with no count prompt.
+const VOTER_CONTACT_FLOW_TYPES = new Set([
+  'events',
+  'doorKnocking',
+  'phoneBanking',
+  'text',
+  'robocall',
+  'socialMedia',
+])
+
+export const isVoterContactFlowType = (flowType: string | null): boolean =>
+  flowType !== null && VOTER_CONTACT_FLOW_TYPES.has(flowType)
+
 export type TrackerTasksResult = {
   tasks: CampaignTrackerTask[]
   isPending: boolean
@@ -73,16 +90,40 @@ export function useTrackerTasks(): TrackerTasksResult {
 }
 
 // Optimistic-free toggle: complete -> PUT, uncomplete -> DELETE, then refetch.
+// Completing an outreach/events task can carry a voter-contact count (type +
+// quantity); the API records it to update history + reportedVoterGoals.
 export function useToggleTrackerTaskComplete() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, completed }: { id: string; completed: boolean }) =>
+    mutationFn: ({
+      id,
+      completed,
+      type,
+      quantity,
+    }: {
+      id: string
+      completed: boolean
+      type?: string
+      quantity?: number
+    }) =>
       completed
-        ? clientRequest('PUT /v1/campaigns/tracker-tasks/complete/:id', { id })
+        ? clientRequest(
+            'PUT /v1/campaigns/tracker-tasks/complete/:id',
+            type && quantity ? { id, type, quantity } : { id },
+          )
         : clientRequest('DELETE /v1/campaigns/tracker-tasks/complete/:id', {
             id,
           }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
+    onSuccess: (_data, { completed, type, quantity }) => {
+      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+      // A recorded voter count lands on campaign.data.reportedVoterGoals (which
+      // the progress bar reads), and uncompleting reverses whatever count the
+      // task recorded. Either way the campaign changed, so refetch it. On
+      // uncomplete we can't tell here whether a count was recorded, so always
+      // refetch then.
+      if ((type && quantity) || !completed) {
+        queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
+      }
+    },
   })
 }
