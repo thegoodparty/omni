@@ -1,0 +1,173 @@
+# Find existing ordinances
+
+Given an elected official's jurisdiction (state + place), locate and verify the authoritative source of their **current municipal code**, and enumerate its top-level structure. The whole difficulty is **accuracy, not availability**: a name match alone is not enough, you must verify the state and exact place on the landing page, because a search for a small town routinely surfaces a same-named bigger city, a county, or a same-name-other-state code. You work a **most-likely-first ranked list** of code hosts and stop at the first verified hit. This is the "current law" foundation for the Ordinances feature; city-hosted code documents are captured to the workspace (Step 6a); codifier-hosted codes stay pointer-only with stable retrieval handles.
+
+## BEFORE YOU START
+1. Read this entire instruction end-to-end before executing anything.
+2. Maintain a TodoWrite list mirroring the TODO CHECKLIST.
+3. Params are in `PARAMS_JSON`. Read once: `organization_slug`, `state`, `office` (the EO's office name, e.g. "Ramsey City Council"), optional `county`, optional `user_provided_code_url`. **Derive the place name from `office`** by stripping the trailing governing-body phrase (Step 1 shows how); if what remains is empty or generic, WebSearch `office` + `state` first to identify the municipality. For `generated_for_run_id`, prefer the `RUN_ID` env var, fall back to `run_id` in `PARAMS_JSON` (must be non-empty).
+4. **Keep a `FETCHED` cache and never fetch the same URL twice** (fetch-once rule below). Biggest efficiency rule.
+5. **Parallelize independent verifications.** When a search yields several candidate hosts to check, verify them concurrently (dispatch one research subagent per candidate via the Agent tool). Do NOT verify candidates one at a time, and do NOT wrap a single sequential step in a subagent.
+6. Write the artifact to `/workspace/output/find_existing_ordinances.json`, run `python3 /workspace/validate_output.py`, then do the spot-check.
+
+## RESOLUTION ORDER (work this list, stop at the first verified hit)
+
+Ordered by how often ICP city codes actually live there (measured). Cumulative coverage in parentheses.
+
+1. **Municode** (42%), the ONLY directly queryable host: hit its client API (Step 3). If matched, done.
+2. **eCode360** (58%)
+3. **American Legal** `codelibrary.amlegal.com` (74%)
+4. **City site** consolidated code, HTML or PDF (81%)
+5. **Code Publishing** `codepublishing.com` (87%)
+6. **municipal.codes / encodePlus** (89%)
+7. **other codifier** (92%)
+8. **none**, uncodified (~5%): only individual one-off ordinance PDFs, or nothing. Degrade, but ONLY after the PDF content test in Step 5.
+
+Hosts 2-7 are not directly listable/guessable in this runtime, so you reach them with **one WebSearch** (Step 4) and triage its results against this order: prefer the highest-ranked host that verifies to the exact jurisdiction, take the first verified hit, and stop.
+
+## TODO CHECKLIST
+1. Read `PARAMS_JSON` + run id; derive `place` from `office`; set up `FETCHED`.
+2. If `user_provided_code_url` set, verify it; if it names the correct state+place, record and skip to Step 7.
+3. Tier 1: Municode client API for `state`, exact `place` match -> record `municode`, go to Step 6/7.
+4. Tier 2 (Municode miss): ONE `WebSearch`; triage candidates against the RESOLUTION ORDER; verify the top candidates in parallel; first verified hit wins.
+5. Before concluding uncodified: run the **PDF content test** on the city page's most code-like document, and check for a **state basic-code adoption**.
+6. Capture city-hosted code documents into `/workspace/code_capture/` (Step 6a; codifier hosts record saved:false with the standard note). Then optional edition date + TOC (Municode: codesToc + Jobs/latest).
+7. Assemble artifact, write, validate, spot-check.
+
+## CRITICAL RULES
+
+**FETCH EACH URL EXACTLY ONCE, THEN PARSE LOCALLY.** Re-rendering the same page is the #1 turn-waster and trips 403/429 self-throttling. Check `FETCHED` before any `http.get`/`head`; capture the FULL body once and do ALL extraction (identity AND table-of-contents AND edition) from that one body. Never re-fetch a page to pull a second field.
+
+**WHAT COUNTS AS `found`: judge the CONTENT, not the packaging.** `code_found: true` means a **consolidated codified body of law** for THIS exact jurisdiction is retrievable. It counts regardless of how it is published:
+- a codifier code (Municode / eCode360 / American Legal / Code Publishing / municipal.codes / encodePlus), even if the host is bot-walled (see walled-host rule);
+- a consolidated code on the city's own site, **including as PDF(s)**: one code PDF, chapter-by-chapter PDFs of a codified code, a document-center "Municipal Code" section, or a records portal (Laserfiche/WebLink) holding Parts/Titles of the code. New England towns often call it **"General Bylaws"**, which counts;
+- a **state basic-code adoption** (e.g. an Ohio village adopting American Legal's "Ohio Basic Code" by ordinance): the jurisdiction IS codified by reference. `code_found: true`, `host_type` "other", url = the adopting city page (or the basic-code text if directly linked), `data_quality` "partial", and say in `verified_evidence` that current law = the state basic code + local ordinance overlays.
+
+`code_found: false` (uncodified) means: only individual, one-off ordinance PDFs with **no codified structure**, a zoning-only document, or nothing. **You may only conclude this after the PDF content test (Step 5): a page of PDFs is NOT evidence of uncodified until you have downloaded the most code-like document and checked it.** A wrong `found` is worse than a wrong `uncodified`, but a lazy `uncodified` that never opened the PDF is just as wrong.
+
+**`data_quality` semantics:** `ok` = current consolidated code. `partial` = consolidated but degraded: stale (e.g. "updated through 2015" with later amendments as loose PDFs, put the date in `edition_or_date`) or codified-by-reference (basic-code adoption). `uncodified` / `not_found` / `ambiguous` = per Step 5.
+
+**SAME-NAME TRAP.** Never trust a name match alone. Small towns surface a same-named bigger city (Horton KS->Kansas City MO; Melbourne AR->Melbourne FL; Madison MS->Madison MO/County). Verify the page names the same state AND exact place; record how in `verified_evidence`. Reject same-name-other-state, county codes, single ordinances.
+
+**Walled-host rule.** On a host that returns 403 or a "security verification"/Cloudflare body, treat the WHOLE host as walled: do not retry its sibling paths. A walled codifier still counts as `found` when the snippet evidence is convergent, e.g. WebSearch shows multiple indexed SECTIONS of that city's code on the codifier (article/chapter pages naming the exact city+state). Record `confidence` "medium" and state in `verified_evidence` that the landing page was walled and identity comes from indexed-section snippets. City sites that 403 non-browser clients often still render via `http.get` (browser render); try it once before giving up.
+
+**CivicPlus / link-less renders.** BOTH `http.get` and `http.download` render HTML pages to plain text — hrefs and tags are stripped on every path, so when a town page NAMES a document ("General Town By-Laws") but shows no link, the document's URL is UNRECOVERABLE in this runtime. Do not hunt for it: the naming page itself is your verification source — record `found` from its text (title, edition, official-site identity), set `code_source.url` to that page, and record capture `saved: false` with the page URL and folder path as the retrieval handle. Two true quirks worth knowing: CivicPlus `DocumentCenter/View/...` URLs often return 404 to `http.head` but 200 to `http.download` — never disqualify one on a HEAD result alone; and a direct file URL that appears in a WebSearch SNIPPET you already have is a held URL — downloading it is fine, but NEVER spend a WebSearch to obtain such a snippet: the 2-search cap counts every search regardless of motive, and capture never justifies one.
+
+**Search + fetch budget.** At most **2 WebSearches** per run — a HARD STOP, not a guideline, and a RUN-TOTAL: searches fired by your subagents count against the same cap. Subagents are verifiers, not searchers — when you dispatch one, give it concrete URLs to check and state in its prompt that it MUST NOT call WebSearch. Delegating a search you may not run yourself is still running it. Count your searches as you go. When both are spent and nothing has verified, a third search is NEVER the correct move; stop discovering and conclude from what you already hold: run the PDF content test on the most code-like document already fetched (if any), apply the walled-host and basic-code-adoption carve-outs, then write the honest lesser artifact — `found: false` with the appropriate `data_quality`, or `found: true` at `confidence: "low"` if the evidence you already hold is convergent but body-unverified. A lower-confidence honest artifact is a SUCCESS; blowing the search budget is a failure even when it eventually finds the code. Cheapest rung first: `WebSearch` snippets, then `http.head`, then `http.get` (browser render, once per URL), and `http.download` for binary/PDF content. Never `WebFetch`. Never enumerate guessed URL or page-ID patterns in loops — a URL you probe must come from a search result, a page you already fetched, or a directory API. The container is network-quarantined: `urllib`/`requests`/`curl`/`wget`/`socket` fail in <1s; reach URLs only via the `pmf_runtime.http` calls and `WebSearch`.
+
+**PDF handling.** `http.get` refuses binary content ("cannot decode binary content-type"); PDFs are fetched with:
+```python
+from pmf_runtime import http
+d = http.download(pdf_url)          # -> {"path", "byte_size", "source_url", "content_type"}
+# read text: pdftotext if available, else python3 -c with pypdf; even the first pages' text
+# is enough to check for a codified TOC (chapters/articles/sections).
+```
+
+**Schema contract.** `schema_version` is the **integer** `1`. `toc` optional; `number` may be omitted for unnumbered front/back matter (only `title` required). `code_capture` is REQUIRED (use `{"saved": false, "files": [], "note": "..."}` when nothing was captured).
+
+## Steps
+
+### Step 1: params + place derivation + fetch-once wrapper
+```python
+import json, os, re
+P = json.loads(os.environ["PARAMS_JSON"])
+RUN_ID = os.environ.get("RUN_ID") or P.get("run_id", "")
+state = P["state"]; office = P["office"]; user_url = P.get("user_provided_code_url")
+BODY = (r"(city council|city commission|common council|borough council|village board|"
+        r"village trustee|village council|town council|town board|board of aldermen|"
+        r"board of trustees|board of selectmen|board of commissioners)")
+place = re.sub(rf"\s+{BODY}\b.*$", "", office, flags=re.I).strip()
+place = re.sub(r"\s+(city|town|village|borough|township)$", "", place, flags=re.I).strip()
+# If place is empty or generic (office was just "City Council"), WebSearch office + state
+# to identify the municipality BEFORE anything else; that search counts toward the budget.
+FETCHED = {}
+def fetch(url):
+    if url in FETCHED: return FETCHED[url]
+    from pmf_runtime import http
+    r = http.head(url)
+    if r["status"] in (403, 405): r = http.get(url)   # escalate ONCE
+    FETCHED[url] = r; return r
+```
+
+### Step 2: user link (highest trust)
+If `user_url` is set, fetch once; if it names the correct state+place, record it (`confidence` high) and skip to Step 7.
+
+### Step 3: Tier 1: Municode client API (deterministic)
+Public JSON API, no auth. Fetch each endpoint once via `fetch`; parse JSON from `r["body"]`.
+```python
+def japi(url):
+    b = fetch(url)["body"]
+    try: return json.loads(b)
+    except Exception: return json.loads(re.search(r"[\[{].*[\]}]", b, re.S).group(0))
+states  = japi("https://api.municode.com/States")
+sid     = next(s["StateID"] for s in states if s["StateAbbreviation"] == state)
+clients = japi(f"https://api.municode.com/Clients/stateId/{sid}")   # state-scoped -> cannot leak another state
+# exact match: normalize(ClientName)==normalize(place) [lowercase; strip leading "City/Town/Village/Borough of" + trailing body word]
+prods   = japi(f"https://api.municode.com/Products/clientId/{ClientID}")  # pick ProductName containing "Ordinance"
+```
+Exact match -> `host_type` "municode", `client_id`/`product_id` (strings), `url` `https://library.municode.com/<st>/<place-slug>/codes/code_of_ordinances`, `confidence` "high". Trust the API's exact `ClientName`; do NOT re-fetch the browse page to confirm. No match -> Step 4. (Do not fetch the General Code text-library page: it renders link-less here and cannot yield a URL.)
+
+### Step 4: Tier 2: one WebSearch, triage by RESOLUTION ORDER, parallel-verify
+```python
+results = WebSearch(query=f"{place} {state} code of ordinances")
+```
+- From the results, collect candidate code URLs and map each to its host (ranks 2-7). Discard obvious traps from the snippet alone (wrong state, "County", a single ordinance). New England: also consider "general bylaws" results.
+- **Verify the plausible candidates in parallel** (one research subagent per candidate): each confirms the page/snippets name the exact state + place. Apply the walled-host rule: a walled codifier with convergent indexed-section snippets = found, medium.
+- Take the **highest-ranked host that verifies**, first verified hit wins. Record `host_type` (`ecode360` | `american_legal` | `codepublishing` | `encodeplus` | `municipalcodeonline` | `city_gov` | `other`), `url`, `edition_or_date` if shown. Body-verified -> `confidence` "high"; snippet-verified (walled) -> "medium".
+
+### Step 5: the uncodified gate (PDF content test), then degrade honestly
+You may NOT conclude `uncodified` from the look of a page. Before degrading:
+1. On the city's ordinance/documents page, pick the most code-like document (titles like "Municipal Code", "Code of Ordinances", "General Bylaws", "Codified Ordinances", a DocumentCenter "Code" category, or a records-portal folder named like the code). **The test is strictly bounded: at most 2 candidate documents, ONE extraction attempt each.** `http.download`, then extract text with pypdf (`pip install pypdf -q` once; `pdftotext` is not in this container). If the extraction yields codified structure (a TOC of chapters/articles/sections spanning topics) -> `code_found: true`, `host_type` "city_gov", `data_quality` "ok" (or "partial" + `edition_or_date` if visibly stale). **If a PDF yields little or no text it is a scan: do NOT retry other parsers, OCR, or byte-level inspection; count it as unverifiable and move on.** If a page only lists numbered one-off ordinance PDFs (no code-titled document), that IS the answer: skip the download and go to 5.2. Never crawl a sitemap.
+2. Check for a **basic-code adoption**: an ordinance titled like "adopting the <State> Basic Code, <year> edition" -> codified by reference (see CRITICAL RULES) -> `found`, "partial".
+3. Only if the page truly holds one-off ordinance PDFs with no codified document and no adoption: `code_found` false, `host_type` "city_gov", `url` = that page, `data_quality` "uncodified", `confidence` "low". Nothing at all tied to this place -> `code_source` null, "not_found". Multiple unconfirmed same-name candidates -> "ambiguous". Then STOP, do not spend more searches.
+
+### Step 6a: capture the code text (city-hosted documents only; bounded)
+Capture into `/workspace/code_capture/` ONLY sources with no stable retrieval handle, i.e. **city-hosted code documents** (the PDFs/document-center files you verified in Step 5): copy the verified file(s) there with meaningful names (e.g. `code_capture/general_bylaws.pdf`). **Bounded: at most 3 files, each under 50MB; never crawl chapter pages. Capture is strictly opportunistic: only save files whose direct URL you ALREADY hold from earlier steps (a Step 5 download, or a file link visible in an already-fetched body/snippet). If you do not hold a direct file URL, record `saved: false` with a note — links stripped from renders are UNRECOVERABLE (see CivicPlus rule) and a missing capture is a normal outcome; it is never worth hunting for. Never probe DocumentCenter/page IDs.**
+- **Municode: do NOT attempt the archive download.** `library.municode.com/api/ArchivedContent` requires an `X-CSRF: 1` header this runtime cannot send (it will 401). Record `code_capture: {saved: false, files: [], note: "Municode full-code zip retrievable server-side via client_id/product_id (ArchivedContent API with X-CSRF: 1 header)"}`. The `client_id`/`product_id` in `code_source` are the stable handles.
+- **eCode360 / American Legal / other walled or SPA hosts:** no bulk capture. `code_capture: {saved: false, files: [], note: "<host> is walled/SPA; retrieve on demand via the code_source pointer"}`.
+Record every saved file in `code_capture.files[]` with its workspace-relative `path`, `byte_size`, `content_type`, `source_url`. `saved: false` with a note is the normal outcome for codifier-hosted codes, not a failure.
+
+### Step 6: (optional) edition date + top-level TOC
+From data you already have (never re-render pages):
+- **Municode TOC + edition (deterministic, all on api.municode.com which needs no headers):** `job = japi(f"https://api.municode.com/Jobs/latest/{product_id}")` gives `job["Id"]` and `job["OnlineDate"]` -> `edition_or_date`; `japi(f"https://api.municode.com/codesToc?jobId={job['Id']}&productId={product_id}")` returns the full chapter tree (`Children[].Heading`). Do NOT call `library.municode.com/api/*` (401s without an X-CSRF header this runtime cannot send).
+- For other hosts, parse top-level chapters from the body/PDF you already fetched into `toc[]` (`{title, number?}`). Omit `toc` if not cheaply available.
+
+### Step 7: assemble + validate
+```python
+import datetime
+out = {"schema_version": 1, "organization_slug": P["organization_slug"], "generated_for_run_id": RUN_ID,
+  "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds").replace("+00:00","Z"),
+  "jurisdiction": {"state": state, "place": place, "verified_evidence": "<cites state + exact place>"},
+  "code_found": True, "code_source": {"host_type":"municode","url":"https://...","edition_or_date":None,"client_id":None,"product_id":None},
+  "confidence": "high", "data_quality": "ok",
+  "code_capture": {"saved": True, "files": [{"path":"code_capture/code_html.zip","byte_size":123456,"content_type":"application/zip","source_url":"https://..."}], "note": None}}   # toc optional
+# HARD CHECK before writing: every claimed capture file must exist with the claimed size.
+for f in (out.get("code_capture") or {}).get("files", []):
+    fp = "/workspace/" + f["path"]
+    assert os.path.exists(fp), f"code_capture claims missing file: {fp}"
+    assert os.path.getsize(fp) == f["byte_size"], f"byte_size mismatch for {fp}"
+os.makedirs("/workspace/output", exist_ok=True)
+open("/workspace/output/find_existing_ordinances.json","w").write(json.dumps(out, indent=2))
+```
+Then `python3 /workspace/validate_output.py`.
+
+## Spot-check
+- `verified_evidence` cites the state AND exact place (not just the place name).
+- If `code_found: false` with `data_quality: uncodified`: did you actually `http.download` and open the most code-like PDF? A conclusion reached without the content test is invalid; go back to Step 5.
+- If a codifier was walled: did you check for convergent indexed-section snippets before degrading?
+- `data_quality: partial` is for consolidated-but-stale or codified-by-reference; say which in `verified_evidence`.
+- `confidence`: Municode API / user link / body-or-PDF-verified -> high; snippet-verified (walled) -> medium; degraded -> low.
+- Municode source carries `client_id`+`product_id`; others null.
+- Every `code_capture.files[].path` exists under `/workspace/` with the exact claimed `byte_size` (the assembly assertion enforces this; a claimed-but-missing file is a run failure, not a warning).
+
+## Failure modes
+| Symptom | Cause | Fix |
+|---|---|---|
+| Called a PDF-published code "uncodified" | Judged the packaging, skipped the content test | Step 5: download the most code-like PDF, check for codified TOC |
+| Missed a basic-code (OBC-style) adoption | Looked only for a branded code | Step 5.2: search the ordinance list for "adopting ... Basic Code" |
+| Walled codifier treated as absence | 403 ended the search | Walled-host rule: convergent indexed-section snippets = found (medium) |
+| `http.get` fails on a PDF | Binary content | `http.download(url)` -> read `d["path"]` |
+| Over-claimed `found` on a one-off ordinance list | Skipped the structure check | Codified TOC (chapters/articles/sections) required for found |
+| Runaway searching | No stop rule | Max 2 searches; after the Step 5 gate, STOP |
+| Re-rendering the same page | Re-fetching per field | Fetch once, parse all locally |
+| `validate_output` fails | `schema_version` "1" string / empty `toc.number` | integer `1`; omit `number` for front-matter |
