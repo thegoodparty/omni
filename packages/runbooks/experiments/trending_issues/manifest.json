@@ -1,8 +1,8 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "trending_issues",
-  "version": 6,
-  "model": "sonnet",
+  "version": 7,
+  "model": "haiku",
   "max_turns": 150,
   "timeout_seconds": 3000,
   "runtime": {
@@ -12,7 +12,12 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
     "additionalProperties": false,
-    "required": ["organization_slug", "state", "office", "district_descriptor"],
+    "required": [
+      "organization_slug",
+      "state",
+      "office",
+      "district_descriptor"
+    ],
     "properties": {
       "organization_slug": {
         "type": "string",
@@ -82,7 +87,11 @@
       },
       "data_quality": {
         "type": "string",
-        "enum": ["ok", "partial", "insufficient_signal"]
+        "enum": [
+          "ok",
+          "partial",
+          "insufficient_signal"
+        ]
       },
       "data_quality_reason": {
         "type": "string"
@@ -135,7 +144,11 @@
           },
           "priority": {
             "type": "string",
-            "enum": ["low", "medium", "high"]
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
           },
           "rank": {
             "type": "integer",
@@ -149,7 +162,10 @@
       "IssueDetail": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["sources", "overview"],
+        "required": [
+          "sources",
+          "overview"
+        ],
         "properties": {
           "sources": {
             "type": "array",
@@ -166,7 +182,9 @@
           "quotes": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["items"],
+            "required": [
+              "items"
+            ],
             "properties": {
               "items": {
                 "type": "array",
@@ -187,7 +205,10 @@
       "Subsection": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["summary", "source_ids"],
+        "required": [
+          "summary",
+          "source_ids"
+        ],
         "properties": {
           "summary": {
             "type": "string",
@@ -205,7 +226,10 @@
       "QuoteItem": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["text", "source_id"],
+        "required": [
+          "text",
+          "source_id"
+        ],
         "properties": {
           "text": {
             "type": "string",
@@ -250,14 +274,23 @@
             ]
           },
           "url": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "pattern": "^https?://"
           },
           "publisher": {
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "article_type": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "enum": [
               "reporting",
               "opinion",
@@ -268,7 +301,10 @@
             ]
           },
           "article_date": {
-            "type": ["string", "null"],
+            "type": [
+              "string",
+              "null"
+            ],
             "format": "date"
           },
           "retrieved_at": {
