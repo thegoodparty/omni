@@ -133,7 +133,10 @@ describe('FieldAnalysisSection', () => {
     trigger.focus()
     await screen.findByText('1/2', {}, { timeout: 2000 })
 
-    expect(screen.getByText('Good Party internal data')).toBeInTheDocument()
+    // Chip label + open-card body both show it — the card is genuinely open.
+    expect(
+      screen.getAllByText('Good Party internal data').length,
+    ).toBeGreaterThan(1)
     expect(
       screen.queryByRole('link', { name: /Good Party internal data/i }),
     ).not.toBeInTheDocument()
