@@ -51,7 +51,10 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `PageHeader` (heading "Know Your Opponent", `leading` overridden to the same
   swords icon as the `DashboardMenu` nav item) as a full-bleed top bar — this
   replaced the old feature-local `OpponentPageHeader` (deleted) and the
-  `DashboardLayout` `navHeader` prop for this route. The bar is desktop-only
+  `DashboardLayout` `navHeader` prop for this route. The bar lives INSIDE
+  `FeatureFlagGuard` on both branches: the flag gates the entire surface, so
+  flag-off must ship no trace of the feature — the heading included — in the
+  SSR HTML. The bar is desktop-only
   (`max-lg:hidden`), like the `DashboardNavHeader` it replaced: on mobile the
   title lives in `MobileMenuTrigger`'s top bar via this route's
   `MOBILE_PAGE_TITLES` entry in `DashboardLayout` — keep that entry, or mobile

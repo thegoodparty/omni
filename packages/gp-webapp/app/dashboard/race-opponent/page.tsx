@@ -75,18 +75,19 @@ export default async function Page(): Promise<React.JSX.Element> {
         showAlert={false}
         wrapperClassName="!p-0"
       >
-        {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile the
-            title lives in MobileMenuTrigger's top bar (MOBILE_PAGE_TITLES in
-            DashboardLayout), so rendering this below lg would stack two title
-            bars with duplicate h1s. */}
-        <PageHeader
-          className="max-lg:hidden"
-          heading="Know Your Opponent"
-          leading={
-            <SwordsIcon className="size-5 text-foreground" aria-hidden />
-          }
-        />
         <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
+          {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile
+              the title lives in MobileMenuTrigger's top bar (MOBILE_PAGE_TITLES
+              in DashboardLayout), so rendering this below lg would stack two
+              title bars with duplicate h1s. Inside the guard: flag-off must
+              ship NO trace of the feature, heading included. */}
+          <PageHeader
+            className="max-lg:hidden"
+            heading="Know Your Opponent"
+            leading={
+              <SwordsIcon className="size-5 text-foreground" aria-hidden />
+            }
+          />
           <div className="bg-muted px-4 py-6 lg:px-8">
             <OpponentProLockedView />
           </div>
@@ -123,13 +124,15 @@ export default async function Page(): Promise<React.JSX.Element> {
       showAlert={false}
       wrapperClassName="!p-0"
     >
-      {/* Desktop-only — see the non-Pro branch's note. */}
-      <PageHeader
-        className="max-lg:hidden"
-        heading="Know Your Opponent"
-        leading={<SwordsIcon className="size-5 text-foreground" aria-hidden />}
-      />
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
+        {/* Desktop-only, and inside the guard — see the non-Pro branch's note. */}
+        <PageHeader
+          className="max-lg:hidden"
+          heading="Know Your Opponent"
+          leading={
+            <SwordsIcon className="size-5 text-foreground" aria-hidden />
+          }
+        />
         <div className="bg-muted px-4 py-6 lg:px-8">
           <RaceOpponentList
             initialData={initialData}
