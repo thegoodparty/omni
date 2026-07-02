@@ -73,7 +73,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       <DashboardLayout
         pathname="/dashboard/race-opponent"
         showAlert={false}
-        wrapperClassName="!p-0"
+        wrapperClassName="flex flex-col !p-0"
       >
         <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
           {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile
@@ -94,7 +94,7 @@ export default async function Page(): Promise<React.JSX.Element> {
               <SwordsIcon className="size-5 text-foreground" aria-hidden />
             }
           />
-          <div className="bg-muted px-4 py-6 lg:px-8">
+          <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
             <OpponentProLockedView />
           </div>
         </FeatureFlagGuard>
@@ -128,7 +128,7 @@ export default async function Page(): Promise<React.JSX.Element> {
     <DashboardLayout
       pathname="/dashboard/race-opponent"
       showAlert={false}
-      wrapperClassName="!p-0"
+      wrapperClassName="flex flex-col !p-0"
     >
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
         {/* Desktop-only, and inside the guard — see the non-Pro branch's note. */}
@@ -145,7 +145,7 @@ export default async function Page(): Promise<React.JSX.Element> {
             <SwordsIcon className="size-5 text-foreground" aria-hidden />
           }
         />
-        <div className="bg-muted px-4 py-6 lg:px-8">
+        <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
           <RaceOpponentList
             initialData={initialData}
             raceContext={raceContext}
