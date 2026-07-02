@@ -1,6 +1,6 @@
 import type {
+  RaceOpponentFieldAnalysis,
   RaceOpponentResponse,
-  RaceOpponentSummaryKeyPosition,
   RaceOpponentSummarySourceRef,
 } from 'gpApi/api-endpoints'
 import { descriptorFor } from '../components/OpponentOverviewCard'
@@ -13,32 +13,24 @@ type Opponent = RaceOpponentResponse['opponents'][number]
 // on top of it — no finance, no salience label, no recommended actions, no
 // evidence lines). Building it as plain data keeps the mapping unit-testable
 // without rendering react-pdf, and keeps the document a thin view over it.
+//
+// v2 (ENG-10637): the retired analytical sections (whyTheyMatter,
+// whatYouNeedToKnow, whereSoft, issueContrasts, keyPositions) are gone — the
+// page no longer renders them (ENG-10635), so the brief must not either, even
+// off a legacy summary row that still carries those deprecated fields.
 export type OpponentBriefSection =
   | {
       kind: 'overview'
-      paragraphs: string[]
-      sources: RaceOpponentSummarySourceRef[]
+      text: string
+      // Normalized the same way OverviewSection does in RaceOpponentList.tsx:
+      // a schemeless apex domain (the manual-entry persisted shape) would
+      // render as a broken relative link, so the scheme is prepended here.
+      websiteUrl: string | null
+      sourceLines: string[]
     }
-  | { kind: 'whyTheyMatter'; text: string }
-  | { kind: 'whatYouNeedToKnow'; items: string[] }
-  | {
-      kind: 'whereSoft'
-      items: Array<{ text: string; sources: RaceOpponentSummarySourceRef[] }>
-    }
-  | {
-      kind: 'issueContrasts'
-      // Only the fields IssueContrastCard renders. `salience` is intentionally
-      // dropped: the on-screen card doesn't surface it, so the brief must not
-      // either.
-      contrasts: Array<{
-        issue: string
-        whyItMatters: string
-        opponentStance: string
-        opponentSources: RaceOpponentSummarySourceRef[]
-        candidateStance: string
-      }>
-    }
-  | { kind: 'keyPositions'; positions: RaceOpponentSummaryKeyPosition[] }
+  | { kind: 'whyTheyreRunning'; text: string }
+  | { kind: 'background'; text: string; sourceLines: string[] }
+  | { kind: 'issuesThatMatter'; items: string[]; sourceLines: string[] }
 
 export type OpponentBrief = {
   title: string
@@ -63,10 +55,37 @@ const snapshotFor = (opponent: Opponent): string | null => {
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
+const normalizeWebsiteUrl = (
+  websiteUrl: string | null | undefined,
+): string | null => {
+  if (!websiteUrl) return null
+  return /^https?:\/\//.test(websiteUrl) ? websiteUrl : `https://${websiteUrl}`
+}
+
+// "publisher — url" per source, deduped by url. Description is intentionally
+// omitted — print citations are compact lines, no hover carousel (ENG-10637).
+// Reads `url` directly (the rich field the contract always backfills) rather
+// than the legacy `sourceUrl` passthrough the PDF used to prefer: the wire now
+// carries rich fields, so rich-first is the correct default.
+const formatSourceLine = (source: RaceOpponentSummarySourceRef): string =>
+  `${source.publisher} — ${source.url}`
+
+const sourceLinesFor = (sources: RaceOpponentSummarySourceRef[]): string[] => {
+  const seen = new Set<string>()
+  return sources
+    .filter((source) => {
+      if (seen.has(source.url)) return false
+      seen.add(source.url)
+      return true
+    })
+    .map(formatSourceLine)
+}
+
 // Maps one opponent to its brief, applying the exact same section conditionals
 // as OpponentSummaryView so the PDF can't drift from the page. An opponent with
 // no summary yields an empty section list (callers filter first via
-// opponentsWithBrief).
+// opponentsWithBrief). A legacy summary (only the pre-v2 overview/background
+// fields) falls back to overview + background, same as the page.
 export const buildOpponentBrief = (opponent: Opponent): OpponentBrief => {
   const title = `Opponent brief: ${opponent.opponentName}`
   const snapshot = snapshotFor(opponent)
@@ -75,65 +94,71 @@ export const buildOpponentBrief = (opponent: Opponent): OpponentBrief => {
 
   const sections: OpponentBriefSection[] = []
 
-  if (summary.overview || summary.background) {
-    const seen = new Set<string>()
-    const sources = [
-      ...(summary.overview?.sources ?? []),
-      ...(summary.background?.sources ?? []),
-    ].filter((source) => {
-      // sourceUrl is the legacy passthrough (ENG-10630); url is the rich field
-      // the contract always backfills.
-      const url = source.sourceUrl ?? source.url
-      if (seen.has(url)) return false
-      seen.add(url)
-      return true
-    })
-    const paragraphs = [
-      summary.overview?.text,
-      summary.background?.text,
-    ].filter((text): text is string => Boolean(text))
-    sections.push({ kind: 'overview', paragraphs, sources })
-  }
-
-  if (summary.whyTheyMatter) {
-    sections.push({ kind: 'whyTheyMatter', text: summary.whyTheyMatter })
-  }
-
-  if (summary.whatYouNeedToKnow && summary.whatYouNeedToKnow.length > 0) {
+  if (summary.overview) {
     sections.push({
-      kind: 'whatYouNeedToKnow',
-      // whatYouNeedToKnow items became { text, sources? } (ENG-10621); this
-      // section renders text bullets, so take the text.
-      items: summary.whatYouNeedToKnow.map((item) => item.text),
+      kind: 'overview',
+      text: summary.overview.text,
+      websiteUrl: normalizeWebsiteUrl(opponent.websiteUrl),
+      sourceLines: sourceLinesFor(summary.overview.sources),
     })
   }
 
-  if (summary.whereSoft && summary.whereSoft.length > 0) {
+  if (summary.whyTheyreRunning) {
     sections.push({
-      kind: 'whereSoft',
-      items: summary.whereSoft.map((item) => ({
-        text: item.text,
-        sources: item.sources ?? [],
-      })),
+      kind: 'whyTheyreRunning',
+      text: summary.whyTheyreRunning.text,
     })
   }
 
-  if (summary.issueContrasts && summary.issueContrasts.length > 0) {
+  if (summary.background) {
     sections.push({
-      kind: 'issueContrasts',
-      contrasts: summary.issueContrasts.map((contrast) => ({
-        issue: contrast.issue,
-        whyItMatters: contrast.whyItMatters,
-        opponentStance: contrast.opponentStance,
-        opponentSources: contrast.opponentSources ?? [],
-        candidateStance: contrast.candidateStance,
-      })),
+      kind: 'background',
+      text: summary.background.text,
+      sourceLines: sourceLinesFor(summary.background.sources),
     })
   }
 
-  if (summary.keyPositions.length > 0) {
-    sections.push({ kind: 'keyPositions', positions: summary.keyPositions })
+  if (summary.issuesThatMatter) {
+    sections.push({
+      kind: 'issuesThatMatter',
+      items: summary.issuesThatMatter.items,
+      sourceLines: sourceLinesFor(summary.issuesThatMatter.sources),
+    })
   }
 
   return { title, snapshot, sections }
+}
+
+export type FieldAnalysisQuadrant = { label: string; items: string[] }
+
+export type FieldAnalysisBrief = { quadrants: FieldAnalysisQuadrant[] }
+
+const FIELD_ANALYSIS_QUADRANTS: Array<{
+  key: 'strengths' | 'weaknesses' | 'opportunities' | 'threats'
+  label: string
+}> = [
+  { key: 'strengths', label: 'Strengths' },
+  { key: 'weaknesses', label: 'Weaknesses' },
+  { key: 'opportunities', label: 'Opportunities' },
+  { key: 'threats', label: 'Threats' },
+]
+
+// The document-level SWOT block, mirroring FieldAnalysisSection's omission
+// rules exactly: an empty quadrant is dropped, and the whole block is omitted
+// when fewer than 2 of the 4 quadrants have content (a single populated
+// quadrant doesn't read as a "how you stack up against the field"
+// comparison). null for a null/undefined fieldAnalysis.
+export const buildFieldAnalysisBrief = (
+  fieldAnalysis: RaceOpponentFieldAnalysis | null | undefined,
+): FieldAnalysisBrief | null => {
+  if (!fieldAnalysis) return null
+
+  const quadrants = FIELD_ANALYSIS_QUADRANTS.map(({ key, label }) => ({
+    label,
+    items: fieldAnalysis[key],
+  })).filter((quadrant) => quadrant.items.length > 0)
+
+  if (quadrants.length < 2) return null
+
+  return { quadrants }
 }

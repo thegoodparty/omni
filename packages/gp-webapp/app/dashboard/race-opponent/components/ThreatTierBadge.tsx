@@ -2,16 +2,19 @@ import { cn } from '@styleguide'
 import type { RaceOpponentThreatTier } from '@goodparty_org/contracts'
 
 // The threat-tier label shown on the right of an opponent row: a colored dot
-// plus text. The primary threat reads in blue; the others keep foreground/muted
-// text with a colored dot (matching the Lovable design).
+// plus text. Card v2 (ENG-10635): the primary threat reads in the primary
+// token; the other two tiers read in foreground text with a colored dot
+// (matching the Lovable design). `warning-600` is the nearest registered
+// design token to Lovable's raw amber-500 — the styleguide forbids raw
+// Tailwind palette classes, and there is no `warning-500` token.
 const TIER_CONFIG: Record<
   RaceOpponentThreatTier,
   { label: string; dot: string; text: string }
 > = {
   primary_threat: {
     label: 'Main threat',
-    dot: 'bg-info-600',
-    text: 'text-info-600',
+    dot: 'bg-primary',
+    text: 'text-primary',
   },
   watch_closely: {
     label: 'Watch closely',
@@ -20,8 +23,8 @@ const TIER_CONFIG: Record<
   },
   low_priority: {
     label: 'Low priority',
-    dot: 'bg-muted-foreground',
-    text: 'text-muted-foreground',
+    dot: 'bg-muted-foreground/50',
+    text: 'text-foreground',
   },
 }
 
@@ -47,7 +50,7 @@ const ThreatTierBadge = ({
   return (
     <span
       className={cn(
-        'flex items-center gap-1.5 text-sm font-medium',
+        'flex items-center gap-1.5 text-xs font-medium',
         config.text,
         className,
       )}

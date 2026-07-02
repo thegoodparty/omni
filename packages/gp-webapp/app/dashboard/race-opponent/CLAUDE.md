@@ -49,7 +49,10 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
 
 - **Page shell (P5, ENG-10633)**: `page.tsx` renders the shared styleguide
   `PageHeader` (heading "Know Your Opponent", `leading` overridden to the same
-  swords icon as the `DashboardMenu` nav item) as a full-bleed top bar — this
+  swords icon as the `DashboardMenu` nav item) as a top bar styled to the
+  Lovable reference via `barClassName` (white `bg-background`, `h-14`,
+  `border-border`) and `contentClassName` (`mx-auto max-w-[608px]` so the
+  title aligns with the content column below; ENG-10638) — this
   replaced the old feature-local `OpponentPageHeader` (deleted) and the
   `DashboardLayout` `navHeader` prop for this route. The bar lives INSIDE
   `FeatureFlagGuard` on both branches: the flag gates the entire surface, so
@@ -74,15 +77,46 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   PDF export header).
 - **Activation/UX (P4)**: `OpponentProLockedView`, `AddOpponentsForm`,
   `OpponentResearchProgress`.
-- **Analytical view (P3)**: `OpponentOverviewCard`, `ThreatTierBadge` (a colored
-  dot + label, right-aligned on the roster row — "Main threat" reads in blue),
-  `IssueContrastCard`, `OpponentHandbook`, `OpponentSection`.
-- **PDF export (P4)**: `pdf/` — the field header's "Export brief" button downloads
-  one PDF holding a brief per opponent that has a summary. `opponentBriefContent.ts`
-  is the pure page→PDF mapping (mirrors `OpponentSummaryView`'s section conditionals;
-  reuses `descriptorFor` + `threatTierLabel` for the snapshot line). It renders
-  **only what the page shows** — no finance, no issue `salience` label, no
-  recommended actions (those are Lovable-sample extras our page never renders).
+- **Opponent card v2 (P5, ENG-10635)**: `OpponentOverviewCard` (the accordion
+  trigger row) + `ThreatTierBadge` (a colored dot + label, right-aligned on
+  the row — `bg-primary`/`text-primary` for the primary threat, `bg-warning-600`
+  or `bg-muted-foreground/50` + `text-foreground` for the other two tiers).
+  `RaceOpponentList`'s expanded detail body (`OpponentDetailBody` →
+  `OpponentSummaryView`) is a **flat stack of sections** — no nested
+  Accordion/Collapsible inside. Sections, each rendered only when its field is
+  non-null (sourced-or-silent): overview (no heading) + an optional "Campaign
+  website" link (`opponent.websiteUrl`) + its `SourceRow`; "Why they're
+  running" (interpretive, no sources); "Their background" (its own
+  `SourceRow` — `background.sources` is independent of `overview.sources`
+  and can cite different documents, so each sourced section renders its own
+  citations); "Issues that
+  matter most to them" (a bulleted list + its own `SourceRow`). A legacy
+  summary with only the pre-v2 fields renders just overview + background — the
+  retired sections (why they matter most, what you need to know, where
+  they're soft, per-opponent contrasts, key positions) never render again,
+  even off a summary row that still carries those deprecated fields.
+  `IssueContrastCard` and `OpponentSection` were deleted in this pass (their
+  only callers were the retired sections). `OpponentHandbook` (P3, unrelated
+  strict-engine surface) is untouched.
+- **PDF export (P4/P5, ENG-10637)**: `pdf/` — the field header's "Export brief"
+  button downloads one PDF holding a brief per opponent that has a summary,
+  plus a document-level SWOT block after the opponent briefs.
+  `opponentBriefContent.ts` is the pure page→PDF mapping (mirrors
+  `OpponentSummaryView`'s section conditionals 1:1 — overview |
+  whyTheyreRunning | background | issuesThatMatter, in that order; a legacy
+  summary with only the pre-v2 fields falls back to overview + background,
+  same as the page — and `FieldAnalysisSection`'s omission rules for the SWOT
+  block via `buildFieldAnalysisBrief`). Reuses `descriptorFor` +
+  `threatTierLabel` for the snapshot line. It renders **only what the page
+  shows** — no finance, no issue `salience` label, no recommended actions
+  (those are Lovable-sample extras our page never renders), and none of the
+  card-v2-retired sections (why they matter most, what you need to know,
+  where they're soft, per-opponent contrasts, key positions). Sourced sections
+  print a compact `source:` line per citation (`publisher — url`, description
+  omitted, no hover carousel) — this is the one place in the feature that
+  reads `RaceOpponentSummarySourceRef.url` **without** the `sourceUrl ??`
+  legacy fallback (rich-first now that the wire always backfills `url`); see
+  the transitional-type gotcha below.
 - **Strict engine (P1)**: `OpponentResearch`, `SelfResearch`, `SelfResearchIntakeForm`,
   `SelfResearchReport`, `ContrastList`, `ContrastCard`, `RegenerateContrasts`,
   `SourceAttribution`, `OpponentActivityFeed`. `ContrastList`/`RegenerateContrasts`
@@ -107,10 +141,15 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   single-source popover): the HoverCard + carousel design is pinned by the
   Phase 5 Lovable design, so keep the components separate — they do share the
   `hostnameFromUrl`/`sourceInitial` helpers from
-  `@shared/briefings/displaySource`. Wired into the page via
-  `FieldAnalysisSection`; `SourceAttribution` (the old `source: <url>` line)
-  keeps rendering elsewhere on this page until ENG-10635 swaps it out — don't
-  delete `SourceAttribution`, the strict-engine surfaces above still use it.
+  `@shared/briefings/displaySource`. ENG-10635 wired `SourceRow` into the
+  opponent card's detail body (overview, background, and issues-that-matter
+  citations) via the `RaceOpponentSummarySourceRef`/`SummarySource` rich
+  fields (`url` directly, no `sourceUrl ??` fallback). `SourceAttribution` (the old
+  `source: <url>` line) has no production callers left on this page — it was
+  only used by the now-deleted `IssueContrastCard` and the old merged-overview
+  renderer — but stays in the tree (its own test still exercises it)
+  following the same "kept for a future pass" precedent as
+  `ContrastList`/`RegenerateContrasts` above.
 - **Field SWOT (P5, ENG-10636)**: `FieldAnalysisSection` renders campaign-level
   SWOT ("How your campaign stacks up against the field") below the roster in
   `RaceOpponentList`, reading `data.fieldAnalysis`
@@ -180,13 +219,20 @@ mount), `Win - Opponents Manually Added` (manual submit, with `opponentCount`),
 - Components with hooks/timers/state need `'use client'`.
 - Long opponent URLs in the manual form must wrap (`min-w-0 break-words`) — see the
   StyledAlert/grid overflow gotcha in the gp-webapp root doc.
-- `RaceOpponentSummarySourceRef` in `gpApi/api-endpoints.ts` is transitional: the
-  rich fields (`url`/`title`/`publisher`) are required (the contract backfills
-  them for legacy rows), but `sourceType`/`sourceUrl` are optional — gp-api still
-  sends them today, but ENG-10635 will stop. Existing readers (`RaceOpponentList`,
-  `IssueContrastCard`, `OpponentBriefPdfDocument`, `opponentBriefContent`) fall
-  back with `source.sourceUrl ?? source.url` rather than assuming `sourceUrl` is
-  present — keep that pattern in any new reader until ENG-10635 migrates
-  everything onto the rich fields and the legacy two are dropped.
+- `RaceOpponentSummarySourceRef` in `gpApi/api-endpoints.ts` is still transitional:
+  the rich fields (`url`/`title`/`publisher`) are required (the contract
+  backfills them for legacy rows), and `sourceType`/`sourceUrl` stay optional —
+  gp-api still sends them. Neither `RaceOpponentList` (ENG-10635) nor the PDF
+  export (`opponentBriefContent`'s `formatSourceLine`, ENG-10637) reads the
+  legacy fallback anymore — both key off `.url` directly, since the contract
+  always backfills it. Don't drop `sourceType`/`sourceUrl` from the mirror type
+  or the contract until every consumer of the legacy shape (gp-api's
+  producers/back-compat readers) is confirmed off it.
 - Add new API routes to `gpApi/api-endpoints.ts`; keep client URL validation in
   lockstep with the server (https-only, name required, 1–10 cap for manual opponents).
+- `api-endpoints.ts`'s `RaceOpponentSummary`/`RaceOpponentResponse` mirrors add
+  v2 fields incrementally per ticket (`whyTheyreRunning`/`issuesThatMatter`/
+  `websiteUrl` landed with ENG-10635; `fieldAnalysis` is ENG-10636's field, not
+  added here) — when adding a mirror field, scope it to the ticket that reads
+  it rather than mirroring the whole contract shape at once, to avoid
+  cross-ticket merge conflicts on this shared file.
