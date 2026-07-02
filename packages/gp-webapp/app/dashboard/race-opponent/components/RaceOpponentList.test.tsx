@@ -578,6 +578,7 @@ describe('<RaceOpponentList>', () => {
     expect(downloadOpponentBriefsPdf).toHaveBeenCalledWith(
       withSummary.opponents,
       'Test race',
+      withSummary.fieldAnalysis,
     )
   })
 
