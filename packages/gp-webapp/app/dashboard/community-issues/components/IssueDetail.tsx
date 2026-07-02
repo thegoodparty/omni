@@ -22,6 +22,7 @@ import CommunityIssuesChatDock from './CommunityIssuesChatDock'
 
 type Props = {
   issue: CommunityIssueDetail
+  devPreview?: boolean
 }
 
 const toSource = (s: CommunityIssueSource): SourceInput => ({
@@ -71,13 +72,14 @@ const NextStepCard = ({
   </Link>
 )
 
-const IssueDetail = ({ issue }: Props): React.JSX.Element => {
+const IssueDetail = ({ issue, devPreview }: Props): React.JSX.Element => {
   const contentRef = useRef<HTMLDivElement>(null)
   const [prioritized, setPrioritized] = useState(issue.prioritized)
 
   useEffect(() => {
+    if (devPreview) return
     trackEvent(EVENTS.CommunityIssues.IssueDetailViewed, { issueId: issue.id })
-  }, [issue.id])
+  }, [issue.id, devPreview])
 
   const detail = issue.detail
   const severity = priorityVariant(issue.priority)
@@ -107,7 +109,7 @@ const IssueDetail = ({ issue }: Props): React.JSX.Element => {
               </span>
             ) : null}
           </div>
-          {!issue.archived ? (
+          {!issue.archived && !devPreview ? (
             prioritized ? (
               <Button
                 variant="outline"
@@ -260,11 +262,12 @@ const IssueDetail = ({ issue }: Props): React.JSX.Element => {
               href="/dashboard/polls/create"
               title="Run a poll on this issue"
               description="Get defensible numbers from your constituents."
-              onClick={() =>
+              onClick={() => {
+                if (devPreview) return
                 trackEvent(EVENTS.CommunityIssues.RunPollClicked, {
                   issueId: issue.id,
                 })
-              }
+              }}
             />
           </CardContent>
         </Card>

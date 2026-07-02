@@ -195,7 +195,7 @@ const DevBriefingGallery = () => {
           Next
         </Button>
         <Link
-          href={`/dev/runs/${current.slug}`}
+          href={`/dev/runs/${current.slug}?from=briefings`}
           className="rounded-full border border-border px-3 py-1 text-sm font-semibold underline"
         >
           View agent run
