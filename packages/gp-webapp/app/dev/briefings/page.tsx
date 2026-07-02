@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { Button } from '@styleguide'
 import type { MeetingBriefingFull } from 'gpApi/generated/agent-job-contracts'
 import type { Briefing, AwaitingBriefing } from '@shared/briefings/types'
@@ -179,6 +180,12 @@ const DevBriefingGallery = () => {
         >
           Next
         </Button>
+        <Link
+          href={`/dev/runs/${current.slug}`}
+          className="rounded-full border border-border px-3 py-1 text-sm font-semibold underline"
+        >
+          View agent run
+        </Link>
       </div>
       <View key={current.slug} {...current} />
     </>
