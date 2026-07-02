@@ -81,8 +81,11 @@ export const buildOpponentBrief = (opponent: Opponent): OpponentBrief => {
       ...(summary.overview?.sources ?? []),
       ...(summary.background?.sources ?? []),
     ].filter((source) => {
-      if (seen.has(source.sourceUrl)) return false
-      seen.add(source.sourceUrl)
+      // sourceUrl is the legacy passthrough (ENG-10630); url is the rich field
+      // the contract always backfills.
+      const url = source.sourceUrl ?? source.url
+      if (seen.has(url)) return false
+      seen.add(url)
       return true
     })
     const paragraphs = [

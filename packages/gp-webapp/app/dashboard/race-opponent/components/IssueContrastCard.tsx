@@ -38,14 +38,19 @@ const IssueContrastCard = ({
         </p>
         {contrast.opponentSources && contrast.opponentSources.length > 0 && (
           <div className="flex flex-col gap-1">
-            {contrast.opponentSources.map((source) => (
-              <SourceAttribution
-                key={`${source.sourceType}-${source.sourceUrl}`}
-                sourceUrl={source.sourceUrl}
-                sourceType="source"
-                label={source.sourceUrl}
-              />
-            ))}
+            {contrast.opponentSources.map((source) => {
+              // sourceUrl is the legacy passthrough (ENG-10630); url is the
+              // rich field the contract always backfills.
+              const url = source.sourceUrl ?? source.url
+              return (
+                <SourceAttribution
+                  key={url}
+                  sourceUrl={url}
+                  sourceType="source"
+                  label={url}
+                />
+              )
+            })}
           </div>
         )}
       </div>
