@@ -107,11 +107,26 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   single-source popover): the HoverCard + carousel design is pinned by the
   Phase 5 Lovable design, so keep the components separate — they do share the
   `hostnameFromUrl`/`sourceInitial` helpers from
-  `@shared/briefings/displaySource`. Not yet wired into the page: it lands
-  standalone here so ENG-10635/ENG-10636 can consume it without redoing the
-  citation UI; `SourceAttribution` (the old `source: <url>` line) keeps
-  rendering on this page until ENG-10635 swaps it out — don't delete
-  `SourceAttribution`, the strict-engine surfaces above still use it.
+  `@shared/briefings/displaySource`. Wired into the page via
+  `FieldAnalysisSection`; `SourceAttribution` (the old `source: <url>` line)
+  keeps rendering elsewhere on this page until ENG-10635 swaps it out — don't
+  delete `SourceAttribution`, the strict-engine surfaces above still use it.
+- **Field SWOT (P5, ENG-10636)**: `FieldAnalysisSection` renders campaign-level
+  SWOT ("How your campaign stacks up against the field") below the roster in
+  `RaceOpponentList`, reading `data.fieldAnalysis`
+  (`RaceOpponentFieldAnalysis` in `gpApi/api-endpoints.ts`, mirroring
+  `RaceOpponentFieldAnalysisSchema` in contracts). A pure, server-compatible
+  component (no `'use client'`) — its only stateful child is `SourceRow`.
+  Renders nothing for a null/undefined `fieldAnalysis`; omits an empty
+  quadrant; omits the whole section when fewer than 2 of the 4 quadrants
+  (strengths/weaknesses/opportunities/threats) have content. The source row
+  prepends the static non-linked `{ publisher: 'Good Party internal data' }`
+  entry (the SWOT has no real per-item source refs — it's derived from
+  `candidate_platform`) ahead of `fieldAnalysis.sources`. Quadrant tint tokens:
+  strengths `success`, weaknesses `warning`, opportunities `info`, threats
+  `destructive` — added `TrendingUpIcon`/`OctagonAlertIcon` to
+  `packages/styleguide/src/components/ui/icons.tsx` for this (weaknesses reuses
+  the existing `TriangleAlertIcon`, opportunities the existing `SparklesIcon`).
 
 ## Status polling — one poller, it is the source of truth
 

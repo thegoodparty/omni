@@ -6,6 +6,7 @@ import type {
   RaceOpponentCollectionStatus,
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
+  SummarySource,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -1023,6 +1024,20 @@ export type RaceOpponentIssueContrast = {
   candidateStance: string
 }
 
+// Campaign-level SWOT (ENG-10630/ENG-10636). Mirrors
+// RaceOpponentFieldAnalysisSchema in @goodparty_org/contracts, but
+// generatedAt arrives over JSON as an ISO string (the contract coerces it to
+// Date). Interpretive section: sources may be empty, unlike the
+// sourced-or-silent summary sections above.
+export type RaceOpponentFieldAnalysis = {
+  strengths: string[]
+  weaknesses: string[]
+  opportunities: string[]
+  threats: string[]
+  sources: SummarySource[]
+  generatedAt: string | null
+}
+
 export type RaceOpponentResponse = {
   opponents: Array<{
     opponentName: string
@@ -1043,6 +1058,9 @@ export type RaceOpponentResponse = {
   }>
   lastCollectedAt: string | null
   collectionStatus: RaceOpponentCollectionStatus
+  // v2 (ENG-10630/ENG-10636): campaign-level SWOT, null until candidate_platform
+  // data is available; nullish so older gp-api payloads still parse.
+  fieldAnalysis?: RaceOpponentFieldAnalysis | null
 }
 
 // Where a contrast is routed. Mirrors RaceOpponentContrastRoutingSchema in
