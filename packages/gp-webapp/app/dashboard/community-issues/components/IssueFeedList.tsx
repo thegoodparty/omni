@@ -22,7 +22,7 @@ type CommunityIssueListResponse = {
 type Props = {
   topCommunity: CommunityIssueListResponse
   trending: CommunityIssueListResponse
-  hideStaffControls?: boolean
+  devPreview?: boolean
 }
 
 const SectionHeader = ({
@@ -136,9 +136,10 @@ const TopSection = ({ feed }: { feed: CommunityIssueListResponse }) => {
 const IssueFeedList = ({
   topCommunity,
   trending,
-  hideStaffControls,
+  devPreview,
 }: Props): React.JSX.Element => {
   useEffect(() => {
+    if (devPreview) return
     trackEvent(EVENTS.CommunityIssues.ListViewed, {
       topCount: topCommunity.issues.length,
       trendingCount: trending.issues.length,
@@ -149,7 +150,7 @@ const IssueFeedList = ({
     <div className="flex min-h-screen flex-col">
       <IssuesNavHeader />
       <div className="mx-auto flex w-full max-w-[640px] flex-col gap-8 px-6 pb-28 pt-6">
-        {hideStaffControls ? null : <StaffDispatchButtons />}
+        {devPreview ? null : <StaffDispatchButtons />}
         <section className="flex flex-col gap-3">
           <SectionHeader
             title="Trending community issues"

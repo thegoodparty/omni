@@ -127,12 +127,15 @@ const ArtifactView = ({ entry }: { entry: GalleryEntry }) => {
         </p>
       ) : null}
       {selectedIssue ? (
-        <IssueDetail issue={toDetail(selectedIssue, artifact.list)} />
+        <IssueDetail
+          issue={toDetail(selectedIssue, artifact.list)}
+          devPreview
+        />
       ) : (
         <IssueFeedList
           topCommunity={topCommunity}
           trending={trending}
-          hideStaffControls
+          devPreview
         />
       )}
     </div>
