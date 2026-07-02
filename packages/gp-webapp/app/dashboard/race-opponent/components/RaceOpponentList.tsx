@@ -33,6 +33,7 @@ import OpponentResearchProgress from './OpponentResearchProgress'
 import AddOpponentsForm from './AddOpponentsForm'
 import type { ManualOpponentInput } from './AddOpponentsForm'
 import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
+import FieldAnalysisSection from './FieldAnalysisSection'
 
 const initialsFor = (name: string): string =>
   name
@@ -730,6 +731,9 @@ const RaceOpponentList = ({
             ))}
           </Accordion>
         </section>
+      )}
+      {data.opponents.length > 0 && (
+        <FieldAnalysisSection fieldAnalysis={data.fieldAnalysis} />
       )}
     </div>
   )

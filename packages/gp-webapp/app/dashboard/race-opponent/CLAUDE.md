@@ -132,6 +132,22 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   renderer — but stays in the tree (its own test still exercises it)
   following the same "kept for a future pass" precedent as
   `ContrastList`/`RegenerateContrasts` above.
+- **Field SWOT (P5, ENG-10636)**: `FieldAnalysisSection` renders campaign-level
+  SWOT ("How your campaign stacks up against the field") below the roster in
+  `RaceOpponentList`, reading `data.fieldAnalysis`
+  (`RaceOpponentFieldAnalysis` in `gpApi/api-endpoints.ts`, mirroring
+  `RaceOpponentFieldAnalysisSchema` in contracts). A pure, server-compatible
+  component (no `'use client'`) — its only stateful child is `SourceRow`.
+  Renders nothing for a null/undefined `fieldAnalysis`; omits an empty
+  quadrant; omits the whole section when fewer than 2 of the 4 quadrants
+  (strengths/weaknesses/opportunities/threats) have content. The source row
+  prepends the static non-linked `{ publisher: 'Good Party internal data' }`
+  entry (the SWOT has no real per-item source refs — it's derived from
+  `candidate_platform`) ahead of `fieldAnalysis.sources`. Quadrant tint tokens:
+  strengths `success`, weaknesses `warning`, opportunities `info`, threats
+  `destructive` — added `TrendingUpIcon`/`OctagonAlertIcon` to
+  `packages/styleguide/src/components/ui/icons.tsx` for this (weaknesses reuses
+  the existing `TriangleAlertIcon`, opportunities the existing `SparklesIcon`).
 
 ## Status polling — one poller, it is the source of truth
 
