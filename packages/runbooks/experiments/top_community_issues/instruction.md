@@ -37,6 +37,14 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 4. Write the final artifact to `/workspace/output/top_community_issues.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
+7. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
+   ```python
+   try:
+       from pmf_runtime import milestone; milestone("<phase>")
+   except Exception:
+       pass  # primitive absent on this runner build — never fail the run over a marker
+   ```
+   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected.
 
 ## TODO CHECKLIST
 
@@ -174,9 +182,13 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 ### Step 2 — Read current issue feed
 
+**Milestone — run `milestone("feed")`** (per BEFORE YOU START item 7) before this step's work.
+
 Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category`. You will use these IDs in Step 8 to carry issues forward. A 404 means no feed yet — treat as empty and note it in `data_quality_reason`.
 
 ### Step 3 — Resident-demand discovery (the salience signal)
+
+**Milestone — run `milestone("discovery")`** (per BEFORE YOU START item 7) before this step's work.
 
 Work down the source order. Lead with news + resident voice; the council/legislation record is out of scope.
 
@@ -196,6 +208,8 @@ Work down the source order. Lead with news + resident voice; the council/legisla
 For each candidate, capture the **named instance** (the project, rate, vote, dollar figure, location) and which residents/groups are raising it. For advocacy groups, record the group name and any party affiliation; prefer nonpartisan, and require a second independent source before a partisan group's framing counts as resident salience. Do NOT scrape social platforms.
 
 ### Step 4 — Haystaq lean annotation (Databricks)
+
+**Milestone — run `milestone("haystaq")`** (per BEFORE YOU START item 7) before this step's work.
 
 Pick community-relevant columns from the **inline Haystaq catalog** (CRITICAL
 RULES below) — do NOT query `information_schema`/`SHOW COLUMNS`; the broker
@@ -262,9 +276,13 @@ annotates issues; it never ranks them.
 
 ### Step 5 — Rank by resident attention mass
 
+**Milestone — run `milestone("rank")`** (per BEFORE YOU START item 7) before this step's work.
+
 Rank candidate issues by how much resident attention they carry: recency, breadth of coverage, and how many independent sources corroborate. Ground the top rows in a live source; label any row inferred from the Haystaq lean alone as "inferred." A single-source issue is low-confidence. Keep up to 5.
 
 ### Step 6 — Re-verify and capture sources
+
+**Milestone — run `milestone("verify")`** (per BEFORE YOU START item 7) before this step's work.
 
 ```python
 from pmf_runtime import http
@@ -278,6 +296,8 @@ Capture for each source: `name`, `source_type` (`news|advocacy_org|government_we
 
 ### Step 7 — Annotate actionability and lean
 
+**Milestone — run `milestone("annotate")`** (per BEFORE YOU START item 7) before this step's work (covers Steps 7-8, annotation + ID carry).
+
 For each issue, add the Haystaq lean chip where coverage allows ("hyperlocal, no model lean" otherwise), and a short "who can act / what they could do" note in the `summary`.
 
 ### Step 8 — Carry existing issue IDs
@@ -285,6 +305,8 @@ For each issue, add the Haystaq lean chip where coverage allows ("hyperlocal, no
 Compare each output issue against the existing feed from Step 2. When the issue clearly maps to an existing record, set `existing_issue_id`. Do not invent a mapping if it is ambiguous.
 
 ### Step 9 — Assemble artifact
+
+**Milestone — run `milestone("assemble")`** (per BEFORE YOU START item 7) before this step's work.
 
 ```python
 import json
@@ -306,6 +328,8 @@ with open("/workspace/output/top_community_issues.json", "w") as f:
 Every issue needs a substantive `detail.overview.summary`; build `history` / `research` / `quotes` where you have sourced material. Every `source_id` must resolve.
 
 ### Step 10 — Validate
+
+**Milestone — run `milestone("validate")`** (per BEFORE YOU START item 7) before this step's work.
 
 ```bash
 python3 /workspace/validate_output.py

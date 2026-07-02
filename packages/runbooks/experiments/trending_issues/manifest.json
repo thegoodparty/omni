@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "trending_issues",
-  "version": 3,
+  "version": 4,
   "model": "sonnet",
   "max_turns": 150,
   "timeout_seconds": 3000,

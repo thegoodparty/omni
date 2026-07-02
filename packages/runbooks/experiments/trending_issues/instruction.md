@@ -12,6 +12,14 @@ Given an elected official's district, produce a ranked list of up to 5 community
 4. Write the final artifact to `/workspace/output/trending_issues.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
+7. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
+   ```python
+   try:
+       from pmf_runtime import milestone; milestone("<phase>")
+   except Exception:
+       pass  # primitive absent on this runner build — never fail the run over a marker
+   ```
+   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected.
 
 ## TODO CHECKLIST
 
@@ -96,9 +104,13 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 ### Step 2 — Read current issue feed
 
+**Milestone — run `milestone("feed")`** (per BEFORE YOU START item 7) before this step's work.
+
 Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category` for each. You will use these IDs in Step 6 to carry issues forward.
 
 ### Step 3 — Broad news discovery
+
+**Milestone — run `milestone("discovery")`** (per BEFORE YOU START item 7) before this step's work.
 
 Run a handful of `WebSearch` queries:
 
@@ -111,6 +123,8 @@ Run a handful of `WebSearch` queries:
 Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 5. For any advocacy group, record its name and any political-party affiliation; **prefer nonpartisan groups**, and require a second independent source before a partisan group's framing becomes a trending issue on its own.
 
 ### Step 4 — Verify and retrieve sources per candidate
+
+**Milestone — run `milestone("verify")`** (per BEFORE YOU START item 7) before this step's work.
 
 For each candidate topic, verify at least one source URL:
 
@@ -128,6 +142,8 @@ Fast-bail rule: if a topic has no verifiable URL after 2 searches, skip it.
 
 ### Step 5 — Select and rank top issues
 
+**Milestone — run `milestone("rank")`** (per BEFORE YOU START item 7) before this step's work (covers Steps 5-6, selection + ID carry).
+
 Rank candidates by:
 
 1. Recency (articles within last 30 days score highest)
@@ -141,6 +157,8 @@ Select up to 5. If fewer than 3 pass the threshold, proceed to thin-signal handl
 Compare each output issue title/category against the existing feed from Step 2. When the issue clearly maps to an existing record, set `existing_issue_id` to that record's ID. Do not invent a mapping if it is ambiguous.
 
 ### Step 7 — Assemble artifact
+
+**Milestone — run `milestone("assemble")`** (per BEFORE YOU START item 7) before this step's work.
 
 ```python
 import json
@@ -157,6 +175,8 @@ with open("/workspace/output/trending_issues.json", "w") as f:
 ```
 
 ### Step 8 — Validate
+
+**Milestone — run `milestone("validate")`** (per BEFORE YOU START item 7) before this step's work.
 
 ```bash
 python3 /workspace/validate_output.py

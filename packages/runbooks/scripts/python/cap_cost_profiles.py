@@ -40,6 +40,26 @@ def _meeting_briefing_headline(rows: list[dict], outcomes: dict[str, str]) -> di
     }
 
 
+def _issue_list_headline(rows: list[dict], outcomes: dict[str, str]) -> dict:
+    total_cost = sum((r.get("costUsd") or 0.0) for r in rows)
+    delivered = sum(1 for v in outcomes.values() if v in ("ok", "partial"))
+    return {
+        "metric": "dollars_per_delivered_issue_list_incl_failures",
+        "total_cost_usd": round(total_cost, 2),
+        "delivered_lists": delivered,
+        "value": round(total_cost / delivered, 2) if delivered else None,
+        "note": "delivered = data_quality ok or partial; includes the cost of insufficient_signal / FAILED attempts",
+    }
+
+
+_ISSUE_LIST_PROFILE = {
+    "status_field": "data_quality",
+    "success_status": "ok",
+    "outcome_buckets": ["ok", "partial", "insufficient_signal"],
+    "headline": _issue_list_headline,
+}
+
+
 # experimentType -> profile. Add a profile per job as it gets analyzed.
 PROFILES: dict[str, dict] = {
     "meeting_briefing": {
@@ -48,6 +68,8 @@ PROFILES: dict[str, dict] = {
         "outcome_buckets": ["briefing_ready", "awaiting_agenda", "no_meeting_found"],
         "headline": _meeting_briefing_headline,
     },
+    "top_community_issues": _ISSUE_LIST_PROFILE,
+    "trending_issues": _ISSUE_LIST_PROFILE,
 }
 
 
