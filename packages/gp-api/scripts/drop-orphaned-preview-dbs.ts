@@ -35,6 +35,11 @@ const client = new Client({
   user: dbUser,
   password: dbPassword,
   ssl: { rejectUnauthorized: false },
+  // Never let the task hang: a run-task that never exits blocks its ECS
+  // cluster's teardown. Fail fast if the cluster is unreachable or a
+  // statement stalls.
+  connectionTimeoutMillis: 15_000,
+  statement_timeout: 60_000,
 })
 
 const main = async () => {
