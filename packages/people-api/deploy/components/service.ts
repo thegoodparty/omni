@@ -309,6 +309,11 @@ export const createService = ({
     },
     enableExecuteCommand: true,
     forceNewDeployment: true,
+    // Propagate the task-definition's Project tag onto the running tasks so
+    // Fargate compute is attributed in Cost Explorer (tasks don't inherit
+    // task-def tags otherwise).
+    propagateTags: 'TASK_DEFINITION',
+    enableEcsManagedTags: true,
     waitForSteadyState: true,
   })
 

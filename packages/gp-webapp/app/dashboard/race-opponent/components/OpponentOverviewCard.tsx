@@ -41,7 +41,7 @@ const OpponentOverviewCard = ({
   return (
     <div className="flex w-full min-w-0 items-center gap-3">
       <Avatar size="large" className="shrink-0">
-        <AvatarFallback className="bg-info-600 font-semibold text-info-contrast">
+        <AvatarFallback className="bg-primary font-semibold text-primary-foreground">
           {initials}
         </AvatarFallback>
       </Avatar>
