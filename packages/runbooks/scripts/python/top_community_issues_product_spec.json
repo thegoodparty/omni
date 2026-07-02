@@ -1,0 +1,223 @@
+{
+  "_comment": "Single source of truth for QA rules for the top_community_issues experiment. Edit here only — qa_validate.py reads this at runtime; no Python changes needed. Encodes the issue-evaluation rubric (verified/unverified/incorrect via claim-level supported/unsupported/contradicted) onto the QA spine. Run: `uv run python qa_validate.py path/to/top_community_issues.json --product-spec top_community_issues_product_spec.json`.",
+  "product_type": "top_community_issues",
+  "spec_version": "1.0",
+
+  "_output_format_comment": "structured_json: the artifact is one JSON object. Layer-1 jsonschema validation runs against the experiment manifest's output_schema before any claim check. This product cites provenance via claims[]/sources[], not inline prose citations, so citation_paths is empty and the inline checks self-skip.",
+  "output_format": {
+    "type": "structured_json",
+    "schema": {
+      "manifest_path": "experiments/top_community_issues/manifest.json",
+      "schema_key": "output_schema"
+    },
+    "inline_citation_pattern": "\\[(?:src[_-]?)?[A-Za-z]*\\d+\\]"
+  },
+
+  "identity_fields": ["organization_slug", "list", "generated_for_run_id"],
+
+  "_priority_filter_comment": "This product emits issues[] (not the spine's optional items[]), so no top-level items match this filter and the items-based checks (priority_count_nonzero, claim_coverage) stay inert by design. priority_required_status is intentionally unset so priority_count_nonzero never blocks. Kept for config completeness.",
+  "priority_filter": {
+    "field": "priority",
+    "value": "high"
+  },
+
+  "product_id_template": "{organization_slug}_{generated_for_run_id}",
+
+  "_claim_types_comment": "The high-weight/blockable types are the load-bearing facts from the rubric (a contradiction on any of them makes the issue Incorrect -> block). Medium types cap at Unverified (warn) when unsupported. Low types (lean annotation, synthesis) never block. A claim_type absent from source_hierarchy yields a non-blocking diagnostic surfacing the policy gap.",
+  "claim_types": {
+    "existence_or_event":          { "weight": "high",   "blockable": true  },
+    "figure_or_dollar":            { "weight": "high",   "blockable": true  },
+    "date_or_timeframe":           { "weight": "high",   "blockable": true  },
+    "vote_or_official_action":     { "weight": "high",   "blockable": true  },
+    "location_or_geography":       { "weight": "high",   "blockable": true  },
+    "attribution_resident_demand": { "weight": "medium", "blockable": false },
+    "background_context":          { "weight": "medium", "blockable": false },
+    "lean_annotation":             { "weight": "low",    "blockable": false },
+    "synthesis":                   { "weight": "low",    "blockable": false }
+  },
+
+  "_accuracy_categories_comment": "Judge verdict grouping. ok = the rubric's Supported (verbatim/consistent) plus reasonable inference and labeled-modeled leans. not_ok = the rubric's Unsupported (Not in Source / Unverifiable) and Contradicted (Incorrect). A not_ok high-weight/blockable claim blocks the release (issue was Incorrect); a not_ok lower-weight claim warns (issue capped at Unverified). 'Not in Source — Verified Elsewhere' stays not_ok: if corroboration exists it should have been flattened into sources[], where the judge would classify it Accurate/Directionally Consistent instead.",
+  "accuracy_categories": {
+    "ok":     ["Accurate", "Directionally Consistent", "Extrapolating", "Modeled"],
+    "not_ok": ["Not in Source — Verified Elsewhere", "Not in Source — Unresolved", "Incorrect", "Unverifiable"]
+  },
+
+  "_prohibited_phrases_comment": "top_community_issues summaries are descriptive, not imperative EO-advice prose, so no imperative-verb blocklist applies. Empty -> the prohibited_phrases check self-skips.",
+  "prohibited_phrases": [],
+  "prohibited_phrase_paths": [],
+
+  "_citation_paths_comment": "No inline [Label](URL) citations in this artifact — provenance lives in claims[]/sources[]. Empty -> the inline citation-coherence, social-media-citation, and inline-URL checks self-skip.",
+  "citation_paths": [],
+  "label_domain_map": {},
+
+  "_url_check_comment": "HTTP liveness for cited source URLs — the rubric's step-1 URL head-check. Advisory (dead/unreachable URLs annotate, never block), SSRF-hardened. Probes the top-level sources[].url.",
+  "url_check": {
+    "enabled": true,
+    "timeout_seconds": 5,
+    "parallel": 8,
+    "user_agent": "qa-spine-url-check/0.1",
+    "url_paths": ["sources[].url"]
+  },
+
+  "substring_check": {
+    "fuzzy_threshold": 90
+  },
+
+  "_coherence_check_comment": "Per-priority-item summary-vs-source coherence is a meeting_briefing (items[].display.summary) mechanism and is diagnostic-only regardless. This product carries no items[], so disable to keep the bundle clean; claim-level triage is the accuracy instrument here.",
+  "coherence_check": {
+    "enabled": false,
+    "tfidf_threshold": 0.30,
+    "containment_threshold": 0.50
+  },
+  "embedding_check": {
+    "enabled": false,
+    "model": "all-MiniLM-L6-v2",
+    "rescue_threshold": 0.70
+  },
+
+  "_structured_validators_comment": "Labels the numeric_review_flag for the judge (detection-only; never blocks). Maps the numeric high-weight claim_types to a literal kind so the judge is handed the figures to confirm. kind is one of: money, date, vote_count, legal_citation, percentage, name.",
+  "structured_validators": {
+    "figure_or_dollar":        { "kind": "money", "rounding_tolerance": 0 },
+    "date_or_timeframe":       { "kind": "date" },
+    "vote_or_official_action": { "kind": "vote_count" }
+  },
+
+  "_source_hierarchy_comment": "claim_type -> allowed source_types (manifest source enum: news, government_website, research, poll, advocacy_org). A high-weight fact may not rest solely on an advocacy_org or poll: figures/dates/votes must come from news/government/research. Resident-demand attribution is the inverse — it must come from resident-voice sources (op-ed news, advocacy orgs, a resident survey poll, or 311 on a government site). A violating high-weight claim blocks; others annotate. Types with no entry (background_context, lean_annotation, synthesis) get a non-blocking diagnostic.",
+  "source_hierarchy": {
+    "figure_or_dollar":            ["news", "government_website", "research"],
+    "date_or_timeframe":           ["news", "government_website", "research"],
+    "vote_or_official_action":     ["news", "government_website"],
+    "existence_or_event":          ["news", "government_website", "research", "advocacy_org", "poll"],
+    "location_or_geography":       ["news", "government_website", "research", "advocacy_org", "poll"],
+    "attribution_resident_demand": ["news", "advocacy_org", "poll", "government_website"]
+  },
+
+  "_embedding_rescue_blocklist_comment": "Numbers, dates, votes, and named-existence claims must never be rescued by semantic similarity ($1.8M vs $2M embeds ~0.99). Coherence rescue is disabled product-wide anyway; kept for correctness if it is ever re-enabled.",
+  "embedding_rescue_blocklist": [
+    "figure_or_dollar", "date_or_timeframe", "vote_or_official_action", "existence_or_event"
+  ],
+
+  "_judges_comment": "Phase 1 triage + Phase 2 adversarial escalation. Names resolve via the QA_JUDGES env var (name:provider:model,...). Same-family Anthropic (Sonnet Phase 1 + Opus Phase 2) is the in-Fargate path. This IS the Claude adjudication the rubric was built around.",
+  "judges": {
+    "phase1": "claude",
+    "phase2": "opus"
+  },
+
+  "_completeness_comment": "Annotate-only substance floors (never blocks). Measures the issues[] prose since this product has no executive_summary/items[]. min_priority_items is omitted (no items[] to count). Floors are deliberately low: a tight 1-to-3-issue lead is the correct product, not a defect.",
+  "completeness": {
+    "min_executive_summary_chars": 120,
+    "min_total_prose_words": 60,
+    "field_paths": {
+      "exec_summary_overview_paths": ["issues[].detail.overview.summary"],
+      "total_prose_paths": [
+        "issues[].summary",
+        "issues[].detail.overview.summary",
+        "issues[].detail.history.summary",
+        "issues[].detail.research.summary",
+        "issues[].detail.legislation.summary"
+      ]
+    }
+  },
+
+  "_coverage_check_comment": "Per-item claim coverage joins on items[].id, which this product does not emit. Disabled — under-decomposition is instead guarded by the spot-check in instruction.md and by high_weight_claims_have_extracts.",
+  "coverage_check": {
+    "enabled": false,
+    "min_claims_per_featured_item": 2
+  },
+
+  "_polish_comment": "Deterministic regex polish on issue-facing prose. Annotations only (never block); each finding carries a path so the agent can fix and re-run.",
+  "polish_patterns": [
+    {"name": "doubled_word",       "pattern": "\\b(\\w+)\\s+\\1\\b(?!-\\w)", "case_insensitive": true},
+    {"name": "double_space",       "pattern": "  +"},
+    {"name": "common_typo_teh",    "pattern": "\\bteh\\b",     "case_insensitive": true},
+    {"name": "common_typo_adn",    "pattern": "\\badn\\b",     "case_insensitive": true},
+    {"name": "common_typo_recieve","pattern": "\\brecieve\\b", "case_insensitive": true},
+    {"name": "trailing_whitespace","pattern": " +$"}
+  ],
+
+  "_polish_paths_comment": "Prose fields the polish_grammar check scans.",
+  "polish_paths": [
+    "issues[].summary",
+    "issues[].detail.overview.summary",
+    "issues[].detail.history.summary",
+    "issues[].detail.research.summary",
+    "issues[].detail.legislation.summary",
+    "notes",
+    "data_quality_reason"
+  ],
+
+  "deterministic_checks": [
+    {
+      "check_id": "schema_validation",
+      "description": "Layer-1 jsonschema (draft-07) validation of the whole artifact against the manifest output_schema, before any other check. Annotate during a trial window; promote to block once outputs are confirmed to conform.",
+      "route_if_fail": "annotate",
+      "severity": "high"
+    },
+    {
+      "check_id": "numeric_review_flag",
+      "description": "Detection only. Flags every high-weight claim stating a figure/date/vote so the triage judge must verify it against the cited extracts. Never blocks (route diagnostic); a wrong figure blocks only via the judge verdict.",
+      "route_if_fail": "diagnostic",
+      "severity": "info"
+    },
+    {
+      "check_id": "source_hierarchy_policy",
+      "description": "claim_type -> allowed source_types (source_hierarchy). A high-weight claim citing a disallowed source type blocks; others annotate. A claim_type with no entry yields a non-blocking diagnostic.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "identity_fields_present",
+      "description": "organization_slug, list, and generated_for_run_id must be present and non-empty at the artifact root.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "high_weight_claims_have_extracts",
+      "description": "Every high-weight or blockable claim must carry at least one non-empty source_extract.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "all_claims_have_provenance",
+      "description": "Every claim must carry at least one source_id AND at least one non-empty source_extract. Blocks if any failing claim is high-weight/blockable; annotates otherwise.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "citation_ids_resolve",
+      "description": "Every source_id referenced by a claim must resolve to a source in the top-level sources[].",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "source_snapshots_present",
+      "description": "Every source must carry non-empty retrieved_text_or_snapshot content.",
+      "route_if_fail": "annotate",
+      "severity": "medium"
+    },
+    {
+      "check_id": "extracts_appear_in_cited_source",
+      "description": "Every source_extract must appear (exact substring or fuzzy >= substring_check.fuzzy_threshold) in the retrieved_text_or_snapshot of one of the claim's cited sources. High-weight failures block; others annotate. This enforces the rubric's 'the source body actually states the attributed claim' step and catches snippet-misreads and fabricated extracts.",
+      "route_if_fail": "block",
+      "severity": "high"
+    },
+    {
+      "check_id": "completeness_floor",
+      "description": "Issue prose must meet the low substance floors in spec.completeness. Annotate only; a tight 1-to-3-issue list is correct.",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "polish_grammar",
+      "description": "Regex polish on issue-facing prose (spec.polish_paths). Never blocks; each finding carries a path to locate and fix.",
+      "route_if_fail": "annotate",
+      "severity": "low"
+    },
+    {
+      "check_id": "urls_resolve",
+      "description": "HEAD probe (GET retry on 403/405) of every sources[].url. SSRF-hardened. Non-200/unreachable/rejected URLs annotate (warn), never block — matching the rubric, which keeps a dead cited link as Unverified rather than a hard fail when the fact is corroborated elsewhere.",
+      "route_if_fail": "annotate",
+      "severity": "medium"
+    }
+  ]
+}
