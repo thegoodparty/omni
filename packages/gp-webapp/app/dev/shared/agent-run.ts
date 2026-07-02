@@ -218,7 +218,9 @@ export const parseAgentRun = (
 
   const turns: Turn[] = []
   let prevEpoch: number | null = null
-  let prevMilestone: string | null = null
+  // Seed with PREAMBLE so the first turn is only flagged as a milestone start
+  // when it genuinely opens a real milestone (not for the synthetic preamble).
+  let prevMilestone: string = PREAMBLE
 
   for (const line of lines) {
     if (line.type !== 'assistant' || !line.message) continue
@@ -234,6 +236,10 @@ export const parseAgentRun = (
     const eph5m = usage.cache_creation?.ephemeral_5m_input_tokens ?? 0
     const eph1h = usage.cache_creation?.ephemeral_1h_input_tokens ?? 0
     const cacheWrite = eph5m + eph1h || usage.cache_creation_input_tokens || 0
+    // Legacy billing format reports only the flat cache_creation_input_tokens
+    // (no 5m/1h split), so cost that remainder at the 5m ephemeral rate rather
+    // than dropping it from costUsd.
+    const legacyCacheWrite = eph5m + eph1h === 0 ? cacheWrite : 0
 
     const rates = ratesForModel(model)
     const costUsd =
@@ -241,7 +247,8 @@ export const parseAgentRun = (
       output * rates.output +
       cacheRead * rates.cacheRead +
       eph5m * rates.eph5m +
-      eph1h * rates.eph1h
+      eph1h * rates.eph1h +
+      legacyCacheWrite * rates.eph5m
 
     const toolCalls: ToolCall[] = (line.message.content ?? [])
       .filter((block) => block.type === 'tool_use')
@@ -258,7 +265,7 @@ export const parseAgentRun = (
       .trim()
 
     const milestone: string = Number.isNaN(tsEpoch)
-      ? (prevMilestone ?? PREAMBLE)
+      ? prevMilestone
       : milestoneForTs(milestones, tsEpoch)
     const deltaMs =
       prevEpoch === null || Number.isNaN(tsEpoch) ? 0 : tsEpoch - prevEpoch

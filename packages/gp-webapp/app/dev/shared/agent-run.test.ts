@@ -62,6 +62,9 @@ describe('parseAgentRun', () => {
     // sonnet: 10*3e-6 + 20*15e-6 + 100*0.3e-6 + 40*3.75e-6 = 0.00051
     expect(run.turns[0]!.costUsd).toBeCloseTo(0.00051, 10)
     expect(run.turns[0]!.milestone).toBe('preamble')
+    // The synthetic preamble is not a real milestone, so its first turn is not
+    // a milestone start.
+    expect(run.turns[0]!.isMilestoneStart).toBe(false)
     expect(run.turns[0]!.toolCalls).toEqual([
       {
         name: 'Bash',
