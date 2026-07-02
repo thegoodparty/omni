@@ -152,6 +152,7 @@
     "additionalProperties": false,
     "required": [
       "generated_at",
+      "field_analysis",
       "opponents"
     ],
     "properties": {

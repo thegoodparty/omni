@@ -6164,7 +6164,7 @@ export interface OpponentSummaryArtifact {
   /**
    * Campaign-level SWOT. Bullets are interpretive syntheses across the whole field and carry no required source; sources may be empty.
    */
-  field_analysis?: {
+  field_analysis: {
     /**
      * Short bullets, up to 5, only as many as the field genuinely supports.
      */
