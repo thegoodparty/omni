@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -102,5 +103,60 @@ describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
       ctxWith({ campaignId: 42 }),
     )
     expect(Object.keys(tools)).not.toContain('campaign_story')
+  })
+})
+
+describe('CampaignManagerHandler.resolveConversation — single ongoing thread', () => {
+  const buildHandlerWithStore = (
+    store: Partial<GeneralChatStoreService>,
+    chatStore: Partial<ChatStoreService>,
+  ): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      store as GeneralChatStoreService,
+      {} as CampaignsService,
+      chatStore as ChatStoreService,
+      CONSTITUENT_TABLES,
+    )
+
+  const params = {
+    scope: ChatScope.campaign_assistant,
+    organizationSlug: 'org-slug',
+  }
+
+  it('resumes the latest conversation without creating or re-seeding it', async () => {
+    const findLatestByScope = vi.fn().mockResolvedValue({ id: 'existing-1' })
+    const createScopedConversation = vi.fn()
+    const appendMessage = vi.fn()
+    const handler = buildHandlerWithStore(
+      { findLatestByScope, createScopedConversation },
+      { appendMessage },
+    )
+
+    const res = await handler.resolveConversation(params, 42)
+
+    expect(res).toEqual({ conversationId: 'existing-1', created: false })
+    expect(findLatestByScope).toHaveBeenCalledWith({
+      ownerUserId: 42,
+      organizationSlug: 'org-slug',
+      scope: ChatScope.campaign_assistant,
+    })
+    expect(createScopedConversation).not.toHaveBeenCalled()
+    expect(appendMessage).not.toHaveBeenCalled()
+  })
+
+  it('creates and seeds a greeting when the candidate has no conversation yet', async () => {
+    const findLatestByScope = vi.fn().mockResolvedValue(null)
+    const createScopedConversation = vi.fn().mockResolvedValue({ id: 'new-1' })
+    const appendMessage = vi.fn().mockResolvedValue(undefined)
+    const handler = buildHandlerWithStore(
+      { findLatestByScope, createScopedConversation },
+      { appendMessage },
+    )
+
+    const res = await handler.resolveConversation(params, 42)
+
+    expect(res).toEqual({ conversationId: 'new-1', created: true })
+    expect(createScopedConversation).toHaveBeenCalledOnce()
+    expect(appendMessage).toHaveBeenCalledOnce()
   })
 })

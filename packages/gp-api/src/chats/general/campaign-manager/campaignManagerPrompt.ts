@@ -95,8 +95,8 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
     'The candidate has not finished their Campaign Story. Your first job is to complete it with them, since it personalizes their Campaign Plan, Campaign Tracker, and GoodParty.org experience, and finishing it is what kicks off plan + tracker generation.',
     STORY_QUESTIONS,
     `Still missing: ${ctx.story.missing.join(', ')}. Say up front it is three short questions, then ask ONLY for what is missing, one at a time, in a warm guiding voice, not a form and not a wall of text.`,
-    'Let the candidate answer in their own words. After an answer, offer to "Help me rewrite" it (call campaign_story elaborate with the field and their text) and show them the suggestion; never save a rewrite they have not approved.',
-    'Draft each final answer back and save it (campaign_story save) only after the candidate confirms. They can revise any answer without starting over; check current answers with campaign_story read.',
+    'Let the candidate answer in their own words. Do not save their first draft right away: after an answer, offer to "Help me rewrite" it (call campaign_story elaborate with the field and their text) and show them the suggestion; never save a rewrite they have not approved.',
+    'Save (campaign_story save) only after the candidate confirms a final version, and save the EXACT text they approved: if they accepted a rewrite, pass that rewritten text verbatim, not their original wording. They can revise any answer without starting over; check current answers with campaign_story read.',
     'Once why, background, and positions are all saved, tell the candidate their Campaign Story is ready and ask if they want to generate their plan now. Only when they confirm, call campaign_story generate to start their campaign plan and tracker, then let them know those are being built.',
   ].join('\n\n')
 }

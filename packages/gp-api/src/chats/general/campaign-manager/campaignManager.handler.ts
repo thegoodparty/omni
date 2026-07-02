@@ -136,13 +136,23 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly storyIntake?: CampaignStoryIntakeService,
   ) {}
 
-  // Mirrors Chief of Staff: every open creates a fresh conversation. Resuming a
-  // prior chat goes through its id directly, so find-or-create here would
-  // collapse every new chat onto the latest one.
+  // The manager is a single ongoing conversation, not one per open: resume the
+  // candidate's most recent thread so "meet" and reopening continue where they
+  // left off, showing the seeded greeting and full transcript. Only when none
+  // exists do we create one and seed the greeting. (Anchored chats, unused by
+  // the manager today, always create fresh.)
   async resolveConversation(
     params: ResolveConversationParams,
     userId: number,
   ): Promise<ResolveConversationResult> {
+    if (!params.anchor) {
+      const existing = await this.store.findLatestByScope({
+        ownerUserId: userId,
+        organizationSlug: params.organizationSlug,
+        scope: ChatScope.campaign_assistant,
+      })
+      if (existing) return { conversationId: existing.id, created: false }
+    }
     const created = await this.store.createScopedConversation({
       ownerUserId: userId,
       organizationSlug: params.organizationSlug,
@@ -152,10 +162,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         title: params.anchor.snapshot.title,
       }),
     })
-    // Persist the scripted greeting as the first assistant message so later
-    // turns carry the manager's own opener in context (toLlmMessages folds this
-    // leading assistant turn into the system prompt). The client still plays it
-    // on open.
+    // Persist the resume-aware greeting as the first assistant message so it is
+    // shown on open (the client loads the conversation) and later turns carry
+    // the manager's own opener in context (toLlmMessages folds this leading
+    // assistant turn into the system prompt).
     await this.chatStore.appendMessage({
       conversationId: created.id,
       role: ChatMessageRole.assistant,
