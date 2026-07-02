@@ -5,9 +5,15 @@ import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { CONSTITUENT_TABLES } from '../chief-of-staff/services/constituentDataScope'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
-import { CampaignManagerHandler } from './campaignManager.handler'
+import {
+  buildStoryGreeting,
+  CampaignManagerHandler,
+} from './campaignManager.handler'
 import type { CampaignManagerContext } from './campaignManagerPrompt'
-import type { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import type {
+  CampaignStoryIntakeService,
+  StoryState,
+} from './campaignStoryIntake.service'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -103,6 +109,37 @@ describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
       ctxWith({ campaignId: 42 }),
     )
     expect(Object.keys(tools)).not.toContain('campaign_story')
+  })
+})
+
+describe('buildStoryGreeting', () => {
+  const story = (missing: StoryState['missing']): StoryState => ({
+    why: null,
+    background: null,
+    positions: [],
+    complete: false,
+    missing,
+  })
+
+  it('opens with the intro and the why question when nothing is answered', () => {
+    const greeting = buildStoryGreeting(
+      story(['why', 'background', 'positions']),
+    )
+    expect(greeting).toContain("Hi, I'm your campaign manager")
+    expect(greeting).toContain('First, your why')
+  })
+
+  it('welcomes back and asks the next missing question when resuming', () => {
+    const greeting = buildStoryGreeting(story(['background', 'positions']))
+    expect(greeting).toContain('Welcome back')
+    expect(greeting).toContain('Next, your background')
+    expect(greeting).not.toContain('your why')
+  })
+
+  it('selects the first still-missing field as the question', () => {
+    expect(buildStoryGreeting(story(['positions']))).toContain(
+      'Next, your positions',
+    )
   })
 })
 

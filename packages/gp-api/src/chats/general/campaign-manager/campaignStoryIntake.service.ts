@@ -45,6 +45,14 @@ export class CampaignStoryIntakeService {
     private readonly campaigns: CampaignsService,
   ) {}
 
+  // Serializes website-content writes per campaign within this process. Two
+  // save tool calls in one LLM turn (e.g. why + positions) run concurrently
+  // (the AI SDK executes a turn's tool calls in parallel); a plain
+  // read-modify-write of the shared content would drop one field. Both calls
+  // originate from the same request on one instance, so chaining per campaignId
+  // is enough: the second write sees the first's result.
+  private readonly aboutWrites = new Map<number, Promise<void>>()
+
   async read(campaignId: number): Promise<StoryState> {
     const [story, why, positions] = await Promise.all([
       this.stories.getForCampaign(campaignId),
@@ -79,10 +87,33 @@ export class CampaignStoryIntakeService {
     }))
   }
 
+  // Chain this write behind any in-flight write for the same campaign so
+  // concurrent saves apply in sequence instead of racing (see aboutWrites).
+  private patchAbout(
+    campaignId: number,
+    apply: (about: WebsiteAbout) => WebsiteAbout,
+  ): Promise<void> {
+    const prev = this.aboutWrites.get(campaignId) ?? Promise.resolve()
+    const next = prev
+      .catch(() => undefined)
+      .then(() => this.runPatchAbout(campaignId, apply))
+    this.aboutWrites.set(campaignId, next)
+    // Drop the map entry once this is the tail (both settle paths), so it can't
+    // grow unbounded. Its own catch keeps a failing write from surfacing as an
+    // unhandled rejection here; the caller still sees it via the returned `next`.
+    const cleanup = (): void => {
+      if (this.aboutWrites.get(campaignId) === next) {
+        this.aboutWrites.delete(campaignId)
+      }
+    }
+    next.then(cleanup, cleanup)
+    return next
+  }
+
   // The "why" (bio) and positions (issues) live on the website content, shared
   // with the story page / Pro-upgrade flow — so mirror saveAboutFields: create
   // the site on first write, then merge the single field being saved.
-  private async patchAbout(
+  private async runPatchAbout(
     campaignId: number,
     apply: (about: WebsiteAbout) => WebsiteAbout,
   ): Promise<void> {
@@ -133,6 +164,12 @@ export class CampaignStoryIntakeService {
   // which materializes the tracker's static rows now and bootstraps its dynamic
   // generation once the plan's sections persist.
   async generate(campaignId: number): Promise<{ status: string }> {
+    // Backstop the prompt: never dispatch plan generation with an unfinished
+    // story (a misfiring early generate call), which would build from empty
+    // content. 'incomplete' is handled in the manager prompt's status guidance.
+    const story = await this.read(campaignId)
+    if (!story.complete) return { status: 'incomplete' }
+
     const campaign = await this.campaigns.client.campaign.findUnique({
       where: { id: campaignId },
       include: { user: true },

@@ -92,7 +92,9 @@ const GENERATE_STATUS_GUIDANCE =
   'on the way and will appear shortly (this is the normal result, never call ' +
   "it an error or a snag); 'ready' means it is already done; 'failed' means it " +
   'could not start, so tell the candidate it did not kick off and offer to try ' +
-  'again, and do not claim it is being built.'
+  "again, and do not claim it is being built. 'incomplete' means the Campaign " +
+  'Story is not finished yet, so nothing was generated: finish the missing ' +
+  'answers with the candidate first, and do not claim it is being built.'
 
 // When the story is incomplete, finishing it is the manager's first job: it
 // personalizes the plan, tracker, and GoodParty.org experience, and its
