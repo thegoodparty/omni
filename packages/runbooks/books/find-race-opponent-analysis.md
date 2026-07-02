@@ -40,8 +40,8 @@ EOF
 - **Never invent facts.** Every sentence in `overview` / `background` / `issues_that_matter` must be supported by that opponent's own collected text. Do not infer positions from party, fill gaps from general knowledge, or carry a fact from one opponent onto another. Thin data → smaller output (`null` sections, fewer bullets), not fabrication.
 - **The candidate side comes only from `candidate_platform`** (`Website.content.about`). Never pull the candidate's stance from `CampaignStory` / `CampaignPosition` self-research — that path is deliberately avoided.
 - **`why_theyre_running` is the opponent's own motivation, told usefully to the candidate — not a you-vs-them pitch.** Write it as *their* case to voters (why they say they're running, what they're offering), synthesized across their collected text. It is interpretive (no source), but it must still trace back to something in their text — a stated priority, a campaign frame, a record they're running on. Do NOT write it as the candidate's contrast ("You're running to give voters a change from X") — that is a different field this schema does not have. Bad: "You need to beat Chuck because he's out of touch." Good: "Chuck is running to keep his seat and continue steering Gilbert's growth from a fiscally conservative footing; his case to voters is a council record on roads and public safety."
-- **`issues_that_matter` is a short bullet list, not a positions table.** 3-6 short strings capturing the issues/themes the opponent's own text emphasizes (their platform points, endorsed priorities, campaign themes), with one shared `sources` array for the section (>=1 rich source). This replaces the old per-item `key_positions` (`label`/`detail`/`sources` each) — collapse into short bullet strings, section-level sourcing.
-- **`field_analysis` is campaign-level, not per-opponent, and only exists when `candidate_platform` is present.** Derive `strengths` / `weaknesses` / `opportunities` / `threats` (3-5 short bullets each) by comparing `candidate_platform` against the whole collected opponent field: where the candidate's own issues are undercontested by the field (opportunity), where an opponent's endorsements/incumbency outmatch the candidate's visibility (threat), where the candidate's own platform is more specific or more aligned with voter concerns than the field (strength), where the candidate has no comparable record or backing (weakness). These are interpretive syntheses across the whole field — they carry no required source (an optional `sources` array exists in the schema for the rare case where a bullet rests directly on a specific cited claim, but do not force one in).
+- **`issues_that_matter` is a short bullet list, not a positions table.** 1-6 short strings (typically 3-6 for a data-rich opponent) capturing the issues/themes the opponent's own text emphasizes (their platform points, endorsed priorities, campaign themes), with one shared `sources` array for the section (>=1 rich source). This replaces the old per-item `key_positions` (`label`/`detail`/`sources` each) — collapse into short bullet strings, section-level sourcing.
+- **`field_analysis` is campaign-level, not per-opponent, and only exists when `candidate_platform` is present.** Derive `strengths` / `weaknesses` / `opportunities` / `threats` (short bullets, up to 5 per quadrant, only as many as the field genuinely supports) by comparing `candidate_platform` against the whole collected opponent field: where the candidate's own issues are undercontested by the field (opportunity), where an opponent's endorsements/incumbency outmatch the candidate's visibility (threat), where the candidate's own platform is more specific or more aligned with voter concerns than the field (strength), where the candidate has no comparable record or backing (weakness). These are interpretive syntheses across the whole field — they carry no required source (an optional `sources` array exists in the schema for the rare case where a bullet rests directly on a specific cited claim, but do not force one in).
 - **Rich sources everywhere a source is required.** Every source object is `{ url, title, publisher, description }`:
   - `url` — verbatim one of that opponent's input `source_url`s. Never invented, never cross-opponent, never `race_context` or `candidate_platform`.
   - `title` — the cited page/document's human title. Phase 0 does not capture a separate title field, so derive it from the page's own content (a stated candidate/page name, e.g. "Chuck Bongiovanni") plus source type context (e.g. "Chuck Bongiovanni - Ballotpedia", "Issues - Chuck Bongiovanni for Gilbert"). This describes the *document*, not a new fact about the opponent — it is never itself a place to introduce an unsupported claim.
@@ -154,21 +154,24 @@ For each opponent, restate their own text into two display sections, each carryi
 
 For each opponent, write `why_theyre_running` — one to two sentences synthesizing
 their own case to voters (their stated priorities, campaign frame, or record),
-told usefully to the candidate reading it. Interpretive — carries no `sources` key
+told usefully to the candidate reading it, or `null` if the opponent's text gives
+no readable case to voters at all. Interpretive — carries no `sources` key
 at all. Follow the framing rule above: their motivation, not a you-vs-them pitch.
 
 ### Step 4 — Issues that matter
 
-For each opponent, write `issues_that_matter` — a short bullet list (3-6 short
-strings) of the issues/themes their own text emphasizes, with one `sources` array
-(>=1 rich source) shared across the section. `null` when the text supports no
-groundable issue bullets (e.g. a placeholder site with no stated positions).
+For each opponent, write `issues_that_matter` — a short bullet list (1-6 short
+strings, typically 3-6 for a data-rich opponent) of the issues/themes their own
+text emphasizes, with one `sources` array (>=1 rich source) shared across the
+section. `null` when the text supports no groundable issue bullets (e.g. a
+placeholder site with no stated positions).
 
 ### Step 5 — Field analysis (campaign-level SWOT)
 
 Only when `candidate_platform` is present: read `candidate_platform` against the
 whole collected opponent field and write one `field_analysis` with `strengths` /
-`weaknesses` / `opportunities` / `threats` (3-5 short bullets each), comparing the
+`weaknesses` / `opportunities` / `threats` (short bullets, up to 5 per quadrant,
+only as many as the field genuinely supports), comparing the
 candidate's own platform to what the field collectively shows (coverage gaps,
 endorsement/incumbency asymmetries, issue overlap). Interpretive — bullets carry no
 required source; leave `sources` empty unless a bullet rests directly on a specific
@@ -351,7 +354,7 @@ candidate's platform) and the top-level `field_analysis` key is `null`.
 
 - **Field name changes are a hard break, not additive.** Unlike the prior analytical extension (which sat alongside the untouched Phase-2 descriptive fields), this redesign drops `key_positions`, `why_they_matter`, `what_you_need_to_know`, `where_soft`, `issue_contrasts`, and `salience` outright and renames the sourced-text shape to rich `{ url, title, publisher, description }` objects. ENG-10629 replaces the manifest's `output_schema` `properties` for the opponent item wholesale rather than adding to it, and the contracts schema (ENG-10630) needs a legacy-row union-normalization path for existing persisted rows (old `{sourceType, sourceUrl}` refs), not just new optional fields.
 - **The input side is unchanged.** `opponents[].sources[]`, `candidate_platform`, and `race_context` keep the same shape as today's live manifest — only the `output_schema` moves. No `input_schema` change is needed in ENG-10629.
-- **Rich source metadata is synthesized, not collected.** Phase 0 never captures a title/publisher/description alongside `source_url` — the agent derives them from the page's own text plus source type at analysis time. ENG-10629's instruction must carry this derivation rule explicitly (see "Deriving rich source metadata" above) since it's new agent behavior, not a schema-only change.
+- **Rich source metadata is synthesized, not collected.** Phase 0 never captures a title/publisher/description alongside `source_url` — the agent derives them from the page's own text plus source type at analysis time. ENG-10629's instruction must carry this derivation rule explicitly (see the "Rich sources everywhere a source is required" rule above) since it's new agent behavior, not a schema-only change.
 - **`field_analysis` is one object at the top level of the artifact, not per-opponent.** It needs its own top-level key alongside `opponents`, present only when `candidate_platform` was supplied.
 
 ## Failure modes
@@ -363,7 +366,7 @@ candidate's platform) and the top-level `field_analysis` key is `null`.
 | A `sources` URL not in the opponent's input | Invented or cross-opponent URL | Cite only that opponent's own `source_url`s, verbatim |
 | `title` / `publisher` describes something not in the text | Fabricated document metadata instead of deriving it from the page's own content | Derive `title`/`publisher`/`description` only from what the collected text and source type actually show; fall back to the bare hostname if the text names no organization |
 | `why_theyre_running` reads as the candidate's pitch against the opponent | You-vs-them framing instead of the opponent's own motivation | Rewrite as the opponent's stated case to voters, synthesized from their own text |
-| `why_theyre_running` carries a `sources` array | Treated an interpretive field like a descriptive one | Interpretive fields (`threat_tier`, `why_theyre_running`, `field_analysis` lists) carry no `sources` key |
+| `why_theyre_running` carries a `sources` array | Treated an interpretive field like a descriptive one | `why_theyre_running` carries no `sources` key at all; `field_analysis` carries one section-level `sources` array (empty ok), never per-bullet sources |
 | `field_analysis` present with no `candidate_platform` in the input | Emitted the SWOT unconditionally | Only emit `field_analysis` when `candidate_platform` is present; otherwise `null` |
 | A dropped field (`key_positions`, `where_soft`, etc.) shows up in the output | Ported logic from the pre-redesign shape without updating field names | Re-check the output against the "Proven output shape" above; none of the dropped fields belong in any entry |
 | Thin-data opponent gets a fabricated platform | Filled gaps to make output symmetrical | Thin data → `null` sections, not invention (Greg Halsey's `background`/`issues_that_matter` are `null`) |
