@@ -303,6 +303,26 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('prepends https:// to a schemeless websiteUrl so the link is not relative', () => {
+    // gp-api can return the roster hint as a bare apex domain (the
+    // manual-entry path persists `new URL(url).hostname`), which as a raw
+    // href would navigate in-app to /dashboard/race-opponent/<domain>.
+    const schemelessWebsite: RaceOpponentResponse = {
+      ...withSummary,
+      opponents: [
+        {
+          ...withSummary.opponents[0]!,
+          websiteUrl: 'janerival.example.com',
+        },
+      ],
+    }
+    render(<RaceOpponentList initialData={schemelessWebsite} />)
+
+    expect(
+      screen.getByRole('link', { name: /campaign website/i }),
+    ).toHaveAttribute('href', 'https://janerival.example.com')
+  })
+
   it('renders only overview and background for a legacy summary, without crashing', () => {
     render(<RaceOpponentList initialData={legacySummary} />)
 

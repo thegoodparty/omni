@@ -66,25 +66,35 @@ const OverviewSection = ({
 }: {
   overview: RaceOpponentSummarySection
   websiteUrl?: string | null
-}): React.JSX.Element => (
-  <section className="flex w-full min-w-0 flex-col gap-2">
-    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
-      {overview.text}
-    </p>
-    {websiteUrl && (
-      <a
-        href={websiteUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex w-fit items-center gap-1 text-sm font-semibold text-info hover:underline"
-      >
-        <ExternalLinkIcon className="size-3.5 shrink-0" aria-hidden />
-        Campaign website
-      </a>
-    )}
-    <SourceRow sources={overview.sources} />
-  </section>
-)
+}): React.JSX.Element => {
+  // websiteUrl is not always a full URL: gp-api's GET falls back to the roster
+  // hint, which the manual-entry path persists as a bare apex domain (e.g.
+  // 'janerival.com'). A schemeless href renders as a relative link and
+  // navigates in-app to a 404, so prepend a scheme when one is missing.
+  const websiteHref =
+    websiteUrl && !/^https?:\/\//.test(websiteUrl)
+      ? `https://${websiteUrl}`
+      : websiteUrl
+  return (
+    <section className="flex w-full min-w-0 flex-col gap-2">
+      <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+        {overview.text}
+      </p>
+      {websiteHref && (
+        <a
+          href={websiteHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex w-fit items-center gap-1 text-sm font-semibold text-info hover:underline"
+        >
+          <ExternalLinkIcon className="size-3.5 shrink-0" aria-hidden />
+          Campaign website
+        </a>
+      )}
+      <SourceRow sources={overview.sources} />
+    </section>
+  )
+}
 
 // A flat detail section: an uppercase blue label plus its body. Card v2
 // (ENG-10635) drops the nested accordion/collapsible structure the detail body
