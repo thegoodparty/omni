@@ -122,7 +122,7 @@ describe('FieldAnalysisSection', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders the source row with the internal entry first, and not as a link', () => {
+  it('renders the source row with the internal entry first, and not as a link', async () => {
     render(<FieldAnalysisSection fieldAnalysis={fullFieldAnalysis} />)
 
     const trigger = screen.getByRole('button', {
@@ -131,8 +131,14 @@ describe('FieldAnalysisSection', () => {
     expect(trigger).toBeInTheDocument()
 
     trigger.focus()
+    await screen.findByText('1/2', {}, { timeout: 2000 })
+
+    expect(screen.getByText('Good Party internal data')).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: /Good Party internal data/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Open source in a new tab' }),
     ).not.toBeInTheDocument()
   })
 
