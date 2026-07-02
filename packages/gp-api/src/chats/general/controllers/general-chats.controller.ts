@@ -10,9 +10,8 @@ import {
   Query,
   Req,
   Res,
-  UseGuards,
 } from '@nestjs/common'
-import { User } from '../../../generated/prisma'
+import { Organization, User } from '../../../generated/prisma'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { PinoLogger } from 'nestjs-pino'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -22,8 +21,8 @@ import type {
   CreateChatResponse,
 } from '@goodparty_org/contracts'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
-import { ReqChatOrgSlug } from '../decorators/reqChatOrgSlug.decorator'
-import { ChatOrgGuard } from '../guards/chatOrg.guard'
+import { UseOrganization } from '@/organizations/decorators/UseOrganization.decorator'
+import { ReqOrganization } from '@/organizations/decorators/ReqOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
 import { GeneralChatsService } from '../services/general-chats.service'
@@ -108,7 +107,7 @@ const waitForDrain = (
   })
 
 @Controller('chats')
-@UseGuards(ChatOrgGuard)
+@UseOrganization()
 export class GeneralChatsController {
   constructor(
     private readonly chats: GeneralChatsService,
@@ -121,7 +120,7 @@ export class GeneralChatsController {
   @ResponseSchema(CreateChatResponseSchema)
   async createChat(
     @ReqUser() user: User,
-    @ReqChatOrgSlug() organizationSlug: string,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Body(ZodValidationPipe) body: CreateChatDto,
   ): Promise<CreateChatResponse> {
     return this.chats.resolveConversation(
@@ -138,7 +137,7 @@ export class GeneralChatsController {
   @ResponseSchema(ChatHistoryResponseSchema)
   async listChats(
     @ReqUser() user: User,
-    @ReqChatOrgSlug() organizationSlug: string,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatHistoryResponse> {
     const conversations = await this.chats.listConversations({
@@ -151,7 +150,7 @@ export class GeneralChatsController {
 
   @Post(':conversationId/messages') async streamMessage(
     @ReqUser() user: User,
-    @ReqChatOrgSlug() organizationSlug: string,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
     @Body(ZodValidationPipe) body: SendChatMessageDto,
@@ -231,7 +230,7 @@ export class GeneralChatsController {
   @ResponseSchema(ChatConversationSchema)
   async getConversation(
     @ReqUser() user: User,
-    @ReqChatOrgSlug() organizationSlug: string,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<ChatConversationResponse> {
@@ -265,7 +264,7 @@ export class GeneralChatsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteConversation(
     @ReqUser() user: User,
-    @ReqChatOrgSlug() organizationSlug: string,
+    @ReqOrganization() { slug: organizationSlug }: Organization,
     @Param('conversationId') conversationId: string,
     @Query(ZodValidationPipe) query: ChatHistoryQueryDto,
   ): Promise<void> {

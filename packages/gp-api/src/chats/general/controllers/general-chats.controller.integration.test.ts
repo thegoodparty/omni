@@ -119,7 +119,7 @@ describe('GeneralChatsController (integration)', () => {
       expect(row?.organizationSlug).toBe(fixtures.slug)
     })
 
-    it('requires the elected office header', async () => {
+    it('requires the organization slug header', async () => {
       const res = await service.client.post('/v1/chats', { scope: COS_SCOPE })
       expect(res.status).toBe(HttpStatus.NOT_FOUND)
     })
