@@ -47,7 +47,7 @@ Hosts 2-7 are not directly listable/guessable in this runtime, so you reach them
 
 **`data_quality` semantics:** `ok` = current consolidated code. `partial` = consolidated but degraded: stale (e.g. "updated through 2015" with later amendments as loose PDFs, put the date in `edition_or_date`) or codified-by-reference (basic-code adoption). `uncodified` / `not_found` / `ambiguous` = per Step 5.
 
-**SAME-NAME TRAP.** Never trust a name match alone. Small towns surface a same-named bigger city (Horton KS->Kansas City MO; Melbourne AR->Melbourne FL; Madison MS->Madison MO/County). Verify the page names the same state AND exact place; record how in `verified_evidence`. Reject same-name-other-state, county codes, single ordinances.
+**SAME-NAME TRAP.** Never trust a name match alone. Small towns surface a same-named bigger city (Horton KS->Kansas City MO; Melbourne AR->Melbourne FL; Madison MS->Madison MO/County). Verify the page names the same state AND exact place; record how in `verified_evidence`. Reject same-name-other-state, county codes, single ordinances — EXCEPT when Step 1 classified the office as county-level (`kind == "county"`): then the county code IS the target and same-named city codes are the trap instead.
 
 **Walled-host rule.** On a host that returns 403 or a "security verification"/Cloudflare body, treat the WHOLE host as walled: do not retry its sibling paths. A walled codifier still counts as `found` when the snippet evidence is convergent, e.g. WebSearch shows multiple indexed SECTIONS of that city's code on the codifier (article/chapter pages naming the exact city+state). Record `confidence` "medium" and state in `verified_evidence` that the landing page was walled and identity comes from indexed-section snippets. City sites that 403 non-browser clients often still render via `http.get` (browser render); try it once before giving up.
 
@@ -73,12 +73,39 @@ import json, os, re
 P = json.loads(os.environ["PARAMS_JSON"])
 RUN_ID = os.environ.get("RUN_ID") or P.get("run_id", "")
 state = P["state"]; office = P["office"]; user_url = P.get("user_provided_code_url")
-BODY = (r"(city council|city commission|common council|borough council|village board|"
-        r"village trustee|village council|town council|town board|board of aldermen|"
-        r"board of trustees|board of selectmen|board of commissioners)")
-place = re.sub(rf"\s+{BODY}\b.*$", "", office, flags=re.I).strip()
-place = re.sub(r"\s+(city|town|village|borough|township)$", "", place, flags=re.I).strip()
-# If place is empty or generic (office was just "City Council"), WebSearch office + state
+county = P.get("county")
+
+# Production office names come in FOUR shapes. Derive (place, county, kind):
+o = re.sub(r"\s*-\s*(district|ward|seat|precinct|place|position|at[- ]large)\b.*$", "", office, flags=re.I).strip()
+kind = "municipal"
+if re.search(r"\b(house of delegates|house of representatives|state senate|state assembly|"
+             r"general assembly|state house)\b", o, re.I):
+    kind = "state"          # state-level office: municipal code does not apply. Conclude NOW:
+                            # found=false, data_quality "not_found", confidence "low", place = the state,
+                            # verified_evidence notes the office is state-level. Do not search.
+m = re.match(r"^(.*?)\s+County:\s*(.*)$", o, flags=re.I)   # "Washington County: Muskingum Township Trustee"
+if m:
+    county = county or m.group(1).strip(); o = m.group(2).strip()
+CBODY = r"(county commission(ers)?|county council|county legislature|county board of supervisors|county board)"
+m2 = re.match(rf"^(.*?)\s+{CBODY}\b", o, flags=re.I)
+if kind == "municipal" and m2:
+    kind = "county"; place = m2.group(1).strip() + " County"
+    # County office: the COUNTY's code of ordinances IS the target (Municode hosts county codes).
+    # The county-code trap-rule INVERTS here: verify it is this county's code; reject same-named CITY codes.
+elif kind == "municipal":
+    m3 = re.match(r"^(.*?\s+Township)\s+(trustee|supervisor|clerk|fiscal officer|board)\b", o, flags=re.I)
+    if m3:
+        place = m3.group(1).strip()   # townships are indexed WITH the suffix: "Bethel Township"
+    else:
+        BODY = (r"(city council|city commission(er)?|common council|borough council|village board|"
+                r"village trustee|village council|town council|town board|town commission|village commission|"
+                r"board of aldermen|board of trustees|board of selectmen|board of selectpersons|"
+                r"select board|selectboard|town chair(man)?|town supervisor|village president|"
+                r"mayor|city treasurer|city clerk|town clerk|city auditor|alderman|alderwoman|"
+                r"councilmember|council member|board of commissioners)")
+        place = re.sub(rf"\s+{BODY}\b.*$", "", o, flags=re.I).strip()
+        place = re.sub(r"\s+(city|town|village|borough)$", "", place, flags=re.I).strip()
+# If place is empty, generic, or nothing was stripped (unknown office shape), WebSearch office + state
 # to identify the municipality BEFORE anything else; that search counts toward the budget.
 FETCHED = {}
 def fetch(url):
