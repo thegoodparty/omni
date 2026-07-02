@@ -87,6 +87,24 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt.toLowerCase()).toContain('when they confirm')
   })
 
+  it('tells the manager how to read the generate status so it never misreads generating as an error', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        story: {
+          why: 'w',
+          background: 'b',
+          positions: [],
+          complete: false,
+          missing: ['positions'],
+        },
+      }),
+    )
+    // The async result: 'generating' is the success case, 'failed' means retry.
+    expect(prompt).toContain('generating')
+    expect(prompt).toContain('failed')
+    expect(prompt.toLowerCase()).toContain('never call it an error')
+  })
+
   it('does not re-run the intake once the story is complete', () => {
     const prompt = buildCampaignManagerSystemPrompt(
       ctx({

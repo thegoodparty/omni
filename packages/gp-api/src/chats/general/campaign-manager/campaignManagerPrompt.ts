@@ -82,6 +82,18 @@ const STORY_QUESTIONS = `The three Campaign Story questions, in the candidate's 
 2. background: childhood, career, community ties, the human story behind the candidate.
 3. positions: two to four concrete fights for your first term (each a short title + description).`
 
+// How to read the async campaign_story generate result, so the manager reports
+// it correctly instead of guessing. 'generating' is the normal success case (it
+// dispatched and is building in the background), not an error.
+const GENERATE_STATUS_GUIDANCE =
+  "After calling campaign_story generate, read the result's status: " +
+  "'generating' means it started successfully and the Campaign Plan and " +
+  'Tracker are being built in the background, so tell the candidate they are ' +
+  'on the way and will appear shortly (this is the normal result, never call ' +
+  "it an error or a snag); 'ready' means it is already done; 'failed' means it " +
+  'could not start, so tell the candidate it did not kick off and offer to try ' +
+  'again, and do not claim it is being built.'
+
 // When the story is incomplete, finishing it is the manager's first job: it
 // personalizes the plan, tracker, and GoodParty.org experience, and its
 // completion is what unblocks plan + tracker generation. Uses the campaign_story
@@ -89,7 +101,10 @@ const STORY_QUESTIONS = `The three Campaign Story questions, in the candidate's 
 const storyBlock = (ctx: CampaignManagerContext): string | null => {
   if (!ctx.story) return null
   if (ctx.story.complete) {
-    return 'The candidate has finished their Campaign Story. Do not re-run the intake unless they ask to change an answer, in which case save it (campaign_story save) and offer to regenerate their plan (campaign_story generate).'
+    return [
+      'The candidate has finished their Campaign Story. Do not re-run the intake unless they ask to change an answer, in which case save it (campaign_story save) and offer to regenerate their plan (campaign_story generate).',
+      GENERATE_STATUS_GUIDANCE,
+    ].join('\n\n')
   }
   return [
     'The candidate has not finished their Campaign Story. Your first job is to complete it with them, since it personalizes their Campaign Plan, Campaign Tracker, and GoodParty.org experience, and finishing it is what kicks off plan + tracker generation.',
@@ -97,7 +112,8 @@ const storyBlock = (ctx: CampaignManagerContext): string | null => {
     `Still missing: ${ctx.story.missing.join(', ')}. Say up front it is three short questions, then ask ONLY for what is missing, one at a time, in a warm guiding voice, not a form and not a wall of text.`,
     'Let the candidate answer in their own words. Do not save their first draft right away: after an answer, offer to "Help me rewrite" it (call campaign_story elaborate with the field and their text) and show them the suggestion; never save a rewrite they have not approved.',
     'Save (campaign_story save) only after the candidate confirms a final version, and save the EXACT text they approved: if they accepted a rewrite, pass that rewritten text verbatim, not their original wording. They can revise any answer without starting over; check current answers with campaign_story read.',
-    'Once why, background, and positions are all saved, tell the candidate their Campaign Story is ready and ask if they want to generate their plan now. Only when they confirm, call campaign_story generate to start their campaign plan and tracker, then let them know those are being built.',
+    'Once why, background, and positions are all saved, tell the candidate their Campaign Story is ready and ask if they want to generate their plan now. Only when they confirm, call campaign_story generate.',
+    GENERATE_STATUS_GUIDANCE,
   ].join('\n\n')
 }
 
