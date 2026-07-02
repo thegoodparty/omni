@@ -67,6 +67,7 @@ async function makeTask(
     title?: string
     description?: string
     week?: number
+    isDefaultTask?: boolean
   } = {},
 ) {
   return service.prisma.campaignTrackerTask.create({
@@ -78,6 +79,7 @@ async function makeTask(
       week: overrides.week ?? 10,
       date: overrides.date ?? new Date('2026-04-22T00:00:00.000Z'),
       completed: overrides.completed ?? false,
+      isDefaultTask: overrides.isDefaultTask ?? false,
     },
   })
 }
@@ -429,6 +431,111 @@ describe('WeeklyTasksDigestHandlerService integration', () => {
         properties.task_name_3,
       ]
       expect(taskNames).not.toContain('Completed')
+    })
+  })
+
+  describe('dynamic + deterministic outreach selection (tracker cohort)', () => {
+    it('includes the deterministic text/robocall outreach dated in the window and ranks it above the dynamic picks', async () => {
+      const campaign = await makeCampaign()
+      // Latest dynamic generation: 3 agent-picked rows.
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, {
+          title: `Dynamic ${i}`,
+          flowType: CampaignTaskType.education,
+          week: 10,
+        })
+      }
+      // Deterministic outreach (default row) dated in the window. It is what the
+      // tracker's week view shows alongside the dynamic tasks, so it belongs in
+      // the digest, and as an outreach type it ranks ahead of the dynamic picks.
+      await makeTask(campaign.id, {
+        title: 'Intro Text',
+        flowType: CampaignTaskType.text,
+        week: 10,
+        isDefaultTask: true,
+        date: new Date('2026-04-21T00:00:00.000Z'),
+      })
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      // 3 dynamic + 1 outreach all count; the outreach leads.
+      expect(properties.plan_total_tasks).toBe(4)
+      expect(properties.task_name_1).toBe('Intro Text')
+    })
+
+    it('excludes the static setup checklist (non-outreach default rows), even when their week equals the latest generation', async () => {
+      const campaign = await makeCampaign()
+      for (let i = 0; i < 3; i++) {
+        await makeTask(campaign.id, {
+          title: `Dynamic ${i}`,
+          flowType: CampaignTaskType.education,
+          week: 10,
+        })
+      }
+      // A setup-checklist default row whose calendar-offset week coincidentally
+      // equals the latest generation index. Not an outreach type, so it must be
+      // excluded: a strong check that the dynamic branch guards on
+      // is_default_task = false and the default branch only admits outreach.
+      await makeTask(campaign.id, {
+        title: 'Setup Checklist',
+        flowType: CampaignTaskType.education,
+        week: 10,
+        isDefaultTask: true,
+      })
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).toHaveBeenCalledOnce()
+      const [, , properties] = trackSpy.mock.calls[0] as [
+        number,
+        string,
+        Record<string, unknown>,
+      ]
+      expect(properties.plan_total_tasks).toBe(3)
+      const names = [
+        properties.task_name_1,
+        properties.task_name_2,
+        properties.task_name_3,
+      ]
+      expect(names).not.toContain('Setup Checklist')
+    })
+
+    it('does not send a tracker digest when a campaign has only non-outreach default rows and no dynamic generation', async () => {
+      const campaign = await makeCampaign()
+      // Setup checklist materialized eagerly, but no dynamic generation and no
+      // outreach dated in the window, so there is nothing to email yet.
+      for (let i = 0; i < 5; i++) {
+        await makeTask(campaign.id, {
+          title: `Setup ${i}`,
+          flowType: CampaignTaskType.education,
+          isDefaultTask: true,
+        })
+      }
+      const trackSpy = getTrackSpy()
+
+      const handler = service.app.get(WeeklyTasksDigestHandlerService)
+      await handler.handleWeeklyTasksDigest({
+        windowStart: WINDOW_START,
+        windowEnd: WINDOW_END,
+      })
+
+      expect(trackSpy).not.toHaveBeenCalled()
     })
   })
 

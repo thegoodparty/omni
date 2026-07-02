@@ -239,10 +239,16 @@ to fire before the Monday digest; tasks are still displayed Monday-Sunday.
 `weeklyTasksDigestHandler.service.ts` serves **both cohorts** from one trigger,
 routed per campaign:
 
-- **Tracker cohort** (`fetchTrackerDigestRows`): reads `campaign_tracker_tasks`,
-  scopes to the latest dynamic generation plus static rows, excludes GOTV tasks
-  until the election is within 30 days (matching the UI), and excludes inactive
-  / demo campaigns.
+- **Tracker cohort** (`fetchTrackerDigestRows`): reads `campaign_tracker_tasks`
+  and mirrors the tracker's week view: the **latest dynamic generation** plus the
+  **deterministic text/robocall outreach** dated in the window
+  (`(is_default_task = false AND week = latest generation) OR (is_default_task =
+  true AND flow_type IN (text, robocall))`). The static setup checklist
+  (non-outreach default rows) is excluded, since it renders in the
+  Pre-launch/Launch/GOTV-ops sections rather than the active week the digest
+  promotes. Outreach ranks ahead of the dynamic picks. Also excludes GOTV tasks
+  until the election is within 30 days (matching the UI), and excludes inactive /
+  demo campaigns.
 - **Legacy cohort** (`fetchLegacyDigestRows`): the unchanged pre-tracker digest
   over `campaign_task`, guarded by `NOT EXISTS (campaign_tracker_tasks)` so a
   migrated campaign isn't double-counted. The two cohorts are mutually

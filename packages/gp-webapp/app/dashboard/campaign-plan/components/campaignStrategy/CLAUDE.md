@@ -21,8 +21,11 @@ cards the candidate checks off. Feature overview + backend:
 
 - **Render only the latest generation.** The backend appends each weekly run as
   a new `week`; `buildTrackerStrategy` filters dynamic rows to `max(week)` (plus
-  the non-generational static rows). This MUST match the digest's scoping in
-  gp-api, or the page and the email disagree.
+  the non-generational static rows). The Active week navigator (`buildActiveWeeks`)
+  shows, per week, that week's dynamic-latest-gen tasks plus the deterministic
+  `isDefaultTask` outreach dated in it. The gp-api weekly digest mirrors that
+  active-week set (dynamic + text/robocall outreach, not the setup checklist), so
+  keep the two in sync or the page and the email disagree.
 - **Phase status has two axes.** `done` = every task in the phase completed;
   "happening now" (active) is date-driven (the first non-empty phase still in
   play). Empty intermediate phases are skipped so they can't strand a later
