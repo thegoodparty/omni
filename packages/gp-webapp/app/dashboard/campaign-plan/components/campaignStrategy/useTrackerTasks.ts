@@ -114,12 +114,14 @@ export function useToggleTrackerTaskComplete() {
         : clientRequest('DELETE /v1/campaigns/tracker-tasks/complete/:id', {
             id,
           }),
-    onSuccess: (_data, { type, quantity }) => {
+    onSuccess: (_data, { completed, type, quantity }) => {
       queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
-      // A recorded voter count lands on campaign.data.reportedVoterGoals, which
-      // the progress bar reads — refetch the campaign so it updates without a
-      // manual page refresh.
-      if (type && quantity) {
+      // A recorded voter count lands on campaign.data.reportedVoterGoals (which
+      // the progress bar reads), and uncompleting reverses whatever count the
+      // task recorded. Either way the campaign changed, so refetch it. On
+      // uncomplete we can't tell here whether a count was recorded, so always
+      // refetch then.
+      if ((type && quantity) || !completed) {
         queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
       }
     },
