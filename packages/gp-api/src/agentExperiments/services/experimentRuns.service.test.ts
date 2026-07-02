@@ -464,7 +464,7 @@ describe('ExperimentRunsService', () => {
     )
 
     it(
-      'terminalizes the old row as FAILED (superseded) after a ' +
+      'terminalizes the old row as SUPERSEDED after a ' +
         'successful resume dispatch',
       async () => {
         sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-1' })
@@ -478,7 +478,7 @@ describe('ExperimentRunsService', () => {
             status: ExperimentRunStatus.AWAITING_RESUME,
           },
           data: {
-            status: ExperimentRunStatus.FAILED,
+            status: ExperimentRunStatus.SUPERSEDED,
             error: 'Superseded by resumed run',
           },
         })

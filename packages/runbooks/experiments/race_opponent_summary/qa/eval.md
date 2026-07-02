@@ -19,16 +19,15 @@ the checks below, and write your verdict fragments to the result file.
 ## Eligibility gate — checked FIRST
 
 The deterministic stage (`qa/main.py`) already rejects any artifact that fails the
-output schema before you run, and that schema makes the analytical fields required,
-so a schema-valid artifact always carries them. The only disqualifier left for the
-judge is a structurally empty field:
+output schema before you run. The only disqualifier left for the judge is a
+structurally empty field:
 
 - If `opponents` is empty or not a list → there is nothing to grade. Emit ONLY the
   `gate_eligibility` fragment with `passed: false` and a short `detail` naming why,
   do NOT emit any check fragments, and stop.
 - Otherwise → emit `gate_eligibility` with `passed: true` and grade the checks. (A
-  thin artifact whose analytical arrays are all empty still grades — the
-  `actionability` and `issue_contrast_usefulness` checks below catch hollow content;
+  thin artifact whose descriptive sections are all null still grades — the
+  `actionability` and `field_analysis_usefulness` checks below catch hollow content;
   that is a quality fail, not an eligibility skip.)
 
 ## The checks (Pass/Fail)
@@ -43,16 +42,20 @@ Fail carries a single-line `detail` (≤ 300 chars): `defect | locator | evidenc
    deterministic `primary_threat_count == 1` gate unconditionally, so the two layers
    never disagree — including a single-opponent race, where the sole opponent must be
    the `primary_threat`.)
-2. **`actionability`** — `what_you_need_to_know` and `where_soft` read as concrete,
-   usable openings/takeaways rather than vague filler. Fail on platitudes.
-3. **`issue_contrast_usefulness`** — contrasts pair a real opponent stance against the
-   candidate's own stance on issues that matter, with a sensible salience read. N/A
-   (OMIT this fragment) if no opponent has `issue_contrasts` (e.g. no candidate
-   platform was provided). Fail if contrasts are contrived or missing where the data
-   supports them.
+2. **`actionability`** — `overview`, `background`, `why_theyre_running`, and
+   `issues_that_matter` read as concrete, specific content rather than vague filler —
+   a candidate could act on what's written. Fail on platitudes or content so generic
+   it could describe any opponent.
+3. **`field_analysis_usefulness`** — when `field_analysis` is present, its
+   `strengths` / `weaknesses` / `opportunities` / `threats` bullets read as real
+   comparisons between the candidate's own platform and the collected opponent
+   field (not generic campaign advice), and pull from what the artifact's own
+   opponent entries actually show. N/A (OMIT this fragment) if `field_analysis` is
+   `null` (no candidate platform was provided). Fail if bullets are contrived,
+   generic, or don't trace to anything in the opponents' data.
 4. **`fair_line_tone`** — neutral, factual language: opponent stances stated as the
-   source states them, contrasts framed as differences, no spin/praise/attack, no em
-   dashes. Fail on attack or spin.
+   source states them, `why_theyre_running` and `field_analysis` framed as factual
+   synthesis, no spin/praise/attack, no em dashes. Fail on attack or spin.
 
 ## Output — write a contract-C fragment array to the result file
 

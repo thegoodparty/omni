@@ -35,7 +35,7 @@ import os
 import re
 import subprocess
 import sys
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,11 @@ INSTRUMENTATION_PATHS = [
     ":(exclude,glob)packages/**/__tests__/**",
     ":(exclude,glob)packages/**/*.csv",
 ]
+
+# Frontend event-name registry: the EVENTS const maps key-paths (EVENTS.X.Y, used at call
+# sites) to event-name literals (used in the catalog). Parsed at the deploy ref to resolve a
+# name to the key-path we count call sites for.
+ANALYTICS_HELPER_PATH = "packages/gp-webapp/helpers/analyticsHelper.ts"
 
 # Events came online in Amplitude ~2025-05; the EVENTS map + segment wiring landed
 # ~2025-02. Bounding the walk here skips the large pre-2024 scaffold-era diffs while
@@ -146,6 +151,113 @@ def slugify_event(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", stripped).strip("_")
 
 
+_MAP_COMMENT_RE = re.compile(r"//[^\n]*|/\*.*?\*/", re.DOTALL)
+# A key (ident or quoted) immediately followed by ':'; an opening/closing brace; or a
+# standalone quoted string value. Ordered so a quoted key matches as 'key', not 'str'.
+_MAP_TOKEN_RE = re.compile(
+    r"""(?P<key>(?:[A-Za-z_$][\w$]*|'[^']*'|"[^"]*"))\s*:"""
+    r"""|(?P<open>\{)"""
+    r"""|(?P<close>\})"""
+    r"""|(?P<str>'[^']*'|"[^"]*")""",
+)
+
+
+def _slice_braced(text: str, open_idx: int) -> str:
+    """Return the text strictly inside the braces, given the index of the opening ``{``.
+
+    Counts brace depth while skipping over quoted strings so a brace inside a string value
+    cannot end the slice early.
+    """
+    depth = 0
+    i = open_idx
+    n = len(text)
+    start = open_idx + 1
+    while i < n:
+        ch = text[i]
+        if ch in "'\"":
+            i += 1
+            while i < n and text[i] != ch:
+                i += 1
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i]
+        i += 1
+    return text[start:]
+
+
+def parse_events_map(ts_text: str, root: str = "EVENTS") -> dict[str, str]:
+    """Flatten the ``EVENTS`` const into ``{event_name: "EVENTS.key.subkey"}``.
+
+    Walks the brace-delimited object with a key stack: a ``key:`` followed by ``{`` descends
+    a level; a ``key:`` followed by a quoted string emits one leaf (name -> dotted path).
+    Comments are stripped first. Returns ``{}`` when the const is absent. Resolution is from
+    the file's current state at the deploy ref, which is sufficient: the only case we target
+    is a surviving constant whose call site was deleted, so the key-path still exists here.
+    """
+    m = re.search(rf"\b{re.escape(root)}\s*=\s*\{{", ts_text)
+    if not m:
+        return {}
+    body = _slice_braced(ts_text, m.end() - 1)
+    src = _MAP_COMMENT_RE.sub("", body)
+    out: dict[str, str] = {}
+    stack: list[str] = []
+    pending: str | None = None
+    for tok in _MAP_TOKEN_RE.finditer(src):
+        kind = tok.lastgroup
+        if kind == "key":
+            pending = tok.group("key").strip("'\"")
+        elif kind == "open":
+            stack.append(pending or "")
+            pending = None
+        elif kind == "close":
+            if stack:
+                stack.pop()
+            pending = None
+        elif kind == "str":
+            if pending is not None:
+                out[tok.group("str").strip("'\"")] = ".".join([root, *stack, pending])
+                pending = None
+    return out
+
+
+def count_call_sites(grep_text: str, key_paths: Sequence[str]) -> dict[str, int]:
+    """Count occurrences of each ``EVENTS.X.Y`` key-path in a grep dump.
+
+    A match must not be part of a longer identifier or a deeper property access: the
+    negative lookbehind rejects a key-path embedded in a longer path, and the lookahead
+    ``(?![\\w$.])`` rejects both a longer name (``ViewedTwice``) and a deeper access
+    (``.foo``) — the leaf key-path is always passed as a call argument, never dotted further.
+    """
+    out: dict[str, int] = {}
+    for path in key_paths:
+        pat = re.compile(r"(?<![\w$.])" + re.escape(path) + r"(?![\w$.])")
+        out[path] = len(pat.findall(grep_text))
+    return out
+
+
+def compute_call_site_fields(
+    events_map: Mapping[str, str],
+    grep_text: str,
+    retired_lookup: Callable[[str], str | None],
+) -> dict[str, dict]:
+    """Per-event call-site fields: count at the ref, plus a retirement date for dead ones.
+
+    ``retired_lookup`` is invoked ONLY for key-paths with zero call sites (the small subset
+    worth a targeted ``git log -S`` to attribute when the last call site was removed). Live
+    events get a null retired date with no git work.
+    """
+    counts = count_call_sites(grep_text, list(events_map.values()))
+    out: dict[str, dict] = {}
+    for name, path in events_map.items():
+        count = counts.get(path, 0)
+        retired = retired_lookup(path) if count == 0 else None
+        out[name] = {"call_site_count": count, "call_site_retired_date": retired}
+    return out
+
+
 # --------------------------------------------------------------------------- #
 # Event-literal extraction -- anchored on the known event universe
 # --------------------------------------------------------------------------- #
@@ -210,25 +322,27 @@ def find_events(text: str, pattern: re.Pattern[str]) -> set[str]:
 # --------------------------------------------------------------------------- #
 
 # Header line emitted by: git log -p --date=short
-#   --format='%x00%H%x1f%h%x1f%ad%x1f%at%x1f%s'
+#   --format='%x00%H%x1f%h%x1f%ad%x1f%at%x1f%ae%x1f%s'
 # A NUL marks the start of each commit; the remaining fields are 0x1f-separated.
 # %ad (--date=short) is the human-readable date we store; %at (commit epoch) is the
 # precise ordering key, so same-day commits break ties by true time, not stream order.
+# %ae is the author email, stored as instrumented_author_email / retired_author_email.
 _HEADER_PREFIX = "\x00"
 _FIELD_SEP = "\x1f"
-_GIT_LOG_FORMAT = "--format=%x00%H%x1f%h%x1f%ad%x1f%at%x1f%s"
+_GIT_LOG_FORMAT = "--format=%x00%H%x1f%h%x1f%ad%x1f%at%x1f%ae%x1f%s"
 
 Commit = dict[str, str | None]
 
 
 def _commit_from_header(line: str) -> Commit:
     """Parse a NUL-prefixed header line into a commit dict (pr derived from subject)."""
-    full, short, cdate, ts, subject = line[len(_HEADER_PREFIX) :].split(_FIELD_SEP, 4)
+    full, short, cdate, ts, email, subject = line[len(_HEADER_PREFIX) :].split(_FIELD_SEP, 5)
     return {
         "commit": full,
         "short": short,
         "date": cdate,
         "ts": ts,
+        "email": email,
         "subject": subject,
         "pr": parse_pr_number(subject),
     }
@@ -308,10 +422,14 @@ PROVENANCE_COLUMNS = [
     "instrumented_commit",
     "instrumented_pr",
     "instrumented_date",
+    "instrumented_author_email",
     "retired_commit",
     "retired_pr",
     "retired_date",
+    "retired_author_email",
     "last_code_change_date",
+    "call_site_count",
+    "call_site_retired_date",
     "updated_at",
 ]
 
@@ -341,27 +459,32 @@ def build_provenance_row(
         "instrumented_commit": instrumented["commit"] if instrumented else None,
         "instrumented_pr": instrumented["pr"] if instrumented else None,
         "instrumented_date": instrumented["date"] if instrumented else None,
+        "instrumented_author_email": instrumented.get("email") if instrumented else None,
         "retired_commit": None,
         "retired_pr": None,
         "retired_date": None,
+        "retired_author_email": None,
         "last_code_change_date": last_change["date"] if last_change else None,
+        "call_site_count": None,
+        "call_site_retired_date": None,
         "updated_at": updated_at,
     }
     if code_status == "removed" and retired:
         row["retired_commit"] = retired["commit"]
         row["retired_pr"] = retired["pr"]
         row["retired_date"] = retired["date"]
+        row["retired_author_email"] = retired.get("email")
     return row
 
 
-def _pseudo_commit(commit: str | None, pr: str | None, date: str | None) -> dict:
+def _pseudo_commit(commit: str | None, pr: str | None, date: str | None, email: str | None = None) -> dict:
     """A minimal commit dict reconstructed from a stored row.
 
-    Carries only the keys ``build_provenance_row`` reads (commit, pr, date). It is never
+    Carries only the keys ``build_provenance_row`` reads (commit, pr, date, email). It is never
     fed to ``_record``, so the epoch ``ts`` ordering key is not needed: the windowed
     commits are strictly newer than the watermark, so precedence is positional, not timed.
     """
-    return {"commit": commit, "pr": pr, "date": date}
+    return {"commit": commit, "pr": pr, "date": date, "email": email}
 
 
 def merge_provenance_entry(
@@ -386,6 +509,7 @@ def merge_provenance_entry(
             existing_row["instrumented_commit"],
             existing_row["instrumented_pr"],
             existing_row["instrumented_date"],
+            existing_row.get("instrumented_author_email"),
         )
     elif present_before_window:
         instrumented = None
@@ -398,6 +522,7 @@ def merge_provenance_entry(
             existing_row["retired_commit"],
             existing_row["retired_pr"],
             existing_row["retired_date"],
+            existing_row.get("retired_author_email"),
         )
 
     return {"instrumented": instrumented, "retired": retired, "last_change": new_entry["last_change"]}
@@ -548,6 +673,104 @@ def git_grep_present_text(root: str, events: Sequence[str], paths: Sequence[str]
     if proc.returncode not in (0, 1):
         raise subprocess.CalledProcessError(proc.returncode, argv, stderr=proc.stderr)
     return proc.stdout
+
+
+def git_show_file(root: str, ref: str, rel_path: str) -> str:
+    """Contents of ``rel_path`` at ``ref`` via ``git show``. Raises on a missing file/ref."""
+    return subprocess.run(
+        ["git", "-C", root, "show", f"{ref}:{rel_path}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+
+def git_grep_call_sites_text(root: str, key_paths: Sequence[str], paths: Sequence[str], ref: str = "HEAD") -> str:
+    """Dump of ``ref`` lines containing any ``EVENTS.X.Y`` key-path (fixed-string git grep).
+
+    Mirrors ``git_grep_present_text``: ``-F`` literal, ``-h`` drops filenames, exit 1 (no
+    matches) is fine, exit 2+ raises so a corrupt grep is never read as 'no call sites'.
+    """
+    if not key_paths:
+        return ""
+    patterns: list[str] = []
+    for p in key_paths:
+        patterns += ["-e", p]
+    argv = ["git", "-C", root, "grep", "-F", "-h", "--no-color", *patterns, ref, "--", *paths]
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode not in (0, 1):
+        raise subprocess.CalledProcessError(proc.returncode, argv, stderr=proc.stderr)
+    return proc.stdout
+
+
+def make_call_site_retired_lookup(
+    root: str, ref: str, paths: Sequence[str]
+) -> Callable[[str], str | None]:
+    """A ``key_path -> retired_date`` lookup for zero-count events, via a pickaxe walk.
+
+    ``git log -S<key_path>`` streams only commits that changed the key-path's occurrence
+    count. Reusing ``parse_git_log`` with a key-path-capturing pattern, the 'retired' slot is
+    the latest commit that net-removed it -- exactly the date the count last hit zero (there is
+    no later add, or the HEAD count would not be zero). Returns the date string, or None.
+
+    The pattern anchors on a call-argument position (preceded by ``(`` or ``,``) or a
+    line-leading position (Prettier wraps a long ``trackEvent(`` call so the key-path sits on
+    its own line) -- never bare prose. Without this, removing a comment that merely names the
+    key-path (``// drop EVENTS.X.Y``) would register as a net-remove and stamp a spurious
+    retirement date. Mirrors the call-context anchoring of ``compile_event_pattern``; the
+    prefix guarantees a non-identifier char precedes the key-path, so no separate lookbehind
+    is needed.
+    """
+
+    def lookup(key_path: str) -> str | None:
+        lines = run_git_log(root, None, paths, ref, pickaxe=key_path)
+        pattern = re.compile(r"(?:[(,]\s*|^\s*)(" + re.escape(key_path) + r")(?![\w$.])", re.MULTILINE)
+        entry = parse_git_log(lines, pattern).get(key_path)
+        retired = entry["retired"] if entry else None
+        return retired["date"] if retired else None
+
+    return lookup
+
+
+def augment_call_site_columns(
+    rows: Sequence[dict], root: str, ref: str, paths: Sequence[str] = INSTRUMENTATION_PATHS
+) -> None:
+    """Populate ``call_site_count`` / ``call_site_retired_date`` on each row, in place.
+
+    Resolves the EVENTS map at ``ref``, counts call sites at ``ref`` in one grep, and looks
+    up the retirement date only for zero-count events. Events with no resolvable key-path
+    (backend/dynamic) get None for both -- null, never zero, so they are never flagged.
+
+    If ``analyticsHelper.ts`` is absent at ``ref`` (renamed/moved, or a ``--ref`` at an old
+    commit), return early and leave the rows' call-site columns untouched rather than aborting
+    the whole walk after the expensive ``git log`` pass -- the CSV/watermark must still get
+    written. This mirrors ``parse_events_map`` returning ``{}`` on a missing const: no key-path
+    resolves, so call-site data is simply unknown (None), consistent with the backend/dynamic
+    contract.
+    """
+    try:
+        ts_text = git_show_file(root, ref, ANALYTICS_HELPER_PATH)
+    except subprocess.CalledProcessError:
+        return
+    events_map = parse_events_map(ts_text)
+    if not events_map:
+        # File present but the EVENTS const is missing/renamed/empty: every row would get a
+        # null call-site signal, indistinguishable from backend/dynamic events, silently
+        # suppressing the zero-call-site flag for the whole run. Warn loudly instead of letting
+        # the watermark advance on an unchecked CSV with no signal.
+        print(
+            f"WARNING: parse_events_map returned empty for {ANALYTICS_HELPER_PATH} at {ref} — "
+            "EVENTS const not found or empty; call_site_count left as None for all events.",
+            file=sys.stderr,
+        )
+        return
+    grep_text = git_grep_call_sites_text(root, list(events_map.values()), paths, ref)
+    lookup = make_call_site_retired_lookup(root, ref, paths)
+    fields = compute_call_site_fields(events_map, grep_text, lookup)
+    for row in rows:
+        f = fields.get(row["event_type"])
+        row["call_site_count"] = f["call_site_count"] if f else None
+        row["call_site_retired_date"] = f["call_site_retired_date"] if f else None
 
 
 def git_head_sha(root: str, ref: str = "HEAD") -> str:
@@ -707,11 +930,18 @@ def upsert_provenance_row(
             row["instrumented_pr"] = pr_url(pr)
             row["instrumented_date"] = date
             row["instrumented_commit"] = None
-        # A re-add un-retires the event: clear any stale retirement so it is no longer shown as
-        # removed in the CSV (the git-walk confirms presence at HEAD on its next run).
+        # A re-add un-retires the event: clear every "retired / no-longer-called" signal so it
+        # is no longer shown as removed in the CSV (the git-walk confirms presence at HEAD and
+        # recomputes the call-site count on its next run). Crucially, clear call_site_count too:
+        # a stale 0 left from the prior retirement would make the monitor emit a false rank-2
+        # "call site removed" flag for a freshly re-instrumented event. None (not 0) means
+        # "unknown until the next walk", which the monitor treats as not-a-signal (null != zero).
         row["retired_pr"] = None
         row["retired_date"] = None
         row["retired_commit"] = None
+        row["retired_author_email"] = None
+        row["call_site_count"] = None
+        row["call_site_retired_date"] = None
     else:
         # Symmetric with the add guard: preserve the first retirement attribution so a
         # double-fire (retry, reprocessing) does not replace the PR/date that first removed it.
@@ -814,6 +1044,7 @@ def _carry_forward_provisional(
             row["instrumented_pr"] = prior.get("instrumented_pr")
             row["instrumented_date"] = prior.get("instrumented_date")
             row["instrumented_commit"] = prior.get("instrumented_commit")
+            row["instrumented_author_email"] = prior.get("instrumented_author_email")
             if not row.get("last_code_change_date"):
                 row["last_code_change_date"] = prior.get("last_code_change_date")
         event_present = present.get(row["event_type"], False) if present is not None else False
@@ -826,6 +1057,7 @@ def _carry_forward_provisional(
             row["retired_pr"] = prior.get("retired_pr")
             row["retired_date"] = prior.get("retired_date")
             row["retired_commit"] = None
+            row["retired_author_email"] = prior.get("retired_author_email")
 
 
 def run_backfill(
@@ -856,6 +1088,7 @@ def run_backfill(
     if pr_resolver is not None:
         print(f"Merge-walk PR backfill: filled {filled} *_pr gaps", file=sys.stderr)
 
+    augment_call_site_columns(rows, root, ref)
     write_provenance(rows, csv_path)
     write_watermark(
         state_path,
@@ -985,6 +1218,7 @@ def run_refresh(
             existing[row["event_type"]] = row
 
     rows = list(existing.values())
+    augment_call_site_columns(rows, root, ref)
     write_provenance(rows, csv_path)
     write_watermark(
         state_path,
@@ -1043,13 +1277,11 @@ def _run_walk(args: argparse.Namespace) -> None:
         git_fetch(root, args.ref)
     pr_resolver = None if args.no_pr_resolve else make_merge_walk_resolver(root, args.ref)
 
-    from databricks.sql import connect  # lazy: pure logic imports without the SDK
+    import databricks_oauth as dbc  # lazy: pure logic imports without the SDK
 
-    connection = connect(
-        server_hostname=os.environ["DATABRICKS_SERVER_HOSTNAME"],
-        http_path=os.environ["DATABRICKS_HTTP_PATH"],
-        access_token=os.environ["DATABRICKS_API_KEY"],
-    )
+    # OAuth (CLI / ~/.databrickscfg profile) is the analytics standard — no PAT. Shares the
+    # same auth path as the event-health monitor (analytics_event_health.py).
+    connection = dbc.get_connection()
     try:
         with connection.cursor() as cursor:
             rows = run_refresh(cursor, root, since, datetime.now(UTC),

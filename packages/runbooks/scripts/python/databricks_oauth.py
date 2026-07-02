@@ -6,9 +6,9 @@ SDK ``Config`` via ``credentials_provider`` — no personal access token. If the
 uses OAuth M2M; otherwise it uses the ``~/.databrickscfg`` CLI / SDK default profile
 (``databricks auth login``, honoring ``DATABRICKS_CONFIG_PROFILE``).
 
-This is the OAuth counterpart to the PAT-based ``databricks_query.py`` used by the
-provenance backfill. The event-health monitor uses OAuth (the analytics standard);
-the backfill keeps its PAT path untouched. The SQL warehouse comes from
+Both the event-health monitor and the provenance backfill use this OAuth path (the
+analytics standard) — no PAT. (``databricks_query.py`` remains the PAT-based helper for
+other scripts.) The SQL warehouse comes from
 ``DATABRICKS_HTTP_PATH`` (``/sql/1.0/warehouses/<id>``), read from ``scripts/.env``
 to match the package convention.
 

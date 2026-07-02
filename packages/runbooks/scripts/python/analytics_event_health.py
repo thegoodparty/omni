@@ -113,6 +113,8 @@ group by event_type, date_trunc('week', cast(event_time as date))
 # Provenance CSV column carrying the code-removed date (empty = code still present).
 RETIRED_COL = "retired_date"
 INSTRUMENTED_PR_COL = "instrumented_pr"
+CALL_SITE_COUNT_COL = "call_site_count"
+CALL_SITE_RETIRED_COL = "call_site_retired_date"
 
 
 # --- pure helpers -------------------------------------------------------------
@@ -133,7 +135,7 @@ def to_date(value: Any) -> date | None:
 def parse_gpmeta(description: str | None) -> dict | None:
     """Parse the ``<!-- gp-meta -->`` block from a Govern description.
 
-    Returns ``{"intent": "in_use"|"not_in_use"|None, "supersession": str|None}`` or
+    Returns ``{"intent": "in_use"|"not_in_use"|None, "supersession": str|None, "purpose": str|None}`` or
     ``None`` when no block is present. Sparse today; the logic is ready for when the
     instrument-analytics-event / event-metadata skills start writing it.
     """
@@ -149,7 +151,22 @@ def parse_gpmeta(description: str | None) -> dict | None:
     elif re.search(r"^\s*in use", block, re.IGNORECASE | re.MULTILINE):
         intent = "in_use"
     sup = re.search(r"supersession:\s*(.+)", block, re.IGNORECASE)
-    return {"intent": intent, "supersession": sup.group(1).strip() if sup else None}
+    # Purpose: the first content line that is neither a known field nor an in/out-of-use
+    # status line. Trailing " |" (the gp-meta line separator) is stripped.
+    purpose = None
+    for raw in block.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if re.match(r"^(supersession|in use|not in use|change-set)\b", line, re.IGNORECASE):
+            continue
+        purpose = line.rstrip().removesuffix("|").rstrip()
+        break
+    return {
+        "intent": intent,
+        "supersession": sup.group(1).rstrip().removesuffix("|").rstrip() if sup else None,
+        "purpose": purpose,
+    }
 
 
 def is_system(family: str | None, event_type: str | None) -> bool:
@@ -242,18 +259,29 @@ def rank_record(record: Mapping[str, Any]) -> int:
     div = record["divergence"] or ""
     if status == "orphaned_firing" or div.endswith("still firing"):
         return 1
-    if anomaly and status == "active" and elevated:
+    # DATA-2046: the name literal is still declared (status active/dormant) but the call site
+    # is gone (call_site_count == 0) and firing has flatlined (dormant, or an anomaly drop on
+    # still-"active" code). A removed call site behind a surviving constant. Null call_site_count
+    # (backend/dynamic, unresolved) is not zero and never trips this. Previously this fell to the
+    # dormant tail (rank 8) and went unnoticed — the exact blind spot this ticket closes.
+    if (
+        record.get("call_site_count") == 0
+        and status in ("active", "dormant")
+        and (status == "dormant" or anomaly)
+    ):
         return 2
-    if anomaly and status in ("active", "system", "code_unknown"):
+    if anomaly and status == "active" and elevated:
         return 3
-    if div.startswith("declared"):
+    if anomaly and status in ("active", "system", "code_unknown"):
         return 4
-    if status == "dormant" and elevated:
+    if div.startswith("declared"):
         return 5
-    if status == "instrumented_never_observed":
+    if status == "dormant" and elevated:
         return 6
-    if status == "dormant":
+    if status == "instrumented_never_observed":
         return 7
+    if status == "dormant":
+        return 8
     return 99
 
 
@@ -342,6 +370,8 @@ def reconcile(
         gpmeta = parse_gpmeta(description)
         anomaly = detect_anomaly(series.get(event_type, []))
         on_watchlist = event_type in watchlist_events
+        cs_raw = (crow or {}).get(CALL_SITE_COUNT_COL)
+        call_site_count = int(cs_raw) if cs_raw not in (None, "") else None
 
         if is_system(family, event_type):
             status = "system"  # anomaly-watched only
@@ -363,6 +393,8 @@ def reconcile(
                 "last_seen_date": to_date(row["last_seen_date"]),
                 "anomaly": anomaly,
                 "instrumented_pr": (crow or {}).get(INSTRUMENTED_PR_COL),
+                "call_site_count": call_site_count,
+                "call_site_retired_date": (crow or {}).get(CALL_SITE_RETIRED_COL) or None,
                 "divergence": divergence(gpmeta, status, firing_recent),
                 "gpmeta": gpmeta,
                 "has_description": has_description(description),
@@ -383,6 +415,10 @@ def reconcile(
                     "last_seen_date": None,
                     "anomaly": None,
                     "instrumented_pr": crow.get(INSTRUMENTED_PR_COL),
+                    "call_site_count": (lambda v: int(v) if v not in (None, "") else None)(
+                        crow.get(CALL_SITE_COUNT_COL)
+                    ),
+                    "call_site_retired_date": crow.get(CALL_SITE_RETIRED_COL) or None,
                     "divergence": None,
                     "gpmeta": None,
                     "has_description": None,  # not an Amplitude catalog event; no Govern desc
@@ -450,12 +486,13 @@ def diff_flagged(
 
 _RANK_LABEL = {
     1: "orphaned-firing / not-in-use still firing",
-    2: "anomaly drop, active (elevated)",
-    3: "anomaly drop, active",
-    4: "intent divergence",
-    5: "dormant (elevated)",
-    6: "instrumented, never observed",
-    7: "dormant",
+    2: "call site removed, name constant remains",
+    3: "anomaly drop, active (elevated)",
+    4: "anomaly drop, active",
+    5: "intent divergence",
+    6: "dormant (elevated)",
+    7: "instrumented, never observed",
+    8: "dormant",
 }
 
 
@@ -465,6 +502,9 @@ def _evidence(record: Mapping[str, Any]) -> str:
         parts.append(f"week {record['anomaly']['current']} vs base {record['anomaly']['baseline']}")
     if record["last_seen_date"]:
         parts.append(f"last_seen {record['last_seen_date']}")
+    if record.get("call_site_count") == 0:
+        removed = record.get("call_site_retired_date")
+        parts.append(f"call_sites=0 (removed {removed})" if removed else "call_sites=0")
     if record["instrumented_pr"]:
         parts.append(f"PR {record['instrumented_pr']}")
     return "; ".join(parts)
@@ -473,7 +513,7 @@ def _evidence(record: Mapping[str, Any]) -> str:
 # Rank-7 (plain dormant) events are listed as one compact line, not table rows: there are
 # routinely dozens and they repeat every weekly section, so a full table would bury the
 # priority flags above. Anything rank <= this threshold gets a detailed row.
-PRIORITY_RANK_MAX = 6
+PRIORITY_RANK_MAX = 7
 # Cap how many event names a single changes-line spells out before summarizing (the
 # first run flags everything, which would otherwise dump the whole list).
 CHANGES_NAME_CAP = 15
@@ -628,6 +668,20 @@ def load_prior_state(path: Path | None) -> dict[str, str] | None:
     return flagged if isinstance(flagged, dict) else None
 
 
+def load_prior_anomalous(path: Path | None) -> set[str] | None:
+    """Read the prior run's anomalous-event set from the state file (DATA-2057). Lets the
+    Slack quiet gate tell a *newly* anomalous event from a persistent one. None when the
+    file is absent/corrupt or predates this key (first Slack-aware run)."""
+    if not path or not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    anomalous = data.get("anomalous")
+    return set(anomalous) if isinstance(anomalous, list) else None
+
+
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -674,6 +728,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="prior-run state JSON for the changes diff (default: instrumentation_data/)",
     )
     parser.add_argument(
+        "--slack",
+        action="store_true",
+        help="post the delta-led health digest to Slack (Source B, DATA-2057). Reads "
+        "SLACK_APP_BOT_TOKEN + SLACK_EVENT_LIFECYCLE_CHANNEL_ID; quiet when nothing changed. "
+        "A Slack failure warns but never changes the exit code.",
+    )
+    parser.add_argument(
         "--today",
         help="override the run date (YYYY-MM-DD); default = system date. Shifts only the "
         "local reconciliation (dormant window, week cutoff, run-date label). The firing axis "
@@ -700,10 +761,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         append_log(args.log, section)
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, default=_json_default) + "\n")
+
+    # Source B (DATA-2057): post the digest BEFORE the state write below advances the diff.
+    # `changes` was computed against the prior state; once _atomic_write runs, that prior is
+    # gone, so a separate process would see an already-consumed diff. Re-read the prior state
+    # here (cheap) only to render escalated events as prior -> current. Non-fatal: a Slack
+    # error warns and never changes the exit code — the log/state write-back is the real work.
+    if args.slack:
+        import event_state_slack as slk
+
+        token, channel = os.environ.get(slk.TOKEN_ENV), os.environ.get(slk.CHANNEL_ENV)
+        if not token or not channel:
+            print(
+                f"--slack set but {slk.TOKEN_ENV}/{slk.CHANNEL_ENV} unset; skipping the Slack post.",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                prior_state = load_prior_state(args.state)
+                prior_anomalous = load_prior_anomalous(args.state)
+                ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel,
+                                     prior_anomalous=prior_anomalous)
+                print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
+                print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)
+
     if args.state:
         state = {
             "run_date": today.isoformat(),
             "flagged": {r["event_type"]: r["status"] for r in result["flagged"]},
+            # anomalous set persisted for the Slack quiet gate (DATA-2057): distinguishes a
+            # newly anomalous event from one that was already anomalous last run.
+            "anomalous": sorted(r["event_type"] for r in result["flagged"] if r["anomaly"]),
         }
         _atomic_write(args.state, json.dumps(state, indent=2) + "\n")
     return 0

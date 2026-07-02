@@ -140,13 +140,20 @@ export class AdminAgentRunsService extends createPrismaBase(
 
     // A QUEUED or RUNNING run is still in flight; re-dispatching it would spawn
     // a second parallel worker on the same params (duplicate domain buy / TCR
-    // submit).
+    // submit). AWAITING_RESUME (the resume sweep will re-dispatch it) and
+    // SUPERSEDED (a resume successor was already dispatched and may still be
+    // running) are also in-flight from this record's perspective — retrying
+    // them races that successor. To recover a dead resume chain, retry its
+    // FAILED successor (the latest run), not the SUPERSEDED predecessor.
     if (
       run.status === ExperimentRunStatus.RUNNING ||
-      run.status === ExperimentRunStatus.QUEUED
+      run.status === ExperimentRunStatus.QUEUED ||
+      run.status === ExperimentRunStatus.AWAITING_RESUME ||
+      run.status === ExperimentRunStatus.SUPERSEDED
     ) {
       throw new ConflictException(
-        'run is still in flight (QUEUED or RUNNING); only finished runs can be retried',
+        'run is still in flight (QUEUED, RUNNING, AWAITING_RESUME, or ' +
+          'SUPERSEDED); only finished runs can be retried',
       )
     }
 

@@ -8,6 +8,7 @@ import { RacesService } from '@/elections/services/races.service'
 import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { WebsitesService } from '@/websites/services/websites.service'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
+import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from './electionApi.service'
 
@@ -238,24 +239,42 @@ export class StrategicLandscapeParamsService {
 
   // The story is optional enrichment, so a transient read failure must not
   // abort the (expensive) strategy build — log it and degrade to undefined.
-  // `issues` no longer lives on the story: it's sourced from the campaign's
-  // website issues (shared with Pro-upgrade) and flattened to the plain-text
-  // string the agent expects.
+  // `why` and `issues` no longer live on the story: they're sourced from the
+  // campaign's website bio and issues (shared with Pro-upgrade) and flattened
+  // to the plain-text strings the agent expects.
   private async loadStoryParam(
     campaignId: number,
   ): Promise<CampaignStoryParam> {
     try {
-      const [story, issues] = await Promise.all([
+      const [story, why, issues] = await Promise.all([
         this.campaignStory.getForCampaign(campaignId),
+        this.loadWhyParam(campaignId),
         this.loadIssuesParam(campaignId),
       ])
-      return { why: story.why, background: story.background, issues }
+      return { why, background: story.background, issues }
     } catch (error) {
       this.logger.warn(
         { error, campaignId },
         'Failed to load campaign story for strategy params; proceeding without it',
       )
       return undefined
+    }
+  }
+
+  // The website bio fails independently of the story text: a website read error
+  // degrades the "why" to null rather than dropping the candidate's background
+  // from the agent input.
+  private async loadWhyParam(campaignId: number): Promise<string | null> {
+    try {
+      return serializeWebsiteBio(
+        await this.websites.getBioForCampaign(campaignId),
+      )
+    } catch (error) {
+      this.logger.warn(
+        { error, campaignId },
+        'Failed to load website bio for strategy params; proceeding without why',
+      )
+      return null
     }
   }
 

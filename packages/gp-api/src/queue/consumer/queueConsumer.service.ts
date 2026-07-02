@@ -90,6 +90,7 @@ type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
   ExperimentRunStatus.COMPLETED,
   ExperimentRunStatus.FAILED,
+  ExperimentRunStatus.SUPERSEDED,
 ]
 
 const buildIssueProperties = (

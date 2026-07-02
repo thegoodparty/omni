@@ -16,40 +16,38 @@ import {
   USER_WEBSITE_QUERY_KEY,
 } from 'app/dashboard/website/util/website.util'
 import PolicyPriorities from 'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities'
+import { getBioPlainLength } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { CAMPAIGN_STORY_SECTIONS } from '../sections'
 import { isStoryFieldAnswered } from '../useCampaignStory'
-import type { CampaignStoryField } from './CampaignStoryCard'
 import CampaignStoryCard from './CampaignStoryCard'
+import CampaignStoryWhyCard from './CampaignStoryWhyCard'
 
 interface CampaignStoryPageProps {
   pathname?: string
   initialStory: CampaignStory
-  // The candidate's issues, sourced from their website (shared with the
-  // Pro-upgrade flow). Empty when they have no website/issues yet.
+  // The candidate's "why" (bio) and issues, sourced from their website (shared
+  // with the Pro-upgrade flow). Empty when they have no website yet.
+  initialBio: string
   initialIssues: WebsiteIssue[]
 }
-
-const answeredFromStory = (
-  story: CampaignStory,
-): Record<CampaignStoryField, boolean> => ({
-  why: isStoryFieldAnswered(story.why),
-  background: isStoryFieldAnswered(story.background),
-})
 
 const CampaignStoryPage = ({
   pathname,
   initialStory,
+  initialBio,
   initialIssues,
 }: CampaignStoryPageProps): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
-  // Seeded from the persisted story, then updated live as each card reports its
-  // answered-state on every keystroke — so the footer appears as soon as both
-  // have content, without waiting for blur/save.
-  const [answered, setAnswered] = useState(() =>
-    answeredFromStory(initialStory),
-  )
+  // Seeded from the persisted story + website bio, then updated live as each
+  // card reports its answered-state on every keystroke — so the footer appears
+  // as soon as both have content, without waiting for a save. `why` is the
+  // website bio; `background` is the story field.
+  const [answered, setAnswered] = useState(() => ({
+    why: getBioPlainLength(initialBio) > 0,
+    background: isStoryFieldAnswered(initialStory.background),
+  }))
   // Issues are the website issues; edited here via the shared PolicyPriorities
   // editor and persisted to website.content.about.issues on every change
   // (saveAboutFields creates the site on first write).
@@ -102,6 +100,15 @@ const CampaignStoryPage = ({
           </section>
 
           <div className="flex flex-col gap-6">
+            <CampaignStoryWhyCard
+              initialBio={initialBio}
+              onAnsweredChange={(value) =>
+                setAnswered((prev) =>
+                  prev.why === value ? prev : { ...prev, why: value },
+                )
+              }
+            />
+
             {CAMPAIGN_STORY_SECTIONS.map((section) => (
               <CampaignStoryCard
                 key={section.id}
@@ -109,9 +116,9 @@ const CampaignStoryPage = ({
                 initialValue={initialStory[section.id]}
                 onAnsweredChange={(value) =>
                   setAnswered((prev) =>
-                    prev[section.id] === value
+                    prev.background === value
                       ? prev
-                      : { ...prev, [section.id]: value },
+                      : { ...prev, background: value },
                   )
                 }
               />

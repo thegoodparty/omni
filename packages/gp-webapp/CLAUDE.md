@@ -125,6 +125,7 @@ When the active step or view changes in a multi-step flow, always reset scroll p
 | Adding or removing a feature flag                            | `docs/feature-flags.md`                                          |
 | Adding or changing analytics instrumentation                 | `.claude/skills/instrument-analytics-event/SKILL.md` (repo root) |
 | Working inside a dashboard feature                           | `app/dashboard/<feature>/CLAUDE.md`                              |
+| Know Your Opponent (opposition research)                     | `app/dashboard/race-opponent/CLAUDE.md`                          |
 | Working in `app/admin/`, `app/onboarding/`, or `app/shared/` | nested `CLAUDE.md` in that dir                                   |
 | Working with helpers                                         | `helpers/CLAUDE.md`                                              |
 | Working in `gpApi/`                                          | `gpApi/CLAUDE.md`                                                |

@@ -2,7 +2,13 @@
 
 import { useState } from 'react'
 import { Button, Card, Input, Label } from '@styleguide'
-import { InfoIcon, PlusIcon, Trash2Icon } from '@styleguide/components/ui/icons'
+import {
+  ChartColumnIcon,
+  InfoIcon,
+  PlusIcon,
+  Trash2Icon,
+  UserIcon,
+} from '@styleguide/components/ui/icons'
 
 // Mirrors the gp-api ManualOpponentsRequestSchema: a URL hint is optional, but
 // when present it must be a well-formed https URL, so a bad value never reaches
@@ -43,24 +49,14 @@ const URL_ERROR_MESSAGE = 'Enter a valid https URL (https://…).'
 type Props = {
   submitting: boolean
   onSubmit: (opponents: ManualOpponentInput[]) => void
-  // True when a collection/analysis run has already completed and still found
-  // no opponents. Switches the banner copy from the initial "No opponents
-  // found" to an acknowledgement of the completed run, and tucks the entry
-  // fields behind an explicit disclosure so the page doesn't present an
-  // always-live fresh-submit affordance that invites indefinite (paid) re-runs.
-  ranAlready?: boolean
 }
 
 const AddOpponentsForm = ({
   submitting,
   onSubmit,
-  ranAlready = false,
 }: Props): React.JSX.Element => {
   const [rows, setRows] = useState<OpponentRow[]>([{ ...EMPTY_ROW }])
   const [errors, setErrors] = useState<RowErrors[]>([{}])
-  // After a completed run, the entry fields start collapsed behind a disclosure;
-  // for the initial (never-run) state they're shown straight away.
-  const [showFields, setShowFields] = useState(!ranAlready)
 
   const updateRow = (
     index: number,
@@ -128,183 +124,162 @@ const AddOpponentsForm = ({
   }
 
   return (
-    <div className="flex w-full min-w-0 flex-col gap-6">
+    <Card className="mx-auto flex w-full min-w-0 max-w-[560px] flex-col gap-6 p-6 sm:p-8">
       <div className="flex w-full min-w-0 items-start gap-3 rounded-lg border border-info-600/20 bg-info-50 p-4">
         <InfoIcon
           className="mt-0.5 size-5 shrink-0 text-info-600"
           aria-hidden
         />
         <div className="flex w-full min-w-0 flex-col gap-1">
-          <h2 className="text-sm font-semibold text-foreground">
-            {ranAlready
-              ? 'No opponents found in this analysis'
-              : 'No opponents found'}
+          <h2 className="text-sm font-semibold text-info-600">
+            No opponents found
           </h2>
           <p className="w-full min-w-0 break-words text-sm text-muted-foreground">
-            {ranAlready
-              ? "We ran the analysis and didn't find any opponents for your race. If you know who's running against you, you can add them by hand below."
-              : "We didn't find any opponents for your race. If you have information about them, fill out the form below and we'll run the analysis based on the information you provide."}
+            We didn&apos;t find any opponents for your race. If you have
+            information about them, fill out the form below and we&apos;ll run
+            the analysis based on the information you provide.
           </p>
         </div>
       </div>
 
-      {ranAlready && !showFields ? (
-        <div>
+      <div className="flex flex-col gap-1">
+        <h3 className="text-lg font-semibold text-foreground">
+          Add the opponents you want to analyze
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Drop in each candidate running against you. Add a Ballotpedia page or
+          website for every additional opponent.
+        </p>
+      </div>
+
+      <form className="flex flex-col gap-6" onSubmit={handleSubmit} noValidate>
+        {rows.map((row, index) => {
+          const rowErrors = errors[index] ?? {}
+          return (
+            <div key={index} className="flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <UserIcon className="size-4" aria-hidden />
+                  </span>
+                  Opponent {index + 1}
+                </span>
+                {rows.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    onClick={() => removeRow(index)}
+                    className="flex items-center gap-1.5 text-muted-foreground"
+                  >
+                    <Trash2Icon className="size-4" aria-hidden />
+                    Remove
+                  </Button>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`opponent-name-${index}`}>Name</Label>
+                <Input
+                  id={`opponent-name-${index}`}
+                  value={row.name}
+                  onChange={(e) => updateRow(index, 'name', e.target.value)}
+                  placeholder="e.g. Jane Doe"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`opponent-ballotpedia-${index}`}>
+                  Ballotpedia page{' '}
+                  <span className="font-normal text-muted-foreground">
+                    (optional)
+                  </span>
+                </Label>
+                <Input
+                  id={`opponent-ballotpedia-${index}`}
+                  value={row.ballotpediaUrl}
+                  onChange={(e) =>
+                    updateRow(index, 'ballotpediaUrl', e.target.value)
+                  }
+                  aria-invalid={Boolean(rowErrors.ballotpediaUrl)}
+                  aria-describedby={
+                    rowErrors.ballotpediaUrl
+                      ? `opponent-ballotpedia-error-${index}`
+                      : undefined
+                  }
+                  placeholder="https://ballotpedia.org/…"
+                />
+                {rowErrors.ballotpediaUrl && (
+                  <p
+                    id={`opponent-ballotpedia-error-${index}`}
+                    className="text-sm text-destructive"
+                  >
+                    {rowErrors.ballotpediaUrl}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={`opponent-website-${index}`}>
+                  Website{' '}
+                  <span className="font-normal text-muted-foreground">
+                    (optional)
+                  </span>
+                </Label>
+                <Input
+                  id={`opponent-website-${index}`}
+                  value={row.website}
+                  onChange={(e) => updateRow(index, 'website', e.target.value)}
+                  aria-invalid={Boolean(rowErrors.website)}
+                  aria-describedby={
+                    rowErrors.website
+                      ? `opponent-website-error-${index}`
+                      : undefined
+                  }
+                  placeholder="https://janedoe.com"
+                />
+                {rowErrors.website && (
+                  <p
+                    id={`opponent-website-error-${index}`}
+                    className="text-sm text-destructive"
+                  >
+                    {rowErrors.website}
+                  </p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+
+        <div className="flex justify-center">
           <Button
             type="button"
-            variant="outline"
-            onClick={() => setShowFields(true)}
-            className="flex items-center gap-1.5"
+            variant="ghost"
+            onClick={addRow}
+            disabled={!canAddRow}
+            icon={<PlusIcon className="size-4" aria-hidden />}
           >
-            <PlusIcon className="size-4" aria-hidden />
-            Add opponents manually
+            Add another opponent
           </Button>
         </div>
-      ) : (
-        <>
-          <div className="flex flex-col gap-1">
-            <h3 className="text-lg font-semibold text-foreground">
-              Add the opponents you want to analyze
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Drop in each candidate running against you. Add a Ballotpedia page
-              or website for every additional opponent.
-            </p>
-          </div>
 
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={handleSubmit}
-            noValidate
-          >
-            {rows.map((row, index) => {
-              const rowErrors = errors[index] ?? {}
-              return (
-                <Card key={index} className="flex flex-col gap-4 p-5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-foreground">
-                      Opponent {index + 1}
-                    </span>
-                    {rows.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="small"
-                        onClick={() => removeRow(index)}
-                        className="flex items-center gap-1.5 text-muted-foreground"
-                      >
-                        <Trash2Icon className="size-4" aria-hidden />
-                        Remove
-                      </Button>
-                    )}
-                  </div>
+        <Button
+          type="submit"
+          disabled={!hasNamedRow}
+          loading={submitting}
+          loadingText="Starting…"
+          className="w-full"
+          icon={<ChartColumnIcon className="size-4" aria-hidden />}
+        >
+          Run the analysis
+        </Button>
 
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`opponent-name-${index}`}>Name</Label>
-                    <Input
-                      id={`opponent-name-${index}`}
-                      value={row.name}
-                      onChange={(e) => updateRow(index, 'name', e.target.value)}
-                      placeholder="Jane Doe"
-                    />
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`opponent-ballotpedia-${index}`}>
-                      Ballotpedia page{' '}
-                      <span className="font-normal text-muted-foreground">
-                        (optional)
-                      </span>
-                    </Label>
-                    <Input
-                      id={`opponent-ballotpedia-${index}`}
-                      value={row.ballotpediaUrl}
-                      onChange={(e) =>
-                        updateRow(index, 'ballotpediaUrl', e.target.value)
-                      }
-                      aria-invalid={Boolean(rowErrors.ballotpediaUrl)}
-                      aria-describedby={
-                        rowErrors.ballotpediaUrl
-                          ? `opponent-ballotpedia-error-${index}`
-                          : undefined
-                      }
-                      placeholder="https://ballotpedia.org/…"
-                    />
-                    {rowErrors.ballotpediaUrl && (
-                      <p
-                        id={`opponent-ballotpedia-error-${index}`}
-                        className="text-sm text-destructive"
-                      >
-                        {rowErrors.ballotpediaUrl}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`opponent-website-${index}`}>
-                      Website{' '}
-                      <span className="font-normal text-muted-foreground">
-                        (optional)
-                      </span>
-                    </Label>
-                    <Input
-                      id={`opponent-website-${index}`}
-                      value={row.website}
-                      onChange={(e) =>
-                        updateRow(index, 'website', e.target.value)
-                      }
-                      aria-invalid={Boolean(rowErrors.website)}
-                      aria-describedby={
-                        rowErrors.website
-                          ? `opponent-website-error-${index}`
-                          : undefined
-                      }
-                      placeholder="https://janedoe.com"
-                    />
-                    {rowErrors.website && (
-                      <p
-                        id={`opponent-website-error-${index}`}
-                        className="text-sm text-destructive"
-                      >
-                        {rowErrors.website}
-                      </p>
-                    )}
-                  </div>
-                </Card>
-              )
-            })}
-
-            <div>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addRow}
-                disabled={!canAddRow}
-                className="flex items-center gap-1.5"
-              >
-                <PlusIcon className="size-4" aria-hidden />
-                Add another opponent
-              </Button>
-            </div>
-
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                disabled={!hasNamedRow}
-                loading={submitting}
-                loadingText="Starting…"
-              >
-                Run the analysis
-              </Button>
-            </div>
-
-            <p className="text-sm text-muted-foreground">
-              You can add more opponents later from your race page.
-            </p>
-          </form>
-        </>
-      )}
-    </div>
+        <p className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
+          <InfoIcon className="size-4 shrink-0" aria-hidden />
+          You can add more opponents later from your race page.
+        </p>
+      </form>
+    </Card>
   )
 }
 

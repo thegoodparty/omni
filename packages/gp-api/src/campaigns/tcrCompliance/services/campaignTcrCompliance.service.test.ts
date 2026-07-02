@@ -23,6 +23,8 @@ import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
@@ -128,6 +130,10 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         { provide: QueueProducerService, useValue: mockQueue },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -693,6 +699,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
         { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -820,6 +830,7 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
   it.each([
     ExperimentRunStatus.QUEUED,
     ExperimentRunStatus.RUNNING,
+    ExperimentRunStatus.AWAITING_RESUME,
     ExperimentRunStatus.COMPLETED,
   ])(
     'skips dispatch when claim fails and existing run is %s',
@@ -843,38 +854,42 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
     },
   )
 
-  it('re-dispatches with trigger=recovery_resume when claim fails and existing run is FAILED', async () => {
-    const recordWithRun = {
-      ...tcrRecord,
-      agenticRunId: 'run-failed',
-    }
-    mockModel.updateMany
-      .mockResolvedValueOnce({ count: 0 }) // initial claim
-      .mockResolvedValueOnce({ count: 1 }) // FAILED retake
-      .mockResolvedValueOnce({ count: 1 }) // success stamp
-    mockModel.findUnique
-      .mockResolvedValueOnce(recordWithRun)
-      .mockResolvedValueOnce(recordWithRun)
-    mockExperimentRuns.findUnique.mockResolvedValueOnce({
-      runId: 'run-failed',
-      status: ExperimentRunStatus.FAILED,
-    })
+  it.each([ExperimentRunStatus.FAILED, ExperimentRunStatus.SUPERSEDED])(
+    're-dispatches with trigger=recovery_resume when claim fails and ' +
+      'existing run is %s',
+    async (status) => {
+      const recordWithRun = {
+        ...tcrRecord,
+        agenticRunId: 'run-prior',
+      }
+      mockModel.updateMany
+        .mockResolvedValueOnce({ count: 0 }) // initial claim
+        .mockResolvedValueOnce({ count: 1 }) // retake
+        .mockResolvedValueOnce({ count: 1 }) // success stamp
+      mockModel.findUnique
+        .mockResolvedValueOnce(recordWithRun)
+        .mockResolvedValueOnce(recordWithRun)
+      mockExperimentRuns.findUnique.mockResolvedValueOnce({
+        runId: 'run-prior',
+        status,
+      })
 
-    await service.handleAgenticKickoff(kickoff)
+      await service.handleAgenticKickoff(kickoff)
 
-    expect(mockExperimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
-    const dispatchArg = firstOrThrow(
-      mockExperimentRuns.dispatchRun.mock.calls,
-    )[0]
-    expect(dispatchArg.params.trigger).toBe('recovery_resume')
+      expect(mockExperimentRuns.dispatchRun).toHaveBeenCalledTimes(1)
+      const dispatchArg = firstOrThrow(
+        mockExperimentRuns.dispatchRun.mock.calls,
+      )[0]
+      expect(dispatchArg.params.trigger).toBe('recovery_resume')
 
-    const retakeCall = nthOrThrow(mockModel.updateMany.mock.calls, 1)[0]
-    expect(retakeCall.where).toMatchObject({
-      id: kickoff.tcrComplianceId,
-      agenticRunId: 'run-failed',
-    })
-    expect(retakeCall.data).toMatchObject({ agenticRunId: null })
-  })
+      const retakeCall = nthOrThrow(mockModel.updateMany.mock.calls, 1)[0]
+      expect(retakeCall.where).toMatchObject({
+        id: kickoff.tcrComplianceId,
+        agenticRunId: 'run-prior',
+      })
+      expect(retakeCall.data).toMatchObject({ agenticRunId: null })
+    },
+  )
 
   it('skips when claim fails and the FAILED retake loses the race', async () => {
     const recordWithRun = {
@@ -1089,6 +1104,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   let mockComplianceState: {
     findStateForCampaign: ReturnType<typeof vi.fn>
   }
+  let mockWebsites: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    getContentForCampaign: ReturnType<typeof vi.fn>
+  }
   let mockTcrModel: {
     findUnique: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
@@ -1098,6 +1117,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     tcrCompliance: typeof mockTcrModel
     $transaction: ReturnType<typeof vi.fn>
   }
+  let mockAnalytics: { track: ReturnType<typeof vi.fn> }
 
   const user = createMockUser({ clerkId: 'user_clerk_xyz' })
   const campaign = createMockCampaign({
@@ -1106,6 +1126,16 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     placeId: 'place-123',
     details: { electionDate: '2026-11-03' },
   })
+
+  // A real bio (>= 500 chars, no template marker) plus one real issue, so the
+  // content gate passes by default; individual tests override this to
+  // exercise the generic-content rejection path.
+  const genuineContent = {
+    about: {
+      bio: `<p>${'A'.repeat(600)}</p>`,
+      issues: [{ title: 'Lower property taxes', description: 'A real plan' }],
+    },
+  }
 
   const input = {
     ein: '12-3456789',
@@ -1182,6 +1212,11 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       tcrCompliance: mockTcrModel,
       $transaction: vi.fn(),
     }
+    mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
+    mockWebsites = {
+      findFirstOrThrow: vi.fn(),
+      getContentForCampaign: vi.fn().mockResolvedValue(genuineContent),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1189,7 +1224,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         { provide: PeerlyIdentityService, useValue: mockPeerly },
         {
           provide: WebsitesService,
-          useValue: { findFirstOrThrow: vi.fn() },
+          useValue: mockWebsites,
         },
         {
           provide: CampaignsService,
@@ -1209,6 +1244,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
           useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: mockAnalytics },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1307,6 +1343,52 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       mockPeerly.getIdentities.mock.invocationCallOrder,
     )
     expect(claimCallOrder).toBeLessThan(peerlyCallOrder)
+  })
+
+  it('fires the event with the new identity id and the company hubspot id', async () => {
+    const campaignWithHs = {
+      ...campaign,
+      data: { ...campaign.data, hubspotId: 'company-hs-1' },
+    }
+
+    await service.submitToPeerlyForAgent(user, campaignWithHs, input)
+
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.PeerlyIdentityIdCreated,
+      {
+        peerly_identity_id: 'peerly-id-1',
+        company_hubspot_id: 'company-hs-1',
+      },
+    )
+  })
+
+  it('omits the company hubspot id when the company is not yet known', async () => {
+    await service.submitToPeerlyForAgent(user, campaign, input)
+
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.PeerlyIdentityIdCreated,
+      { peerly_identity_id: 'peerly-id-1' },
+    )
+  })
+
+  it('does not fire the event when the Peerly identity already exists', async () => {
+    mockPeerly.getIdentities.mockResolvedValueOnce([
+      {
+        identity_name: 'Jane Doe - 12-3456789',
+        identity_id: 'peerly-existing-1',
+      },
+    ])
+
+    await service.submitToPeerlyForAgent(user, campaign, input)
+
+    expect(mockPeerly.createIdentity).not.toHaveBeenCalled()
+    expect(mockAnalytics.track).not.toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.PeerlyIdentityIdCreated,
+      expect.anything(),
+    )
   })
 
   it('submits to Peerly, persists results (including peerlyCvVerificationId), and returns awaiting_pin on the happy path', async () => {
@@ -1490,6 +1572,42 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockTcrModel.update).not.toHaveBeenCalled()
   })
 
+  it('refuses to submit when website content is generic', async () => {
+    mockWebsites.getContentForCampaign.mockResolvedValueOnce({
+      about: { bio: '<p>short</p>', issues: [] },
+    })
+    const peerlySpy = vi.spyOn(
+      service as unknown as { submitToPeerly: () => Promise<never> },
+      'submitToPeerly',
+    )
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, input),
+    ).rejects.toThrow(/genuine/i)
+
+    expect(peerlySpy).not.toHaveBeenCalled()
+    expect(mockTcrModel.updateMany).not.toHaveBeenCalled()
+    expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+
+  it('does not throw or 500 when about.issues has a genuine issue mixed with a malformed (null) entry', async () => {
+    mockWebsites.getContentForCampaign.mockResolvedValueOnce({
+      about: {
+        bio: `<p>${'A'.repeat(600)}</p>`,
+        issues: [
+          { title: 'Lower property taxes', description: 'A real plan' },
+          null,
+        ],
+      },
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, input),
+    ).resolves.not.toThrow()
+
+    expect(mockTcrModel.updateMany).toHaveBeenCalled()
+  })
+
   it('preserves persisted peerlyCvVerificationId when Peerly already has a CV request (existing-CV branch)', async () => {
     // Existing record carries a CV id from a prior partial run.
     const recordWithExistingCv = {
@@ -1615,6 +1733,10 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
         { provide: QueueProducerService, useValue: { sendMessage: vi.fn() } },
         { provide: ExperimentRunsService, useValue: { dispatchRun: vi.fn() } },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1695,6 +1817,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
           useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1925,6 +2051,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           useValue: { findFirst: vi.fn(), dispatchRun: vi.fn() },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()

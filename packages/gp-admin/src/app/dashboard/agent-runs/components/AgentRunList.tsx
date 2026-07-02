@@ -6,6 +6,7 @@ import type {
 } from '@goodparty_org/sdk'
 import {
   STATUS_BADGE_COLORS,
+  STATUS_BADGE_LABELS,
   formatCost,
   formatDuration,
   formatTimestamp,
@@ -55,7 +56,7 @@ export function AgentRunList({ runs }: AgentRunListProps) {
             <Table.Cell>{formatCandidate(run.candidate)}</Table.Cell>
             <Table.Cell>
               <Badge color={STATUS_BADGE_COLORS[run.status]}>
-                {run.status}
+                {STATUS_BADGE_LABELS[run.status] ?? run.status}
               </Badge>
             </Table.Cell>
             <Table.Cell>{formatDuration(run.durationSeconds)}</Table.Cell>
