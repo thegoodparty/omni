@@ -142,6 +142,7 @@ const OpponentSummaryView = ({
         <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
           {summary.background.text}
         </p>
+        <SourceRow sources={summary.background.sources} />
       </DetailSection>
     )}
     {summary.issuesThatMatter && (

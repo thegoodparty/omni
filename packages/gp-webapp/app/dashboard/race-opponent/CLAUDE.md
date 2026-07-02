@@ -83,8 +83,10 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   Accordion/Collapsible inside. Sections, each rendered only when its field is
   non-null (sourced-or-silent): overview (no heading) + an optional "Campaign
   website" link (`opponent.websiteUrl`) + its `SourceRow`; "Why they're
-  running" (interpretive, no sources); "Their background" (no separate source
-  row — shares the overview's sourcing per the Lovable design); "Issues that
+  running" (interpretive, no sources); "Their background" (its own
+  `SourceRow` — `background.sources` is independent of `overview.sources`
+  and can cite different documents, so each sourced section renders its own
+  citations); "Issues that
   matter most to them" (a bulleted list + its own `SourceRow`). A legacy
   summary with only the pre-v2 fields renders just overview + background — the
   retired sections (why they matter most, what you need to know, where
@@ -124,9 +126,9 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   Phase 5 Lovable design, so keep the components separate — they do share the
   `hostnameFromUrl`/`sourceInitial` helpers from
   `@shared/briefings/displaySource`. ENG-10635 wired `SourceRow` into the
-  opponent card's detail body (overview + issues-that-matter citations) via
-  the `RaceOpponentSummarySourceRef`/`SummarySource` rich fields (`url`
-  directly, no `sourceUrl ??` fallback). `SourceAttribution` (the old
+  opponent card's detail body (overview, background, and issues-that-matter
+  citations) via the `RaceOpponentSummarySourceRef`/`SummarySource` rich
+  fields (`url` directly, no `sourceUrl ??` fallback). `SourceAttribution` (the old
   `source: <url>` line) has no production callers left on this page — it was
   only used by the now-deleted `IssueContrastCard` and the old merged-overview
   renderer — but stays in the tree (its own test still exercises it)

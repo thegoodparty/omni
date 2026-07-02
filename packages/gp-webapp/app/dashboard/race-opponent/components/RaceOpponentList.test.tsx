@@ -277,13 +277,20 @@ describe('<RaceOpponentList>', () => {
     expect(container.querySelector('pre')).toBeNull()
   })
 
-  it('renders the overview citation via the source chip, reading sources.url directly', () => {
+  it('renders per-section source chips, reading sources.url directly', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    // The source chip's accessible name includes the domain; the chip opens a
-    // hover-card carousel rather than rendering a plain citation link.
+    // Each source chip's accessible name includes its section's own domain;
+    // the chip opens a hover-card carousel rather than a plain citation link.
+    // background.sources can differ from overview.sources (e.g. Ballotpedia on
+    // overview vs the opponent's site on background), so the background
+    // section renders its own SourceRow — its citations must not be dropped
+    // just because the overview also has one.
     expect(
       screen.getByRole('button', { name: /source: ballotpedia\.org/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /source: janerival\.example\.com/i }),
     ).toBeInTheDocument()
   })
 
