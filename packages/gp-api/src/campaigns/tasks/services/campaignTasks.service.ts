@@ -419,7 +419,11 @@ export class CampaignTasksService extends createPrismaBase(
         where: { campaignId },
       })
       if (trackerTaskCount > 0) {
-        await this.trackerTasks.notifyProUpgrade(campaignId)
+        // Skip the stamp when nothing was sent (e.g. upgrade before the first
+        // generation), mirroring the legacy no-tasks guard below, so
+        // notifyTasksGenerated can announce the first week when it lands.
+        const notified = await this.trackerTasks.notifyProUpgrade(campaignId)
+        if (!notified) return
       } else {
         const defaultTasksCount = await this.model.count({
           where: { campaignId, isDefaultTask: true },

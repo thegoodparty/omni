@@ -402,9 +402,11 @@ describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
   it('posts the earliest incomplete task window to casClickupTasks for Pro', async () => {
     h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
     // The window is anchored to the earliest incomplete task, not the clock.
-    h.prisma.campaignTrackerTask.findFirst.mockResolvedValueOnce({
-      date: new Date('2026-07-06'),
-    })
+    // findFirst: earliest incomplete, then the latest dynamic generation (guard
+    // + postCampaignWeekToSlack), which must be non-null to send.
+    h.prisma.campaignTrackerTask.findFirst
+      .mockResolvedValueOnce({ date: new Date('2026-07-06') })
+      .mockResolvedValue({ week: 2 })
     h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce([
       {
         id: 't1',
@@ -413,8 +415,9 @@ describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
         flowType: 'doorKnocking',
       },
     ])
-    await h.service.notifyProUpgrade(42)
+    const result = await h.service.notifyProUpgrade(42)
 
+    expect(result).toBe(true)
     expect(h.slack.message).toHaveBeenCalledTimes(1)
     const [message, channel] = firstOrThrow(h.slack.message.mock.calls)
     expect(channel).toBe(SlackChannel.casClickupTasks)
@@ -423,10 +426,24 @@ describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
     expect(text).toContain('Door knock')
   })
 
-  it('does nothing when there are no incomplete tasks', async () => {
+  it('does nothing and returns false when there are no incomplete tasks', async () => {
     h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
     // findFirst (earliest incomplete task) defaults to null
-    await h.service.notifyProUpgrade(42)
+    const result = await h.service.notifyProUpgrade(42)
+    expect(result).toBe(false)
+    expect(h.slack.message).not.toHaveBeenCalled()
+  })
+
+  it('does not post before the first dynamic generation and returns false', async () => {
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(proCampaign())
+    // Static tasks are materialized (earliest exists) but no dynamic generation
+    // has landed yet, so the pro-upgrade post is skipped: notifyTasksGenerated
+    // announces the first week when generation 1 completes.
+    h.prisma.campaignTrackerTask.findFirst
+      .mockResolvedValueOnce({ date: new Date('2026-07-06') })
+      .mockResolvedValueOnce(null)
+    const result = await h.service.notifyProUpgrade(42)
+    expect(result).toBe(false)
     expect(h.slack.message).not.toHaveBeenCalled()
   })
 
@@ -457,10 +474,11 @@ describe('CampaignTrackerTasksService Slack query scoping', () => {
     h.prisma.campaign.findUnique.mockResolvedValueOnce(
       proCampaign({ details: { electionDate } }),
     )
-    // notifyProUpgrade: earliest incomplete task, then latest generation.
+    // findFirst: earliest incomplete task, then the latest generation (fetched
+    // for the guard and again inside postCampaignWeekToSlack).
     h.prisma.campaignTrackerTask.findFirst
       .mockResolvedValueOnce({ date: new Date('2026-07-06') })
-      .mockResolvedValueOnce({ week: 3 })
+      .mockResolvedValue({ week: 3 })
     h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce([])
     await h.service.notifyProUpgrade(42)
     return firstOrThrow(h.prisma.campaignTrackerTask.findMany.mock.calls)[0]

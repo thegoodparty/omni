@@ -424,19 +424,32 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   // time, which can predate this upgrade (Stripe webhook, no time constraint), so
   // deriving the window from the current clock can land on an empty future week.
   // Anchor it to the earliest incomplete task instead, so it always lands on real
-  // tasks. Cohort gating (tracker rows) + idempotency live in the caller.
-  async notifyProUpgrade(campaignId: number): Promise<void> {
+  // tasks. Cohort gating (tracker rows) + idempotency live in the caller. Returns
+  // false without posting when there is nothing to send (not Pro, no tasks, or no
+  // dynamic generation yet) so the caller can skip the notified-at stamp.
+  async notifyProUpgrade(campaignId: number): Promise<boolean> {
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },
       include: { user: true },
     })
-    if (!campaign?.isPro) return
+    if (!campaign?.isPro) return false
     const earliest = await this.model.findFirst({
       where: { campaignId, completed: false },
       orderBy: { date: Prisma.SortOrder.asc },
       select: { date: true },
     })
-    if (!earliest) return
+    if (!earliest) return false
+    // Skip until the first CAP generation lands. The upgrade can arrive before it
+    // (async Stripe webhook); with no dynamic rows the week collapses to the
+    // deterministic outreach, which is election-relative and rarely falls in the
+    // window, so the post would read "Tasks (0): None". notifyTasksGenerated
+    // announces the first week (generation 1) when it lands instead.
+    const latest = await this.model.findFirst({
+      where: { campaignId, isDefaultTask: false },
+      orderBy: { week: Prisma.SortOrder.desc },
+      select: { week: true },
+    })
+    if (!latest) return false
     // Floor to the earliest task's Monday so postCampaignWeekToSlack's Mon-Sun
     // window (and label) align to a real calendar week — earliest.date may fall
     // on any weekday.
@@ -445,6 +458,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       mondayOfWeekUtc(earliest.date),
       ':tada: *Pro upgrade: your campaign tasks*',
     )
+    return true
   }
 
   // Build + post one Mon-Sun week's task list for a Pro campaign to
