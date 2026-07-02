@@ -1315,6 +1315,10 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       items: ['Housing'],
       sources: [expectedSource(BALLOTPEDIA_URL, 'ballotpedia')],
     })
+    // Transitional: the deployed webapp reads keyPositions.length unguarded,
+    // so a freshly regenerated summary must still carry the (empty) key until
+    // ENG-10635 migrates the UI off it.
+    expect(opponent.summary.keyPositions).toEqual([])
     // The opponent_website collected row surfaces as websiteUrl on the
     // opponent object, independent of the summary.
     expect(opponent.websiteUrl).toBe(WEBSITE_URL)
@@ -1421,6 +1425,21 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     expect((rows[0]?.sections as { strengths: string[] }).strengths).toEqual([
       'Updated strength',
     ])
+
+    // A later run with field_analysis: null (e.g. the campaign lost its
+    // candidate_platform) deletes the existing row rather than leaving the
+    // stale SWOT behind.
+    const third = await seedSummaryRun('summary-fa-3')
+    stubSummaryArtifact(summaryArtifact({}, { field_analysis: null }))
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(third)
+
+    expect(
+      await service.prisma.raceOpponentFieldAnalysis.findMany({
+        where: { campaignId },
+      }),
+    ).toHaveLength(0)
   })
 
   it('read endpoint returns summary null + raw items when no summary row exists', async () => {

@@ -440,6 +440,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
       threatTier: opponent.threat_tier,
       whyTheyreRunning: opponent.why_theyre_running,
       issuesThatMatter: issuesThatMatter(opponent.issues_that_matter),
+      // Transitional: the deployed webapp reads keyPositions.length unguarded,
+      // so a persisted summary must carry the key until ENG-10635 migrates the
+      // UI off it — then drop this.
+      keyPositions: [],
     })
   }
 
