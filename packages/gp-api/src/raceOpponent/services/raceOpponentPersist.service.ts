@@ -87,7 +87,11 @@ type ArtifactFieldAnalysis = z.infer<typeof ArtifactFieldAnalysisSchema>
 
 const ArtifactSummaryOpponentSchema = z.object({
   opponent_name: z.string(),
-  threat_tier: RaceOpponentThreatTierSchema,
+  // The v2 output schema requires this, but a v1 run dispatched before this
+  // deploy (v1 emitted the tier optionally) can complete after it, and
+  // ExperimentRun carries no manifest-version discriminator to branch on — a
+  // missing tier must not fail the whole run.
+  threat_tier: RaceOpponentThreatTierSchema.optional(),
   overview: ArtifactDescriptiveSectionSchema.nullable().optional(),
   why_theyre_running: ArtifactWhyTheyreRunningSchema.nullable().optional(),
   background: ArtifactDescriptiveSectionSchema.nullable().optional(),
@@ -330,9 +334,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
   // re-insert from the artifact in one transaction, so a re-run overwrites
   // cleanly rather than accumulating duplicates. The caller guarantees a
   // non-empty items list — the empty cases are handled upstream. The campaign's
-  // structured summaries are cleared in the same transaction: they were built
-  // from the now-replaced collected text, so leaving them would let GET pair
-  // fresh items with stale summary text until the chained summary run lands.
+  // structured summaries AND field analysis are cleared in the same
+  // transaction: both were built from the now-replaced collected text, so
+  // leaving either would let GET pair fresh items with stale analysis until
+  // the chained summary run lands — indefinitely, if that run fails.
   private async replaceForCampaign(
     campaignId: number,
     runId: string,
@@ -341,6 +346,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponent.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
+      await tx.raceOpponentFieldAnalysis.deleteMany({ where: { campaignId } })
       await tx.raceOpponent.createMany({
         data: items.map((item) => ({
           campaignId,

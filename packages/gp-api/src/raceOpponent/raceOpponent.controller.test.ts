@@ -1730,21 +1730,30 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     expect(opponent.summary.overview.text).toBe('second')
   })
 
-  it('clears stale summaries when a collection run replaces the collected rows', async () => {
-    // Seed a prior summary plus the prior collected row it was built from.
+  it('clears stale summaries and field analysis when a collection run replaces the collected rows', async () => {
+    // Seed a prior summary + field analysis plus the prior collected row they
+    // were built from.
     await seedCollectedRow()
     const summaryRun = await seedSummaryRun('summary-stale')
-    stubSummaryArtifact(summaryArtifact())
+    stubSummaryArtifact(
+      summaryArtifact({}, { field_analysis: fieldAnalysisArtifact() }),
+    )
     await service.app
       .get(RaceOpponentPersistService)
       .onExperimentRunCompleted(summaryRun)
     expect(
       await service.prisma.raceOpponentSummary.count({ where: { campaignId } }),
     ).toBe(1)
+    expect(
+      await service.prisma.raceOpponentFieldAnalysis.count({
+        where: { campaignId },
+      }),
+    ).toBe(1)
 
     // A fresh collection run replaces the collected rows; its chained summary
-    // dispatch is stubbed, so without the cleanup the stale summary would
-    // survive and GET would pair fresh items with stale structured text.
+    // dispatch is stubbed, so without the cleanup the stale summary and SWOT
+    // would survive — indefinitely, if that chained run failed — and GET would
+    // pair fresh items with stale structured analysis.
     const collectionRun = await service.prisma.experimentRun.create({
       data: {
         runId: 'collect-replace',
@@ -1778,6 +1787,11 @@ describe('race_opponent_summary dispatch / persist / read', () => {
 
     expect(
       await service.prisma.raceOpponentSummary.count({ where: { campaignId } }),
+    ).toBe(0)
+    expect(
+      await service.prisma.raceOpponentFieldAnalysis.count({
+        where: { campaignId },
+      }),
     ).toBe(0)
   })
 
@@ -1835,6 +1849,35 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       candidate_platform?: unknown
     }
     expect(params.candidate_platform).toBeUndefined()
+  })
+
+  it('persists an artifact opponent without threat_tier (in-flight v1 run) and GET omits the tier', async () => {
+    // A v1 run dispatched before this deploy emitted threat_tier optionally
+    // and can complete after it; a missing tier must persist, not markFailed.
+    await seedCollectedRow()
+    const run = await seedSummaryRun('summary-no-tier')
+    // JSON.stringify drops the undefined key, so the artifact omits it.
+    stubSummaryArtifact(summaryArtifact({ threat_tier: undefined }))
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'summary-no-tier' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+    expect(result.status).toBe(200)
+    const opponent = result.data.opponents.find(
+      (o: { opponentName: string }) => o.opponentName === JANE,
+    )
+    expect(opponent.summary).not.toBeNull()
+    expect(opponent.summary.threatTier).toBeUndefined()
+    expect(opponent.threatTier).toBeUndefined()
   })
 
   it('persists a descriptive-only artifact (no why_theyre_running/issues_that_matter) without 500ing', async () => {
