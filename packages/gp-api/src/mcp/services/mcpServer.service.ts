@@ -75,7 +75,7 @@ const joinPath = (controllerPath: string, methodPath: string): string => {
     : methodPath
       ? `/${methodPath}`
       : ''
-  return `${c}${m}`.replace(/\/+/g, '/')
+  return `${c}${m}`.replace(/\/+/g, '/').replace(/(.+)\/$/, '$1')
 }
 
 const DROPPED_REQUEST_HEADERS = new Set([
