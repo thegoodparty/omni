@@ -51,16 +51,24 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `PageHeader` (heading "Know Your Opponent", `leading` overridden to the same
   swords icon as the `DashboardMenu` nav item) as a full-bleed top bar — this
   replaced the old feature-local `OpponentPageHeader` (deleted) and the
-  `DashboardLayout` `navHeader` prop for this route. Everything below it
-  (locked view or `RaceOpponentList`) sits in a `bg-muted px-4 py-6 lg:px-8`
-  body; each state centers itself in that body with its own `mx-auto max-w-*`
-  (608px for the report/processing screen, 560px for the locked view and the
-  manual-entry form) rather than the shell dictating one width for all of them.
+  `DashboardLayout` `navHeader` prop for this route. The bar is desktop-only
+  (`max-lg:hidden`), like the `DashboardNavHeader` it replaced: on mobile the
+  title lives in `MobileMenuTrigger`'s top bar via this route's
+  `MOBILE_PAGE_TITLES` entry in `DashboardLayout` — keep that entry, or mobile
+  loses its title; drop the `max-lg:hidden`, and mobile shows two stacked title
+  bars. Everything below it (locked view or `RaceOpponentList`) sits in a
+  `bg-muted px-4 py-6 lg:px-8` body; each state centers itself in that body
+  with its own `mx-auto max-w-*` (608px for the report/processing screen, 560px
+  for the locked view and the manual-entry form) rather than the shell
+  dictating one width for all of them.
 - **List + state machine**: `RaceOpponentList.tsx` (the orchestrator — owns the poll,
   status, and the precedence ladder above). Owns the "N candidates filed for
-  this seat" field-header row (heading + office/district subtitle + the
-  icon-only round "Export brief" button, `aria-label="Export brief"`) — there
-  is no separate page-level header component anymore.
+  this seat" field-header row (heading + subtitle + the icon-only round
+  "Export brief" button, `aria-label="Export brief"`) — there is no separate
+  page-level header component anymore. It takes two page-computed strings:
+  `racePlace` (office/district, feeds the subtitle; falls back to "in your
+  race" when absent) and `raceContext` (place + election date, feeds only the
+  PDF export header).
 - **Activation/UX (P4)**: `OpponentProLockedView`, `AddOpponentsForm`,
   `OpponentResearchProgress`.
 - **Analytical view (P3)**: `OpponentOverviewCard`, `ThreatTierBadge` (a colored

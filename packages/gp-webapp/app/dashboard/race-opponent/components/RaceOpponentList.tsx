@@ -440,12 +440,16 @@ const COLLECT_TIMEOUT_MS = 30_000
 
 type Props = {
   initialData: RaceOpponentResponse
+  // Office/district + election date — feeds the PDF export header.
   raceContext?: string
+  // Office/district only — feeds the field-header subtitle.
+  racePlace?: string
 }
 
 const RaceOpponentList = ({
   initialData,
   raceContext,
+  racePlace,
 }: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const [data, setData] = useState<RaceOpponentResponse>(initialData)
@@ -461,11 +465,6 @@ const RaceOpponentList = ({
   const [openName, setOpenName] = useState<string>(() =>
     defaultOpenFor(initialData.opponents),
   )
-
-  // raceContext also feeds the PDF export header (which wants the election
-  // date); the field-header subtitle only shows the office/district portion,
-  // so split off the " · Election ..." suffix raceContextFor appends.
-  const fieldSubtitlePlace = raceContext?.split(' · Election ')[0]
 
   const [campaign] = useCampaign()
 
@@ -776,7 +775,7 @@ const RaceOpponentList = ({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[608px] flex-col gap-6 pb-28 pt-6">
+    <div className="mx-auto flex w-full max-w-[608px] flex-col gap-6 pb-28">
       {data.opponents.length === 0 ? (
         // No opponents and not processing — a run in flight (incl. the never-ran
         // auto-start and the idle-mid-run gap) is handled above by the processing
@@ -822,12 +821,10 @@ const RaceOpponentList = ({
                 {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
                 for this seat
               </h2>
-              {fieldSubtitlePlace && (
-                <p className="text-sm text-muted-foreground">
-                  We identified and ranked every candidate running for{' '}
-                  {fieldSubtitlePlace}.
-                </p>
-              )}
+              <p className="text-sm text-muted-foreground">
+                We identified and ranked every candidate running{' '}
+                {racePlace ? <>for {racePlace}</> : 'in your race'}.
+              </p>
             </div>
             <IconButton
               variant="outline"

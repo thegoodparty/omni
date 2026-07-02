@@ -92,6 +92,26 @@ describe('dashboard/race-opponent page', () => {
     expect(document.querySelectorAll('h1')).toHaveLength(1)
   })
 
+  it.each([
+    ['Pro', true],
+    ['non-Pro', false],
+  ])(
+    'hides the PageHeader below lg on the %s branch so mobile keeps the single top-bar title',
+    async (_label, isPro) => {
+      mockFetchUserCampaign.mockResolvedValue({ isPro, details: {} })
+
+      render(await Page())
+
+      // On mobile the page title lives in MobileMenuTrigger's top bar (this
+      // route's MOBILE_PAGE_TITLES entry in DashboardLayout); without
+      // max-lg:hidden the page would stack two title bars with duplicate h1s
+      // below the lg breakpoint.
+      const pageHeader = document.querySelector('[data-slot="page-header"]')
+      expect(pageHeader).not.toBeNull()
+      expect(pageHeader).toHaveClass('max-lg:hidden')
+    },
+  )
+
   it('never renders a contrasts section, even when the page has opponent data', async () => {
     render(await Page())
 

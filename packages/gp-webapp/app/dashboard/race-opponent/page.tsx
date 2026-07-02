@@ -17,13 +17,19 @@ const EMPTY_RACE_OPPONENT: RaceOpponentResponse = {
   collectionStatus: 'idle',
 }
 
-const raceContextFor = (
+const racePlaceFor = (
   office: string | undefined,
   district: string | undefined,
+): string | undefined => {
+  const place = [office, district].filter(Boolean).join(', ')
+  return place || undefined
+}
+
+const raceContextFor = (
+  place: string | undefined,
   electionDate: string | undefined,
 ): string | undefined => {
   const parts: string[] = []
-  const place = [office, district].filter(Boolean).join(', ')
   if (place) {
     parts.push(place)
   }
@@ -69,7 +75,12 @@ export default async function Page(): Promise<React.JSX.Element> {
         showAlert={false}
         wrapperClassName="!p-0"
       >
+        {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile the
+            title lives in MobileMenuTrigger's top bar (MOBILE_PAGE_TITLES in
+            DashboardLayout), so rendering this below lg would stack two title
+            bars with duplicate h1s. */}
         <PageHeader
+          className="max-lg:hidden"
           heading="Know Your Opponent"
           leading={
             <SwordsIcon className="size-5 text-foreground" aria-hidden />
@@ -98,11 +109,13 @@ export default async function Page(): Promise<React.JSX.Element> {
     ? raceOpponentResult.data
     : EMPTY_RACE_OPPONENT
 
-  const raceContext = raceContextFor(
+  // racePlace (office + district) feeds the field-header subtitle;
+  // raceContext (place + election date) keeps feeding the PDF export header.
+  const racePlace = racePlaceFor(
     campaign.details?.normalizedOffice ?? campaign.positionName ?? undefined,
     campaign.details?.district,
-    campaign.details?.electionDate,
   )
+  const raceContext = raceContextFor(racePlace, campaign.details?.electionDate)
 
   return (
     <DashboardLayout
@@ -110,7 +123,9 @@ export default async function Page(): Promise<React.JSX.Element> {
       showAlert={false}
       wrapperClassName="!p-0"
     >
+      {/* Desktop-only — see the non-Pro branch's note. */}
       <PageHeader
+        className="max-lg:hidden"
         heading="Know Your Opponent"
         leading={<SwordsIcon className="size-5 text-foreground" aria-hidden />}
       />
@@ -119,6 +134,7 @@ export default async function Page(): Promise<React.JSX.Element> {
           <RaceOpponentList
             initialData={initialData}
             raceContext={raceContext}
+            racePlace={racePlace}
           />
         </div>
       </FeatureFlagGuard>

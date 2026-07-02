@@ -875,15 +875,34 @@ describe('<RaceOpponentList>', () => {
       <RaceOpponentList
         initialData={withSummary}
         raceContext="State House, District 21 · Election November 3, 2026"
+        racePlace="State House, District 21"
       />,
     )
 
+    // The subtitle reads from racePlace, not raceContext — the election date
+    // that raceContext carries for the PDF export header never shows here.
     expect(
       screen.getByText(
         'We identified and ranked every candidate running for State House, District 21.',
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText(/november 3, 2026/i)).not.toBeInTheDocument()
+  })
+
+  it('falls back to a generic subtitle when no racePlace is known', () => {
+    render(
+      <RaceOpponentList
+        initialData={withSummary}
+        raceContext="Election November 3, 2026"
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'We identified and ranked every candidate running in your race.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/running for/i)).not.toBeInTheDocument()
   })
 
   it('renders the export button as icon-only with an accessible name', () => {
