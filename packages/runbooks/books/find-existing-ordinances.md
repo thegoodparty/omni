@@ -126,6 +126,23 @@ Confidence: <high|medium|low>   Data quality: <ok|partial|uncodified|not_found|a
 - **The runner is network-quarantined.** `resolve_ordinance_code.py` uses `urllib` to reach `api.municode.com` and `generalcode.com`; in the experiment those calls become `pmf_runtime.http.get(url)`, and the directory-matching logic lives in the instruction. `WebSearch` stays `WebSearch` (never `WebFetch`).
 - **PDF handling.** The runtime's `http.get` refuses binary content; the instruction uses `pmf_runtime.http.download(url)` (returns `{path, byte_size, source_url, content_type}`) and extracts text with pypdf (`pdftotext` is not in the container).
 - **The same-name-trap verification and the fact #5 found-contract live in CRITICAL RULES.** They are the accuracy contract, not optional niceties.
-- Output schema: `jurisdiction {state, place, verified_evidence}`, `code_found`, `code_source {host_type, url, edition_or_date, client_id?, product_id?}`, `confidence`, optional `toc[]` (items need only `title`), `data_quality` (`ok` | `partial` | `uncodified` | `not_found` | `ambiguous`), and `code_capture` (files saved to `/workspace/code_capture/`, persisted at `.../{run_id}/logs/workspace/code_capture/` in the artifacts bucket; `saved: false` for walled hosts).
+- Output schema: `jurisdiction {state, place, verified_evidence}`, `code_found`, `code_source {host_type, url, edition_or_date, client_id?, product_id?}`, `confidence`, optional `toc[]` (items need only `title`), `data_quality` (`ok` | `partial` | `uncodified` | `not_found` | `ambiguous`), and `code_capture` (see the access kit below; `saved: true` only when actual code files are in hand).
+
+## The access kit (code_capture/) — what every run leaves behind
+
+`code_capture/` under the run's workspace (persisted at `.../{run_id}/logs/workspace/code_capture/` in the artifacts bucket) is an access kit for future consumers — agents or humans who need the code text later without redoing the search. It is built only from data the run already fetched (capture triggers no new searches) and always contains at least a `README.md`:
+
+| File | When | What it gives the next consumer |
+| --- | --- | --- |
+| `README.md` | always | The conclusion + where the code lives + a per-host fetch recipe + run date. Never empty: for a walled code it reads "no downloadable file; the code is at {url}"; for uncodified, "no consolidated code; individual ordinances at {url}". |
+| code files (pdf/html) | direct URL held (city-hosted; township zoning resolutions) | The law itself, byte-verified against `code_capture.files[]`. |
+| `municode_toc.json` | Municode hits | Raw `codesToc` JSON — node IDs for per-section `CodesContent` fetches or the full-code `ArchivedContent` zip (server-side, `X-CSRF: 1`). |
+| `pages/*.md` | load-bearing pages already fetched | Rendered-text snapshots with `source_url`/`fetched_at` headers — survives URL rot and site redesigns; for uncodified towns the ordinances-index snapshot is an index of their individual laws. |
+
+## What format each codifier returns (for downstream fetchers)
+
+- **Municode (~48% of found codes):** open JSON API, no auth. `codesToc` = structure; `CodesContent?jobId&nodeId&productId` = section text as HTML fragments inside JSON; `ArchivedContent` = full-code ZIP of HTML (requires the `X-CSRF: 1` header — server-side only, the broker cannot send headers). The artifact's `client_id`/`product_id` are the stable handles.
+- **American Legal (~25%) and eCode360 (~14%):** HTML behind Cloudflare bot walls; no open API. The broker's stealth Chromium passes intermittently (amlegal pages have been body-verified through it); plain HTTP clients get 403 challenges. Bulk retrieval is a ToS/licensing conversation before an engineering one.
+- **City-hosted (~7%):** direct PDF/HTML files — captured at run time when the URL is held.
 
 See `experiments/CLAUDE.md` for the runbook → experiment lifecycle.

@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "find_existing_ordinances",
-  "version": 1,
+  "version": 2,
   "model": "sonnet",
   "max_turns": 100,
   "timeout_seconds": 3000,
@@ -241,11 +241,11 @@
         "properties": {
           "saved": {
             "type": "boolean",
-            "description": "True when full code text (or the code document set) was captured to the workspace."
+            "description": "True only when actual code text (a code document file) was captured. README/snapshots/API-JSON alone keep this false."
           },
           "files": {
             "type": "array",
-            "maxItems": 5,
+            "maxItems": 10,
             "items": {
               "type": "object",
               "additionalProperties": false,
