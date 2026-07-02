@@ -81,8 +81,8 @@ o = re.sub(r"\s*-\s*(district|ward|seat|precinct|place|position|at[- ]large)\b.*
 kind = "municipal"
 if re.search(r"\b(house of delegates|house of representatives|state senate|state assembly|"
              r"general assembly|state house)\b", o, re.I):
-    kind = "state"          # state-level office: municipal code does not apply. Conclude NOW:
-                            # found=false, data_quality "not_found", confidence "low", place = the state,
+    kind = "state"; place = state   # state-level office: municipal code does not apply. Conclude NOW:
+                            # found=false, data_quality "not_found", confidence "low",
                             # verified_evidence notes the office is state-level. Do not search.
 m = re.match(r"^(.*?)\s+County:\s*(.*)$", o, flags=re.I)   # "Washington County: Muskingum Township Trustee"
 if m:
