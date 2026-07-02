@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import { CAMPAIGN_QUERY_KEY } from '@shared/hooks/CampaignProvider'
 
 const TRACKER_TASKS_ROUTE = 'GET /v1/campaigns/tracker-tasks' as const
 const TRACKER_TASKS_QUERY_KEY = ['campaign-tracker-tasks', 'mine'] as const
@@ -113,7 +114,14 @@ export function useToggleTrackerTaskComplete() {
         : clientRequest('DELETE /v1/campaigns/tracker-tasks/complete/:id', {
             id,
           }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY }),
+    onSuccess: (_data, { type, quantity }) => {
+      queryClient.invalidateQueries({ queryKey: TRACKER_TASKS_QUERY_KEY })
+      // A recorded voter count lands on campaign.data.reportedVoterGoals, which
+      // the progress bar reads — refetch the campaign so it updates without a
+      // manual page refresh.
+      if (type && quantity) {
+        queryClient.invalidateQueries({ queryKey: CAMPAIGN_QUERY_KEY })
+      }
+    },
   })
 }
