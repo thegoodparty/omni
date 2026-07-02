@@ -34,7 +34,8 @@ _CLIENTS = {
          {"ClientID": 501, "ClientName": "Clinton Charter Township, (Macomb Co.)"}],
     # Ohio-style trap: same-named townships in two counties of one state.
     30: [{"ClientID": 600, "ClientName": "Bethel Township, (Clark Co.)"},
-         {"ClientID": 601, "ClientName": "Bethel Township, (Miami Co.)"}],
+         {"ClientID": 601, "ClientName": "Bethel Township, (Miami Co.)"},
+         {"ClientID": 700, "ClientName": "Licking County"}],
 }
 _PRODUCTS = {999: [{"ProductID": 12100, "ProductName": "Code of Ordinances"}]}
 _GC_HTML = """
@@ -84,6 +85,9 @@ def _fake_network(monkeypatch):
     ("Ada Township, (Kent Co.)", "ada township"),
     ("Ann Arbor Charter Township, (Washtenaw Co.)", "ann arbor township"),
     ("Breitung Chrtr Township, (Dickinson Co.)", "breitung township"),
+    ("Licking County Commission", "licking county"),
+    ("Fairfax County Board of Supervisors", "fairfax county"),
+    ("St. Louis County Council", "st louis county"),
 ])
 def test_norm_reduces_to_bare_place(raw, expected):
     assert r.norm(raw) == expected
@@ -168,3 +172,12 @@ def test_ambiguous_same_named_townships_do_not_resolve():
     # picking either would be a coin flip — the resolver must fall through.
     out = r.resolve("OH", "Bethel Township Trustee")
     assert out["resolved"] is False
+
+
+def test_county_office_resolves_to_county_code():
+    # County offices target the COUNTY's code; the body suffix must strip while
+    # "County" stays part of the jurisdiction name (unlike city body words).
+    out = r.resolve("OH", "Licking County Commission")
+    assert out["resolved"] is True
+    assert out["matched"] == "Licking County"
+    assert out["code_url"] == "https://library.municode.com/oh/licking_county/codes/code_of_ordinances"

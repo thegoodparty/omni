@@ -60,6 +60,14 @@ def _get(url, timeout=30):
     return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=timeout).read()
 
 
+# County-office suffixes (mirrors the experiment instruction's Step 1 CBODY):
+# the COUNTY is the jurisdiction, so "County" stays in the name.
+_CBODY_RE = re.compile(
+    r"^(.*?)\s+county\s+(commission(ers)?|council|legislature|"
+    r"board of supervisors|board)\b"
+)
+
+
 def norm(name):
     """Reduce a raw office/place string to a bare, comparable place name.
 
@@ -70,6 +78,10 @@ def norm(name):
     n = re.sub(r"\(unexpired term\)", "", n)
     n = re.sub(r"\(est\.?\)", "", n)
     n = re.sub(r",?\s*\([^)]*co\.?\)\s*", " ", n)  # Municode county tag: "Ada Township, (Kent Co.)"
+    m = _CBODY_RE.match(n)
+    if m:
+        n = m.group(1).strip() + " county"
+        return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", n)).strip()
     n = re.sub(r"^(city|town|village|borough|township|municipality|county) of ", "", n)
     n = re.sub(r"\b(charter|chrtr)\s+township\b", "township", n)
     if re.search(r"\btownship\b", n):
