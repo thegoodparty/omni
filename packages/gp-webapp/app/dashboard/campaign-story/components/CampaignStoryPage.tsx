@@ -30,6 +30,10 @@ interface CampaignStoryPageProps {
   // with the Pro-upgrade flow). Empty when they have no website yet.
   initialBio: string
   initialIssues: WebsiteIssue[]
+  // Whether campaign plan generation has already been kicked off (a strategy
+  // row exists), including via the campaign manager chat. When true the footer
+  // points to the plan instead of offering to generate it again.
+  planExists?: boolean
 }
 
 const CampaignStoryPage = ({
@@ -37,6 +41,7 @@ const CampaignStoryPage = ({
   initialStory,
   initialBio,
   initialIssues,
+  planExists = false,
 }: CampaignStoryPageProps): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const queryClient = useQueryClient()
@@ -145,11 +150,15 @@ const CampaignStoryPage = ({
           {allAnswered && (
             <div className="sticky bottom-4 z-10 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-white p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
               <span className="text-sm font-medium text-foreground">
-                Your Campaign Story is ready.
+                {planExists
+                  ? 'Your Campaign Plan is on its way.'
+                  : 'Your Campaign Story is ready.'}
               </span>
               <Button asChild className="sm:shrink-0">
                 <Link href="/dashboard/campaign-plan">
-                  Generate my Campaign Plan
+                  {planExists
+                    ? 'View my Campaign Plan'
+                    : 'Generate my Campaign Plan'}
                 </Link>
               </Button>
             </div>

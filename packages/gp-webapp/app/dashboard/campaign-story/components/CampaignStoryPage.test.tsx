@@ -100,6 +100,8 @@ const oneIssue: WebsiteIssue[] = [{ title: 't', description: 'd' }]
 
 const footerLink = () =>
   screen.queryByRole('link', { name: 'Generate my Campaign Plan' })
+const viewPlanLink = () =>
+  screen.queryByRole('link', { name: 'View my Campaign Plan' })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -127,6 +129,21 @@ describe('CampaignStoryPage', () => {
       />,
     )
     expect(footerLink()).toHaveAttribute('href', '/dashboard/campaign-plan')
+  })
+
+  it('shows a view-plan footer instead of generate once plan generation has been kicked off', () => {
+    render(
+      <CampaignStoryPage
+        initialStory={story}
+        initialBio={BIO}
+        initialIssues={oneIssue}
+        planExists
+      />,
+    )
+    // The story is complete, but a plan already exists (e.g. the manager
+    // kicked off generation), so the CTA points to the plan, not "generate".
+    expect(footerLink()).not.toBeInTheDocument()
+    expect(viewPlanLink()).toHaveAttribute('href', '/dashboard/campaign-plan')
   })
 
   it('reveals the footer once why, background, and an issue are all present', async () => {
