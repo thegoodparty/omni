@@ -42,11 +42,17 @@ STATE_NAMES = {
     "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
 }
 
+# Governing-body suffixes, longest-first (mirrors the experiment instruction's
+# Step 1 BODY list). Bare "township" is deliberately absent: townships are
+# distinct jurisdictions indexed WITH the suffix, handled separately in norm().
 _BODY_RE = re.compile(
-    r"\s+(city council|city commission|common council|borough council|village board|"
-    r"village trustee|village council|town council|town board|board of aldermen|"
-    r"board of trustees|board of selectmen|board of commissioners|city|town|village|"
-    r"borough|township)\b.*$"
+    r"\s+(city council|city commission(er)?|common council|borough council|"
+    r"village board|village trustee|village council|town council|town board|"
+    r"town commission|village commission|board of aldermen|board of trustees|"
+    r"board of selectmen|board of selectpersons|select board|selectboard|"
+    r"town chair(man)?|town supervisor|village president|mayor|city treasurer|"
+    r"city clerk|town clerk|city auditor|alderman|alderwoman|councilmember|"
+    r"council member|board of commissioners|city|town|village|borough)\b.*$"
 )
 
 
@@ -62,9 +68,16 @@ def norm(name):
     """
     n = name.lower().strip()
     n = re.sub(r"\(unexpired term\)", "", n)
-    n = re.sub(r"^(city|town|village|borough|township|municipality|county) of ", "", n)
-    n = _BODY_RE.sub("", n)
     n = re.sub(r"\(est\.?\)", "", n)
+    n = re.sub(r",?\s*\([^)]*co\.?\)\s*", " ", n)  # Municode county tag: "Ada Township, (Kent Co.)"
+    n = re.sub(r"^(city|town|village|borough|township|municipality|county) of ", "", n)
+    n = re.sub(r"\b(charter|chrtr)\s+township\b", "township", n)
+    if re.search(r"\btownship\b", n):
+        # Townships are indexed WITH the suffix; drop only role words after it
+        # so "Clinton Township Trustee" stays distinct from a city "Clinton".
+        n = re.sub(r"(\btownship\b).*$", r"\1", n)
+    else:
+        n = _BODY_RE.sub("", n)
     n = re.sub(r"[^a-z0-9 ]", "", n)
     return re.sub(r"\s+", " ", n).strip()
 

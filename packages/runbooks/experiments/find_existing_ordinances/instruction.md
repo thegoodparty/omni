@@ -59,7 +59,8 @@ Hosts 2-7 are not directly listable/guessable in this runtime, so you reach them
 ```python
 from pmf_runtime import http
 d = http.download(pdf_url)          # -> {"path", "byte_size", "source_url", "content_type"}
-# read text: pdftotext if available, else python3 -c with pypdf; even the first pages' text
+# read text: pdftotext -layout <path> -   (poppler-utils ships in this container).
+# NEVER pip install anything — there is no PyPI egress. Even the first pages' text
 # is enough to check for a codified TOC (chapters/articles/sections).
 ```
 
@@ -132,7 +133,7 @@ def japi(url):
     except Exception: return json.loads(re.search(r"[\[{].*[\]}]", b, re.S).group(0))
 def nrm(s):   # for MATCHING only — never build the URL from this
     s = re.sub(r"^(city|town|village|borough|township) of\s+", "", s.lower().strip())
-    return re.sub(r"\s+(city|town|village|borough|township)$", "", s).strip()
+    return re.sub(r"\s+(city|town|village|borough)$", "", s).strip()   # NOT township: townships are indexed WITH the suffix (Step 1)
 states  = japi("https://api.municode.com/States")
 sid     = next(s["StateID"] for s in states if s["StateAbbreviation"] == state)
 clients = japi(f"https://api.municode.com/Clients/stateId/{sid}")   # state-scoped -> cannot leak another state
@@ -152,7 +153,7 @@ results = WebSearch(query=f"{place} {state} code of ordinances")
 
 ### Step 5: the uncodified gate (PDF content test), then degrade honestly
 You may NOT conclude `uncodified` from the look of a page. Before degrading:
-1. On the city's ordinance/documents page, pick the most code-like document (titles like "Municipal Code", "Code of Ordinances", "General Bylaws", "Codified Ordinances", a DocumentCenter "Code" category, or a records-portal folder named like the code). **The test is strictly bounded: at most 2 candidate documents, ONE extraction attempt each.** `http.download`, then extract text with pypdf (`pip install pypdf -q` once; `pdftotext` is not in this container). If the extraction yields codified structure (a TOC of chapters/articles/sections spanning topics) -> `code_found: true`, `host_type` "city_gov", `data_quality` "ok" (or "partial" + `edition_or_date` if visibly stale). **If a PDF yields little or no text it is a scan: do NOT retry other parsers, OCR, or byte-level inspection; count it as unverifiable and move on.** If a page only lists numbered one-off ordinance PDFs (no code-titled document), that IS the answer: skip the download and go to 5.2. Never crawl a sitemap.
+1. On the city's ordinance/documents page, pick the most code-like document (titles like "Municipal Code", "Code of Ordinances", "General Bylaws", "Codified Ordinances", a DocumentCenter "Code" category, or a records-portal folder named like the code). **The test is strictly bounded: at most 2 candidate documents, ONE extraction attempt each.** `http.download`, then extract text with `pdftotext -layout <path> -` (poppler-utils ships in this container; `pip install` cannot reach PyPI here — never attempt it). If the extraction yields codified structure (a TOC of chapters/articles/sections spanning topics) -> `code_found: true`, `host_type` "city_gov", `data_quality` "ok" (or "partial" + `edition_or_date` if visibly stale). **If a PDF yields little or no text it is a scan: do NOT retry other parsers, OCR, or byte-level inspection; count it as unverifiable and move on.** (If `pdftotext` is somehow missing, treat the document as unverifiable — never try to install a parser.) If a page only lists numbered one-off ordinance PDFs (no code-titled document), that IS the answer: skip the download and go to 5.2. Never crawl a sitemap.
 2. Check for a **basic-code adoption**: an ordinance titled like "adopting the <State> Basic Code, <year> edition" -> codified by reference (see CRITICAL RULES) -> `found`, "partial".
 3. Only if the page truly holds one-off ordinance PDFs with no codified document and no adoption: `code_found` false, `host_type` "city_gov", `url` = that page, `data_quality` "uncodified", `confidence` "low". Nothing at all tied to this place -> `code_source` null, "not_found". Multiple unconfirmed same-name candidates -> "ambiguous". Then STOP, do not spend more searches.
 

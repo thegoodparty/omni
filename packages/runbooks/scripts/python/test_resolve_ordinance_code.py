@@ -19,6 +19,7 @@ _STATES = [
     {"StateID": 25, "StateAbbreviation": "MO"},
     {"StateID": 4, "StateAbbreviation": "AR"},
     {"StateID": 9, "StateAbbreviation": "FL"},
+    {"StateID": 22, "StateAbbreviation": "MI"},
 ]
 _CLIENTS = {
     10: [{"ClientID": 999, "ClientName": "Alpharetta"}],
@@ -27,6 +28,9 @@ _CLIENTS = {
          {"ClientID": 201, "ClientName": "St. Louis"}],
     4: [{"ClientID": 300, "ClientName": "Little Rock"}],   # Arkansas, no Melbourne
     9: [{"ClientID": 400, "ClientName": "Melbourne"}],      # Florida Melbourne (the trap)
+    # Municode's real township naming: "Charter"/"Chrtr" variants + county tag.
+    22: [{"ClientID": 500, "ClientName": "Clinton, (Lenawee Co.)"},
+         {"ClientID": 501, "ClientName": "Clinton Charter Township, (Macomb Co.)"}],
 }
 _PRODUCTS = {999: [{"ProductID": 12100, "ProductName": "Code of Ordinances"}]}
 _GC_HTML = """
@@ -68,6 +72,14 @@ def _fake_network(monkeypatch):
     ("City of Albertville", "albertville"),
     ("FAIRHOPE CITY (EST.)", "fairhope"),
     ("Melbourne City Council - Ward 4, Position 2", "melbourne"),
+    ("Grafton Select Board", "grafton"),
+    ("Ripton Town Chair", "ripton"),
+    ("Lincoln Village President", "lincoln"),
+    ("Clinton Township Trustee", "clinton township"),
+    ("Muskingum Township Fiscal Officer", "muskingum township"),
+    ("Ada Township, (Kent Co.)", "ada township"),
+    ("Ann Arbor Charter Township, (Washtenaw Co.)", "ann arbor township"),
+    ("Breitung Chrtr Township, (Dickinson Co.)", "breitung township"),
 ])
 def test_norm_reduces_to_bare_place(raw, expected):
     assert r.norm(raw) == expected
@@ -131,3 +143,17 @@ def test_generalcode_rejects_same_name_other_state():
     # Clifton is listed under NJ only; a MI query for Clifton must not match it.
     out = r.resolve("MI", "Clifton City Council")
     assert out["resolved"] is False
+
+
+def test_township_matches_township_not_same_named_city():
+    # MI lists both "Clinton, (Lenawee Co.)" and "Clinton Charter Township, (Macomb Co.)".
+    # A township office must match the township entry, never the village/city.
+    out = r.resolve("MI", "Clinton Township Trustee")
+    assert out["resolved"] is True
+    assert out["matched"] == "Clinton Charter Township, (Macomb Co.)"
+
+
+def test_city_office_does_not_match_township():
+    out = r.resolve("MI", "Clinton City Council")
+    assert out["resolved"] is True
+    assert out["matched"] == "Clinton, (Lenawee Co.)"
