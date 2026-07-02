@@ -77,6 +77,23 @@ describe('FieldAnalysisSection', () => {
     expect(screen.queryByText('Weaknesses')).not.toBeInTheDocument()
   })
 
+  it('renders the section when exactly 2 quadrants have content', () => {
+    const analysis: RaceOpponentFieldAnalysis = {
+      ...fullFieldAnalysis,
+      weaknesses: [],
+      opportunities: [],
+    }
+    render(<FieldAnalysisSection fieldAnalysis={analysis} />)
+
+    expect(
+      screen.getByRole('heading', {
+        name: 'How your campaign stacks up against the field',
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Strengths')).toBeInTheDocument()
+    expect(screen.getByText('Threats')).toBeInTheDocument()
+  })
+
   it('omits the whole section when fewer than 2 quadrants have content', () => {
     const analysis: RaceOpponentFieldAnalysis = {
       ...fullFieldAnalysis,
