@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common'
 import { differenceInCalendarWeeks, parseISO } from 'date-fns'
-import { ChatScope } from '../../../generated/prisma'
+import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
+import { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import {
   ChatScopeHandler,
   ResolveConversationParams,
@@ -22,6 +23,18 @@ export const CAMPAIGN_MANAGER_MODELS = [
   'claude-opus-4-7',
 ] as const
 
+// The scripted opener, persisted as the conversation's first assistant message
+// so the agent keeps its own greeting in context on later turns. Mirrors the
+// client-played CAMPAIGN_MANAGER_INTRO in gp-webapp (kept in sync by hand; it is
+// display copy, not a cross-service contract).
+export const CAMPAIGN_MANAGER_GREETING = [
+  "Hi, I'm your campaign manager.",
+  'I keep an eye on your plan and tell you the two or three things that ' +
+    'matter most this week, and what to do about them.',
+  'Ask me what to do next, or tell me what just happened and I will help ' +
+    'you handle it.',
+].join('\n\n')
+
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
   officeName: null,
@@ -39,6 +52,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
   constructor(
     private readonly store: GeneralChatStoreService,
     private readonly campaigns: CampaignsService,
+    private readonly chatStore: ChatStoreService,
   ) {}
 
   // Mirrors Chief of Staff: every open creates a fresh conversation. Resuming a
@@ -56,6 +70,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         anchor: params.anchor,
         title: params.anchor.snapshot.title,
       }),
+    })
+    // Persist the scripted greeting as the first assistant message so later
+    // turns carry the manager's own opener in context (toLlmMessages folds this
+    // leading assistant turn into the system prompt). The client still plays it
+    // on open.
+    await this.chatStore.appendMessage({
+      conversationId: created.id,
+      role: ChatMessageRole.assistant,
+      content: CAMPAIGN_MANAGER_GREETING,
     })
     return { conversationId: created.id, created: true }
   }
