@@ -8,6 +8,8 @@ const ctx = (
   over: Partial<CampaignManagerContext> = {},
 ): CampaignManagerContext => ({
   candidateFirstName: 'Renee',
+  candidateName: 'Renee Diaz',
+  campaignId: 1,
   officeName: 'City Council',
   location: 'Springfield, IL',
   weeksToElection: 7,
@@ -23,6 +25,7 @@ const ctx = (
   ],
   districtFilters: null,
   constituentToolEnabled: false,
+  story: null,
   ...over,
 })
 
@@ -61,6 +64,67 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(on).toContain('query_constituent_data')
     expect(on).toContain('describe_constituent_data')
+  })
+
+  it('runs the Campaign Story intake, one question at a time, when incomplete', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        story: {
+          why: null,
+          background: null,
+          positions: [],
+          complete: false,
+          missing: ['why', 'background', 'positions'],
+        },
+      }),
+    )
+    expect(prompt).toContain('Campaign Story')
+    expect(prompt).toContain('one at a time')
+    // Offers the existing "Help me rewrite" elaboration + triggers generation.
+    expect(prompt).toContain('Help me rewrite')
+    expect(prompt).toContain('campaign_story generate')
+    // Candidate-in-control: only generate on confirmation.
+    expect(prompt.toLowerCase()).toContain('when they confirm')
+  })
+
+  it('tells the manager how to read the generate status so it never misreads generating as an error', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        story: {
+          why: 'w',
+          background: 'b',
+          positions: [],
+          complete: false,
+          missing: ['positions'],
+        },
+      }),
+    )
+    // The async result: 'generating' is the success case, 'failed' means retry.
+    expect(prompt).toContain('generating')
+    expect(prompt).toContain('failed')
+    expect(prompt.toLowerCase()).toContain('never call it an error')
+  })
+
+  it('does not re-run the intake once the story is complete', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        story: {
+          why: 'w',
+          background: 'b',
+          positions: [{ title: 't', description: 'd' }],
+          complete: true,
+          missing: [],
+        },
+      }),
+    )
+    expect(prompt).toContain('finished their Campaign Story')
+    expect(prompt).not.toContain('one at a time')
+  })
+
+  it('never invents facts (candidate-in-control guardrail)', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx()).toLowerCase()
+    expect(prompt).toContain('never invent')
+    expect(prompt).toContain('estimate')
   })
 
   it('stays coherent with no numbers and no tasks', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
-import { isTrackerGenerating } from './useTrackerTasks'
+import { isTrackerGenerating, isVoterContactFlowType } from './useTrackerTasks'
 
 const row = (isDefaultTask: boolean): CampaignTrackerTask => ({
   id: 'x',
@@ -28,5 +28,26 @@ describe('isTrackerGenerating', () => {
 
   it('is false once any dynamic row has landed', () => {
     expect(isTrackerGenerating([row(true), row(false)])).toBe(false)
+  })
+})
+
+describe('isVoterContactFlowType', () => {
+  it('is true for community events and the outreach channels', () => {
+    for (const flow of [
+      'events',
+      'doorKnocking',
+      'phoneBanking',
+      'text',
+      'robocall',
+      'socialMedia',
+    ]) {
+      expect(isVoterContactFlowType(flow)).toBe(true)
+    }
+  })
+
+  it('is false for non-outreach flow types and null', () => {
+    expect(isVoterContactFlowType('awareness')).toBe(false)
+    expect(isVoterContactFlowType('general')).toBe(false)
+    expect(isVoterContactFlowType(null)).toBe(false)
   })
 })

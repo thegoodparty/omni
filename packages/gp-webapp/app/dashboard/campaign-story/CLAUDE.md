@@ -71,14 +71,21 @@ site, and vice versa.
   rewrite AI.
 - **Generate footer → plan tab.** Each card reports its *live* answered-state up
   (`onAnsweredChange`, fired on every keystroke); the page combines why +
-  background + the issues count, so the sticky "Generate my Campaign Plan" footer
-  appears once `why` + `background` have content AND at least one issue exists.
-  The footer just links to `/dashboard/campaign-plan`; the actual review +
-  confirm + generation lives on the plan tab
-  (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which shows the why
-  (from the website bio) + background (from the story) and the issues (from the
-  website query), an "Edit my Story" link back here, and a confirm modal before
-  generating.
+  background + the issues count, so the sticky footer appears once `why` +
+  `background` have content AND at least one issue exists. The footer just links
+  to `/dashboard/campaign-plan`; the actual review + confirm + generation lives
+  on the plan tab (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which
+  shows the why (from the website bio) + background (from the story) and the
+  issues (from the website query), an "Edit my Story" link back here, and a
+  confirm modal before generating.
+- **Footer reflects a kicked-off plan.** `page.tsx` also server-fetches
+  `strategyExists` (`GET /v1/campaignStrategy/mine/exists`, the same check the
+  plan tab + sidebar use) and passes `planExists` to the page. When a plan
+  already exists — including one the **campaign manager chat** kicked off — the
+  footer reads "Your Campaign Plan is on its way." / "View my Campaign Plan"
+  instead of offering to generate it again. `force-dynamic` means it re-reads on
+  each navigation here, so the footer stays in sync with generation started
+  elsewhere.
 - **Completeness gate.** `isCampaignStoryComplete(story, hasWhy, hasIssues)`
   (`useCampaignStory.ts`) requires `hasWhy` + non-empty `background` + `hasIssues`.
   Callers source `hasWhy` from the website bio (`content.about.bio`) and

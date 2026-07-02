@@ -1,14 +1,17 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { Accordion, Card } from '@styleguide'
+import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import { buildTrackerStrategy } from './buildTrackerStrategy'
 import {
+  isVoterContactFlowType,
   useToggleTrackerTaskComplete,
   useTrackerTasks,
 } from './useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
+import CountModal from '../../../components/tasks/CountModal'
 
 // The "Campaign strategy" section on the campaign plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
@@ -20,9 +23,33 @@ const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
+  // An outreach task pending its voter-contact count in the modal.
+  const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
 
-  const onToggleComplete = (id: string, completed: boolean) =>
+  // Completing an outreach/community-event task first asks how many voters were
+  // reached (legacy behavior); the count is recorded with the completion.
+  // Uncompleting, and completing anything else, goes straight through.
+  const onToggleComplete = (id: string, completed: boolean) => {
+    if (completed) {
+      const task = tasks.find((t) => t.id === id)
+      if (task && isVoterContactFlowType(task.flowType)) {
+        setCountTask(task)
+        return
+      }
+    }
     toggleComplete.mutate({ id, completed })
+  }
+
+  const onCountSubmit = (count: number) => {
+    if (!countTask?.flowType) return
+    toggleComplete.mutate({
+      id: countTask.id,
+      completed: true,
+      type: countTask.flowType,
+      quantity: count,
+    })
+    setCountTask(null)
+  }
 
   const metrics = campaign?.raceTargetMetrics
   const electionDateIso =
@@ -113,6 +140,17 @@ const CampaignStrategySection = (): React.JSX.Element => {
             ))}
           </Accordion>
         </>
+      )}
+
+      {countTask && (
+        <CountModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setCountTask(null)
+          }}
+          flowType={countTask.flowType ?? ''}
+          onSubmit={onCountSubmit}
+        />
       )}
     </section>
   )

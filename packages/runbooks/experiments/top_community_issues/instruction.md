@@ -2,7 +2,7 @@
 
 # Top Community Issues
 
-Given an elected official's jurisdiction, produce a ranked list of up to 10 community issues that constituents are actively talking about — **each one a specific, named, currently-relevant problem**, not a policy category. This is a **demand-side** list: the question it answers is "what is on residents' minds here," not "what is on the office's agenda." Two signals are combined. Resident-demand web sources (local news, letters/op-eds, community advocacy groups, petitions, 311) are the **salience signal** — they say what residents are raising and how loudly. Haystaq priority scores from Databricks (`int__l2_nationwide_uniform_w_haystaq`) are a **lean annotation only** — they say how the local electorate _tilts_ on an issue once salience has surfaced it, never which issue to rank. **The governing body's own record is excluded as a source** (no council/select-board agendas, minutes, ordinances, or legislative portals): the office's agenda is exactly the filter this list is meant to see around. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
+Given an elected official's jurisdiction, produce a ranked list of up to 5 community issues that constituents are actively talking about — **each one a specific, named, currently-relevant problem**, not a policy category. This is a **demand-side** list: the question it answers is "what is on residents' minds here," not "what is on the office's agenda." Two signals are combined. Resident-demand web sources (local news, letters/op-eds, community advocacy groups, petitions, 311) are the **salience signal** — they say what residents are raising and how loudly. Haystaq priority scores from Databricks (`int__l2_nationwide_uniform_w_haystaq`) are a **lean annotation only** — they say how the local electorate _tilts_ on an issue once salience has surfaced it, never which issue to rank. **The governing body's own record is excluded as a source** (no council/select-board agendas, minutes, ordinances, or legislative portals): the office's agenda is exactly the filter this list is meant to see around. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
 
 ## What counts as an issue (this drives everything)
 
@@ -37,6 +37,14 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 4. Write the final artifact to `/workspace/output/top_community_issues.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
+7. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
+   ```python
+   try:
+       from pmf_runtime import milestone; milestone("<phase>")
+   except Exception:
+       pass  # primitive absent on this runner build — never fail the run over a marker
+   ```
+   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected. When a phase STARTS with a python/bash command, prepend the milestone line to that command (same code block, no separate turn). When a phase starts with `WebSearch` (e.g. discovery), run the marker standalone FIRST — the marker must fire before the phase's work or cost attribution mis-tags the phase.
 
 ## TODO CHECKLIST
 
@@ -54,12 +62,21 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 12. Annotate each issue with its Haystaq lean chip where coverage allows; an operational row with no covered var is "hyperlocal, no model lean," which is informative, not a gap. Add a "who can act / what they could do" note to the `summary`.
 13. Assign `priority` (`low|medium|high`) and `rank` (1 = most important). Rank by resident attention mass; the Haystaq lean does not move the rank.
 14. Write a substantive `detail.overview.summary` (2-3 sourced sentences naming the instance) for every issue — never empty. Deduplicate `detail.sources[]` by URL. Verify every `source_id` resolves to an entry in `detail.sources[]`.
-15. Set `sources_used`, `data_quality`, `data_quality_reason`, `notes` honestly — name any missing source layer (no 311 feed, no resident survey, Haystaq domains dropped for zero coverage) and, if fewer than 10 issues, why.
+15. Set `sources_used`, `data_quality`, `data_quality_reason`, `notes` honestly — name any missing source layer (no 311 feed, no resident survey, Haystaq domains dropped for zero coverage) and, if fewer than 5 issues, why.
 16. Assemble artifact and write to `/workspace/output/top_community_issues.json`.
 17. Run `python3 /workspace/validate_output.py`.
 18. Perform the spot-check.
 
 ## CRITICAL RULES
+
+**Turn efficiency — every turn re-reads the whole conversation, so cost tracks turn count and transcript size. These rules are as binding as the data rules:**
+
+- **Batch aggressively.** Issue 2-4 `WebSearch` calls in a SINGLE turn. Verify ALL URLs in ONE python block. Combine consecutive python steps into one block. Never do in five turns what fits in one.
+- **Search budget: at most 14 `WebSearch` calls for the whole run.** Work the source order within that budget; snippets usually carry the named instance, the date, and the publisher — mine them before fetching anything.
+- **NEVER print a raw page body.** When `http.get` is unavoidable, extract the specific fact inside the SAME python block and print ≤300 chars (the claim, the date, the figure). A printed page body inflates the cost of every later turn.
+- **Keep `retrieved_text_or_snapshot` ≤1500 chars** — the minimum excerpt that proves the claim, not the whole article.
+- **After you assemble the artifact, never re-open discovery.** If validation or the spot-check flags a specific source or field, fix or drop THAT item with a surgical `Edit`; do not re-search, re-render pages, or rebuild the artifact from scratch.
+- **Never spend a turn solely on task bookkeeping.** Batch `TaskCreate`/`TaskUpdate` calls alongside the next real tool call in the same turn.
 
 **Existing issue feed**:
 
@@ -174,9 +191,13 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 ### Step 2 — Read current issue feed
 
+**Milestone — run `milestone("feed")`** (per BEFORE YOU START item 7) before this step's work.
+
 Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category`. You will use these IDs in Step 8 to carry issues forward. A 404 means no feed yet — treat as empty and note it in `data_quality_reason`.
 
 ### Step 3 — Resident-demand discovery (the salience signal)
+
+**Milestone — run `milestone("discovery")`** (per BEFORE YOU START item 7) before this step's work.
 
 Work down the source order. Lead with news + resident voice; the council/legislation record is out of scope.
 
@@ -195,7 +216,11 @@ Work down the source order. Lead with news + resident voice; the council/legisla
 
 For each candidate, capture the **named instance** (the project, rate, vote, dollar figure, location) and which residents/groups are raising it. For advocacy groups, record the group name and any party affiliation; prefer nonpartisan, and require a second independent source before a partisan group's framing counts as resident salience. Do NOT scrape social platforms.
 
+**Run this step in ~4-5 turns, not 20+**: issue the queries 2-4 per turn (they are independent — batch them), and record candidates from the snippets (title, URL, date, named instance). Do not fetch page bodies during discovery; body reads happen only in Step 6 for facts you will publish. Stay inside the 14-search budget — roughly 8-10 here, leaving 4-6 for gap-filling later.
+
 ### Step 4 — Haystaq lean annotation (Databricks)
+
+**Milestone — run `milestone("haystaq")`** (per BEFORE YOU START item 7) before this step's work.
 
 Pick community-relevant columns from the **inline Haystaq catalog** (CRITICAL
 RULES below) — do NOT query `information_schema`/`SHOW COLUMNS`; the broker
@@ -207,10 +232,23 @@ Scoping matters: `hs_*` are within-state percentile ranks, so averaging them
 over the whole state collapses every lean to ~0. The district scope is what
 makes the lean meaningful.
 
+**Run this ENTIRE step as ONE python block (the block below is complete — both queries, the PENDING retry, and a compact printout). Target 1-2 turns.** If the block fails twice end-to-end, SKIP the lean annotation entirely — record `haystaq: skipped (<reason>)` in `notes` and move on. The lean is an annotation, not a requirement; do not spend more turns debugging it.
+
 ```python
-import re
+import re, time
 from pmf_runtime import databricks as sql
+
+TABLE = "goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq"
 conn = sql.connect(); cur = conn.cursor()
+
+def run(q, p):
+    # a query can return state=PENDING (async, no fetch-by-id) — just re-run it
+    for attempt in range(4):
+        cur.execute(q, p)
+        rows = cur.fetchall()
+        if rows: return rows
+        time.sleep(2)
+    return []
 
 # Columns come from the inline catalog — NOT from information_schema.
 ALLOWED_COLS = INLINE_HAYSTAQ_COLUMNS  # the set of column names in the catalog below
@@ -223,13 +261,11 @@ assert all(c in ALLOWED_COLS for c in candidate_cols)
 district_value = None
 if L2_TYPE:
     assert re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", L2_TYPE)  # ASCII identifier
-    cur.execute(f"""
+    rows = run(f"""
       SELECT DISTINCT `{L2_TYPE}` AS district_value, COUNT(*) AS n
-      FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
-      WHERE Voters_Active = 'A'
+      FROM {TABLE} WHERE Voters_Active = 'A'
       GROUP BY `{L2_TYPE}` ORDER BY n DESC LIMIT 200
     """, {})
-    rows = cur.fetchall()
     # exact, else case-insensitive substring match against L2_NAME
     district_value = next((r[0] for r in rows if r[0] == L2_NAME), None) or next(
         (r[0] for r in rows if L2_NAME and L2_NAME.lower() in str(r[0]).lower()), None
@@ -244,12 +280,20 @@ params = {}
 if district_value is not None:
     where = f"`{L2_TYPE}` = :l2_name AND " + where
     params = {"l2_name": district_value}
-cur.execute(f"""
-  SELECT COUNT(*) AS n, {sums_sql}
-  FROM goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq
-  WHERE {where}
-""", params)
-row = cur.fetchone()
+rows = run(f"SELECT COUNT(*) AS n, {sums_sql} FROM {TABLE} WHERE {where}", params)
+row = rows[0] if rows else None
+
+# Compact printout ONLY — never dump raw result objects.
+if row:
+    n = row[0]
+    leans = {}
+    for i, c in enumerate(candidate_cols):
+        avg, cov = row[1 + 2*i], row[2 + 2*i]
+        if avg is not None and cov and cov >= 0.8 * n:
+            leans[c] = round(avg - 50, 1)
+    print({"n": n, "district_value": district_value, "leans": leans})
+else:
+    print("HAYSTAQ EMPTY — skip the lean annotation, note it, move on")
 ```
 
 `n` should look like one district, not the whole state — if `L2_TYPE` was set
@@ -262,21 +306,34 @@ annotates issues; it never ranks them.
 
 ### Step 5 — Rank by resident attention mass
 
-Rank candidate issues by how much resident attention they carry: recency, breadth of coverage, and how many independent sources corroborate. Ground the top rows in a live source; label any row inferred from the Haystaq lean alone as "inferred." A single-source issue is low-confidence. Keep up to 10.
+**Milestone — run `milestone("rank")`** (per BEFORE YOU START item 7) before this step's work.
+
+Rank candidate issues by how much resident attention they carry: recency, breadth of coverage, and how many independent sources corroborate. Ground the top rows in a live source; label any row inferred from the Haystaq lean alone as "inferred." A single-source issue is low-confidence. Keep up to 5.
 
 ### Step 6 — Re-verify and capture sources
 
+**Milestone — run `milestone("verify")`** (per BEFORE YOU START item 7) before this step's work.
+
+**Verify ALL source URLs in ONE batched python block** (target 1-2 turns for the whole step, not one turn per URL):
+
 ```python
 from pmf_runtime import http
-r = http.head(url)                       # {"status": 200, "final_url": "https://..."}
-if r["status"] in (403, 405):
-    r = http.get(url)                    # browser render, only if head was blocked
-# keep the source only if it resolves; cite r["final_url"] on redirect
+for url in all_source_urls:              # every URL you intend to cite, in one pass
+    try:
+        r = http.head(url)               # {"status": 200, "final_url": "https://..."}
+        print(r["status"], r.get("final_url", url)[:100])
+    except Exception as e:
+        print("ERR", url[:80], str(e)[:60])
+# keep a source only if it resolves; cite final_url on redirect
 ```
 
-Capture for each source: `name`, `source_type` (`news|advocacy_org|government_website|poll|research`), `url`, `publisher`, `article_type`, `article_date`, `retrieved_at` (ISO-8601), and a `retrieved_text_or_snapshot` snippet. Record dollars, dates, votes, locations. Drop anything you cannot confirm.
+Escalate to `http.get` ONLY for a 403/405 URL you must keep, or when a fact you will publish needs body confirmation — and extract the fact inside the same block, printing ≤300 chars (never the raw body).
+
+Capture for each source: `name`, `source_type` (`news|advocacy_org|government_website|poll|research`), `url`, `publisher`, `article_type`, `article_date`, `retrieved_at` (ISO-8601), and a `retrieved_text_or_snapshot` snippet (≤1500 chars). Record dollars, dates, votes, locations. Drop anything you cannot confirm.
 
 ### Step 7 — Annotate actionability and lean
+
+**Milestone — run `milestone("annotate")`** (per BEFORE YOU START item 7) before this step's work (covers Steps 7-8, annotation + ID carry).
 
 For each issue, add the Haystaq lean chip where coverage allows ("hyperlocal, no model lean" otherwise), and a short "who can act / what they could do" note in the `summary`.
 
@@ -286,6 +343,8 @@ Compare each output issue against the existing feed from Step 2. When the issue 
 
 ### Step 9 — Assemble artifact
 
+**Milestone — run `milestone("assemble")`** (per BEFORE YOU START item 7) before this step's work.
+
 ```python
 import json
 artifact = {
@@ -293,10 +352,10 @@ artifact = {
     "list": "top_community",
     "organization_slug": ORG_SLUG,
     "generated_for_run_id": RUN_ID,
-    "issues": [...],            # up to 10 IssueOutput, each a specific named issue
+    "issues": [...],            # up to 5 IssueOutput, each a specific named issue
     "sources_used": [...],      # layers actually used, e.g. ["local_news", "resident_voice", "advocacy_groups", "petitions", "311", "survey", "haystaq"]
     "data_quality": "ok",       # "partial" if some lookups failed; "insufficient_signal" if you couldn't ground the list
-    "data_quality_reason": "...",  # name dropped Haystaq domains, missing layers (no 311, no survey, empty feed), and why fewer than 10 if short
+    "data_quality_reason": "...",  # name dropped Haystaq domains, missing layers (no 311, no survey, empty feed), and why fewer than 5 if short
     "notes": "...",
 }
 with open("/workspace/output/top_community_issues.json", "w") as f:
@@ -307,6 +366,8 @@ Every issue needs a substantive `detail.overview.summary`; build `history` / `re
 
 ### Step 10 — Validate
 
+**Milestone — run `milestone("validate")`** (per BEFORE YOU START item 7) before this step's work.
+
 ```bash
 python3 /workspace/validate_output.py
 ```
@@ -315,7 +376,7 @@ Fix any schema violations before declaring success.
 
 ## Spot-check
 
-After validation passes, verify:
+After validation passes, verify the points below. **A spot-check finding is fixed surgically**: drop or `Edit` the specific offending source/field/row. It is NEVER a reason to re-open discovery, re-run searches, or rebuild the artifact — if a whole issue fails its check, delete that issue and say why in `data_quality_reason`.
 
 - **Every row is a specific named issue, not a category.** If a `title` reads like "Housing" or "Public safety," you stopped at the domain — name the live instance.
 - **The list reflects resident demand, not the office's agenda.** No issue is here because the council took it up; each is here because residents are raising it. The governing-body record was not used as a source.
@@ -325,7 +386,7 @@ After validation passes, verify:
 - **Haystaq is a lean annotation, not the ranker.** The rank follows resident attention mass. The lean uses `AVG - 50`; if you used a `>= 50` count to rank, redo it.
 - **Advocacy-group framing is nonpartisan or flagged.** Any partisan group's claim is corroborated by an independent source.
 - **`detail.overview.summary` is present and substantive on every issue**, and `list` is `"top_community"`.
-- **Coverage gaps are stated.** `data_quality_reason` names dropped zero-coverage Haystaq domains, any missing layer (no 311 feed, no resident survey, empty feed), and why the list is short if under 10.
+- **Coverage gaps are stated.** `data_quality_reason` names dropped zero-coverage Haystaq domains, any missing layer (no 311 feed, no resident survey, empty feed), and why the list is short if under 5.
 
 ## Failure modes
 

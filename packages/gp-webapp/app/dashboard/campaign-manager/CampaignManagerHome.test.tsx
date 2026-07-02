@@ -4,13 +4,39 @@ import { screen } from '@testing-library/react'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import CampaignManagerHome from './CampaignManagerHome'
 
-vi.mock('../campaign-plan/components/campaignStrategy/useTrackerTasks', () => ({
-  useTrackerTasks: (): TrackerTasksResult => ({
-    tasks: [],
-    isPending: false,
-    isError: false,
-    isGeneratingDynamic: false,
+vi.mock(
+  '../campaign-plan/components/campaignStrategy/useTrackerTasks',
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('../campaign-plan/components/campaignStrategy/useTrackerTasks')
+    >()),
+    useTrackerTasks: (): TrackerTasksResult => ({
+      tasks: [],
+      isPending: false,
+      isError: false,
+      isGeneratingDynamic: false,
+    }),
+    useToggleTrackerTaskComplete: () => ({ mutate: vi.fn(), isPending: false }),
   }),
+)
+
+// The Pro banner + progress section are the legacy dashboard widgets (their own
+// campaign/voter-contact providers); this smoke test only covers the home's
+// composition, so stub them out.
+vi.mock('../components/campaignManager/ProUpgradeBanner', () => ({
+  default: () => null,
+}))
+vi.mock('../components/campaignManager/ProgressSection', () => ({
+  default: () => null,
+}))
+
+// No prior conversations, so the first-run "meet" card renders. Partial-mock so
+// the footer's history popover keeps its real useDeleteConversation.
+vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('../chief-of-staff/data/use-chat-history')
+  >()),
+  useChatHistory: () => ({ data: [] }),
 }))
 
 describe('CampaignManagerHome', () => {
