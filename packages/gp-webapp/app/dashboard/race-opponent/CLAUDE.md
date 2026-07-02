@@ -90,6 +90,20 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   ENG-10633 dropped them from this page's composition on purpose (the redesign has
   no contrasts section here) and no other route has picked them up yet; kept in
   the tree for the strict engine's next UI pass rather than deleted.
+- **Source citations v2 (P5, ENG-10634)**: `SourceChip` + `SourceRow` are the
+  redesigned citation primitive — a compact chip (favicon-letter + domain +
+  "+N") that opens a Radix `HoverCard` carousel over every cited source
+  (`SummarySource` from `@goodparty_org/contracts`), with prev/next, a "1/N"
+  counter, and an external-link to the source currently shown. Opens on hover,
+  keyboard focus, and tap (a real `<button>` via `HoverCardTrigger asChild`, not
+  `HoverCardTrigger`'s own default `<a>`, so it's focusable and has the right
+  semantics). `SourceChip` also accepts a `nonLinkedSource` — a leading entry
+  with no URL (e.g. the field-SWOT's "Good Party internal data" citation) that
+  renders in the chip and carousel without an anchor. Not yet wired into the
+  page: it lands standalone here so ENG-10635/ENG-10636 can consume it without
+  redoing the citation UI; `SourceAttribution` (the old `source: <url>` line)
+  keeps rendering on this page until ENG-10635 swaps it out — don't delete
+  `SourceAttribution`, the strict-engine surfaces above still use it.
 
 ## Status polling — one poller, it is the source of truth
 
@@ -143,5 +157,13 @@ mount), `Win - Opponents Manually Added` (manual submit, with `opponentCount`),
 - Components with hooks/timers/state need `'use client'`.
 - Long opponent URLs in the manual form must wrap (`min-w-0 break-words`) — see the
   StyledAlert/grid overflow gotcha in the gp-webapp root doc.
+- `RaceOpponentSummarySourceRef` in `gpApi/api-endpoints.ts` is transitional: the
+  rich fields (`url`/`title`/`publisher`) are required (the contract backfills
+  them for legacy rows), but `sourceType`/`sourceUrl` are optional — gp-api still
+  sends them today, but ENG-10635 will stop. Existing readers (`RaceOpponentList`,
+  `IssueContrastCard`, `OpponentBriefPdfDocument`, `opponentBriefContent`) fall
+  back with `source.sourceUrl ?? source.url` rather than assuming `sourceUrl` is
+  present — keep that pattern in any new reader until ENG-10635 migrates
+  everything onto the rich fields and the legacy two are dropped.
 - Add new API routes to `gpApi/api-endpoints.ts`; keep client URL validation in
   lockstep with the server (https-only, name required, 1–10 cap for manual opponents).

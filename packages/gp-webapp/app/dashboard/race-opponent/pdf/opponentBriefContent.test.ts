@@ -15,12 +15,28 @@ const fullSummary: RaceOpponentSummary = {
   opponentName: 'Graciela Guzman',
   overview: {
     text: 'The incumbent in a left-leaning seat.',
-    sources: [{ sourceType: 'ballotpedia', sourceUrl: 'https://a.example' }],
+    sources: [
+      {
+        url: 'https://a.example',
+        title: 'Candidate profile',
+        publisher: 'Ballotpedia',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://a.example',
+      },
+    ],
   },
   background: {
     text: 'Two-term incumbent with party backing.',
     // Duplicate URL to prove overview+background sources are de-duped.
-    sources: [{ sourceType: 'ballotpedia', sourceUrl: 'https://a.example' }],
+    sources: [
+      {
+        url: 'https://a.example',
+        title: 'Candidate profile',
+        publisher: 'Ballotpedia',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://a.example',
+      },
+    ],
   },
   keyPositions: [
     { label: 'Housing', detail: 'Backed developer credits.', sources: [] },
@@ -40,7 +56,13 @@ const fullSummary: RaceOpponentSummary = {
       whyItMatters: 'Rent is up 31%.',
       opponentStance: 'Backed the developer credit.',
       opponentSources: [
-        { sourceType: 'ballotpedia', sourceUrl: 'https://b.example' },
+        {
+          url: 'https://b.example',
+          title: 'Housing record',
+          publisher: 'Ballotpedia',
+          sourceType: 'ballotpedia',
+          sourceUrl: 'https://b.example',
+        },
       ],
       candidateStance: 'Run on tenant protections.',
     },
