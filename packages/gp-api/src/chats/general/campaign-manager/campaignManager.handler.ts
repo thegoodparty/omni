@@ -26,7 +26,11 @@ import {
   CampaignManagerContext,
 } from './campaignManagerPrompt'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
-import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
+import {
+  CampaignStoryIntakeService,
+  type StoryField,
+  type StoryState,
+} from './campaignStoryIntake.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
@@ -48,19 +52,43 @@ export const CAMPAIGN_MANAGER_GREETING = [
     'you handle it.',
 ].join('\n\n')
 
-// Story-aware opener, seeded when the Campaign Story is unfinished: introduces
-// the manager, frames the three questions, and asks the first (why) — matching
-// the Story page's intro + WHY_RUNNING_PROMPT wording so both surfaces read the
-// same.
-export const CAMPAIGN_MANAGER_STORY_GREETING = [
-  "Hi, I'm your campaign manager. Before I build your plan and tracker, " +
-    "let's get your Campaign Story down, since it's what personalizes your " +
-    'Campaign Plan, Campaign Tracker, and your GoodParty.org experience.',
-  "It's just three short questions, in your own words, and I can help " +
-    'sharpen anything you write.',
-  'First, your why: the moment, the people, the breaking point, your ' +
-    'stump-speech opener. What made you decide to run?',
-].join('\n\n')
+// The next-question prompt per story field, in the Story page's wording.
+const STORY_QUESTION_PROMPTS: Record<StoryField, string> = {
+  why:
+    'your why: the moment, the people, the breaking point, your stump-speech ' +
+    'opener. What made you decide to run?',
+  background:
+    'your background: childhood, career, and community ties, the human story ' +
+    'behind you. Tell me a little about yourself.',
+  positions:
+    'your positions: the two to four concrete fights you would take on in ' +
+    'your first term. What are they?',
+}
+
+// Story-aware, resume-aware opener seeded when the Campaign Story is unfinished:
+// introduces the manager (or welcomes them back if they've answered some), then
+// asks the FIRST still-missing question so reopening picks up where they left
+// off. Uses the Story page's wording.
+export const buildStoryGreeting = (story: StoryState): string => {
+  const next = story.missing[0] ?? 'why'
+  const answered = 3 - story.missing.length
+  const intro =
+    answered === 0
+      ? [
+          "Hi, I'm your campaign manager. Before I build your plan and " +
+            "tracker, let's get your Campaign Story down, since it's what " +
+            'personalizes your Campaign Plan, Campaign Tracker, and your ' +
+            'GoodParty.org experience.',
+          "It's just three short questions, in your own words, and I can " +
+            'help sharpen anything you write.',
+        ]
+      : [
+          "Welcome back. Let's finish your Campaign Story so I can build " +
+            'your plan and tracker.',
+        ]
+  const lead = answered === 0 ? 'First' : 'Next'
+  return [...intro, `${lead}, ${STORY_QUESTION_PROMPTS[next]}`].join('\n\n')
+}
 
 // Campaign Manager's own rollout flag for the constituent-data tool, distinct
 // from Chief of Staff's. Off until enabled per internal tester while the tool
@@ -150,7 +178,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const story = await this.storyIntake.read(campaign.id)
     return story.complete
       ? CAMPAIGN_MANAGER_GREETING
-      : CAMPAIGN_MANAGER_STORY_GREETING
+      : buildStoryGreeting(story)
   }
 
   async loadContext(
