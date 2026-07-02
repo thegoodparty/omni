@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Module,
 } from '@nestjs/common'
 import { DiscoveryModule, HttpAdapterHost } from '@nestjs/core'
@@ -59,7 +60,22 @@ const InSchema = z.object({ slogan: z.string() })
 class InDto extends createZodDto(InSchema) {}
 const ParamSchema = z.object({ id: z.string() })
 class ParamDto extends createZodDto(ParamSchema) {}
+const QuerySchema = z.object({ list: z.string() })
+class QueryDto extends createZodDto(QuerySchema) {}
 const OutSchema = z.object({ ok: z.boolean() })
+
+@Controller('things')
+class RootRouteController {
+  @Get()
+  @ResponseSchema(OutSchema)
+  @McpTool({ description: 'List things.' })
+  list(@Query() _q: QueryDto) {}
+
+  @Get(':id')
+  @ResponseSchema(OutSchema)
+  @McpTool({ description: 'Read a thing by id.' })
+  readById(@Param() _p: ParamDto) {}
+}
 
 @Controller('campaigns')
 class FakeController {
@@ -127,6 +143,19 @@ describe('McpServerService.gatherTools', () => {
     expect(readById).toBeDefined()
     expect(readById.inputDeclarations.params.declared).toBe(true)
     expect(readById.inputDeclarations.params.schema).toBe(ParamSchema)
+  })
+
+  it('derives a controller-root @Get() tool path with no trailing slash', async () => {
+    const moduleRef = await buildAppModule(
+      [RootRouteController],
+      noopInject,
+    ).compile()
+    await moduleRef.init()
+
+    const tools = moduleRef.get(McpServerService).getTools()
+    const list = tools.find((t) => t.handlerName === 'list')!
+    expect(list).toBeDefined()
+    expect(list.path).toBe('/things')
   })
 
   it('does not include handlers without @McpTool', async () => {
@@ -494,6 +523,41 @@ describe('McpServerService MCP request handlers', () => {
       },
     )
     expect(calls[0]?.headers?.['content-type']).toBe('application/json')
+  })
+
+  it('dispatches a controller-root GET tool to the list path, not the :id sibling', async () => {
+    const calls: InjectOpts[] = []
+    const inject = vi.fn(async (opts: InjectOpts) => {
+      calls.push(opts)
+      return {
+        statusCode: 200,
+        body: '{"ok":true}',
+        headers: { 'content-type': 'application/json' },
+      }
+    })
+    const moduleRef = await buildAppModule(
+      [RootRouteController],
+      inject,
+    ).compile()
+    await moduleRef.init()
+
+    const svc = moduleRef.get(McpServerService)
+    const server = svc.createServer() as unknown as {
+      _requestHandlers: Map<
+        string,
+        (req: unknown, extra?: unknown) => Promise<unknown>
+      >
+    }
+    const callHandler = server._requestHandlers.get('tools/call')!
+    await callHandler({
+      method: 'tools/call',
+      params: {
+        name: 'GET_things',
+        arguments: { query: { list: 'trending' } },
+      },
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.url).toBe('/things?list=trending')
   })
 
   it('returns isError for unknown tool', async () => {
