@@ -19,7 +19,7 @@ Given an elected official's district, produce a ranked list of up to 5 community
    except Exception:
        pass  # primitive absent on this runner build — never fail the run over a marker
    ```
-   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected.
+   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected. **Never spend a separate turn on a marker**: prepend the milestone line to the phase's FIRST python/bash command (same code block), and only run it standalone if the phase has no command at all.
 
 ## TODO CHECKLIST
 
@@ -38,6 +38,15 @@ Given an elected official's district, produce a ranked list of up to 5 community
 13. Perform the spot-check.
 
 ## CRITICAL RULES
+
+**Turn efficiency — every turn re-reads the whole conversation, so cost tracks turn count and transcript size. These rules are as binding as the data rules:**
+
+- **Batch aggressively.** Issue 2-4 `WebSearch` calls in a SINGLE turn. Verify ALL URLs in ONE python block. Combine consecutive python steps into one block. Never do in five turns what fits in one.
+- **Search budget: at most 10 `WebSearch` calls for the whole run.** Snippets usually carry the headline, the date, and the publisher — mine them before fetching anything.
+- **Recency is enforced at SELECTION time.** Read the article date from the snippet (or the URL) when you collect a candidate; a source older than 90 days is dropped in Step 3-5, never discovered after assembly.
+- **NEVER print a raw page body.** When `http.get` is unavoidable, extract the specific fact inside the SAME python block and print ≤300 chars (the claim, the date, the figure). A printed page body inflates the cost of every later turn.
+- **Keep `retrieved_text_or_snapshot` ≤1500 chars** — the minimum excerpt that proves the claim, not the whole article.
+- **After you assemble the artifact, never re-open discovery.** If validation or the spot-check flags a specific source or field, fix or drop THAT item with a surgical `Edit`; do not re-search, re-render pages, or rebuild the artifact from scratch. If a whole issue fails its check, delete that issue and say why in `data_quality_reason`.
 
 **Existing issue feed**:
 
@@ -122,21 +131,28 @@ Run a handful of `WebSearch` queries:
 
 Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 5. For any advocacy group, record its name and any political-party affiliation; **prefer nonpartisan groups**, and require a second independent source before a partisan group's framing becomes a trending issue on its own.
 
+**Run this step in ~3-4 turns**: the queries are independent — issue them 2-4 per turn, and record candidates from the snippets (title, URL, **article date**, topic). Drop stale candidates (>90 days) HERE, at collection. Do not fetch page bodies during discovery. Stay inside the 10-search budget — roughly 6-7 here, leaving 3-4 for gap-filling.
+
 ### Step 4 — Verify and retrieve sources per candidate
 
 **Milestone — run `milestone("verify")`** (per BEFORE YOU START item 7) before this step's work.
 
-For each candidate topic, verify at least one source URL:
+**Verify ALL candidate URLs in ONE batched python block** (target 1-2 turns for the whole step, not one turn per URL):
 
 ```python
 from pmf_runtime import http
-r = http.head(url)
-if r["status"] in (403, 405):
-    r = http.get(url)
-# If r["status"] != 200: drop this source
+for url in candidate_urls:               # every candidate URL, in one pass
+    try:
+        r = http.head(url)
+        print(r["status"], r.get("final_url", url)[:100])
+    except Exception as e:
+        print("ERR", url[:80], str(e)[:60])
+# drop any source that does not resolve to 200; cite final_url on redirect
 ```
 
-Extract: source name, publisher, article_date, and a representative text snippet (≤ 2000 chars) for `retrieved_text_or_snapshot`.
+Escalate to `http.get` ONLY for a 403/405 URL you must keep, or when the article date is not in the snippet — and extract just the date/fact inside the same block, printing ≤300 chars (never the raw body).
+
+Extract: source name, publisher, article_date, and a representative text snippet (≤1500 chars) for `retrieved_text_or_snapshot`.
 
 Fast-bail rule: if a topic has no verifiable URL after 2 searches, skip it.
 
@@ -146,7 +162,7 @@ Fast-bail rule: if a topic has no verifiable URL after 2 searches, skip it.
 
 Rank candidates by:
 
-1. Recency (articles within last 30 days score highest)
+1. Recency (articles within last 30 days score highest; **nothing older than 90 days is selectable** — this is where the 90-day rule is enforced, not after assembly)
 2. Coverage breadth (multiple independent sources)
 3. Relevance to the district (local vs. national story)
 
@@ -188,7 +204,7 @@ Fix any schema violations before declaring success.
 
 After validation passes, verify:
 
-- **All sources have article dates within the last 90 days.** Older articles indicate a stale search — re-run with a more recent date filter.
+- **All sources have article dates within the last 90 days.** This was enforced at Step 3/5 selection; if a stale source slipped through anyway, drop it (and its claims) with a surgical `Edit` — do not re-open discovery to find a replacement.
 - **Issues span at least 2 different categories** (unless the district has a single dominant crisis). Monoculture output suggests the search queries were too narrow.
 - **Each `source_id` referenced in `source_ids` / `source_id` fields resolves to an entry in `detail.sources[]`.** A dangling ID means the validator missed it but the downstream renderer will break.
 - **`detail.overview` is present on every issue.** It is always required.
@@ -201,7 +217,7 @@ After validation passes, verify:
 
 | Symptom                                      | Cause                                                       | Fix                                                                      |
 | -------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------ |
-| All sources are > 90 days old                | Date filter not applied to searches                         | Re-run searches with `2026` or `site:` filter for local news             |
+| All sources are > 90 days old                | Recency not enforced at Step 3/5 selection                  | Drop stale sources surgically; select on snippet dates next time         |
 | Fewer than 3 issues found                    | Small/rural district with thin local news coverage          | Set `data_quality: "insufficient_signal"`; emit what you have            |
 | `source_id` not found in `detail.sources[]`  | Forgot to add the source entry after referencing it         | Add matching entry to `detail.sources[]`                                 |
 | Validator: missing required field `overview` | `detail.overview` was omitted                               | Always emit `overview`; it is required                                   |

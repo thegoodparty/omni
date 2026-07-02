@@ -1,10 +1,13 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "trending_issues",
-  "version": 4,
+  "version": 5,
   "model": "sonnet",
   "max_turns": 150,
   "timeout_seconds": 3000,
+  "runtime": {
+    "max_thinking_tokens": 0
+  },
   "input_schema": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "type": "object",
