@@ -63,7 +63,11 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `MOBILE_PAGE_TITLES` entry in `DashboardLayout` — keep that entry, or mobile
   loses its title; drop the `max-lg:hidden`, and mobile shows two stacked title
   bars. Everything below it (locked view or `RaceOpponentList`) sits in a
-  `bg-muted px-4 py-6 lg:px-8` body; each state centers itself in that body
+  `flex-1 bg-muted px-4 py-6 lg:px-8` body that fills the viewport below the
+  bar (the `DashboardLayout` wrapper gets `flex flex-col` via
+  `wrapperClassName`, so short states like the processing screen don't show
+  the layout's `#f5f5f5` bg as a seam under the muted body); each state
+  centers itself in that body
   with its own `mx-auto max-w-*` (608px for the report/processing screen, 560px
   for the locked view and the manual-entry form) rather than the shell
   dictating one width for all of them.

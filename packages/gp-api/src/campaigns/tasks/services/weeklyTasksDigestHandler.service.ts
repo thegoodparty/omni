@@ -12,6 +12,14 @@ const OUTREACH_FLOW_TYPES: CampaignTaskType[] = [
   CampaignTaskType.doorKnocking,
   CampaignTaskType.phoneBanking,
 ]
+// The deterministic outreach the tracker materializes as default rows: the 7
+// text/robocall sends. These are the only default rows the digest includes
+// alongside the dynamic picks (the setup checklist is not emailed). Narrower
+// than OUTREACH_FLOW_TYPES, which also ranks dynamic doorKnocking/phoneBanking.
+const DETERMINISTIC_OUTREACH_FLOW_TYPES: CampaignTaskType[] = [
+  CampaignTaskType.text,
+  CampaignTaskType.robocall,
+]
 // Surface the top 3 uncompleted tasks for the week (TDD: "Change top-5 to
 // top-3"). The Segment event still carries all 5 slots — slots 4-5 go blank so
 // HubSpot clears stale data — so there is no change needed on the email side.
@@ -257,15 +265,31 @@ export class WeeklyTasksDigestHandlerService extends createPrismaBase(
         GROUP BY campaign_id
       ),
       visible AS (
-        -- Weekly regen appends each run as a new generation (week) and never
-        -- deletes prior rows. Count only the latest dynamic generation (plus
-        -- the non-generational static rows), mirroring the frontend — older
-        -- generations are kept for history but must not double-count here.
+        -- The weekly digest mirrors the tracker's week view: the latest dynamic
+        -- generation plus the deterministic text/robocall outreach dated in the
+        -- window. The static setup checklist (default rows that are not outreach)
+        -- is excluded; it lives in the Pre-launch/Launch/GOTV-ops sections, not
+        -- the active week the digest promotes. Outreach is prioritized in the
+        -- ranking below because those sends matter most.
+        --
+        -- LEFT JOIN so a campaign with outreach dated in the window still
+        -- surfaces even if its dynamic generation is momentarily absent. The
+        -- dynamic branch needs is_default_task = false alongside week = g.gen
+        -- because a default row's calendar-offset week can coincidentally equal
+        -- the latest generation index.
         SELECT t.*
         FROM campaign_tracker_tasks t
         LEFT JOIN latest_gen g ON g.campaign_id = t.campaign_id
         JOIN campaign c ON c.id = t.campaign_id
-        WHERE (t.is_default_task = true OR t.week = g.gen)
+        WHERE (
+            (t.is_default_task = false AND t.week = g.gen)
+            OR (
+              t.is_default_task = true
+              AND t.flow_type::text IN (
+                ${Prisma.join(DETERMINISTIC_OUTREACH_FLOW_TYPES)}
+              )
+            )
+          )
           -- Mirror the UI's 30-day GOTV window: don't email GOTV tasks until
           -- the election is within 30 days (the UI hides them until then).
           -- Primary-only campaigns fall back to primaryElectionDate, matching
