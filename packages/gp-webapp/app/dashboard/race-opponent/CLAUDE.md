@@ -95,12 +95,25 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `IssueContrastCard` and `OpponentSection` were deleted in this pass (their
   only callers were the retired sections). `OpponentHandbook` (P3, unrelated
   strict-engine surface) is untouched.
-- **PDF export (P4)**: `pdf/` — the field header's "Export brief" button downloads
-  one PDF holding a brief per opponent that has a summary. `opponentBriefContent.ts`
-  is the pure page→PDF mapping (mirrors `OpponentSummaryView`'s section conditionals;
-  reuses `descriptorFor` + `threatTierLabel` for the snapshot line). It renders
-  **only what the page shows** — no finance, no issue `salience` label, no
-  recommended actions (those are Lovable-sample extras our page never renders).
+- **PDF export (P4/P5, ENG-10637)**: `pdf/` — the field header's "Export brief"
+  button downloads one PDF holding a brief per opponent that has a summary,
+  plus a document-level SWOT block after the opponent briefs.
+  `opponentBriefContent.ts` is the pure page→PDF mapping (mirrors
+  `OpponentSummaryView`'s section conditionals 1:1 — overview |
+  whyTheyreRunning | background | issuesThatMatter, in that order; a legacy
+  summary with only the pre-v2 fields falls back to overview + background,
+  same as the page — and `FieldAnalysisSection`'s omission rules for the SWOT
+  block via `buildFieldAnalysisBrief`). Reuses `descriptorFor` +
+  `threatTierLabel` for the snapshot line. It renders **only what the page
+  shows** — no finance, no issue `salience` label, no recommended actions
+  (those are Lovable-sample extras our page never renders), and none of the
+  card-v2-retired sections (why they matter most, what you need to know,
+  where they're soft, per-opponent contrasts, key positions). Sourced sections
+  print a compact `source:` line per citation (`publisher — url`, description
+  omitted, no hover carousel) — this is the one place in the feature that
+  reads `RaceOpponentSummarySourceRef.url` **without** the `sourceUrl ??`
+  legacy fallback (rich-first now that the wire always backfills `url`); see
+  the transitional-type gotcha below.
 - **Strict engine (P1)**: `OpponentResearch`, `SelfResearch`, `SelfResearchIntakeForm`,
   `SelfResearchReport`, `ContrastList`, `ContrastCard`, `RegenerateContrasts`,
   `SourceAttribution`, `OpponentActivityFeed`. `ContrastList`/`RegenerateContrasts`
@@ -206,12 +219,12 @@ mount), `Win - Opponents Manually Added` (manual submit, with `opponentCount`),
 - `RaceOpponentSummarySourceRef` in `gpApi/api-endpoints.ts` is still transitional:
   the rich fields (`url`/`title`/`publisher`) are required (the contract
   backfills them for legacy rows), and `sourceType`/`sourceUrl` stay optional —
-  gp-api still sends them, and the PDF export (`OpponentBriefPdfDocument`,
-  `opponentBriefContent`, ENG-10637's scope) still falls back with
-  `source.sourceUrl ?? source.url`. `RaceOpponentList` no longer needs that
-  fallback (ENG-10635 migrated it onto `SourceRow`/`SourceChip`, which read
-  `.url` directly), but don't drop `sourceType`/`sourceUrl` from the mirror
-  type or the contract until the PDF migrates too.
+  gp-api still sends them. Neither `RaceOpponentList` (ENG-10635) nor the PDF
+  export (`opponentBriefContent`'s `formatSourceLine`, ENG-10637) reads the
+  legacy fallback anymore — both key off `.url` directly, since the contract
+  always backfills it. Don't drop `sourceType`/`sourceUrl` from the mirror type
+  or the contract until every consumer of the legacy shape (gp-api's
+  producers/back-compat readers) is confirmed off it.
 - Add new API routes to `gpApi/api-endpoints.ts`; keep client URL validation in
   lockstep with the server (https-only, name required, 1–10 cap for manual opponents).
 - `api-endpoints.ts`'s `RaceOpponentSummary`/`RaceOpponentResponse` mirrors add

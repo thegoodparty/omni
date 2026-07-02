@@ -454,14 +454,18 @@ const RaceOpponentList = ({
     exportingRef.current = true
     setExporting(true)
     try {
-      await downloadOpponentBriefsPdf(data.opponents, raceContext)
+      await downloadOpponentBriefsPdf(
+        data.opponents,
+        raceContext,
+        data.fieldAnalysis,
+      )
     } catch {
       errorSnackbar('Failed to export the brief. Please try again.')
     } finally {
       exportingRef.current = false
       setExporting(false)
     }
-  }, [data.opponents, raceContext, errorSnackbar])
+  }, [data.opponents, data.fieldAnalysis, raceContext, errorSnackbar])
 
   const status = data.collectionStatus
 
