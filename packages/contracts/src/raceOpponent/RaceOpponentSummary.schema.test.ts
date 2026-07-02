@@ -168,6 +168,8 @@ describe('RaceOpponentSummarySchema analysis fields', () => {
         url: 'https://ballotpedia.org/Jane_Doe',
         title: 'ballotpedia.org',
         publisher: 'ballotpedia.org',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/Jane_Doe',
       },
     ])
     expect(result.whatYouNeedToKnow?.[1].sources).toBeUndefined()
@@ -290,8 +292,51 @@ describe('RaceOpponentSummarySchema legacy source normalization', () => {
         url: 'https://ballotpedia.org/X',
         title: 'ballotpedia.org',
         publisher: 'ballotpedia.org',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/X',
       },
     ])
+  })
+
+  it('falls back to the raw string when a legacy sourceUrl is not a valid URL', () => {
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      overview: {
+        text: validSummary.overview.text,
+        sources: [
+          {
+            sourceType: 'ballotpedia',
+            sourceUrl: 'ballotpedia.org/Jane_Doe',
+          },
+        ],
+      },
+    })
+    expect(result.overview?.sources).toEqual([
+      {
+        url: 'ballotpedia.org/Jane_Doe',
+        title: 'ballotpedia.org/Jane_Doe',
+        publisher: 'ballotpedia.org/Jane_Doe',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'ballotpedia.org/Jane_Doe',
+      },
+    ])
+  })
+
+  it('round-trips a normalized 5-key source without stripping the legacy keys', () => {
+    // gp-api persists the PARSED summary, so a re-read of a post-normalization
+    // row hits the rich union branch with the legacy keys still present.
+    const normalized = {
+      url: 'https://ballotpedia.org/X',
+      title: 'ballotpedia.org',
+      publisher: 'ballotpedia.org',
+      sourceType: 'ballotpedia',
+      sourceUrl: 'https://ballotpedia.org/X',
+    }
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      overview: { text: validSummary.overview.text, sources: [normalized] },
+    })
+    expect(result.overview?.sources).toEqual([normalized])
   })
 
   it('parses a rich source through unchanged', () => {
@@ -360,11 +405,15 @@ describe('RaceOpponentSummarySchema legacy full-summary fixture', () => {
       url: 'https://ballotpedia.org/Jane_Doe',
       title: 'ballotpedia.org',
       publisher: 'ballotpedia.org',
+      sourceType: 'ballotpedia',
+      sourceUrl: 'https://ballotpedia.org/Jane_Doe',
     })
     expect(result.keyPositions?.[0].sources[0]).toEqual({
       url: 'https://ballotpedia.org/Jane_Doe',
       title: 'ballotpedia.org',
       publisher: 'ballotpedia.org',
+      sourceType: 'ballotpedia',
+      sourceUrl: 'https://ballotpedia.org/Jane_Doe',
     })
   })
 })

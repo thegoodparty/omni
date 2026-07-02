@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { zCoerceDate } from '../shared/Date.schema'
-import { RaceOpponentSourceTypeSchema } from './RaceOpponentSourceType.schema'
+import {
+  RaceOpponentSourceTypeSchema,
+  type RaceOpponentSourceType,
+} from './RaceOpponentSourceType.schema'
 
 // Rich source ref (ENG-10630): powers the hover-card source carousel. Replaces
 // the legacy {sourceType, sourceUrl} ref as the shape agents emit going
@@ -34,16 +37,37 @@ const hostnameOf = (url: string): string => {
 // rows persist the rich shape directly. Both normalize to SummarySource so
 // every consumer reads one shape. Same precedent as the ENG-10621
 // WhatYouNeedToKnowItemSchema normalization below.
+export type NormalizedSummarySource = SummarySource & {
+  sourceType?: RaceOpponentSourceType
+  sourceUrl?: string
+}
+
 const NormalizedSummarySourceSchema = z
-  .union([SummarySourceSchema, SummarySourceRefSchema])
-  .transform((source) =>
-    'url' in source
-      ? source
-      : {
-          url: source.sourceUrl,
-          title: hostnameOf(source.sourceUrl),
-          publisher: hostnameOf(source.sourceUrl),
-        },
+  .union([
+    // The rich branch tolerates the transitional legacy keys: gp-api persists
+    // the PARSED summary as the sections blob, so a normalized 5-key source
+    // must survive the persist -> read re-parse without the rich branch
+    // stripping sourceType/sourceUrl.
+    SummarySourceSchema.extend({
+      sourceType: RaceOpponentSourceTypeSchema.optional(),
+      sourceUrl: z.string().optional(),
+    }),
+    SummarySourceRefSchema,
+  ])
+  .transform(
+    (source): NormalizedSummarySource =>
+      'url' in source
+        ? source
+        : {
+            url: source.sourceUrl,
+            title: hostnameOf(source.sourceUrl),
+            publisher: hostnameOf(source.sourceUrl),
+            // Transitional passthrough: the deployed webapp still reads
+            // sourceType/sourceUrl off the wire; the UI tickets moving it to
+            // the rich shape drop these keys.
+            sourceType: source.sourceType,
+            sourceUrl: source.sourceUrl,
+          },
   )
 
 // sourced-or-silent: a displayed section must carry at least one source so the
