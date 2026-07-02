@@ -15,12 +15,30 @@ const fullSummary: RaceOpponentSummary = {
   opponentName: 'Graciela Guzman',
   overview: {
     text: 'The incumbent in a left-leaning seat.',
-    sources: [{ sourceType: 'ballotpedia', sourceUrl: 'https://a.example' }],
+    sources: [
+      {
+        url: 'https://a.example',
+        title: 'Candidate profile',
+        publisher: 'Ballotpedia',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://a.example',
+      },
+    ],
   },
   background: {
     text: 'Two-term incumbent with party backing.',
-    // Duplicate URL to prove overview+background sources are de-duped.
-    sources: [{ sourceType: 'ballotpedia', sourceUrl: 'https://a.example' }],
+    // Duplicate URL to prove overview+background sources are de-duped — and
+    // deliberately rich-only (no legacy sourceType/sourceUrl; the v2 wire
+    // shape once ENG-10635 drops the passthrough): collapsing it against the
+    // legacy-shaped overview source only works if the dedup key falls back
+    // `sourceUrl ?? url`.
+    sources: [
+      {
+        url: 'https://a.example',
+        title: 'Candidate profile',
+        publisher: 'Ballotpedia',
+      },
+    ],
   },
   keyPositions: [
     { label: 'Housing', detail: 'Backed developer credits.', sources: [] },
@@ -40,7 +58,13 @@ const fullSummary: RaceOpponentSummary = {
       whyItMatters: 'Rent is up 31%.',
       opponentStance: 'Backed the developer credit.',
       opponentSources: [
-        { sourceType: 'ballotpedia', sourceUrl: 'https://b.example' },
+        {
+          url: 'https://b.example',
+          title: 'Housing record',
+          publisher: 'Ballotpedia',
+          sourceType: 'ballotpedia',
+          sourceUrl: 'https://b.example',
+        },
       ],
       candidateStance: 'Run on tenant protections.',
     },
@@ -90,13 +114,14 @@ describe('buildOpponentBrief', () => {
     ])
   })
 
-  it('de-dupes overview + background sources and keeps both paragraphs', () => {
+  it('de-dupes a rich-only background source against a legacy overview source', () => {
     const brief = buildOpponentBrief(opponent())
     const overview = brief.sections.find((s) => s.kind === 'overview')
     expect(overview).toBeDefined()
     if (overview?.kind !== 'overview') throw new Error('expected overview')
     expect(overview.paragraphs).toHaveLength(2)
     expect(overview.sources).toHaveLength(1)
+    expect(overview.sources[0]?.url).toBe('https://a.example')
   })
 
   it('drops the salience label from issue contrasts (the page never renders it)', () => {

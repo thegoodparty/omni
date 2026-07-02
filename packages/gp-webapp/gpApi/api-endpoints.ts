@@ -966,9 +966,21 @@ export type RaceOpponentItem = {
 // Display-ready summary structured by the race_opponent_summary step. Mirrors
 // RaceOpponentSummarySchema in @goodparty_org/contracts, but generatedAt arrives
 // over JSON as an ISO string (the contract coerces it to Date).
+//
+// v2 (ENG-10630/ENG-10634): mirrors NormalizedSummarySource in contracts — the
+// rich fields (url/title/publisher) are always present (the contract backfills
+// them from the hostname for legacy-normalized rows), while sourceType/
+// sourceUrl are the legacy passthrough gp-api still sends during the rollout.
+// RaceOpponentList/IssueContrastCard/the PDF still key off sourceType/sourceUrl
+// until ENG-10635 migrates them onto the rich fields, so those stay optional
+// (not removed) rather than required.
 export type RaceOpponentSummarySourceRef = {
-  sourceType: RaceOpponentSourceType
-  sourceUrl: string
+  url: string
+  title: string
+  publisher: string
+  description?: string
+  sourceType?: RaceOpponentSourceType
+  sourceUrl?: string
 }
 
 export type RaceOpponentSummarySection = {

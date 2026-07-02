@@ -71,14 +71,20 @@ const SummarySources = ({
   sources: RaceOpponentSummarySourceRef[]
 }): React.JSX.Element => (
   <div className="flex flex-col gap-1">
-    {sources.map((source) => (
-      <SourceAttribution
-        key={`${source.sourceType}-${source.sourceUrl}`}
-        sourceUrl={source.sourceUrl}
-        sourceType="source"
-        label={source.sourceUrl}
-      />
-    ))}
+    {sources.map((source) => {
+      // sourceUrl is the legacy passthrough (ENG-10630); url is the rich field
+      // the contract always backfills, so it's the stable fallback once
+      // sourceUrl stops being sent (ENG-10635).
+      const url = source.sourceUrl ?? source.url
+      return (
+        <SourceAttribution
+          key={url}
+          sourceUrl={url}
+          sourceType="source"
+          label={url}
+        />
+      )
+    })}
   </div>
 )
 
@@ -97,8 +103,9 @@ const OverviewSection = ({
     ...(overview?.sources ?? []),
     ...(background?.sources ?? []),
   ].filter((source) => {
-    if (seen.has(source.sourceUrl)) return false
-    seen.add(source.sourceUrl)
+    const url = source.sourceUrl ?? source.url
+    if (seen.has(url)) return false
+    seen.add(url)
     return true
   })
   return (

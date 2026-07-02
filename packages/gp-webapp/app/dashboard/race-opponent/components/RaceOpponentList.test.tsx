@@ -45,6 +45,9 @@ const withSummary: RaceOpponentResponse = {
           text: 'Two-term incumbent with strong party backing.',
           sources: [
             {
+              url: 'https://ballotpedia.org/Jane_Rival',
+              title: 'Source title',
+              publisher: 'Ballotpedia',
               sourceType: 'ballotpedia',
               sourceUrl: 'https://ballotpedia.org/Jane_Rival',
             },
@@ -53,9 +56,14 @@ const withSummary: RaceOpponentResponse = {
         background: {
           text: 'Served on the city council before the legislature.',
           sources: [
+            // Rich-only v2 shape (no legacy sourceType/sourceUrl): a freshly
+            // persisted v2 row's sources look like this once ENG-10635 drops
+            // the passthrough, so this pins the `sourceUrl ?? url` fallback —
+            // the citation link below must come from `url`.
             {
-              sourceType: 'opponent_website',
-              sourceUrl: 'https://janerival.example.com/about',
+              url: 'https://janerival.example.com/about',
+              title: 'Source title',
+              publisher: 'Campaign website',
             },
           ],
         },
@@ -65,6 +73,9 @@ const withSummary: RaceOpponentResponse = {
             detail: 'Backed the developer tax-credit version of the bill.',
             sources: [
               {
+                url: 'https://ballotpedia.org/Jane_Rival#housing',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/Jane_Rival#housing',
               },
@@ -196,6 +207,9 @@ describe('<RaceOpponentList>', () => {
               text: 'Two-term incumbent with name recognition.',
               sources: [
                 {
+                  url: 'https://ballotpedia.org/Jane_Rival#known',
+                  title: 'Source title',
+                  publisher: 'Ballotpedia',
                   sourceType: 'ballotpedia',
                   sourceUrl: 'https://ballotpedia.org/Jane_Rival#known',
                 },
@@ -252,6 +266,9 @@ describe('<RaceOpponentList>', () => {
               text: 'No published long-term water position.',
               sources: [
                 {
+                  url: 'https://ballotpedia.org/Jane_Rival#water',
+                  title: 'Source title',
+                  publisher: 'Ballotpedia',
                   sourceType: 'ballotpedia',
                   sourceUrl: 'https://ballotpedia.org/Jane_Rival#water',
                 },
@@ -303,6 +320,9 @@ describe('<RaceOpponentList>', () => {
               opponentStance: 'Backs the developer tax-credit bill.',
               opponentSources: [
                 {
+                  url: 'https://ballotpedia.org/Jane_Rival#contrast',
+                  title: 'Source title',
+                  publisher: 'Ballotpedia',
                   sourceType: 'ballotpedia',
                   sourceUrl: 'https://ballotpedia.org/Jane_Rival#contrast',
                 },
@@ -416,6 +436,9 @@ describe('<RaceOpponentList>', () => {
             text: 'First challenger overview text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/First_Challenger',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/First_Challenger',
               },
@@ -425,6 +448,9 @@ describe('<RaceOpponentList>', () => {
             text: 'First challenger background text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/First_Challenger#bg',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/First_Challenger#bg',
               },
@@ -446,6 +472,9 @@ describe('<RaceOpponentList>', () => {
             text: 'Main threat overview text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/Main_Threat',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/Main_Threat',
               },
@@ -455,6 +484,9 @@ describe('<RaceOpponentList>', () => {
             text: 'Main threat background text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/Main_Threat#bg',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/Main_Threat#bg',
               },
