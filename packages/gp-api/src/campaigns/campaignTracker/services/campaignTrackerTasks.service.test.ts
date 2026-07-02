@@ -1,6 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
-import { ExperimentRunStatus } from '../../../generated/prisma'
+import {
+  CampaignTaskType,
+  ExperimentRunStatus,
+} from '../../../generated/prisma'
 import { CampaignTrackerTasksService } from './campaignTrackerTasks.service'
 import { CAMPAIGN_TRACKER_EXPERIMENT_TYPE } from '../campaignTracker.consts'
 import { SlackChannel } from 'src/vendors/slack/slackService.types'
@@ -431,6 +434,58 @@ describe('CampaignTrackerTasksService.notifyProUpgrade', () => {
     // findUnique defaults to isPro: false
     await h.service.notifyProUpgrade(42)
     expect(h.slack.message).not.toHaveBeenCalled()
+  })
+})
+
+// The CAS Slack message must scope tasks exactly like the weekly digest
+// (fetchTrackerDigestRows): latest dynamic generation + deterministic
+// text/robocall outreach, GOTV-gated to the 30-day window. These assert the
+// Prisma `where` the query builds; the digest's matching SQL is covered by its
+// integration test. Fixed clock so the GOTV window is deterministic.
+describe('CampaignTrackerTasksService Slack query scoping', () => {
+  let h: ReturnType<typeof makeService>
+  beforeEach(() => {
+    h = makeService()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const runProUpgrade = async (electionDate: string) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-01T12:00:00Z'))
+    h.prisma.campaign.findUnique.mockResolvedValueOnce(
+      proCampaign({ details: { electionDate } }),
+    )
+    // notifyProUpgrade: earliest incomplete task, then latest generation.
+    h.prisma.campaignTrackerTask.findFirst
+      .mockResolvedValueOnce({ date: new Date('2026-07-06') })
+      .mockResolvedValueOnce({ week: 3 })
+    h.prisma.campaignTrackerTask.findMany.mockResolvedValueOnce([])
+    await h.service.notifyProUpgrade(42)
+    return firstOrThrow(h.prisma.campaignTrackerTask.findMany.mock.calls)[0]
+      .where
+  }
+
+  it('gates default rows to text/robocall outreach and scopes dynamic rows to the latest generation', async () => {
+    const where = await runProUpgrade('2026-11-03')
+    expect(where.OR).toEqual([
+      {
+        isDefaultTask: true,
+        flowType: { in: [CampaignTaskType.text, CampaignTaskType.robocall] },
+      },
+      { isDefaultTask: false, week: 3 },
+    ])
+  })
+
+  it('suppresses GOTV-phase tasks when the election is more than 30 days out', async () => {
+    const where = await runProUpgrade('2026-11-03')
+    expect(where.NOT).toEqual({ phase: 'gotv' })
+  })
+
+  it('stops suppressing GOTV-phase tasks once the election is within 30 days', async () => {
+    const where = await runProUpgrade('2026-07-15')
+    expect(where.NOT).toBeUndefined()
   })
 })
 

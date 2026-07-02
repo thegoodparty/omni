@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, startOfDay } from 'date-fns'
 import { z } from 'zod'
 import {
   Campaign,
@@ -448,9 +448,11 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   }
 
   // Build + post one Mon-Sun week's task list for a Pro campaign to
-  // casClickupTasks: the latest dynamic generation plus any deterministic
-  // outreach/static tasks due that week (what the candidate sees). Mirrors the
-  // legacy campaign-plan message format.
+  // casClickupTasks: the latest dynamic generation plus the deterministic
+  // text/robocall outreach due that week (what the candidate sees in their week
+  // view). Mirrors fetchTrackerDigestRows' scoping so the CAS message, the
+  // digest email, and the tracker never disagree. Mirrors the legacy
+  // campaign-plan message format.
   private async postCampaignWeekToSlack(
     campaign: CampaignWith<'user'>,
     weekStart: Date,
@@ -462,17 +464,32 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       orderBy: { week: Prisma.SortOrder.desc },
       select: { week: true },
     })
+    // Mirror the digest's 30-day GOTV gate: don't surface GOTV-phase tasks to
+    // CAS until the election is within 30 days (the UI + email hide them until
+    // then), so CAS never gets GOTV work before the candidate sees it.
+    const electionDate = this.resolveElectionDate(campaign)
+    const withinGotvWindow =
+      electionDate !== null &&
+      differenceInCalendarDays(electionDate, new Date()) <= 30
     const tasks = await this.model.findMany({
       where: {
         campaignId: campaign.id,
         completed: false,
         date: { gte: weekStart, lt: windowEnd },
-        // Latest dynamic generation + the deterministic (default) rows. Only add
-        // the generation clause when one exists; generation indices start at 1,
-        // so a `week: 0` fallback would be a no-op that reads as intentional.
+        ...(withinGotvWindow ? {} : { NOT: { phase: 'gotv' } }),
+        // Latest dynamic generation + the deterministic text/robocall outreach,
+        // matching fetchTrackerDigestRows. isDefaultTask=false guards the
+        // generation clause because a default row's calendar-offset week can
+        // equal the latest generation index; the static setup checklist (default
+        // rows that are not outreach) is not part of the week view.
         OR: [
-          { isDefaultTask: true },
-          ...(latest ? [{ week: latest.week }] : []),
+          {
+            isDefaultTask: true,
+            flowType: {
+              in: [CampaignTaskType.text, CampaignTaskType.robocall],
+            },
+          },
+          ...(latest ? [{ isDefaultTask: false, week: latest.week }] : []),
         ],
       },
       orderBy: { date: Prisma.SortOrder.asc },
