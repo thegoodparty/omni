@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { RaceOpponentSummarySchema, RaceOpponentResponseSchema } from './index'
+import {
+  RaceOpponentSummarySchema,
+  RaceOpponentResponseSchema,
+  RaceOpponentFieldAnalysisSchema,
+} from './index'
 
 const validSummary = {
   opponentName: 'Jane Doe',
@@ -157,10 +161,13 @@ describe('RaceOpponentSummarySchema analysis fields', () => {
     expect(result.threatTier).toBe('primary_threat')
     expect(result.issueContrasts?.[0].salience).toBe('high')
     expect(result.whereSoft?.[1].sources).toBeUndefined()
-    // relaxed sourcing on takeaways: the sourced one keeps its ref, the
-    // interpretive one persists with no sources key.
+    // relaxed sourcing on takeaways: the sourced one keeps its ref (normalized
+    // to the rich shape), the interpretive one persists with no sources key.
     expect(result.whatYouNeedToKnow?.[0].sources).toEqual([
       {
+        url: 'https://ballotpedia.org/Jane_Doe',
+        title: 'ballotpedia.org',
+        publisher: 'ballotpedia.org',
         sourceType: 'ballotpedia',
         sourceUrl: 'https://ballotpedia.org/Jane_Doe',
       },
@@ -257,5 +264,260 @@ describe('RaceOpponentResponseSchema summary field', () => {
       collectionStatus: 'completed',
     })
     expect(result.opponents[0].summary?.opponentName).toBe('Jane Doe')
+  })
+})
+
+const richSource = {
+  url: 'https://ballotpedia.org/Jane_Doe',
+  title: 'Jane Doe - Ballotpedia',
+  publisher: 'Ballotpedia',
+}
+
+describe('RaceOpponentSummarySchema legacy source normalization', () => {
+  it('normalizes a legacy {sourceType, sourceUrl} source to the rich shape', () => {
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      overview: {
+        text: validSummary.overview.text,
+        sources: [
+          {
+            sourceType: 'ballotpedia',
+            sourceUrl: 'https://ballotpedia.org/X',
+          },
+        ],
+      },
+    })
+    expect(result.overview?.sources).toEqual([
+      {
+        url: 'https://ballotpedia.org/X',
+        title: 'ballotpedia.org',
+        publisher: 'ballotpedia.org',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://ballotpedia.org/X',
+      },
+    ])
+  })
+
+  it('falls back to the raw string when a legacy sourceUrl is not a valid URL', () => {
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      overview: {
+        text: validSummary.overview.text,
+        sources: [
+          {
+            sourceType: 'ballotpedia',
+            sourceUrl: 'ballotpedia.org/Jane_Doe',
+          },
+        ],
+      },
+    })
+    expect(result.overview?.sources).toEqual([
+      {
+        url: 'ballotpedia.org/Jane_Doe',
+        title: 'ballotpedia.org/Jane_Doe',
+        publisher: 'ballotpedia.org/Jane_Doe',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'ballotpedia.org/Jane_Doe',
+      },
+    ])
+  })
+
+  it('round-trips a normalized 5-key source without stripping the legacy keys', () => {
+    // gp-api persists the PARSED summary, so a re-read of a post-normalization
+    // row hits the rich union branch with the legacy keys still present.
+    const normalized = {
+      url: 'https://ballotpedia.org/X',
+      title: 'ballotpedia.org',
+      publisher: 'ballotpedia.org',
+      sourceType: 'ballotpedia',
+      sourceUrl: 'https://ballotpedia.org/X',
+    }
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      overview: { text: validSummary.overview.text, sources: [normalized] },
+    })
+    expect(result.overview?.sources).toEqual([normalized])
+  })
+
+  it('parses a rich source through unchanged', () => {
+    const result = RaceOpponentSummarySchema.parse({
+      ...validSummary,
+      overview: {
+        text: validSummary.overview.text,
+        sources: [{ ...richSource, description: 'Candidate profile page.' }],
+      },
+    })
+    expect(result.overview?.sources).toEqual([
+      { ...richSource, description: 'Candidate profile page.' },
+    ])
+  })
+})
+
+describe('RaceOpponentSummarySchema legacy full-summary fixture', () => {
+  // Shape of a pre-ENG-10630 persisted sections blob: no whyTheyreRunning /
+  // issuesThatMatter, legacy {sourceType, sourceUrl} refs throughout. Must
+  // keep parsing so the read endpoint doesn't 500 on existing campaigns.
+  const legacySummary = {
+    opponentName: 'Jane Doe',
+    overview: {
+      text: 'A two-term city council member focused on housing.',
+      sources: [
+        {
+          sourceType: 'ballotpedia',
+          sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+        },
+      ],
+    },
+    background: {
+      text: 'Served on the planning commission before election.',
+      sources: [
+        {
+          sourceType: 'opponent_website',
+          sourceUrl: 'https://janedoe.example.com/about',
+        },
+      ],
+    },
+    keyPositions: [
+      {
+        label: 'Housing',
+        detail: 'Supports zoning reform to increase supply.',
+        sources: [
+          {
+            sourceType: 'ballotpedia',
+            sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+          },
+        ],
+      },
+    ],
+    generatedAt: '2026-06-01T00:00:00.000Z',
+    threatTier: 'primary_threat',
+    whyTheyMatter: 'The only incumbent in the field.',
+    whatYouNeedToKnow: ['Two-term incumbent.'],
+    whereSoft: [{ text: 'No published long-term water position.' }],
+    issueContrasts: [],
+  }
+
+  it('parses a legacy sections blob with no v2 fields', () => {
+    const result = RaceOpponentSummarySchema.parse(legacySummary)
+    expect(result.whyTheyreRunning).toBeUndefined()
+    expect(result.issuesThatMatter).toBeUndefined()
+    expect(result.overview?.sources[0]).toEqual({
+      url: 'https://ballotpedia.org/Jane_Doe',
+      title: 'ballotpedia.org',
+      publisher: 'ballotpedia.org',
+      sourceType: 'ballotpedia',
+      sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+    })
+    expect(result.keyPositions?.[0].sources[0]).toEqual({
+      url: 'https://ballotpedia.org/Jane_Doe',
+      title: 'ballotpedia.org',
+      publisher: 'ballotpedia.org',
+      sourceType: 'ballotpedia',
+      sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+    })
+  })
+})
+
+describe('RaceOpponentSummarySchema v2 fields', () => {
+  const v2Summary = {
+    opponentName: 'Jane Doe',
+    overview: {
+      text: 'A two-term city council member.',
+      sources: [richSource],
+    },
+    background: {
+      text: 'Served on the planning commission.',
+      sources: [richSource],
+    },
+    generatedAt: '2026-07-01T00:00:00.000Z',
+    threatTier: 'primary_threat',
+    whyTheyreRunning: {
+      text: 'Running to protect the incumbent housing agenda.',
+    },
+    issuesThatMatter: { items: ['Housing'], sources: [richSource] },
+  }
+
+  it('parses a v2-shaped summary', () => {
+    const result = RaceOpponentSummarySchema.parse(v2Summary)
+    expect(result.whyTheyreRunning).toEqual({
+      text: 'Running to protect the incumbent housing agenda.',
+    })
+    expect(result.issuesThatMatter).toEqual({
+      items: ['Housing'],
+      sources: [richSource],
+    })
+  })
+
+  it('rejects a non-null overview missing sources', () => {
+    const { sources: _sources, ...overviewWithoutSources } = v2Summary.overview
+    expect(
+      RaceOpponentSummarySchema.safeParse({
+        ...v2Summary,
+        overview: overviewWithoutSources,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects issuesThatMatter with an empty sources array', () => {
+    expect(
+      RaceOpponentSummarySchema.safeParse({
+        ...v2Summary,
+        issuesThatMatter: { items: ['Housing'], sources: [] },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('rejects issuesThatMatter with an empty items array', () => {
+    expect(
+      RaceOpponentSummarySchema.safeParse({
+        ...v2Summary,
+        issuesThatMatter: { items: [], sources: [richSource] },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('accepts a null whyTheyreRunning and issuesThatMatter', () => {
+    const result = RaceOpponentSummarySchema.parse({
+      ...v2Summary,
+      whyTheyreRunning: null,
+      issuesThatMatter: null,
+    })
+    expect(result.whyTheyreRunning).toBeNull()
+    expect(result.issuesThatMatter).toBeNull()
+  })
+
+  it('accepts whyTheyreRunning and issuesThatMatter omitted entirely', () => {
+    const { whyTheyreRunning: _w, issuesThatMatter: _i, ...rest } = v2Summary
+    const result = RaceOpponentSummarySchema.parse(rest)
+    expect(result.whyTheyreRunning).toBeUndefined()
+    expect(result.issuesThatMatter).toBeUndefined()
+  })
+})
+
+describe('RaceOpponentFieldAnalysisSchema', () => {
+  it('round-trips a fully-populated field analysis', () => {
+    const input = {
+      strengths: ['Strong fundraising'],
+      weaknesses: ['Low name recognition'],
+      opportunities: ['Opponent has no published water position'],
+      threats: ['Opponent has union backing'],
+      sources: [richSource],
+      generatedAt: '2026-07-01T00:00:00.000Z',
+    }
+    const result = RaceOpponentFieldAnalysisSchema.parse(input)
+    expect(result.strengths).toEqual(input.strengths)
+    expect(result.sources).toEqual([richSource])
+    expect(result.generatedAt).toBeInstanceOf(Date)
+  })
+
+  it('defaults sources to an empty array when omitted', () => {
+    const result = RaceOpponentFieldAnalysisSchema.parse({
+      strengths: [],
+      weaknesses: [],
+      opportunities: [],
+      threats: [],
+      generatedAt: null,
+    })
+    expect(result.sources).toEqual([])
   })
 })

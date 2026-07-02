@@ -1243,11 +1243,25 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       (o: { opponentName: string }) => o.opponentName === JANE,
     )
     expect(opponent.summary.opponentName).toBe(JANE)
+    // Legacy refs normalize to the rich shape with the transitional
+    // sourceType/sourceUrl passthrough (ENG-10630).
     expect(opponent.summary.overview.sources).toEqual([
-      { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+      {
+        url: BALLOTPEDIA_URL,
+        title: 'ballotpedia.org',
+        publisher: 'ballotpedia.org',
+        sourceType: 'ballotpedia',
+        sourceUrl: BALLOTPEDIA_URL,
+      },
     ])
     expect(opponent.summary.background.sources).toEqual([
-      { sourceType: 'opponent_website', sourceUrl: WEBSITE_URL },
+      {
+        url: WEBSITE_URL,
+        title: 'janerival.com',
+        publisher: 'janerival.com',
+        sourceType: 'opponent_website',
+        sourceUrl: WEBSITE_URL,
+      },
     ])
     expect(opponent.summary.keyPositions).toHaveLength(1)
   })
@@ -1441,7 +1455,13 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       (o: { opponentName: string }) => o.opponentName === JANE,
     )
     expect(opponent.summary.overview.sources).toEqual([
-      { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+      {
+        url: BALLOTPEDIA_URL,
+        title: 'ballotpedia.org',
+        publisher: 'ballotpedia.org',
+        sourceType: 'ballotpedia',
+        sourceUrl: BALLOTPEDIA_URL,
+      },
     ])
   })
 
@@ -1671,11 +1691,20 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     )
     expect(opponent.summary.threatTier).toBe('primary_threat')
     expect(opponent.summary.whatYouNeedToKnow).toHaveLength(2)
+    // Legacy refs normalize to the rich shape with the transitional
+    // sourceType/sourceUrl passthrough (ENG-10630).
+    const normalizedBallotpediaSource = {
+      url: BALLOTPEDIA_URL,
+      title: 'ballotpedia.org',
+      publisher: 'ballotpedia.org',
+      sourceType: 'ballotpedia',
+      sourceUrl: BALLOTPEDIA_URL,
+    }
     // relaxed sourcing: the sourced takeaway keeps its upgraded source ref, the
     // interpretive one persists with no sources key.
     expect(opponent.summary.whatYouNeedToKnow[0]).toEqual({
       text: 'Two-term incumbent.',
-      sources: [{ sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL }],
+      sources: [normalizedBallotpediaSource],
     })
     expect(opponent.summary.whatYouNeedToKnow[1]).toEqual({
       text: 'Backed by the local PAC.',
@@ -1684,16 +1713,14 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     // unsourced one persists with no sources key.
     expect(opponent.summary.whereSoft).toHaveLength(2)
     expect(opponent.summary.whereSoft[0].sources).toEqual([
-      { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+      normalizedBallotpediaSource,
     ])
     expect(opponent.summary.whereSoft[1].sources).toBeUndefined()
     expect(opponent.summary.issueContrasts[0]).toMatchObject({
       issue: 'Housing',
       salience: 'high',
       candidateStance: 'Supports starter homes.',
-      opponentSources: [
-        { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
-      ],
+      opponentSources: [normalizedBallotpediaSource],
     })
   })
 
