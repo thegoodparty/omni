@@ -1,8 +1,8 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "trending_issues",
-  "version": 7,
-  "model": "haiku",
+  "version": 8,
+  "model": "sonnet",
   "max_turns": 150,
   "timeout_seconds": 3000,
   "runtime": {
