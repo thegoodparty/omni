@@ -1,3 +1,6 @@
+'use client'
+
+import { Fragment, useState } from 'react'
 import {
   Table,
   TableBody,
@@ -45,6 +48,15 @@ export type AgentRunDetailProps = {
 }
 
 const AgentRunDetail = ({ run, runId }: AgentRunDetailProps) => {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set())
+  const toggle = (index: number) =>
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(index)) next.delete(index)
+      else next.add(index)
+      return next
+    })
+
   const tintFor = new Map<string, string>()
   run.perMilestone.forEach((milestone, i) => {
     tintFor.set(milestone.name, MILESTONE_TINTS[i % MILESTONE_TINTS.length]!)
@@ -136,55 +148,101 @@ const AgentRunDetail = ({ run, runId }: AgentRunDetailProps) => {
           <TableBody>
             {run.turns.map((turn) => {
               const tint = tintFor.get(turn.milestone) ?? ''
+              const isOpen = expanded.has(turn.index)
+              const hasDetail =
+                turn.text.length > 0 || turn.toolCalls.length > 0
               return (
-                <TableRow key={turn.index} className={tint}>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {turn.index}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {deltaLabel(turn.deltaMs)}
-                  </TableCell>
-                  <TableCell className="align-top">
-                    {turn.isMilestoneStart ? (
-                      <span className="inline-block rounded bg-foreground px-1.5 py-0.5 font-mono text-xs text-background">
-                        {turn.milestone}
-                      </span>
-                    ) : (
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {turn.milestone}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="max-w-[520px] align-top whitespace-normal">
-                    {turn.toolCalls.length ? (
-                      <div className="flex flex-col gap-1">
-                        {turn.toolCalls.map((call, i) => (
-                          <div key={i} className="flex gap-2">
-                            <span className="shrink-0 font-mono text-xs font-semibold">
-                              {call.name}
-                            </span>
-                            <span className="truncate font-mono text-xs text-muted-foreground">
-                              {call.summary}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <span className="font-mono text-xs text-muted-foreground">
-                        {toolLabel(turn)}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {num(turn.tokens.cacheRead)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-muted-foreground">
-                    {num(turn.tokens.output)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums font-medium">
-                    {usd(turn.costUsd)}
-                  </TableCell>
-                </TableRow>
+                <Fragment key={turn.index}>
+                  <TableRow
+                    className={`${tint} ${hasDetail ? 'cursor-pointer' : ''}`}
+                    onClick={hasDetail ? () => toggle(turn.index) : undefined}
+                  >
+                    <TableCell className="text-right align-top tabular-nums text-muted-foreground">
+                      {hasDetail ? (
+                        <span className="mr-1 inline-block text-muted-foreground">
+                          {isOpen ? '▾' : '▸'}
+                        </span>
+                      ) : null}
+                      {turn.index}
+                    </TableCell>
+                    <TableCell className="text-right align-top tabular-nums text-muted-foreground">
+                      {deltaLabel(turn.deltaMs)}
+                    </TableCell>
+                    <TableCell className="align-top">
+                      {turn.isMilestoneStart ? (
+                        <span className="inline-block rounded bg-foreground px-1.5 py-0.5 font-mono text-xs text-background">
+                          {turn.milestone}
+                        </span>
+                      ) : (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {turn.milestone}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-[520px] align-top whitespace-normal">
+                      {turn.text ? (
+                        <div className="mb-1 line-clamp-2 text-xs text-foreground">
+                          {turn.text}
+                        </div>
+                      ) : null}
+                      {turn.toolCalls.length ? (
+                        <div className="flex flex-col gap-1">
+                          {turn.toolCalls.map((call, i) => (
+                            <div key={i} className="flex gap-2">
+                              <span className="shrink-0 font-mono text-xs font-semibold">
+                                {call.name}
+                              </span>
+                              <span className="truncate font-mono text-xs text-muted-foreground">
+                                {call.summary}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : turn.text ? null : (
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {toolLabel(turn)}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right align-top tabular-nums text-muted-foreground">
+                      {num(turn.tokens.cacheRead)}
+                    </TableCell>
+                    <TableCell className="text-right align-top tabular-nums text-muted-foreground">
+                      {num(turn.tokens.output)}
+                    </TableCell>
+                    <TableCell className="text-right align-top tabular-nums font-medium">
+                      {usd(turn.costUsd)}
+                    </TableCell>
+                  </TableRow>
+                  {isOpen ? (
+                    <TableRow className={tint}>
+                      <TableCell colSpan={7} className="align-top">
+                        <div className="flex flex-col gap-3 px-2 py-2">
+                          {turn.text ? (
+                            <div>
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Assistant text
+                              </div>
+                              <div className="whitespace-pre-wrap text-sm">
+                                {turn.text}
+                              </div>
+                            </div>
+                          ) : null}
+                          {turn.toolCalls.map((call, i) => (
+                            <div key={i}>
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                {call.name} input
+                              </div>
+                              <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-muted p-2 font-mono text-xs">
+                                {call.input}
+                              </pre>
+                            </div>
+                          ))}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                </Fragment>
               )
             })}
           </TableBody>

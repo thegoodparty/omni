@@ -8,6 +8,8 @@
 export type ToolCall = {
   name: string
   summary: string
+  // Full input, pretty-printed, for the expand-row detail (summary is truncated).
+  input: string
 }
 
 export type TurnTokens = {
@@ -23,6 +25,9 @@ export type Turn = {
   deltaMs: number
   model: string
   toolCalls: ToolCall[]
+  // The agent's natural-language text for the turn (empty on tool-only turns;
+  // thinking blocks are separate and only present when extended thinking is on).
+  text: string
   tokens: TurnTokens
   costUsd: number
   milestone: string
@@ -127,6 +132,13 @@ const summarizeInput = (input: unknown): string => {
   return collapse(JSON.stringify(record))
 }
 
+const fullInput = (input: unknown): string => {
+  if (input === null || input === undefined) return ''
+  const text =
+    typeof input === 'string' ? input : JSON.stringify(input, null, 2)
+  return text.length > 4000 ? `${text.slice(0, 4000)}\n…(truncated)` : text
+}
+
 const collapse = (text: string): string => {
   const single = text.replace(/\s+/g, ' ').trim()
   return single.length > 160 ? `${single.slice(0, 157)}…` : single
@@ -147,6 +159,7 @@ type RawContentBlock = {
   type?: string
   name?: string
   input?: unknown
+  text?: string
 }
 
 type RawLine = {
@@ -235,7 +248,14 @@ export const parseAgentRun = (
       .map((block) => ({
         name: block.name ?? 'unknown',
         summary: summarizeInput(block.input),
+        input: fullInput(block.input),
       }))
+
+    const text: string = (line.message.content ?? [])
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text ?? '')
+      .join('\n')
+      .trim()
 
     const milestone: string = Number.isNaN(tsEpoch)
       ? (prevMilestone ?? PREAMBLE)
@@ -249,6 +269,7 @@ export const parseAgentRun = (
       deltaMs,
       model,
       toolCalls,
+      text,
       tokens: { input, output, cacheRead, cacheWrite },
       costUsd,
       milestone,

@@ -6,6 +6,7 @@ const assistant = (
   model: string,
   usage: Record<string, unknown>,
   toolUse: { name: string; input: unknown }[] = [],
+  text = '',
 ) =>
   JSON.stringify({
     type: 'assistant',
@@ -13,7 +14,10 @@ const assistant = (
     message: {
       model,
       usage,
-      content: toolUse.map((t) => ({ type: 'tool_use', ...t })),
+      content: [
+        ...(text ? [{ type: 'text', text }] : []),
+        ...toolUse.map((t) => ({ type: 'tool_use', ...t })),
+      ],
     },
   })
 
@@ -33,6 +37,7 @@ describe('parseAgentRun', () => {
           },
         },
         [{ name: 'Bash', input: { command: 'ls -la', description: 'list' } }],
+        'Listing the files first.',
       ),
       assistant('2026-07-01T00:00:05.000Z', 'claude-opus-4-7', {
         input_tokens: 0,
@@ -58,8 +63,18 @@ describe('parseAgentRun', () => {
     expect(run.turns[0]!.costUsd).toBeCloseTo(0.00051, 10)
     expect(run.turns[0]!.milestone).toBe('preamble')
     expect(run.turns[0]!.toolCalls).toEqual([
-      { name: 'Bash', summary: 'ls -la' },
+      {
+        name: 'Bash',
+        summary: 'ls -la',
+        input: JSON.stringify(
+          { command: 'ls -la', description: 'list' },
+          null,
+          2,
+        ),
+      },
     ])
+    expect(run.turns[0]!.text).toBe('Listing the files first.')
+    expect(run.turns[1]!.text).toBe('')
 
     // opus: 100*25e-6 + 1000*0.5e-6 = 0.003
     expect(run.turns[1]!.costUsd).toBeCloseTo(0.003, 10)
