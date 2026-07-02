@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
 import {
@@ -11,17 +12,33 @@ import {
   SparklesIcon,
 } from '@styleguide/components/ui/icons'
 import type { LucideIcon } from 'lucide-react'
-import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
+import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import {
+  isVoterContactFlowType,
+  useToggleTrackerTaskComplete,
+  useTrackerTasks,
+} from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import CountModal from '../components/tasks/CountModal'
+import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
+import {
+  CAMPAIGN_MANAGER_HISTORY_KEY,
+  campaignManagerChatApi,
+} from './campaignManagerChat'
 
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
 
-// Each card links to the task's own action (its `link`, the task-to-action
-// routing the Campaign Tracker owns), falling back to the tracker page.
+// A task's own action link, if it has a non-empty one. Trimmed so an empty or
+// whitespace string (which the agent can emit) counts as "no link" rather than
+// rendering a broken href, matching the tracker, which hides the link then.
+const taskLink = (task: { link: string | null }): string | null =>
+  task.link?.trim() ? task.link : null
+
+// Each card links to the task's own action, falling back to the tracker page.
 const taskHref = (task: { link: string | null }): string =>
-  task.link ?? TRACKER_HREF
+  taskLink(task) ?? TRACKER_HREF
 
 // Eyebrow label + icon per tracker flowType (same set buildTrackerStrategy maps
 // to channels). Unknown/static rows fall back to a generic priority label.
@@ -54,20 +71,56 @@ export default function CampaignManagerTasks({
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
 
+  const toggleComplete = useToggleTrackerTaskComplete()
+  // A count-flowType task pending its voter-contact count in the modal.
+  const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
+
+  const onComplete = (task: CampaignTrackerTask): void => {
+    if (isVoterContactFlowType(task.flowType)) {
+      setCountTask(task)
+      return
+    }
+    toggleComplete.mutate({ id: task.id, completed: true })
+  }
+
+  const onCountSubmit = (count: number): void => {
+    if (!countTask?.flowType) return
+    toggleComplete.mutate({
+      id: countTask.id,
+      completed: true,
+      type: countTask.flowType,
+      quantity: count,
+    })
+    setCountTask(null)
+  }
+
+  // First-run onboarding card: show it only once we know the candidate has
+  // never opened the manager (no conversation yet). Opening it eagerly creates
+  // one, so the card drops away afterward. Gate on the loaded-and-empty state so
+  // a returning candidate never sees it flash while history loads.
+  const { data: conversations } = useChatHistory(
+    true,
+    campaignManagerChatApi,
+    CAMPAIGN_MANAGER_HISTORY_KEY,
+  )
+  const showMeetCard = conversations !== undefined && conversations.length === 0
+
   return (
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold">Your campaign manager</h1>
-          <p className="text-sm text-muted-foreground">
-            The two or three things that matter most this week, and a manager to
-            help you decide what to do next.
-          </p>
+      {showMeetCard && (
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl font-semibold">Your campaign manager</h1>
+            <p className="text-sm text-muted-foreground">
+              The two or three things that matter most this week, and a manager
+              to help you decide what to do next.
+            </p>
+          </div>
+          <Button className="self-start" onClick={onMeetManager}>
+            Meet your campaign manager
+          </Button>
         </div>
-        <Button className="self-start" onClick={onMeetManager}>
-          Meet your campaign manager
-        </Button>
-      </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">
@@ -91,7 +144,7 @@ export default function CampaignManagerTasks({
           </p>
         ) : (
           <div className="flex flex-col gap-4">
-            {top.map((task) => {
+            {top.map((task, index) => {
               const { label, Icon } = taskMeta(task.flowType)
               return (
                 <TaskCard
@@ -101,14 +154,34 @@ export default function CampaignManagerTasks({
                   title={task.title}
                   meta={[formatDue(task.date)]}
                   summary={task.description || undefined}
-                  ctaLabel={task.cta ?? 'See details'}
+                  // With its own action link, "Open" it (like the tracker);
+                  // otherwise route to the tracker to act on it there.
+                  ctaLabel={
+                    task.cta?.trim() ||
+                    (taskLink(task) ? 'Open' : 'See details')
+                  }
                   ctaHref={taskHref(task)}
+                  onComplete={() => onComplete(task)}
+                  completeDisabled={toggleComplete.isPending}
+                  // Only the top priority card gets the subtle gradient.
+                  gradient={index === 0}
                 />
               )
             })}
           </div>
         )}
       </div>
+
+      {countTask && (
+        <CountModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setCountTask(null)
+          }}
+          flowType={countTask.flowType ?? ''}
+          onSubmit={onCountSubmit}
+        />
+      )}
     </section>
   )
 }

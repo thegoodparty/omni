@@ -100,6 +100,10 @@ Human-readable guidance per job lives in `profiles/`:
 - `profiles/meeting_briefing.md` — headline = dollars per delivered briefing
   (including failed attempts), the milestone-attribution note (live, with
   turn-progress fallback for pre-primitive runs), and standing findings.
+- `profiles/community_issues.md` — covers BOTH `top_community_issues` and
+  `trending_issues` (one shared registry shape); headline = dollars per delivered
+  issue list (`data_quality` ok/partial, including failed attempts), milestone
+  phases live from manifest v4, and standing cost findings from the v3 cohorts.
 
 To analyze a new job, add its profile to `PROFILES` and a `profiles/<type>.md`.
 

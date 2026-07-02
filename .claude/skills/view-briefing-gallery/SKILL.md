@@ -21,6 +21,11 @@ writes.
   and returns every `*.json`. 404s unless `NODE_ENV === 'development'`.
 - **Gallery page** `packages/gp-webapp/app/dev/briefings/page.tsx` fetches that,
   renders the selected artifact through the production cards, prev/next paging.
+- **Always pull the agent runs too.** Whenever you pull briefings for the gallery,
+  the underlying agent runs MUST come with them: the pull script fetches each run's
+  `logs/session.jsonl` / `logs/milestones.jsonl` beside the artifact, powering the
+  "View agent run" page (`/dev/runs/<runId>`). Never pull artifacts through a path
+  that skips the logs; if "View agent run" 404s for a run, re-pull that run id.
 - **Pull script** `scripts/pull-local-briefings.sh` copies artifacts from
   `s3://gp-agent-artifacts-dev/<exp>/<runId>/artifact.json` into the dir.
 

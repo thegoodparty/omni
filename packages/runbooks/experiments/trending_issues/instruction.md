@@ -2,7 +2,7 @@
 
 # Trending Issues
 
-Given an elected official's district, produce a ranked list of up to 10 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
+Given an elected official's district, produce a ranked list of up to 5 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
 
 ## BEFORE YOU START
 
@@ -12,6 +12,14 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 4. Write the final artifact to `/workspace/output/trending_issues.json` and nowhere else.
 5. Run `python3 /workspace/validate_output.py` before declaring success.
 6. Perform the spot-check at the bottom — validator-passing data can still be garbage.
+7. As you ENTER each phase below, mark a milestone so cost analysis can attribute per-turn spend to named phases. Run this line (it appends a marker, nothing else):
+   ```python
+   try:
+       from pmf_runtime import milestone; milestone("<phase>")
+   except Exception:
+       pass  # primitive absent on this runner build — never fail the run over a marker
+   ```
+   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected. When a phase STARTS with a python/bash command, prepend the milestone line to that command (same code block, no separate turn). When a phase starts with `WebSearch` (e.g. discovery), run the marker standalone FIRST — the marker must fire before the phase's work or cost attribution mis-tags the phase.
 
 ## TODO CHECKLIST
 
@@ -19,7 +27,7 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 2. Call `GET_community_issues` with `organization_slug` to retrieve the current issue list. Record existing issue IDs.
 3. Run broad `WebSearch` queries for `<district_descriptor> local issues 2026` and related terms, including the public output of local community advocacy groups (associations, BIAs, neighborhood councils, coalitions; prefer nonpartisan), to identify candidate trending topics.
 4. For each candidate topic: verify the top URL with `pmf_runtime.http.head`; escalate to `http.get` only if head returns 403/405 or you need body content.
-5. Select up to 10 issues with the strongest recent signal (recency + coverage breadth).
+5. Select up to 5 issues with the strongest recent signal (recency + coverage breadth).
 6. Match each output issue against the existing feed: carry `existing_issue_id` when the issue maps to an existing record.
 7. Classify each issue into exactly one `category` from the allowed enum.
 8. Assign `priority` (`low|medium|high`) and `rank` (1 = most prominent/recent).
@@ -30,6 +38,16 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 13. Perform the spot-check.
 
 ## CRITICAL RULES
+
+**Turn efficiency — every turn re-reads the whole conversation, so cost tracks turn count and transcript size. These rules are as binding as the data rules:**
+
+- **Batch aggressively.** Issue 2-4 `WebSearch` calls in a SINGLE turn. Verify ALL URLs in ONE python block. Combine consecutive python steps into one block. Never do in five turns what fits in one.
+- **Search budget: at most 10 `WebSearch` calls for the whole run.** Snippets usually carry the headline, the date, and the publisher — mine them before fetching anything.
+- **Recency is enforced at SELECTION time.** Read the article date from the snippet (or the URL) when you collect a candidate; a source older than 90 days is dropped in Step 3-5, never discovered after assembly.
+- **NEVER print a raw page body.** When `http.get` is unavoidable, extract the specific fact inside the SAME python block and print ≤300 chars (the claim, the date, the figure). A printed page body inflates the cost of every later turn.
+- **Keep `retrieved_text_or_snapshot` ≤1500 chars** — the minimum excerpt that proves the claim, not the whole article.
+- **After you assemble the artifact, never re-open discovery.** If validation or the spot-check flags a specific source or field, fix or drop THAT item with a surgical `Edit`; do not re-search, re-render pages, or rebuild the artifact from scratch. If a whole issue fails its check, delete that issue and say why in `data_quality_reason`.
+- **Never spend a turn solely on task bookkeeping.** Batch `TaskCreate`/`TaskUpdate` calls alongside the next real tool call in the same turn.
 
 **Existing issue feed**:
 
@@ -96,9 +114,13 @@ RUN_ID = os.environ.get("RUN_ID", "unknown")
 
 ### Step 2 — Read current issue feed
 
+**Milestone — run `milestone("feed")`** (per BEFORE YOU START item 7) before this step's work.
+
 Call `GET_community_issues` with `organization_slug=ORG_SLUG`. Record every existing issue: capture `id`, `title`, and `category` for each. You will use these IDs in Step 6 to carry issues forward.
 
 ### Step 3 — Broad news discovery
+
+**Milestone — run `milestone("discovery")`** (per BEFORE YOU START item 7) before this step's work.
 
 Run a handful of `WebSearch` queries:
 
@@ -108,39 +130,54 @@ Run a handful of `WebSearch` queries:
 - `"<DISTRICT>" neighborhood association OR community association OR BIA OR neighborhood council`
 - `"<DISTRICT>" letter to the editor OR op-ed 2026`
 
-Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 10. For any advocacy group, record its name and any political-party affiliation; **prefer nonpartisan groups**, and require a second independent source before a partisan group's framing becomes a trending issue on its own.
+Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 5. For any advocacy group, record its name and any political-party affiliation; **prefer nonpartisan groups**, and require a second independent source before a partisan group's framing becomes a trending issue on its own.
+
+**Run this step in ~3-4 turns**: the queries are independent — issue them 2-4 per turn, and record candidates from the snippets (title, URL, **article date**, topic). Drop stale candidates (>90 days) HERE, at collection. Do not fetch page bodies during discovery. Stay inside the 10-search budget — roughly 6-7 here, leaving 3-4 for gap-filling.
 
 ### Step 4 — Verify and retrieve sources per candidate
 
-For each candidate topic, verify at least one source URL:
+**Milestone — run `milestone("verify")`** (per BEFORE YOU START item 7) before this step's work.
+
+**Verify ALL candidate URLs in ONE batched python block** (target 1-2 turns for the whole step, not one turn per URL):
 
 ```python
 from pmf_runtime import http
-r = http.head(url)
-if r["status"] in (403, 405):
-    r = http.get(url)
-# If r["status"] != 200: drop this source
+for url in candidate_urls:               # every candidate URL, in one pass
+    try:
+        r = http.head(url)
+        print(r["status"], r.get("final_url", url)[:100])
+    except Exception as e:
+        print("ERR", url[:80], str(e)[:60])
+# drop any source that does not resolve to 200; cite final_url on redirect
 ```
 
-Extract: source name, publisher, article_date, and a representative text snippet (≤ 2000 chars) for `retrieved_text_or_snapshot`.
+Escalate to `http.get` ONLY for a 403/405 URL you must keep, or when the article date is not in the snippet — and extract just the date/fact inside the same block, printing ≤300 chars (never the raw body).
+
+Extract: source name, publisher, article_date, and a representative text snippet (≤1500 chars) for `retrieved_text_or_snapshot`. **A kept source MUST have a confirmed `article_date`** — from the snippet, the URL path (e.g. `/2026/06/`), or one excerpt-only `get` — because Step 5's 90-day rule needs it. A candidate whose date cannot be confirmed cheaply is dropped here.
 
 Fast-bail rule: if a topic has no verifiable URL after 2 searches, skip it.
 
+**Recency gate (run BEFORE Step 7 assemble, while the artifact is cheap to change):** one python block printing `(source, article_date, days_old)` for every source you intend to cite. Drop anything >90 days old NOW. If that leaves an issue unsourced, drop the issue. This gate is why the post-assemble spot-check should never find a stale source.
+
 ### Step 5 — Select and rank top issues
+
+**Milestone — run `milestone("rank")`** (per BEFORE YOU START item 7) before this step's work (covers Steps 5-6, selection + ID carry).
 
 Rank candidates by:
 
-1. Recency (articles within last 30 days score highest)
+1. Recency (articles within last 30 days score highest; **nothing older than 90 days is selectable** — this is where the 90-day rule is enforced, not after assembly)
 2. Coverage breadth (multiple independent sources)
 3. Relevance to the district (local vs. national story)
 
-Select up to 10. If fewer than 3 pass the threshold, proceed to thin-signal handling.
+Select up to 5. If fewer than 3 pass the threshold, proceed to thin-signal handling.
 
 ### Step 6 — Carry existing issue IDs
 
 Compare each output issue title/category against the existing feed from Step 2. When the issue clearly maps to an existing record, set `existing_issue_id` to that record's ID. Do not invent a mapping if it is ambiguous.
 
 ### Step 7 — Assemble artifact
+
+**Milestone — run `milestone("assemble")`** (per BEFORE YOU START item 7) before this step's work.
 
 ```python
 import json
@@ -158,6 +195,8 @@ with open("/workspace/output/trending_issues.json", "w") as f:
 
 ### Step 8 — Validate
 
+**Milestone — run `milestone("validate")`** (per BEFORE YOU START item 7) before this step's work.
+
 ```bash
 python3 /workspace/validate_output.py
 ```
@@ -168,7 +207,7 @@ Fix any schema violations before declaring success.
 
 After validation passes, verify:
 
-- **All sources have article dates within the last 90 days.** Older articles indicate a stale search — re-run with a more recent date filter.
+- **All sources have article dates within the last 90 days.** This was enforced at Step 3/5 selection; if a stale source slipped through anyway, drop it (and its claims) with a surgical `Edit` — do not re-open discovery to find a replacement.
 - **Issues span at least 2 different categories** (unless the district has a single dominant crisis). Monoculture output suggests the search queries were too narrow.
 - **Each `source_id` referenced in `source_ids` / `source_id` fields resolves to an entry in `detail.sources[]`.** A dangling ID means the validator missed it but the downstream renderer will break.
 - **`detail.overview` is present on every issue.** It is always required.
@@ -181,9 +220,9 @@ After validation passes, verify:
 
 | Symptom                                      | Cause                                                       | Fix                                                                      |
 | -------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------ |
-| All sources are > 90 days old                | Date filter not applied to searches                         | Re-run searches with `2026` or `site:` filter for local news             |
+| All sources are > 90 days old                | Recency not enforced at Step 3/5 selection                  | Drop stale sources surgically; select on snippet dates next time         |
 | Fewer than 3 issues found                    | Small/rural district with thin local news coverage          | Set `data_quality: "insufficient_signal"`; emit what you have            |
 | `source_id` not found in `detail.sources[]`  | Forgot to add the source entry after referencing it         | Add matching entry to `detail.sources[]`                                 |
 | Validator: missing required field `overview` | `detail.overview` was omitted                               | Always emit `overview`; it is required                                   |
 | `WebFetch` returns domain-safety error       | Used `WebFetch` instead of `WebSearch` + `pmf_runtime.http` | Use `WebSearch` for discovery; `pmf_runtime.http.head/get` for retrieval |
-| `GET_community_issues` 404            | Organization has no feed yet                                | Treat as empty feed; proceed with empty existing_issue_ids               |
+| `GET_community_issues` 404                   | Organization has no feed yet                                | Treat as empty feed; proceed with empty existing_issue_ids               |

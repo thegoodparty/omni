@@ -45,6 +45,12 @@ export type {
   ExperimentRunStatus,
   Eligibility,
   OrganizationStatus,
+  MeetingAgentDispatchKind,
+  DispatchMeetingAgentRequest,
+  DispatchMeetingAgentResult,
+  BriefingDispatchPreview,
+  CommunityIssuesDispatchRequest,
+  CommunityIssuesDispatchResult,
 } from '@goodparty_org/contracts'
 
 export {

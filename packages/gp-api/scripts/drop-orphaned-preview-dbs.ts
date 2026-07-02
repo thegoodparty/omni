@@ -35,6 +35,11 @@ const client = new Client({
   user: dbUser,
   password: dbPassword,
   ssl: { rejectUnauthorized: false },
+  // Never let the task hang: a run-task that never exits blocks its ECS
+  // cluster's teardown. Fail fast if the cluster is unreachable or a
+  // statement stalls.
+  connectionTimeoutMillis: 15_000,
+  statement_timeout: 60_000,
 })
 
 const main = async () => {
@@ -55,13 +60,10 @@ const main = async () => {
     // abort the rest of the sweep — log it and keep going.
     try {
       console.log(`Dropping orphaned ${datname} (PR #${prNumber} closed)...`)
-      await client.query(
-        `SELECT pg_terminate_backend(pid)
-         FROM pg_stat_activity
-         WHERE datname = $1 AND pid <> pg_backend_pid()`,
-        [datname],
-      )
-      await client.query(`DROP DATABASE IF EXISTS "${datname}"`)
+      // WITH (FORCE) terminates surviving sessions and drops in one step
+      // (Postgres 13+); pg_terminate_backend alone is advisory, so a
+      // reconnecting session would make a plain DROP fail.
+      await client.query(`DROP DATABASE IF EXISTS "${datname}" WITH (FORCE)`)
       console.log(`Dropped ${datname}.`)
     } catch (err) {
       failed += 1

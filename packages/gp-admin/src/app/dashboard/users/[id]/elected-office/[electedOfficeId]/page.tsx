@@ -1,9 +1,11 @@
 import type { Metadata } from 'next'
+import { Box } from '@radix-ui/themes'
 import { getElectedOfficeOrNotFound } from '@/app/dashboard/elected-offices/getElectedOfficeOrNotFound'
 import { getOrganization } from '@/app/dashboard/organizations/actions'
 import { ElectedOfficeDisplaySection } from '../../components/ElectedOfficeDisplaySection'
 import { ViewLayout } from '../../components/ViewLayout'
 import { validateNumericParams } from '@/shared/util/validateNumericParams.util'
+import { AgentJobsPanel } from './components/AgentJobsPanel'
 
 export const metadata: Metadata = {
   title: 'Elected Office Detail | GP Admin',
@@ -30,6 +32,12 @@ export default async function ElectedOfficeDetailPage({
         district={organization?.district ?? null}
         positionName={organization?.positionName ?? null}
       />
+      <Box mt="4">
+        <AgentJobsPanel
+          electedOfficeId={electedOffice.id}
+          organizationSlug={electedOffice.organizationSlug}
+        />
+      </Box>
     </ViewLayout>
   )
 }

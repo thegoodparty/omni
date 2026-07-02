@@ -125,6 +125,20 @@ const briefings = await client.admin.briefings.list({
 
 const briefing = await client.admin.briefings.get('briefing-uuid')
 
+// Meeting briefings dispatch (admin / M2M)
+const preview = await client.meetingBriefings.dispatchPreview('office-uuid')
+
+const briefingDispatch = await client.meetingBriefings.dispatch({
+  electedOfficeId: 'office-uuid',
+  kind: 'briefing', // 'schedule' | 'briefing'
+  useImminenceGate: true,
+})
+
+// Community issues dispatch (admin / M2M)
+const issuesDispatch = await client.communityIssues.dispatch({
+  orgSlugs: ['eo-123'],
+})
+
 client.destroy()
 ```
 

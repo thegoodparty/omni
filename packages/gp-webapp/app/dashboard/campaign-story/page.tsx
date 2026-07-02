@@ -5,6 +5,17 @@ import { normalizeIssues } from 'app/dashboard/profile/texting-compliance/candid
 import candidateAccess from '../shared/candidateAccess'
 import CampaignStoryPage from './components/CampaignStoryPage'
 
+// Same existence check the plan tab + sidebar use. Fails closed to false, so an
+// API blip reads as "not generated yet" and the footer keeps offering generate.
+const strategyExists = async (): Promise<boolean> => {
+  try {
+    const res = await serverRequest('GET /v1/campaignStrategy/mine/exists', {})
+    return res.data.exists === true
+  } catch {
+    return false
+  }
+}
+
 const meta = pageMetaData({
   title: 'Campaign Story | GoodParty.org',
   description: 'Your why, your background, and the issues you will fight for.',
@@ -27,7 +38,12 @@ export default async function Page(): Promise<React.JSX.Element> {
   // The "why" (bio) and issues live on the website (shared with the Pro-upgrade
   // flow), not the story. fetchUserWebsite returns null for a candidate with no
   // site yet — the editors then start empty and create the site on first save.
-  const website = await fetchUserWebsite()
+  // planExists reflects generation kicked off from anywhere (incl. the manager
+  // chat); force-dynamic means it's re-read on each navigation to this page.
+  const [website, planExists] = await Promise.all([
+    fetchUserWebsite(),
+    strategyExists(),
+  ])
   const initialBio = website?.content?.about?.bio ?? ''
   const initialIssues = normalizeIssues(website?.content?.about?.issues)
   return (
@@ -36,6 +52,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       initialStory={initialStory}
       initialBio={initialBio}
       initialIssues={initialIssues}
+      planExists={planExists}
     />
   )
 }
