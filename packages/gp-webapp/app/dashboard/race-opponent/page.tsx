@@ -1,16 +1,15 @@
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
+import { PageHeader } from '@styleguide'
+import { SwordsIcon } from '@styleguide/components/ui/icons'
 import candidateAccess from '../shared/candidateAccess'
 import DashboardLayout from '../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import { KNOW_YOUR_OPPONENT_FLAG_KEY } from '@shared/experiments/knowYourOpponentFlag'
 import RaceOpponentList from './components/RaceOpponentList'
-import ContrastList from './components/ContrastList'
-import { isRenderableContrast } from './components/ContrastCard'
-import RegenerateContrasts from './components/RegenerateContrasts'
 import OpponentProLockedView from './components/OpponentProLockedView'
-import type { ContrastRecord, RaceOpponentResponse } from 'gpApi/api-endpoints'
+import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
 
 const EMPTY_RACE_OPPONENT: RaceOpponentResponse = {
   opponents: [],
@@ -18,13 +17,19 @@ const EMPTY_RACE_OPPONENT: RaceOpponentResponse = {
   collectionStatus: 'idle',
 }
 
-const raceContextFor = (
+const racePlaceFor = (
   office: string | undefined,
   district: string | undefined,
+): string | undefined => {
+  const place = [office, district].filter(Boolean).join(', ')
+  return place || undefined
+}
+
+const raceContextFor = (
+  place: string | undefined,
   electionDate: string | undefined,
 ): string | undefined => {
   const parts: string[] = []
-  const place = [office, district].filter(Boolean).join(', ')
   if (place) {
     parts.push(place)
   }
@@ -69,14 +74,23 @@ export default async function Page(): Promise<React.JSX.Element> {
         pathname="/dashboard/race-opponent"
         showAlert={false}
         wrapperClassName="!p-0"
-        navHeader={{
-          icon: 'swords',
-          label: 'Know your opponent',
-          centered: true,
-        }}
       >
         <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
-          <OpponentProLockedView />
+          {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile
+              the title lives in MobileMenuTrigger's top bar (MOBILE_PAGE_TITLES
+              in DashboardLayout), so rendering this below lg would stack two
+              title bars with duplicate h1s. Inside the guard: flag-off must
+              ship NO trace of the feature, heading included. */}
+          <PageHeader
+            className="max-lg:hidden"
+            heading="Know Your Opponent"
+            leading={
+              <SwordsIcon className="size-5 text-foreground" aria-hidden />
+            }
+          />
+          <div className="bg-muted px-4 py-6 lg:px-8">
+            <OpponentProLockedView />
+          </div>
         </FeatureFlagGuard>
       </DashboardLayout>
     )
@@ -96,66 +110,36 @@ export default async function Page(): Promise<React.JSX.Element> {
     ? raceOpponentResult.data
     : EMPTY_RACE_OPPONENT
 
-  // Contrasts are gated server-side on a completed self-research pass: the
-  // endpoint 403s until then (the path for every new user). serverRequest only
-  // returns { ok: false } on non-2xx with ignoreResponseError; without it
-  // ofetch.raw throws a FetchError before .ok is read, so the [] fallback never
-  // runs and the render 500s. Guard on .ok — accessing .contrasts on the error
-  // body would be undefined and crash ContrastList's filter.
-  const contrastResult = await serverRequest(
-    'GET /v1/campaigns/mine/race-opponent/contrasts',
-    {},
-    { ignoreResponseError: true },
-  )
-  // Filter to renderable contrasts here so the section gate below matches what
-  // ContrastList will actually show. Otherwise non-renderable contrasts (e.g.
-  // missing sourceUrl) would mount the "Review your contrasts" shell while
-  // ContrastList renders null inside it.
-  const contrasts: ContrastRecord[] = contrastResult.ok
-    ? contrastResult.data.contrasts.filter(isRenderableContrast)
-    : []
-
-  const raceContext = raceContextFor(
+  // racePlace (office + district) feeds the field-header subtitle;
+  // raceContext (place + election date) keeps feeding the PDF export header.
+  const racePlace = racePlaceFor(
     campaign.details?.normalizedOffice ?? campaign.positionName ?? undefined,
     campaign.details?.district,
-    campaign.details?.electionDate,
   )
+  const raceContext = raceContextFor(racePlace, campaign.details?.electionDate)
 
   return (
     <DashboardLayout
       pathname="/dashboard/race-opponent"
       showAlert={false}
       wrapperClassName="!p-0"
-      navHeader={{
-        icon: 'swords',
-        label: 'Know your opponent',
-        centered: true,
-      }}
     >
       <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
-        <RaceOpponentList initialData={initialData} raceContext={raceContext} />
-        {/* Contrasts are a Phase-1 surface: hidden, not placeholdered. The whole
-            section (heading, blurb, Refresh control) stays out of the DOM until
-            real contrasts exist, so no empty "Review your contrasts" shell shows
-            for the pre-Phase-1 user whose contrasts endpoint 403s. */}
-        {contrasts.length > 0 && (
-          <section className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-6 pb-28">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex flex-col gap-0.5">
-                <h2 className="text-xl font-semibold text-foreground">
-                  Review your contrasts
-                </h2>
-                <p className="text-sm text-muted-foreground">
-                  Each contrast pairs a sourced opponent fact with your
-                  position. Edit the wording, then route it to your Campaign
-                  Story or Texting as a draft. Nothing sends automatically.
-                </p>
-              </div>
-              <RegenerateContrasts />
-            </div>
-            <ContrastList initialContrasts={contrasts} />
-          </section>
-        )}
+        {/* Desktop-only, and inside the guard — see the non-Pro branch's note. */}
+        <PageHeader
+          className="max-lg:hidden"
+          heading="Know Your Opponent"
+          leading={
+            <SwordsIcon className="size-5 text-foreground" aria-hidden />
+          }
+        />
+        <div className="bg-muted px-4 py-6 lg:px-8">
+          <RaceOpponentList
+            initialData={initialData}
+            raceContext={raceContext}
+            racePlace={racePlace}
+          />
+        </div>
       </FeatureFlagGuard>
     </DashboardLayout>
   )
