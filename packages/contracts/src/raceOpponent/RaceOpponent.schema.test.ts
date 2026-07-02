@@ -3,6 +3,7 @@ import {
   RaceOpponentFindingSchema,
   RaceOpponentContrastSchema,
   RaceOpponentResearchSchema,
+  RaceOpponentResponseSchema,
 } from './index'
 
 const validFinding = {
@@ -82,9 +83,9 @@ describe('RaceOpponentFindingSchema', () => {
 
   it('rejects a finding missing sourceExtract', () => {
     const { sourceExtract, ...withoutExtract } = validFinding
-    expect(
-      RaceOpponentFindingSchema.safeParse(withoutExtract).success,
-    ).toBe(false)
+    expect(RaceOpponentFindingSchema.safeParse(withoutExtract).success).toBe(
+      false,
+    )
   })
 
   it('rejects a finding with an empty sourceExtract', () => {
@@ -163,5 +164,66 @@ describe('RaceOpponentResearchSchema', () => {
         status: 'paused',
       }).success,
     ).toBe(false)
+  })
+})
+
+describe('RaceOpponentResponseSchema', () => {
+  const rawItem = {
+    id: 1,
+    opponentName: 'Jane Doe',
+    sourceType: 'ballotpedia',
+    sourceUrl: 'https://ballotpedia.org/Jane_Doe',
+    content: { text: 'bio' },
+    collectedAt: '2026-06-27T00:00:00.000Z',
+  }
+  const opponent = { opponentName: 'Jane Doe', party: null, isIncumbent: null }
+  const response = {
+    opponents: [opponent],
+    lastCollectedAt: null,
+    collectionStatus: 'completed',
+  }
+
+  it('parses an opponent with no items (gp-api omits them once a summary exists)', () => {
+    const result = RaceOpponentResponseSchema.parse(response)
+    expect(result.opponents[0]?.items).toBeUndefined()
+  })
+
+  it('still parses an opponent that carries raw items (no-summary fallback)', () => {
+    const result = RaceOpponentResponseSchema.parse({
+      ...response,
+      opponents: [{ ...opponent, items: [rawItem] }],
+    })
+    expect(result.opponents[0]?.items).toHaveLength(1)
+  })
+
+  it('parses without fieldAnalysis or websiteUrl (older gp-api payloads)', () => {
+    const result = RaceOpponentResponseSchema.parse(response)
+    expect(result.fieldAnalysis).toBeUndefined()
+    expect(result.opponents[0]?.websiteUrl).toBeUndefined()
+  })
+
+  it('accepts a null fieldAnalysis and a populated websiteUrl', () => {
+    const result = RaceOpponentResponseSchema.parse({
+      ...response,
+      opponents: [{ ...opponent, websiteUrl: 'https://janedoe.example.com' }],
+      fieldAnalysis: null,
+    })
+    expect(result.fieldAnalysis).toBeNull()
+    expect(result.opponents[0]?.websiteUrl).toBe('https://janedoe.example.com')
+  })
+
+  it('accepts a populated fieldAnalysis', () => {
+    const result = RaceOpponentResponseSchema.parse({
+      ...response,
+      fieldAnalysis: {
+        strengths: ['Strong fundraising'],
+        weaknesses: [],
+        opportunities: [],
+        threats: [],
+        sources: [],
+        generatedAt: '2026-07-01T00:00:00.000Z',
+      },
+    })
+    expect(result.fieldAnalysis?.strengths).toEqual(['Strong fundraising'])
   })
 })

@@ -65,8 +65,10 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (generation 1, "first week" title) and weekly regens. Best-effort: wrapped in a
   `.catch` so a Slack failure is logged but never reaches the run's catch (which
   would `markFailed` + redeliver).
-- **Pro upgrade posts the current week (Pro only).** `notifyProUpgrade` posts the
-  week the candidate is in now (via `currentMondayUtcMidnight`), routed from
+- **Pro upgrade posts the upcoming week (Pro only).** `notifyProUpgrade` posts
+  the upcoming Mon-Sun week via the same `nextMondayUtcMidnight` anchor the tasks
+  are dated to (a current-week window would miss them, since static rows and every
+  generation target the upcoming week). Routed from
   `CampaignTasksService.notifySlackOnProUpgrade` for tracker-cohort campaigns. All
   three Slack messages share `postCampaignWeekToSlack` + the casClickupTasks
   channel; every one is Pro-gated.
@@ -86,6 +88,18 @@ overview: `docs/features/campaign-tracker-v3.md`.
   (so a default-row `week` never pollutes the max).
 - The digest is a *separate* consumer of this table; a change to what counts as
   "current" must be mirrored in `weeklyTasksDigestHandler.service.ts`.
+- **The digest mirrors the week view: dynamic + deterministic outreach.**
+  `fetchTrackerDigestRows` surfaces the latest dynamic generation **plus** the
+  deterministic text/robocall outreach dated in the window
+  (`(is_default_task = false AND week = latest generation) OR (is_default_task =
+  true AND flow_type IN (text, robocall))`), matching what `buildActiveWeeks`
+  shows for a week (dynamic-latest-gen + `isDefaultTask` outreach). The static
+  setup checklist (non-outreach default rows) is **not** emailed. Two subtleties:
+  the dynamic branch needs `is_default_task = false` alongside `week = g.gen`
+  because a default row's calendar-offset `week` can coincidentally equal the
+  latest generation index; and it is a `LEFT JOIN latest_gen` so a campaign with
+  outreach dated in the window still surfaces if its dynamic generation is
+  momentarily absent. Outreach ranks ahead of the dynamic picks.
 - **The digest serves two cohorts.** `weeklyTasksDigestHandler` runs one query
   over `campaign_tracker_tasks` (this table) and a second over the legacy
   `campaign_task` table, guarded by `NOT EXISTS (campaign_tracker_tasks)` so the

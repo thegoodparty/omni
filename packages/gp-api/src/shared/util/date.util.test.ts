@@ -1,27 +1,44 @@
 import { describe, expect, it } from 'vitest'
 import {
   CENTRAL_TIMEZONE,
-  currentMondayUtcMidnight,
+  mondayOfWeekUtc,
+  nextMondayUtcMidnight,
   parseIsoDateAsUTC,
 } from './date.util'
 
-describe('currentMondayUtcMidnight', () => {
-  it('returns the Monday of the current week at UTC midnight', () => {
-    // 2026-07-01 is a Wednesday; the week's Monday is 2026-06-29.
-    const monday = currentMondayUtcMidnight(
-      new Date('2026-07-01T15:00:00Z'),
+describe('mondayOfWeekUtc', () => {
+  it("floors a mid-week UTC date to that week's Monday", () => {
+    // 2026-07-08 is a Wednesday; its week's Monday is 2026-07-06.
+    expect(mondayOfWeekUtc(new Date('2026-07-08T00:00:00Z')).getTime()).toBe(
+      Date.UTC(2026, 6, 6),
+    )
+  })
+
+  it('returns the same day for a Monday', () => {
+    expect(mondayOfWeekUtc(new Date('2026-07-06T00:00:00Z')).getTime()).toBe(
+      Date.UTC(2026, 6, 6),
+    )
+  })
+})
+
+describe('nextMondayUtcMidnight', () => {
+  it('returns the same Monday when today is already Monday', () => {
+    // 2026-06-29 is a Monday (midday Central, so unambiguously Monday locally).
+    // date-fns nextMonday would jump 7 days ahead here; the guard must not.
+    const monday = nextMondayUtcMidnight(
+      new Date('2026-06-29T17:00:00Z'),
       CENTRAL_TIMEZONE,
     )
     expect(monday.getTime()).toBe(Date.UTC(2026, 5, 29))
   })
 
-  it('returns the same day when today is already Monday', () => {
-    // 2026-06-29 is a Monday (midday Central, so unambiguously Monday locally).
-    const monday = currentMondayUtcMidnight(
-      new Date('2026-06-29T17:00:00Z'),
+  it('returns the upcoming Monday on a non-Monday', () => {
+    // 2026-07-01 is a Wednesday; the next Monday is 2026-07-06.
+    const monday = nextMondayUtcMidnight(
+      new Date('2026-07-01T15:00:00Z'),
       CENTRAL_TIMEZONE,
     )
-    expect(monday.getTime()).toBe(Date.UTC(2026, 5, 29))
+    expect(monday.getTime()).toBe(Date.UTC(2026, 6, 6))
   })
 })
 

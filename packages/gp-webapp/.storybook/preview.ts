@@ -3,6 +3,37 @@ import React from 'react'
 import '../app/globals.css'
 import './storybook-dark.css'
 
+// For inline:false story iframes: sync dark mode from the parent Docs iframe.
+// These iframes load without globals in their URL, so the decorator can't
+// detect the active color scheme. We read the parent's body class directly
+// (same-origin) and watch for changes via MutationObserver.
+if (typeof window !== 'undefined' && window.parent !== window) {
+  const syncFromParent = () => {
+    try {
+      const isDark = window.parent.document.body.classList.contains('dark')
+      document.documentElement.classList.toggle('sb-dark', isDark)
+      document.body.classList.toggle('dark', isDark)
+    } catch {
+      // cross-origin — skip
+    }
+  }
+  syncFromParent()
+  let parentObserver: MutationObserver | undefined
+  try {
+    parentObserver = new MutationObserver(syncFromParent)
+    parentObserver.observe(window.parent.document.body, {
+      attributes: true,
+      attributeFilter: ['class'],
+    })
+  } catch {
+    // cross-origin — skip
+  }
+  // Disconnect on HMR so reloads don't stack observers on the parent frame.
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => parentObserver?.disconnect())
+  }
+}
+
 const preview: Preview = {
   globalTypes: {
     colorScheme: {

@@ -15,7 +15,6 @@ export class CampaignStoryService extends createPrismaBase(
   async getForCampaign(campaignId: number): Promise<CampaignStory> {
     const story = await this.model.findUnique({ where: { campaignId } })
     return {
-      why: story?.why ?? null,
       background: story?.background ?? null,
     }
   }
@@ -30,19 +29,19 @@ export class CampaignStoryService extends createPrismaBase(
     // @@unique(campaign_id) constraint (P2002). The row exists by then, so
     // apply our fields as an UPDATE — re-fetching instead would drop them.
     try {
-      const { why, background } = await this.model.upsert({
+      const { background } = await this.model.upsert({
         where: { campaignId },
         create: { campaignId, ...input },
         update: input,
       })
-      return { why, background }
+      return { background }
     } catch (error) {
       if (!isUniqueConstraintError(error)) throw error
-      const { why, background } = await this.model.update({
+      const { background } = await this.model.update({
         where: { campaignId },
         data: input,
       })
-      return { why, background }
+      return { background }
     }
   }
 

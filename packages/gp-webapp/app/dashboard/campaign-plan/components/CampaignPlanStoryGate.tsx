@@ -10,6 +10,7 @@ import {
   getUserWebsite,
   USER_WEBSITE_QUERY_KEY,
 } from 'app/dashboard/website/util/website.util'
+import { getBioPlainLength } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { CAMPAIGN_STORY_SECTIONS } from 'app/dashboard/campaign-story/sections'
 import {
   isCampaignStoryComplete,
@@ -26,7 +27,8 @@ const CampaignPlanStoryGate = ({
   onGenerate,
 }: CampaignPlanStoryGateProps): React.JSX.Element => {
   const { data: story, isError } = useCampaignStory()
-  // Issues live on the website (shared with Pro-upgrade), not the story.
+  // The "why" (bio) and issues live on the website (shared with Pro-upgrade),
+  // not the story.
   const {
     data: website,
     isLoading: websiteLoading,
@@ -34,12 +36,13 @@ const CampaignPlanStoryGate = ({
   } = useQuery({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
-    // Always refetch on mount: a candidate who just edited issues on the story
-    // page (a direct saveAboutFields write that doesn't touch this cache) must
-    // see them here, not a stale within-staleTime snapshot that would wrongly
-    // gate them. Mirrors useCampaignStory's refetch for the story fields.
+    // Always refetch on mount: a candidate who just edited their why or issues
+    // on the story page (a direct saveAboutFields write that doesn't touch this
+    // cache) must see them here, not a stale within-staleTime snapshot that
+    // would wrongly gate them. Mirrors useCampaignStory's refetch.
     refetchOnMount: 'always',
   })
+  const bio = website?.content?.about?.bio ?? ''
   const issues = website?.content?.about?.issues ?? []
   const [confirmOpen, setConfirmOpen] = useState(false)
 
@@ -57,9 +60,15 @@ const CampaignPlanStoryGate = ({
     )
   }
 
-  // Fail open on a website-fetch error: don't read it as "no issues" and block
-  // a candidate who actually has a complete story with real issues.
-  if (!isCampaignStoryComplete(story, websiteIsError || issues.length > 0)) {
+  // Fail open on a website-fetch error: don't read it as "no why / no issues"
+  // and block a candidate who actually has a complete story.
+  if (
+    !isCampaignStoryComplete(
+      story,
+      websiteIsError || getBioPlainLength(bio) > 0,
+      websiteIsError || issues.length > 0,
+    )
+  ) {
     return (
       <Card className={CARD_CLASS}>
         <ScrollTextIcon className="size-8 text-primary" />
@@ -94,6 +103,14 @@ const CampaignPlanStoryGate = ({
       </div>
 
       <div className="flex w-full flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-sm font-semibold text-foreground">
+            Your why
+          </span>
+          <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+            {bio ? issueDescriptionText(bio) : ''}
+          </p>
+        </div>
         {CAMPAIGN_STORY_SECTIONS.map(({ id, title }) => (
           <div key={id} className="flex flex-col gap-1">
             <span className="text-sm font-semibold text-foreground">

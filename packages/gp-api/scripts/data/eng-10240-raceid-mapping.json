@@ -1,0 +1,1159 @@
+{
+  "ticket": "ENG-10240",
+  "generatedAt": "2026-06-10",
+  "resolution": "goodparty_data_catalog.dbt.m_election_api__race joined on (organization.position_id, campaign.details.electionDate), ORDER BY is_runoff NULLS FIRST, is_primary NULLS FIRST — see script header",
+  "migrate": [
+    {
+      "campaignId": 3559,
+      "expectedUuid": "3bb94e08-8af5-50f0-9039-ffb6f1224475",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjEwNzEw"
+    },
+    {
+      "campaignId": 10301,
+      "expectedUuid": "f8a5cdd9-bf70-5ae5-acd4-c757f9974f47",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA3MjAz"
+    },
+    {
+      "campaignId": 13257,
+      "expectedUuid": "1366ddee-3df0-5a0a-b8af-0fda975b6b07",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjQ1MzEz"
+    },
+    {
+      "campaignId": 23323,
+      "expectedUuid": "2723baa2-a157-5f23-b1b4-7f524b10b7bc",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODIyODQy"
+    },
+    {
+      "campaignId": 28143,
+      "expectedUuid": "5952beb5-b850-50f5-ad47-d1380413c95c",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIzNjk1"
+    },
+    {
+      "campaignId": 67451,
+      "expectedUuid": "7fe1d52c-5d51-571b-a60c-38f86f8eb34f",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDMzOTIx"
+    },
+    {
+      "campaignId": 135981,
+      "expectedUuid": "68a37b65-591b-5a27-aa1e-2eb2b5a388a7",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjE3NTAy"
+    },
+    {
+      "campaignId": 244994,
+      "expectedUuid": "3771a342-3723-53a3-b66a-95189f9dbdd9",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI2MzUw"
+    },
+    {
+      "campaignId": 278145,
+      "expectedUuid": "318a2f94-b0bb-540f-920b-f4a38caa9b1d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxODMy"
+    },
+    {
+      "campaignId": 282138,
+      "expectedUuid": "f6cf68ca-d81f-5282-bd6f-0395b22b1ffb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMTA2NjI0",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 293069,
+      "expectedUuid": "e9cb78c5-c7ac-503c-8773-9763111c15a5",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDMxMDk3",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 293089,
+      "expectedUuid": "27bb9f48-77f4-5d2f-99d4-af8614d7aca7",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA3Mzc3"
+    },
+    {
+      "campaignId": 293409,
+      "expectedUuid": "0c203a8f-9767-54c9-9027-302d11212857",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTE1MDU3"
+    },
+    {
+      "campaignId": 295345,
+      "expectedUuid": "5069430e-d81a-5c00-9fd5-2f0fc1a99130",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDk0NzQy",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 295685,
+      "expectedUuid": "e4c84a0a-5818-51f1-b661-c49aeee62616",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDYxMDYw"
+    },
+    {
+      "campaignId": 295929,
+      "expectedUuid": "0bf267a5-e543-5d15-aada-795664c3cad1",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyNDQy"
+    },
+    {
+      "campaignId": 295932,
+      "expectedUuid": "20a11b06-39ea-5b4a-968f-936488662719",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjU1MjMw"
+    },
+    {
+      "campaignId": 296404,
+      "expectedUuid": "450ed5f0-ab30-55a1-b1d9-58cd636d7d85",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjExNDM1"
+    },
+    {
+      "campaignId": 296513,
+      "expectedUuid": "807a1365-90c3-5c8c-a299-021e528991da",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc3Njk5"
+    },
+    {
+      "campaignId": 296959,
+      "expectedUuid": "8ad5fac6-748a-59f9-aafc-6917c31c957b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTM1Njk0",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 296965,
+      "expectedUuid": "aa10fbaa-d89e-5cac-b829-574fc3c8afb9",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc0NjQ4"
+    },
+    {
+      "campaignId": 305073,
+      "expectedUuid": "bd430902-16aa-57df-a111-47a890e83f46",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyNjYw"
+    },
+    {
+      "campaignId": 306789,
+      "expectedUuid": "7fda35ff-c245-5f54-a00b-417eedf1ac1d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDcyNDMw"
+    },
+    {
+      "campaignId": 309231,
+      "expectedUuid": "66394135-153b-535f-808b-70d5eca484a9",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDU1MzM2"
+    },
+    {
+      "campaignId": 310980,
+      "expectedUuid": "b529ec1d-d971-571a-85da-d3f9ce5ddc16",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg4MTIz"
+    },
+    {
+      "campaignId": 313092,
+      "expectedUuid": "6587d2d1-4e7b-5add-b6dd-34471477f406",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDk5MDg2"
+    },
+    {
+      "campaignId": 313323,
+      "expectedUuid": "db6d2405-f23c-5557-98f0-c849179ef0bb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc3NzE3"
+    },
+    {
+      "campaignId": 313356,
+      "expectedUuid": "37a63453-0d65-555f-a951-03e1b89fc55d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNTA5NDc1"
+    },
+    {
+      "campaignId": 313389,
+      "expectedUuid": "d1065089-393b-52a7-8b99-6b740455c8d5",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc0MTcy"
+    },
+    {
+      "campaignId": 313422,
+      "expectedUuid": "32eba3d6-6b07-58d3-bff1-77079e624345",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIxNzk2"
+    },
+    {
+      "campaignId": 313455,
+      "expectedUuid": "e17a5305-97ff-5a0a-81ac-9cc7c965c70e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDgyNjAw"
+    },
+    {
+      "campaignId": 313488,
+      "expectedUuid": "6f6228f2-2448-5d7e-842a-cb4cce7b5220",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjUzMzQ3"
+    },
+    {
+      "campaignId": 313521,
+      "expectedUuid": "c76904ac-8e76-54ee-b4f4-38127315a8b8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc1NjMx"
+    },
+    {
+      "campaignId": 313522,
+      "expectedUuid": "9e45786d-7d88-5523-88d0-628c8bf6d5b8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxODgx"
+    },
+    {
+      "campaignId": 313523,
+      "expectedUuid": "96033d2d-9213-5e1f-9dba-735cc13ddf20",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3Nzgy"
+    },
+    {
+      "campaignId": 313554,
+      "expectedUuid": "46f87ee8-6544-5f6a-ba13-51e4d5da2e2e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDQ0MTAz"
+    },
+    {
+      "campaignId": 313587,
+      "expectedUuid": "3e075c84-0279-50d5-b473-88235b998f92",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI0NTMz"
+    },
+    {
+      "campaignId": 313620,
+      "expectedUuid": "2087943d-e66f-5a62-b4bf-ae2848b8fbfc",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDgzMDYy"
+    },
+    {
+      "campaignId": 313653,
+      "expectedUuid": "75efc9ff-bc8a-5f36-827a-c65aec95fdd1",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDM5MzQw"
+    },
+    {
+      "campaignId": 313686,
+      "expectedUuid": "851dee3f-a03d-57c9-8177-9378985b038d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxOTkx"
+    },
+    {
+      "campaignId": 313719,
+      "expectedUuid": "410106d4-deb7-554d-99da-5b7704121e56",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA5Njc3"
+    },
+    {
+      "campaignId": 313752,
+      "expectedUuid": "e0226eb7-0f30-55f0-91d2-33aa8ffc5fb3",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIzMzk1"
+    },
+    {
+      "campaignId": 313785,
+      "expectedUuid": "dce5e9d2-779a-52d0-902d-2c1ea71e61f4",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDMwNzMw"
+    },
+    {
+      "campaignId": 313818,
+      "expectedUuid": "e016e0da-2a8a-5dfc-94ac-c33fdbf44b60",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMzA3Njk2"
+    },
+    {
+      "campaignId": 313851,
+      "expectedUuid": "5fc21252-af9f-5eec-a903-ffdcce4465e2",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjE5MTI2"
+    },
+    {
+      "campaignId": 313884,
+      "expectedUuid": "2821ef8e-3cbb-5059-acd1-79f472c2b404",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNTA4OTc3"
+    },
+    {
+      "campaignId": 313917,
+      "expectedUuid": "2e38277b-0baf-5340-a9aa-009e834aa0f8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjY2NDEz",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 313918,
+      "expectedUuid": "7de56446-497c-50da-9439-9d2db40c6091",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxODUx",
+      "note": "shares this race with campaign 318439 (co-candidates in the same race); both resolved independently as single matches"
+    },
+    {
+      "campaignId": 313950,
+      "expectedUuid": "e3320c50-7683-5073-8963-44dd2b125565",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDcyNTE1"
+    },
+    {
+      "campaignId": 314016,
+      "expectedUuid": "1c82e3b0-9ae7-5e45-b260-aa7c731ebd7e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDczMTI3"
+    },
+    {
+      "campaignId": 314049,
+      "expectedUuid": "5b007e49-7877-5ccf-bbad-1b1aea2c8735",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI4OTE1"
+    },
+    {
+      "campaignId": 314082,
+      "expectedUuid": "5039ebf1-da9e-56be-8f67-74831a5f86ad",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDgxMDEw"
+    },
+    {
+      "campaignId": 314115,
+      "expectedUuid": "388c107c-f96d-5ee4-97b5-e4c0aa21318f",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDgxMDg3"
+    },
+    {
+      "campaignId": 314181,
+      "expectedUuid": "38d9e9f4-44b7-5978-b4a1-a7d6ce74961a",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3MzM1",
+      "note": "shares this race with campaign 316722 (co-candidates in the same race); both resolved independently as single matches"
+    },
+    {
+      "campaignId": 314214,
+      "expectedUuid": "aec8f4f6-e726-572e-beae-d8764336cd2b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA4MzM3"
+    },
+    {
+      "campaignId": 314247,
+      "expectedUuid": "51365a75-f834-5396-9838-28a5907e2e67",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxNzE4"
+    },
+    {
+      "campaignId": 314280,
+      "expectedUuid": "7dda2380-8308-50ec-beaf-9b2eca79717b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDQ1NTY1"
+    },
+    {
+      "campaignId": 314313,
+      "expectedUuid": "f64357b5-1859-5f68-8b1f-88418c9e0b79",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDY4MTUw"
+    },
+    {
+      "campaignId": 314346,
+      "expectedUuid": "11d49f9e-e7c1-56a1-91ff-e9336c0a09cb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDMyMjkx"
+    },
+    {
+      "campaignId": 314379,
+      "expectedUuid": "aa14c87b-ae02-58e4-bb66-7e3824fdb65d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjY2Mjc0",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 314412,
+      "expectedUuid": "89d727fb-a5df-545a-b005-3e2da9981622",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDcyNDM4"
+    },
+    {
+      "campaignId": 314478,
+      "expectedUuid": "8ee806d9-96b8-50f5-912d-c155e10f48de",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjE0Mzc2"
+    },
+    {
+      "campaignId": 314511,
+      "expectedUuid": "43d51469-531d-5e0f-916e-3f754dfbd715",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDMxNjQx"
+    },
+    {
+      "campaignId": 314544,
+      "expectedUuid": "efa1c7f8-6353-59da-9828-2cacd1e1a756",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDEwODA4"
+    },
+    {
+      "campaignId": 314545,
+      "expectedUuid": "a2284de7-2ad6-54a2-93fb-3bc747299dbb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMzA1MjA1"
+    },
+    {
+      "campaignId": 314610,
+      "expectedUuid": "2e38277b-0baf-5340-a9aa-009e834aa0f8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjY2NDEz",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 314643,
+      "expectedUuid": "1d5cdbbe-9776-5a79-8c3b-5fbd53fce5a2",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIxNjk1"
+    },
+    {
+      "campaignId": 314676,
+      "expectedUuid": "de8c7829-4efc-5561-87f5-f2382bc66a17",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDkxNDQ0"
+    },
+    {
+      "campaignId": 314709,
+      "expectedUuid": "aea754bf-ea5c-56f8-a4e4-f5e098635ea6",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDU5NzY5"
+    },
+    {
+      "campaignId": 314742,
+      "expectedUuid": "49b5e26e-c9c5-58e0-8902-8ef54471801e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDE0NjMw"
+    },
+    {
+      "campaignId": 314808,
+      "expectedUuid": "138f24ce-d847-5f0c-b4c3-16ba634a9a61",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODcwMjc5"
+    },
+    {
+      "campaignId": 314841,
+      "expectedUuid": "003ce5c0-6116-56d4-9f94-3cffe82f961a",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODU3MTM0"
+    },
+    {
+      "campaignId": 314874,
+      "expectedUuid": "7473ed12-0118-513c-b1fc-cb20b1c5c13e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjE1MzIz"
+    },
+    {
+      "campaignId": 314907,
+      "expectedUuid": "74b01b69-c1b1-574c-b0e7-9e5eff4e3953",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjI1Njc1",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 314940,
+      "expectedUuid": "94d49f40-9ba6-51cf-b846-c4aeaa36efac",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjE5NTAy"
+    },
+    {
+      "campaignId": 314973,
+      "expectedUuid": "22b34c89-230c-5e71-87c1-4f8d386ccda5",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI1Mzg1"
+    },
+    {
+      "campaignId": 315039,
+      "expectedUuid": "131419da-6464-57d6-9d23-ccfe987c5260",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg4ODYw",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 315105,
+      "expectedUuid": "7e0895e1-3882-51f8-b74e-04efd3939b4a",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDk1MDY3"
+    },
+    {
+      "campaignId": 315138,
+      "expectedUuid": "9800ad4b-f909-5efd-a9b4-901cf2841366",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIwNjk2"
+    },
+    {
+      "campaignId": 315171,
+      "expectedUuid": "671272be-9bd7-50bc-8d8f-5500d8002dc7",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxMzM4"
+    },
+    {
+      "campaignId": 315204,
+      "expectedUuid": "17c3532e-a634-5802-8393-e34050db6606",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDY2MjE3"
+    },
+    {
+      "campaignId": 315237,
+      "expectedUuid": "c85b9449-728a-5562-b811-9ef6232c049b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI3MjY3"
+    },
+    {
+      "campaignId": 315270,
+      "expectedUuid": "c94acdd0-516e-5593-8ecb-760b68d32ab7",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDMzODY0"
+    },
+    {
+      "campaignId": 315303,
+      "expectedUuid": "ed969940-fdb2-5f04-bd87-3d3a364b85b8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc1MzU1"
+    },
+    {
+      "campaignId": 315336,
+      "expectedUuid": "ca4a568c-7f2b-5b48-a1d3-9aecd0fbda5d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjM4MDI5"
+    },
+    {
+      "campaignId": 315369,
+      "expectedUuid": "3e5125d7-80f0-5875-980c-38fd168fffc4",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDYzNjQ0"
+    },
+    {
+      "campaignId": 315402,
+      "expectedUuid": "dcb61cc4-62f4-50d9-965b-3b101846009d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNTAzMzIw"
+    },
+    {
+      "campaignId": 315435,
+      "expectedUuid": "eebb9059-945b-50a2-8138-f1481ecca273",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjU1MzIx"
+    },
+    {
+      "campaignId": 315468,
+      "expectedUuid": "53a9f813-0bbf-5bed-9a96-d5b47a971db0",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTEwNDY5",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 315501,
+      "expectedUuid": "2e53b153-aecd-5f1f-8f79-f714725e98e3",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODI0MzUz"
+    },
+    {
+      "campaignId": 315534,
+      "expectedUuid": "452d0baf-6fa6-5f85-8e20-21df012b5fc7",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTEzMjAx",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 315567,
+      "expectedUuid": "74b01b69-c1b1-574c-b0e7-9e5eff4e3953",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjI1Njc1",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 315600,
+      "expectedUuid": "6587d2d1-4e7b-5add-b6dd-34471477f406",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDk5MDg2"
+    },
+    {
+      "campaignId": 315633,
+      "expectedUuid": "d341667c-4bc8-5a91-beb0-f20ff04550c0",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjE2MjU2"
+    },
+    {
+      "campaignId": 315666,
+      "expectedUuid": "cd21241b-728e-517a-a12a-c56a7e988cea",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyNDY5"
+    },
+    {
+      "campaignId": 315765,
+      "expectedUuid": "b30becc0-0576-5524-a854-fdb1a2349d19",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDczMjQy"
+    },
+    {
+      "campaignId": 315831,
+      "expectedUuid": "5952beb5-b850-50f5-ad47-d1380413c95c",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIzNjk1"
+    },
+    {
+      "campaignId": 315864,
+      "expectedUuid": "70e1cefc-d6e2-58c7-b81b-9c9cd6633a0e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODI0MzUx"
+    },
+    {
+      "campaignId": 315897,
+      "expectedUuid": "c279b3aa-49a5-54d4-ba97-49de77dd7591",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDcyNDM2"
+    },
+    {
+      "campaignId": 315898,
+      "expectedUuid": "8ee5d7b6-b1e4-59d4-aaa6-5674d17680b3",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDQxODc2"
+    },
+    {
+      "campaignId": 315899,
+      "expectedUuid": "da3958a4-8dad-54fd-adae-b57eea775953",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDYwMDYy"
+    },
+    {
+      "campaignId": 315930,
+      "expectedUuid": "410106d4-deb7-554d-99da-5b7704121e56",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA5Njc3"
+    },
+    {
+      "campaignId": 315931,
+      "expectedUuid": "94a02d7b-2166-5c7b-969c-d49abf1dbc09",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODY0NTEw"
+    },
+    {
+      "campaignId": 315963,
+      "expectedUuid": "410106d4-deb7-554d-99da-5b7704121e56",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA5Njc3"
+    },
+    {
+      "campaignId": 315996,
+      "expectedUuid": "bb858bbd-de40-5203-bca4-5334a641631f",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNTA5NjI1"
+    },
+    {
+      "campaignId": 316029,
+      "expectedUuid": "ad5913ca-3658-530d-a723-94c99cdeda19",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA5Njk3"
+    },
+    {
+      "campaignId": 316062,
+      "expectedUuid": "d03637e6-b089-5e2b-8648-9a3cda7c51c4",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIyNjYy"
+    },
+    {
+      "campaignId": 316128,
+      "expectedUuid": "6587d2d1-4e7b-5add-b6dd-34471477f406",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDk5MDg2"
+    },
+    {
+      "campaignId": 316161,
+      "expectedUuid": "d2503bde-fdd4-5676-8ade-7a170e878d27",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDU4NDIx"
+    },
+    {
+      "campaignId": 316162,
+      "expectedUuid": "5fe6d255-047a-5280-8dc9-66c7653fda76",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc2OTEw"
+    },
+    {
+      "campaignId": 316194,
+      "expectedUuid": "fd709246-d648-59bf-bf1b-5fa334c7919f",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDU3NTYw"
+    },
+    {
+      "campaignId": 316227,
+      "expectedUuid": "fdd7084f-f4d2-5861-8e01-35fedade9733",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc0MDg3",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 316260,
+      "expectedUuid": "aa2c8093-53d2-5049-a47a-37a5ae70a820",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODI0MzU5"
+    },
+    {
+      "campaignId": 316293,
+      "expectedUuid": "e72bedd4-80cb-582a-bac3-70f76236fd18",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI2MjU1"
+    },
+    {
+      "campaignId": 316326,
+      "expectedUuid": "76c0384f-b8eb-5850-b9f5-c09051c79d61",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODEwMjEx"
+    },
+    {
+      "campaignId": 316327,
+      "expectedUuid": "8ed1ba1d-d6bb-5ebb-b546-06e4df84f51f",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDYxNDE3"
+    },
+    {
+      "campaignId": 316392,
+      "expectedUuid": "af3fb96f-ecbb-5f92-8a27-42843bf745c2",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTM1Njk5",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 316425,
+      "expectedUuid": "5bca1d47-3e83-57f4-8acf-97f7af8dfa89",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDE0NDIw"
+    },
+    {
+      "campaignId": 316491,
+      "expectedUuid": "3e6809ac-5c2a-5eda-8d73-b010f7eb8015",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA0MDg0"
+    },
+    {
+      "campaignId": 316557,
+      "expectedUuid": "45277a04-d70e-5c75-8a94-6adfa5f497ef",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDU1NjEx"
+    },
+    {
+      "campaignId": 316590,
+      "expectedUuid": "e4f5233c-c461-578e-98b5-b1354a498ff2",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjI2Nzg3",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 316656,
+      "expectedUuid": "d47cc1da-54ad-5be9-8247-117dd6b0804f",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc2NzY1"
+    },
+    {
+      "campaignId": 316722,
+      "expectedUuid": "7e5ac8ee-e0eb-51a9-9006-58b24c5c1a77",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3MzM1",
+      "note": "shares this race with campaign 314181 (co-candidates in the same race); both resolved independently as single matches"
+    },
+    {
+      "campaignId": 316755,
+      "expectedUuid": "0e24390e-e929-52b1-94a0-2ab429945cea",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyMTk3"
+    },
+    {
+      "campaignId": 316756,
+      "expectedUuid": "0eec02de-e9c5-55c9-a933-488ac56d9c4c",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIyMTQ5"
+    },
+    {
+      "campaignId": 316788,
+      "expectedUuid": "9435ccea-ef74-562d-9242-619fbc042a64",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDUwMzY2"
+    },
+    {
+      "campaignId": 316821,
+      "expectedUuid": "b39bf17b-b552-57d9-bdb8-9a1022698f16",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI1Nzgx"
+    },
+    {
+      "campaignId": 316854,
+      "expectedUuid": "0d66e077-bc54-5829-bdec-01aba8c3cd66",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDUzMzU3"
+    },
+    {
+      "campaignId": 316920,
+      "expectedUuid": "94020bcc-ba55-56ac-8cca-50bf1ce0cdd0",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3MzQw"
+    },
+    {
+      "campaignId": 316953,
+      "expectedUuid": "cf2046ea-09bd-5cc1-8574-750952c4dc33",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNzgxMTQx",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 316986,
+      "expectedUuid": "da96be50-4294-59ca-b512-27d585faed32",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjU2Njkz",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 317019,
+      "expectedUuid": "807a1365-90c3-5c8c-a299-021e528991da",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc3Njk5"
+    },
+    {
+      "campaignId": 317052,
+      "expectedUuid": "4c10624e-92ca-59b3-9df3-4de51ad4e97e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTA2MDE5"
+    },
+    {
+      "campaignId": 317085,
+      "expectedUuid": "1ab68797-20ba-5e98-87f0-05787fa51686",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIxODEy"
+    },
+    {
+      "campaignId": 317086,
+      "expectedUuid": "e7bbde55-5c95-5852-9829-0bec5e81c596",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDQzNDQ0"
+    },
+    {
+      "campaignId": 317118,
+      "expectedUuid": "24e86b99-4985-51c9-b9c0-bbc0b2f48a17",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjUyMDgz",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 317151,
+      "expectedUuid": "117ef987-16b0-5d62-aea7-228d8382f2a9",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjY2NjM4",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 317184,
+      "expectedUuid": "3e7ea089-676c-51fe-8dc6-27f0fc89c45b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIyODM3"
+    },
+    {
+      "campaignId": 317250,
+      "expectedUuid": "24b9561a-3389-5798-81ab-42aac5f102be",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxNDUw"
+    },
+    {
+      "campaignId": 317251,
+      "expectedUuid": "fb1d1507-08a5-55f7-be23-4907e48fa7ee",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDczMTE3"
+    },
+    {
+      "campaignId": 317283,
+      "expectedUuid": "6cee24ba-7379-5e97-be03-62e98277f925",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjcwMzk3"
+    },
+    {
+      "campaignId": 317349,
+      "expectedUuid": "efb41175-87ef-5c03-bd13-f1367a98e6a8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjIyODcz"
+    },
+    {
+      "campaignId": 317382,
+      "expectedUuid": "1f77b0b9-71c6-5d29-8756-f3f04ad32b81",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjM5MTE2"
+    },
+    {
+      "campaignId": 317481,
+      "expectedUuid": "9d4046db-d8db-504d-9f34-559c150767dd",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDYwODI4"
+    },
+    {
+      "campaignId": 317515,
+      "expectedUuid": "2bab7244-5ec0-5d13-9889-1f2f0d6957cc",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjEwNzU2"
+    },
+    {
+      "campaignId": 317580,
+      "expectedUuid": "35516021-0de5-52d9-a0bb-b586e56a9f8e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyMDg3",
+      "note": "shares this race with campaign 318438 (co-candidates in the same race); both resolved independently as single matches"
+    },
+    {
+      "campaignId": 317613,
+      "expectedUuid": "25f4daed-dbdc-53e1-80de-8714311a6b54",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyMDUw"
+    },
+    {
+      "campaignId": 317646,
+      "expectedUuid": "90167d4e-b1ee-554f-8ac6-779ad6744ff4",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjUyMzc4"
+    },
+    {
+      "campaignId": 317712,
+      "expectedUuid": "8ec60fa7-fd9f-528f-aeb5-ea8037e929e7",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg2MTc3"
+    },
+    {
+      "campaignId": 317745,
+      "expectedUuid": "cb513d94-72a9-5bc4-8234-38452e14dbf3",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNzMyMTE4"
+    },
+    {
+      "campaignId": 317778,
+      "expectedUuid": "310475df-76ec-5fa0-a717-8fc8ba329c75",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA3NjY2"
+    },
+    {
+      "campaignId": 317811,
+      "expectedUuid": "495946d3-a976-5913-bd6f-51e7da2e57de",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA3MDE2"
+    },
+    {
+      "campaignId": 317844,
+      "expectedUuid": "c8e3fa4a-1f6b-5136-87e9-1aff7defcbfd",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg1NTIw"
+    },
+    {
+      "campaignId": 317877,
+      "expectedUuid": "16cd0d70-ed64-5390-80f9-2e6f0d7fbc58",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3NDQz"
+    },
+    {
+      "campaignId": 317910,
+      "expectedUuid": "fd815560-ae0e-5a6c-b637-ebc2139eb0aa",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI0Mzc3"
+    },
+    {
+      "campaignId": 317976,
+      "expectedUuid": "11aa503c-ffe1-5a99-b18b-69fc1865c1cb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTE1ODI3",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 318042,
+      "expectedUuid": "66a51539-fe0a-5f42-b84f-1b432f3bc398",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg4NDc3"
+    },
+    {
+      "campaignId": 318075,
+      "expectedUuid": "63615e51-69fe-5eb7-bd67-3d9a5ded0c6d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3Nzc1"
+    },
+    {
+      "campaignId": 318108,
+      "expectedUuid": "63615e51-69fe-5eb7-bd67-3d9a5ded0c6d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3Nzc1"
+    },
+    {
+      "campaignId": 318174,
+      "expectedUuid": "74d60ec7-4e4f-5310-a558-4b93811e0ccb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDU5NzUx"
+    },
+    {
+      "campaignId": 318207,
+      "expectedUuid": "2e85925e-5bcf-5645-abff-75feb89754dd",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDEyNDE3"
+    },
+    {
+      "campaignId": 318240,
+      "expectedUuid": "e3320c50-7683-5073-8963-44dd2b125565",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDcyNTE1"
+    },
+    {
+      "campaignId": 318273,
+      "expectedUuid": "350cf22b-ac6f-5545-9e31-4835ed3a2a2d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDcyMzYw"
+    },
+    {
+      "campaignId": 318274,
+      "expectedUuid": "81897ccf-c3a4-5d06-9aba-35d16e178ce4",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA4Nzcy"
+    },
+    {
+      "campaignId": 318306,
+      "expectedUuid": "614129a7-4aa5-581c-aba8-2e61093616fb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODE1OTI3",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 318339,
+      "expectedUuid": "160c2c0f-81d8-5f6f-beda-bbf6466bef53",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIzNTY3"
+    },
+    {
+      "campaignId": 318405,
+      "expectedUuid": "7c42a4fc-d572-5ebd-808f-3f0464670392",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDU3ODA1"
+    },
+    {
+      "campaignId": 318438,
+      "expectedUuid": "167c3613-ed21-5ffa-ac20-4d63822e2bf8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyMDg3",
+      "note": "shares this race with campaign 317580 (co-candidates in the same race); both resolved independently as single matches"
+    },
+    {
+      "campaignId": 318439,
+      "expectedUuid": "ddbcb21f-ac2d-5297-95d8-afd74d19cc14",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxODUx",
+      "note": "shares this race with campaign 313918 (co-candidates in the same race); both resolved independently as single matches"
+    },
+    {
+      "campaignId": 318471,
+      "expectedUuid": "57b5c7f2-0f3d-584a-8d14-608b3fe40e3c",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDYwOTg0"
+    },
+    {
+      "campaignId": 318504,
+      "expectedUuid": "63f9a7c3-3fd0-5bad-b2cb-2b8d15603d3c",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyMjQw"
+    },
+    {
+      "campaignId": 318537,
+      "expectedUuid": "e88f4fc6-e45a-526e-94b0-3e5c2c8da3eb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIzNTg2"
+    },
+    {
+      "campaignId": 318570,
+      "expectedUuid": "4bf67c33-0db0-5fb4-9966-f105becd1c75",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI1NzI1"
+    },
+    {
+      "campaignId": 318603,
+      "expectedUuid": "d0c4290d-bae0-524f-b285-18bb9c4da679",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIzNjkz"
+    },
+    {
+      "campaignId": 318636,
+      "expectedUuid": "be0074cb-c79d-548d-ba39-0beb8f563300",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDgzMzk3"
+    },
+    {
+      "campaignId": 318669,
+      "expectedUuid": "af7dd006-92f5-5a33-af42-13a9d99d0ee0",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc1ODc5"
+    },
+    {
+      "campaignId": 318735,
+      "expectedUuid": "65c4d55d-33fd-5805-9a91-bc665530f6f0",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDc3MTkx"
+    },
+    {
+      "campaignId": 318768,
+      "expectedUuid": "7d32a5f7-6cdf-5783-8a3c-75a7553923e3",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDY4NDAy"
+    },
+    {
+      "campaignId": 318801,
+      "expectedUuid": "1044a326-9cd2-5f9a-963e-d066162b9233",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDQ1ODc4"
+    },
+    {
+      "campaignId": 318834,
+      "expectedUuid": "b9ab321d-bb6b-546b-ace9-2305a6d17822",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjEzMDg0"
+    },
+    {
+      "campaignId": 318867,
+      "expectedUuid": "ac658840-efd2-5a98-b863-94e56994a4bf",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDczMTAw"
+    },
+    {
+      "campaignId": 318900,
+      "expectedUuid": "bfdbbb1c-9946-5411-af76-e297f905330b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI2MzIz"
+    },
+    {
+      "campaignId": 318966,
+      "expectedUuid": "94439392-099d-53ac-b8c7-51de5ea7dee9",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDczMjY0"
+    },
+    {
+      "campaignId": 319032,
+      "expectedUuid": "2d6ca4fc-5e68-5924-bb92-b1a269bca93d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjQ0MTYy"
+    },
+    {
+      "campaignId": 319065,
+      "expectedUuid": "0d2b3335-58b4-5b12-bd90-607d87dce3fc",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI0MDI1"
+    },
+    {
+      "campaignId": 319098,
+      "expectedUuid": "a3c0a449-cccc-5888-bf97-ef96a91a5d7a",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA5NjU1"
+    },
+    {
+      "campaignId": 319131,
+      "expectedUuid": "99ab28b3-0826-5cfd-8999-827a59d5596a",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIyNDgx"
+    },
+    {
+      "campaignId": 319164,
+      "expectedUuid": "dc4a4ff9-3a50-53dc-a407-aa9383d30711",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI4Nzgx"
+    },
+    {
+      "campaignId": 319197,
+      "expectedUuid": "9b750bdf-3f7d-5216-862a-21713e918596",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI4MzQz"
+    },
+    {
+      "campaignId": 319296,
+      "expectedUuid": "f3f50ca3-467f-5cb0-8129-58bb7bccabdb",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDczMTUw"
+    },
+    {
+      "campaignId": 319329,
+      "expectedUuid": "42780e80-8c9a-5067-8dd1-9e3087923f4a",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxNDk5"
+    },
+    {
+      "campaignId": 319362,
+      "expectedUuid": "aa6cc84a-a13a-5a65-ab2e-e5cb205bd3cf",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDk2ODA3"
+    },
+    {
+      "campaignId": 319395,
+      "expectedUuid": "adbd73d1-2c47-597d-817f-58633da81d72",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA5Mzk2"
+    },
+    {
+      "campaignId": 319428,
+      "expectedUuid": "dac4d881-f679-5cf7-9cda-b3e792086cfe",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDQwNTA0"
+    },
+    {
+      "campaignId": 319461,
+      "expectedUuid": "5ccffcb2-420b-5791-af66-abc6de508828",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA3NjY3"
+    },
+    {
+      "campaignId": 319494,
+      "expectedUuid": "8c22db9a-82e6-522d-a0fa-10f078c9a69a",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDcyNjk1"
+    },
+    {
+      "campaignId": 319527,
+      "expectedUuid": "6094fece-53dc-51e0-8a39-2c96a044a54b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDI2NTYz"
+    },
+    {
+      "campaignId": 319560,
+      "expectedUuid": "5fc21252-af9f-5eec-a903-ffdcce4465e2",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjE5MTI2"
+    },
+    {
+      "campaignId": 319593,
+      "expectedUuid": "283ab2c7-3cd9-5858-857b-75147eefca8b",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDkxNTI3"
+    },
+    {
+      "campaignId": 319626,
+      "expectedUuid": "b722f030-f671-5a40-a44b-c12791fea233",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDgxNTUx"
+    },
+    {
+      "campaignId": 319659,
+      "expectedUuid": "53e653a8-9779-5448-965c-730f4912cc0c",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA3MDAw"
+    },
+    {
+      "campaignId": 319660,
+      "expectedUuid": "8424130e-00a1-571a-8195-7e883ae1bcac",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yODEwMDAx"
+    },
+    {
+      "campaignId": 319692,
+      "expectedUuid": "6ab9084d-48d5-5b35-a991-58e6f990139d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjEzMzg3",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 319725,
+      "expectedUuid": "b21570b2-b55d-5d90-bd63-1233078fbf74",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxNDAz"
+    },
+    {
+      "campaignId": 319758,
+      "expectedUuid": "0ec363c6-5b07-5c38-a15c-df71b6c5a163",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yOTQ1MzE5",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 319791,
+      "expectedUuid": "383a4e58-8c0b-5e15-90c0-50732d4a4287",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDc3MDgx"
+    },
+    {
+      "campaignId": 319824,
+      "expectedUuid": "0ec363c6-5b07-5c38-a15c-df71b6c5a163",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjM4NTA5",
+      "note": "two races (seats) on same date; deterministic pick by runoff/primary priority"
+    },
+    {
+      "campaignId": 319825,
+      "expectedUuid": "5b2688e5-44e4-516c-8451-f338d32d5295",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDUyNTAw"
+    },
+    {
+      "campaignId": 319857,
+      "expectedUuid": "31c5b59c-890b-5bb0-a8c1-a280aeb2f1fe",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDY1MDk4"
+    },
+    {
+      "campaignId": 319890,
+      "expectedUuid": "9ee9dd30-77a8-5583-a5f4-38acb8e31bd4",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjUxODUz"
+    },
+    {
+      "campaignId": 319923,
+      "expectedUuid": "17d0172b-3c92-505d-b0e7-3e15024c21e8",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNDA5NjY4"
+    },
+    {
+      "campaignId": 319956,
+      "expectedUuid": "223063a7-0188-5e7a-839f-b0b4ad45ca91",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDM0Mzgz",
+      "note": "resolved via BallotReady API (bpi.civicengine.com), not the mart: both the dbt mart and election-api (prod) are missing this race, so the position+date lookup found nothing — BR is the source of truth. The hash is correct; downstream election-api lookups self-heal once ingestion picks the race up."
+    },
+    {
+      "campaignId": 319957,
+      "expectedUuid": "67707d6b-6359-5cfc-9a26-aaba8cacf81c",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxMzgz"
+    },
+    {
+      "campaignId": 319989,
+      "expectedUuid": "e261d004-3292-52c0-b7f2-93c33580d5c4",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yNTAxOTIx"
+    },
+    {
+      "campaignId": 320022,
+      "expectedUuid": "a64938a7-3468-5dd6-8c59-4837e4750c36",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjY5ODA4"
+    },
+    {
+      "campaignId": 320055,
+      "expectedUuid": "010fd863-6f56-53f3-b53d-984ac523a1a5",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDM0OTA1"
+    },
+    {
+      "campaignId": 320088,
+      "expectedUuid": "fd6151a8-c70e-5734-b2f4-548566fd4d7e",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjA4MjEx"
+    },
+    {
+      "campaignId": 320121,
+      "expectedUuid": "b7b58766-f2e0-579b-b2dd-158f73a9c1d0",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDY3NTQ5"
+    },
+    {
+      "campaignId": 320154,
+      "expectedUuid": "3d8aa743-468f-5a8e-8ea6-f67e596b2b8d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIzNzQx"
+    },
+    {
+      "campaignId": 320187,
+      "expectedUuid": "82a31c8b-6918-5cc9-8e0b-d509c9f6c7e0",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMjU0MTkz"
+    },
+    {
+      "campaignId": 320220,
+      "expectedUuid": "22f1845b-8305-505e-b219-d910c8d212b2",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDU4NDY3"
+    },
+    {
+      "campaignId": 320253,
+      "expectedUuid": "c68b9293-f882-587a-888d-7c6482fe3d0d",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDIxNTg1"
+    },
+    {
+      "campaignId": 320286,
+      "expectedUuid": "ab18a85e-a1c3-53e7-be5e-61fff9650e80",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg2MjE0"
+    },
+    {
+      "campaignId": 320319,
+      "expectedUuid": "fdc10ec0-c215-5c4b-b0af-b699ea558b93",
+      "brHashId": "Z2lkOi8vYmFsbG90LWZhY3RvcnkvUG9zaXRpb25FbGVjdGlvbi8yMDg3MzU1"
+    }
+  ],
+  "unresolved": []
+}

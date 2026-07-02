@@ -1,9 +1,21 @@
 import { stripHtml } from 'string-strip-html'
 import { Website, WebsiteIssue } from 'helpers/types'
+import {
+  MIN_BIO_LENGTH,
+  isGenuineBioPlainText,
+  hasGenuineIssue,
+} from '@goodparty_org/contracts'
 
-export const MIN_BIO_LENGTH = 500
+export { MIN_BIO_LENGTH }
 export const MIN_POLICY_FOCUS_LENGTH = 100
 export const MIN_POLICY_PRIORITIES = 1
+
+// The "why are you running?" instruction, shared by every surface that edits
+// the website bio: the Campaign Story page, the Pro-upgrade candidate profile,
+// and the campaign-details WhyRunningSection. One source so the prompt reads
+// identically wherever the candidate writes their why.
+export const WHY_RUNNING_PROMPT =
+  'The moment, the people, the breaking point: your stump-speech opener.'
 
 export const getBioPlainLength = (rawBio: string | undefined | null): number =>
   rawBio ? stripHtml(rawBio).result.trim().length : 0
@@ -13,22 +25,34 @@ export const getBioPlainLength = (rawBio: string | undefined | null): number =>
  * bio meets the minimum length. Consumed by every surface that gates a
  * Submit/Save on the bio so the copy stays consistent.
  */
-export const getBioError = (bioPlainLength: number): string | null => {
+export const getBioError = (
+  bioPlainLength: number,
+  rawBio?: string | null,
+): string | null => {
   if (bioPlainLength === 0) return 'Please add your bio'
   if (bioPlainLength < MIN_BIO_LENGTH) {
     return `Your bio requires ${MIN_BIO_LENGTH} characters`
+  }
+  // Match the API's genuineness gate: a long-enough bio that is still the
+  // fallback template must be rejected in-form, not silently saved and then
+  // blocked by isCandidateProfileComplete with no explanation.
+  if (rawBio && !isGenuineBioPlainText(stripHtml(rawBio).result.trim())) {
+    return 'Please write your bio in your own words'
   }
   return null
 }
 
 /**
  * Error message for the policy-priorities requirement, or null when at least
- * the minimum number of priorities exist.
+ * one GENUINE priority exists. Matches isCandidateProfileComplete /
+ * hasGenuineIssue so the form doesn't accept a lone placeholder-titled issue
+ * that the completeness check (and API) then reject — which would loop the
+ * user back to the wizard with no visible error.
  */
-export const getPolicyPrioritiesError = (count: number): string | null =>
-  count < MIN_POLICY_PRIORITIES
-    ? 'Please add at least one policy priority'
-    : null
+export const getPolicyPrioritiesError = (
+  issues: { title?: string | null; description?: string | null }[] | null,
+): string | null =>
+  hasGenuineIssue(issues) ? null : 'Please add at least one policy priority'
 
 export interface PolicyFormValidation {
   titleInvalid: boolean
@@ -80,9 +104,10 @@ export const normalizeIssues = (
 export const isCandidateProfileComplete = (
   website: Website | null | undefined,
 ): boolean => {
-  const bioPlainLength = getBioPlainLength(website?.content?.about?.bio)
-  const issues = website?.content?.about?.issues ?? []
+  const bio = website?.content?.about?.bio
+  const plainBio = bio ? stripHtml(bio).result.trim() : ''
   return (
-    bioPlainLength >= MIN_BIO_LENGTH && issues.length >= MIN_POLICY_PRIORITIES
+    isGenuineBioPlainText(plainBio) &&
+    hasGenuineIssue(website?.content?.about?.issues)
   )
 }

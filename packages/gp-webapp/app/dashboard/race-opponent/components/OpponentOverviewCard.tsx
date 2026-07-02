@@ -12,7 +12,7 @@ type Props = {
   threatTier?: RaceOpponentThreatTier
 }
 
-const descriptorFor = (
+export const descriptorFor = (
   party: string | null | undefined,
   isIncumbent: boolean | null | undefined,
 ): string | null => {
@@ -41,7 +41,7 @@ const OpponentOverviewCard = ({
   return (
     <div className="flex w-full min-w-0 items-center gap-3">
       <Avatar size="large" className="shrink-0">
-        <AvatarFallback className="bg-info-50 font-semibold text-info-600">
+        <AvatarFallback className="bg-info-600 font-semibold text-info-contrast">
           {initials}
         </AvatarFallback>
       </Avatar>
@@ -54,8 +54,8 @@ const OpponentOverviewCard = ({
             {descriptor}
           </span>
         )}
-        {threatTier && <ThreatTierBadge tier={threatTier} className="w-fit" />}
       </div>
+      {threatTier && <ThreatTierBadge tier={threatTier} className="shrink-0" />}
     </div>
   )
 }

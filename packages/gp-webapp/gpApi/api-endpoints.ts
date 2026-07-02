@@ -6,6 +6,7 @@ import type {
   RaceOpponentCollectionStatus,
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
+  SummarySource,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -251,27 +252,26 @@ export type APIEndpoints = {
     Response: CampaignStory
   }
 
-  // Partial upsert — each Campaign Story field autosaves on blur, so any
-  // subset of why/background/issues may be sent.
-  // At least one field is required (the server's Zod schema rejects an empty
-  // body with 400) — encode that in the type so a call site can't send `{}`.
+  // Partial upsert of the story. Only `background` lives on the story now (the
+  // `why` and issues moved to the website, shared with Pro-upgrade); the
+  // server's Zod schema rejects an empty body with 400, so `background` is
+  // required here.
   'PUT /v1/campaigns/mine/story': {
-    Request:
-      | { why: string; background?: string; issues?: string }
-      | { why?: string; background: string; issues?: string }
-      | { why?: string; background?: string; issues: string }
+    Request: { background: string }
     Response: CampaignStory
   }
 
-  // AI-suggested rewrite of a Campaign Story field or a website issue's "Policy
+  // AI-suggested rewrite of a Campaign Story prompt or a website issue's "Policy
   // focus". The server pairs the submitted text with the candidate's name and a
   // section-specific prompt; `text` must be non-empty (the Zod schema rejects
   // blank input with 400).
   'POST /v1/campaigns/mine/story/rewrite': {
-    // why/background mirror the story shape; 'issue' rewrites a Policy focus
-    // (website issue description). The server's Zod enum is the runtime mirror.
+    // `why` (now the website bio) and `background` are the story prompts;
+    // `issue` rewrites a Policy focus (website issue description). `why` is no
+    // longer a CampaignStory key, so the set is listed explicitly. The server's
+    // Zod enum is the runtime mirror.
     Request: {
-      field: keyof CampaignStory | 'issue'
+      field: 'why' | 'background' | 'issue'
       text: string
       // Optional context for an `issue` rewrite: the policy title.
       title?: string
@@ -967,9 +967,21 @@ export type RaceOpponentItem = {
 // Display-ready summary structured by the race_opponent_summary step. Mirrors
 // RaceOpponentSummarySchema in @goodparty_org/contracts, but generatedAt arrives
 // over JSON as an ISO string (the contract coerces it to Date).
+//
+// v2 (ENG-10630/ENG-10634): mirrors NormalizedSummarySource in contracts — the
+// rich fields (url/title/publisher) are always present (the contract backfills
+// them from the hostname for legacy-normalized rows), while sourceType/
+// sourceUrl are the legacy passthrough gp-api still sends during the rollout.
+// RaceOpponentList/IssueContrastCard/the PDF still key off sourceType/sourceUrl
+// until ENG-10635 migrates them onto the rich fields, so those stay optional
+// (not removed) rather than required.
 export type RaceOpponentSummarySourceRef = {
-  sourceType: RaceOpponentSourceType
-  sourceUrl: string
+  url: string
+  title: string
+  publisher: string
+  description?: string
+  sourceType?: RaceOpponentSourceType
+  sourceUrl?: string
 }
 
 export type RaceOpponentSummarySection = {
@@ -992,7 +1004,10 @@ export type RaceOpponentSummary = {
   threatTier?: RaceOpponentThreatTier
   // Phase 3 analytical fields, all optional (the analysis may be absent).
   whyTheyMatter?: string
-  whatYouNeedToKnow?: string[]
+  whatYouNeedToKnow?: Array<{
+    text: string
+    sources?: RaceOpponentSummarySourceRef[]
+  }>
   // Relaxed sourcing: an item cites a source where one is direct, else omits it.
   whereSoft?: Array<{ text: string; sources?: RaceOpponentSummarySourceRef[] }>
   issueContrasts?: RaceOpponentIssueContrast[]
@@ -1009,6 +1024,20 @@ export type RaceOpponentIssueContrast = {
   candidateStance: string
 }
 
+// Campaign-level SWOT (ENG-10630/ENG-10636). Mirrors
+// RaceOpponentFieldAnalysisSchema in @goodparty_org/contracts, but
+// generatedAt arrives over JSON as an ISO string (the contract coerces it to
+// Date). Interpretive section: sources may be empty, unlike the
+// sourced-or-silent summary sections above.
+export type RaceOpponentFieldAnalysis = {
+  strengths: string[]
+  weaknesses: string[]
+  opportunities: string[]
+  threats: string[]
+  sources: SummarySource[]
+  generatedAt: string | null
+}
+
 export type RaceOpponentResponse = {
   opponents: Array<{
     opponentName: string
@@ -1020,13 +1049,18 @@ export type RaceOpponentResponse = {
     // roster can tier and order without opening the detail. Optional until an
     // opponent has analysis.
     threatTier?: RaceOpponentThreatTier
-    items: RaceOpponentItem[]
+    // Sent only as the no-summary fallback; gp-api omits it once a structured
+    // summary exists (ENG-10622).
+    items?: RaceOpponentItem[]
     // Optional + nullable: ENG-10588 wires the producer to populate this from
     // the race_opponent_summary step; until then gp-api omits the field.
     summary?: RaceOpponentSummary | null
   }>
   lastCollectedAt: string | null
   collectionStatus: RaceOpponentCollectionStatus
+  // v2 (ENG-10630/ENG-10636): campaign-level SWOT, null until candidate_platform
+  // data is available; nullish so older gp-api payloads still parse.
+  fieldAnalysis?: RaceOpponentFieldAnalysis | null
 }
 
 // Where a contrast is routed. Mirrors RaceOpponentContrastRoutingSchema in

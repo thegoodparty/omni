@@ -72,10 +72,14 @@ order it:
    `agenticDispatchAttemptedAt`) → `experimentRunsService.dispatchRun({ type:
    'compliance_setup', ... })`. Stamps `agenticRunId` scoped to the claim timestamp.
 
-**FAILED runs stay re-dispatchable** — the idempotency skip path intentionally excludes
-`FAILED` (a re-claim clears `agenticRunId` and re-dispatches with `trigger:
-'recovery_resume'` so the agent skips completed steps). Don't add `FAILED` to the skip
-set.
+**FAILED and SUPERSEDED runs stay re-dispatchable** — the idempotency skip path
+intentionally excludes both (a re-claim clears `agenticRunId` and re-dispatches with
+`trigger: 'recovery_resume'` so the agent skips completed steps). Don't add them to the
+skip set. `SUPERSEDED` matters because `agenticRunId` is never repointed to the resume
+successor, so it keeps pointing at the superseded predecessor; if that successor later
+`FAILED`, the record would strand here unless `SUPERSEDED` can fall through to the
+retake. `AWAITING_RESUME` *is* in the skip set — the resume sweep owns those, so the
+kickoff path must not race it.
 
 ## Background sweeps (`@Interval`)
 

@@ -110,7 +110,7 @@ describe('CandidateProfile — submit validation messaging', () => {
 })
 
 describe('CandidateProfile — bio editor mounts with no website yet (ENG-10283)', () => {
-  it('renders the "Why are you running?" editor when getUserWebsite resolves to null', async () => {
+  it('renders the "Your why" editor when getUserWebsite resolves to null', async () => {
     // A Pro candidate who has not created a website yet gets `null` from
     // getUserWebsite (saveAboutFields creates the website on submit). The bio
     // editor must still mount so they can fill it in — otherwise the field is

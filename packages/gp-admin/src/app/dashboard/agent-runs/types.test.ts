@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { DEFAULT_PER_PAGE } from '@/app/dashboard/users/types'
 import {
   SEARCH_PARAMS,
+  STATUS_BADGE_COLORS,
+  STATUS_BADGE_LABELS,
   buildAgentRunsQuery,
   formatCost,
   formatDuration,
@@ -63,6 +65,21 @@ describe('isAgentRunStatus', () => {
     expect(isAgentRunStatus('running')).toBe(false)
     expect(isAgentRunStatus('PENDING')).toBe(false)
     expect(isAgentRunStatus('')).toBe(false)
+  })
+
+  it('accepts SUPERSEDED as a filterable status', () => {
+    expect(isAgentRunStatus('SUPERSEDED')).toBe(true)
+  })
+})
+
+describe('SUPERSEDED badge presentation', () => {
+  it('renders green (a benign hand-off, not a failure)', () => {
+    expect(STATUS_BADGE_COLORS.SUPERSEDED).toBe('green')
+    expect(STATUS_BADGE_COLORS.FAILED).toBe('red')
+  })
+
+  it('relabels SUPERSEDED to "Part 1 completed"', () => {
+    expect(STATUS_BADGE_LABELS.SUPERSEDED).toBe('Part 1 completed')
   })
 })
 

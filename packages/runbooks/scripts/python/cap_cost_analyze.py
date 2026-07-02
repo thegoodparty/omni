@@ -12,9 +12,11 @@ tail (which runs drive the bulk of spend), per status. Emits plots:
 
 When the cohort has milestone markers (written by the agent via
 pmf_runtime.milestone(), tagged onto each turn row upstream), this also emits a
-per-milestone cost attribution table and keys the population heatmap on the
-ordered milestone column. When no run has markers (older cohorts), it falls back
-to turn-level analysis and a turn-progress heatmap, exactly as before.
+per-milestone MARGINAL cost-attribution table (cost per milestone = the spend on
+the turns between one marker and the next), a cost-per-milestone bar chart
+(milestone_costs.png, top-3 phases highlighted), and keys the population heatmap
+on the ordered milestone column. When no run has markers (older cohorts), it
+falls back to turn-level analysis and a turn-progress heatmap, exactly as before.
 
 All dollar figures trace back to experiment_run.costUsd (distributed across turns
 by token weight upstream) — never token-count x list price.
@@ -105,28 +107,81 @@ def milestone_order(df: pd.DataFrame) -> list[str]:
 
 
 def milestone_costs(df: pd.DataFrame) -> dict:
-    """Per-milestone cost attribution: total / median-per-run / share of spend,
-    in run-sequence order. Only over turns that carry a marker (null-milestone
-    turns from mixed cohorts are excluded from the per-milestone view)."""
+    """Per-milestone MARGINAL cost attribution, in run-sequence order.
+
+    Each milestone's cost is the marginal spend from the previous milestone
+    firing until this one — the sum of est_cost over the turns tagged with that
+    milestone (the turns between this marker and the next). This is the
+    cost-per-milestone: what that phase of the run adds to the bill. Reports
+    total, share of cohort spend, running cumulative share (a Pareto over
+    phases), $/turn within the phase, and the per-run total distribution. Only
+    over turns that carry a marker (null-milestone turns from mixed cohorts are
+    excluded from the per-milestone view but stay in the `total` denominator,
+    so shares sum to <1.0 on a mixed cohort)."""
     m = df[df["milestone"].notna()]
     order = milestone_order(df)
     total = float(df["est_cost"].sum())
     per_run = m.groupby(["run_id", "milestone"])["est_cost"].sum().reset_index()
+    turns_by_ms = m.groupby("milestone")["turn_idx"].count()
     rows = []
+    cumulative = 0.0
     for name in order:
         seg = per_run[per_run["milestone"] == name]["est_cost"]
         seg_total = float(seg.sum())
+        share = seg_total / total if total else 0.0
+        cumulative += share
+        n_turns = int(turns_by_ms.get(name, 0))
         rows.append(
             {
                 "milestone": name,
                 "total": round(seg_total, 2),
-                "share_of_spend": round(seg_total / total, 3) if total else 0.0,
+                "share_of_spend": round(share, 3),
+                "cumulative_share": round(cumulative, 3),
                 "runs": int(seg.shape[0]),
+                "turns": n_turns,
+                "cost_per_turn": round(seg_total / n_turns, 4) if n_turns else 0.0,
                 "median_per_run": round(float(np.median(seg)) if len(seg) else 0.0, 4),
                 "p90_per_run": round(pct(seg, 90), 4),
             }
         )
     return {"ordered": rows, "runs_with_milestones": int(m["run_id"].nunique())}
+
+
+def plot_milestone_costs(df: pd.DataFrame, path: str) -> None:
+    """Horizontal marginal-$-per-milestone bars in run-sequence order, with the
+    top-3 phases highlighted in the accent color. Each bar is the marginal spend
+    on the turns tagged with that milestone. Mirrors the cost-per-milestone
+    reference chart. Runs with no markers contribute nothing here (they show in
+    the turn-progress heatmap instead)."""
+    mc = milestone_costs(df)["ordered"]
+    if not mc:
+        return
+    names = [r["milestone"] for r in mc]
+    totals = [r["total"] for r in mc]
+    top3 = set(sorted(range(len(totals)), key=lambda i: totals[i], reverse=True)[:3])
+    colors = ["#0f6e63" if i in top3 else "#c4ccd6" for i in range(len(totals))]
+    y = np.arange(len(names))[::-1]
+    fig, ax = plt.subplots(figsize=(9, max(3, len(names) * 0.55)))
+    ax.barh(y, totals, color=colors)
+    for yi, r in zip(y, mc):
+        ax.text(
+            r["total"],
+            yi,
+            f"  ${r['total']:,.0f} · {r['share_of_spend'] * 100:.0f}%",
+            va="center",
+            fontsize=8,
+            color="#16191f",
+        )
+    ax.set_yticks(y)
+    ax.set_yticklabels(names, fontsize=9)
+    ax.set_xlabel("marginal $ per milestone (turns since previous marker)")
+    ax.set_title("cost per milestone — top 3 highlighted")
+    ax.margins(x=0.16)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    fig.tight_layout()
+    fig.savefig(path, dpi=120)
+    plt.close(fig)
 
 
 def plot_milestone_heatmap(df: pd.DataFrame, path: str) -> None:
@@ -278,6 +333,7 @@ def main() -> None:
     plot_cost_velocity(df, os.path.join(outdir, "cost_velocity.png"))
     if milestones_present:
         plot_milestone_heatmap(df, os.path.join(outdir, "population_heatmap.png"))
+        plot_milestone_costs(df, os.path.join(outdir, "milestone_costs.png"))
         if mixed:
             # Mixed cohort: the milestone heatmap omits unmarked runs, so also emit a
             # full-population turn-progress heatmap rather than silently dropping them.

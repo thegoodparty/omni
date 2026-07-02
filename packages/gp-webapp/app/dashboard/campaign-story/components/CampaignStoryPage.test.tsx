@@ -37,6 +37,24 @@ vi.mock('./CampaignStoryCard', () => ({
     </div>
   ),
 }))
+// The "why" card edits the website bio + has its own rewrite/save; mock it down
+// to the answered-state buttons that drive the footer.
+vi.mock('./CampaignStoryWhyCard', () => ({
+  default: ({
+    onAnsweredChange,
+  }: {
+    onAnsweredChange?: (answered: boolean) => void
+  }) => (
+    <div>
+      <button type="button" onClick={() => onAnsweredChange?.(true)}>
+        answer-why
+      </button>
+      <button type="button" onClick={() => onAnsweredChange?.(false)}>
+        clear-why
+      </button>
+    </div>
+  ),
+}))
 // Drive the issues count without mounting the Quill-based policy editor.
 vi.mock(
   'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities',
@@ -74,8 +92,10 @@ vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
 }))
 
-const story = { why: 'w', background: 'b' }
-const incompleteStory = { why: 'w', background: '' }
+const story = { background: 'b' }
+const incompleteStory = { background: '' }
+// A non-empty bio seeds the "why" as answered; '' leaves it unanswered.
+const BIO = '<p>Because of the schools</p>'
 const oneIssue: WebsiteIssue[] = [{ title: 't', description: 'd' }]
 
 const footerLink = () =>
@@ -88,22 +108,39 @@ beforeEach(() => {
 
 describe('CampaignStoryPage', () => {
   it('hides the generate footer when there are no issues, even with a complete story', () => {
-    render(<CampaignStoryPage initialStory={story} initialIssues={[]} />)
+    render(
+      <CampaignStoryPage
+        initialStory={story}
+        initialBio={BIO}
+        initialIssues={[]}
+      />,
+    )
     expect(footerLink()).not.toBeInTheDocument()
   })
 
   it('shows the generate footer when the story is complete and an issue exists', () => {
-    render(<CampaignStoryPage initialStory={story} initialIssues={oneIssue} />)
+    render(
+      <CampaignStoryPage
+        initialStory={story}
+        initialBio={BIO}
+        initialIssues={oneIssue}
+      />,
+    )
     expect(footerLink()).toHaveAttribute('href', '/dashboard/campaign-plan')
   })
 
-  it('reveals the footer once both cards are answered and an issue is added', async () => {
+  it('reveals the footer once why, background, and an issue are all present', async () => {
     const user = userEvent.setup()
     render(
-      <CampaignStoryPage initialStory={incompleteStory} initialIssues={[]} />,
+      <CampaignStoryPage
+        initialStory={incompleteStory}
+        initialBio=""
+        initialIssues={[]}
+      />,
     )
     expect(footerLink()).not.toBeInTheDocument()
 
+    await user.click(screen.getByRole('button', { name: 'answer-why' }))
     await user.click(screen.getByRole('button', { name: 'answer-background' }))
     await user.click(screen.getByRole('button', { name: 'add-issue' }))
 
@@ -112,7 +149,13 @@ describe('CampaignStoryPage', () => {
 
   it('hides the footer when the only issue is removed', async () => {
     const user = userEvent.setup()
-    render(<CampaignStoryPage initialStory={story} initialIssues={oneIssue} />)
+    render(
+      <CampaignStoryPage
+        initialStory={story}
+        initialBio={BIO}
+        initialIssues={oneIssue}
+      />,
+    )
     expect(footerLink()).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'clear-issues' }))
@@ -122,7 +165,13 @@ describe('CampaignStoryPage', () => {
 
   it('persists issues to the website on change', async () => {
     const user = userEvent.setup()
-    render(<CampaignStoryPage initialStory={story} initialIssues={[]} />)
+    render(
+      <CampaignStoryPage
+        initialStory={story}
+        initialBio={BIO}
+        initialIssues={[]}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'add-issue' }))
 
@@ -134,7 +183,13 @@ describe('CampaignStoryPage', () => {
   it('reverts the issue and keeps the footer hidden when the save fails', async () => {
     mockSaveAboutFields.mockResolvedValue(false)
     const user = userEvent.setup()
-    render(<CampaignStoryPage initialStory={story} initialIssues={[]} />)
+    render(
+      <CampaignStoryPage
+        initialStory={story}
+        initialBio={BIO}
+        initialIssues={[]}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'add-issue' }))
 

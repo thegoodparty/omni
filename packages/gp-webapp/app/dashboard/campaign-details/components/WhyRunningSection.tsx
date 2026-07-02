@@ -16,6 +16,7 @@ import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { Website } from 'helpers/types'
 import {
   MIN_BIO_LENGTH,
+  WHY_RUNNING_PROMPT,
   getBioError,
   getBioPlainLength,
 } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
@@ -70,7 +71,7 @@ export default function WhyRunningSection(): React.JSX.Element {
     seededRef.current = true
   }, [isSuccess, website])
 
-  const bioError = getBioError(bioPlainLength)
+  const bioError = getBioError(bioPlainLength, bio)
 
   const handleSave = async () => {
     if (saving) return
@@ -98,7 +99,7 @@ export default function WhyRunningSection(): React.JSX.Element {
     <section>
       <H3>Why are you running?</H3>
       <Body1 className="text-gray-600 mt-2 pb-6 mb-6">
-        Tell potential voters why you&apos;re running for office.
+        {WHY_RUNNING_PROMPT}
       </Body1>
       {attemptedSave && bioError && (
         <Alert

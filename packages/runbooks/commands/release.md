@@ -13,11 +13,11 @@ There are **two release repos**, each promoted on its own three-branch line:
 `omni` is a monorepo; `gp-ai-projects` is a separate repo with the same shape but a `prod` production tip rather than `master`. A release loops over both repos (merging each open `qa → production` PR), then builds **one combined** release-notes message. The repos are independent — one having no pending release does not stop the other.
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
+> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/runbooks`, `$HOME/code/runbooks`, `$HOME/runbooks`.
-> 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
+> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
 <!-- END: resolve-runbooks-dir -->
 
 <!-- BEGIN: resolve-release-repos (keep in sync across commands/*.md) -->

@@ -24,15 +24,17 @@ export default async function Page(): Promise<React.JSX.Element> {
     'GET /v1/campaigns/mine/story',
     {},
   )
-  // Issues live on the website (shared with the Pro-upgrade flow), not the
-  // story. fetchUserWebsite returns null for a candidate with no site yet —
-  // the issues editor then starts empty and creates the site on first save.
+  // The "why" (bio) and issues live on the website (shared with the Pro-upgrade
+  // flow), not the story. fetchUserWebsite returns null for a candidate with no
+  // site yet — the editors then start empty and create the site on first save.
   const website = await fetchUserWebsite()
+  const initialBio = website?.content?.about?.bio ?? ''
   const initialIssues = normalizeIssues(website?.content?.about?.issues)
   return (
     <CampaignStoryPage
       pathname="/dashboard/campaign-story"
       initialStory={initialStory}
+      initialBio={initialBio}
       initialIssues={initialIssues}
     />
   )

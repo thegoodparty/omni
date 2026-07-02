@@ -172,8 +172,19 @@ const CampaignPlanView = ({
   const metrics = campaign?.raceTargetMetrics
   const primaryDateIso =
     metrics?.primaryElectionDate ?? campaign?.details?.primaryElectionDate
+  // Only true general-election sources (never relevantElectionDate, which is the
+  // primary during the primary phase). If none exist, show no date rather than a
+  // stage-anchored one mislabeled "Election Day".
   const generalDateIso =
-    metrics?.generalElectionDate ?? campaign?.details?.electionDate
+    metrics?.generalElectionDate ??
+    campaign?.details?.electionDate ??
+    campaign?.electionDate
+  // dateUsHelper parses its arg with `new Date()`; a date-only ISO string is read
+  // as UTC midnight and can render a day early in far-western zones (e.g. AKST).
+  // Parse as local midnight (slice to the date + dash->slash) like the codebase's
+  // other date-only helpers; the slice keeps it safe for full-ISO values too.
+  const formatElectionDate = (iso: string): string =>
+    dateUsHelper(iso.slice(0, 10).replace(/-/g, '/'))
 
   // Story cohort: campaign tracker on top, then the plan below it (the plan's
   // own hero + bottom download are hidden — the tracker hero owns them, and
@@ -185,11 +196,9 @@ const CampaignPlanView = ({
           candidateName={data.plan.candidateName}
           race={data.plan.race}
           district={campaign?.details?.district ?? ''}
-          primaryDate={primaryDateIso ? dateUsHelper(primaryDateIso) : ''}
+          primaryDate={primaryDateIso ? formatElectionDate(primaryDateIso) : ''}
           electionDate={
-            generalDateIso
-              ? dateUsHelper(generalDateIso)
-              : data.plan.electionDate
+            generalDateIso ? formatElectionDate(generalDateIso) : ''
           }
           onDownload={handleHeroDownload}
           downloading={heroDownloading}
