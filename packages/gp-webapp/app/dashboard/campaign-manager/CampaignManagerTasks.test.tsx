@@ -75,28 +75,51 @@ describe('CampaignManagerTasks', () => {
     expect(screen.queryByText('Done already')).not.toBeInTheDocument()
   })
 
-  it('links each card to the task action, falling back to the tracker', () => {
+  it('links each card CTA to the task action, falling back to the tracker', () => {
     mockResult.mockReturnValue(
       settled([
         task({
           title: 'With link',
           week: 1,
+          cta: 'Knock doors',
           link: '/dashboard/outreach/doors',
         }),
-        task({ title: 'No link', week: 1, link: null }),
+        task({ title: 'No link', week: 1, cta: null, link: null }),
       ]),
     )
 
     render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
 
-    expect(screen.getByRole('link', { name: /With link/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Knock doors' })).toHaveAttribute(
       'href',
       '/dashboard/outreach/doors',
     )
-    expect(screen.getByRole('link', { name: /No link/i })).toHaveAttribute(
+    // A task with no cta of its own falls back to a "See details" link → tracker.
+    expect(screen.getByRole('link', { name: 'See details' })).toHaveAttribute(
       'href',
       '/dashboard/campaign-plan',
     )
+  })
+
+  it('renders each task as a rich card with a category eyebrow and summary', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'Knock 60 doors in Maplewood',
+          week: 1,
+          flowType: 'doorKnocking',
+          description: 'Highest-persuasion turf; closes your contact gap.',
+        }),
+      ]),
+    )
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    expect(screen.getByText('Door knocking')).toBeInTheDocument()
+    expect(
+      screen.getByText('Highest-persuasion turf; closes your contact gap.'),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Knock 60 doors in Maplewood')).toBeInTheDocument()
   })
 
   it('shows the "meet your campaign manager" button and fires the callback', async () => {
