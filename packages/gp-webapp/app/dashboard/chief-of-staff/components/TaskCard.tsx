@@ -17,6 +17,9 @@ export interface TaskCardProps {
   ctaHref?: string
   /** When set (and no href), the CTA fires this instead. */
   onCta?: () => void
+  /** When set, renders a secondary "Mark done" action. */
+  onComplete?: () => void
+  completeDisabled?: boolean
   onSkip?: () => void
   skipDisabled?: boolean
 }
@@ -42,6 +45,8 @@ export default function TaskCard({
   ctaLabel,
   ctaHref,
   onCta,
+  onComplete,
+  completeDisabled = false,
   onSkip,
   skipDisabled = false,
 }: TaskCardProps): React.JSX.Element {
@@ -87,6 +92,17 @@ export default function TaskCard({
               {ctaLabel}
             </Button>
           ))}
+        {onComplete && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={onComplete}
+            disabled={completeDisabled}
+          >
+            Mark done
+          </Button>
+        )}
         {onSkip && (
           <button
             type="button"

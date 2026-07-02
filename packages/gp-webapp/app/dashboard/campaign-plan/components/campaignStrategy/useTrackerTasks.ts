@@ -73,12 +73,27 @@ export function useTrackerTasks(): TrackerTasksResult {
 }
 
 // Optimistic-free toggle: complete -> PUT, uncomplete -> DELETE, then refetch.
+// Completing an outreach/events task can carry a voter-contact count (type +
+// quantity); the API records it to update history + reportedVoterGoals.
 export function useToggleTrackerTaskComplete() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, completed }: { id: string; completed: boolean }) =>
+    mutationFn: ({
+      id,
+      completed,
+      type,
+      quantity,
+    }: {
+      id: string
+      completed: boolean
+      type?: string
+      quantity?: number
+    }) =>
       completed
-        ? clientRequest('PUT /v1/campaigns/tracker-tasks/complete/:id', { id })
+        ? clientRequest(
+            'PUT /v1/campaigns/tracker-tasks/complete/:id',
+            type && quantity ? { id, type, quantity } : { id },
+          )
         : clientRequest('DELETE /v1/campaigns/tracker-tasks/complete/:id', {
             id,
           }),

@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
 import {
@@ -11,8 +12,13 @@ import {
   SparklesIcon,
 } from '@styleguide/components/ui/icons'
 import type { LucideIcon } from 'lucide-react'
-import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
+import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
+import {
+  useToggleTrackerTaskComplete,
+  useTrackerTasks,
+} from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import CountModal from '../components/tasks/CountModal'
 import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 import {
@@ -23,9 +29,23 @@ import {
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
 
+// flowTypes whose completion records a voter-contact count (a valid
+// CampaignUpdateHistoryType the complete endpoint accepts), matching the legacy
+// task flow. Community events ('events') are the headline case; other outreach
+// types get the count too. Everything else (e.g. 'awareness') completes with no
+// count prompt.
+const COUNT_FLOW_TYPES = new Set([
+  'events',
+  'doorKnocking',
+  'phoneBanking',
+  'text',
+  'robocall',
+  'socialMedia',
+])
+
 // A task's own action link, if it has a non-empty one. Trimmed so an empty or
 // whitespace string (which the agent can emit) counts as "no link" rather than
-// rendering a broken href — matching the tracker, which hides the link then.
+// rendering a broken href, matching the tracker, which hides the link then.
 const taskLink = (task: { link: string | null }): string | null =>
   task.link?.trim() ? task.link : null
 
@@ -63,6 +83,29 @@ export default function CampaignManagerTasks({
 }: Props): React.JSX.Element {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
+
+  const toggleComplete = useToggleTrackerTaskComplete()
+  // A count-flowType task pending its voter-contact count in the modal.
+  const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
+
+  const onComplete = (task: CampaignTrackerTask): void => {
+    if (task.flowType && COUNT_FLOW_TYPES.has(task.flowType)) {
+      setCountTask(task)
+      return
+    }
+    toggleComplete.mutate({ id: task.id, completed: true })
+  }
+
+  const onCountSubmit = (count: number): void => {
+    if (!countTask?.flowType) return
+    toggleComplete.mutate({
+      id: countTask.id,
+      completed: true,
+      type: countTask.flowType,
+      quantity: count,
+    })
+    setCountTask(null)
+  }
 
   // First-run onboarding card: show it only once we know the candidate has
   // never opened the manager (no conversation yet). Opening it eagerly creates
@@ -131,12 +174,25 @@ export default function CampaignManagerTasks({
                     (taskLink(task) ? 'Open' : 'See details')
                   }
                   ctaHref={taskHref(task)}
+                  onComplete={() => onComplete(task)}
+                  completeDisabled={toggleComplete.isPending}
                 />
               )
             })}
           </div>
         )}
       </div>
+
+      {countTask && (
+        <CountModal
+          open
+          onOpenChange={(next) => {
+            if (!next) setCountTask(null)
+          }}
+          flowType={countTask.flowType ?? ''}
+          onSubmit={onCountSubmit}
+        />
+      )}
     </section>
   )
 }

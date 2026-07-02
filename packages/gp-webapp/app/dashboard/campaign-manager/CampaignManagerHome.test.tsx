@@ -11,6 +11,7 @@ vi.mock('../campaign-plan/components/campaignStrategy/useTrackerTasks', () => ({
     isError: false,
     isGeneratingDynamic: false,
   }),
+  useToggleTrackerTaskComplete: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 // The Pro banner + progress section are the legacy dashboard widgets (their own
