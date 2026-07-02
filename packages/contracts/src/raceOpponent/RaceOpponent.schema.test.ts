@@ -195,4 +195,35 @@ describe('RaceOpponentResponseSchema', () => {
     })
     expect(result.opponents[0]?.items).toHaveLength(1)
   })
+
+  it('parses without fieldAnalysis or websiteUrl (older gp-api payloads)', () => {
+    const result = RaceOpponentResponseSchema.parse(response)
+    expect(result.fieldAnalysis).toBeUndefined()
+    expect(result.opponents[0]?.websiteUrl).toBeUndefined()
+  })
+
+  it('accepts a null fieldAnalysis and a populated websiteUrl', () => {
+    const result = RaceOpponentResponseSchema.parse({
+      ...response,
+      opponents: [{ ...opponent, websiteUrl: 'https://janedoe.example.com' }],
+      fieldAnalysis: null,
+    })
+    expect(result.fieldAnalysis).toBeNull()
+    expect(result.opponents[0]?.websiteUrl).toBe('https://janedoe.example.com')
+  })
+
+  it('accepts a populated fieldAnalysis', () => {
+    const result = RaceOpponentResponseSchema.parse({
+      ...response,
+      fieldAnalysis: {
+        strengths: ['Strong fundraising'],
+        weaknesses: [],
+        opportunities: [],
+        threats: [],
+        sources: [],
+        generatedAt: '2026-07-01T00:00:00.000Z',
+      },
+    })
+    expect(result.fieldAnalysis?.strengths).toEqual(['Strong fundraising'])
+  })
 })
