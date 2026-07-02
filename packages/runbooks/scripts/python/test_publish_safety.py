@@ -128,6 +128,29 @@ def test_index_json_is_written_last_exactly_once(real_experiment_tree, monkeypat
     assert len(s3.keys) > 1  # per-experiment files really preceded it
 
 
+def test_reclaim_deletes_stale_attachment_orphans(real_experiment_tree, monkeypatch):
+    exp_id = sorted(p.name for p in real_experiment_tree.iterdir() if p.name != "_schema")[0]
+    s3 = _RecordingS3()
+    orphan = f"{exp_id}/attachments/removed-long-ago.txt"
+    s3.keys.append(orphan)  # pre-existing S3 object no longer emitted by this publish
+    monkeypatch.setattr(pub.boto3, "client", lambda *_a, **_k: s3)
+    rc = pub.publish("dev")
+    assert rc == 0
+    assert s3.deleted == [orphan]  # the orphan and ONLY the orphan is reclaimed
+
+
+def test_reclaim_list_failure_degrades_to_warning(real_experiment_tree, monkeypatch, capsys):
+    class _ListDenied(_RecordingS3):
+        def list_objects_v2(self, Bucket, Prefix):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "ListObjectsV2")
+    s3 = _ListDenied()
+    monkeypatch.setattr(pub.boto3, "client", lambda *_a, **_k: s3)
+    rc = pub.publish("dev")
+    assert rc == 0  # a missing list permission must never fail the publish
+    assert s3.keys.count("index.json") == 1  # the atomic switch still happened
+    assert "could not reclaim orphans" in capsys.readouterr().err
+
+
 def test_failed_upload_blocks_the_index_write(real_experiment_tree, monkeypatch):
     exp_id = sorted(p.name for p in real_experiment_tree.iterdir() if p.name != "_schema")[0]
     s3 = _RecordingS3(fail_on_key_prefix=f"{exp_id}/")

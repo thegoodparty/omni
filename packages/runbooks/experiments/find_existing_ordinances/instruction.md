@@ -132,7 +132,8 @@ def japi(url):
     try: return json.loads(b)
     except Exception: return json.loads(re.search(r"[\[{].*[\]}]", b, re.S).group(0))
 def nrm(s):   # for MATCHING only — never build the URL from this
-    s = re.sub(r",?\s*\([^)]*co\.?\)\s*", " ", s.lower().strip())   # county tag: "Ada Township, (Kent Co.)"
+    s = re.sub(r"\(unexpired term\)|\(est\.?\)", "", s.lower().strip())   # office-name noise (production shapes)
+    s = re.sub(r",?\s*\([^)]*co\.?\)\s*", " ", s)   # county tag: "Ada Township, (Kent Co.)"
     s = re.sub(r"^(city|town|village|borough|township) of\s+", "", s)
     s = re.sub(r"\b(charter|chrtr)\s+township\b", "township", s)
     if re.search(r"\btownship\b", s):
@@ -140,13 +141,16 @@ def nrm(s):   # for MATCHING only — never build the URL from this
     else:
         s = re.sub(r"\s+(city|town|village|borough)$", "", s)
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", s)).strip()
+def slugify(name):   # Municode's own UrlEncodeComponent (their JS bundle): only these four chars are encoded
+    for ch, code in ("/", "-fs-"), ("\\", "-bs-"), (" ", "_"), ("~", "-t-"): name = name.replace(ch, code)
+    return name.lower()
 states  = japi("https://api.municode.com/States")
-sid     = next(s["StateID"] for s in states if s["StateAbbreviation"] == state)
-clients = japi(f"https://api.municode.com/Clients/stateId/{sid}")   # state-scoped -> cannot leak another state
+sid     = next((s["StateID"] for s in states if s["StateAbbreviation"] == state), None)   # None = Municode doesn't index this state/territory -> Step 4
+clients = japi(f"https://api.municode.com/Clients/stateId/{sid}") if sid else []   # state-scoped -> cannot leak another state
 cands   = [c for c in clients if nrm(c["ClientName"]) == nrm(place)]   # exact match only
 client  = cands[0] if len(cands) == 1 else None   # 2+ equal matches (same-named townships in two counties) = same-name trap: NOT a Tier-1 hit, go to Step 4
 prods   = japi(f"https://api.municode.com/Products/clientId/{client['ClientID']}") if client else []  # pick ProductName containing "Ordinance"
-slug    = client["ClientName"].lower().replace(" ", "_") if client else None   # keep punctuation: "St. Louis" -> "st._louis", "Kansas City" -> "kansas_city"
+slug    = slugify(client["ClientName"]) if client else None   # keep punctuation: "St. Louis" -> "st._louis", "Kansas City" -> "kansas_city"
 ```
 Exact match -> `host_type` "municode", `client_id`/`product_id` (strings — `str()` the API's integer `ClientID`/`ProductID`), `url` `https://library.municode.com/<st>/{slug}/codes/code_of_ordinances`, `confidence` "high". Trust the API's exact `ClientName`; do NOT re-fetch the browse page to confirm. No match -> Step 4. (Do not fetch the General Code text-library page: it renders link-less here and cannot yield a URL.)
 
