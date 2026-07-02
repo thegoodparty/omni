@@ -1,6 +1,6 @@
 'use client'
 
-import { Skeleton, SourceCitation } from '@styleguide'
+import { Separator, Skeleton, SourceCitation } from '@styleguide'
 import { VoterDemographicsStep } from 'app/onboarding/components/VoterDemographicsStep'
 import PlanSectionNav, { type PlanSectionRef } from './PlanSectionNav'
 import type { PlanData } from './planContent'
@@ -78,7 +78,7 @@ const Section = ({
     <div className="space-y-6 text-left">{children}</div>
     {transition ? (
       <>
-        <hr className="mt-8 border-t border-base-border" />
+        <Separator className="mt-8" />
         <p className="mt-8 text-sm text-muted-foreground">{transition}</p>
       </>
     ) : null}

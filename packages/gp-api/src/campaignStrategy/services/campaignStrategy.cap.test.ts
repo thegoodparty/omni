@@ -54,7 +54,10 @@ describe('CampaignStrategyService', () => {
   }
   let s3: { getFile: ReturnType<typeof vi.fn> }
   let analytics: { track: ReturnType<typeof vi.fn> }
-  let trackerTasks: { bootstrapForCampaign: ReturnType<typeof vi.fn> }
+  let trackerTasks: {
+    bootstrapForCampaign: ReturnType<typeof vi.fn>
+    materializeStaticTasks: ReturnType<typeof vi.fn>
+  }
   let prisma: {
     campaignStrategy: {
       upsert: ReturnType<typeof vi.fn>
@@ -99,6 +102,7 @@ describe('CampaignStrategyService', () => {
     analytics = { track: vi.fn().mockResolvedValue(undefined) }
     trackerTasks = {
       bootstrapForCampaign: vi.fn().mockResolvedValue(undefined),
+      materializeStaticTasks: vi.fn().mockResolvedValue(0),
     }
     prisma = {
       campaignStrategy: {
@@ -261,6 +265,29 @@ describe('CampaignStrategyService', () => {
         generationStartedAt: expect.any(Date),
       },
     })
+  })
+
+  it('materializes tracker static tasks at generation start for the story cohort', async () => {
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(campaign())
+
+    // Static rows are materialized eagerly (story exists) so the tracker renders
+    // without waiting for the CAP-completion bootstrap.
+    expect(trackerTasks.materializeStaticTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips static materialization when the campaign has no story (legacy)', async () => {
+    prisma.campaignStory.findUnique.mockResolvedValueOnce(null)
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(campaign())
+
+    expect(trackerTasks.materializeStaticTasks).not.toHaveBeenCalled()
   })
 
   it('reports failed (not generating) when NO dispatch produces a run', async () => {

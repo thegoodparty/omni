@@ -22,23 +22,23 @@ Read `briefing_status`.
 
 ## The checks at a glance
 
-| Check | What you are grading | How to grade it |
-|---|---|---|
-| Voice / Tone | Is the briefing neutral and extractive? No directive or advocacy language outside talking points. | Read each section and apply the Fail/Pass criteria below |
-| Grounding & Traceability | Can claims be traced to the artifact's cited source materials? | Check claims against their embedded extracts |
-| Coverage | Are all important agenda items and required decisions represented? | Confirm required major items are present |
-| Prioritization | Did the briefing feature the most important issues? | Determine whether the featured topics are the right attention-allocation choices |
-| Constituent match | If a meeting includes constituent data, does it match that meeting's topic? | Compare each meeting's topic against its constituent data |
+| Check                    | What you are grading                                                                              | How to grade it                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Voice / Tone             | Is the briefing neutral and extractive? No directive or advocacy language outside talking points. | Read each section and apply the Fail/Pass criteria below                         |
+| Grounding & Traceability | Can claims be traced to the artifact's cited source materials?                                    | Check claims against their embedded extracts                                     |
+| Coverage                 | Are all important agenda items and required decisions represented?                                | Confirm required major items are present                                         |
+| Prioritization           | Did the briefing feature the most important issues?                                               | Determine whether the featured topics are the right attention-allocation choices |
+| Constituent match        | If a meeting includes constituent data, does it match that meeting's topic?                       | Compare each meeting's topic against its constituent data                        |
 
 ## Grading scale
 
 Every check gets one of three scores.
 
-| Score | What it means | Fragment encoding |
-|---|---|---|
-| Pass | Meets the bar. No issues. | `passed: true`, `detail` OMITTED |
-| Fail | Something is clearly wrong or missing. | `passed: false`, `detail` = the structured fail note |
-| N/A | This check does not apply to this briefing. | OMIT the fragment entirely |
+| Score | What it means                               | Fragment encoding                                    |
+| ----- | ------------------------------------------- | ---------------------------------------------------- |
+| Pass  | Meets the bar. No issues.                   | `passed: true`, `detail` OMITTED                     |
+| Fail  | Something is clearly wrong or missing.      | `passed: false`, `detail` = the structured fail note |
+| N/A   | This check does not apply to this briefing. | OMIT the fragment entirely                           |
 
 Only the **Constituent match** check is ever N/A (when the briefing has no constituent data section). Every other check always gets Pass or Fail.
 
@@ -57,6 +57,7 @@ A fail note is read by a downstream LLM, so it must be cheap and high-signal: th
 - **evidence** — the smallest verbatim fragment from the artifact that proves it (a quoted phrase or figure). Trim to the offending words; do not paste a paragraph.
 
 Rules for the fail note:
+
 - Stay within 300 characters total. If multiple instances fail the same check, cite the single clearest one (re-runs surface the rest) or at most two, still within the cap.
 - Only artifact-specific facts. Do NOT restate the rubric, do NOT suggest a fix, do NOT hedge ("seems", "possibly"), do NOT add framing.
 - One line, no internal newlines.
@@ -68,17 +69,20 @@ Rules for the fail note:
 The briefing is a neutral information tool, not an advisor or political consultant. It should present information from source documents without advocating for a position. Do not use imperative voice directed at the official, and do not use phrases such as "Push for...", "Ensure that...", "Frame your position as...", "Make clear that...", "Demand...", or "Insist...". Where a softer directive is contextually appropriate, "You may want to consider..." or "It may be worth asking..." is acceptable. Do not presuppose the official's position on any issue, their relationships, their read of the room, or their political constraints — however, information from their campaign website may be used as context.
 
 **Fail if:**
+
 - Any section uses imperative voice that tells the official what position to take or what to say: "Push for...", "Ensure that...", "Make clear that...", "Demand...", "Insist...", "Frame your position as..."
 - Any section presupposes the official's position, relationships, or political constraints in ways not grounded in their campaign materials
+- A `talking_points` entry is not a talking point but an instruction artifact — e.g. it begins with or contains a "Posture override" / "posture override" declaration, a rules/voice preamble, or any `##` header instead of the actual bullet. The array must hold only the talking points the official reads.
 
 **Pass if:**
+
 - Every section reads as neutral and extractive throughout — presenting facts and context from sources, and stopping there
 - Any directive language is limited to soft suggestions and does not tell the official what position to take or what to say
 
-| ✓ Pass | ✗ Fail |
-|---|---|
-| The proposed ordinance would require landlords to provide 60-day notice before rent increases above 5%. Three council members have publicly supported the measure. | Push for the 60-day notice requirement. Make clear to your colleagues that tenant protections are a priority. Frame your position as a champion for renters. |
-| Staff recommends approval. You may want to consider asking the city attorney whether the preemption clause affects enforcement in unincorporated areas. | Ensure that you raise the preemption issue. Demand a clear answer from the city attorney before this moves forward. |
+| ✓ Pass                                                                                                                                                                                | ✗ Fail                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The proposed ordinance would require landlords to provide 60-day notice before rent increases above 5%. Three council members have publicly supported the measure.                    | Push for the 60-day notice requirement. Make clear to your colleagues that tenant protections are a priority. Frame your position as a champion for renters.             |
+| Staff recommends approval. You may want to consider asking the city attorney whether the preemption clause affects enforcement in unincorporated areas.                               | Ensure that you raise the preemption issue. Demand a clear answer from the city attorney before this moves forward.                                                      |
 | Talking points: You may want to ask staff whether the environmental review covers the full parcel. Consider leading with the timeline — constituents are most concerned about delays. | Executive summary: Push for a delay on this item until the environmental review is complete. Make clear that you will not support approval without a full traffic study. |
 
 ### 2. Grounding & Traceability → `grounding_traceability`
@@ -86,52 +90,58 @@ The briefing is a neutral information tool, not an advisor or political consulta
 Every claim in the briefing should be traceable to a source the briefing itself provides. Officials rely on this information to make decisions — unsupported statements or claims that require inference undermine the briefing's usefulness and credibility. Check each claim against the source it cites within the briefing: the embedded extract, the `sources[]` snapshot, or the link/citation the briefing attaches to it. Compare ONLY against those provided sources — do not web-search, do not fetch links, and do not bring in any information the briefing did not supply. A link present in the briefing is a reference point for what was cited, not a source to go retrieve. You are checking internal traceability against the provided material, not the truth of the source in the world.
 
 **Fail if:**
+
 - Any unsupported, fabricated, or untraceable claim is present
 - Any cited source does not actually support the claim it is attached to
 
 **Pass if:**
+
 - Every claim is directly traceable to the source the briefing provides for it
 - Any claim that cannot be sourced is clearly flagged or omitted
 
-| ✓ Pass | ✗ Fail |
-|---|---|
+| ✓ Pass                                                                                                             | ✗ Fail                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- |
 | The project requires a 2/3 supermajority vote under City Charter Section 4.102 (City Clerk Agenda, June 19, 2026). | The project is widely expected to pass, as most council members have signaled support. (No source cited.) |
-| Three written objections were submitted by neighboring businesses, per the planning department staff report. | Residents are generally opposed to the rezoning. (Claim is not traceable to any cited source.) |
+| Three written objections were submitted by neighboring businesses, per the planning department staff report.       | Residents are generally opposed to the rezoning. (Claim is not traceable to any cited source.)            |
 
 ### 3. Coverage → `coverage`
 
 The briefing should represent all important agenda items and required decisions. An official reading it should not be surprised by something significant that comes up in the meeting.
 
 **Fail if:**
+
 - Multiple important agenda items are missing or significant context is absent
 - Required votes or major decisions are not represented
 
 **Pass if:**
+
 - All required votes, major agenda items, and material context are present
 - Any data that could not be sourced is omitted cleanly rather than left as a placeholder
 
-| ✓ Pass | ✗ Fail |
-|---|---|
-| The briefing covers all five action items on the agenda, including the two items requiring a recorded vote. | The briefing covers three of five agenda items. The two omitted items both require a recorded vote. |
-| Item 4 is a consent calendar item with no required decision; it is noted in one sentence and not developed further. | A major zoning variance requiring a supermajority is absent from the briefing entirely. |
+| ✓ Pass                                                                                                              | ✗ Fail                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| The briefing covers all five action items on the agenda, including the two items requiring a recorded vote.         | The briefing covers three of five agenda items. The two omitted items both require a recorded vote. |
+| Item 4 is a consent calendar item with no required decision; it is noted in one sentence and not developed further. | A major zoning variance requiring a supermajority is absent from the briefing entirely.             |
 
 ### 4. Prioritization → `prioritization`
 
 The briefing should direct the official's attention to the right items. Not every agenda item deserves equal depth — the briefing should reflect accurate judgment about what matters most.
 
 **Fail if:**
+
 - Major attention is directed to the wrong items
 - A genuinely important item is omitted from featured coverage or significantly under-emphasized
 - More than three items are featured, or the featured tier is padded with minor/procedural items to reach a count
 
 **Pass if:**
+
 - The featured tier holds at most three items — only those that genuinely warrant elevation — and a smaller count (including zero) is correct when fewer qualify; the tier is never padded to hit a number
 - Minor or procedural items are treated briefly; significant or contested items receive appropriate depth
 
-| ✓ Pass | ✗ Fail |
-|---|---|
+| ✓ Pass                                                                                                                                                                     | ✗ Fail                                                                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | The briefing gives full coverage to a contested rezoning vote and a budget amendment requiring a supermajority, and treats two routine consent items in one sentence each. | The briefing gives full coverage to a routine street renaming and one sentence to a $4.2 million budget amendment requiring a recorded vote. |
-| A time-sensitive item with a filing deadline is featured first; a lower-stakes informational presentation is noted briefly at the end. | An informational presentation on a completed project receives more coverage than an action item with a legal challenge pending. |
+| A time-sensitive item with a filing deadline is featured first; a lower-stakes informational presentation is noted briefly at the end.                                     | An informational presentation on a completed project receives more coverage than an action item with a legal challenge pending.              |
 
 ### 5. Constituent data match → `constituent_match`
 
@@ -142,16 +152,19 @@ The key question: if an official read this constituent data alongside this meeti
 The system might pull data that sounds related but is actually about a different issue. Catching this requires reasoning about whether the data and the meeting topic address the same specific issue, not merely the same general subject area.
 
 **Fail if:**
+
 - The constituent data is about a related but different issue than the topic of that meeting. For example: the meeting topic is approving permits for a market-rate apartment building, but the constituent data says "71% of residents support affordable housing programs." These are not the same thing, and an official relying on the data would get a misleading picture of where their constituents stand.
 
 **Pass if:**
+
 - The constituent data directly addresses the specific topic of that meeting, not just the general subject area
 
 **N/A if:**
+
 - The meeting does not include a constituent data section (OMIT this fragment)
 
-| ✓ Pass | ✗ Fail |
-|---|---|
+| ✓ Pass                                                                                                                                                                                                                                                                    | ✗ Fail                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Meeting topic: Approve permits for 47-unit apartment building at 4th and Main. Constituent data: 68% of District 4 residents support increasing housing density in commercial corridors. The data addresses density in commercial zones, which matches the meeting topic. | Meeting topic: Approve permits for 47-unit market-rate apartment building. Constituent data: 71% of District 4 residents support affordable housing programs. The topic is market-rate density; the data is about affordable housing. These are different things and the data would mislead. |
 
 ## Output — write a contract-C fragment array to the result file
@@ -183,14 +196,22 @@ Example (gate passes, one fail, constituent data present):
 
 ```json
 [
-  {"name": "gate_eligibility", "type": "agent", "passed": true},
-  {"name": "voice_tone", "type": "agent", "passed": true},
-  {"name": "grounding_traceability", "type": "agent", "passed": true},
-  {"name": "coverage", "type": "agent", "passed": false,
-   "detail": "required vote item missing | item_004 (zoning variance, recorded vote) | not present in featured, queued, or standard"},
-  {"name": "prioritization", "type": "agent", "passed": true},
-  {"name": "constituent_match", "type": "agent", "passed": false,
-   "detail": "scope mismatch: topic is market-rate, data is affordable housing | item_002 sentiment block | \"71% support affordable housing programs\""}
+  { "name": "gate_eligibility", "type": "agent", "passed": true },
+  { "name": "voice_tone", "type": "agent", "passed": true },
+  { "name": "grounding_traceability", "type": "agent", "passed": true },
+  {
+    "name": "coverage",
+    "type": "agent",
+    "passed": false,
+    "detail": "required vote item missing | item_004 (zoning variance, recorded vote) | not present in featured, queued, or standard"
+  },
+  { "name": "prioritization", "type": "agent", "passed": true },
+  {
+    "name": "constituent_match",
+    "type": "agent",
+    "passed": false,
+    "detail": "scope mismatch: topic is market-rate, data is affordable housing | item_002 sentiment block | \"71% support affordable housing programs\""
+  }
 ]
 ```
 
@@ -198,7 +219,11 @@ Example (placeholder — gate disqualifies):
 
 ```json
 [
-  {"name": "gate_eligibility", "type": "agent", "passed": false,
-   "detail": "briefing_status=awaiting_agenda — placeholder, not graded"}
+  {
+    "name": "gate_eligibility",
+    "type": "agent",
+    "passed": false,
+    "detail": "briefing_status=awaiting_agenda — placeholder, not graded"
+  }
 ]
 ```

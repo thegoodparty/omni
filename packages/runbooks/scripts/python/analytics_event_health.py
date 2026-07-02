@@ -668,6 +668,20 @@ def load_prior_state(path: Path | None) -> dict[str, str] | None:
     return flagged if isinstance(flagged, dict) else None
 
 
+def load_prior_anomalous(path: Path | None) -> set[str] | None:
+    """Read the prior run's anomalous-event set from the state file (DATA-2057). Lets the
+    Slack quiet gate tell a *newly* anomalous event from a persistent one. None when the
+    file is absent/corrupt or predates this key (first Slack-aware run)."""
+    if not path or not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    anomalous = data.get("anomalous")
+    return set(anomalous) if isinstance(anomalous, list) else None
+
+
 def run_monitor(
     run_query: Callable[[str], Any],
     *,
@@ -714,6 +728,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="prior-run state JSON for the changes diff (default: instrumentation_data/)",
     )
     parser.add_argument(
+        "--slack",
+        action="store_true",
+        help="post the delta-led health digest to Slack (Source B, DATA-2057). Reads "
+        "SLACK_APP_BOT_TOKEN + SLACK_EVENT_LIFECYCLE_CHANNEL_ID; quiet when nothing changed. "
+        "A Slack failure warns but never changes the exit code.",
+    )
+    parser.add_argument(
         "--today",
         help="override the run date (YYYY-MM-DD); default = system date. Shifts only the "
         "local reconciliation (dormant window, week cutoff, run-date label). The firing axis "
@@ -740,10 +761,38 @@ def main(argv: Sequence[str] | None = None) -> int:
         append_log(args.log, section)
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, default=_json_default) + "\n")
+
+    # Source B (DATA-2057): post the digest BEFORE the state write below advances the diff.
+    # `changes` was computed against the prior state; once _atomic_write runs, that prior is
+    # gone, so a separate process would see an already-consumed diff. Re-read the prior state
+    # here (cheap) only to render escalated events as prior -> current. Non-fatal: a Slack
+    # error warns and never changes the exit code — the log/state write-back is the real work.
+    if args.slack:
+        import event_state_slack as slk
+
+        token, channel = os.environ.get(slk.TOKEN_ENV), os.environ.get(slk.CHANNEL_ENV)
+        if not token or not channel:
+            print(
+                f"--slack set but {slk.TOKEN_ENV}/{slk.CHANNEL_ENV} unset; skipping the Slack post.",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                prior_state = load_prior_state(args.state)
+                prior_anomalous = load_prior_anomalous(args.state)
+                ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel,
+                                     prior_anomalous=prior_anomalous)
+                print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
+            except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
+                print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)
+
     if args.state:
         state = {
             "run_date": today.isoformat(),
             "flagged": {r["event_type"]: r["status"] for r in result["flagged"]},
+            # anomalous set persisted for the Slack quiet gate (DATA-2057): distinguishes a
+            # newly anomalous event from one that was already anomalous last run.
+            "anomalous": sorted(r["event_type"] for r in result["flagged"] if r["anomaly"]),
         }
         _atomic_write(args.state, json.dumps(state, indent=2) + "\n")
     return 0

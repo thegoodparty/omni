@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { addDays, format, startOfDay } from 'date-fns'
+import { addDays, differenceInCalendarDays, format, startOfDay } from 'date-fns'
 import { z } from 'zod'
 import {
   Campaign,
@@ -11,17 +11,27 @@ import {
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CENTRAL_TIMEZONE,
+  mondayOfWeekUtc,
   nextMondayUtcMidnight,
+  parseIsoDateAsUTC,
   parseIsoDateString,
 } from 'src/shared/util/date.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
+import {
+  SlackChannel,
+  SlackMessageType,
+} from '@/vendors/slack/slackService.types'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { getUserFullName } from '@/users/util/users.util'
 import { serializeWebsiteIssues } from '@/websites/util/serializeWebsiteIssues.util'
 import { serializeWebsiteBio } from '@/websites/util/serializeWebsiteBio.util'
-import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../../campaigns.consts'
+import {
+  TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY,
+  VOTER_GOALS_ADVISORY_LOCK_KEY,
+} from '../../campaigns.consts'
 import { CompleteTaskBodySchema } from '../../tasks/schemas/completeTaskBody.schema'
 import {
   buildOutreachTrackerTaskRows,
@@ -64,6 +74,7 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   constructor(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly s3: S3Service,
+    private readonly slack: SlackService,
   ) {
     super()
   }
@@ -82,35 +93,42 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   }
 
   // Create the static (global) launch/pre-launch rows from the catalog so the
-  // tracker can render immediately. Idempotent: a no-op once they exist.
+  // tracker can render immediately. Idempotent and race-safe: the plan endpoint
+  // that triggers this at generation start is polled, so an advisory lock keyed
+  // on the campaign serializes concurrent first-loads (the count check alone
+  // isn't atomic, so two callers could both read zero and each insert the rows).
   async materializeStaticTasks(campaign: Campaign): Promise<number> {
-    const existing = await this.model.count({
-      where: { campaignId: campaign.id, isDefaultTask: true },
-    })
-    if (existing > 0) return 0
+    return this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${TRACKER_STATIC_TASKS_ADVISORY_LOCK_KEY}::integer, ${campaign.id}::integer)`
 
-    // Anchor the relative (asap / onboarding / preLaunch / launch) static tasks
-    // to the upcoming Monday — the same week the initial dynamic generation is
-    // dated to — so a freshly-bootstrapped campaign schedules them for the
-    // coming week instead of relative to its creation date. That matters most
-    // for an existing campaign onboarded long ago, whose createdAt-anchored
-    // tasks would otherwise all land in the past. Stamped once (idempotent);
-    // election-relative tasks still key off the election date.
-    const start = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
-    const electionDate = this.resolveElectionDate(campaign)
-    const rows = [
-      ...buildStaticTrackerTaskRows(campaign.id, start, electionDate),
-      // The plan's 7 text/robocall sends are deterministic, not agent-picked.
-      // Suppressed entirely if the candidate lost their primary.
-      ...buildOutreachTrackerTaskRows(
-        campaign.id,
-        start,
-        electionDate,
-        campaign.primaryResult === 'lost',
-      ),
-    ]
-    const { count } = await this.model.createMany({ data: rows })
-    return count
+      const existing = await tx.campaignTrackerTask.count({
+        where: { campaignId: campaign.id, isDefaultTask: true },
+      })
+      if (existing > 0) return 0
+
+      // Anchor the relative (asap / onboarding / preLaunch / launch) static tasks
+      // to the upcoming Monday (the same week the initial dynamic generation is
+      // dated to), so a freshly-bootstrapped campaign schedules them for the
+      // coming week instead of relative to its creation date. That matters most
+      // for an existing campaign onboarded long ago, whose createdAt-anchored
+      // tasks would otherwise all land in the past. Stamped once (idempotent);
+      // election-relative tasks still key off the election date.
+      const start = nextMondayUtcMidnight(new Date(), CENTRAL_TIMEZONE)
+      const electionDate = this.resolveElectionDate(campaign)
+      const rows = [
+        ...buildStaticTrackerTaskRows(campaign.id, start, electionDate),
+        // The plan's 7 text/robocall sends are deterministic, not agent-picked.
+        // Suppressed entirely if the candidate lost their primary.
+        ...buildOutreachTrackerTaskRows(
+          campaign.id,
+          start,
+          electionDate,
+          campaign.primaryResult === 'lost',
+        ),
+      ]
+      const { count } = await tx.campaignTrackerTask.createMany({ data: rows })
+      return count
+    })
   }
 
   // Remove the deterministic outreach (text/robocall) rows. Called from the
@@ -131,7 +149,11 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   private resolveElectionDate(campaign: Campaign): Date | null {
     const { electionDate, primaryElectionDate } = campaign.details ?? {}
     const chosen = electionDate ?? primaryElectionDate
-    return chosen ? startOfDay(parseIsoDateString(chosen)) : null
+    // Parse as UTC midnight, not local: date-only strings via parseIsoDateString
+    // land on local midnight, which on a server east of UTC shifts the date back
+    // a UTC day. The GOTV gate then diverges from the digest's UTC-only SQL
+    // (::date - NOW()::date), and the election-relative task dates drift too.
+    return chosen ? parseIsoDateAsUTC(chosen) : null
   }
 
   // Dispatch the CAP experiment that finds events + prioritizes the week's
@@ -361,6 +383,20 @@ export class CampaignTrackerTasksService extends createPrismaBase(
 
       if (rows.length > 0) {
         await this.model.createMany({ data: rows })
+        // Notify CAS with the week's tasks (Pro candidates only). Fires for the
+        // initial bootstrap (first week) and every weekly regen; the title
+        // reflects which. Best-effort: the rows are already committed, so a Slack
+        // failure must not reach the catch below (markFailed + redeliver).
+        await this.notifyTasksGenerated(
+          campaign.id,
+          weekStart,
+          generation,
+        ).catch((error: unknown) =>
+          this.logger.warn(
+            { error, campaignId: campaign.id },
+            'tracker Slack notification failed',
+          ),
+        )
       }
     } catch (error) {
       await this.experimentRuns.markFailed(
@@ -369,6 +405,151 @@ export class CampaignTrackerTasksService extends createPrismaBase(
       )
       throw error
     }
+  }
+
+  // Post the week's tasks to the CAS Slack channel after a generation lands
+  // (Pro candidates only). Fires for the initial bootstrap and every weekly
+  // regen; the title distinguishes the first week from an ongoing week.
+  private async notifyTasksGenerated(
+    campaignId: number,
+    weekStart: Date,
+    generation: number,
+  ): Promise<void> {
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign?.isPro) return
+    const title =
+      generation === 1
+        ? ":rocket: *Campaign tracker launched: first week's tasks*"
+        : ':calendar: *Weekly campaign tasks generated*'
+    await this.postCampaignWeekToSlack(campaign, weekStart, title)
+  }
+
+  // One-shot on Pro upgrade: post the candidate's next week of tasks so CAS can
+  // start executing. Tasks are anchored to a Monday fixed at bootstrap/generation
+  // time, which can predate this upgrade (Stripe webhook, no time constraint), so
+  // deriving the window from the current clock can land on an empty future week.
+  // Anchor it to the earliest incomplete task instead, so it always lands on real
+  // tasks. Cohort gating (tracker rows) + idempotency live in the caller. Returns
+  // false without posting when there is nothing to send (not Pro, no tasks, or no
+  // dynamic generation yet) so the caller can skip the notified-at stamp.
+  async notifyProUpgrade(campaignId: number): Promise<boolean> {
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign?.isPro) return false
+    const earliest = await this.model.findFirst({
+      where: { campaignId, completed: false },
+      orderBy: { date: Prisma.SortOrder.asc },
+      select: { date: true },
+    })
+    if (!earliest) return false
+    // Skip until the first CAP generation lands. The upgrade can arrive before it
+    // (async Stripe webhook); with no dynamic rows the week collapses to the
+    // deterministic outreach, which is election-relative and rarely falls in the
+    // window, so the post would read "Tasks (0): None". notifyTasksGenerated
+    // announces the first week (generation 1) when it lands instead.
+    const latest = await this.model.findFirst({
+      where: { campaignId, isDefaultTask: false },
+      orderBy: { week: Prisma.SortOrder.desc },
+      select: { week: true },
+    })
+    if (!latest) return false
+    // Floor to the earliest task's Monday so postCampaignWeekToSlack's Mon-Sun
+    // window (and label) align to a real calendar week — earliest.date may fall
+    // on any weekday.
+    await this.postCampaignWeekToSlack(
+      campaign,
+      mondayOfWeekUtc(earliest.date),
+      ':tada: *Pro upgrade: your campaign tasks*',
+    )
+    return true
+  }
+
+  // Build + post one Mon-Sun week's task list for a Pro campaign to
+  // casClickupTasks: the latest dynamic generation plus the deterministic
+  // text/robocall outreach due that week (what the candidate sees in their week
+  // view). Mirrors fetchTrackerDigestRows' scoping so the CAS message, the
+  // digest email, and the tracker never disagree. Mirrors the legacy
+  // campaign-plan message format.
+  private async postCampaignWeekToSlack(
+    campaign: CampaignWith<'user'>,
+    weekStart: Date,
+    title: string,
+  ): Promise<void> {
+    const windowEnd = addDays(weekStart, 7)
+    const latest = await this.model.findFirst({
+      where: { campaignId: campaign.id, isDefaultTask: false },
+      orderBy: { week: Prisma.SortOrder.desc },
+      select: { week: true },
+    })
+    // Mirror the digest's 30-day GOTV gate: don't surface GOTV-phase tasks to
+    // CAS until the election is within 30 days (the UI + email hide them until
+    // then), so CAS never gets GOTV work before the candidate sees it.
+    const electionDate = this.resolveElectionDate(campaign)
+    const withinGotvWindow =
+      electionDate !== null &&
+      differenceInCalendarDays(electionDate, new Date()) <= 30
+    const tasks = await this.model.findMany({
+      where: {
+        campaignId: campaign.id,
+        completed: false,
+        date: { gte: weekStart, lt: windowEnd },
+        ...(withinGotvWindow ? {} : { NOT: { phase: 'gotv' } }),
+        // Latest dynamic generation + the deterministic text/robocall outreach,
+        // matching fetchTrackerDigestRows. isDefaultTask=false guards the
+        // generation clause because a default row's calendar-offset week can
+        // equal the latest generation index; the static setup checklist (default
+        // rows that are not outreach) is not part of the week view.
+        OR: [
+          {
+            isDefaultTask: true,
+            flowType: {
+              in: [CampaignTaskType.text, CampaignTaskType.robocall],
+            },
+          },
+          ...(latest ? [{ isDefaultTask: false, week: latest.week }] : []),
+        ],
+      },
+      orderBy: { date: Prisma.SortOrder.asc },
+    })
+
+    const candidateName =
+      (campaign.user ? getUserFullName(campaign.user) : '') ||
+      campaign.data.name ||
+      'Unknown'
+    const { hubspotId } = campaign.data
+    const startLabel = format(weekStart, 'MMM d')
+    const endLabel = format(addDays(weekStart, 6), 'MMM d')
+    const taskLines = tasks.map((task) => {
+      const due = task.date ? format(task.date, 'MMM d') : 'No date set'
+      const channel = task.flowType ? `${task.flowType.toUpperCase()}: ` : ''
+      return `- ${channel}${task.title} (${due})`
+    })
+    const body = [
+      title,
+      `Candidate: ${candidateName}`,
+      `HubSpot ID: ${hubspotId ?? 'N/A'}`,
+      `Week of ${startLabel} - ${endLabel}`,
+      '',
+      `*Tasks (${tasks.length}):*`,
+      ...(taskLines.length > 0 ? taskLines : ['None']),
+    ].join('\n')
+
+    await this.slack.message(
+      {
+        blocks: [
+          {
+            type: SlackMessageType.SECTION,
+            text: { type: SlackMessageType.MRKDWN, text: body },
+          },
+        ],
+      },
+      SlackChannel.casClickupTasks,
+    )
   }
 
   async completeTask(

@@ -48,7 +48,12 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { ComplianceStateService } from './complianceState.service'
 import { SubmitToPeerlyDto } from '../schemas/submitToPeerlyDto.schema'
 import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
-import { ComplianceStage, SubmitToPeerlyOutput } from '@goodparty_org/contracts'
+import {
+  ComplianceStage,
+  MIN_BIO_LENGTH,
+  SubmitToPeerlyOutput,
+} from '@goodparty_org/contracts'
+import { isGenericComplianceContent } from '../../../websites/util/genericContent.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
@@ -634,6 +639,21 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         `Cannot submit TCR registration to Peerly until the candidate's ` +
           `website is published and live. Current compliance stage: ` +
           `${stateBeforeSubmit.stage}. Wait for stage = awaiting_pin.`,
+      )
+    }
+
+    // Content gate: never submit templated / too-short content to Peerly — it
+    // is rejected as "not genuine". Read the persisted website (source of
+    // truth), not the request input, so a retry can't smuggle content past it.
+    const content = await this.websitesService.getContentForCampaign(
+      campaign.id,
+    )
+    if (isGenericComplianceContent(content)) {
+      throw new BadRequestException(
+        'Website content is not genuine enough to submit for 10DLC ' +
+          'compliance: the candidate must add a real bio (>= ' +
+          `${MIN_BIO_LENGTH} characters) and at least one real issue before ` +
+          'submission.',
       )
     }
 

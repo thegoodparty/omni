@@ -163,6 +163,15 @@ Emit `scripts/output/meeting_briefing_cohort_<date>.csv` with columns:
 - `elected_office_id`: resolve via `electedOffice.findMany` where organizationSlug in the cohort slugs (covers all rows incl. failures).
 - `meeting_briefing_id`: `meetingBriefing.findMany` where experimentRunId in cohort runIds (populated only for `briefing_ready`; blank otherwise, since only ready/user-provided statuses persist a MeetingBriefing row).
 
+## Visual review (optional)
+
+To eyeball briefings rendered in the real webapp UI, use the `view-briefing-gallery`
+skill — it pulls `<runId>/artifact.json` into a local dev-only gallery at
+`http://localhost:4000/dev/briefings`. Its pull helper defaults to the **dev** bucket;
+for this prod cohort, copy the artifacts from `gp-agent-artifacts-prod` into
+`.local-briefings/<runId>.json` yourself (or point `LOCAL_BRIEFINGS_DIR` at a dir you
+populate).
+
 ## Reference numbers from the 2026-06-08 cohort of 100 (for sanity-checking yours)
 
 - ~1,850 elected offices; ~1,612 have a real (found) schedule; cadence ~1.6 meetings/30d (mostly twice-monthly).

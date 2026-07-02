@@ -11,7 +11,12 @@ export const serializeWebsiteBio = (
   bio: string | null | undefined,
 ): string | null => {
   if (!bio) return null
-  const text = sanitizeHtml(bio, { allowedTags: [], allowedAttributes: {} })
+  // Insert a space before each closing block tag so adjacent blocks don't
+  // concatenate ("<p>foo</p><p>bar</p>" -> "foo bar", not "foobar"). This
+  // matches the webapp's string-strip-html spacing so the shared MIN_BIO_LENGTH
+  // count agrees on both sides of the boundary.
+  const spaced = bio.replace(/<\/(p|div|li|h[1-6]|blockquote)>/gi, '</$1> ')
+  const text = sanitizeHtml(spaced, { allowedTags: [], allowedAttributes: {} })
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')

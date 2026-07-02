@@ -6,6 +6,7 @@ interface CampaignTrackerHeroProps {
   candidateName: string
   race: string
   district: string
+  primaryDate: string
   electionDate: string
   onDownload: () => void
   downloading: boolean
@@ -19,6 +20,7 @@ const CampaignTrackerHero = ({
   candidateName,
   race,
   district,
+  primaryDate,
   electionDate,
   onDownload,
   downloading,
@@ -30,6 +32,7 @@ const CampaignTrackerHero = ({
       : candidateName || race || 'Your campaign'
   const metaLine = [
     district ? `District ${district}` : '',
+    primaryDate ? `Primary ${primaryDate}` : '',
     electionDate ? `Election Day ${electionDate}` : '',
   ]
     .filter(Boolean)

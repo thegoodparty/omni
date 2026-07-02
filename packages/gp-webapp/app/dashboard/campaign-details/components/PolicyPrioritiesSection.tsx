@@ -42,7 +42,7 @@ export default function PolicyPrioritiesSection(): React.JSX.Element {
     seededRef.current = true
   }, [website, websiteIssues])
 
-  const prioritiesError = getPolicyPrioritiesError(issues.length)
+  const prioritiesError = getPolicyPrioritiesError(issues)
 
   const handleSave = async () => {
     if (saving) return
