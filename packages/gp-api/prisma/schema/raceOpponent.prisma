@@ -36,6 +36,20 @@ model RaceOpponentSummary {
   @@map("race_opponent_summary")
 }
 
+model RaceOpponentFieldAnalysis {
+  id         Int      @id @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId Int      @unique @map("campaign_id")
+  // Display-ready structured sections for the campaign-level SWOT analysis,
+  // each carrying its source_url(s). Shape validated by the contract (ENG-10632).
+  sections   Json     @db.JsonB
+  runId      String?  @map("run_id")
+
+  @@map("race_opponent_field_analysis")
+}
+
 enum RaceOpponentResearchStatus {
   not_started
   queued
