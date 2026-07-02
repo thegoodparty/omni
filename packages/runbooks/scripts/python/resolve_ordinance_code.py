@@ -107,25 +107,28 @@ def resolve_municode(state, name):
     if not sid:
         return None
     target = norm(name)
-    for c in _muni_clients(sid):
-        if norm(c["ClientName"]) == target:
-            cid = c["ClientID"]
-            try:
-                prods = json.loads(_get(f"{MUNI_API}/Products/clientId/{cid}"))
-            except Exception:
-                prods = []
-            code = next((p for p in prods if "ordinance" in (p.get("ProductName") or "").lower()), None)
-            pid = (code or (prods[0] if prods else {})).get("ProductID")
-            slug = _muni_slug(c["ClientName"])
-            return {
-                "source": "municode",
-                "matched": c["ClientName"],
-                "client_id": str(cid),
-                "product_id": str(pid) if pid is not None else None,
-                "code_url": f"https://library.municode.com/{state.lower()}/{slug}/codes/code_of_ordinances",
-                "confidence": "high",
-            }
-    return None
+    # Same-name trap: two entries normalizing equal (e.g. same-named townships in
+    # two counties) make either pick a coin flip — fall through to the web tier.
+    cands = [c for c in _muni_clients(sid) if norm(c["ClientName"]) == target]
+    if len(cands) != 1:
+        return None
+    c = cands[0]
+    cid = c["ClientID"]
+    try:
+        prods = json.loads(_get(f"{MUNI_API}/Products/clientId/{cid}"))
+    except Exception:
+        prods = []
+    code = next((p for p in prods if "ordinance" in (p.get("ProductName") or "").lower()), None)
+    pid = (code or (prods[0] if prods else {})).get("ProductID")
+    slug = _muni_slug(c["ClientName"])
+    return {
+        "source": "municode",
+        "matched": c["ClientName"],
+        "client_id": str(cid),
+        "product_id": str(pid) if pid is not None else None,
+        "code_url": f"https://library.municode.com/{state.lower()}/{slug}/codes/code_of_ordinances",
+        "confidence": "high",
+    }
 
 
 @functools.lru_cache(maxsize=1)

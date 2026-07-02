@@ -132,12 +132,19 @@ def japi(url):
     try: return json.loads(b)
     except Exception: return json.loads(re.search(r"[\[{].*[\]}]", b, re.S).group(0))
 def nrm(s):   # for MATCHING only — never build the URL from this
-    s = re.sub(r"^(city|town|village|borough|township) of\s+", "", s.lower().strip())
-    return re.sub(r"\s+(city|town|village|borough)$", "", s).strip()   # NOT township: townships are indexed WITH the suffix (Step 1)
+    s = re.sub(r",?\s*\([^)]*co\.?\)\s*", " ", s.lower().strip())   # county tag: "Ada Township, (Kent Co.)"
+    s = re.sub(r"^(city|town|village|borough|township) of\s+", "", s)
+    s = re.sub(r"\b(charter|chrtr)\s+township\b", "township", s)
+    if re.search(r"\btownship\b", s):
+        s = re.sub(r"(\btownship\b).*$", r"\1", s)   # townships keep the suffix (Step 1); drop role words after it
+    else:
+        s = re.sub(r"\s+(city|town|village|borough)$", "", s)
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", s)).strip()
 states  = japi("https://api.municode.com/States")
 sid     = next(s["StateID"] for s in states if s["StateAbbreviation"] == state)
 clients = japi(f"https://api.municode.com/Clients/stateId/{sid}")   # state-scoped -> cannot leak another state
-client  = next((c for c in clients if nrm(c["ClientName"]) == nrm(place)), None)   # exact match only
+cands   = [c for c in clients if nrm(c["ClientName"]) == nrm(place)]   # exact match only
+client  = cands[0] if len(cands) == 1 else None   # 2+ equal matches (same-named townships in two counties) = same-name trap: NOT a Tier-1 hit, go to Step 4
 prods   = japi(f"https://api.municode.com/Products/clientId/{client['ClientID']}") if client else []  # pick ProductName containing "Ordinance"
 slug    = client["ClientName"].lower().replace(" ", "_") if client else None   # keep punctuation: "St. Louis" -> "st._louis", "Kansas City" -> "kansas_city"
 ```

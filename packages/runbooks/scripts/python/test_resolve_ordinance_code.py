@@ -20,6 +20,7 @@ _STATES = [
     {"StateID": 4, "StateAbbreviation": "AR"},
     {"StateID": 9, "StateAbbreviation": "FL"},
     {"StateID": 22, "StateAbbreviation": "MI"},
+    {"StateID": 30, "StateAbbreviation": "OH"},
 ]
 _CLIENTS = {
     10: [{"ClientID": 999, "ClientName": "Alpharetta"}],
@@ -31,6 +32,9 @@ _CLIENTS = {
     # Municode's real township naming: "Charter"/"Chrtr" variants + county tag.
     22: [{"ClientID": 500, "ClientName": "Clinton, (Lenawee Co.)"},
          {"ClientID": 501, "ClientName": "Clinton Charter Township, (Macomb Co.)"}],
+    # Ohio-style trap: same-named townships in two counties of one state.
+    30: [{"ClientID": 600, "ClientName": "Bethel Township, (Clark Co.)"},
+         {"ClientID": 601, "ClientName": "Bethel Township, (Miami Co.)"}],
 }
 _PRODUCTS = {999: [{"ProductID": 12100, "ProductName": "Code of Ordinances"}]}
 _GC_HTML = """
@@ -157,3 +161,10 @@ def test_city_office_does_not_match_township():
     out = r.resolve("MI", "Clinton City Council")
     assert out["resolved"] is True
     assert out["matched"] == "Clinton, (Lenawee Co.)"
+
+
+def test_ambiguous_same_named_townships_do_not_resolve():
+    # Two "Bethel Township" entries (different counties) normalize identically;
+    # picking either would be a coin flip — the resolver must fall through.
+    out = r.resolve("OH", "Bethel Township Trustee")
+    assert out["resolved"] is False
