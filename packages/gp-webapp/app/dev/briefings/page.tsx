@@ -136,6 +136,7 @@ const DevBriefingGallery = () => {
   const [index, setIndex] = useState(0)
 
   useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return
     fetch('/api/dev/briefings')
       .then((res) => res.json())
       .then((data: { briefings?: GalleryEntry[] }) => {

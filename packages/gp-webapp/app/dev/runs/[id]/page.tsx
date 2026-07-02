@@ -17,6 +17,7 @@ const DevAgentRunPage = () => {
 
   useEffect(() => {
     if (!id) return
+    if (process.env.NODE_ENV !== 'development') return
     fetch(`/api/dev/runs/${id}`)
       .then(async (res) => {
         const data = (await res.json()) as { run?: AgentRun; error?: string }
