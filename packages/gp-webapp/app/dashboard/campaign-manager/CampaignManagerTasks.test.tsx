@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -10,6 +10,20 @@ const mockResult = vi.fn<() => TrackerTasksResult>()
 vi.mock('../campaign-plan/components/campaignStrategy/useTrackerTasks', () => ({
   useTrackerTasks: () => mockResult(),
 }))
+
+// The first-run "meet" card gates on whether the candidate has ever opened the
+// manager (a conversation exists). Control that here; default to none.
+const mockHistory = vi.fn<() => { data: unknown[] | undefined }>()
+vi.mock('../chief-of-staff/data/use-chat-history', () => ({
+  useChatHistory: () => mockHistory(),
+}))
+
+const meetButton = () =>
+  screen.queryByRole('button', { name: /meet your campaign manager/i })
+
+beforeEach(() => {
+  mockHistory.mockReturnValue({ data: [] })
+})
 
 const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
   id: Math.random().toString(36).slice(2),
@@ -133,6 +147,27 @@ describe('CampaignManagerTasks', () => {
     )
 
     expect(onMeet).toHaveBeenCalledOnce()
+  })
+
+  it('hides the meet card once the candidate has opened the manager', () => {
+    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
+    // A conversation exists → they have opened the manager before.
+    mockHistory.mockReturnValue({ data: [{ conversationId: 'c1' }] })
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    expect(meetButton()).not.toBeInTheDocument()
+    // The priorities still render.
+    expect(screen.getByText('A task')).toBeInTheDocument()
+  })
+
+  it('does not show the meet card until the history has loaded', () => {
+    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
+    mockHistory.mockReturnValue({ data: undefined })
+
+    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+
+    expect(meetButton()).not.toBeInTheDocument()
   })
 
   it('shows a generating state while dynamic tasks are still being produced', () => {

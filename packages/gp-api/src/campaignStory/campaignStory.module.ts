@@ -8,6 +8,6 @@ import { CampaignStoryRewriteService } from './services/campaignStoryRewrite.ser
   imports: [ClerkModule],
   controllers: [CampaignStoryController],
   providers: [CampaignStoryService, CampaignStoryRewriteService],
-  exports: [CampaignStoryService],
+  exports: [CampaignStoryService, CampaignStoryRewriteService],
 })
 export class CampaignStoryModule {}

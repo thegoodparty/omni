@@ -13,7 +13,12 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
+import {
+  CAMPAIGN_MANAGER_HISTORY_KEY,
+  campaignManagerChatApi,
+} from './campaignManagerChat'
 
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
@@ -54,20 +59,33 @@ export default function CampaignManagerTasks({
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
 
+  // First-run onboarding card: show it only once we know the candidate has
+  // never opened the manager (no conversation yet). Opening it eagerly creates
+  // one, so the card drops away afterward. Gate on the loaded-and-empty state so
+  // a returning candidate never sees it flash while history loads.
+  const { data: conversations } = useChatHistory(
+    true,
+    campaignManagerChatApi,
+    CAMPAIGN_MANAGER_HISTORY_KEY,
+  )
+  const showMeetCard = conversations !== undefined && conversations.length === 0
+
   return (
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-semibold">Your campaign manager</h1>
-          <p className="text-sm text-muted-foreground">
-            The two or three things that matter most this week, and a manager to
-            help you decide what to do next.
-          </p>
+      {showMeetCard && (
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-xl font-semibold">Your campaign manager</h1>
+            <p className="text-sm text-muted-foreground">
+              The two or three things that matter most this week, and a manager
+              to help you decide what to do next.
+            </p>
+          </div>
+          <Button className="self-start" onClick={onMeetManager}>
+            Meet your campaign manager
+          </Button>
         </div>
-        <Button className="self-start" onClick={onMeetManager}>
-          Meet your campaign manager
-        </Button>
-      </div>
+      )}
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">

@@ -23,6 +23,15 @@ vi.mock('../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
 
+// No prior conversations, so the first-run "meet" card renders. Partial-mock so
+// the footer's history popover keeps its real useDeleteConversation.
+vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('../chief-of-staff/data/use-chat-history')
+  >()),
+  useChatHistory: () => ({ data: [] }),
+}))
+
 describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     render(<CampaignManagerHome firstName="Renee" />)
