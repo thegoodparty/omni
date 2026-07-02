@@ -19,16 +19,15 @@ the checks below, and write your verdict fragments to the result file.
 ## Eligibility gate — checked FIRST
 
 The deterministic stage (`qa/main.py`) already rejects any artifact that fails the
-output schema before you run, and that schema makes the analytical fields required,
-so a schema-valid artifact always carries them. The only disqualifier left for the
-judge is a structurally empty field:
+output schema before you run. The only disqualifier left for the judge is a
+structurally empty field:
 
 - If `opponents` is empty or not a list → there is nothing to grade. Emit ONLY the
   `gate_eligibility` fragment with `passed: false` and a short `detail` naming why,
   do NOT emit any check fragments, and stop.
 - Otherwise → emit `gate_eligibility` with `passed: true` and grade the checks. (A
-  thin artifact whose analytical arrays are all empty still grades — the
-  `actionability` and `issue_contrast_usefulness` checks below catch hollow content;
+  thin artifact whose descriptive sections are all null still grades — the
+  `actionability` and `field_analysis_usefulness` checks below catch hollow content;
   that is a quality fail, not an eligibility skip.)
 
 ## The checks (Pass/Fail)
