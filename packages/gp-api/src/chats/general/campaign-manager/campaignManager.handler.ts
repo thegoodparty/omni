@@ -1,9 +1,20 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable, Optional } from '@nestjs/common'
 import { differenceInCalendarWeeks, parseISO } from 'date-fns'
 import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
+import { FeaturesService } from '@/features/services/features.service'
+import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
+import {
+  buildDescribeConstituentDataTool,
+  buildQueryConstituentDataTool,
+} from '@/llm/tools/queryConstituentData.tool'
+import {
+  buildConstituentDataScope,
+  ConstituentTableConfig,
+} from '../chief-of-staff/services/constituentDataScope'
 import {
   ChatScopeHandler,
   ResolveConversationParams,
@@ -35,12 +46,24 @@ export const CAMPAIGN_MANAGER_GREETING = [
     'you handle it.',
 ].join('\n\n')
 
+// Campaign Manager's own rollout flag for the constituent-data tool, distinct
+// from Chief of Staff's. Off until enabled per internal tester while the tool
+// runs against the shared (broad) Databricks credential.
+export const CM_CONSTITUENT_DATA_TOOL_FLAG = 'cm-constituent-data-tool'
+
+// Injection tokens for the aggregate-only Databricks provider and the in-code
+// table allowlist, provided by CampaignManagerModule.
+export const CM_CONSTITUENT_DATA_PROVIDER = 'CM_CONSTITUENT_DATA_PROVIDER'
+export const CM_CONSTITUENT_TABLES_CONFIG = 'CM_CONSTITUENT_TABLES_CONFIG'
+
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
   officeName: null,
   location: null,
   weeksToElection: null,
   topTasks: [],
+  districtFilters: null,
+  constituentToolEnabled: false,
 }
 
 @Injectable()
@@ -53,6 +76,15 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly store: GeneralChatStoreService,
     private readonly campaigns: CampaignsService,
     private readonly chatStore: ChatStoreService,
+    @Inject(CM_CONSTITUENT_TABLES_CONFIG)
+    private readonly constituentTables: ConstituentTableConfig[],
+    @Optional()
+    @Inject(CM_CONSTITUENT_DATA_PROVIDER)
+    private readonly constituentProvider?: DatabricksProvider,
+    @Optional()
+    private readonly districtResolver?: DistrictResolverService,
+    @Optional()
+    private readonly features?: FeaturesService,
   ) {}
 
   // Mirrors Chief of Staff: every open creates a fresh conversation. Resuming a
@@ -106,6 +138,21 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const location =
       [details.city, details.state].filter(Boolean).join(', ') || null
 
+    // Scope constituent queries to the campaign's district (from its org's
+    // position), same shape Chief of Staff uses. Resolving the flag only when
+    // the tool could otherwise register avoids an Amplitude call for candidates
+    // who can't use it anyway.
+    const resolved =
+      await this.districtResolver?.resolveByOrgSlug(organizationSlug)
+    const districtFilters =
+      resolved && this.districtResolver
+        ? this.districtResolver.toMandatoryFilters(resolved)
+        : null
+    const constituentToolEnabled =
+      !!this.constituentProvider &&
+      this.constituentTables.length > 0 &&
+      (await this.isConstituentToolFlagOn(userId))
+
     return {
       candidateFirstName: null,
       officeName: details.normalizedOffice ?? null,
@@ -117,6 +164,23 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         title: t.title,
         date: t.date,
       })),
+      districtFilters,
+      constituentToolEnabled,
+    }
+  }
+
+  // FeaturesService.isFeatureEnabled throws if Amplitude fails to return a
+  // value. Resolving the flag is on the critical path of loadContext, so a
+  // flag-service outage must degrade to "tool off", never take down the chat.
+  private async isConstituentToolFlagOn(userId: number): Promise<boolean> {
+    if (!this.features) return false
+    try {
+      return await this.features.isFeatureEnabled({
+        user: userId,
+        feature: CM_CONSTITUENT_DATA_TOOL_FLAG,
+      })
+    } catch {
+      return false
     }
   }
 
@@ -124,12 +188,41 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     return buildCampaignManagerSystemPrompt(ctx)
   }
 
-  buildTools(): Record<string, LlmTool> {
+  buildTools(ctx: CampaignManagerContext): Record<string, LlmTool> {
+    const tools: Record<string, LlmTool> = {}
+
     // Web search runs through Anthropic's native tool (the scope is Claude-only)
     // so queries stay within the enterprise agreement. Gated on the key here so
     // the system prompt never advertises a tool that was not registered.
-    return process.env.ANTHROPIC_API_KEY
-      ? { web_search: { kind: 'native_web_search', maxUses: 5 } }
-      : {}
+    if (process.env.ANTHROPIC_API_KEY) {
+      tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    }
+
+    // Aggregate-only constituent data, reusing the Chief of Staff building
+    // blocks (shared Databricks provider + serve_agent_voters allowlist + SQL
+    // validator + cell-size floor). Registers only when the provider is
+    // configured, the campaign's district resolved into server-bound filters,
+    // and the per-user rollout flag is on — otherwise it stays dark.
+    if (
+      this.constituentProvider &&
+      ctx.districtFilters &&
+      ctx.constituentToolEnabled
+    ) {
+      const scope = buildConstituentDataScope(
+        ctx.districtFilters,
+        this.constituentTables,
+      )
+      if (scope.allowedTables.size > 0) {
+        tools.query_constituent_data = buildQueryConstituentDataTool({
+          provider: this.constituentProvider,
+          scope,
+        })
+        tools.describe_constituent_data = buildDescribeConstituentDataTool({
+          scope,
+        })
+      }
+    }
+
+    return tools
   }
 }

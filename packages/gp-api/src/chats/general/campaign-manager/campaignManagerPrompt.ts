@@ -1,4 +1,5 @@
 import { format } from 'date-fns'
+import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 
 // Compact, grounded context the manager agent reasons over. Assembled by the
 // handler's loadContext from the candidate's campaign and top tracker tasks.
@@ -8,6 +9,11 @@ export interface CampaignManagerContext {
   location: string | null
   weeksToElection: number | null
   topTasks: { title: string; date: Date }[]
+  // Server-bound district filters for the constituent-data tool (null when the
+  // campaign's district can't be resolved). constituentToolEnabled also gates
+  // on the provider being configured and the per-user rollout flag.
+  districtFilters: MandatoryFilter[] | null
+  constituentToolEnabled: boolean
 }
 
 const ROLE = `You are the candidate's AI campaign manager for a first-time \
@@ -45,6 +51,19 @@ const tasksBlock = (ctx: CampaignManagerContext): string =>
     : 'There are no generated tracker tasks yet; guide the candidate from the ' +
       'plan and the fundamentals of a local race.'
 
+// Advertised only when the constituent-data tool is actually registered, so the
+// prompt never promises a tool the model can't call.
+const dataBlock = (ctx: CampaignManagerContext): string | null =>
+  ctx.constituentToolEnabled
+    ? 'You can look up aggregate, anonymized constituent data for this ' +
+      'district with query_constituent_data and describe_constituent_data. ' +
+      'Call describe first to see valid dimensions. Results are aggregate ' +
+      'counts only; never claim to identify or contact an individual voter.'
+    : null
+
 export const buildCampaignManagerSystemPrompt = (
   ctx: CampaignManagerContext,
-): string => [ROLE, raceContext(ctx), tasksBlock(ctx), GUARDRAILS].join('\n\n')
+): string =>
+  [ROLE, raceContext(ctx), tasksBlock(ctx), dataBlock(ctx), GUARDRAILS]
+    .filter((b): b is string => b !== null)
+    .join('\n\n')

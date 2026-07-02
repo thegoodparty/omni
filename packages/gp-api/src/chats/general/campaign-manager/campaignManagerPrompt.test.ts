@@ -21,6 +21,8 @@ const ctx = (
       date: new Date('2026-07-08T00:00:00Z'),
     },
   ],
+  districtFilters: null,
+  constituentToolEnabled: false,
   ...over,
 })
 
@@ -48,6 +50,17 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('nonpartisan')
     // It must not claim it can do the in-person work only the candidate can do.
     expect(prompt).toContain('cannot')
+  })
+
+  it('advertises the constituent-data tool only when it is enabled', () => {
+    const off = buildCampaignManagerSystemPrompt(ctx())
+    expect(off).not.toContain('query_constituent_data')
+
+    const on = buildCampaignManagerSystemPrompt(
+      ctx({ constituentToolEnabled: true }),
+    )
+    expect(on).toContain('query_constituent_data')
+    expect(on).toContain('describe_constituent_data')
   })
 
   it('stays coherent with no numbers and no tasks', () => {
