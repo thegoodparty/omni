@@ -19,7 +19,7 @@ Given an elected official's district, produce a ranked list of up to 5 community
    except Exception:
        pass  # primitive absent on this runner build — never fail the run over a marker
    ```
-   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected. **Never spend a separate turn on a marker**: prepend the milestone line to the phase's FIRST python/bash command (same code block), and only run it standalone if the phase has no command at all.
+   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected. When a phase STARTS with a python/bash command, prepend the milestone line to that command (same code block, no separate turn). When a phase starts with `WebSearch` (e.g. discovery), run the marker standalone FIRST — the marker must fire before the phase's work or cost attribution mis-tags the phase.
 
 ## TODO CHECKLIST
 
@@ -47,6 +47,7 @@ Given an elected official's district, produce a ranked list of up to 5 community
 - **NEVER print a raw page body.** When `http.get` is unavoidable, extract the specific fact inside the SAME python block and print ≤300 chars (the claim, the date, the figure). A printed page body inflates the cost of every later turn.
 - **Keep `retrieved_text_or_snapshot` ≤1500 chars** — the minimum excerpt that proves the claim, not the whole article.
 - **After you assemble the artifact, never re-open discovery.** If validation or the spot-check flags a specific source or field, fix or drop THAT item with a surgical `Edit`; do not re-search, re-render pages, or rebuild the artifact from scratch. If a whole issue fails its check, delete that issue and say why in `data_quality_reason`.
+- **Never spend a turn solely on task bookkeeping.** Batch `TaskCreate`/`TaskUpdate` calls alongside the next real tool call in the same turn.
 
 **Existing issue feed**:
 
@@ -152,9 +153,11 @@ for url in candidate_urls:               # every candidate URL, in one pass
 
 Escalate to `http.get` ONLY for a 403/405 URL you must keep, or when the article date is not in the snippet — and extract just the date/fact inside the same block, printing ≤300 chars (never the raw body).
 
-Extract: source name, publisher, article_date, and a representative text snippet (≤1500 chars) for `retrieved_text_or_snapshot`.
+Extract: source name, publisher, article_date, and a representative text snippet (≤1500 chars) for `retrieved_text_or_snapshot`. **A kept source MUST have a confirmed `article_date`** — from the snippet, the URL path (e.g. `/2026/06/`), or one excerpt-only `get` — because Step 5's 90-day rule needs it. A candidate whose date cannot be confirmed cheaply is dropped here.
 
 Fast-bail rule: if a topic has no verifiable URL after 2 searches, skip it.
+
+**Recency gate (run BEFORE Step 7 assemble, while the artifact is cheap to change):** one python block printing `(source, article_date, days_old)` for every source you intend to cite. Drop anything >90 days old NOW. If that leaves an issue unsourced, drop the issue. This gate is why the post-assemble spot-check should never find a stale source.
 
 ### Step 5 — Select and rank top issues
 

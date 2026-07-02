@@ -44,7 +44,7 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
    except Exception:
        pass  # primitive absent on this runner build — never fail the run over a marker
    ```
-   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected. **Never spend a separate turn on a marker**: prepend the milestone line to the phase's FIRST python/bash command (same code block), and only run it standalone if the phase has no command at all.
+   The phase markers are called out at each Step. A run that bails early simply emits fewer markers — that is expected. When a phase STARTS with a python/bash command, prepend the milestone line to that command (same code block, no separate turn). When a phase starts with `WebSearch` (e.g. discovery), run the marker standalone FIRST — the marker must fire before the phase's work or cost attribution mis-tags the phase.
 
 ## TODO CHECKLIST
 
@@ -76,6 +76,7 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 - **NEVER print a raw page body.** When `http.get` is unavoidable, extract the specific fact inside the SAME python block and print ≤300 chars (the claim, the date, the figure). A printed page body inflates the cost of every later turn.
 - **Keep `retrieved_text_or_snapshot` ≤1500 chars** — the minimum excerpt that proves the claim, not the whole article.
 - **After you assemble the artifact, never re-open discovery.** If validation or the spot-check flags a specific source or field, fix or drop THAT item with a surgical `Edit`; do not re-search, re-render pages, or rebuild the artifact from scratch.
+- **Never spend a turn solely on task bookkeeping.** Batch `TaskCreate`/`TaskUpdate` calls alongside the next real tool call in the same turn.
 
 **Existing issue feed**:
 
