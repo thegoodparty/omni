@@ -13,6 +13,7 @@ import {
   CENTRAL_TIMEZONE,
   mondayOfWeekUtc,
   nextMondayUtcMidnight,
+  parseIsoDateAsUTC,
   parseIsoDateString,
 } from 'src/shared/util/date.util'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
@@ -147,7 +148,11 @@ export class CampaignTrackerTasksService extends createPrismaBase(
   private resolveElectionDate(campaign: Campaign): Date | null {
     const { electionDate, primaryElectionDate } = campaign.details ?? {}
     const chosen = electionDate ?? primaryElectionDate
-    return chosen ? startOfDay(parseIsoDateString(chosen)) : null
+    // Parse as UTC midnight, not local: date-only strings via parseIsoDateString
+    // land on local midnight, which on a server east of UTC shifts the date back
+    // a UTC day. The GOTV gate then diverges from the digest's UTC-only SQL
+    // (::date - NOW()::date), and the election-relative task dates drift too.
+    return chosen ? parseIsoDateAsUTC(chosen) : null
   }
 
   // Dispatch the CAP experiment that finds events + prioritizes the week's
