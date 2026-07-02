@@ -181,7 +181,8 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
     if not shape_ok:
         shape_frag["severity"] = "error"
         shape_frag["detail"] = (
-            f"{total - attributed}/{total} emitted sections lack a valid http(s) source_url"
+            f"{total - attributed}/{total} emitted sections lack a valid rich "
+            f"source (http(s) url + title + publisher)"
         )
     fragments.append(shape_frag)
 
