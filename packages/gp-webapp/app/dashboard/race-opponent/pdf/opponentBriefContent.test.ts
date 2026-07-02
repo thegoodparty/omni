@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import type {
+  RaceOpponentFieldAnalysis,
   RaceOpponentResponse,
   RaceOpponentSummary,
 } from 'gpApi/api-endpoints'
 import {
+  buildFieldAnalysisBrief,
   buildOpponentBrief,
   opponentsWithBrief,
   type OpponentBriefSection,
@@ -11,7 +13,7 @@ import {
 
 type Opponent = RaceOpponentResponse['opponents'][number]
 
-const fullSummary: RaceOpponentSummary = {
+const v2Summary: RaceOpponentSummary = {
   opponentName: 'Graciela Guzman',
   overview: {
     text: 'The incumbent in a left-leaning seat.',
@@ -20,18 +22,12 @@ const fullSummary: RaceOpponentSummary = {
         url: 'https://a.example',
         title: 'Candidate profile',
         publisher: 'Ballotpedia',
-        sourceType: 'ballotpedia',
-        sourceUrl: 'https://a.example',
       },
     ],
   },
+  whyTheyreRunning: { text: 'Ran on housing affordability last cycle.' },
   background: {
     text: 'Two-term incumbent with party backing.',
-    // Duplicate URL to prove overview+background sources are de-duped — and
-    // deliberately rich-only (no legacy sourceType/sourceUrl; the v2 wire
-    // shape once ENG-10635 drops the passthrough): collapsing it against the
-    // legacy-shaped overview source only works if the dedup key falls back
-    // `sourceUrl ?? url`.
     sources: [
       {
         url: 'https://a.example',
@@ -40,32 +36,51 @@ const fullSummary: RaceOpponentSummary = {
       },
     ],
   },
+  issuesThatMatter: {
+    items: ['Affordable housing', 'Transit expansion'],
+    sources: [
+      {
+        url: 'https://b.example',
+        title: 'Issue tracker',
+        publisher: 'Ballotpedia',
+      },
+    ],
+  },
+  keyPositions: [],
+  generatedAt: null,
+  threatTier: 'primary_threat',
+}
+
+// A legacy-shaped summary: only the pre-v2 overview/background fields, plus
+// the deprecated analytical fields a pre-ENG-10635 row might still carry.
+const legacySummary: RaceOpponentSummary = {
+  opponentName: 'Legacy Opponent',
+  overview: {
+    text: 'A legacy overview.',
+    sources: [
+      {
+        url: 'https://c.example',
+        title: 'Legacy source',
+        publisher: 'Ballotpedia',
+        sourceType: 'ballotpedia',
+        sourceUrl: 'https://c.example',
+      },
+    ],
+  },
+  background: { text: 'A legacy background.', sources: [] },
   keyPositions: [
     { label: 'Housing', detail: 'Backed developer credits.', sources: [] },
   ],
   generatedAt: null,
-  threatTier: 'primary_threat',
   whyTheyMatter: 'Her air war is the real obstacle.',
-  whatYouNeedToKnow: [
-    { text: 'Voted YES on SB-1421.' },
-    { text: 'Aligned with leadership.' },
-  ],
-  whereSoft: [{ text: 'No town hall in 14 months.', sources: undefined }],
+  whatYouNeedToKnow: [{ text: 'Voted YES on SB-1421.' }],
+  whereSoft: [{ text: 'No town hall in 14 months.' }],
   issueContrasts: [
     {
       issue: 'Affordable housing',
       salience: 'high',
       whyItMatters: 'Rent is up 31%.',
       opponentStance: 'Backed the developer credit.',
-      opponentSources: [
-        {
-          url: 'https://b.example',
-          title: 'Housing record',
-          publisher: 'Ballotpedia',
-          sourceType: 'ballotpedia',
-          sourceUrl: 'https://b.example',
-        },
-      ],
       candidateStance: 'Run on tenant protections.',
     },
   ],
@@ -77,12 +92,20 @@ const opponent = (overrides: Partial<Opponent> = {}): Opponent => ({
   isIncumbent: true,
   threatTier: 'primary_threat',
   items: [],
-  summary: fullSummary,
+  summary: v2Summary,
   ...overrides,
 })
 
 const kinds = (sections: OpponentBriefSection[]): string[] =>
   sections.map((section) => section.kind)
+
+const RETIRED_KINDS = [
+  'whyTheyMatter',
+  'whatYouNeedToKnow',
+  'whereSoft',
+  'issueContrasts',
+  'keyPositions',
+]
 
 describe('buildOpponentBrief', () => {
   it('titles and snapshots from the roster identity, matching the page wording', () => {
@@ -91,48 +114,117 @@ describe('buildOpponentBrief', () => {
     expect(brief.snapshot).toBe('Democrat · Incumbent · Main threat')
   })
 
-  it('emits the page sections in order', () => {
+  it('emits the v2 sections in the page order', () => {
     const brief = buildOpponentBrief(opponent())
     expect(kinds(brief.sections)).toEqual([
       'overview',
-      'whyTheyMatter',
-      'whatYouNeedToKnow',
-      'whereSoft',
-      'issueContrasts',
-      'keyPositions',
+      'whyTheyreRunning',
+      'background',
+      'issuesThatMatter',
     ])
   })
 
-  it('extracts text strings from whatYouNeedToKnow items', () => {
+  it('extracts the issues-that-matter bullet items', () => {
     const brief = buildOpponentBrief(opponent())
-    const section = brief.sections.find((s) => s.kind === 'whatYouNeedToKnow')
-    if (section?.kind !== 'whatYouNeedToKnow')
-      throw new Error('expected whatYouNeedToKnow')
-    expect(section.items).toEqual([
-      'Voted YES on SB-1421.',
-      'Aligned with leadership.',
-    ])
+    const section = brief.sections.find((s) => s.kind === 'issuesThatMatter')
+    if (section?.kind !== 'issuesThatMatter')
+      throw new Error('expected issuesThatMatter')
+    expect(section.items).toEqual(['Affordable housing', 'Transit expansion'])
   })
 
-  it('de-dupes a rich-only background source against a legacy overview source', () => {
+  it('never emits a retired section kind, even for a v2 summary', () => {
+    const brief = buildOpponentBrief(opponent())
+    RETIRED_KINDS.forEach((kind) => {
+      expect(kinds(brief.sections)).not.toContain(kind)
+    })
+  })
+
+  it('falls back to overview + background only for a legacy summary, dropping every retired field', () => {
+    const brief = buildOpponentBrief(
+      opponent({ opponentName: 'Legacy Opponent', summary: legacySummary }),
+    )
+    expect(kinds(brief.sections)).toEqual(['overview', 'background'])
+    RETIRED_KINDS.forEach((kind) => {
+      expect(kinds(brief.sections)).not.toContain(kind)
+    })
+  })
+
+  it('renders the background section with its own source lines, matching the page', () => {
+    const brief = buildOpponentBrief(opponent())
+    const background = brief.sections.find((s) => s.kind === 'background')
+    expect(background).toEqual({
+      kind: 'background',
+      text: 'Two-term incumbent with party backing.',
+      sourceLines: ['Ballotpedia — https://a.example'],
+    })
+  })
+
+  it('includes a normalized website link in the overview line when present', () => {
+    const brief = buildOpponentBrief(opponent({ websiteUrl: 'janerival.com' }))
+    const overview = brief.sections.find((s) => s.kind === 'overview')
+    if (overview?.kind !== 'overview') throw new Error('expected overview')
+    expect(overview.websiteUrl).toBe('https://janerival.com')
+  })
+
+  it('keeps a fully-qualified website url as-is', () => {
+    const brief = buildOpponentBrief(
+      opponent({ websiteUrl: 'https://janerival.com' }),
+    )
+    const overview = brief.sections.find((s) => s.kind === 'overview')
+    if (overview?.kind !== 'overview') throw new Error('expected overview')
+    expect(overview.websiteUrl).toBe('https://janerival.com')
+  })
+
+  it('omits the website link when no websiteUrl is present', () => {
+    const brief = buildOpponentBrief(opponent({ websiteUrl: null }))
+    const overview = brief.sections.find((s) => s.kind === 'overview')
+    if (overview?.kind !== 'overview') throw new Error('expected overview')
+    expect(overview.websiteUrl).toBeNull()
+  })
+
+  it('formats source lines as "publisher — url", including a rich-only source with no sourceUrl key', () => {
     const brief = buildOpponentBrief(opponent())
     const overview = brief.sections.find((s) => s.kind === 'overview')
-    expect(overview).toBeDefined()
     if (overview?.kind !== 'overview') throw new Error('expected overview')
-    expect(overview.paragraphs).toHaveLength(2)
-    expect(overview.sources).toHaveLength(1)
-    expect(overview.sources[0]?.url).toBe('https://a.example')
+    expect(overview.sourceLines).toEqual(['Ballotpedia — https://a.example'])
   })
 
-  it('drops the salience label from issue contrasts (the page never renders it)', () => {
-    const brief = buildOpponentBrief(opponent())
-    const contrasts = brief.sections.find((s) => s.kind === 'issueContrasts')
-    if (contrasts?.kind !== 'issueContrasts')
-      throw new Error('expected issueContrasts')
-    expect(contrasts.contrasts[0]).not.toHaveProperty('salience')
-    expect(contrasts.contrasts[0]?.opponentStance).toBe(
-      'Backed the developer credit.',
+  it('formats a legacy source (carrying sourceType/sourceUrl) from its rich fields', () => {
+    const brief = buildOpponentBrief(
+      opponent({ opponentName: 'Legacy Opponent', summary: legacySummary }),
     )
+    const overview = brief.sections.find((s) => s.kind === 'overview')
+    if (overview?.kind !== 'overview') throw new Error('expected overview')
+    expect(overview.sourceLines).toEqual(['Ballotpedia — https://c.example'])
+  })
+
+  it('de-dupes source lines by url within a section', () => {
+    const brief = buildOpponentBrief(
+      opponent({
+        summary: {
+          ...v2Summary,
+          issuesThatMatter: {
+            items: ['Affordable housing'],
+            sources: [
+              {
+                url: 'https://b.example',
+                title: 'Issue tracker',
+                publisher: 'Ballotpedia',
+              },
+              {
+                url: 'https://b.example',
+                title: 'Issue tracker (dup)',
+                publisher: 'Ballotpedia',
+              },
+            ],
+          },
+        },
+      }),
+    )
+    const section = brief.sections.find((s) => s.kind === 'issuesThatMatter')
+    if (section?.kind !== 'issuesThatMatter')
+      throw new Error('expected issuesThatMatter')
+    expect(section.sourceLines).toEqual(['Ballotpedia — https://b.example'])
   })
 
   it('never invents a finance section — no summary field feeds one', () => {
@@ -141,7 +233,7 @@ describe('buildOpponentBrief', () => {
     expect(JSON.stringify(brief).toLowerCase()).not.toContain('cash on hand')
   })
 
-  it('omits sections whose data is empty or absent', () => {
+  it('omits sections whose data is absent', () => {
     const brief = buildOpponentBrief(
       opponent({
         summary: {
@@ -150,9 +242,6 @@ describe('buildOpponentBrief', () => {
           background: null,
           keyPositions: [],
           generatedAt: null,
-          whatYouNeedToKnow: [],
-          whereSoft: [],
-          issueContrasts: [],
         },
       }),
     )
@@ -172,5 +261,60 @@ describe('opponentsWithBrief', () => {
     const withSummary = opponent()
     const rawOnly = opponent({ opponentName: 'Raw Only', summary: null })
     expect(opponentsWithBrief([withSummary, rawOnly])).toEqual([withSummary])
+  })
+})
+
+describe('buildFieldAnalysisBrief', () => {
+  const fieldAnalysis = (
+    overrides: Partial<RaceOpponentFieldAnalysis> = {},
+  ): RaceOpponentFieldAnalysis => ({
+    strengths: ['Strong name ID'],
+    weaknesses: ['Thin ground game'],
+    opportunities: [],
+    threats: [],
+    sources: [],
+    generatedAt: null,
+    ...overrides,
+  })
+
+  it('returns null for a null/undefined fieldAnalysis', () => {
+    expect(buildFieldAnalysisBrief(null)).toBeNull()
+    expect(buildFieldAnalysisBrief(undefined)).toBeNull()
+  })
+
+  it('omits empty quadrants and keeps populated ones with their labels', () => {
+    const brief = buildFieldAnalysisBrief(fieldAnalysis())
+    expect(brief).toEqual({
+      quadrants: [
+        { label: 'Strengths', items: ['Strong name ID'] },
+        { label: 'Weaknesses', items: ['Thin ground game'] },
+      ],
+    })
+  })
+
+  it('omits the whole block when fewer than 2 quadrants have content', () => {
+    expect(
+      buildFieldAnalysisBrief(
+        fieldAnalysis({ weaknesses: [], strengths: ['Strong name ID'] }),
+      ),
+    ).toBeNull()
+    expect(
+      buildFieldAnalysisBrief(fieldAnalysis({ strengths: [], weaknesses: [] })),
+    ).toBeNull()
+  })
+
+  it('includes all four quadrants when every one has content', () => {
+    const brief = buildFieldAnalysisBrief(
+      fieldAnalysis({
+        opportunities: ['Open primary'],
+        threats: ['A well-funded challenger'],
+      }),
+    )
+    expect(brief?.quadrants.map((q) => q.label)).toEqual([
+      'Strengths',
+      'Weaknesses',
+      'Opportunities',
+      'Threats',
+    ])
   })
 })
