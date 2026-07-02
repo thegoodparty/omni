@@ -35,6 +35,38 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 
 **Social media and community forums are NOT a source here.** Do not attempt to scrape Twitter/X, Facebook, Nextdoor, or Reddit — those platforms block automated access and the signal is unreliable. Resident voice comes from news, letters/op-eds, and the public output of advocacy groups instead.
 
+## The QA projection: `claims[]` and `sources[]`
+
+This artifact is quality-checked by a shared validator (`qa_validate.py`) that adjudicates **discrete claims**, not whole issues. So alongside the human-facing `issues[]`, emit two machine-facing arrays **at the artifact root**. `issues[]` stays exactly as specified elsewhere — these two arrays are additive, and they are what a reviewer on GitHub runs QA against.
+
+**`sources[]` (artifact root)** — the deduped union of every issue's `detail.sources[]`. Same `Source` shape (`id`, `name`, `source_type`, `url`, `article_date`, `retrieved_at`, `retrieved_text_or_snapshot`). One entry per unique source: a source cited by two issues appears once, and both issues' claims reference that one `id`. Every `source_id` used anywhere in the artifact must resolve to an entry here.
+
+**`claims[]` (artifact root)** — decompose each issue into the individual factual assertions a skeptical reader would check, **one assertion per claim**: a single dollar figure, a single date, a single vote, the existence of a named project/ordinance, a specific location, or a specific resident-demand attribution. "The $2M shelter purchase was debated at the Jan 7 2026 meeting" is *two* claims (the $2M figure; the Jan 7 2026 date), not one.
+
+Each claim carries:
+
+- `claim_id` — unique within the artifact.
+- `item_id` — the `id` of the issue in `issues[]` it supports.
+- `claim_text` — the self-contained assertion, naming the specific value.
+- `claim_type` and `claim_weight` — pick from this table:
+
+  | `claim_type` | use for | `claim_weight` |
+  | --- | --- | --- |
+  | `existence_or_event` | the named project / ordinance / measure / event is real and occurred | high |
+  | `figure_or_dollar` | a dollar amount, count, rate, or percentage | high |
+  | `date_or_timeframe` | a specific date, or the ~12-month freshness of the issue | high |
+  | `vote_or_official_action` | a vote tally or a specific official decision/action | high |
+  | `location_or_geography` | the issue is in this jurisdiction / at a specific place | high |
+  | `attribution_resident_demand` | residents are raising it (letter, petition, survey, 311, advocacy statement) | medium |
+  | `background_context` | supporting context that is not load-bearing | medium |
+  | `lean_annotation` | a Haystaq lean chip (a labeled, modeled figure) | low |
+  | `synthesis` | a summary or inference across sources | low |
+
+- `source_ids` — the `sources[]` entries that ground the claim (at least one).
+- `source_extracts` — the **verbatim** text from those sources that states the claim. **Each extract MUST be a literal substring of the cited source's `retrieved_text_or_snapshot`** — the validator checks this, so copy it exactly, do not paraphrase or summarize. Prefer the object form `{"text": "...", "section_header": "..."}` so the judge sees where in the source it came from.
+
+**Why the decomposition quality is the QA quality.** The validator's judge classifies each claim as supported / unsupported / contradicted against its extracts — the same adjudication a human QA reviewer does. A **contradicted** high-weight claim blocks the release (the issue was Incorrect); an **unsupported** specific claim warns (Unverified). So: emit every load-bearing fact as its own claim with a real verbatim extract, and never manufacture support — an honest claim whose extract does not actually state it is one the judge should catch, not one to paper over. Every high-weight fact in an issue's `detail` (its dollars, dates, votes, named instance, location, and ~12-month freshness) should appear as a claim. A rich overview with only one or two claims is under-decomposed — the QA layer cannot see facts you did not project.
+
 ## BEFORE YOU START
 
 1. Read this entire instruction end-to-end before executing anything.
@@ -59,11 +91,12 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 11. Classify each issue into exactly one `category` from the allowed enum (the category is a tag; the title is the named instance).
 12. Annotate each issue with its Haystaq lean chip where coverage allows; an operational row with no covered var is "hyperlocal, no model lean," which is informative, not a gap. Add a "who can act / what they could do" note to the `summary`. For any issue carried only by press/agenda coverage (no resident-voice source), say so in the `summary` and keep it below `priority: "high"`; do not file the official's own quotes as resident voice.
 13. Assign `priority` (`low|medium|high`) and `rank` (1 = most important). Rank by resident attention mass; the Haystaq lean does not move the rank.
-14. Write a substantive `detail.overview.summary` (2-3 sourced sentences naming the instance) for every issue — never empty. Deduplicate `detail.sources[]` by URL. Verify every `source_id` resolves to an entry in `detail.sources[]`.
-15. Set `sources_used`, `data_quality`, `data_quality_reason`, `notes` honestly — name any missing source layer (no 311 feed, no resident survey, Haystaq domains dropped for zero coverage). The list is intentionally short (1 to 3 lead issues is normal); use `data_quality_reason`/`notes` to explain the lead and any issue dropped for staleness, not to apologize for being under 10.
-16. Assemble artifact and write to `/workspace/output/top_community_issues.json`.
-17. Run `python3 /workspace/validate_output.py`.
-18. Perform the spot-check.
+14. Write a substantive `detail.overview.summary` (2-3 sourced sentences naming the instance) for every issue — never empty. Give every issue a stable `id`. Deduplicate `detail.sources[]` by URL. Verify every `source_id` resolves to an entry in `detail.sources[]`.
+15. Build the QA projection (see "The QA projection" above): flatten every `detail.sources[]` into a deduped top-level `sources[]`; decompose each issue into top-level `claims[]` (one discrete fact per claim, linked by `item_id`), each with a `claim_type`/`claim_weight` and a **verbatim** `source_extracts` substring of the cited source.
+16. Set `sources_used`, `data_quality`, `data_quality_reason`, `notes` honestly — name any missing source layer (no 311 feed, no resident survey, Haystaq domains dropped for zero coverage). The list is intentionally short (1 to 3 lead issues is normal); use `data_quality_reason`/`notes` to explain the lead and any issue dropped for staleness, not to apologize for being under 10.
+17. Assemble artifact and write to `/workspace/output/top_community_issues.json`.
+18. Run `python3 /workspace/validate_output.py`.
+19. Perform the spot-check.
 
 ## CRITICAL RULES
 
@@ -123,6 +156,13 @@ Resident-demand sources rank the list; Haystaq only annotates lean. The governin
 - `detail.overview` is always required and its `summary` must be substantive (2-3 sentences naming the instance) — never an empty string.
 - Every factual claim in a subsection (a dollar figure, a vote, a date, a project) must trace to a source in `source_ids`. An unsourced claim is a re-verify failure — drop it or source it.
 - Do not reproduce an individual resident's personal data (name, address, contact) from a letter, petition, or group roster; report the topic and aggregate intensity only.
+
+**QA projection (`claims[]` + `sources[]` at the artifact root)**:
+
+- Emit a top-level `sources[]` that is the deduped union of every issue's `detail.sources[]` (dedupe by URL; one `id` per unique source). Emit a top-level `claims[]` decomposing each issue's facts. See "The QA projection" for the full contract.
+- Every issue needs a stable top-level `id`; every claim's `item_id` must equal one of those issue ids; every claim's `source_ids` must resolve to the top-level `sources[]`.
+- **Each `source_extracts` entry must be a literal, verbatim substring of the cited source's `retrieved_text_or_snapshot`.** Copy it character-for-character — do not paraphrase, trim mid-word, or reconstruct from memory. The validator fails claims whose extract does not appear in the cited source.
+- One assertion per claim. Split compound facts (a dollar figure AND a date = two claims). Use the high-weight `claim_type`s for the load-bearing facts (figure, date, vote, existence, location) — those are the ones a contradiction turns into a blocking defect.
 
 **Output**:
 
@@ -223,16 +263,48 @@ For each issue, add the Haystaq lean chip where coverage allows ("hyperlocal, no
 
 Compare each output issue against the existing feed from Step 2. When the issue clearly maps to an existing record, set `existing_issue_id`. Do not invent a mapping if it is ambiguous.
 
-### Step 9 — Assemble artifact
+### Step 9 — Build the QA projection and assemble the artifact
+
+Give each issue a stable `id`. Flatten every `detail.sources[]` into one deduped top-level `sources[]`. Decompose each issue into top-level `claims[]` — one discrete fact each, linked by `item_id`, with a verbatim `source_extracts` substring of the cited source (see "The QA projection").
 
 ```python
 import json
+
+# Each issue carries a stable id used by claims[].item_id (distinct from existing_issue_id).
+issues = [
+    {"id": "issue-1", "title": "...", "summary": "...", "category": "...",
+     "priority": "high", "rank": 1, "detail": {...}},
+    # ...
+]
+
+# Deduped union of every issue's detail.sources[] — one entry per unique source.
+sources = [
+    {"id": "src-1", "name": "...", "source_type": "news", "url": "https://...",
+     "article_type": "reporting", "article_date": "2026-05-08",
+     "retrieved_at": "2026-07-02T00:00:00Z",
+     "retrieved_text_or_snapshot": "... full snippet, the text extracts are quoted from ..."},
+    # ...
+]
+
+# One assertion per claim. source_extracts MUST be verbatim substrings of the cited source's snapshot.
+claims = [
+    {"claim_id": "c-1", "item_id": "issue-1",
+     "claim_text": "The city council debated a >$2M building purchase for a long-term shelter.",
+     "claim_type": "figure_or_dollar", "claim_weight": "high",
+     "source_ids": ["src-1"],
+     "source_extracts": [{"text": "the more than $2 million building purchase",
+                          "section_header": "Council weighs shelter options"}]},
+    # ... one claim per load-bearing fact (dollars, dates, votes, existence, location, freshness, attribution)
+]
+
 artifact = {
     "schema_version": 1,
     "list": "top_community",
     "organization_slug": ORG_SLUG,
     "generated_for_run_id": RUN_ID,
-    "issues": [...],            # up to 10 IssueOutput, each a specific named issue
+    "issues": issues,           # up to 10 IssueOutput, each a specific named issue
+    "claims": claims,           # QA projection: discrete facts the validator adjudicates
+    "sources": sources,         # QA projection: deduped provenance, source_ids resolve here
     "sources_used": [...],      # layers actually used, e.g. ["local_news", "resident_voice", "advocacy_groups", "petitions", "311", "survey", "haystaq"]
     "data_quality": "ok",       # "partial" if some lookups failed; "insufficient_signal" if you couldn't ground the list
     "data_quality_reason": "...",  # name dropped Haystaq domains, missing layers (no 311, no survey, empty feed), and why fewer than 10 if short
@@ -242,7 +314,7 @@ with open("/workspace/output/top_community_issues.json", "w") as f:
     json.dump(artifact, f, indent=2)
 ```
 
-Every issue needs a substantive `detail.overview.summary`; build `history` / `research` / `quotes` where you have sourced material. Every `source_id` must resolve.
+Every issue needs a substantive `detail.overview.summary`; build `history` / `research` / `quotes` where you have sourced material. Every `source_id` — in a subsection and in `claims[]` — must resolve to `sources[]`.
 
 ### Step 10 — Validate
 
@@ -267,6 +339,7 @@ After validation passes, verify:
 - **Issues span at least 2 categories.** If every issue is one category, your search was too narrow.
 - **Haystaq is a lean annotation, not the ranker.** The rank follows resident attention mass. The lean uses `AVG - 50`; if you used a `>= 50` count to rank, redo it.
 - **Advocacy-group framing is nonpartisan or flagged.** Any partisan group's claim is corroborated by an independent source.
+- **The QA projection is complete and honest.** Every issue has an `id`; every high-weight fact (dollars, dates, votes, named instance, location, ~12-month freshness) is its own `claims[]` entry linked by `item_id`; every claim's `source_extracts` is a verbatim substring of the cited source's snapshot; every `source_ids` resolves to the deduped top-level `sources[]`. No claim's extract was paraphrased or invented to manufacture support.
 - **`detail.overview.summary` is present and substantive on every issue**, and `list` is `"top_community"`.
 - **Coverage gaps are stated.** `data_quality_reason` names dropped zero-coverage Haystaq domains, any missing layer (no 311 feed, no resident survey, empty feed), and why the list is short if under 10.
 
@@ -287,5 +360,8 @@ After validation passes, verify:
 | `ScopeViolation: scope_predicate_override` | Added `WHERE Residence_Addresses_State/City` manually | Remove those clauses; broker auto-injects them |
 | Partisan group's claim ranked as resident salience | Skipped the nonpartisan-corroboration rule | Flag affiliation; require a second independent source |
 | `source_id` not found in `detail.sources[]` | Referenced a source you never added | Add the matching entry to `detail.sources[]` |
+| QA validator: claim extract not found in cited source | Paraphrased or reconstructed the `source_extracts` text | Copy the extract verbatim from `retrieved_text_or_snapshot`; it must be a literal substring |
+| QA validator: an issue's facts aren't adjudicated | Under-decomposed — dollars/dates/votes left out of `claims[]` | Emit one claim per load-bearing fact, linked by `item_id`, with the right high `claim_weight` |
+| QA validator: `claims[].source_ids` unresolved / no top-level `sources[]` | Left provenance only under `detail.sources[]` | Flatten to a deduped top-level `sources[]`; point `source_ids` at those ids |
 | Validator: missing/empty `overview` | `detail.overview.summary` omitted or empty | Always emit a substantive `overview.summary`; it is required |
 | `GET_v1_community-issue-feed` 404 | Organization has no feed yet | Treat as empty feed; note it in `data_quality_reason` |

@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "top_community_issues",
-  "version": 2,
+  "version": 3,
   "model": "opus",
   "max_turns": 150,
   "timeout_seconds": 3000,
@@ -54,6 +54,8 @@
       "organization_slug",
       "generated_for_run_id",
       "issues",
+      "claims",
+      "sources",
       "data_quality"
     ],
     "properties": {
@@ -80,6 +82,20 @@
           "$ref": "#/definitions/IssueOutput"
         }
       },
+      "claims": {
+        "type": "array",
+        "description": "QA projection: each issue's discrete factual assertions decomposed into individually-adjudicable claims. Read by the QA spine (qa_validate.py). Each claim links back to its issue via item_id.",
+        "items": {
+          "$ref": "#/definitions/Claim"
+        }
+      },
+      "sources": {
+        "type": "array",
+        "description": "QA projection: the deduped union of every issue's detail.sources[]. The QA spine reads provenance from this top-level array (claims[].source_ids resolve here).",
+        "items": {
+          "$ref": "#/definitions/Source"
+        }
+      },
       "sources_used": {
         "type": "array",
         "items": {
@@ -103,6 +119,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "id",
           "title",
           "summary",
           "category",
@@ -111,6 +128,11 @@
           "detail"
         ],
         "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Stable id for this issue within the artifact, referenced by claims[].item_id. Distinct from existing_issue_id, which links to a record in the live community-issue feed. Use a slug or issue-<rank> style id."
+          },
           "existing_issue_id": {
             "type": "string",
             "minLength": 1,
@@ -224,6 +246,98 @@
           "source_id": {
             "type": "string",
             "minLength": 1
+          }
+        }
+      },
+      "Claim": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One discrete, independently-verifiable factual assertion drawn from an issue. This is the unit the QA spine adjudicates (supported / unsupported / contradicted).",
+        "required": [
+          "claim_id",
+          "item_id",
+          "claim_text",
+          "claim_type",
+          "claim_weight",
+          "source_ids",
+          "source_extracts"
+        ],
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique id for this claim within the artifact."
+          },
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "id of the issue in issues[] that this claim supports."
+          },
+          "claim_text": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The single factual assertion, self-contained and checkable (name the dollar, date, vote, project, or location)."
+          },
+          "claim_type": {
+            "type": "string",
+            "description": "Kind of assertion. The high-weight/blockable types (figure, date, vote, existence, location) are the ones a contradiction makes the issue Incorrect.",
+            "enum": [
+              "existence_or_event",
+              "figure_or_dollar",
+              "date_or_timeframe",
+              "vote_or_official_action",
+              "location_or_geography",
+              "attribution_resident_demand",
+              "background_context",
+              "lean_annotation",
+              "synthesis"
+            ]
+          },
+          "claim_weight": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          },
+          "source_ids": {
+            "type": "array",
+            "minItems": 1,
+            "description": "ids of the sources[] entries that ground this claim. Must resolve to top-level sources[].",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "source_extracts": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Verbatim text from the cited source(s) that states this claim. Each extract MUST appear as a substring of the retrieved_text_or_snapshot of one of the claim's source_ids (the QA spine enforces this). Strings, or objects carrying the verbatim text plus optional context.",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["text"],
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "section_header": {
+                      "type": "string",
+                      "description": "Where in the source the verbatim text came from (e.g. a headline or section title), giving the judge context."
+                    },
+                    "source_id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Optional: which cited source this specific extract came from, when a claim cites more than one."
+                    }
+                  }
+                }
+              ]
+            }
           }
         }
       },
