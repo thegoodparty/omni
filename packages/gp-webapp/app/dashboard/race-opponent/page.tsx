@@ -83,7 +83,13 @@ export default async function Page(): Promise<React.JSX.Element> {
               ship NO trace of the feature, heading included. */}
           <PageHeader
             className="max-lg:hidden"
-            heading="Know Your Opponent"
+            barClassName="h-14 border-border bg-background px-0"
+            contentClassName="mx-auto max-w-[608px] gap-2"
+            heading={
+              <span className="text-sm font-semibold text-foreground">
+                Know Your Opponent
+              </span>
+            }
             leading={
               <SwordsIcon className="size-5 text-foreground" aria-hidden />
             }
@@ -128,7 +134,13 @@ export default async function Page(): Promise<React.JSX.Element> {
         {/* Desktop-only, and inside the guard — see the non-Pro branch's note. */}
         <PageHeader
           className="max-lg:hidden"
-          heading="Know Your Opponent"
+          barClassName="h-14 border-border bg-background px-0"
+          contentClassName="mx-auto max-w-[608px] gap-2"
+          heading={
+            <span className="text-sm font-semibold text-foreground">
+              Know Your Opponent
+            </span>
+          }
           leading={
             <SwordsIcon className="size-5 text-foreground" aria-hidden />
           }

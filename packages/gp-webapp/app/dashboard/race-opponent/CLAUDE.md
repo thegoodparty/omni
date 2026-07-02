@@ -49,7 +49,10 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
 
 - **Page shell (P5, ENG-10633)**: `page.tsx` renders the shared styleguide
   `PageHeader` (heading "Know Your Opponent", `leading` overridden to the same
-  swords icon as the `DashboardMenu` nav item) as a full-bleed top bar — this
+  swords icon as the `DashboardMenu` nav item) as a top bar styled to the
+  Lovable reference via `barClassName` (white `bg-background`, `h-14`,
+  `border-border`) and `contentClassName` (`mx-auto max-w-[608px]` so the
+  title aligns with the content column below; ENG-10638) — this
   replaced the old feature-local `OpponentPageHeader` (deleted) and the
   `DashboardLayout` `navHeader` prop for this route. The bar lives INSIDE
   `FeatureFlagGuard` on both branches: the flag gates the entire surface, so
