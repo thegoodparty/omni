@@ -1,9 +1,18 @@
 'use client'
 
-import Link from 'next/link'
 import { format, parseISO } from 'date-fns'
-import { Badge, Button, CalendarIcon, cn } from '@styleguide'
+import { Button } from '@styleguide'
+import {
+  CalendarDaysIcon,
+  CalendarIcon,
+  MapPinIcon,
+  MessageSquareIcon,
+  PhoneIcon,
+  SparklesIcon,
+} from '@styleguide/components/ui/icons'
+import type { LucideIcon } from 'lucide-react'
 import { useTrackerTasks } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
+import TaskCard from '../chief-of-staff/components/TaskCard'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
 
 // Fallback when a task has no action link of its own.
@@ -13,6 +22,22 @@ const TRACKER_HREF = '/dashboard/campaign-plan'
 // routing the Campaign Tracker owns), falling back to the tracker page.
 const taskHref = (task: { link: string | null }): string =>
   task.link ?? TRACKER_HREF
+
+// Eyebrow label + icon per tracker flowType (same set buildTrackerStrategy maps
+// to channels). Unknown/static rows fall back to a generic priority label.
+const FLOW_TYPE_META: Record<string, { label: string; Icon: LucideIcon }> = {
+  text: { label: 'Messaging', Icon: MessageSquareIcon },
+  robocall: { label: 'Robocall', Icon: PhoneIcon },
+  phoneBanking: { label: 'Phone banking', Icon: PhoneIcon },
+  doorKnocking: { label: 'Door knocking', Icon: MapPinIcon },
+  events: { label: 'Event', Icon: CalendarIcon },
+  awareness: { label: 'Awareness', Icon: CalendarDaysIcon },
+}
+const DEFAULT_META = { label: 'Priority', Icon: SparklesIcon }
+const taskMeta = (
+  flowType: string | null,
+): { label: string; Icon: LucideIcon } =>
+  (flowType && FLOW_TYPE_META[flowType]) || DEFAULT_META
 
 // Tracker dates arrive as UTC-midnight ISO; slice to the date portion so the
 // local render does not land on the previous day in US timezones.
@@ -65,30 +90,23 @@ export default function CampaignManagerTasks({
             plan develops.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {top.map((task) => (
-              <li key={task.id}>
-                <Link
-                  href={taskHref(task)}
-                  className={cn(
-                    'flex items-center justify-between gap-3 rounded-lg border',
-                    'border-border bg-card p-4 transition-colors hover:bg-muted',
-                  )}
-                >
-                  <span className="flex flex-col gap-1">
-                    <span className="text-sm font-medium">{task.title}</span>
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <CalendarIcon className="size-3.5" aria-hidden />
-                      {formatDue(task.date)}
-                    </span>
-                  </span>
-                  {task.phase && (
-                    <Badge className="shrink-0 capitalize">{task.phase}</Badge>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
+          <div className="flex flex-col gap-4">
+            {top.map((task) => {
+              const { label, Icon } = taskMeta(task.flowType)
+              return (
+                <TaskCard
+                  key={task.id}
+                  eyebrowLabel={label}
+                  EyebrowIcon={Icon}
+                  title={task.title}
+                  meta={[formatDue(task.date)]}
+                  summary={task.description || undefined}
+                  ctaLabel={task.cta ?? 'See details'}
+                  ctaHref={taskHref(task)}
+                />
+              )
+            })}
+          </div>
         )}
       </div>
     </section>
