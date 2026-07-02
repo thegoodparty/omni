@@ -28,23 +28,31 @@ PROD_DB_HOST = "gp-api-db-prod.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com"
 PROD_DB_NAME = "gpdb"
 PROD_DB_USER = "gpuser"
 
+# Default to prod (the invoice-validated source). Override BOTH together via
+# CAP_COST_DB_SECRET_ID + CAP_COST_DB_HOST to point at a non-prod env (e.g. dev
+# cohort cost validation): CAP_COST_DB_SECRET_ID=GP_API_DEV
+# CAP_COST_DB_HOST=gp-api-db.cluster-cmb1uukjsfbe.us-west-2.rds.amazonaws.com
+DB_SECRET_ID = os.environ.get("CAP_COST_DB_SECRET_ID", PROD_SECRET_ID)
+DB_HOST = os.environ.get("CAP_COST_DB_HOST", PROD_DB_HOST)
+
 
 def _prod_db_password() -> str:
     region = os.environ.get("AWS_REGION", "us-west-2")
     sm = boto3.client("secretsmanager", region_name=region)
-    raw = sm.get_secret_value(SecretId=PROD_SECRET_ID)["SecretString"]
+    raw = sm.get_secret_value(SecretId=DB_SECRET_ID)["SecretString"]
     secret = json.loads(raw)
     return secret["DB_PASSWORD"]
 
 
 def connect() -> pg8000.native.Connection:
-    """Open a read-only prod connection. Caller closes it."""
+    """Open a read-only connection (prod by default; see DB_SECRET_ID/DB_HOST)."""
     conn = pg8000.native.Connection(
         user=PROD_DB_USER,
         password=_prod_db_password(),
-        host=PROD_DB_HOST,
+        host=DB_HOST,
         database=PROD_DB_NAME,
         port=5432,
+        ssl_context=True,
     )
     conn.run("SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY")
     return conn
