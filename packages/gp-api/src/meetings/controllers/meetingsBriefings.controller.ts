@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common'
@@ -26,8 +27,11 @@ import {
   MeetingDateParamSchema,
 } from '../schemas/meetingDateParam.schema'
 import {
+  BriefingDispatchPreviewSchema,
   DispatchMeetingAgentDto,
   DispatchMeetingAgentSchema,
+  DispatchPreviewQuery,
+  DispatchPreviewQuerySchema,
 } from '../schemas/dispatchMeetingAgent.schema'
 import {
   UserAgendaFinalizeRequest,
@@ -258,6 +262,21 @@ export class MeetingsBriefingsController {
       )
     }
     return { dispatched: result.dispatched, kind: body.kind }
+  }
+
+  @UseGuards(UserOrM2MGuard)
+  @Get('briefings/dispatch/preview')
+  @ResponseSchema(BriefingDispatchPreviewSchema)
+  previewDispatch(
+    @Query(new ZodValidationPipe(DispatchPreviewQuerySchema))
+    { electedOfficeId }: DispatchPreviewQuery,
+    @Req() req: IncomingRequest,
+  ) {
+    const requestingUserId = req.m2mToken ? undefined : effectiveUser(req)?.id
+    return this.meetingBriefings.previewManualDispatch(
+      electedOfficeId,
+      requestingUserId,
+    )
   }
 
   /**
