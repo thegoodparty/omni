@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -34,6 +35,7 @@ interface Props {
 export default function CampaignManagerHome({
   firstName,
 }: Props): React.JSX.Element {
+  const queryClient = useQueryClient()
   const [chatOpen, setChatOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
 
@@ -46,6 +48,11 @@ export default function CampaignManagerHome({
       const { conversationId: id } =
         await campaignManagerChatApi.createConversation()
       setConversationId(id)
+      // A conversation now exists, so refresh history: the footer picker shows
+      // it and the first-run "meet" card drops away.
+      void queryClient.invalidateQueries({
+        queryKey: CAMPAIGN_MANAGER_HISTORY_KEY,
+      })
     } catch (err) {
       reportErrorToSentry(err, {
         surface: 'campaign-manager-chat',
@@ -55,7 +62,7 @@ export default function CampaignManagerHome({
       setConversationId(null)
     }
     setChatOpen(true)
-  }, [])
+  }, [queryClient])
 
   const openConversation = useCallback((id: string) => {
     setConversationId(id)
