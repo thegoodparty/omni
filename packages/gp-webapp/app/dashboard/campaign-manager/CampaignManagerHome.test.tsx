@@ -4,15 +4,21 @@ import { screen } from '@testing-library/react'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import CampaignManagerHome from './CampaignManagerHome'
 
-vi.mock('../campaign-plan/components/campaignStrategy/useTrackerTasks', () => ({
-  useTrackerTasks: (): TrackerTasksResult => ({
-    tasks: [],
-    isPending: false,
-    isError: false,
-    isGeneratingDynamic: false,
+vi.mock(
+  '../campaign-plan/components/campaignStrategy/useTrackerTasks',
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('../campaign-plan/components/campaignStrategy/useTrackerTasks')
+    >()),
+    useTrackerTasks: (): TrackerTasksResult => ({
+      tasks: [],
+      isPending: false,
+      isError: false,
+      isGeneratingDynamic: false,
+    }),
+    useToggleTrackerTaskComplete: () => ({ mutate: vi.fn(), isPending: false }),
   }),
-  useToggleTrackerTaskComplete: () => ({ mutate: vi.fn(), isPending: false }),
-}))
+)
 
 // The Pro banner + progress section are the legacy dashboard widgets (their own
 // campaign/voter-contact providers); this smoke test only covers the home's

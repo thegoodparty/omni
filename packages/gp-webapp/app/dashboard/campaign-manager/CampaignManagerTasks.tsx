@@ -14,6 +14,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
 import {
+  isVoterContactFlowType,
   useToggleTrackerTaskComplete,
   useTrackerTasks,
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
@@ -28,20 +29,6 @@ import {
 
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
-
-// flowTypes whose completion records a voter-contact count (a valid
-// CampaignUpdateHistoryType the complete endpoint accepts), matching the legacy
-// task flow. Community events ('events') are the headline case; other outreach
-// types get the count too. Everything else (e.g. 'awareness') completes with no
-// count prompt.
-const COUNT_FLOW_TYPES = new Set([
-  'events',
-  'doorKnocking',
-  'phoneBanking',
-  'text',
-  'robocall',
-  'socialMedia',
-])
 
 // A task's own action link, if it has a non-empty one. Trimmed so an empty or
 // whitespace string (which the agent can emit) counts as "no link" rather than
@@ -89,7 +76,7 @@ export default function CampaignManagerTasks({
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
 
   const onComplete = (task: CampaignTrackerTask): void => {
-    if (task.flowType && COUNT_FLOW_TYPES.has(task.flowType)) {
+    if (isVoterContactFlowType(task.flowType)) {
       setCountTask(task)
       return
     }

@@ -8,13 +8,20 @@ import CampaignManagerTasks from './CampaignManagerTasks'
 
 const mockResult = vi.fn<() => TrackerTasksResult>()
 const mockToggle = vi.fn()
-vi.mock('../campaign-plan/components/campaignStrategy/useTrackerTasks', () => ({
-  useTrackerTasks: () => mockResult(),
-  useToggleTrackerTaskComplete: () => ({
-    mutate: mockToggle,
-    isPending: false,
+// Partial-mock: keep the real isVoterContactFlowType, stub the data + mutation.
+vi.mock(
+  '../campaign-plan/components/campaignStrategy/useTrackerTasks',
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import('../campaign-plan/components/campaignStrategy/useTrackerTasks')
+    >()),
+    useTrackerTasks: () => mockResult(),
+    useToggleTrackerTaskComplete: () => ({
+      mutate: mockToggle,
+      isPending: false,
+    }),
   }),
-}))
+)
 
 // The first-run "meet" card gates on whether the candidate has ever opened the
 // manager (a conversation exists). Control that here; default to none.

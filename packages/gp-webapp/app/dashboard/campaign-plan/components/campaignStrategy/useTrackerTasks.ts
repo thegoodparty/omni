@@ -53,6 +53,22 @@ const trackerTasksQueryOptions = () =>
     },
   })
 
+// flowTypes whose completion records a voter-contact count (each a valid
+// CampaignUpdateHistoryType the complete endpoint accepts), matching the legacy
+// task flow: community events + the outreach channels. Everything else (e.g.
+// awareness, setup) completes with no count prompt.
+const VOTER_CONTACT_FLOW_TYPES = new Set([
+  'events',
+  'doorKnocking',
+  'phoneBanking',
+  'text',
+  'robocall',
+  'socialMedia',
+])
+
+export const isVoterContactFlowType = (flowType: string | null): boolean =>
+  flowType !== null && VOTER_CONTACT_FLOW_TYPES.has(flowType)
+
 export type TrackerTasksResult = {
   tasks: CampaignTrackerTask[]
   isPending: boolean
