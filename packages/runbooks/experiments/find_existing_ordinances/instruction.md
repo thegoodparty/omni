@@ -134,7 +134,7 @@ def japi(url):
 def nrm(s):   # for MATCHING only — never build the URL from this
     s = re.sub(r"\(unexpired term\)|\(est\.?\)", "", s.lower().strip())   # office-name noise (production shapes)
     s = re.sub(r",?\s*\([^)]*co\.?\)\s*", " ", s)   # county tag: "Ada Township, (Kent Co.)"
-    s = re.sub(r"^(city|town|village|borough|township) of\s+", "", s)
+    s = re.sub(r"^(city|town|village|borough|township|municipality|county) of\s+", "", s)
     s = re.sub(r"\b(charter|chrtr)\s+township\b", "township", s)
     if re.search(r"\btownship\b", s):
         s = re.sub(r"(\btownship\b).*$", r"\1", s)   # townships keep the suffix (Step 1); drop role words after it
@@ -152,7 +152,7 @@ client  = cands[0] if len(cands) == 1 else None   # 2+ equal matches (same-named
 prods   = japi(f"https://api.municode.com/Products/clientId/{client['ClientID']}") if client else []  # pick ProductName containing "Ordinance"
 slug    = slugify(client["ClientName"]) if client else None   # keep punctuation: "St. Louis" -> "st._louis", "Kansas City" -> "kansas_city"
 ```
-Exact match -> `host_type` "municode", `client_id`/`product_id` (strings — `str()` the API's integer `ClientID`/`ProductID`), `url` `https://library.municode.com/<st>/{slug}/codes/code_of_ordinances`, `confidence` "high". Trust the API's exact `ClientName`; do NOT re-fetch the browse page to confirm. No match -> Step 4. (Do not fetch the General Code text-library page: it renders link-less here and cannot yield a URL.)
+Exact match -> `host_type` "municode", `client_id`/`product_id` (strings — `str()` the API's integer `ClientID`/`ProductID`), `url` `https://library.municode.com/{state.lower()}/{slug}/codes/code_of_ordinances` (lowercase state code — the canonical form Municode itself emits), `confidence` "high". Trust the API's exact `ClientName`; do NOT re-fetch the browse page to confirm. No match -> Step 4. (Do not fetch the General Code text-library page: it renders link-less here and cannot yield a URL.)
 
 ### Step 4: Tier 2: one WebSearch, triage by RESOLUTION ORDER, parallel-verify
 ```python
