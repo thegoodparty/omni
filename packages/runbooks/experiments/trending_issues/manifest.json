@@ -1,8 +1,8 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "trending_issues",
-  "version": 2,
-  "model": "opus",
+  "version": 3,
+  "model": "sonnet",
   "max_turns": 150,
   "timeout_seconds": 3000,
   "input_schema": {
@@ -65,7 +65,7 @@
       },
       "issues": {
         "type": "array",
-        "maxItems": 10,
+        "maxItems": 5,
         "items": {
           "$ref": "#/definitions/IssueOutput"
         }
@@ -238,7 +238,13 @@
           },
           "source_type": {
             "type": "string",
-            "enum": ["news", "government_website", "research", "poll", "advocacy_org"]
+            "enum": [
+              "news",
+              "government_website",
+              "research",
+              "poll",
+              "advocacy_org"
+            ]
           },
           "url": {
             "type": ["string", "null"],

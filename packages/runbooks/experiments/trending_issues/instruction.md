@@ -2,7 +2,7 @@
 
 # Trending Issues
 
-Given an elected official's district, produce a ranked list of up to 10 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
+Given an elected official's district, produce a ranked list of up to 5 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
 
 ## BEFORE YOU START
 
@@ -19,7 +19,7 @@ Given an elected official's district, produce a ranked list of up to 10 communit
 2. Call `GET_community_issues` with `organization_slug` to retrieve the current issue list. Record existing issue IDs.
 3. Run broad `WebSearch` queries for `<district_descriptor> local issues 2026` and related terms, including the public output of local community advocacy groups (associations, BIAs, neighborhood councils, coalitions; prefer nonpartisan), to identify candidate trending topics.
 4. For each candidate topic: verify the top URL with `pmf_runtime.http.head`; escalate to `http.get` only if head returns 403/405 or you need body content.
-5. Select up to 10 issues with the strongest recent signal (recency + coverage breadth).
+5. Select up to 5 issues with the strongest recent signal (recency + coverage breadth).
 6. Match each output issue against the existing feed: carry `existing_issue_id` when the issue maps to an existing record.
 7. Classify each issue into exactly one `category` from the allowed enum.
 8. Assign `priority` (`low|medium|high`) and `rank` (1 = most prominent/recent).
@@ -108,7 +108,7 @@ Run a handful of `WebSearch` queries:
 - `"<DISTRICT>" neighborhood association OR community association OR BIA OR neighborhood council`
 - `"<DISTRICT>" letter to the editor OR op-ed 2026`
 
-Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 10. For any advocacy group, record its name and any political-party affiliation; **prefer nonpartisan groups**, and require a second independent source before a partisan group's framing becomes a trending issue on its own.
+Collect candidate topics. Aim for 15-20 candidates before filtering down to the top 5. For any advocacy group, record its name and any political-party affiliation; **prefer nonpartisan groups**, and require a second independent source before a partisan group's framing becomes a trending issue on its own.
 
 ### Step 4 — Verify and retrieve sources per candidate
 
@@ -134,7 +134,7 @@ Rank candidates by:
 2. Coverage breadth (multiple independent sources)
 3. Relevance to the district (local vs. national story)
 
-Select up to 10. If fewer than 3 pass the threshold, proceed to thin-signal handling.
+Select up to 5. If fewer than 3 pass the threshold, proceed to thin-signal handling.
 
 ### Step 6 — Carry existing issue IDs
 
@@ -186,4 +186,4 @@ After validation passes, verify:
 | `source_id` not found in `detail.sources[]`  | Forgot to add the source entry after referencing it         | Add matching entry to `detail.sources[]`                                 |
 | Validator: missing required field `overview` | `detail.overview` was omitted                               | Always emit `overview`; it is required                                   |
 | `WebFetch` returns domain-safety error       | Used `WebFetch` instead of `WebSearch` + `pmf_runtime.http` | Use `WebSearch` for discovery; `pmf_runtime.http.head/get` for retrieval |
-| `GET_community_issues` 404            | Organization has no feed yet                                | Treat as empty feed; proceed with empty existing_issue_ids               |
+| `GET_community_issues` 404                   | Organization has no feed yet                                | Treat as empty feed; proceed with empty existing_issue_ids               |
