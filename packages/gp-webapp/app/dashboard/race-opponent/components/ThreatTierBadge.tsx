@@ -1,40 +1,46 @@
-import {
-  TriangleAlertIcon,
-  EyeIcon,
-  CircleMinusIcon,
-} from '@styleguide/components/ui/icons'
+import { cn } from '@styleguide'
 import type { RaceOpponentThreatTier } from '@goodparty_org/contracts'
-import OpponentBadge, { type OpponentBadgeTone } from './OpponentBadge'
 
+// The threat-tier label shown on the right of an opponent row: a colored dot
+// plus text. Card v2 (ENG-10635): the primary threat reads in the primary
+// token; the other two tiers read in foreground text with a colored dot
+// (matching the Lovable design). `warning-600` is the nearest registered
+// design token to Lovable's raw amber-500 — the styleguide forbids raw
+// Tailwind palette classes, and there is no `warning-500` token.
 const TIER_CONFIG: Record<
   RaceOpponentThreatTier,
-  { label: string; tone: OpponentBadgeTone; Icon: typeof TriangleAlertIcon }
+  { label: string; dot: string; text: string }
 > = {
   primary_threat: {
-    label: 'Primary threat',
-    tone: 'threat_primary',
-    Icon: TriangleAlertIcon,
+    label: 'Main threat',
+    dot: 'bg-primary',
+    text: 'text-primary',
   },
   watch_closely: {
     label: 'Watch closely',
-    tone: 'threat_watch',
-    Icon: EyeIcon,
+    dot: 'bg-warning-600',
+    text: 'text-foreground',
   },
   low_priority: {
     label: 'Low priority',
-    tone: 'threat_low',
-    Icon: CircleMinusIcon,
+    dot: 'bg-muted-foreground/50',
+    text: 'text-foreground',
   },
 }
+
+// The bare tier label (no dot/color), reused by the PDF export so the brief's
+// snapshot line reads the same wording as the on-screen roster badge.
+export const threatTierLabel = (
+  tier: RaceOpponentThreatTier,
+): string | undefined => TIER_CONFIG[tier]?.label
 
 type Props = {
   tier: RaceOpponentThreatTier
   className?: string
 }
 
-// The colored threat-tier label shown on the roster card. Returns nothing for
-// an unknown tier so an opponent without analysis renders no badge (rather than
-// an empty placeholder).
+// Returns nothing for an unknown tier so an opponent without analysis renders no
+// label (rather than an empty placeholder).
 const ThreatTierBadge = ({
   tier,
   className,
@@ -42,12 +48,19 @@ const ThreatTierBadge = ({
   const config = TIER_CONFIG[tier]
   if (!config) return null
   return (
-    <OpponentBadge
-      label={config.label}
-      tone={config.tone}
-      Icon={config.Icon}
-      className={className}
-    />
+    <span
+      className={cn(
+        'flex items-center gap-1.5 text-xs font-medium',
+        config.text,
+        className,
+      )}
+    >
+      <span
+        className={cn('size-2 shrink-0 rounded-full', config.dot)}
+        aria-hidden
+      />
+      {config.label}
+    </span>
   )
 }
 

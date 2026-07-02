@@ -18,6 +18,10 @@ const config: StorybookConfig = {
       ...(config.resolve.alias as Record<string, string>),
       '@styleguide': path.resolve(__dirname, '../../styleguide/src'),
       '@shared': path.resolve(__dirname, '../app/shared'),
+      // App-coupled stories (e.g. AiChat) import gp-webapp app modules by their
+      // `app/...` path; the story files live in the styleguide package, so the
+      // bare specifier needs an explicit alias to resolve here.
+      app: path.resolve(__dirname, '../app'),
     }
     return config
   },

@@ -143,6 +143,22 @@ entries to the event-metadata skill:
    (`.claude/skills/event-metadata`), which writes the `gp-meta` block into the Amplitude event
    description (read-modify-write, dev + prod). Client (Amplitude) events only.
 
+## Stage 5 — refresh the consumer surface (independent, non-fatal)
+
+After the monitor's run and log/state write-back (Stage 1), bring the event-state Google
+Sheet current. Its status column is recomputed live from the underlying data, so this path
+needs no override — a plain refresh is enough:
+
+```bash
+scripts/shell/refresh-event-state.sh
+```
+
+On a host without the shared Sheets credentials the wrapper exits 0 with `…not configured…;
+skipping` — that is expected, not an error; the sheet is refreshed by whichever configured
+host runs the monitor. If it fails for another reason, note it and continue — the monitor run
+has already completed its own work; re-run the wrapper manually once the issue is resolved.
+Do not fail the monitor run on a refresh error.
+
 ## gp-meta parsing spec (from the SOP)
 
 Block delimited by `<!-- gp-meta -->` … `<!-- /gp-meta -->` inside the description:
@@ -168,8 +184,19 @@ Set as constants at the top of `analytics_event_health.py`:
 
 The committed durable artifacts are the longitudinal log and the diff state. The full JSON
 report (`--json`) and the remediation payloads are gitignored transients. Route rank-1/2
-flags + their stage-2 verdicts to Eng/PM. (Future: post the digest to Slack and optionally
-open a fix PR — DATA-1952 phase 2.)
+flags + their stage-2 verdicts to Eng/PM.
+
+### Post the digest to Slack (`--slack`, DATA-2057)
+
+Pass `--slack` to also push a delta-led digest to the analytics event-lifecycle Slack
+channel: a parent message with the status transitions + newly flagged/resolved events, the
+anomaly/proposal headline, and the status breakdown, plus a threaded reply with per-event
+anomaly numbers and the watchlist proposals. It is **quiet** — nothing posts when no event
+was newly flagged, escalated, or resolved and no new anomaly appeared. The post happens
+inline **before** the state file is advanced (the diff is consumed once state is written),
+and is **non-fatal**: a Slack error prints a warning and never changes the monitor's exit
+code. Needs `SLACK_APP_BOT_TOKEN` + `SLACK_EVENT_LIFECYCLE_CHANNEL_ID` in `scripts/.env`;
+without them, `--slack` warns and skips while the monitor runs normally.
 
 ## Troubleshooting
 

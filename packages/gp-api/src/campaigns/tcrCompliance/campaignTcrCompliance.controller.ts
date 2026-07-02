@@ -90,7 +90,10 @@ export class CampaignTcrComplianceController {
       '10DLC compliance. Precondition (enforced by the route): the ' +
       'compliance stage must be `awaiting_pin` — i.e., the domain is ' +
       "registered and the candidate's website is published and " +
-      'verified live. Calls with any earlier stage return 422. ' +
+      'verified live, AND the website content is genuine (a real bio ' +
+      'of at least 500 characters and at least one real, non-template ' +
+      'issue). Calls with any earlier stage return 422; calls with ' +
+      'generic or template content return 400. ' +
       'Required inputs: EIN, committee name, office level, election ' +
       'filing details, contact email and phone, and the verified ' +
       'website URL. Creates the Peerly Identity, Identity Profile, ' +

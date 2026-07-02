@@ -1,6 +1,11 @@
 import * as React from 'react'
 import type { Meta, StoryObj } from '@storybook/nextjs-vite'
-import { MenuIcon, PlusIcon, ShareIcon } from '../components/ui/icons'
+import {
+  MenuIcon,
+  PlusIcon,
+  ShareIcon,
+  SwordsIcon,
+} from '../components/ui/icons'
 import { Button } from '../components/ui/button'
 import { IconButton } from '../components/ui/icon-button'
 import { SidebarProvider } from '../components/ui/sidebar'
@@ -154,6 +159,25 @@ export const SubBar: StoryObj = {
         heading="Q3 Voter Outreach Meeting"
         trailing={<Burger />}
         subBarTrailing={<SubBarActions />}
+      />
+    </div>
+  ),
+}
+
+export const ContainedBar: StoryObj = {
+  parameters: { controls: { disable: true } },
+  render: () => (
+    <div className="flex flex-col gap-6">
+      {label('White bar, content aligned to a constrained column (608px)')}
+      <PageHeader
+        heading={
+          <span className="text-sm font-semibold text-foreground">
+            Know Your Opponent
+          </span>
+        }
+        leading={<SwordsIcon className="size-5 text-foreground" />}
+        barClassName="h-14 border-border bg-background px-0"
+        contentClassName="mx-auto max-w-[608px] gap-2"
       />
     </div>
   ),

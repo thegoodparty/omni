@@ -118,27 +118,19 @@ describe('<AddOpponentsForm>', () => {
     ])
   })
 
-  it('acknowledges a completed run and hides the entry fields behind a disclosure', async () => {
-    const user = userEvent.setup()
-    render(
-      <AddOpponentsForm submitting={false} onSubmit={vi.fn()} ranAlready />,
-    )
+  it('shows the "No opponents found" banner and Opponent 1 fields immediately', () => {
+    render(<AddOpponentsForm submitting={false} onSubmit={vi.fn()} />)
 
-    expect(
-      screen.getByText(/no opponents found in this analysis/i),
-    ).toBeInTheDocument()
-    // Fields and the submit start hidden — no always-live fresh-submit.
-    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /run the analysis/i }),
-    ).not.toBeInTheDocument()
-
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
+    expect(screen.getByText('No opponents found')).toBeInTheDocument()
+    // The first opponent's fields and the submit are visible up front — there
+    // is no "Add opponents manually" disclosure to click through.
+    expect(screen.getByText('Opponent 1')).toBeInTheDocument()
     expect(screen.getByLabelText('Name')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /run the analysis/i }),
     ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /add opponents manually/i }),
+    ).not.toBeInTheDocument()
   })
 })

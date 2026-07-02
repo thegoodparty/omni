@@ -1,7 +1,6 @@
 'use client'
 import { createContext, useContext, useCallback, ReactNode } from 'react'
-import { toast } from 'sonner'
-import { Toaster } from '@styleguide'
+import { Toaster, toast } from '@styleguide'
 
 interface SnackbarState {
   autoHideDuration?: number

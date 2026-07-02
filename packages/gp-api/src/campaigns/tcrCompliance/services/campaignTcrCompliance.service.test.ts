@@ -1104,6 +1104,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   let mockComplianceState: {
     findStateForCampaign: ReturnType<typeof vi.fn>
   }
+  let mockWebsites: {
+    findFirstOrThrow: ReturnType<typeof vi.fn>
+    getContentForCampaign: ReturnType<typeof vi.fn>
+  }
   let mockTcrModel: {
     findUnique: ReturnType<typeof vi.fn>
     update: ReturnType<typeof vi.fn>
@@ -1122,6 +1126,16 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     placeId: 'place-123',
     details: { electionDate: '2026-11-03' },
   })
+
+  // A real bio (>= 500 chars, no template marker) plus one real issue, so the
+  // content gate passes by default; individual tests override this to
+  // exercise the generic-content rejection path.
+  const genuineContent = {
+    about: {
+      bio: `<p>${'A'.repeat(600)}</p>`,
+      issues: [{ title: 'Lower property taxes', description: 'A real plan' }],
+    },
+  }
 
   const input = {
     ein: '12-3456789',
@@ -1199,6 +1213,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       $transaction: vi.fn(),
     }
     mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
+    mockWebsites = {
+      findFirstOrThrow: vi.fn(),
+      getContentForCampaign: vi.fn().mockResolvedValue(genuineContent),
+    }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -1206,7 +1224,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         { provide: PeerlyIdentityService, useValue: mockPeerly },
         {
           provide: WebsitesService,
-          useValue: { findFirstOrThrow: vi.fn() },
+          useValue: mockWebsites,
         },
         {
           provide: CampaignsService,
@@ -1552,6 +1570,42 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
     expect(mockTcrModel.updateMany).not.toHaveBeenCalled()
     expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+
+  it('refuses to submit when website content is generic', async () => {
+    mockWebsites.getContentForCampaign.mockResolvedValueOnce({
+      about: { bio: '<p>short</p>', issues: [] },
+    })
+    const peerlySpy = vi.spyOn(
+      service as unknown as { submitToPeerly: () => Promise<never> },
+      'submitToPeerly',
+    )
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, input),
+    ).rejects.toThrow(/genuine/i)
+
+    expect(peerlySpy).not.toHaveBeenCalled()
+    expect(mockTcrModel.updateMany).not.toHaveBeenCalled()
+    expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+
+  it('does not throw or 500 when about.issues has a genuine issue mixed with a malformed (null) entry', async () => {
+    mockWebsites.getContentForCampaign.mockResolvedValueOnce({
+      about: {
+        bio: `<p>${'A'.repeat(600)}</p>`,
+        issues: [
+          { title: 'Lower property taxes', description: 'A real plan' },
+          null,
+        ],
+      },
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, input),
+    ).resolves.not.toThrow()
+
+    expect(mockTcrModel.updateMany).toHaveBeenCalled()
   })
 
   it('preserves persisted peerlyCvVerificationId when Peerly already has a CV request (existing-CV branch)', async () => {

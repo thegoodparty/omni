@@ -7,9 +7,17 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
 import RaceOpponentList from './RaceOpponentList'
+import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
 
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
+}))
+
+// react-pdf's rendering path can't run in jsdom; the button's contract is that
+// it hands the on-screen opponents to the download helper, so mock the helper
+// and assert the wiring.
+vi.mock('../pdf/downloadOpponentBriefPdf', () => ({
+  downloadOpponentBriefsPdf: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
@@ -31,23 +39,46 @@ const withSummary: RaceOpponentResponse = {
       opponentName: 'Jane Rival',
       party: 'Democrat',
       isIncumbent: true,
+      websiteUrl: 'https://janerival.example.com',
       summary: {
         opponentName: 'Jane Rival',
         overview: {
           text: 'Two-term incumbent with strong party backing.',
           sources: [
             {
+              url: 'https://ballotpedia.org/Jane_Rival',
+              title: 'Source title',
+              publisher: 'Ballotpedia',
               sourceType: 'ballotpedia',
               sourceUrl: 'https://ballotpedia.org/Jane_Rival',
             },
           ],
         },
+        whyTheyreRunning: {
+          text: 'Running to defend her record on housing affordability.',
+        },
         background: {
           text: 'Served on the city council before the legislature.',
           sources: [
+            // Rich-only v2 shape (no legacy sourceType/sourceUrl): a freshly
+            // persisted v2 row's sources look like this — the card v2 rewrite
+            // (ENG-10635) reads sources off `url` directly, no fallback.
             {
-              sourceType: 'opponent_website',
-              sourceUrl: 'https://janerival.example.com/about',
+              url: 'https://janerival.example.com/about',
+              title: 'Source title',
+              publisher: 'Campaign website',
+            },
+          ],
+        },
+        issuesThatMatter: {
+          items: ['Housing affordability', 'Transit expansion'],
+          sources: [
+            // A distinct host from the overview source so the two SourceRow
+            // chips are individually addressable by their accessible name.
+            {
+              url: 'https://localnews.example.com/jane-rival-issues',
+              title: 'Source title',
+              publisher: 'Local News',
             },
           ],
         },
@@ -57,6 +88,9 @@ const withSummary: RaceOpponentResponse = {
             detail: 'Backed the developer tax-credit version of the bill.',
             sources: [
               {
+                url: 'https://ballotpedia.org/Jane_Rival#housing',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/Jane_Rival#housing',
               },
@@ -65,16 +99,80 @@ const withSummary: RaceOpponentResponse = {
         ],
         generatedAt: '2026-06-20T12:00:00.000Z',
       },
-      items: [
-        {
-          id: 1,
-          opponentName: 'Jane Rival',
-          sourceType: 'ballotpedia',
-          sourceUrl: 'https://ballotpedia.org/Jane_Rival',
-          content: 'Raw scraped Ballotpedia text about Jane Rival.',
-          collectedAt: '2026-06-20T12:00:00.000Z',
+      // No items: gp-api omits the raw source-research rows once a structured
+      // summary exists (ENG-10622). The summary is the only view here.
+    },
+  ],
+}
+
+// A summary with only the pre-v2 fields (overview/background/keyPositions),
+// no whyTheyreRunning/issuesThatMatter — the shape an unregenerated legacy row
+// still parses as. The removed sections (why they matter, what you need to
+// know, where soft, contrasts, key positions) must never render, even though
+// this fixture's keyPositions is non-empty.
+const legacySummary: RaceOpponentResponse = {
+  collectionStatus: 'completed',
+  lastCollectedAt: '2026-06-20T12:00:00.000Z',
+  opponents: [
+    {
+      opponentName: 'Legacy Rival',
+      party: 'Republican',
+      isIncumbent: false,
+      summary: {
+        opponentName: 'Legacy Rival',
+        overview: {
+          text: 'Legacy overview text.',
+          sources: [
+            {
+              url: 'https://ballotpedia.org/Legacy_Rival',
+              title: 'Source title',
+              publisher: 'Ballotpedia',
+              sourceType: 'ballotpedia',
+              sourceUrl: 'https://ballotpedia.org/Legacy_Rival',
+            },
+          ],
         },
-      ],
+        background: {
+          text: 'Legacy background text.',
+          sources: [
+            {
+              url: 'https://ballotpedia.org/Legacy_Rival#bg',
+              title: 'Source title',
+              publisher: 'Ballotpedia',
+              sourceType: 'ballotpedia',
+              sourceUrl: 'https://ballotpedia.org/Legacy_Rival#bg',
+            },
+          ],
+        },
+        keyPositions: [
+          {
+            label: 'Housing',
+            detail: 'A legacy key position.',
+            sources: [
+              {
+                url: 'https://ballotpedia.org/Legacy_Rival#housing',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
+                sourceType: 'ballotpedia',
+                sourceUrl: 'https://ballotpedia.org/Legacy_Rival#housing',
+              },
+            ],
+          },
+        ],
+        whyTheyMatter: 'A legacy why-they-matter callout.',
+        whatYouNeedToKnow: [{ text: 'A legacy takeaway.' }],
+        whereSoft: [{ text: 'A legacy soft spot.' }],
+        issueContrasts: [
+          {
+            issue: 'Housing',
+            salience: 'high',
+            whyItMatters: 'A legacy contrast reason.',
+            opponentStance: 'A legacy opponent stance.',
+            candidateStance: 'A legacy candidate stance.',
+          },
+        ],
+        generatedAt: '2026-06-20T12:00:00.000Z',
+      },
     },
   ],
 }
@@ -117,7 +215,7 @@ const empty: RaceOpponentResponse = {
 }
 
 // A completed run that found no opponents — the state that surfaces the manual
-// entry form (behind the "Add opponents manually" disclosure).
+// entry form directly.
 const completedEmpty: RaceOpponentResponse = {
   ...empty,
   collectionStatus: 'completed',
@@ -133,7 +231,7 @@ beforeEach(() => {
 })
 
 describe('<RaceOpponentList>', () => {
-  it('renders the structured summary sections with citations and never a <pre> dump', () => {
+  it('renders the four v2 sections with citations and never a <pre> dump', () => {
     const { container } = render(<RaceOpponentList initialData={withSummary} />)
 
     // The candidate's name renders in its accordion trigger row (a button), not
@@ -142,197 +240,174 @@ describe('<RaceOpponentList>', () => {
       screen.getByRole('button', { name: /Jane Rival/i }),
     ).toBeInTheDocument()
 
-    // Overview + background prose render as the primary content. The overview
-    // text also appears in the card's truncated summary line, so it renders in
-    // two places.
-    expect(screen.getByText('Overview')).toBeInTheDocument()
+    // Overview has no heading; the other three sections show their uppercase
+    // blue label.
+    expect(screen.queryByText('Overview')).not.toBeInTheDocument()
+    expect(screen.getByText("Why they're running")).toBeInTheDocument()
+    expect(screen.getByText('Their background')).toBeInTheDocument()
     expect(
-      screen.getAllByText('Two-term incumbent with strong party backing.')
-        .length,
-    ).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('Background')).toBeInTheDocument()
+      screen.getByText('Issues that matter most to them'),
+    ).toBeInTheDocument()
+
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Running to defend her record on housing affordability.',
+      ),
+    ).toBeInTheDocument()
     expect(
       screen.getByText('Served on the city council before the legislature.'),
     ).toBeInTheDocument()
+    expect(screen.getByText('Housing affordability')).toBeInTheDocument()
+    expect(screen.getByText('Transit expansion')).toBeInTheDocument()
 
-    // Each section carries a citation from summary.sources.
+    // Removed sections never render, even though this fixture's summary still
+    // carries a legacy, non-empty keyPositions array.
+    expect(screen.queryByText('Key positions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Why they matter most')).not.toBeInTheDocument()
+    expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
+    expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
     expect(
-      screen.getByRole('link', { name: /ballotpedia\.org\/Jane_Rival$/i }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival')
-    expect(
-      screen.getByRole('link', {
-        name: /janerival\.example\.com\/about/i,
-      }),
-    ).toHaveAttribute('href', 'https://janerival.example.com/about')
+      screen.queryByText('Where you contrast, and what to do about it'),
+    ).not.toBeInTheDocument()
 
     // No raw JSON dump on the page.
     expect(container.querySelector('pre')).toBeNull()
   })
 
-  it('renders a key position with its label, detail, and source link', () => {
+  it('renders per-section source chips, reading sources.url directly', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    expect(screen.getByText('Key positions')).toBeInTheDocument()
-    expect(screen.getByText('Housing')).toBeInTheDocument()
+    // Each source chip's accessible name includes its section's own domain;
+    // the chip opens a hover-card carousel rather than a plain citation link.
+    // background.sources can differ from overview.sources (e.g. Ballotpedia on
+    // overview vs the opponent's site on background), so the background
+    // section renders its own SourceRow — its citations must not be dropped
+    // just because the overview also has one.
     expect(
-      screen.getByText('Backed the developer tax-credit version of the bill.'),
+      screen.getByRole('button', { name: /source: ballotpedia\.org/i }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('link', {
-        name: /ballotpedia\.org\/Jane_Rival#housing/i,
-      }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#housing')
-  })
-
-  const withAnalysis: RaceOpponentResponse = {
-    ...withSummary,
-    opponents: [
-      {
-        ...withSummary.opponents[0]!,
-        summary: {
-          ...withSummary.opponents[0]!.summary!,
-          whyTheyMatter: 'The only incumbent with party-backed funding.',
-          whatYouNeedToKnow: [
-            'Two-term incumbent with name recognition.',
-            'Backed by the county party committee.',
-          ],
-        },
-      },
-    ],
-  }
-
-  it('renders the why-they-matter callout and what-you-need-to-know list', () => {
-    render(<RaceOpponentList initialData={withAnalysis} />)
-
-    expect(screen.getByText('Why they matter most')).toBeInTheDocument()
-    expect(
-      screen.getByText('The only incumbent with party-backed funding.'),
-    ).toBeInTheDocument()
-
-    expect(screen.getByText('What you need to know')).toBeInTheDocument()
-    expect(screen.getByText('2 items')).toBeInTheDocument()
-    expect(
-      screen.getByText('Two-term incumbent with name recognition.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Backed by the county party committee.'),
+      screen.getByRole('button', { name: /source: janerival\.example\.com/i }),
     ).toBeInTheDocument()
   })
 
-  it('hides both sections when the analysis fields are absent', () => {
+  it('renders the Campaign website link when websiteUrl is present, opening in a new tab', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    expect(screen.queryByText('Why they matter most')).not.toBeInTheDocument()
-    expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /campaign website/i })
+    expect(link).toHaveAttribute('href', 'https://janerival.example.com')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
-  const withWhereSoft: RaceOpponentResponse = {
-    ...withSummary,
-    opponents: [
-      {
-        ...withSummary.opponents[0]!,
-        summary: {
-          ...withSummary.opponents[0]!.summary!,
-          whereSoft: [
-            {
-              text: 'No published long-term water position.',
-              sources: [
-                {
-                  sourceType: 'ballotpedia',
-                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#water',
-                },
-              ],
-            },
-            // relaxed sourcing: an item with no source still renders
-            { text: 'Skipped the 2026 candidate survey.' },
-          ],
-        },
-      },
-    ],
-  }
-
-  it('renders the where-theyre-soft section with a count and relaxed sourcing', () => {
-    render(<RaceOpponentList initialData={withWhereSoft} />)
-
-    expect(screen.getByText("Where they're soft")).toBeInTheDocument()
-    expect(screen.getByText('2 openings')).toBeInTheDocument()
+  it('omits the Campaign website link when websiteUrl is absent', () => {
+    render(<RaceOpponentList initialData={legacySummary} />)
     expect(
-      screen.getByText('No published long-term water position.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', {
-        name: /ballotpedia\.org\/Jane_Rival#water/i,
-      }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#water')
-    expect(
-      screen.getByText('Skipped the 2026 candidate survey.'),
-    ).toBeInTheDocument()
-  })
-
-  it('hides the where-theyre-soft section when there are no items', () => {
-    render(<RaceOpponentList initialData={withSummary} />)
-    expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
-  })
-
-  const withContrasts: RaceOpponentResponse = {
-    ...withSummary,
-    opponents: [
-      {
-        ...withSummary.opponents[0]!,
-        summary: {
-          ...withSummary.opponents[0]!.summary!,
-          issueContrasts: [
-            {
-              issue: 'Housing',
-              salience: 'high',
-              whyItMatters: 'Families are being priced out of the district.',
-              opponentStance: 'Backs the developer tax-credit bill.',
-              opponentSources: [
-                {
-                  sourceType: 'ballotpedia',
-                  sourceUrl: 'https://ballotpedia.org/Jane_Rival#contrast',
-                },
-              ],
-              candidateStance: 'Supports more starter homes near transit.',
-            },
-          ],
-        },
-      },
-    ],
-  }
-
-  it('renders an issue contrast card with both stances, source, and salience', () => {
-    render(<RaceOpponentList initialData={withContrasts} />)
-
-    expect(screen.getByText('Where you contrast')).toBeInTheDocument()
-    expect(screen.getByText('High voter salience')).toBeInTheDocument()
-    expect(
-      screen.getByText('Families are being priced out of the district.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Backs the developer tax-credit bill.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByText('Supports more starter homes near transit.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', {
-        name: /ballotpedia\.org\/Jane_Rival#contrast/i,
-      }),
-    ).toHaveAttribute('href', 'https://ballotpedia.org/Jane_Rival#contrast')
-  })
-
-  it('renders no Start or What-to-do action on a contrast card', () => {
-    render(<RaceOpponentList initialData={withContrasts} />)
-    expect(
-      screen.queryByRole('button', { name: /start|what to do/i }),
+      screen.queryByRole('link', { name: /campaign website/i }),
     ).not.toBeInTheDocument()
-    expect(screen.queryByText(/what to do/i)).not.toBeInTheDocument()
   })
 
-  it('hides the where-you-contrast section when there are no contrasts', () => {
-    render(<RaceOpponentList initialData={withSummary} />)
-    expect(screen.queryByText('Where you contrast')).not.toBeInTheDocument()
+  it('prepends https:// to a schemeless websiteUrl so the link is not relative', () => {
+    // gp-api can return the roster hint as a bare apex domain (the
+    // manual-entry path persists `new URL(url).hostname`), which as a raw
+    // href would navigate in-app to /dashboard/race-opponent/<domain>.
+    const schemelessWebsite: RaceOpponentResponse = {
+      ...withSummary,
+      opponents: [
+        {
+          ...withSummary.opponents[0]!,
+          websiteUrl: 'janerival.example.com',
+        },
+      ],
+    }
+    render(<RaceOpponentList initialData={schemelessWebsite} />)
+
+    expect(
+      screen.getByRole('link', { name: /campaign website/i }),
+    ).toHaveAttribute('href', 'https://janerival.example.com')
+  })
+
+  it('renders only overview and background for a legacy summary, without crashing', () => {
+    render(<RaceOpponentList initialData={legacySummary} />)
+
+    expect(screen.getByText('Legacy overview text.')).toBeInTheDocument()
+    expect(screen.getByText('Their background')).toBeInTheDocument()
+    expect(screen.getByText('Legacy background text.')).toBeInTheDocument()
+
+    // The removed sections never render, even though this legacy summary
+    // still carries their (now-deprecated) fields.
+    expect(screen.queryByText("Why they're running")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Issues that matter most to them'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Key positions')).not.toBeInTheDocument()
+    expect(screen.queryByText('A legacy key position.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Why they matter most')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('A legacy why-they-matter callout.'),
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('What you need to know')).not.toBeInTheDocument()
+    expect(screen.queryByText('A legacy takeaway.')).not.toBeInTheDocument()
+    expect(screen.queryByText("Where they're soft")).not.toBeInTheDocument()
+    expect(screen.queryByText('A legacy soft spot.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Where you contrast, and what to do about it'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('opens exactly one candidate at a time: opening the second collapses the first', async () => {
+    const user = userEvent.setup()
+    const twoOpponents: RaceOpponentResponse = {
+      ...withSummary,
+      opponents: [
+        withSummary.opponents[0]!,
+        {
+          opponentName: 'Legacy Rival',
+          party: 'Republican',
+          isIncumbent: false,
+          summary: legacySummary.opponents[0]!.summary,
+        },
+      ],
+    }
+    render(<RaceOpponentList initialData={twoOpponents} />)
+
+    // Jane (the primary threat by default-open logic, here just opponents[0])
+    // is open on mount.
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Legacy Rival/i }))
+
+    // Opening the second candidate closes the first — only one detail body is
+    // visible at a time (type=single accordion).
+    expect(screen.getByText('Legacy overview text.')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Two-term incumbent with strong party backing.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('wires the expanded blue-ring and collapsed hover-state classes onto the card', () => {
+    // jsdom doesn't compute CSS, so both accordion items carry the same static
+    // data-state-scoped Tailwind tokens regardless of which is currently open
+    // — Radix resolves them via its own `data-state` attribute at runtime.
+    // This pins the literal class tokens the design calls for onto the card.
+    const { container } = render(<RaceOpponentList initialData={withSummary} />)
+
+    const card = container.querySelector('[data-state]')
+    expect(card).not.toBeNull()
+    expect(card).toHaveClass(
+      'overflow-hidden',
+      'rounded-xl',
+      'data-[state=open]:border-primary',
+      'data-[state=open]:ring-2',
+      'data-[state=open]:ring-primary/30',
+      'data-[state=closed]:border-border',
+      'data-[state=closed]:hover:border-foreground/30',
+    )
   })
 
   it('fires Win - Opponent Profile Viewed when an opponent detail is shown', () => {
@@ -389,6 +464,9 @@ describe('<RaceOpponentList>', () => {
             text: 'First challenger overview text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/First_Challenger',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/First_Challenger',
               },
@@ -398,6 +476,9 @@ describe('<RaceOpponentList>', () => {
             text: 'First challenger background text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/First_Challenger#bg',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/First_Challenger#bg',
               },
@@ -419,6 +500,9 @@ describe('<RaceOpponentList>', () => {
             text: 'Main threat overview text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/Main_Threat',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/Main_Threat',
               },
@@ -428,6 +512,9 @@ describe('<RaceOpponentList>', () => {
             text: 'Main threat background text.',
             sources: [
               {
+                url: 'https://ballotpedia.org/Main_Threat#bg',
+                title: 'Source title',
+                publisher: 'Ballotpedia',
                 sourceType: 'ballotpedia',
                 sourceUrl: 'https://ballotpedia.org/Main_Threat#bg',
               },
@@ -464,18 +551,74 @@ describe('<RaceOpponentList>', () => {
     const user = userEvent.setup()
     render(<RaceOpponentList initialData={withSummary} />)
 
-    // Jane opens by default, so her detail (Overview) is visible.
-    expect(screen.getByText('Overview')).toBeInTheDocument()
+    // Jane opens by default, so her detail (the overview prose) is visible.
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
 
     // Clicking the already-open row collapses it — the panel content is gone.
     await user.click(screen.getByRole('button', { name: /Jane Rival/i }))
     await waitFor(() =>
-      expect(screen.queryByText('Overview')).not.toBeInTheDocument(),
+      expect(
+        screen.queryByText('Two-term incumbent with strong party backing.'),
+      ).not.toBeInTheDocument(),
     )
 
     // Clicking the row again re-opens it.
     await user.click(screen.getByRole('button', { name: /Jane Rival/i }))
-    expect(screen.getByText('Overview')).toBeInTheDocument()
+    expect(
+      screen.getByText('Two-term incumbent with strong party backing.'),
+    ).toBeInTheDocument()
+  })
+
+  it('exports the on-screen opponents when Export brief is clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      <RaceOpponentList initialData={withSummary} raceContext="Test race" />,
+    )
+
+    const exportButton = screen.getByRole('button', { name: /Export brief/i })
+    expect(exportButton).toBeEnabled()
+
+    await user.click(exportButton)
+
+    expect(downloadOpponentBriefsPdf).toHaveBeenCalledWith(
+      withSummary.opponents,
+      'Test race',
+      withSummary.fieldAnalysis,
+    )
+  })
+
+  it('disables Export brief when no opponent has a structured summary', () => {
+    render(<RaceOpponentList initialData={nullSummary} />)
+
+    expect(screen.getByRole('button', { name: /Export brief/i })).toBeDisabled()
+  })
+
+  it('shows an error snackbar and re-enables the button when pdf export fails', async () => {
+    const errorSnackbar = vi.fn()
+    vi.mocked(useSnackbar).mockReturnValue({
+      successSnackbar: vi.fn(),
+      errorSnackbar,
+      displaySnackbar: vi.fn(),
+    })
+    vi.mocked(downloadOpponentBriefsPdf).mockRejectedValueOnce(
+      new Error('render failed'),
+    )
+    const user = userEvent.setup()
+    render(
+      <RaceOpponentList initialData={withSummary} raceContext="Test race" />,
+    )
+
+    const exportButton = screen.getByRole('button', { name: /Export brief/i })
+    await user.click(exportButton)
+
+    await waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(
+        'Failed to export the brief. Please try again.',
+      ),
+    )
+    expect(exportButton).toBeEnabled()
   })
 
   it('never renders a finance summary card', () => {
@@ -483,29 +626,17 @@ describe('<RaceOpponentList>', () => {
     expect(screen.queryByText(/finance|fundraising|cash on hand/i)).toBeNull()
   })
 
-  it('keeps the raw source research collapsed by default when a summary is present', () => {
+  it('does not render a "View source research" section when a summary is present', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    const trigger = screen.getByRole('button', {
-      name: /view source research/i,
-    })
-    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    // The raw-scrape disclosure was removed: the summary is the only view, and
+    // the raw scrape is not surfaced when a summary exists.
+    expect(
+      screen.queryByRole('button', { name: /view source research/i }),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByText('Raw scraped Ballotpedia text about Jane Rival.'),
     ).not.toBeInTheDocument()
-  })
-
-  it('reveals the raw source research when the section is expanded', async () => {
-    const user = userEvent.setup()
-    render(<RaceOpponentList initialData={withSummary} />)
-
-    await user.click(
-      screen.getByRole('button', { name: /view source research/i }),
-    )
-
-    expect(
-      screen.getByText('Raw scraped Ballotpedia text about Jane Rival.'),
-    ).toBeInTheDocument()
   })
 
   it('falls back to readable, source-linked raw text when summary is null', () => {
@@ -530,23 +661,6 @@ describe('<RaceOpponentList>', () => {
     expect(container.querySelector('pre')).toBeNull()
   })
 
-  // The non-busy states still surface the status pill on the list view.
-  it.each([
-    ['idle', 'Idle'],
-    ['completed', 'Completed'],
-    ['failed', 'Failed'],
-  ] as const)(
-    'renders the %s status indicator with its label',
-    (status, label) => {
-      render(
-        <RaceOpponentList
-          initialData={{ ...empty, collectionStatus: status }}
-        />,
-      )
-      expect(screen.getByText(label)).toBeInTheDocument()
-    },
-  )
-
   // While the run is busy (discovering/running) the page shows the cosmetic
   // processing screen instead of the bare status pill.
   it.each(['discovering', 'running'] as const)(
@@ -561,52 +675,82 @@ describe('<RaceOpponentList>', () => {
     },
   )
 
-  it('omits the "last collected" line when lastCollectedAt is null', () => {
-    render(
-      <RaceOpponentList initialData={{ ...empty, lastCollectedAt: null }} />,
-    )
-    expect(screen.queryByText(/last collected/i)).not.toBeInTheDocument()
-  })
-
-  it('shows a "last collected" line when lastCollectedAt is set', () => {
-    render(
-      <RaceOpponentList
-        initialData={{ ...empty, lastCollectedAt: '2026-06-20T12:00:00.000Z' }}
-      />,
-    )
-    expect(screen.getByText(/last collected/i)).toBeInTheDocument()
-  })
-
-  it('shows the manual entry form when collection completed with no opponents', () => {
+  it('shows the manual entry form directly when collection completed with no opponents', () => {
     render(
       <RaceOpponentList
         initialData={{ ...empty, collectionStatus: 'completed' }}
       />,
     )
 
+    // The form's fields are live up front — no "Add opponents manually"
+    // disclosure to click through first.
+    expect(screen.getByText('No opponents found')).toBeInTheDocument()
     expect(
-      screen.getByText(/no opponents found in this analysis/i),
+      screen.getByText(/add the opponents you want to analyze/i),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Name')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /run the analysis/i }),
     ).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: /add opponents manually/i }),
+    ).not.toBeInTheDocument()
     expect(
       screen.queryByText(/no opponent research yet/i),
     ).not.toBeInTheDocument()
   })
 
-  it('shows the never-run prompt (not the manual form) when idle', () => {
+  it('auto-starts collection and shows the processing screen for a never-ran idle user', async () => {
+    // A Pro user landing here with no prior run (idle + lastCollectedAt null)
+    // should not have to click anything — the agentic flow kicks off on mount
+    // and the processing screen takes over, with no manual "start" prompt.
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'run-1', status: 'running' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+
     render(<RaceOpponentList initialData={empty} />)
 
-    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
-    // idle has never run, so it must not claim a finished analysis or offer the
-    // manual form.
+    await waitFor(() =>
+      expect(
+        screen.getByText('Researching your opponents'),
+      ).toBeInTheDocument(),
+    )
+    // Dispatched exactly once, and no legacy "start" prompt is shown.
+    expect(collectHandler).toHaveBeenCalledTimes(1)
     expect(
-      screen.queryByText(/no opponents found in this analysis/i),
+      screen.queryByText(/no opponent research yet/i),
     ).not.toBeInTheDocument()
+  })
+
+  it('drops the never-ran idle-mount auto-start to the manual form when collect settles to idle (uncontested)', async () => {
+    // The idle-MOUNT auto-start path (neverRan + autoStartPending) is distinct
+    // from the discovering-mount auto-fire. For an already-discovered uncontested
+    // race, /collect returns idle without dispatching a paid run. Once the
+    // in-flight collect resolves, autoStartPending must drop (autoStartedRef set +
+    // collecting cleared) and the screen give way to AddOpponentsForm — it must
+    // NOT wedge on the processing screen.
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: null, status: 'idle' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    // On mount the processing screen holds while the auto-start is pending/in flight.
+    expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
+
+    // Once collect() settles to idle, the manual form replaces the screen.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
     expect(
-      screen.queryByRole('button', { name: /add opponents manually/i }),
+      screen.queryByText('Researching your opponents'),
     ).not.toBeInTheDocument()
+    // collect fired exactly once — no re-dispatch loop.
+    expect(collectHandler).toHaveBeenCalledTimes(1)
   })
 
   it('shows the processing screen (not the manual form) while discovering', () => {
@@ -633,9 +777,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -671,9 +812,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     const submit = screen.getByRole('button', { name: /run the analysis/i })
     const form = submit.closest('form')
@@ -688,54 +826,6 @@ describe('<RaceOpponentList>', () => {
 
     await waitFor(() => expect(requestSpy).toHaveBeenCalledTimes(1))
     expect(requestSpy).toHaveBeenCalledTimes(1)
-  })
-
-  it('disables "Collect now" while a manual submit is in flight', async () => {
-    // Hold the manual POST pending so submittingManual stays true; "Collect
-    // now" must not be clickable during that window (no concurrent paid run).
-    api.mock(
-      'POST /v1/campaigns/mine/race-opponent/opponents/manual',
-      pendingForever,
-    )
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={completedEmpty} />)
-
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
-    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
-    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
-
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: /collect now/i }),
-      ).toBeDisabled(),
-    )
-  })
-
-  it('disables the manual submit while a collect is in flight', async () => {
-    // Hold the collect POST pending so collecting stays true; the form's "Run
-    // the analysis" must be disabled during that window.
-    api.mock('POST /v1/campaigns/mine/race-opponent/collect', pendingForever)
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={completedEmpty} />)
-
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
-    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
-    await user.click(screen.getByRole('button', { name: /collect now/i }))
-
-    // While collecting, the form's submit enters its loading state ("Starting…")
-    // and is disabled — so no concurrent manual run can be triggered.
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: /starting/i })).toBeDisabled(),
-    )
-    expect(
-      screen.queryByRole('button', { name: /run the analysis/i }),
-    ).not.toBeInTheDocument()
   })
 
   it('shows a failure state (not the manual form) when collection failed', () => {
@@ -755,39 +845,193 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('acknowledges a completed run that found no opponents and gates a fresh submit', async () => {
+  it('does not double-dispatch collect when "Try again" on a failed mount settles to idle', async () => {
+    // Mounting on 'failed' arms the auto-start guard (a failed run means a run
+    // already ran). So when the manual "Try again" collect resolves to a terminal
+    // 'idle' (uncontested server path), `neverRan` flips true but the auto-start
+    // must NOT re-fire a second collect() — that would risk a double paid run.
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: null, status: 'idle' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
     const user = userEvent.setup()
+
+    render(
+      <RaceOpponentList
+        initialData={{ ...empty, collectionStatus: 'failed' }}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+
+    // The idle result surfaces the manual form; collect fired exactly once (the
+    // click), with no auto-start re-dispatch.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
+    expect(collectHandler).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not auto-dispatch collect when a manual submit from a completed mount settles to idle', async () => {
+    // Mounting on any non-idle status (here 'completed') arms the auto-start
+    // guard. If the manual-form submit resolves to a terminal 'idle' (uncontested
+    // server path, which patches only collectionStatus and leaves lastCollectedAt
+    // null), `neverRan` flips true — but the armed guard must stop the auto-start
+    // effect from firing a second, paid collect().
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: null, status: 'idle' },
+    })
+    const collectHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { runId: 'should-not-fire', status: 'discovering' as const },
+    }))
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', collectHandler)
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={completedEmpty} />)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    // Settles back to the manual form, and collect was never auto-dispatched.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
+    expect(collectHandler).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the manual submit directly on a completed run that found no opponents', () => {
     render(
       <RaceOpponentList
         initialData={{ ...empty, collectionStatus: 'completed' }}
       />,
     )
 
-    // Acknowledges the run rather than implying it never ran, and does NOT
-    // surface an always-live submit that invites repeated paid re-runs.
-    expect(
-      screen.getByText(/no opponents found in this analysis/i),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: /run the analysis/i }),
-    ).not.toBeInTheDocument()
-
-    // The manual form is still reachable behind an explicit disclosure.
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
+    // The completed-with-zero state drops the candidate straight into the
+    // manual form — the submit is live without a disclosure step.
+    expect(screen.getByText('No opponents found')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /run the analysis/i }),
     ).toBeInTheDocument()
   })
 
-  it('renders a "The field" intro with the opponent count', () => {
+  it('renders the field SWOT section below the roster when fieldAnalysis is present', () => {
+    render(
+      <RaceOpponentList
+        initialData={{
+          ...withSummary,
+          fieldAnalysis: {
+            strengths: ['Strong grassroots fundraising base'],
+            weaknesses: ['Low name recognition outside the district core'],
+            opportunities: [],
+            threats: ['Incumbent holds a 2-1 fundraising lead'],
+            sources: [],
+            generatedAt: null,
+          },
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', {
+        name: 'How your campaign stacks up against the field',
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not render the field SWOT section when fieldAnalysis is absent', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    expect(screen.getByText('The field')).toBeInTheDocument()
     expect(
-      screen.getByText('1 candidate filed for this seat'),
+      screen.queryByRole('heading', {
+        name: 'How your campaign stacks up against the field',
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not render the field SWOT section when there is no roster (manual form shown instead)', () => {
+    render(
+      <RaceOpponentList
+        initialData={{
+          ...empty,
+          collectionStatus: 'completed',
+          fieldAnalysis: {
+            strengths: ['Strong grassroots fundraising base'],
+            weaknesses: ['Low name recognition outside the district core'],
+            opportunities: [],
+            threats: [],
+            sources: [],
+            generatedAt: null,
+          },
+        }}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('heading', {
+        name: 'How your campaign stacks up against the field',
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the field-header heading with the opponent count and no eyebrow label', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    expect(
+      screen.getByRole('heading', { name: '1 candidate filed for this seat' }),
     ).toBeInTheDocument()
+    // The old "The field" eyebrow and "Focus on the candidate..." copy are gone
+    // with the redesign.
+    expect(screen.queryByText('The field')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/focus on the candidate most likely/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the office/district subtitle next to the field heading, without the election date', () => {
+    render(
+      <RaceOpponentList
+        initialData={withSummary}
+        raceContext="State House, District 21 · Election November 3, 2026"
+        racePlace="State House, District 21"
+      />,
+    )
+
+    // The subtitle reads from racePlace, not raceContext — the election date
+    // that raceContext carries for the PDF export header never shows here.
+    expect(
+      screen.getByText(
+        'We identified and ranked every candidate running for State House, District 21.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/november 3, 2026/i)).not.toBeInTheDocument()
+  })
+
+  it('falls back to a generic subtitle when no racePlace is known', () => {
+    render(
+      <RaceOpponentList
+        initialData={withSummary}
+        raceContext="Election November 3, 2026"
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'We identified and ranked every candidate running in your race.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/running for/i)).not.toBeInTheDocument()
+  })
+
+  it('renders the export button as icon-only with an accessible name', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    const exportButton = screen.getByRole('button', { name: 'Export brief' })
+    expect(exportButton).toHaveAccessibleName('Export brief')
+    // Icon-only: no visible "Export brief" text node, only the aria-label.
+    expect(exportButton).not.toHaveTextContent('Export brief')
   })
 
   it('shows party and incumbency as a single descriptor on the opponent row', () => {
@@ -800,71 +1044,21 @@ describe('<RaceOpponentList>', () => {
     expect(screen.queryByText('Incumbent')).not.toBeInTheDocument()
   })
 
-  it('refreshes the opponent accordion in sync with the research list', async () => {
-    // Start with no opponents, then Refresh returns an enriched roster. The
-    // accordion is driven by the same client state, so the new opponent's row
-    // and its expanded research must both appear after the refresh.
-    api.mock('GET /v1/campaigns/mine/race-opponent', {
-      status: 200,
-      data: withSummary,
-    })
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={empty} />)
-    expect(screen.queryByText('Democrat · Incumbent')).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /refresh/i }))
-
-    // The opponent row appears (its descriptor), and the panel auto-opens to
-    // the first opponent (activeName fallback), rendering the Overview prose.
-    await waitFor(() =>
-      expect(screen.getByText('Democrat · Incumbent')).toBeInTheDocument(),
-    )
-    expect(
-      screen.getByRole('button', { name: /Jane Rival/i }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Overview')).toBeInTheDocument()
-  })
-
-  it('triggers a collection and shows the processing screen for the returned running status', async () => {
-    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
-      status: 200,
-      data: { runId: 'run-1', status: 'running' },
-    })
-    const user = userEvent.setup()
-
-    render(<RaceOpponentList initialData={empty} />)
-
-    await user.click(screen.getByRole('button', { name: /collect now/i }))
-
-    await waitFor(() =>
-      expect(
-        screen.getByText('Researching your opponents'),
-      ).toBeInTheDocument(),
-    )
-  })
-
-  it('shows the processing screen when collection enters the discovering state', async () => {
+  it('auto-starts into the processing screen when collect returns the discovering state', async () => {
+    // The two-call flow: the auto-started collect first dispatches discovery
+    // (status 'discovering'), which must land the user on the processing screen.
     api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
       status: 200,
       data: { runId: 'opposition-1', status: 'discovering' },
     })
-    const user = userEvent.setup()
 
     render(<RaceOpponentList initialData={empty} />)
-
-    await user.click(screen.getByRole('button', { name: /collect now/i }))
 
     await waitFor(() =>
       expect(
         screen.getByText('Researching your opponents'),
       ).toBeInTheDocument(),
     )
-    // The Collect button is part of the list view, which the processing screen
-    // replaces while busy — so it's no longer on screen to re-fire a paid run.
-    expect(
-      screen.queryByRole('button', { name: /collect now/i }),
-    ).not.toBeInTheDocument()
   })
 
   it('polls while discovering and auto-fires collect once discovery completes', async () => {
@@ -1157,10 +1351,11 @@ describe('<RaceOpponentList>', () => {
     }
   })
 
-  it('leaves the processing screen when an uncontested run settles to a terminal idle', async () => {
+  it('leaves the processing screen for the manual form when an uncontested run settles to a terminal idle', async () => {
     // collect() returns a terminal 'idle' for an uncontested/unavailable race
     // (no collection run dispatched). The screen must NOT wedge — once the
-    // in-flight collect resolves to idle, the user drops to the empty state.
+    // in-flight collect resolves to idle, the user drops to the manual entry
+    // form ("we looked and found nobody, add them by hand").
     api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
       { status: 200, data: { ...empty, collectionStatus: 'idle' } },
     ])
@@ -1179,13 +1374,11 @@ describe('<RaceOpponentList>', () => {
       expect(screen.getByText('Researching your opponents')).toBeInTheDocument()
 
       // Poll lands idle (auto-fires collect, which settles back to idle); the
-      // screen must give way to the empty state rather than spin forever.
+      // screen must give way to the manual form rather than spin forever.
       await vi.advanceTimersByTimeAsync(5000)
 
       await waitFor(() =>
-        expect(
-          screen.getByText(/no opponent research yet/i),
-        ).toBeInTheDocument(),
+        expect(screen.getByText('No opponents found')).toBeInTheDocument(),
       )
       expect(
         screen.queryByText('Researching your opponents'),
@@ -1193,21 +1386,6 @@ describe('<RaceOpponentList>', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('does not show the processing screen for a brand-new idle user who has never run', () => {
-    render(
-      <RaceOpponentList initialData={{ ...empty, lastCollectedAt: null }} />,
-    )
-
-    // A genuine never-ran idle user sees the empty state, not the processing UI.
-    expect(screen.getByText(/no opponent research yet/i)).toBeInTheDocument()
-    expect(
-      screen.queryByText('Researching your opponents'),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: /collect now/i }),
-    ).toBeInTheDocument()
   })
 
   it('keeps the ready state latched across the full hold window before revealing the report', async () => {
@@ -1281,10 +1459,12 @@ describe('<RaceOpponentList>', () => {
       await vi.advanceTimersByTimeAsync(5000)
 
       await waitFor(() =>
-        expect(screen.getByText('Failed')).toBeInTheDocument(),
+        expect(screen.getByText(/collection failed/i)).toBeInTheDocument(),
       )
+      // Failure is terminal: collect is NOT auto-dispatched (retry is manual,
+      // via the "Try again" button on the failure card).
       expect(collectHandler).not.toHaveBeenCalled()
-      expect(screen.getByRole('button', { name: /collect now/i })).toBeEnabled()
+      expect(screen.getByRole('button', { name: /try again/i })).toBeEnabled()
     } finally {
       vi.useRealTimers()
     }
@@ -1299,9 +1479,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -1328,9 +1505,6 @@ describe('<RaceOpponentList>', () => {
 
     render(<RaceOpponentList initialData={completedEmpty} />)
 
-    await user.click(
-      screen.getByRole('button', { name: /add opponents manually/i }),
-    )
     await user.type(screen.getByLabelText('Name'), 'Jane Doe')
     await user.click(screen.getByRole('button', { name: /run the analysis/i }))
 
@@ -1349,15 +1523,15 @@ describe('<RaceOpponentList>', () => {
   })
 
   it('fires Win - Opponent Research Started once across the discovering -> running progression of one run', async () => {
-    // A Collect click starts a run that goes idle -> discovering ->
+    // The auto-start on mount begins a run that goes idle -> discovering ->
     // (transient idle) -> (auto-collect) -> running. ResearchStarted must fire
     // exactly once for the whole run, not on each busy sub-status, since both
     // legs are one research run.
     api.mockOrdered('GET /v1/campaigns/mine/race-opponent', [
       { status: 200, data: { ...empty, collectionStatus: 'idle' } },
     ])
-    // First collect (the click) returns discovering; the auto-fired collect
-    // after discovery returns running. Both are the same run.
+    // The auto-started collect returns discovering; the auto-fired collect after
+    // discovery returns running. Both are the same run.
     const collectHandler = vi.fn()
     collectHandler
       .mockReturnValueOnce({
@@ -1373,19 +1547,7 @@ describe('<RaceOpponentList>', () => {
     try {
       render(<RaceOpponentList initialData={empty} />)
 
-      // Idle on mount: no run in flight, so nothing has fired yet.
-      expect(
-        vi
-          .mocked(trackEvent)
-          .mock.calls.filter(
-            ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
-          ),
-      ).toHaveLength(0)
-
-      // Click Collect: the run starts (idle -> discovering), firing once.
-      await userEvent.click(
-        screen.getByRole('button', { name: /collect now/i }),
-      )
+      // Auto-start on mount begins the run (idle -> discovering), firing once.
       await waitFor(() =>
         expect(trackEvent).toHaveBeenCalledWith(
           EVENTS.RaceOpponent.ResearchStarted,
@@ -1407,6 +1569,55 @@ describe('<RaceOpponentList>', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('fires Win - Opponent Research Started exactly once when a failed auto-start precedes a manual submit', async () => {
+    // The auto-start collect() fails before any run is server-confirmed (status
+    // never leaves idle), so ResearchStarted must NOT fire for it — it only fires
+    // off a confirmed run (discovering/running). A later manual submit that does
+    // start a run then fires it exactly once, with no double count.
+    api.mock('POST /v1/campaigns/mine/race-opponent/collect', {
+      status: 500,
+      data: { error: 'boom' },
+    })
+    // The catch-path re-sync reports still-idle (the run never started).
+    api.mock('GET /v1/campaigns/mine/race-opponent', {
+      status: 200,
+      data: empty,
+    })
+    api.mock('POST /v1/campaigns/mine/race-opponent/opponents/manual', {
+      status: 200,
+      data: { runId: 'manual-run-1', status: 'running' },
+    })
+    const user = userEvent.setup()
+
+    render(<RaceOpponentList initialData={empty} />)
+
+    // The failed auto-start drops to the manual form; no run-start counted yet.
+    await waitFor(() =>
+      expect(screen.getByText('No opponents found')).toBeInTheDocument(),
+    )
+    expect(
+      vi
+        .mocked(trackEvent)
+        .mock.calls.filter(
+          ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+        ),
+    ).toHaveLength(0)
+
+    await user.type(screen.getByLabelText('Name'), 'Jane Doe')
+    await user.click(screen.getByRole('button', { name: /run the analysis/i }))
+
+    // The manual submit starts a confirmed run → exactly one run-start total.
+    await waitFor(() =>
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([name]) => name === EVENTS.RaceOpponent.ResearchStarted,
+          ),
+      ).toHaveLength(1),
+    )
   })
 
   it('does not fire Win - Opponent Research Started for a run already in flight on mount', () => {

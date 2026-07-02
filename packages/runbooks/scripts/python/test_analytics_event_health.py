@@ -55,6 +55,32 @@ def test_parse_gpmeta_in_use():
     assert eh.parse_gpmeta(desc)["intent"] == "in_use"
 
 
+def test_parse_gpmeta_extracts_purpose():
+    desc = (
+        "<!-- gp-meta -->\n"
+        'Fired when user completes the "Pledge" step in Onboarding. |\n'
+        "supersession: superseded by Onboarding V2 - Pledge Completed (rebuild) |\n"
+        "not in use: 2026-05-05 (#1790)\n"
+        "<!-- /gp-meta -->"
+    )
+    result = eh.parse_gpmeta(desc)
+    assert result["purpose"] == 'Fired when user completes the "Pledge" step in Onboarding.'
+    assert result["supersession"] == "superseded by Onboarding V2 - Pledge Completed (rebuild)"
+    assert result["intent"] == "not_in_use"
+
+
+def test_parse_gpmeta_purpose_none_when_block_has_no_prose_line():
+    desc = "<!-- gp-meta -->\nsupersession: original |\nin use: 2026-06-16 (#171)\n<!-- /gp-meta -->"
+    result = eh.parse_gpmeta(desc)
+    assert result["purpose"] is None
+    assert result["supersession"] == "original"
+
+
+def test_parse_gpmeta_none_when_no_block():
+    assert eh.parse_gpmeta("plain description, no markers") is None
+    assert eh.parse_gpmeta(None) is None
+
+
 # --- is_system / is_elevated -------------------------------------------------
 
 
@@ -438,6 +464,28 @@ def test_load_prior_state_reads_valid_flagged(tmp_path):
     p = tmp_path / "state.json"
     p.write_text('{"run_date": "2026-06-29", "flagged": {"A": "dormant"}}')
     assert eh.load_prior_state(p) == {"A": "dormant"}
+
+
+# --- load_prior_anomalous robustness (DATA-2057) -----------------------------
+
+
+def test_load_prior_anomalous_tolerates_corrupt_json(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text("{truncated mid-write")
+    assert eh.load_prior_anomalous(p) is None
+
+
+def test_load_prior_anomalous_missing_key_returns_none(tmp_path):
+    # Pre-existing state file written before this PR has no 'anomalous' key.
+    p = tmp_path / "state.json"
+    p.write_text('{"run_date": "2026-06-29", "flagged": {"A": "dormant"}}')
+    assert eh.load_prior_anomalous(p) is None
+
+
+def test_load_prior_anomalous_reads_valid_list(tmp_path):
+    p = tmp_path / "state.json"
+    p.write_text('{"run_date": "2026-06-29", "anomalous": ["B", "C"]}')
+    assert eh.load_prior_anomalous(p) == {"B", "C"}
 
 
 # --- metadata coverage -------------------------------------------------------
