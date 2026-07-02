@@ -47,22 +47,38 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
 
 ## Components (by epic / role)
 
+- **Page shell (P5, ENG-10633)**: `page.tsx` renders the shared styleguide
+  `PageHeader` (heading "Know Your Opponent", `leading` overridden to the same
+  swords icon as the `DashboardMenu` nav item) as a full-bleed top bar — this
+  replaced the old feature-local `OpponentPageHeader` (deleted) and the
+  `DashboardLayout` `navHeader` prop for this route. Everything below it
+  (locked view or `RaceOpponentList`) sits in a `bg-muted px-4 py-6 lg:px-8`
+  body; each state centers itself in that body with its own `mx-auto max-w-*`
+  (608px for the report/processing screen, 560px for the locked view and the
+  manual-entry form) rather than the shell dictating one width for all of them.
 - **List + state machine**: `RaceOpponentList.tsx` (the orchestrator — owns the poll,
-  status, and the precedence ladder above).
+  status, and the precedence ladder above). Owns the "N candidates filed for
+  this seat" field-header row (heading + office/district subtitle + the
+  icon-only round "Export brief" button, `aria-label="Export brief"`) — there
+  is no separate page-level header component anymore.
 - **Activation/UX (P4)**: `OpponentProLockedView`, `AddOpponentsForm`,
   `OpponentResearchProgress`.
 - **Analytical view (P3)**: `OpponentOverviewCard`, `ThreatTierBadge` (a colored
   dot + label, right-aligned on the roster row — "Main threat" reads in blue),
-  `IssueContrastCard`, `OpponentHandbook`, `OpponentSection`, `OpponentPageHeader`.
-- **PDF export (P4)**: `pdf/` — the header's "Export brief" button downloads one
-  PDF holding a brief per opponent that has a summary. `opponentBriefContent.ts` is
-  the pure page→PDF mapping (mirrors `OpponentSummaryView`'s section conditionals;
+  `IssueContrastCard`, `OpponentHandbook`, `OpponentSection`.
+- **PDF export (P4)**: `pdf/` — the field header's "Export brief" button downloads
+  one PDF holding a brief per opponent that has a summary. `opponentBriefContent.ts`
+  is the pure page→PDF mapping (mirrors `OpponentSummaryView`'s section conditionals;
   reuses `descriptorFor` + `threatTierLabel` for the snapshot line). It renders
   **only what the page shows** — no finance, no issue `salience` label, no
   recommended actions (those are Lovable-sample extras our page never renders).
 - **Strict engine (P1)**: `OpponentResearch`, `SelfResearch`, `SelfResearchIntakeForm`,
   `SelfResearchReport`, `ContrastList`, `ContrastCard`, `RegenerateContrasts`,
-  `SourceAttribution`, `OpponentActivityFeed`.
+  `SourceAttribution`, `OpponentActivityFeed`. `ContrastList`/`RegenerateContrasts`
+  (the "Review your contrasts" section) are currently unreferenced by any route —
+  ENG-10633 dropped them from this page's composition on purpose (the redesign has
+  no contrasts section here) and no other route has picked them up yet; kept in
+  the tree for the strict engine's next UI pass rather than deleted.
 
 ## Status polling — one poller, it is the source of truth
 

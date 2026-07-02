@@ -856,13 +856,43 @@ describe('<RaceOpponentList>', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders a "The field" intro with the opponent count', () => {
+  it('renders the field-header heading with the opponent count and no eyebrow label', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 
-    expect(screen.getByText('The field')).toBeInTheDocument()
     expect(
-      screen.getByText('1 candidate filed for this seat'),
+      screen.getByRole('heading', { name: '1 candidate filed for this seat' }),
     ).toBeInTheDocument()
+    // The old "The field" eyebrow and "Focus on the candidate..." copy are gone
+    // with the redesign.
+    expect(screen.queryByText('The field')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(/focus on the candidate most likely/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders the office/district subtitle next to the field heading, without the election date', () => {
+    render(
+      <RaceOpponentList
+        initialData={withSummary}
+        raceContext="State House, District 21 · Election November 3, 2026"
+      />,
+    )
+
+    expect(
+      screen.getByText(
+        'We identified and ranked every candidate running for State House, District 21.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/november 3, 2026/i)).not.toBeInTheDocument()
+  })
+
+  it('renders the export button as icon-only with an accessible name', () => {
+    render(<RaceOpponentList initialData={withSummary} />)
+
+    const exportButton = screen.getByRole('button', { name: 'Export brief' })
+    expect(exportButton).toHaveAccessibleName('Export brief')
+    // Icon-only: no visible "Export brief" text node, only the aria-label.
+    expect(exportButton).not.toHaveTextContent('Export brief')
   })
 
   it('shows party and incumbency as a single descriptor on the opponent row', () => {

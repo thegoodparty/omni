@@ -7,6 +7,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   Button,
+  IconButton,
   cn,
 } from '@styleguide'
 import {
@@ -30,7 +31,6 @@ import type {
 } from 'gpApi/api-endpoints'
 import type { RaceOpponentSourceType } from '@goodparty_org/contracts'
 import OpponentSection from './OpponentSection'
-import OpponentPageHeader from './OpponentPageHeader'
 import OpponentOverviewCard from './OpponentOverviewCard'
 import SourceAttribution from './SourceAttribution'
 import IssueContrastCard from './IssueContrastCard'
@@ -462,6 +462,11 @@ const RaceOpponentList = ({
     defaultOpenFor(initialData.opponents),
   )
 
+  // raceContext also feeds the PDF export header (which wants the election
+  // date); the field-header subtitle only shows the office/district portion,
+  // so split off the " · Election ..." suffix raceContextFor appends.
+  const fieldSubtitlePlace = raceContext?.split(' · Election ')[0]
+
   const [campaign] = useCampaign()
 
   // One-shot auto-open for the empty -> populated transition (e.g. a fresh
@@ -767,140 +772,112 @@ const RaceOpponentList = ({
   // readyHold piggybacks on (1) to hold the "ready" terminal beat before the
   // report or manual form takes over.
   if (isProcessing || readyHold) {
-    return (
-      <>
-        <div className="border-b border-border bg-background">
-          <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
-            <OpponentPageHeader
-              title="Know your opponent"
-              raceContext={raceContext}
-            />
-          </div>
-        </div>
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
-          <OpponentResearchProgress ready={readyHold} />
-        </div>
-      </>
-    )
+    return <OpponentResearchProgress ready={readyHold} />
   }
 
   return (
-    <>
-      {/* Full-bleed white header band (title + race context + Export brief),
-          matching the Lovable design; the dev controls and the field sit below
-          on the gray content background. */}
-      <div className="border-b border-border bg-background">
-        <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
-          <OpponentPageHeader
-            title="Know your opponent"
-            raceContext={raceContext}
-            actions={
-              <Button
-                variant="outline"
-                onClick={exportBriefs}
-                disabled={!hasExportableBrief || exporting}
-                icon={<DownloadIcon className="size-4" aria-hidden />}
-              >
-                Export brief
-              </Button>
-            }
-          />
-        </div>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
-        {data.opponents.length === 0 ? (
-          // No opponents and not processing — a run in flight (incl. the never-ran
-          // auto-start and the idle-mid-run gap) is handled above by the processing
-          // screen early return, so this block only reaches the SETTLED-empty
-          // states. A failed run shows a retry card; every other settled-empty case
-          // (completed-with-zero, or an uncontested race that ran discovery and
-          // settled back to idle) means "we looked and found nobody", so the
-          // manual-entry form is shown directly for the candidate to add opponents
-          // by hand. The full status state-machine is ENG-10611.
-          status === 'failed' ? (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
-              <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-                <TriangleAlertIcon className="size-6" aria-hidden />
-              </span>
-              <div className="flex flex-col gap-1">
-                <h2 className="text-base font-semibold text-foreground">
-                  Collection failed
-                </h2>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  Something went wrong gathering research on your race.
-                </p>
-              </div>
-              <Button
-                onClick={collect}
-                disabled={collecting || isBusy}
-                icon={<RefreshIcon className="size-4" aria-hidden />}
-              >
-                Try again
-              </Button>
+    <div className="mx-auto flex w-full max-w-[608px] flex-col gap-6 pb-28 pt-6">
+      {data.opponents.length === 0 ? (
+        // No opponents and not processing — a run in flight (incl. the never-ran
+        // auto-start and the idle-mid-run gap) is handled above by the processing
+        // screen early return, so this block only reaches the SETTLED-empty
+        // states. A failed run shows a retry card; every other settled-empty case
+        // (completed-with-zero, or an uncontested race that ran discovery and
+        // settled back to idle) means "we looked and found nobody", so the
+        // manual-entry form is shown directly for the candidate to add opponents
+        // by hand. The full status state-machine is ENG-10611.
+        status === 'failed' ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <TriangleAlertIcon className="size-6" aria-hidden />
+            </span>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold text-foreground">
+                Collection failed
+              </h2>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Something went wrong gathering research on your race.
+              </p>
             </div>
-          ) : (
-            <AddOpponentsForm
-              submitting={submittingManual || collecting}
-              onSubmit={submitManualOpponents}
-            />
-          )
+            <Button
+              onClick={collect}
+              disabled={collecting || isBusy}
+              icon={<RefreshIcon className="size-4" aria-hidden />}
+            >
+              Try again
+            </Button>
+          </div>
         ) : (
-          <section className="flex flex-col gap-3">
+          <AddOpponentsForm
+            submitting={submittingManual || collecting}
+            onSubmit={submitManualOpponents}
+          />
+        )
+      ) : (
+        <section className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                The field
-              </span>
               <h2 className="text-lg font-semibold text-foreground">
                 {data.opponents.length}{' '}
                 {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
                 for this seat
               </h2>
-              <p className="text-sm text-muted-foreground">
-                Focus on the candidate most likely to take votes from you.
-                Usually the incumbent or a party-backed challenger.
-              </p>
+              {fieldSubtitlePlace && (
+                <p className="text-sm text-muted-foreground">
+                  We identified and ranked every candidate running for{' '}
+                  {fieldSubtitlePlace}.
+                </p>
+              )}
             </div>
-            {/* type=single + collapsible: one opponent open at a time, and
+            <IconButton
+              variant="outline"
+              className="!h-9 !w-9"
+              onClick={exportBriefs}
+              disabled={!hasExportableBrief || exporting}
+              aria-label="Export brief"
+            >
+              <DownloadIcon className="h-4 w-4" aria-hidden />
+            </IconButton>
+          </div>
+          {/* type=single + collapsible: one opponent open at a time, and
                 clicking the open row collapses it. Opens the primary threat by
                 default (see openName + the auto-open effect). */}
-            <Accordion
-              type="single"
-              collapsible
-              value={openName}
-              onValueChange={setOpenName}
-              aria-label="Select an opponent to view their research"
-              className="flex flex-col gap-3"
-            >
-              {data.opponents.map((opponent) => (
-                <AccordionItem
-                  key={opponent.opponentName}
-                  value={opponent.opponentName}
-                  className={cn(
-                    'rounded-lg border border-border bg-card px-4 transition last:border-b',
-                    'hover:border-info-600/40',
-                    'data-[state=open]:border-info-600 data-[state=open]:ring-1 data-[state=open]:ring-info-600/20',
-                  )}
-                >
-                  <AccordionTrigger className="items-center hover:no-underline focus-visible:no-underline">
-                    <OpponentOverviewCard
-                      name={opponent.opponentName}
-                      initials={initialsFor(opponent.opponentName)}
-                      party={opponent.party}
-                      isIncumbent={opponent.isIncumbent}
-                      threatTier={opponent.threatTier}
-                    />
-                  </AccordionTrigger>
-                  <AccordionContent className="border-t border-border">
-                    <OpponentDetailBody opponent={opponent} />
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          </section>
-        )}
-      </div>
-    </>
+          <Accordion
+            type="single"
+            collapsible
+            value={openName}
+            onValueChange={setOpenName}
+            aria-label="Select an opponent to view their research"
+            className="flex flex-col gap-3"
+          >
+            {data.opponents.map((opponent) => (
+              <AccordionItem
+                key={opponent.opponentName}
+                value={opponent.opponentName}
+                className={cn(
+                  'rounded-lg border border-border bg-card px-4 transition last:border-b',
+                  'hover:border-info-600/40',
+                  'data-[state=open]:border-info-600 data-[state=open]:ring-1 data-[state=open]:ring-info-600/20',
+                )}
+              >
+                <AccordionTrigger className="items-center hover:no-underline focus-visible:no-underline">
+                  <OpponentOverviewCard
+                    name={opponent.opponentName}
+                    initials={initialsFor(opponent.opponentName)}
+                    party={opponent.party}
+                    isIncumbent={opponent.isIncumbent}
+                    threatTier={opponent.threatTier}
+                  />
+                </AccordionTrigger>
+                <AccordionContent className="border-t border-border">
+                  <OpponentDetailBody opponent={opponent} />
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </section>
+      )}
+    </div>
   )
 }
 
