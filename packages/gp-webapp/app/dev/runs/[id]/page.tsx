@@ -6,14 +6,25 @@ import Link from 'next/link'
 import AgentRunDetail from '../../shared/AgentRunDetail'
 import type { AgentRun } from '../../shared/agent-run'
 
+// Which gallery the run was opened from. Both galleries stamp ?from= on their
+// "View agent run" links; absent/unknown falls back to briefings. Read off
+// window rather than useSearchParams to avoid a Suspense-boundary build error.
+const backHref = (from: string | null): string =>
+  from === 'issues' ? '/dev/issues' : '/dev/briefings'
+
 // Job-agnostic agent-run viewer. Reads /api/dev/runs/[id] (which parses the
 // run's session.jsonl + milestones.jsonl server-side) and renders the reusable
 // AgentRunDetail. Any CAP job's run can be viewed here by its runId.
 const DevAgentRunPage = () => {
   const params = useParams<{ id: string }>()
   const id = params?.id
+  const [from, setFrom] = useState<string | null>(null)
   const [run, setRun] = useState<AgentRun | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setFrom(new URLSearchParams(window.location.search).get('from'))
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -37,7 +48,7 @@ const DevAgentRunPage = () => {
     <div className="min-h-svh bg-muted pb-20">
       <div className="mx-auto w-full max-w-[1280px] px-4 pt-4 lg:px-8">
         <Link
-          href="/dev/briefings"
+          href={backHref(from)}
           className="text-sm text-muted-foreground underline"
         >
           ← Back to gallery

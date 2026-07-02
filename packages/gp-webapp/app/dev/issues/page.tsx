@@ -190,7 +190,7 @@ const DevIssueGallery = () => {
           Next
         </Button>
         <Link
-          href={`/dev/runs/${current.runId}`}
+          href={`/dev/runs/${current.runId}?from=issues`}
           className="rounded-full border border-border px-3 py-1 text-sm font-semibold underline"
         >
           View agent run
