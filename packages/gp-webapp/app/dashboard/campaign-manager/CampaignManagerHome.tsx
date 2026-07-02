@@ -9,10 +9,12 @@ import ProgressSection from '../components/campaignManager/ProgressSection'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import {
+  buildStoryOpener,
   CAMPAIGN_MANAGER_HISTORY_KEY,
   CAMPAIGN_MANAGER_INTRO,
   campaignManagerChatApi,
 } from './campaignManagerChat'
+import { useCampaignStoryStatus } from './useCampaignStoryStatus'
 
 interface Props {
   firstName?: string
@@ -33,6 +35,15 @@ export default function CampaignManagerHome({
   // Play the greeting only when opened via "meet" / a fresh chat, not when
   // reopening a past conversation.
   const [greet, setGreet] = useState(false)
+
+  // While the Campaign Story is unfinished, open with a resume-aware story
+  // opener that asks the first missing question instead of the generic intro,
+  // so the manager fulfills the story through chat. Falls back to the intro
+  // once complete (or while the status is still loading).
+  const { ready, missing } = useCampaignStoryStatus()
+  const storyOpener =
+    ready && missing.length > 0 ? buildStoryOpener(missing) : undefined
+  const intro = storyOpener ?? CAMPAIGN_MANAGER_INTRO
 
   const openMeet = () => {
     setConversationId(null)
@@ -75,14 +86,14 @@ export default function CampaignManagerHome({
         open={chatOpen}
         onOpenChange={setChatOpen}
         initialConversationId={conversationId}
-        opener={greet ? CAMPAIGN_MANAGER_INTRO : undefined}
+        opener={greet ? intro : undefined}
         openerKey={greet ? 'meet' : null}
         title="Campaign manager"
         subtitle="Always on, focused on your week"
         chatApi={campaignManagerChatApi}
         analyticsLabel="campaign-manager-chat"
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        defaultIntro={CAMPAIGN_MANAGER_INTRO}
+        defaultIntro={intro}
       />
     </div>
   )

@@ -23,6 +23,12 @@ vi.mock('../components/campaignManager/ProgressSection', () => ({
   default: () => null,
 }))
 
+// Story completeness drives the opener; its own fetches aren't this test's
+// concern, so stub it to "loading" (falls back to the generic intro).
+vi.mock('./useCampaignStoryStatus', () => ({
+  useCampaignStoryStatus: () => ({ ready: false, missing: [] }),
+}))
+
 describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     render(<CampaignManagerHome firstName="Renee" />)
