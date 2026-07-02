@@ -2,7 +2,9 @@ import { HttpClient } from './http/HttpClient'
 import { AdminAgentRunsResource } from './resources/AdminAgentRunsResource'
 import { AdminResource } from './resources/AdminResource'
 import { CampaignsResource } from './resources/CampaignsResource'
+import { CommunityIssuesResource } from './resources/CommunityIssuesResource'
 import { EcanvasserResource } from './resources/EcanvasserResource'
+import { MeetingBriefingsResource } from './resources/MeetingBriefingsResource'
 import { ElectedOfficesResource } from './resources/ElectedOfficesResource'
 import { ElectionsResource } from './resources/ElectionsResource'
 import { OrganizationsResource } from './resources/OrganizationsResource'
@@ -23,6 +25,8 @@ export class GoodPartyClient {
   readonly electedOffices: ElectedOfficesResource
   readonly elections: ElectionsResource
   readonly organizations: OrganizationsResource
+  readonly meetingBriefings: MeetingBriefingsResource
+  readonly communityIssues: CommunityIssuesResource
   private clerkService: ClerkService
 
   private constructor(clerkService: ClerkService, gpApiRootUrl: string) {
@@ -36,6 +40,8 @@ export class GoodPartyClient {
     this.electedOffices = new ElectedOfficesResource(httpClient)
     this.elections = new ElectionsResource(httpClient)
     this.organizations = new OrganizationsResource(httpClient)
+    this.meetingBriefings = new MeetingBriefingsResource(httpClient)
+    this.communityIssues = new CommunityIssuesResource(httpClient)
   }
 
   static create = async (

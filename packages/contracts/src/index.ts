@@ -546,3 +546,21 @@ export {
   ChatStreamEventSchema,
   type ChatStreamEvent,
 } from './chats/Chat.schema'
+
+export {
+  MeetingAgentDispatchKindSchema,
+  type MeetingAgentDispatchKind,
+  DispatchMeetingAgentRequestSchema,
+  type DispatchMeetingAgentRequest,
+  DispatchMeetingAgentResultSchema,
+  type DispatchMeetingAgentResult,
+  BriefingDispatchPreviewSchema,
+  type BriefingDispatchPreview,
+} from './meetings/MeetingAgentDispatch.schema'
+
+export {
+  CommunityIssuesDispatchRequestSchema,
+  type CommunityIssuesDispatchRequest,
+  CommunityIssuesDispatchResultSchema,
+  type CommunityIssuesDispatchResult,
+} from './communityIssues/CommunityIssueDispatch.schema'

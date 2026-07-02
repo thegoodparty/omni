@@ -1,5 +1,9 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import {
+  CommunityIssuesDispatchRequestSchema,
+  CommunityIssuesDispatchResultSchema,
+} from '@goodparty_org/contracts'
 
 const CommunityIssueListQuerySchema = z.object({
   list: z.enum(['top_community', 'trending']),
@@ -42,16 +46,11 @@ export const CommunityIssueDetailSchema = CommunityIssueCardSchema.extend({
   priorityId: z.string().nullable(),
 })
 
-export const DispatchRequestSchema = z.object({
-  orgSlugs: z.array(z.string()).min(1).max(200),
-})
+export const DispatchRequestSchema = CommunityIssuesDispatchRequestSchema
 
 export class DispatchRequestDto extends createZodDto(DispatchRequestSchema) {}
 
-export const DispatchResponseSchema = z.object({
-  dispatched: z.number(),
-  skipped: z.number(),
-})
+export const DispatchResponseSchema = CommunityIssuesDispatchResultSchema
 
 export const SelfDispatchRequestSchema = z.object({
   type: z.enum(['top_community_issues', 'trending_issues']),
