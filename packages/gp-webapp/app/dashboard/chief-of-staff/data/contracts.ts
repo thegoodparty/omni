@@ -71,7 +71,7 @@ export interface OnboardingCardsResponse {
 
 // ---------------------------------------------------------------------------
 // slice 3 — general chat (/v1/chats). The scope-generic chat contracts now live
-// in the shared manager-chat client; re-export them so this seam stays the
+// in the shared agent-chat client; re-export them so this seam stays the
 // single chat-types import site for Chief of Staff.
 // ---------------------------------------------------------------------------
 
@@ -86,4 +86,4 @@ export type {
   ChatConversationMessagesResponse,
   ChatErrorCode,
   ChatStreamEvent,
-} from '../../shared/manager-chat/chatClient'
+} from '../../shared/agent-chat/chatClient'

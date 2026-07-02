@@ -13,13 +13,13 @@ import {
   useChatHistory,
   useDeleteConversation,
 } from '../../data/use-chat-history'
-import type { ManagerChatClient } from '../../../shared/manager-chat/chatClient'
+import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
 interface Props {
   /** Open the selected conversation. */
   onSelect: (conversationId: string) => void
   /** Chat client for this scope. Defaults to Chief of Staff. */
-  chatApi?: ManagerChatClient
+  chatApi?: AgentChatClient
   /** History query key for this scope. Defaults to Chief of Staff. */
   historyKey?: readonly unknown[]
 }

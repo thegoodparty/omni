@@ -17,7 +17,7 @@ import { SearchIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import { useDictationAppend } from '../../../briefings/shared/useDictationAppend'
 import { reportErrorToSentry } from '@shared/sentry'
 import { chiefOfStaffChatApi } from '../../data/chat-api'
-import type { ManagerChatClient } from '../../../shared/manager-chat/chatClient'
+import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 import type {
   ChatErrorCode,
   ChatMessageDto,
@@ -54,7 +54,7 @@ interface Props {
    * Scope config. All default to Chief of Staff so existing CoS/Community
    * Issues callers are unchanged; Campaign Manager passes its own.
    */
-  chatApi?: ManagerChatClient
+  chatApi?: AgentChatClient
   analyticsLabel?: string
   historyKey?: readonly unknown[]
   /** Default intro played on the first chat when no `opener` is given. */

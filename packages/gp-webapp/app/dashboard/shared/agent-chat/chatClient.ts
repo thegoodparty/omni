@@ -95,7 +95,7 @@ export type ChatStreamEvent =
 
 // --- client interface -------------------------------------------------------
 
-export interface ManagerChatClient {
+export interface AgentChatClient {
   /**
    * Find-or-create the conversation for the current org/owner (the server keys
    * on scope). Called lazily on the first send.
@@ -184,10 +184,10 @@ async function* parseSseStream(
   }
 }
 
-export function createManagerChatClient(
+export function createAgentChatClient(
   scope: ChatScope,
   sentrySurface: string,
-): ManagerChatClient {
+): AgentChatClient {
   function statusToErrorEvent(status: number, body: string): ChatStreamEvent {
     if (status === 404) {
       return errorEvent(

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
-import type { ManagerChatClient } from '../../../shared/manager-chat/chatClient'
+import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
 interface Props {
   open: boolean
@@ -19,7 +19,7 @@ interface Props {
   title?: string
   subtitle?: string
   /** Scope config threaded to the body. All default to Chief of Staff. */
-  chatApi?: ManagerChatClient
+  chatApi?: AgentChatClient
   analyticsLabel?: string
   historyKey?: readonly unknown[]
   defaultIntro?: string[]

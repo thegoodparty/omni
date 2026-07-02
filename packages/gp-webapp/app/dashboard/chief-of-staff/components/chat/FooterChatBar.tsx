@@ -3,7 +3,7 @@
 import { IconButton } from '@styleguide'
 import { MicIcon, SparklesIcon } from '@styleguide/components/ui/icons'
 import ChatHistoryPopover from './ChatHistoryPopover'
-import type { ManagerChatClient } from '../../../shared/manager-chat/chatClient'
+import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
 interface Props {
   firstName?: string
@@ -12,7 +12,7 @@ interface Props {
   /** Open the chat surface into a past conversation (from the clock popover). */
   onOpenConversation: (conversationId: string) => void
   /** Chat client for this scope's history popover. Defaults to Chief of Staff. */
-  chatApi?: ManagerChatClient
+  chatApi?: AgentChatClient
   /** History query key for this scope. Defaults to Chief of Staff. */
   historyKey?: readonly unknown[]
   /** aria-label for the open button. Defaults to Chief of Staff. */

@@ -7,7 +7,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 import { chiefOfStaffChatApi } from './chat-api'
-import type { ManagerChatClient } from '../../shared/manager-chat/chatClient'
+import type { AgentChatClient } from '../../shared/agent-chat/chatClient'
 import type { ChatConversationDto } from './contracts'
 
 // Chief of Staff's history query key; also the default so existing CoS callers
@@ -16,7 +16,7 @@ const HISTORY_KEY = ['chief-of-staff', 'chat-history'] as const
 
 export const useChatHistory = (
   enabled: boolean,
-  client: ManagerChatClient = chiefOfStaffChatApi,
+  client: AgentChatClient = chiefOfStaffChatApi,
   historyKey: readonly unknown[] = HISTORY_KEY,
 ): UseQueryResult<ChatConversationDto[]> =>
   useQuery({
@@ -26,7 +26,7 @@ export const useChatHistory = (
   })
 
 export const useDeleteConversation = (
-  client: ManagerChatClient = chiefOfStaffChatApi,
+  client: AgentChatClient = chiefOfStaffChatApi,
   historyKey: readonly unknown[] = HISTORY_KEY,
 ) => {
   const queryClient = useQueryClient()

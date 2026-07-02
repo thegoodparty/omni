@@ -1,6 +1,6 @@
 'use client'
 
-import { createManagerChatClient } from '../shared/manager-chat/chatClient'
+import { createAgentChatClient } from '../shared/agent-chat/chatClient'
 
 // Campaign Manager's own conversation-history query key, kept distinct from
 // Chief of Staff so the two scopes never share a cache entry.
@@ -19,7 +19,7 @@ export const CAMPAIGN_MANAGER_INTRO: string[] = [
     'handle it.',
 ]
 
-export const campaignManagerChatApi = createManagerChatClient(
+export const campaignManagerChatApi = createAgentChatClient(
   'campaign_assistant',
   'campaign-manager-chat',
 )
