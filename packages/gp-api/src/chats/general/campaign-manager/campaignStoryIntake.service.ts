@@ -128,7 +128,12 @@ export class CampaignStoryIntakeService {
       where: { id: campaignId },
       include: { user: true },
     })
-    if (!campaign) return { status: 'error' }
+    // Should never happen: campaignId is bound from the same request's context.
+    // Throw rather than return an opaque status outside the plan vocabulary
+    // ('ready' | 'generating' | 'failed'), so it's observable, not swallowed.
+    if (!campaign) {
+      throw new Error(`Campaign ${campaignId} not found during generate`)
+    }
     const { status } =
       await this.strategy.getOrGenerateStrategicLandscape(campaign)
     return { status }

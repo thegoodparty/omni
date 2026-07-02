@@ -153,6 +153,14 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })
       if (existing) return { conversationId: existing.id, created: false }
     }
+    // Resolve the greeting before the create so the async find->create window
+    // (which two concurrent opens could both slip through) is as narrow as
+    // possible. A duplicate here is benign, not corrupting: the extra thread is
+    // orphaned and the next open resumes the most recent one. A DB-level guard
+    // isn't available: this table is shared with Chief of Staff, which requires
+    // MANY conversations per (user, org, scope), so a unique constraint on those
+    // columns can't be added.
+    const greeting = await this.resolveGreeting(params.organizationSlug)
     const created = await this.store.createScopedConversation({
       ownerUserId: userId,
       organizationSlug: params.organizationSlug,
@@ -169,7 +177,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     await this.chatStore.appendMessage({
       conversationId: created.id,
       role: ChatMessageRole.assistant,
-      content: await this.resolveGreeting(params.organizationSlug),
+      content: greeting,
     })
     return { conversationId: created.id, created: true }
   }
