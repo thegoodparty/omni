@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Button, Card } from '@styleguide'
+import { Button, Card, cn } from '@styleguide'
 import type { LucideIcon } from 'lucide-react'
 
 export interface TaskCardProps {
@@ -22,6 +22,8 @@ export interface TaskCardProps {
   completeDisabled?: boolean
   onSkip?: () => void
   skipDisabled?: boolean
+  /** Subtle top-to-bottom tint, for a featured (top) card. */
+  gradient?: boolean
 }
 
 // A task action can point off-app (a state SOS page, a form). Those must open
@@ -49,9 +51,15 @@ export default function TaskCard({
   completeDisabled = false,
   onSkip,
   skipDisabled = false,
+  gradient = false,
 }: TaskCardProps): React.JSX.Element {
   return (
-    <Card className="gap-3 rounded-2xl border border-grayscale-300 bg-gradient-to-b from-primary/5 to-card p-4 shadow-sm transition-colors lg:p-6">
+    <Card
+      className={cn(
+        'gap-3 rounded-2xl border border-grayscale-300 p-4 shadow-sm transition-colors lg:p-6',
+        gradient && 'bg-gradient-to-b from-primary/5 to-card',
+      )}
+    >
       <div className="flex items-start justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <EyebrowIcon className="size-3.5" aria-hidden />

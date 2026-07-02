@@ -144,7 +144,7 @@ export default function CampaignManagerTasks({
           </p>
         ) : (
           <div className="flex flex-col gap-4">
-            {top.map((task) => {
+            {top.map((task, index) => {
               const { label, Icon } = taskMeta(task.flowType)
               return (
                 <TaskCard
@@ -163,6 +163,8 @@ export default function CampaignManagerTasks({
                   ctaHref={taskHref(task)}
                   onComplete={() => onComplete(task)}
                   completeDisabled={toggleComplete.isPending}
+                  // Only the top priority card gets the subtle gradient.
+                  gradient={index === 0}
                 />
               )
             })}
