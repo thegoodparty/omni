@@ -5,6 +5,7 @@ import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteC
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { WebsitesService } from '@/websites/services/websites.service'
+import { isPrismaError } from '@/prisma/util/prismaErrors.util'
 
 export interface StoryPosition {
   title: string
@@ -94,11 +95,19 @@ export class CampaignStoryIntakeService {
       if (!campaign.user) {
         throw new Error('Campaign has no user; cannot create a website.')
       }
-      const created = await this.websites.createByCampaign(
-        campaign.user,
-        campaign,
-      )
-      content = created.content ?? {}
+      try {
+        const created = await this.websites.createByCampaign(
+          campaign.user,
+          campaign,
+        )
+        content = created.content ?? {}
+      } catch (error) {
+        // Two saves in one turn (e.g. why + positions) can both find no
+        // website and both create; the loser trips website.campaignId's unique
+        // constraint. The row exists now, so re-read instead of failing.
+        if (!isPrismaError(error, 'P2002')) throw error
+        content = (await this.websites.getContentForCampaign(campaignId)) ?? {}
+      }
     }
     const nextContent: PrismaJson.WebsiteContent = {
       ...content,
