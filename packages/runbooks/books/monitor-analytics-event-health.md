@@ -184,8 +184,19 @@ Set as constants at the top of `analytics_event_health.py`:
 
 The committed durable artifacts are the longitudinal log and the diff state. The full JSON
 report (`--json`) and the remediation payloads are gitignored transients. Route rank-1/2
-flags + their stage-2 verdicts to Eng/PM. (Future: post the digest to Slack and optionally
-open a fix PR — DATA-1952 phase 2.)
+flags + their stage-2 verdicts to Eng/PM.
+
+### Post the digest to Slack (`--slack`, DATA-2057)
+
+Pass `--slack` to also push a delta-led digest to the analytics event-lifecycle Slack
+channel: a parent message with the status transitions + newly flagged/resolved events, the
+anomaly/proposal headline, and the status breakdown, plus a threaded reply with per-event
+anomaly numbers and the watchlist proposals. It is **quiet** — nothing posts when no event
+was newly flagged, escalated, or resolved and no new anomaly appeared. The post happens
+inline **before** the state file is advanced (the diff is consumed once state is written),
+and is **non-fatal**: a Slack error prints a warning and never changes the monitor's exit
+code. Needs `SLACK_APP_BOT_TOKEN` + `SLACK_EVENT_LIFECYCLE_CHANNEL_ID` in `scripts/.env`;
+without them, `--slack` warns and skips while the monitor runs normally.
 
 ## Troubleshooting
 

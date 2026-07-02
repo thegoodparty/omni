@@ -198,11 +198,57 @@ back or blocked by a refresh problem.
 3. **On a clean skip:** the wrapper exits 0 with `…not configured on this host…; skipping`
    when the machine lacks the shared Sheets credentials (no cached token, no sheet id). This
    is expected on most engineers' machines — report `surface refresh — skipped (host not
-   configured)` and move on. It is not an error, and it does not trigger op or a browser.
+   configured)` and move on. It is not an error, and it does not trigger op or a browser. (To
+   configure a host, mint the token once with `scripts/shell/mint-sheets-token.sh`; it caches
+   outside the checkout so it persists across worktrees — DATA-2061.)
 4. **On failure:** do not fail the skill. Report the two outcomes separately —
    `metadata written ✓; surface refresh ⚠ (<reason>) — re-run refresh-event-state.sh`.
    The surface is eventually-consistent; the next trigger or a run on a configured host
    (currently the data owner's) recovers it.
+
+### Announce in Slack (independent, non-fatal)
+
+After the writes are verified, push a real-time notice of the change to the analytics
+event-lifecycle Slack channel (DATA-2057, Source A). Like the surface refresh, this is a
+**separate step that must fail separately** — the Amplitude write has already succeeded and
+must never be blocked or rolled back by a Slack problem. Post **one notice per event you
+touched** (a supersession touches two — the new event as `created`/`superseded` and the
+predecessor as `retired`/`superseded`).
+
+1. Run the wrapper with the fields already in scope (resolve the runbooks path the same way
+   the other steps do — `$RUNBOOKS_DIR` or the repo checkout). `--change` is
+   `created` for a net-new add, `superseded` for a supersession, `retired` for a
+   retirement, `updated` for a pure metadata enrich/backfill. `--source` is the PR (`PR
+   #NNNN`) when one was detected, else `manual (dev feedback)`:
+
+   ```bash
+   "$RUNBOOKS_DIR"/scripts/shell/notify-event-slack.sh \
+     --event "<event name>" --change created --status "<in use|not in use status>" \
+     --product product:win --family "<family>" --purpose "<the one-line purpose>" \
+     --source "PR #NNNN" --author "<handle>" --supersession "<lineage line, if any>"
+   ```
+
+   For `--change updated`, add `--changed "purpose, tags"` (the fields that changed).
+
+2. **On a clean skip** (`…not configured on this host…; skipping`), the machine lacks the
+   shared Slack credentials. This repo is agent-driven, so self-heal once before giving up:
+   if `op` is signed in and the shared vault is reachable, provision the credentials into
+   `scripts/.env` from 1Password (never printing the token), then re-run the wrapper:
+
+   ```bash
+   cd "$RUNBOOKS_DIR"/scripts
+   tok=$(op read 'op://Product-Analytics/Slack analytics-event-bot OAuth/notesPlain' 2>/dev/null)
+   if [[ "$tok" == xoxb-* ]]; then
+     grep -q '^SLACK_APP_BOT_TOKEN=' .env || printf 'SLACK_APP_BOT_TOKEN=%s\n' "$tok" >> .env
+     grep -q '^SLACK_EVENT_LIFECYCLE_CHANNEL_ID=' .env || printf 'SLACK_EVENT_LIFECYCLE_CHANNEL_ID=%s\n' 'C0BECEK0603' >> .env
+   fi
+   ```
+
+   Then re-run the `notify-event-slack.sh` command above. If `op` is unavailable or the
+   `Product-Analytics` vault is not shared with this user, the token stays absent — report
+   `Slack notification — skipped (host not configured)` and move on. Not an error.
+3. **On failure:** do not fail the skill. Report all three outcomes separately —
+   `metadata written ✓; surface refresh ✓/⚠; Slack notification ⚠ (<reason>)`.
 
 ## Handoff (when called by instrument-analytics-event)
 

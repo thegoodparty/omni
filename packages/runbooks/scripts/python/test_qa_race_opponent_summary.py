@@ -48,51 +48,48 @@ def _valid_artifact() -> dict:
         "opponents": [
             {
                 "opponent_name": "Jane Doe",
+                "threat_tier": "primary_threat",
                 "overview": {
                     "text": "Jane Doe is running for City Council.",
-                    "sources": ["https://ballotpedia.org/Jane_Doe"],
+                    "sources": [
+                        {
+                            "url": "https://ballotpedia.org/Jane_Doe",
+                            "title": "Jane Doe - Ballotpedia",
+                            "publisher": "Ballotpedia",
+                        }
+                    ],
+                },
+                "why_theyre_running": {
+                    "text": "Jane is running to keep her seat and continue her platform on housing.",
                 },
                 "background": None,
-                "key_positions": [
-                    {
-                        "label": "Housing",
-                        "detail": "Supports more affordable housing.",
-                        "sources": ["https://janedoe.com"],
-                    }
-                ],
-                "threat_tier": "primary_threat",
-                "why_they_matter": "The only incumbent in the field.",
-                "what_you_need_to_know": ["Two-term incumbent with a base."],
-                "where_soft": [
-                    {
-                        "text": "No published water position.",
-                        "sources": ["https://ballotpedia.org/Jane_Doe"],
-                    },
-                    {"text": "Skipped the candidate survey."},
-                ],
-                "issue_contrasts": [
-                    {
-                        "issue": "Housing",
-                        "salience": "high",
-                        "why_it_matters": "Families are priced out.",
-                        "opponent_stance": "Supports affordable housing.",
-                        "opponent_sources": ["https://janedoe.com"],
-                        "candidate_stance": "Supports more starter homes.",
-                    }
-                ],
+                "issues_that_matter": {
+                    "items": ["Supports more affordable housing."],
+                    "sources": [
+                        {
+                            "url": "https://janedoe.com",
+                            "title": "Issues - Jane Doe",
+                            "publisher": "Jane Doe for City Council",
+                        }
+                    ],
+                },
             },
             {
                 "opponent_name": "No Sources Sam",
-                "overview": None,
-                "background": None,
-                "key_positions": [],
                 "threat_tier": "low_priority",
-                "why_they_matter": "No public platform yet.",
-                "what_you_need_to_know": [],
-                "where_soft": [],
-                "issue_contrasts": [],
+                "overview": None,
+                "why_theyre_running": None,
+                "background": None,
+                "issues_that_matter": None,
             },
         ],
+        "field_analysis": {
+            "strengths": ["Concrete, dated plan on housing the field hasn't matched."],
+            "weaknesses": [],
+            "opportunities": [],
+            "threats": [],
+            "sources": [],
+        },
     }
 
 
@@ -194,28 +191,25 @@ class TestPrimaryThreatCount:
         assert "got 2" in frag["detail"]
 
 
-class TestAnalysisSourcingRate:
+class TestFieldAnalysisSourcingRate:
     """The relaxed-sourcing metric is observe-only (always passed:true) but must
-    be PRESENT and must count the where_soft + issue_contrasts items; a silent
-    drop or a crash in collect_analysis_items would otherwise go unnoticed."""
+    be PRESENT and must reflect the top-level field_analysis.sources count; a
+    silent drop or crash reading field_analysis would otherwise go unnoticed."""
 
     def test_fragment_present_and_passes_on_valid_artifact(self):
         main = _fresh_main()
         fragments = main.build_fragments(_valid_artifact(), _real_schema())
-        frag = _by_name(fragments, "analysis_sourcing_rate")
+        frag = _by_name(fragments, "field_analysis_sourcing_rate")
         assert frag["passed"] is True
-        # The valid fixture's Jane carries 2 where_soft (1 sourced) + 1 sourced
-        # contrast = 3 analytical items, 2 of them sourced.
-        assert "2/3" in frag["detail"]
+        # The valid fixture's field_analysis carries an empty sources array.
+        assert "cites 0 source(s)" in frag["detail"]
 
-    def test_not_applicable_when_no_analytical_items(self):
+    def test_not_applicable_when_field_analysis_is_null(self):
         main = _fresh_main()
         art = _valid_artifact()
-        for opp in art["opponents"]:
-            opp["where_soft"] = []
-            opp["issue_contrasts"] = []
+        art["field_analysis"] = None
         frag = _by_name(
-            main.build_fragments(art, _real_schema()), "analysis_sourcing_rate"
+            main.build_fragments(art, _real_schema()), "field_analysis_sourcing_rate"
         )
         assert frag["passed"] is True
         assert "not applicable" in frag["detail"]
@@ -282,10 +276,16 @@ class TestSchemaAbsentPath:
         assert "attribution_shape" in _names(fragments)
 
 
+def _rich_source(**overrides) -> dict:
+    source = {"url": "https://x.com", "title": "X", "publisher": "X Publisher"}
+    source.update(overrides)
+    return source
+
+
 class TestHasValidSources:
-    def test_valid_http_sources(self):
+    def test_valid_rich_source(self):
         main = _fresh_main()
-        assert main.has_valid_sources({"sources": ["https://x.com"]}) is True
+        assert main.has_valid_sources({"sources": [_rich_source()]}) is True
 
     def test_empty_sources(self):
         main = _fresh_main()
@@ -295,17 +295,25 @@ class TestHasValidSources:
         main = _fresh_main()
         assert main.has_valid_sources({}) is False
 
-    def test_non_http_source(self):
+    def test_non_http_url(self):
         main = _fresh_main()
-        assert main.has_valid_sources({"sources": ["ftp://x"]}) is False
+        assert main.has_valid_sources({"sources": [_rich_source(url="ftp://x")]}) is False
 
-    def test_non_string_source(self):
+    def test_missing_title(self):
+        main = _fresh_main()
+        assert main.has_valid_sources({"sources": [_rich_source(title="")]}) is False
+
+    def test_missing_publisher(self):
+        main = _fresh_main()
+        assert main.has_valid_sources({"sources": [_rich_source(publisher="")]}) is False
+
+    def test_non_dict_source(self):
         main = _fresh_main()
         assert main.has_valid_sources({"sources": [None]}) is False
 
 
 class TestCollectSections:
-    def test_null_overview_and_background_omitted(self):
+    def test_null_sections_omitted(self):
         main = _fresh_main()
         art = {
             "opponents": [
@@ -313,17 +321,17 @@ class TestCollectSections:
                     "opponent_name": "Sam",
                     "overview": None,
                     "background": None,
-                    "key_positions": [],
+                    "issues_that_matter": None,
                 }
             ]
         }
         assert main.collect_sections(art) == []
 
-    def test_collects_non_null_sections_and_positions(self):
+    def test_collects_non_null_sections(self):
         main = _fresh_main()
         art = _valid_artifact()
         sections = main.collect_sections(art)
-        # Jane: overview + one key_position; Sam: nothing.
+        # Jane: overview + issues_that_matter; Sam: nothing.
         assert len(sections) == 2
 
 

@@ -32,6 +32,13 @@ export interface PageHeaderProps extends React.HTMLAttributes<HTMLElement> {
   subBarTrailing?: React.ReactNode
   /** Sub-bar: center slot content (between back button and actions). */
   subBarContent?: React.ReactNode
+  /** Main bar: overrides merged onto the bar itself (height, background, border). */
+  barClassName?: string
+  /**
+   * Main bar: overrides merged onto the inner content wrapper — e.g.
+   * `mx-auto max-w-[608px]` to align the heading with a constrained page column.
+   */
+  contentClassName?: string
 }
 
 function PageHeader({
@@ -43,6 +50,8 @@ function PageHeader({
   backLabel,
   subBarTrailing,
   subBarContent,
+  barClassName,
+  contentClassName,
   className,
   ...props
 }: PageHeaderProps) {
@@ -100,33 +109,41 @@ function PageHeader({
     >
       <div
         data-slot="page-header-bar"
-        className="flex items-center h-16 px-4 bg-sidebar border-b border-sidebar-border"
+        className={cn(
+          'flex items-center h-16 px-4 bg-sidebar border-b border-sidebar-border',
+          barClassName,
+        )}
       >
-        {leadingEl && (
-          <>
-            <div className="flex items-center shrink-0">{leadingEl}</div>
-            {heading && (
-              <Separator
-                orientation="vertical"
-                className="data-[orientation=vertical]:h-5 mx-3 lg:hidden"
-              />
-            )}
-          </>
-        )}
+        <div
+          data-slot="page-header-content"
+          className={cn('flex w-full min-w-0 items-center', contentClassName)}
+        >
+          {leadingEl && (
+            <>
+              <div className="flex items-center shrink-0">{leadingEl}</div>
+              {heading && (
+                <Separator
+                  orientation="vertical"
+                  className="data-[orientation=vertical]:h-5 mx-3 lg:hidden"
+                />
+              )}
+            </>
+          )}
 
-        {heading && (
-          <div className="flex-1 min-w-0">
-            <h1 className="block truncate text-base font-semibold text-sidebar-foreground m-0">
-              {heading}
-            </h1>
-          </div>
-        )}
+          {heading && (
+            <div className="flex-1 min-w-0">
+              <h1 className="block truncate text-base font-semibold text-sidebar-foreground m-0">
+                {heading}
+              </h1>
+            </div>
+          )}
 
-        {trailing && (
-          <div className="flex items-center shrink-0 ml-auto lg:hidden">
-            {trailing}
-          </div>
-        )}
+          {trailing && (
+            <div className="flex items-center shrink-0 ml-auto lg:hidden">
+              {trailing}
+            </div>
+          )}
+        </div>
       </div>
 
       {hasSubBar && (

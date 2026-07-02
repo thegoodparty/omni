@@ -356,7 +356,14 @@ export const getDashboardMenuItems = (
   // the tab even before a plan exists: it hosts the "complete your story to
   // generate a plan" gate.
   if (campaignStrategyExists || campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
+    // The story cohort gets the campaign tracker on this page, so label it as
+    // such; the legacy (story-off) cohort still sees the plan content there.
+    menuItems.splice(afterCampaignManager, 0, {
+      ...CAMPAIGN_PLAN_MENU_ITEM,
+      label: campaignStoryEnabled
+        ? 'Campaign Tracker'
+        : CAMPAIGN_PLAN_MENU_ITEM.label,
+    })
   }
 
   // Internal, read-only race-opponent page. Flag-gated so it can ramp to staff

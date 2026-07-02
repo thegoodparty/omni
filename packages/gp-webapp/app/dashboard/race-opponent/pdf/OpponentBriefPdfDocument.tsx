@@ -8,8 +8,8 @@ import {
   Text,
   View,
 } from '@react-pdf/renderer'
-import type { RaceOpponentSummarySourceRef } from 'gpApi/api-endpoints'
 import type {
+  FieldAnalysisBrief,
   OpponentBrief,
   OpponentBriefSection,
 } from './opponentBriefContent'
@@ -18,7 +18,6 @@ const COLOR = {
   primary: '#0a1428',
   muted: '#6b7280',
   divider: '#d1d5db',
-  card: '#f8fafc',
   link: '#0048c2',
 }
 
@@ -57,10 +56,11 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 12,
   },
+  // Blue uppercase section labels, echoing the page's DetailSection headings.
   sectionHeading: {
     fontSize: 9,
     fontFamily: 'Helvetica-Bold',
-    color: COLOR.muted,
+    color: COLOR.link,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 5,
@@ -84,77 +84,38 @@ const styles = StyleSheet.create({
   bulletText: {
     flex: 1,
   },
-  card: {
-    borderWidth: 0.5,
-    borderColor: COLOR.divider,
-    borderStyle: 'solid',
-    borderRadius: 4,
-    backgroundColor: COLOR.card,
-    padding: 8,
+  link: {
+    fontSize: 10,
+    color: COLOR.link,
+    textDecoration: 'underline',
     marginBottom: 6,
   },
-  contrast: {
-    marginBottom: 12,
-  },
-  contrastIssue: {
-    fontSize: 11,
-    fontFamily: 'Helvetica-Bold',
-    marginBottom: 4,
-  },
-  subLabel: {
-    fontSize: 9,
-    fontFamily: 'Helvetica-Bold',
+  sourceLabel: {
+    fontSize: 8,
+    fontStyle: 'italic',
     color: COLOR.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 2,
-  },
-  stanceRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  stanceCol: {
-    flex: 1,
-  },
-  positionLabel: {
-    fontSize: 11,
-    fontFamily: 'Helvetica-Bold',
-    marginBottom: 2,
+    marginTop: 2,
   },
   source: {
     fontSize: 8,
-    color: COLOR.link,
-    textDecoration: 'underline',
-    marginTop: 2,
+    color: COLOR.muted,
   },
 })
 
-const Sources = ({
-  sources,
-}: {
-  sources: RaceOpponentSummarySourceRef[]
-}): React.JSX.Element | null => {
-  // De-dupe by URL: per-item source lists carry no uniqueness guarantee, so a
-  // repeated sourceUrl from the LLM would collide on the React key and react-pdf
-  // would silently drop the second link. Mirrors the overview+background merge
-  // dedup in opponentBriefContent.
-  const seen = new Set<string>()
-  const unique = sources.filter((source) => {
-    if (seen.has(source.sourceUrl)) return false
-    seen.add(source.sourceUrl)
-    return true
-  })
-  if (unique.length === 0) return null
+// Compact citation lines in print: an italic "source:" label followed by one
+// "publisher — url" line per source (no hover carousel, per ENG-10637).
+// Shared by every sourced section (overview, background, issues that matter).
+const Sources = ({ lines }: { lines: string[] }): React.JSX.Element | null => {
+  if (lines.length === 0) return null
   return (
     <View>
-      {unique.map((source) => (
-        <Link
-          key={source.sourceUrl}
-          src={source.sourceUrl}
-          style={styles.source}
-        >
-          {source.sourceUrl}
-        </Link>
+      <Text style={styles.sourceLabel}>source:</Text>
+      {/* Text keys: a formatted "publisher — url" line is deduped by url
+          upstream (sourceLinesFor), so it's unique within this list. */}
+      {lines.map((line) => (
+        <Text key={line} style={styles.source}>
+          {line}
+        </Text>
       ))}
     </View>
   )
@@ -162,9 +123,9 @@ const Sources = ({
 
 const Bullets = ({ items }: { items: string[] }): React.JSX.Element => (
   <View>
-    {/* Index keys: whatYouNeedToKnow is free-text from the LLM with no
-        uniqueness guarantee, so a repeated string would collide on a
-        text-based key and react-pdf would silently drop the duplicate. */}
+    {/* Index keys: list items are free-text with no uniqueness guarantee, so a
+        repeated string would collide on a text-based key and react-pdf would
+        silently drop the duplicate. */}
     {items.map((item, index) => (
       <View key={index} style={styles.bulletRow}>
         <Text style={styles.bulletDot}>•</Text>
@@ -176,94 +137,45 @@ const Bullets = ({ items }: { items: string[] }): React.JSX.Element => (
 
 const Section = ({
   section,
-  opponentName,
 }: {
   section: OpponentBriefSection
-  opponentName: string
 }): React.JSX.Element => {
   switch (section.kind) {
     case 'overview':
       return (
         <View style={styles.section}>
-          {section.paragraphs.map((text, index) => (
-            <Text key={index} style={styles.para}>
-              {text}
-            </Text>
-          ))}
-          <Sources sources={section.sources} />
+          <Text style={styles.para}>{section.text}</Text>
+          {section.websiteUrl ? (
+            <Link src={section.websiteUrl} style={styles.link}>
+              Campaign website
+            </Link>
+          ) : null}
+          <Sources lines={section.sourceLines} />
         </View>
       )
-    case 'whyTheyMatter':
+    case 'whyTheyreRunning':
       return (
         <View style={styles.section}>
-          <Text style={styles.sectionHeading}>Why they matter most</Text>
+          <Text style={styles.sectionHeading}>Why they&apos;re running</Text>
           <Text>{section.text}</Text>
         </View>
       )
-    case 'whatYouNeedToKnow':
+    case 'background':
       return (
         <View style={styles.section}>
-          <Text style={styles.sectionHeading}>What you need to know</Text>
-          <Bullets items={section.items} />
+          <Text style={styles.sectionHeading}>Their background</Text>
+          <Text>{section.text}</Text>
+          <Sources lines={section.sourceLines} />
         </View>
       )
-    case 'whereSoft':
+    case 'issuesThatMatter':
       return (
         <View style={styles.section}>
-          <Text style={styles.sectionHeading}>Where they&apos;re soft</Text>
-          {/* Index keys: whereSoft item text is free-text with no uniqueness
-              guarantee; a repeated description on a text-based key would be
-              silently dropped by react-pdf. */}
-          {section.items.map((item, index) => (
-            <View key={index} style={styles.card}>
-              <Text>{item.text}</Text>
-              <Sources sources={item.sources} />
-            </View>
-          ))}
-        </View>
-      )
-    case 'issueContrasts':
-      return (
-        <View style={styles.section}>
-          <Text style={styles.sectionHeadingLg}>
-            Where you contrast, and what to do about it
+          <Text style={styles.sectionHeading}>
+            Issues that matter most to them
           </Text>
-          {section.contrasts.map((contrast, index) => (
-            <View key={`${contrast.issue}-${index}`} style={styles.contrast}>
-              <Text style={styles.contrastIssue}>{contrast.issue}</Text>
-              <Text style={styles.subLabel}>
-                Why this matters to constituents
-              </Text>
-              <Text style={styles.para}>{contrast.whyItMatters}</Text>
-              <View style={styles.stanceRow}>
-                <View style={styles.stanceCol}>
-                  <Text style={styles.subLabel}>{opponentName}</Text>
-                  <Text>{contrast.opponentStance}</Text>
-                  <Sources sources={contrast.opponentSources} />
-                </View>
-                <View style={styles.stanceCol}>
-                  <Text style={styles.subLabel}>You</Text>
-                  <Text>{contrast.candidateStance}</Text>
-                </View>
-              </View>
-            </View>
-          ))}
-        </View>
-      )
-    case 'keyPositions':
-      return (
-        <View style={styles.section}>
-          <Text style={styles.sectionHeading}>Key positions</Text>
-          {/* Index keys: position.label is LLM free-text with no uniqueness
-              guarantee; a duplicate label on a text-based key would be silently
-              dropped by react-pdf. */}
-          {section.positions.map((position, index) => (
-            <View key={index} style={styles.card}>
-              <Text style={styles.positionLabel}>{position.label}</Text>
-              <Text>{position.detail}</Text>
-              <Sources sources={position.sources} />
-            </View>
-          ))}
+          <Bullets items={section.items} />
+          <Sources lines={section.sourceLines} />
         </View>
       )
   }
@@ -274,11 +186,9 @@ const Section = ({
 // brief header to match what the reader sees on screen.
 const OpponentBriefView = ({
   brief,
-  opponentName,
   breakBefore,
 }: {
   brief: OpponentBrief
-  opponentName: string
   breakBefore: boolean
 }): React.JSX.Element => (
   <View style={styles.opponent} break={breakBefore}>
@@ -287,7 +197,31 @@ const OpponentBriefView = ({
       <Text style={styles.snapshot}>{brief.snapshot}</Text>
     ) : null}
     {brief.sections.map((section, index) => (
-      <Section key={index} section={section} opponentName={opponentName} />
+      <Section key={index} section={section} />
+    ))}
+  </View>
+)
+
+// The campaign-level SWOT, rendered once after every opponent's brief.
+// Mirrors FieldAnalysisSection's heading and per-quadrant bullet lists; the
+// caller (downloadOpponentBriefsPdf) already applies its omission rules via
+// buildFieldAnalysisBrief, so this only renders what's passed.
+const FieldAnalysisBriefView = ({
+  fieldAnalysisBrief,
+  breakBefore,
+}: {
+  fieldAnalysisBrief: FieldAnalysisBrief
+  breakBefore: boolean
+}): React.JSX.Element => (
+  <View style={styles.opponent} break={breakBefore}>
+    <Text style={styles.sectionHeadingLg}>
+      How your campaign stacks up against the field
+    </Text>
+    {fieldAnalysisBrief.quadrants.map((quadrant) => (
+      <View key={quadrant.label} style={styles.section}>
+        <Text style={styles.sectionHeading}>{quadrant.label}</Text>
+        <Bullets items={quadrant.items} />
+      </View>
     ))}
   </View>
 )
@@ -296,9 +230,11 @@ type BriefWithName = { brief: OpponentBrief; opponentName: string }
 
 export const OpponentBriefPdfDocument = ({
   briefs,
+  fieldAnalysisBrief,
   raceContext,
 }: {
   briefs: BriefWithName[]
+  fieldAnalysisBrief?: FieldAnalysisBrief | null
   raceContext?: string
 }): React.JSX.Element => (
   <Document title="Opponent brief">
@@ -311,14 +247,15 @@ export const OpponentBriefPdfDocument = ({
       {/* Index keys: opponent names carry no uniqueness guarantee, so two
           same-named opponents on a name-based key would collide and one brief
           would be silently dropped. */}
-      {briefs.map(({ brief, opponentName }, index) => (
-        <OpponentBriefView
-          key={index}
-          brief={brief}
-          opponentName={opponentName}
-          breakBefore={index > 0}
-        />
+      {briefs.map(({ brief }, index) => (
+        <OpponentBriefView key={index} brief={brief} breakBefore={index > 0} />
       ))}
+      {fieldAnalysisBrief ? (
+        <FieldAnalysisBriefView
+          fieldAnalysisBrief={fieldAnalysisBrief}
+          breakBefore={briefs.length > 0}
+        />
+      ) : null}
     </Page>
   </Document>
 )

@@ -99,4 +99,6 @@ export {
   WandSparkles as WandSparklesIcon,
   ListChecks as ListChecksIcon,
   RotateCw as RefreshIcon,
+  TrendingUp as TrendingUpIcon,
+  OctagonAlert as OctagonAlertIcon,
 } from 'lucide-react'

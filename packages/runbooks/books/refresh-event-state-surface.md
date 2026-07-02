@@ -10,9 +10,12 @@ Refresh the consumer-facing analytics event-state surface (the Google Sheet).
 `scripts/shell/refresh-event-state.sh`            — full refresh
 `scripts/shell/refresh-event-state.sh --dry-run`  — preview only (no Google write)
 
-The wrapper fetches the Google OAuth client secrets from 1Password on the first run only
-(browser consent, then the token caches and later runs are non-interactive), sets the sheet
-id, and runs the refresh. The `uv run` steps below are the underlying detail.
+Do the one-time browser consent once with `scripts/shell/mint-sheets-token.sh` (fetches the
+OAuth client secrets from 1Password, or takes a saved secrets JSON as an argument). The token
+caches **outside the checkout** (`GP_SHEETS_TOKEN_PATH`, else `$XDG_CONFIG_HOME/gp-event-state`,
+else `~/.config/gp-event-state`) so it survives worktree removal and is shared across checkouts;
+later runs are non-interactive. If no token exists, the wrapper will also do the first-run fetch
+inline. The `uv run` steps below are the underlying detail.
 
 ## Automated triggers (DATA-2053)
 
@@ -46,8 +49,9 @@ it into) the Databricks catalog.
    `uv run python event_state_gsheet.py refresh --dry-run`
 3. Write/update the Google Sheet (full overwrite of the `events` tab):
    `uv run python event_state_gsheet.py refresh`
-   - First run only: pass `--client-secrets <path/to/oauth-client.json>` and approve the
-     browser consent. The token is then cached (gitignored) and later runs are headless.
+   - First run only: mint the token once with `scripts/shell/mint-sheets-token.sh` (or pass
+     `--client-secrets <path/to/oauth-client.json>` here) and approve the browser consent. The
+     token then caches outside the checkout and later runs are headless.
 4. Open the sheet and confirm the data refreshed. The ClickUp landing page links/embeds
    this sheet, so no separate page write is needed.
 

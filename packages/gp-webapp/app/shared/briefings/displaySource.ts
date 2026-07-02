@@ -47,7 +47,7 @@ const ARTICLE_TYPE_LABEL: Record<string, string> = {
   government_communication: 'Government communication',
 }
 
-const hostnameFromUrl = (url?: string | null): string | null => {
+export const hostnameFromUrl = (url?: string | null): string | null => {
   if (!url) return null
   try {
     const u = new URL(url)
@@ -56,6 +56,9 @@ const hostnameFromUrl = (url?: string | null): string | null => {
     return null
   }
 }
+
+export const sourceInitial = (publisher: string): string =>
+  (publisher.trim().charAt(0) || '?').toUpperCase()
 
 const formatDate = (iso?: string | null): string | null => {
   if (!iso) return null
@@ -110,6 +113,6 @@ export const toDisplaySource = (s: SourceInput): DisplaySource => {
     displayBlurb: null,
     url: s.url ?? null,
     isProprietary: false,
-    initial: (publisher.trim().charAt(0) || '?').toUpperCase(),
+    initial: sourceInitial(publisher),
   }
 }

@@ -8,6 +8,8 @@ import { z } from 'zod'
 import {
   RaceOpponent,
   RaceOpponentCollectionStatus,
+  RaceOpponentFieldAnalysis,
+  RaceOpponentFieldAnalysisSchema,
   RaceOpponentResponse,
   RaceOpponentSummary,
   RaceOpponentSummarySchema,
@@ -503,7 +505,30 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         campaign.id,
         campaign.organizationSlug,
       ),
+      fieldAnalysis: await this.loadFieldAnalysis(campaign.id),
     }
+  }
+
+  // The persisted campaign-level SWOT (one row per campaign). Re-validated
+  // against the contract on read, mirroring loadSummaries: a row that somehow
+  // doesn't parse is omitted rather than 500-ing the whole read.
+  private async loadFieldAnalysis(
+    campaignId: number,
+  ): Promise<RaceOpponentFieldAnalysis | null> {
+    const row = await this.client.raceOpponentFieldAnalysis.findUnique({
+      where: { campaignId },
+    })
+    if (!row) return null
+
+    const parsed = RaceOpponentFieldAnalysisSchema.safeParse(row.sections)
+    if (!parsed.success) {
+      this.logger.warn(
+        { campaignId },
+        'persisted field analysis failed contract re-parse; omitting',
+      )
+      return null
+    }
+    return parsed.data
   }
 
   // The persisted structured summaries (one row per opponent). Keyed by the
@@ -540,10 +565,15 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   // enrich the grouped response — no new external call, this is the same
   // relation collect() reads via loadOpposition. Keyed by normalized name so
   // groupByOpponent can resolve party/incumbency per collected opponent.
-  private async loadRoster(
-    campaignId: number,
-  ): Promise<
-    Map<string, { party: string | null; isIncumbent: boolean | null }>
+  private async loadRoster(campaignId: number): Promise<
+    Map<
+      string,
+      {
+        party: string | null
+        isIncumbent: boolean | null
+        websiteUrl: string | null
+      }
+    >
   > {
     const plan = await this.client.campaignStrategy.findUnique({
       where: { campaignId },
@@ -551,12 +581,17 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     })
     const byName = new Map<
       string,
-      { party: string | null; isIncumbent: boolean | null }
+      {
+        party: string | null
+        isIncumbent: boolean | null
+        websiteUrl: string | null
+      }
     >()
     for (const opponent of plan?.opponents ?? []) {
       byName.set(opponent.fullName.trim().toLowerCase(), {
         party: opponent.partyAffiliation,
         isIncumbent: opponent.incumbent ?? null,
+        websiteUrl: opponent.websiteUrl ?? null,
       })
     }
     return byName
@@ -627,10 +662,22 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 
   private groupByOpponent(
     rows: RaceOpponentRow[],
-    roster: Map<string, { party: string | null; isIncumbent: boolean | null }>,
+    roster: Map<
+      string,
+      {
+        party: string | null
+        isIncumbent: boolean | null
+        websiteUrl: string | null
+      }
+    >,
     summaries: Map<string, RaceOpponentSummary>,
   ): RaceOpponentResponse['opponents'] {
     const byName = new Map<string, RaceOpponent[]>()
+    // Collected opponent_website rows are the primary websiteUrl source (the
+    // opponent's own site, as actually reached by the collection agent); the
+    // roster's manual-entry hint is only a fallback for an opponent collection
+    // never found a website for.
+    const websiteUrlByName = new Map<string, string>()
     for (const row of rows) {
       const items = byName.get(row.opponentName) ?? []
       items.push({
@@ -642,6 +689,12 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         collectedAt: row.createdAt,
       })
       byName.set(row.opponentName, items)
+      if (
+        row.sourceType === RaceOpponentSourceType.opponent_website &&
+        row.sourceUrl
+      ) {
+        websiteUrlByName.set(row.opponentName, row.sourceUrl)
+      }
     }
     const grouped = [...byName.entries()].map(([opponentName, items]) => {
       // Conservative name match against the roster: trim + lowercase only
@@ -656,6 +709,8 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         // Surfaced on the opponent object (mirrors summary.threatTier) so the
         // roster can tier and order without opening the detail.
         threatTier: summary?.threatTier,
+        websiteUrl:
+          websiteUrlByName.get(opponentName) ?? match?.websiteUrl ?? null,
         // Raw items back only the no-summary fallback in the UI; once a
         // structured summary exists they are redundant, so omit them instead
         // of shipping the full scraped page text (ENG-10622).

@@ -6,6 +6,7 @@ import type {
   RaceOpponentCollectionStatus,
   RaceOpponentResearchStatus,
   RaceOpponentFindingKind,
+  SummarySource,
 } from '@goodparty_org/contracts'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type {
@@ -966,9 +967,21 @@ export type RaceOpponentItem = {
 // Display-ready summary structured by the race_opponent_summary step. Mirrors
 // RaceOpponentSummarySchema in @goodparty_org/contracts, but generatedAt arrives
 // over JSON as an ISO string (the contract coerces it to Date).
+//
+// v2 (ENG-10630/ENG-10634): mirrors NormalizedSummarySource in contracts — the
+// rich fields (url/title/publisher) are always present (the contract backfills
+// them from the hostname for legacy-normalized rows), while sourceType/
+// sourceUrl are the legacy passthrough gp-api still sends during the rollout.
+// RaceOpponentList/IssueContrastCard/the PDF still key off sourceType/sourceUrl
+// until ENG-10635 migrates them onto the rich fields, so those stay optional
+// (not removed) rather than required.
 export type RaceOpponentSummarySourceRef = {
-  sourceType: RaceOpponentSourceType
-  sourceUrl: string
+  url: string
+  title: string
+  publisher: string
+  description?: string
+  sourceType?: RaceOpponentSourceType
+  sourceUrl?: string
 }
 
 export type RaceOpponentSummarySection = {
@@ -989,6 +1002,13 @@ export type RaceOpponentSummary = {
   keyPositions: RaceOpponentSummaryKeyPosition[]
   generatedAt: string | null
   threatTier?: RaceOpponentThreatTier
+  // v2 (ENG-10630/ENG-10635): interpretive, no required sources.
+  whyTheyreRunning?: { text: string } | null
+  // v2 (ENG-10630/ENG-10635): sourced-or-silent, like overview/background.
+  issuesThatMatter?: {
+    items: string[]
+    sources: RaceOpponentSummarySourceRef[]
+  } | null
   // Phase 3 analytical fields, all optional (the analysis may be absent).
   whyTheyMatter?: string
   whatYouNeedToKnow?: Array<{
@@ -1011,6 +1031,20 @@ export type RaceOpponentIssueContrast = {
   candidateStance: string
 }
 
+// Campaign-level SWOT (ENG-10630/ENG-10636). Mirrors
+// RaceOpponentFieldAnalysisSchema in @goodparty_org/contracts, but
+// generatedAt arrives over JSON as an ISO string (the contract coerces it to
+// Date). Interpretive section: sources may be empty, unlike the
+// sourced-or-silent summary sections above.
+export type RaceOpponentFieldAnalysis = {
+  strengths: string[]
+  weaknesses: string[]
+  opportunities: string[]
+  threats: string[]
+  sources: SummarySource[]
+  generatedAt: string | null
+}
+
 export type RaceOpponentResponse = {
   opponents: Array<{
     opponentName: string
@@ -1028,9 +1062,15 @@ export type RaceOpponentResponse = {
     // Optional + nullable: ENG-10588 wires the producer to populate this from
     // the race_opponent_summary step; until then gp-api omits the field.
     summary?: RaceOpponentSummary | null
+    // v2 (ENG-10630/ENG-10635): populated from the opponent's roster/collected
+    // data; nullish so older gp-api payloads that predate this field still parse.
+    websiteUrl?: string | null
   }>
   lastCollectedAt: string | null
   collectionStatus: RaceOpponentCollectionStatus
+  // v2 (ENG-10630/ENG-10636): campaign-level SWOT, null until candidate_platform
+  // data is available; nullish so older gp-api payloads still parse.
+  fieldAnalysis?: RaceOpponentFieldAnalysis | null
 }
 
 // Where a contrast is routed. Mirrors RaceOpponentContrastRoutingSchema in
