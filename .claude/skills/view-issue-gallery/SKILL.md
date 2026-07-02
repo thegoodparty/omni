@@ -77,6 +77,17 @@ Tell the human: **http://localhost:4000/dev/issues** — pick an artifact from t
 list. To swap the cohort, re-run the pull script (step 1) and reload; to change which
 dir is served, set `LOCAL_ISSUES_DIR` before `npm run dev`.
 
+## Always pull the agent runs too
+
+Whenever you pull artifacts for this gallery, the underlying agent runs MUST come
+with them: each run's `logs/session.jsonl` and `logs/milestones.jsonl` land beside
+the artifact as `<runId>.session.jsonl` / `<runId>.milestones.jsonl`, powering the
+"View agent run" page (`/dev/runs/<runId>`) the gallery links to. The pull script
+fetches them automatically — never pull artifacts through some other path that
+skips the logs, and if a run's "View agent run" 404s, re-run the pull script for
+that run id. Spot-checking an artifact without being able to open its run is half
+the tool.
+
 ## Notes
 
 - The viewer renders the raw artifact `output_schema` (issues[].detail: sources,
