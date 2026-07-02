@@ -138,22 +138,23 @@ const Sources = ({
   // repeated sourceUrl from the LLM would collide on the React key and react-pdf
   // would silently drop the second link. Mirrors the overview+background merge
   // dedup in opponentBriefContent.
+  // sourceUrl is the legacy passthrough (ENG-10630); url is the rich field the
+  // contract always backfills, so it's the stable fallback once sourceUrl
+  // stops being sent (ENG-10635).
   const seen = new Set<string>()
-  const unique = sources.filter((source) => {
-    if (seen.has(source.sourceUrl)) return false
-    seen.add(source.sourceUrl)
-    return true
-  })
+  const unique = sources
+    .map((source) => source.sourceUrl ?? source.url)
+    .filter((url) => {
+      if (seen.has(url)) return false
+      seen.add(url)
+      return true
+    })
   if (unique.length === 0) return null
   return (
     <View>
-      {unique.map((source) => (
-        <Link
-          key={source.sourceUrl}
-          src={source.sourceUrl}
-          style={styles.source}
-        >
-          {source.sourceUrl}
+      {unique.map((url) => (
+        <Link key={url} src={url} style={styles.source}>
+          {url}
         </Link>
       ))}
     </View>
