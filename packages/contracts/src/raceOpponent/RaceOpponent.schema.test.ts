@@ -212,6 +212,32 @@ describe('RaceOpponentResponseSchema', () => {
     expect(result.opponents[0]?.websiteUrl).toBe('https://janedoe.example.com')
   })
 
+  it('parses with standoutActions: [] and with populated actions', () => {
+    const empty = RaceOpponentResponseSchema.parse({
+      ...response,
+      standoutActions: [],
+    })
+    expect(empty.standoutActions).toEqual([])
+
+    const action = {
+      title: 'Knock the north precinct',
+      body: 'Your opponent skipped three council votes on road repair.',
+      smsMessage: 'Hi, this is Jane — I show up for every road-repair vote.',
+      opponentName: null,
+      issue: 'infrastructure',
+    }
+    const populated = RaceOpponentResponseSchema.parse({
+      ...response,
+      standoutActions: [action],
+    })
+    expect(populated.standoutActions).toEqual([action])
+  })
+
+  it('parses without standoutActions (gp-api does not produce it yet)', () => {
+    const result = RaceOpponentResponseSchema.parse(response)
+    expect(result.standoutActions).toBeUndefined()
+  })
+
   it('accepts a populated fieldAnalysis', () => {
     const result = RaceOpponentResponseSchema.parse({
       ...response,
