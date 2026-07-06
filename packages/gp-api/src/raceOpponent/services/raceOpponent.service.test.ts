@@ -153,6 +153,9 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
         raceOpponentFieldAnalysis: {
           findUnique: vi.fn().mockResolvedValue(null),
         },
+        raceOpponentStandoutAction: {
+          findMany: vi.fn().mockResolvedValue([]),
+        },
         experimentRun: {
           findFirst: vi.fn(({ where }: { where: { experimentType: string } }) =>
             Promise.resolve(
