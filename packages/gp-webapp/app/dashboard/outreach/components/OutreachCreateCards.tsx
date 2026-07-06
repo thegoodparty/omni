@@ -8,14 +8,8 @@ import TaskFlow from 'app/dashboard/components/tasks/flows/TaskFlow'
 import { useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
-import {
-  P2PUpgradeModal,
-  P2P_MODAL_VARIANTS,
-} from 'app/dashboard/shared/P2PUpgradeModal'
-import { ComplianceModal } from 'app/dashboard/shared/ComplianceModal'
-import { TCR_COMPLIANCE_STATUS } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
+import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import type { TcrCompliance } from 'helpers/types'
 import type { OutreachType } from 'gpApi/types/outreach.types'
 
@@ -75,24 +69,14 @@ export const OUTREACH_OPTIONS: OutreachOption[] = [
 const OutreachCreateCards = ({
   tcrCompliance,
 }: OutreachCreateCardsProps): React.JSX.Element => {
-  const { p2pUxEnabled } = useP2pUxEnabled()
   const [campaign] = useCampaign()
-  const { isPro, hasFreeTextsOffer } = campaign || {}
+  const { isPro } = campaign || {}
   const [flowModalTask, setFlowModalTask] = useState<FlowModalTask | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
-  const [showP2PModal, setShowP2PModal] = useState(false)
-  const [showComplianceModal, setShowComplianceModal] = useState(false)
+  const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
 
   const openProUpgradeModal = () => {
     setShowProUpgradeModal(true)
-  }
-
-  const openP2PModal = () => {
-    setShowP2PModal(true)
-  }
-
-  const openComplianceModal = () => {
-    setShowComplianceModal(true)
   }
 
   const openTaskFlow = (type: OutreachType) =>
@@ -100,21 +84,12 @@ const OutreachCreateCards = ({
       flowType: type,
     })
 
-  const isTextCompliant =
-    tcrCompliance?.status === TCR_COMPLIANCE_STATUS.APPROVED
-
   const handleCreateClick = (requiresPro?: boolean) => (type: OutreachType) => {
     trackEvent(EVENTS.Outreach.ClickCreate, { type })
 
     if (type === OUTREACH_TYPES.text) {
-      if (!isPro) {
-        return openP2PModal()
-      }
-      if (p2pUxEnabled && !isTextCompliant) {
-        trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceModalViewed, {
-          source: 'outreach_page',
-        })
-        return openComplianceModal()
+      if (!runTextGate()) {
+        return
       }
     } else if (requiresPro && !isPro) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceStarted, {
@@ -167,30 +142,7 @@ const OutreachCreateCards = ({
         }}
       />
 
-      <P2PUpgradeModal
-        {...{
-          variant: (() => {
-            if (!isPro) return P2P_MODAL_VARIANTS.NonProUpgrade
-            if (p2pUxEnabled && hasFreeTextsOffer && !isTextCompliant) {
-              return P2P_MODAL_VARIANTS.ProFreeTextsNonCompliant
-            }
-            return P2P_MODAL_VARIANTS.NonProUpgrade
-          })(),
-          open: showP2PModal,
-          onClose: () => setShowP2PModal(false),
-          onUpgradeLinkClick: undefined,
-        }}
-      />
-
-      {p2pUxEnabled && (
-        <ComplianceModal
-          {...{
-            open: showComplianceModal,
-            tcrComplianceStatus: tcrCompliance?.status,
-            onClose: () => setShowComplianceModal(false),
-          }}
-        />
-      )}
+      {gateModals}
 
       {flowModalTask && campaign && (
         <TaskFlow

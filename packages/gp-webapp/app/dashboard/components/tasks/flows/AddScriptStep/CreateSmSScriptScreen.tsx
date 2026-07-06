@@ -6,7 +6,7 @@ import { ModalFooter } from '@shared/ModalFooter'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { noop } from '@shared/utils/noop'
 
-const MAX_SMS_CHAR_COUNT = 1600
+export const MAX_SMS_CHAR_COUNT = 1600
 
 interface CreateSmSScriptScreenProps {
   onNext?: (scriptText: string) => void
