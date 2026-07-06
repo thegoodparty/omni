@@ -1213,7 +1213,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     }
     mockPrisma = {
       tcrCompliance: mockTcrModel,
-      $transaction: vi.fn(),
+      $transaction: vi.fn(async (cb: (tx: typeof mockPrisma) => unknown) =>
+        cb(mockPrisma),
+      ),
     }
     mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
     mockWebsites = {

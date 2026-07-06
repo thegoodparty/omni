@@ -767,25 +767,30 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         hostname,
       )
     } catch (error) {
-      // Roll back only this caller's claim by matching the exact timestamp we
-      // wrote. A TTL re-claimant (caller B, after our call exceeded TTL) will
-      // have a different timestamp, so its in-flight claim isn't disturbed.
-      await this.model.updateMany({
-        where: {
-          id: existing.id,
-          peerlyIdentityId: null,
-          peerlySubmissionStartedAt: claimTimestamp,
-        },
-        data: { peerlySubmissionStartedAt: null },
-      })
-      // Peerly billing outage: stamp the block so the hold above short-circuits
-      // subsequent resume/kickoff re-dispatches instead of re-hitting Peerly.
-      if (error instanceof PeerlyBillingException) {
-        await this.model.update({
-          where: { id: existing.id },
-          data: { peerlyBillingBlockedAt: new Date() },
+      // Roll back this caller's claim and, on a billing outage, stamp the hold
+      // in ONE transaction. If these were separate writes, a crash between them
+      // could release the claim while leaving peerlyBillingBlockedAt unset — the
+      // next resume would then find no cooldown, bypass the guard, and re-storm
+      // Peerly, which is exactly what the hold prevents.
+      await this.client.$transaction(async (tx) => {
+        // Roll back only this caller's claim by matching the exact timestamp we
+        // wrote. A TTL re-claimant (caller B, after our call exceeded TTL) will
+        // have a different timestamp, so its in-flight claim isn't disturbed.
+        await tx.tcrCompliance.updateMany({
+          where: {
+            id: existing.id,
+            peerlyIdentityId: null,
+            peerlySubmissionStartedAt: claimTimestamp,
+          },
+          data: { peerlySubmissionStartedAt: null },
         })
-      }
+        if (error instanceof PeerlyBillingException) {
+          await tx.tcrCompliance.update({
+            where: { id: existing.id },
+            data: { peerlyBillingBlockedAt: new Date() },
+          })
+        }
+      })
       throw error
     }
 
