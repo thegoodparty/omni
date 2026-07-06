@@ -772,25 +772,37 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // could release the claim while leaving peerlyBillingBlockedAt unset — the
       // next resume would then find no cooldown, bypass the guard, and re-storm
       // Peerly, which is exactly what the hold prevents.
-      await this.client.$transaction(async (tx) => {
-        // Roll back only this caller's claim by matching the exact timestamp we
-        // wrote. A TTL re-claimant (caller B, after our call exceeded TTL) will
-        // have a different timestamp, so its in-flight claim isn't disturbed.
-        await tx.tcrCompliance.updateMany({
-          where: {
-            id: existing.id,
-            peerlyIdentityId: null,
-            peerlySubmissionStartedAt: claimTimestamp,
-          },
-          data: { peerlySubmissionStartedAt: null },
-        })
-        if (error instanceof PeerlyBillingException) {
-          await tx.tcrCompliance.update({
-            where: { id: existing.id },
-            data: { peerlyBillingBlockedAt: new Date() },
+      try {
+        await this.client.$transaction(async (tx) => {
+          // Roll back only this caller's claim by matching the exact timestamp
+          // we wrote. A TTL re-claimant (caller B, after our call exceeded TTL)
+          // will have a different timestamp, so its in-flight claim isn't
+          // disturbed.
+          await tx.tcrCompliance.updateMany({
+            where: {
+              id: existing.id,
+              peerlyIdentityId: null,
+              peerlySubmissionStartedAt: claimTimestamp,
+            },
+            data: { peerlySubmissionStartedAt: null },
           })
-        }
-      })
+          if (error instanceof PeerlyBillingException) {
+            await tx.tcrCompliance.update({
+              where: { id: existing.id },
+              data: { peerlyBillingBlockedAt: new Date() },
+            })
+          }
+        })
+      } catch (rollbackErr) {
+        // If the rollback/stamp transaction itself fails, the claim TTL will
+        // release the held claim later. Log and fall through so the original
+        // error (e.g. PeerlyBillingException) is always the one rethrown.
+        this.logger.error(
+          { rollbackErr, campaignId: campaign.id },
+          '[TCR Compliance] Failed to roll back Peerly submission claim; ' +
+            'TTL will recover',
+        )
+      }
       throw error
     }
 

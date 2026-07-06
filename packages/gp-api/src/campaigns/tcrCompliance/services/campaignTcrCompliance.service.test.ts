@@ -1705,7 +1705,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       service.submitToPeerlyForAgent(user, campaign, input),
     ).rejects.toBe(billingErr)
 
-    // Claim rolled back (updateMany #2), then the billing block is stamped.
+    // Claim rolled back (updateMany #2), then the billing block is stamped —
+    // both inside the one rollback transaction.
+    expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
     expect(mockTcrModel.update).toHaveBeenCalledWith({
       where: { id: existingRecord.id },
       data: { peerlyBillingBlockedAt: expect.any(Date) },
