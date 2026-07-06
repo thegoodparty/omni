@@ -114,6 +114,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join(' '),
     threshold: 0,
     for: '5m',
+    // The [1h] range vector needs a matching fetch window; the default 600s
+    // would let the engine see only 10 minutes of logs and miss this
+    // low-frequency event.
+    timeRangeSeconds: 3600,
     message: [
       'A paid P2P outreach purchase was fulfilled by the Stripe webhook fallback in the last hour, which means the buyer likely paid but never completed campaign submission — no Peerly job or Slack schedule request would have been created.',
       'Click *View in Grafana* to find the log line and read the `campaign <id>` in the message. Then confirm in the DB whether an `outreach` row exists for that campaign: if none, the candidate paid with nothing scheduled and needs manual recovery/outreach.',

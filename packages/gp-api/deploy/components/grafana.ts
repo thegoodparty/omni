@@ -183,7 +183,7 @@ export const createGrafanaResources = async ({
       {
         refId: 'A',
         queryType: datasourceConfig[alert.type].queryType,
-        relativeTimeRange: { from: 600, to: 0 },
+        relativeTimeRange: { from: alert.timeRangeSeconds ?? 600, to: 0 },
         datasourceUid: datasourceConfig[alert.type].uid,
         model: JSON.stringify({
           expr: alert.expr.replace(/\$ENV/g, environment),
