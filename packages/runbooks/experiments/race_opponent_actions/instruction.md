@@ -358,7 +358,7 @@ for c in out["actions"]:
     assert c["body"].rstrip().endswith((".", "!", "?"))
     # strip title abbreviations so their periods don't count as sentence ends
     body = re.sub(
-        r"\b(Mr|Mrs|Ms|Dr|Gov|Sen|Rep|Lt|Gen|Col|Rev|St|vs|Jr|Sr)\.",
+        r"\b(Mr|Mrs|Ms|Dr|Gov|Sen|Rep|Lt|Gen|Col|Rev|St|vs|Jr|Sr|e\.g|i\.e|etc)\.",
         r"\1", c["body"],
     )
     assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", body)) <= 3

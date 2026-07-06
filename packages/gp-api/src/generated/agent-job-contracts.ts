@@ -6090,10 +6090,11 @@ export interface OpponentActionsArtifact {
   /**
    * Up to 5 distinct stand-out action cards, in threat order. Fewer when the field or platform supports fewer distinct angles; never padded.
    *
-   * @minItems 1
+   * @minItems 0
    * @maxItems 5
    */
   actions:
+    | []
     | [
         {
           /**
