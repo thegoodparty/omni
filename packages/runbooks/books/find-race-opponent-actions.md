@@ -126,6 +126,7 @@ seen_pairs, seen_stats = set(), set()
 for c in out["cards"]:
     assert len(c["title"]) < 100
     assert len(c["sms_message"]) <= 320
+    assert c["body"].rstrip().endswith((".", "!", "?"))
     assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", c["body"])) <= 3
     assert "—" not in (c["title"] + c["body"] + c["sms_message"])
     pair = (c["opponent_name"], c["issue"])
