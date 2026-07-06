@@ -25,7 +25,6 @@ export const controllerAlerts = (controller: ControllerName): Alert[] => {
       expr: `sum(count_over_time(${routeBase} | ${statusCodeFilter} [1h]))`,
       threshold: 0,
       for: '1m',
-      timeRangeSeconds: 3600,
       message: [
         `\`${route.endpoint}\` returned unexpected error responses in the last hour (status ≥ 400, excluding 401/403/404/409/498).`,
         'Click *View in Grafana* to find the failing requests, then examine their logs and stack traces to understand why errors are occurring and ship fixes.',
