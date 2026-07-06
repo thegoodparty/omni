@@ -47,9 +47,14 @@ export type Alert = {
 
   /**
    * How far back (in seconds) the alerting engine fetches data from the
-   * datasource on each evaluation. Defaults to 600 (10 minutes). Must be >=
-   * the largest range vector in `expr` — a `[1h]` window with the default
-   * 600s fetch would only ever see 10 minutes of logs.
+   * datasource on each evaluation. Defaults to 600 (10 minutes). The
+   * effective lookback of a range vector is capped by this window — a `[1h]`
+   * vector with a 600s fetch only ever sees 10 minutes of data — so set it
+   * >= the largest range vector in `expr` when the full window must be
+   * visible. Alerts that predate this field keep the 600s cap on purpose:
+   * their firing behavior was tuned under it, and widening the fetch would
+   * change sensitivity and re-fire duration. Retune those deliberately, not
+   * in passing.
    */
   timeRangeSeconds?: number
 

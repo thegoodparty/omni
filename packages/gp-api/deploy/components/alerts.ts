@@ -86,6 +86,11 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join(' '),
     threshold: 0,
     for: '1m',
+    // Explicitly pins the pre-timeRangeSeconds default. The 600s fetch caps
+    // the [15m] vector to an effective 10-minute window; that has always been
+    // this alert's firing behavior and is kept as-is — widening it would
+    // lengthen re-firing after a transient error burst. Retune deliberately.
+    timeRangeSeconds: 600,
     message: [
       'Peerly-related endpoint errors detected in the last 15 minutes.',
       'Dashboard: https://goodparty.grafana.net/d/peerly-prod/peerly-e28094-prod',
@@ -132,6 +137,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [15m]))',
     threshold: 5,
     for: '5m',
+    // Explicitly pins the pre-timeRangeSeconds default: effectively >5 events
+    // per 10 minutes, this alert's firing behavior since it shipped. Kept
+    // as-is; raising to 900 would make it more sensitive. Retune deliberately.
+    timeRangeSeconds: 600,
     message: [
       'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 15 minutes.',
       "This means actorEmail lookups against gp-api's Clerk instance returned no match for those impersonation requests. Possible causes:",
