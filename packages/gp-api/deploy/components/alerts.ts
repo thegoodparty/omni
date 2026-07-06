@@ -86,9 +86,47 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join(' '),
     threshold: 0,
     for: '1m',
+    // Explicitly pins the pre-timeRangeSeconds default. The 600s fetch caps
+    // the [15m] vector to an effective 10-minute window; that has always been
+    // this alert's firing behavior and is kept as-is — widening it would
+    // lengthen re-firing after a transient error burst. Retune deliberately.
+    timeRangeSeconds: 600,
     message: [
       'Peerly-related endpoint errors detected in the last 15 minutes.',
       'Dashboard: https://goodparty.grafana.net/d/peerly-prod/peerly-e28094-prod',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
+    slug: 'win-outreach-paid-not-scheduled-warning',
+    name: '[Win] P2P outreach paid but not scheduled',
+    type: 'log',
+    // A paid P2P text purchase whose free-texts offer was redeemed by the
+    // async Stripe webhook (POST /v1/payments/events) rather than the
+    // browser-driven complete-checkout-session means the client dropped after
+    // paying and never fired POST /outreach — so no Outreach row, Peerly job,
+    // or Slack schedule was ever created. Healthy purchases always redeem via
+    // complete-checkout-session / complete-free-purchase. See the campaign
+    // 318735 incident (2026-07-01): money taken, nothing scheduled, and no
+    // error logged because the request never arrived.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Free texts offer redeemed for campaign"',
+      '| json',
+      '| request_endpoint = "POST /v1/payments/events"',
+      '[1h]))',
+    ].join(' '),
+    threshold: 0,
+    for: '5m',
+    // The [1h] range vector needs a matching fetch window; the default 600s
+    // would let the engine see only 10 minutes of logs and miss this
+    // low-frequency event.
+    timeRangeSeconds: 3600,
+    message: [
+      'A paid P2P outreach purchase was fulfilled by the Stripe webhook fallback in the last hour, which means the buyer likely paid but never completed campaign submission — no Peerly job or Slack schedule request would have been created.',
+      'Click *View in Grafana* to find the log line and read the `campaign <id>` in the message. Then confirm in the DB whether an `outreach` row exists for that campaign: if none, the candidate paid with nothing scheduled and needs manual recovery/outreach.',
+      'Note: this only catches free-texts-eligible purchases and can rarely false-positive when the webhook wins the completion race against a client that did finish — the DB check above disambiguates.',
     ].join('\n\n'),
     notify: 'win-bugs',
   },
@@ -99,6 +137,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [15m]))',
     threshold: 5,
     for: '5m',
+    // Explicitly pins the pre-timeRangeSeconds default: effectively >5 events
+    // per 10 minutes, this alert's firing behavior since it shipped. Kept
+    // as-is; raising to 900 would make it more sensitive. Retune deliberately.
+    timeRangeSeconds: 600,
     message: [
       'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 15 minutes.',
       "This means actorEmail lookups against gp-api's Clerk instance returned no match for those impersonation requests. Possible causes:",
