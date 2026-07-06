@@ -194,8 +194,12 @@ def _gc_index():
         re.S | re.I,
     )
     for m in pat.finditer(html):
-        if m.group(2) and m.group(2).strip() in STATE_NAMES.values():
-            cur_state = m.group(2).strip()
+        if m.group(2):
+            heading = m.group(2).strip()
+            # A non-state heading ("Featured", "Recently Added") RESETS the context:
+            # attributing its links to the previous state would be a silent wrong-state
+            # entry — worse than the loud skip below.
+            cur_state = heading if heading in STATE_NAMES.values() else None
         elif m.group(4):
             place = re.sub("<[^>]+>", "", m.group(5)).strip()
             if place:

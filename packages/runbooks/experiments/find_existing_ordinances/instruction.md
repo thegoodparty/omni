@@ -26,7 +26,7 @@ Ordered by how often ICP city codes actually live there (measured). Cumulative c
 Hosts 2-7 are not directly listable/guessable in this runtime, so you reach them with **one WebSearch** (Step 4) and triage its results against this order: prefer the highest-ranked host that verifies to the exact jurisdiction, take the first verified hit, and stop.
 
 ## TODO CHECKLIST
-1. Read `PARAMS_JSON` + run id; derive `place` from `office`; set up `FETCHED`.
+1. Read `PARAMS_JSON` + run id; derive `(kind, place)` from `office`; **if `kind == "state"` skip straight to 7** — Steps 2-6 apply only to municipal/county offices. Set up `FETCHED`.
 2. If `user_provided_code_url` set, verify it; if it names the correct state+place, record and skip to Step 7.
 3. Tier 1: Municode client API for `state`, exact `place` match -> record `municode`, go to Step 6/7.
 4. Tier 2 (Municode miss): ONE `WebSearch`; triage candidates against the RESOLUTION ORDER; verify the top candidates in parallel; first verified hit wins.
@@ -75,40 +75,42 @@ RUN_ID = os.environ.get("RUN_ID") or "unknown"
 state = P["state"]; office = P["office"]; user_url = P.get("user_provided_code_url")
 county = P.get("county")
 
-# Production office names come in FOUR shapes. Derive (place, county, kind):
-o = re.sub(r"\s*-\s*(district|ward|seat|precinct|place|position|at[- ]large)\b.*$", "", office, flags=re.I).strip()
-kind = "municipal"
-if re.search(r"\b(house of delegates|house of representatives|state senate|state assembly|"
-             r"general assembly|state house)\b", o, re.I):
-    kind = "state"; place = state   # state-level office: municipal code does not apply.
-if kind == "state":
-    # HARD STOP for state-level offices: none of Steps 2-6 apply. Write the artifact NOW
-    # (Step 7): found=false, data_quality "not_found", confidence "low", code_source null,
-    # verified_evidence notes the office is state-level. Do not search, do not continue below.
-    pass   # (in your actual run: jump to Step 7 here and finish)
-else:
+# Production office names come in FOUR shapes. Derivation is a function with EARLY
+# RETURNS so each kind structurally short-circuits — nothing falls through:
+def derive(office, county, state):
+    o = re.sub(r"\s*-\s*(district|ward|seat|precinct|place|position|at[- ]large)\b.*$", "", office, flags=re.I).strip()
+    if re.search(r"\b(house of delegates|house of representatives|state senate|state assembly|"
+                 r"general assembly|state house)\b", o, re.I):
+        return "state", state, county          # state-level: municipal code does not apply
     m = re.match(r"^(.*?)\s+County:\s*(.*)$", o, flags=re.I)   # "Washington County: Muskingum Township Trustee"
     if m:
         county = county or m.group(1).strip(); o = m.group(2).strip()
-CBODY = r"(county commission(ers)?|county council|county legislature|county board of supervisors|county board)"
-m2 = re.match(rf"^(.*?)\s+{CBODY}\b", o, flags=re.I) if kind == "municipal" else None
-if kind == "municipal" and m2:
-    kind = "county"; place = m2.group(1).strip() + " County"
-    # County office: the COUNTY's code of ordinances IS the target (Municode hosts county codes).
-    # The county-code trap-rule INVERTS here: verify it is this county's code; reject same-named CITY codes.
-elif kind == "municipal":
+    CBODY = r"(county commission(ers)?|county council|county legislature|county board of supervisors|county board)"
+    m2 = re.match(rf"^(.*?)\s+{CBODY}\b", o, flags=re.I)
+    if m2:
+        # County office: the COUNTY's code of ordinances IS the target (Municode hosts county
+        # codes). The county-code trap-rule INVERTS: verify it is this county's code; reject
+        # same-named CITY codes.
+        return "county", m2.group(1).strip() + " County", county
     m3 = re.match(r"^(.*?\s+Township)\s+(trustee|supervisor|clerk|fiscal officer|board)\b", o, flags=re.I)
     if m3:
-        place = m3.group(1).strip()   # townships are indexed WITH the suffix: "Bethel Township"
-    else:
-        BODY = (r"(city council|city commission(er)?|common council|borough council|village board|"
-                r"village trustee|village council|town council|town board|town commission|village commission|"
-                r"board of aldermen|board of trustees|board of selectmen|board of selectpersons|"
-                r"select board|selectboard|town chair(man)?|town supervisor|village president|"
-                r"mayor|city treasurer|city clerk|town clerk|city auditor|alderman|alderwoman|"
-                r"councilmember|council member|board of commissioners)")
-        place = re.sub(rf"\s+{BODY}\b.*$", "", o, flags=re.I).strip()
-        place = re.sub(r"\s+(city|town|village|borough)$", "", place, flags=re.I).strip()
+        return "municipal", m3.group(1).strip(), county   # townships keep the suffix: "Bethel Township"
+    BODY = (r"(city council|city commission(er)?|common council|borough council|village board|"
+            r"village trustee|village council|town council|town board|town commission|village commission|"
+            r"board of aldermen|board of trustees|board of selectmen|board of selectpersons|"
+            r"select board|selectboard|town chair(man)?|town supervisor|village president|"
+            r"mayor|city treasurer|city clerk|town clerk|city auditor|alderman|alderwoman|"
+            r"councilmember|council member|board of commissioners)")
+    place = re.sub(rf"\s+{BODY}\b.*$", "", o, flags=re.I).strip()
+    place = re.sub(r"\s+(city|town|village|borough)$", "", place, flags=re.I).strip()
+    return "municipal", place, county
+
+kind, place, county = derive(office, county, state)
+if kind == "state":
+    # HARD STOP: Steps 2-6 DO NOT APPLY to state-level offices. Go directly to Step 7 and
+    # write the artifact: found=false, data_quality "not_found", confidence "low",
+    # code_source null, verified_evidence notes the office is state-level. Never search.
+    ...
 # If place is empty, generic, or nothing was stripped (unknown office shape), WebSearch office + state
 # to identify the municipality BEFORE anything else; that search counts toward the budget.
 FETCHED = {}

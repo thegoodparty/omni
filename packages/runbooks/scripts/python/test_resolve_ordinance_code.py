@@ -256,3 +256,26 @@ def test_gc_index_warns_on_link_without_state_heading(monkeypatch, capsys):
     r._gc_index.cache_clear()
     assert out == []
     assert "recognised state heading" in capsys.readouterr().err
+
+
+def test_gc_index_resets_state_on_unrecognized_heading(monkeypatch, capsys):
+    # A non-state heading ("Featured", "Recently Added") after a valid state must
+    # RESET the state context — links under it were previously mis-attributed to
+    # the last recognized state (a silent wrong-state entry, worse than a skip).
+    html = """
+    <h2>Ohio</h2>
+    <ul><li><a href="https://ecode360.com/OH1111">Village of Realtown</a></li></ul>
+    <h2>Recently Added</h2>
+    <ul><li><a href="https://ecode360.com/XX2222">City of Elsewhere</a></li></ul>
+    """
+
+    def fake(url, timeout=30):
+        return html.encode()
+
+    monkeypatch.setattr(r, "_get", fake)
+    r._gc_index.cache_clear()
+    out = r._gc_index()
+    r._gc_index.cache_clear()
+    assert ("Ohio", "Village of Realtown", "https://ecode360.com/OH1111") in out
+    assert all(place != "City of Elsewhere" for _st, place, _u in out)
+    assert "recognised state heading" in capsys.readouterr().err
