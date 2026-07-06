@@ -11,6 +11,8 @@ import {
   RaceOpponentFieldAnalysis,
   RaceOpponentFieldAnalysisSchema,
   RaceOpponentResponse,
+  RaceOpponentStandoutAction,
+  RaceOpponentStandoutActionSchema,
   RaceOpponentSummary,
   RaceOpponentSummarySchema,
   RaceOpponentThreatTier,
@@ -647,7 +649,38 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         campaign.organizationSlug,
       ),
       fieldAnalysis: await this.loadFieldAnalysis(campaign.id),
+      standoutActions: await this.loadStandoutActions(campaign.id),
     }
+  }
+
+  // The persisted stand-out action cards, in artifact order. Re-validated
+  // against the contract on read, mirroring loadSummaries/loadFieldAnalysis:
+  // a row that somehow doesn't parse is omitted rather than 500-ing the whole
+  // read. Always an array — empty when the campaign has no cards.
+  private async loadStandoutActions(
+    campaignId: number,
+  ): Promise<RaceOpponentStandoutAction[]> {
+    const rows = await this.client.raceOpponentStandoutAction.findMany({
+      where: { campaignId },
+      orderBy: { order: Prisma.SortOrder.asc },
+    })
+    return rows.flatMap((row) => {
+      const parsed = RaceOpponentStandoutActionSchema.safeParse({
+        title: row.title,
+        body: row.body,
+        smsMessage: row.smsMessage,
+        opponentName: row.opponentName,
+        issue: row.issue,
+      })
+      if (!parsed.success) {
+        this.logger.warn(
+          { campaignId, order: row.order },
+          'persisted stand-out action failed contract re-parse; omitting',
+        )
+        return []
+      }
+      return [parsed.data]
+    })
   }
 
   // The persisted campaign-level SWOT (one row per campaign). Re-validated

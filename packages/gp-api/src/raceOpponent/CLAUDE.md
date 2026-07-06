@@ -76,8 +76,13 @@ then dispatches `race_opponent_actions` (flat `state`/`l2_district_*` params fro
 `DistrictResolverService`, omitted all-or-nothing — the dispatch Lambda reserves a
 nested `district` param for scope derivation). Each link has a terminal-state
 re-chain for a newer upstream run its in-flight dedup skipped, and
-`collectionStatus` ignores actions runs entirely. Actions artifact persistence is
-ENG-10647 (not built yet).
+`collectionStatus` ignores actions runs entirely. A completed actions run
+persists its cards into `RaceOpponentStandoutAction` (delete+createMany in one
+transaction, `order` = artifact index; per-card contract validation drops a bad
+card, but a non-empty artifact whose EVERY card fails is malformed and fails the
+run without touching prior rows — while a validly-empty `actions: []` clears
+them and stays COMPLETED). `get()` serves the cards as `standoutActions`,
+ordered by `order`, re-validated on read (a bad row is omitted, never thrown).
 
 ## Sourced-or-silent + fair-line (the strict engine's invariants)
 
@@ -97,7 +102,8 @@ ENG-10647 (not built yet).
 
 `RaceOpponent` (relaxed raw text) · `RaceOpponentSummary` (relaxed analysis: threat
 tier, issue contrasts) · `RaceOpponentFieldAnalysis` (campaign-level SWOT
-`sections`, one row per campaign) · `RaceOpponentResearch` (strict pass, `kind`
+`sections`, one row per campaign) · `RaceOpponentStandoutAction` (stand-out
+action cards, `@@unique([campaignId, order])`) · `RaceOpponentResearch` (strict pass, `kind`
 self|opponent) · `RaceOpponentFinding` (sourced, `source_url` required) ·
 `RaceOpponentContrast` (`source_url`, status lifecycle, routing FKs).
 

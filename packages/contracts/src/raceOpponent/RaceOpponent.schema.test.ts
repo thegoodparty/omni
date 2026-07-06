@@ -233,9 +233,9 @@ describe('RaceOpponentResponseSchema', () => {
     expect(populated.standoutActions).toEqual([action])
   })
 
-  it('parses without standoutActions (gp-api does not produce it yet)', () => {
+  it('defaults standoutActions to [] when omitted (pre-ENG-10647 payloads)', () => {
     const result = RaceOpponentResponseSchema.parse(response)
-    expect(result.standoutActions).toBeUndefined()
+    expect(result.standoutActions).toEqual([])
   })
 
   it('accepts a populated fieldAnalysis', () => {
