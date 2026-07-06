@@ -4,10 +4,11 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
-import { isValid, parseISO, subMinutes } from 'date-fns'
+import { isAfter, isValid, parseISO, subMinutes } from 'date-fns'
 import {
   Campaign,
   ExperimentRun,
@@ -59,6 +60,10 @@ import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
+import {
+  PeerlyBillingException,
+  PEERLY_NO_PAYMENT_METHOD_MESSAGE,
+} from '../../../vendors/peerly/utils/peerlyBillingError.util'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -84,6 +89,14 @@ const PEERLY_SUBMISSION_CLAIM_TTL_MINUTES = 5
 // Bounds dispatchRun's normal duration (SQS sendMessage + tcr_compliance write)
 // plus a comfortable margin.
 const AGENTIC_DISPATCH_CLAIM_TTL_MINUTES = 5
+
+// How long to hold off re-submitting to Peerly after a billing/account failure
+// ("No payment method available"). The failure is unrecoverable until Peerly
+// fixes billing, so agent-resume / kickoff re-dispatches within this window
+// short-circuit instead of re-hitting Peerly — one alert, no retry storm. After
+// it elapses the next attempt probes again (and re-alerts if still failing), so
+// registrations resume automatically once billing clears.
+const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
 
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 
@@ -627,6 +640,26 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return this.buildSubmitToPeerlyResponse(existing)
     }
 
+    // Billing-outage hold: a prior submission hit Peerly's unrecoverable
+    // "No payment method available" billing error. Retrying re-fails and spams
+    // Peerly, so an agent resume / kickoff re-dispatch that lands here during
+    // the cooldown is refused before touching Peerly — this is what breaks the
+    // retry storm. The cooldown lets it probe again automatically once billing
+    // clears.
+    if (
+      existing.peerlyBillingBlockedAt &&
+      isAfter(
+        existing.peerlyBillingBlockedAt,
+        subMinutes(new Date(), PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+      )
+    ) {
+      throw new ServiceUnavailableException(
+        'Peerly Campaign Verify submission is on hold: Peerly reported a ' +
+          `billing/account issue ("${PEERLY_NO_PAYMENT_METHOD_MESSAGE}"). ` +
+          'Retrying is paused until the billing issue clears.',
+      )
+    }
+
     // Stage gate: only proceed when the candidate's website is live + the
     // domain is registered (derived stage = awaiting_pin with identity still
     // null). Reject all earlier stages so an agent can't kick a Peerly brand
@@ -759,17 +792,42 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         hostname,
       )
     } catch (error) {
-      // Roll back only this caller's claim by matching the exact timestamp we
-      // wrote. A TTL re-claimant (caller B, after our call exceeded TTL) will
-      // have a different timestamp, so its in-flight claim isn't disturbed.
-      await this.model.updateMany({
-        where: {
-          id: existing.id,
-          peerlyIdentityId: null,
-          peerlySubmissionStartedAt: claimTimestamp,
-        },
-        data: { peerlySubmissionStartedAt: null },
-      })
+      // Roll back this caller's claim and, on a billing outage, stamp the hold
+      // in ONE transaction. If these were separate writes, a crash between them
+      // could release the claim while leaving peerlyBillingBlockedAt unset — the
+      // next resume would then find no cooldown, bypass the guard, and re-storm
+      // Peerly, which is exactly what the hold prevents.
+      try {
+        await this.client.$transaction(async (tx) => {
+          // Roll back only this caller's claim by matching the exact timestamp
+          // we wrote. A TTL re-claimant (caller B, after our call exceeded TTL)
+          // will have a different timestamp, so its in-flight claim isn't
+          // disturbed.
+          await tx.tcrCompliance.updateMany({
+            where: {
+              id: existing.id,
+              peerlyIdentityId: null,
+              peerlySubmissionStartedAt: claimTimestamp,
+            },
+            data: { peerlySubmissionStartedAt: null },
+          })
+          if (error instanceof PeerlyBillingException) {
+            await tx.tcrCompliance.update({
+              where: { id: existing.id },
+              data: { peerlyBillingBlockedAt: new Date() },
+            })
+          }
+        })
+      } catch (rollbackErr) {
+        // If the rollback/stamp transaction itself fails, the claim TTL will
+        // release the held claim later. Log and fall through so the original
+        // error (e.g. PeerlyBillingException) is always the one rethrown.
+        this.logger.error(
+          { rollbackErr, campaignId: campaign.id },
+          '[TCR Compliance] Failed to roll back Peerly submission claim; ' +
+            'TTL will recover',
+        )
+      }
       throw error
     }
 
@@ -791,6 +849,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         // overwritten on retry.
         peerlyCvVerificationId:
           peerlyResult.cvVerificationId ?? existing.peerlyCvVerificationId,
+        // Submission succeeded — clear any prior billing hold.
+        peerlyBillingBlockedAt: null,
       },
     })
 

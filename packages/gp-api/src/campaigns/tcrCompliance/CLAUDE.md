@@ -111,6 +111,20 @@ kickoff path must not race it.
   (`buildSubmitToPeerlyResponse`), so a retry can't misreport state.
 - Federal office requires a valid `fecCommitteeId`, re-enforced here against the
   persisted value (the agent can't resolve it reliably; staff may backfill it).
+- **Peerly billing-outage hold (ENG-10653).** When Peerly's CampaignVerify `submit_cv`
+  returns its unrecoverable billing error (`400` with `details.message` =
+  `"No payment method available"`), `submitCampaignVerifyRequest`
+  (`peerlyIdentity.service.ts`) detects it via `isPeerlyBillingError`
+  (`utils/peerlyBillingError.util.ts`), fires a **distinct** Slack alert to
+  `bot-10dlc-compliance` (separate from the generic per-identity error alert so a
+  billing outage is recognizable), and throws `PeerlyBillingException` (a
+  `BadGatewayException` subclass). `submitToPeerlyForAgent` catches it, stamps
+  `TcrCompliance.peerlyBillingBlockedAt`, and on any subsequent call within
+  `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES` (6h) refuses with a `503` **before touching
+  Peerly** — so an agent-resume / kickoff re-dispatch can't storm Peerly with the same
+  deterministically-failing submission. After the cooldown it probes again (re-alerting
+  if still failing); a successful submit clears the block. Only this billing signal is
+  matched — normal transient 5xx still flow through `handleApiError` and retry.
 - Strips leading `www.` from `Domain.name` so Peerly's brand `website`/`email` use the
   apex domain, matching the legacy `create()` path.
 - **`filing_url` must be an official election filing.** CampaignVerify verifies the
