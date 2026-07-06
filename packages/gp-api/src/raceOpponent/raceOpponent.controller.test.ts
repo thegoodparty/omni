@@ -4,6 +4,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
 import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { StrategicLandscapeParamsService } from '@/campaignStrategy/services/strategicLandscapeParams.service'
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunStatus } from '@/generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -1971,5 +1972,314 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     )
     expect(nora.threatTier).toBeUndefined()
     expect(nora.summary).toBeNull()
+  })
+
+  // ENG-10646: race_opponent_actions chains off a completed summary the same
+  // way the summary chains off a completed collection.
+
+  it('chains race_opponent_actions with fully-hydrated params after the summary persists', async () => {
+    await seedCollectedRow({
+      sourceType: 'ballotpedia',
+      sourceUrl: BALLOTPEDIA_URL,
+    })
+    await seedWebsite({
+      bio: 'A lifelong resident running for council.',
+      issues: [
+        { title: 'Water security', description: 'Publish a 50-year plan.' },
+      ],
+    })
+    const run = await seedSummaryRun('summary-chains-actions')
+    stubSummaryArtifact(
+      summaryArtifact({
+        issues_that_matter: {
+          items: ['Housing'],
+          sources: [richSource(BALLOTPEDIA_URL)],
+        },
+      }),
+    )
+    // Prototype spy: DistrictResolverService is provided per-module (this
+    // module, campaign-manager, chief-of-staff, briefing-chats), so app.get
+    // may return a different instance than the one injected here.
+    vi.spyOn(
+      DistrictResolverService.prototype,
+      'resolveByOrgSlug',
+    ).mockResolvedValue({
+      state: 'NC',
+      l2DistrictType: 'City',
+      l2DistrictName: 'HENDERSONVILLE CITY',
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-1' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const actionsCall = dispatchRun.mock.calls.find(
+      ([input]) => input.type === 'race_opponent_actions',
+    )
+    expect(actionsCall?.[0].params).toEqual({
+      opponents: [
+        {
+          opponent_name: JANE,
+          threat_tier: 'watch_closely',
+          overview_text: 'who they are',
+          background_text: 'career',
+          issues_that_matter: ['Housing'],
+        },
+      ],
+      candidate_platform: {
+        bio: 'A lifelong resident running for council.',
+        issues: [
+          { title: 'Water security', description: 'Publish a 50-year plan.' },
+        ],
+      },
+      state: 'NC',
+      l2_district_type: 'City',
+      l2_district_name: 'HENDERSONVILLE CITY',
+      race_context: {
+        city: null,
+        election_date: null,
+        office_name: null,
+        state: null,
+      },
+    })
+  })
+
+  it('dispatchActions omits the flat district params entirely when resolution returns null', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    // Explicit null (not the real resolver): clearMocks doesn't restore the
+    // prototype spy's implementation from the hydration test above.
+    vi.spyOn(
+      DistrictResolverService.prototype,
+      'resolveByOrgSlug',
+    ).mockResolvedValue(null)
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-nodistrict' } as never)
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
+    const params = dispatchRun.mock.calls[0]?.[0].params
+    expect(params).not.toHaveProperty('state')
+    expect(params).not.toHaveProperty('l2_district_type')
+    expect(params).not.toHaveProperty('l2_district_name')
+  })
+
+  it('dispatchActions is a no-op when no summaries are persisted', async () => {
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('dispatchActions skips when an actions run is already in flight', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-inflight',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('dispatchActions bounds oversized summary text producer-side', async () => {
+    await service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: 'summary-long',
+        opponentName: JANE,
+        sections: {
+          opponentName: JANE,
+          overview: {
+            text: 'x'.repeat(4100),
+            sources: [
+              { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+            ],
+          },
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-06-28T00:00:00.000Z',
+          threatTier: 'watch_closely',
+        },
+      },
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-capped' } as never)
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    const params = dispatchRun.mock.calls[0]?.[0].params as {
+      opponents: { overview_text: string | null }[]
+    }
+    expect(params.opponents[0]?.overview_text).toBe('x'.repeat(4000))
+  })
+
+  it("GET collectionStatus stays 'completed' while an actions run is RUNNING", async () => {
+    await seedCollectedRow()
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-cycle',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-cycle',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-running',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.RUNNING,
+        createdAt: new Date('2026-07-01T10:10:00.000Z'),
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.collectionStatus).toBe('completed')
+  })
+
+  it("GET collectionStatus stays 'completed' when an actions run FAILED", async () => {
+    await seedCollectedRow()
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-cycle-2',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-cycle-2',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-failed-status',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-07-01T10:10:00.000Z'),
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.collectionStatus).toBe('completed')
+  })
+
+  it('re-chains actions when a terminal actions run leaves a newer summary unprocessed', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    const failedActions = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-failed',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-newer',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-rechained' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedActions)
+
+    expect(dispatchRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'race_opponent_actions' }),
+    )
+  })
+
+  it('does not re-chain on a terminal actions run when no newer summary exists', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    const failedActions = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-failed-solo',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    // The only completed summary pre-dates this actions run (its own cycle),
+    // so there is nothing newer to re-chain for — re-dispatching would loop.
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-older',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedActions)
+
+    expect(dispatchRun).not.toHaveBeenCalled()
   })
 })

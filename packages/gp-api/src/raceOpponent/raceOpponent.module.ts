@@ -1,3 +1,9 @@
+// OrganizationsModule must load BEFORE ElectionsModule (mirrors the Campaign
+// Manager module): ElectionsModule transitively imports AiModule which uses
+// forwardRef(OrganizationsModule), so loading Elections first resolves the
+// forwardRef to undefined and bootstrap fails.
+import { OrganizationsModule } from '@/organizations/organizations.module'
+import { ElectionsModule } from '@/elections/elections.module'
 import { HttpModule } from '@nestjs/axios'
 import { Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
@@ -5,6 +11,7 @@ import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.modu
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { CronModule } from '@/cron/cron.module'
 import { RaceOpponentController } from './raceOpponent.controller'
 import { RaceOpponentService } from './services/raceOpponent.service'
@@ -29,6 +36,8 @@ import { ContrastEditService } from './services/contrastEdit.service'
     AwsModule,
     CampaignStrategyModule,
     CronModule,
+    OrganizationsModule,
+    ElectionsModule,
   ],
   controllers: [RaceOpponentController],
   providers: [
@@ -41,6 +50,7 @@ import { ContrastEditService } from './services/contrastEdit.service'
     RaceOpponentActivityService,
     OpponentResearchScheduleService,
     ElectionApiService,
+    DistrictResolverService,
     ContrastToneService,
     ContrastEngineService,
     ContrastReviewVerdictService,
