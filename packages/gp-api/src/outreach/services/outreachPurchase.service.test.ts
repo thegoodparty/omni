@@ -241,6 +241,7 @@ describe('OutreachPurchaseHandlerService', () => {
 
       expect(mockOutreachService.finalizeOutreachPurchase).toHaveBeenCalledWith(
         123,
+        111,
       )
       expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
 

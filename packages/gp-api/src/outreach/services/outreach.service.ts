@@ -271,18 +271,24 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
    * Stripe webhook — the status claim below is the DB lock that makes the race
    * harmless. Throwing here is deliberate: completeCheckoutSession only stamps
    * its idempotency marker after handler success, so a throw makes Stripe
-   * retry, and the revert re-arms the claim for that retry.
+   * retry, and the revert re-arms the claim for that retry. campaignId scopes
+   * the claim to the paying campaign — outreachId arrives via client-influenced
+   * checkout metadata and must not finalize another campaign's draft.
    */
-  async finalizeOutreachPurchase(outreachId: number): Promise<void> {
+  async finalizeOutreachPurchase(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<void> {
     const claimed = await this.model.updateMany({
-      where: { id: outreachId, status: OutreachStatus.pending_payment },
+      where: {
+        id: outreachId,
+        campaignId,
+        status: OutreachStatus.pending_payment,
+      },
       data: { status: OutreachStatus.pending },
     })
     if (claimed.count === 0) {
-      this.logger.info(
-        { outreachId },
-        'Outreach already finalized or finalizing — skipping',
-      )
+      await this.confirmFinalized(outreachId, campaignId)
       return
     }
 
@@ -357,6 +363,49 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
     await this.tryRecordSegmentAttribution(user, campaign, finalized)
+  }
+
+  /**
+   * A lost claim does NOT mean the work happened: the winner may still be
+   * mid-Peerly, may have failed and reverted the row, or the id may not match
+   * any draft of this campaign at all. Only a stamped projectId proves
+   * fulfillment — everything else throws, so the payment layer never marks
+   * the purchase processed on the strength of a lost race and Stripe keeps
+   * retrying.
+   */
+  private async confirmFinalized(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<void> {
+    // Covers the winner's inline Peerly submission (~10s worst case observed).
+    const POLL_ATTEMPTS = 30
+    const POLL_INTERVAL_MS = 1000
+
+    for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+      const row = await this.model.findFirst({
+        where: { id: outreachId, campaignId },
+        select: { status: true, projectId: true },
+      })
+      if (!row || row.status === OutreachStatus.pending_payment) {
+        break
+      }
+      if (row.projectId) {
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    }
+
+    this.logger.error(
+      { outreachId, campaignId },
+      'P2P outreach finalize failed after payment',
+    )
+    throw new OutreachStepError(
+      'peerlyJobCreation',
+      new Error(
+        `Outreach ${outreachId} was not finalized: missing, not owned by ` +
+          `campaign ${campaignId}, or a concurrent finalize failed`,
+      ),
+    )
   }
 
   private async submitDraftToPeerly(

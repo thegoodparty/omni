@@ -477,7 +477,7 @@ describe('Outreach submission flow — single API call contract', () => {
       mockDraftImageInS3()
 
       const outreachSvc = service.app.get(OutreachService)
-      await outreachSvc.finalizeOutreachPurchase(draft.id)
+      await outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id)
 
       const finalized = await service.prisma.outreach.findUniqueOrThrow({
         where: { id: draft.id },
@@ -502,7 +502,7 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(blob).toContain('Campaign Schedule Request')
       expect(blob).toContain('peerly.com')
 
-      await outreachSvc.finalizeOutreachPurchase(draft.id)
+      await outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id)
       expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(1)
     })
 
@@ -512,8 +512,8 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const outreachSvc = service.app.get(OutreachService)
       const results = await Promise.allSettled([
-        outreachSvc.finalizeOutreachPurchase(draft.id),
-        outreachSvc.finalizeOutreachPurchase(draft.id),
+        outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id),
+        outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id),
       ])
 
       expect(results.every((r) => r.status === 'fulfilled')).toBe(true)
@@ -529,7 +529,7 @@ describe('Outreach submission flow — single API call contract', () => {
 
       const outreachSvc = service.app.get(OutreachService)
       await expect(
-        outreachSvc.finalizeOutreachPurchase(draft.id),
+        outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id),
       ).rejects.toThrow()
 
       const reverted = await service.prisma.outreach.findUniqueOrThrow({
@@ -543,7 +543,7 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(channel).toBe(EXPECTED_CHANNEL)
       expect(JSON.stringify(blocks)).toContain('FAILED')
 
-      await outreachSvc.finalizeOutreachPurchase(draft.id)
+      await outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id)
 
       const finalized = await service.prisma.outreach.findUniqueOrThrow({
         where: { id: draft.id },
@@ -551,6 +551,25 @@ describe('Outreach submission flow — single API call contract', () => {
       expect(finalized.status).toBe(OutreachStatus.pending)
       expect(finalized.projectId).toBe('peerly-job-abc-123')
       expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(2)
+    })
+
+    it('finalize rejects a missing draft or one owned by another campaign', async () => {
+      const draft = await createDraftRow()
+      mockDraftImageInS3()
+
+      const outreachSvc = service.app.get(OutreachService)
+      await expect(
+        outreachSvc.finalizeOutreachPurchase(draft.id, campaign.id + 1),
+      ).rejects.toThrow()
+      await expect(
+        outreachSvc.finalizeOutreachPurchase(draft.id + 999_999, campaign.id),
+      ).rejects.toThrow()
+
+      const untouched = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.id },
+      })
+      expect(untouched.status).toBe(OutreachStatus.pending_payment)
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
     })
 
     it('draft with a non-p2p outreachType → 400, no DB row', async () => {

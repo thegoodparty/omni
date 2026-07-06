@@ -105,7 +105,10 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
     // Sessions without an outreachId predate draft-first — for those the
     // campaign was (or will be) created by the client's own POST /outreach.
     if (outreachId) {
-      await this.outreachService.finalizeOutreachPurchase(outreachId)
+      await this.outreachService.finalizeOutreachPurchase(
+        outreachId,
+        campaignId,
+      )
       this.logger.info(
         `Outreach ${outreachId} finalized after payment ${paymentIntentId}`,
       )
