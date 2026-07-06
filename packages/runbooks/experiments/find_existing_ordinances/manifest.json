@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "find_existing_ordinances",
-  "version": 5,
+  "version": 6,
   "model": "sonnet",
   "max_turns": 100,
   "timeout_seconds": 3000,
@@ -180,7 +180,7 @@
             "description": "Municode product id (stable handle for later retrieval), else null."
           }
         },
-        "description": "The verified source, or null when no code was tied to this jurisdiction."
+        "description": "Where the consolidated code lives when code_found is true. When code_found is false this is an OPTIONAL POINTER \u2014 the jurisdiction's individual-ordinances page (uncodified) or the best page checked (not_found) \u2014 never a claimed code. Consumers route on data_quality, not on the presence of this object."
       },
       "confidence": {
         "type": "string",
