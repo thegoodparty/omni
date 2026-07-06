@@ -33,7 +33,7 @@ This is the source runbook for the future `experiments/race_opponent_actions/` P
 
 All sentiment comes from ONE table: `goodparty_data_catalog.dbt.int__l2_nationwide_uniform_w_haystaq`.
 
-- **All `hs_*` columns are CONTINUOUS 0-100 scores** regardless of suffix (`_support`, `_oppose`, `_yes`, `_fund_more`, `_believer`, `_worried`, ...). Threshold with `>= 50` (leans) or `>= 70` (leans strongly), NEVER `= 1`. A suffix that "looks binary" is not binary; `= 1` silently returns near-zero counts and inverts your read of the district.
+- **All `hs_*` columns are CONTINUOUS 0-100 scores** regardless of suffix (`_support`, `_oppose`, `_yes`, `_fund_more`, `_believer`, `_worried`, ...). Threshold with `>= 50` (leans) or `>= 70` (leans strongly), NEVER `= 1` based on suffix appearance alone. A suffix that "looks binary" is not binary. Exception: if Step 3's distribution check shows `max <= 1` for a column, that column really is binary — use `= 1` for that column only; for all other columns `= 1` silently returns near-zero counts and inverts your read of the district.
 - **Scores are within-state percentile ranks (mean ~50).** A district where ~50% clear the `>= 50` threshold is at the state average; the informative signal is the deviation from 50% (61.8% is a real lean toward, 39.7% a real lean away). Prefer card angles where the share deviates meaningfully from 50%.
 - **Conditional counts use `SUM(CASE WHEN ... THEN 1 ELSE 0 END)`.** Postgres `COUNT(*) FILTER (WHERE ...)` is a syntax error in Databricks.
 - **`CAST(col AS DOUBLE)`** before comparing or averaging `hs_*` columns.
@@ -126,7 +126,7 @@ seen_pairs, seen_stats = set(), set()
 for c in out["cards"]:
     assert len(c["title"]) < 100
     assert len(c["sms_message"]) <= 320
-    assert len(re.findall(r"[.!?](?:\s|$)", c["body"])) <= 3
+    assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", c["body"])) <= 3
     assert "—" not in (c["title"] + c["body"] + c["sms_message"])
     pair = (c["opponent_name"], c["issue"])
     assert pair not in seen_pairs; seen_pairs.add(pair)
@@ -258,7 +258,7 @@ Cards still generate; only the numbers disappear.
       "opponent_name": "Gina Baxter",
       "issue": "Public safety staffing",
       "title": "Stand out against Gina Baxter on public safety staffing",
-      "body": "Gina Baxter's platform centers on affordable housing, accessibility, natural resources, hurricane recovery, and managing growth; it does not include public safety. Your platform commits to fully funding police and fire staffing with transparent annual reports as the city grows. District sentiment data has no coverage on crime concern in North Carolina, so make this case on the commitment itself rather than a statistic.",
+      "body": "Gina Baxter's platform centers on affordable housing, accessibility, natural resources, hurricane recovery, and managing growth; it does not include public safety. Your platform commits to fully funding police and fire staffing with transparent annual reports as the city grows. That specific commitment is the contrast voters can hold you to.",
       "sms_message": "Hi, I'm running for Hendersonville City Council. As our city grows, response times depend on fully staffed police and fire departments. My platform commits to that funding; the incumbent Gina Baxter's platform does not address public safety. I'd be grateful for your vote on November 3.",
       "haystaq": null
     },
