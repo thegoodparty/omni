@@ -98,6 +98,8 @@ def _fake_network(monkeypatch):
     ("Duluth Councilmember", "duluth"),
     ("Nashua Alderman", "nashua"),
     ("Peabody Board of Selectpersons", "peabody"),
+    ("Springfield Board of Supervisors", "springfield"),  # PA-style municipal board
+    ("Riverside Town Trustee", "riverside"),  # IL town trustee
 ])
 def test_norm_reduces_to_bare_place(raw, expected):
     assert r.norm(raw) == expected

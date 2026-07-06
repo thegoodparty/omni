@@ -31,7 +31,7 @@ Hosts 2-7 are not directly listable/guessable in this runtime, so you reach them
 3. Tier 1: Municode client API for `state`, exact `place` match -> record `municode`, go to Step 6/7.
 4. Tier 2 (Municode miss): ONE `WebSearch`; triage candidates against the RESOLUTION ORDER; verify the top candidates in parallel; first verified hit wins.
 5. Before concluding uncodified: run the **PDF content test** on the city page's most code-like document, and check for a **state basic-code adoption**.
-6. Build the access kit in `/workspace/code_capture/` (Step 6a: README always; city-hosted code files; already-fetched Municode JSON + page snapshots). Then optional edition date + TOC (Municode: codesToc + Jobs/latest).
+6. Optional edition date + TOC first (Step 6 — Municode: codesToc + Jobs/latest), THEN build the access kit in `/workspace/code_capture/` (Step 6a: README always; city-hosted code files; the just-fetched Municode JSON + page snapshots).
 7. Assemble artifact, write, validate, spot-check.
 
 ## CRITICAL RULES
@@ -100,7 +100,7 @@ def derive(office, county, state):
             r"board of aldermen|board of trustees|board of selectmen|board of selectpersons|"
             r"select board|selectboard|town chair(man)?|town supervisor|village president|"
             r"mayor|city treasurer|city clerk|town clerk|city auditor|alderman|alderwoman|"
-            r"councilmember|council member|board of commissioners)")
+            r"councilmember|council member|board of commissioners|board of supervisors|town trustee)")
     place = re.sub(rf"\s+{BODY}\b.*$", "", o, flags=re.I).strip()
     place = re.sub(r"\s+(city|town|village|borough)$", "", place, flags=re.I).strip()
     return "municipal", place, county
@@ -172,6 +172,11 @@ You may NOT conclude `uncodified` from the look of a page. Before degrading:
 2. Check for a **basic-code adoption**: an ordinance titled like "adopting the <State> Basic Code, <year> edition" -> codified by reference (see CRITICAL RULES) -> `found`, "partial".
 3. Only if the page truly holds one-off ordinance PDFs with no codified document and no adoption: `code_found` false, `host_type` "city_gov", `url` = that page, `data_quality` "uncodified", `confidence` "low". Nothing at all tied to this place -> `code_source` null, "not_found". Multiple unconfirmed same-name candidates -> "ambiguous". Then STOP, do not spend more searches.
 
+### Step 6: (optional) edition date + top-level TOC
+From data you already have (never re-render pages):
+- **Municode TOC + edition (deterministic, all on api.municode.com which needs no headers):** `job = japi(f"https://api.municode.com/Jobs/latest/{product_id}")` gives `job["Id"]` and `job["OnlineDate"]` -> `edition_or_date`; `japi(f"https://api.municode.com/codesToc?jobId={job['Id']}&productId={product_id}")` returns the full chapter tree (`Children[].Heading`) — save this raw JSON response as `code_capture/municode_toc.json` (Step 6a rule 2). Do NOT call `library.municode.com/api/*` (401s without an X-CSRF header this runtime cannot send).
+- For other hosts, parse top-level chapters from the body/PDF you already fetched into `toc[]` (`{title, number?}`). Omit `toc` if not cheaply available.
+
 ### Step 6a: capture — build the ACCESS KIT (bounded, zero new fetches)
 `/workspace/code_capture/` is an **access kit for future agents**: everything needed to get this jurisdiction's code text later without redoing this search. Build it ONLY from data already in hand — capture never triggers a new fetch, search, or render, with the single exception in rule 5 below.
 
@@ -186,11 +191,6 @@ You may NOT conclude `uncodified` from the look of a page. Before degrading:
 Host recipes for the README: **Municode** — "full code retrievable server-side: ArchivedContent zip (client_id={..}, product_id={..}, requires X-CSRF: 1 header — this runtime cannot send it, do NOT attempt) or per-node CodesContent using municode_toc.json". **eCode360 / American Legal / other walled or SPA hosts** — "walled/SPA; browser-grade fetch required; retrieve on demand via the code_source pointer".
 
 Record EVERY file written under `code_capture/` (README, JSON, snapshots, code files) in `code_capture.files[]` with workspace-relative `path`, `byte_size`, `content_type`, `source_url` (for the README use the code_source url, or the best page checked when nothing was found). `saved: true` ONLY when at least one actual CODE file was saved — README/JSON/snapshots alone keep `saved: false` (they are the kit, not the code), and that remains a normal outcome, not a failure.
-
-### Step 6: (optional) edition date + top-level TOC
-From data you already have (never re-render pages):
-- **Municode TOC + edition (deterministic, all on api.municode.com which needs no headers):** `job = japi(f"https://api.municode.com/Jobs/latest/{product_id}")` gives `job["Id"]` and `job["OnlineDate"]` -> `edition_or_date`; `japi(f"https://api.municode.com/codesToc?jobId={job['Id']}&productId={product_id}")` returns the full chapter tree (`Children[].Heading`) — save this raw JSON response as `code_capture/municode_toc.json` (Step 6a rule 2). Do NOT call `library.municode.com/api/*` (401s without an X-CSRF header this runtime cannot send).
-- For other hosts, parse top-level chapters from the body/PDF you already fetched into `toc[]` (`{title, number?}`). Omit `toc` if not cheaply available.
 
 ### Step 7: assemble + validate
 ```python

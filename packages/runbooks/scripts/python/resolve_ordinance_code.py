@@ -54,7 +54,7 @@ _BODY_RE = re.compile(
     r"board of selectmen|board of selectpersons|select board|selectboard|"
     r"town chair(man)?|town supervisor|village president|mayor|city treasurer|"
     r"city clerk|town clerk|city auditor|alderman|alderwoman|councilmember|"
-    r"council member|board of commissioners)\b.*$"
+    r"council member|board of commissioners|board of supervisors|town trustee)\b.*$"
 )
 _TYPE_WORD_RE = re.compile(r"\s+(city|town|village|borough)$")  # NOT township
 _QUALIFIER_RE = re.compile(
