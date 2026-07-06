@@ -2643,6 +2643,10 @@ describe('race_opponent_actions persist / read', () => {
 
     await expect(persist(run)).rejects.toThrow()
 
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'actions-bad-artifact' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.FAILED)
     expect(dispatchRun).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'race_opponent_actions' }),
     )
