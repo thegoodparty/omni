@@ -43,7 +43,7 @@ export function capitalizeFirstLetter(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
 }
 export const getUrlProtocol = (url: string) => {
-  const result = url.match(/^https?:\/\//i) // Check if URL is already prefixed with http(s), case-insensitive
+  const result = url.match(/^[a-z][a-z0-9+\-.]*:\/\//i) // Check if URL is already prefixed with any scheme
   return result?.[0]?.toLowerCase()
 }
 

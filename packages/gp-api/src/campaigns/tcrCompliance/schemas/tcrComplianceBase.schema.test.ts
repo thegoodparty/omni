@@ -144,6 +144,10 @@ describe('tcrComplianceSuperRefine — filingUrl host', () => {
     expectFilingUrlRejected('https://elections.goodparty.org/jane-doe')
   })
 
+  it('rejects goodparty.org behind a non-http scheme (no host-parse bypass)', () => {
+    expectFilingUrlRejected('ftp://goodparty.org/candidate/jane-doe')
+  })
+
   it('does not reject a lookalike domain that merely ends in goodparty.org', () => {
     const result = schema().safeParse({
       ...localBase,
