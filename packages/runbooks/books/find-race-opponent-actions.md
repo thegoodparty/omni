@@ -117,6 +117,14 @@ Apply the coverage rule and the cell-size floor per column. Compute `voter_perce
 
 For each angle, in threat order, write `title` / `body` / `sms_message` under the card constraints above. The body's factual spine is: (1) what the opponent's summary says (or is silent on), (2) the district numbers when the column survived Step 4, (3) what the candidate's own plank commits to. The `sms_message` makes the same contrast in the candidate's first-person voice, self-contained and sendable as-is. Attach the `haystaq` object for cards with surviving numbers; `haystaq: null` otherwise.
 
+Persist the finished set to the path Step 6 verifies:
+
+```python
+import json
+output = {"generated_at": "<ISO timestamp>", "cards": [<card dicts in rank order>]}
+json.dump(output, open("/tmp/opponent-actions-output.json", "w"), indent=2)
+```
+
 ### Step 6 — Verify the constraints mechanically
 
 ```python
@@ -128,7 +136,10 @@ for c in out["cards"]:
     assert len(c["sms_message"]) <= 320
     assert c["body"].rstrip().endswith((".", "!", "?"))
     assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", c["body"])) <= 3
-    assert "—" not in (c["title"] + c["body"] + c["sms_message"])
+    assert "—" not in (
+        c["title"] + c["body"] + c["sms_message"]
+        + (c["opponent_name"] or "") + c["issue"]
+    )
     pair = (c["opponent_name"], c["issue"])
     assert pair not in seen_pairs; seen_pairs.add(pair)
     if c["haystaq"]:
