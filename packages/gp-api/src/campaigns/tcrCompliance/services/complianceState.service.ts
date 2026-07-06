@@ -116,11 +116,25 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       return null
     }
 
-    const status =
-      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+    let status: Awaited<
+      ReturnType<typeof this.peerlyIdentityService.retrieveCampaignVerifyStatus>
+    >
+    try {
+      status = await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
         peerlyIdentityId,
         campaign,
       )
+    } catch (e) {
+      // A non-404 Peerly error (5xx / auth / timeout) makes retrieve throw a
+      // BadGatewayException; without this guard it would 502 the whole
+      // compliance-state read (agent + FE). Degrade to the in-progress state.
+      this.logger.error(
+        { e },
+        `Failed to retrieve Peerly CV status for identity ` +
+          `${peerlyIdentityId}; degrading to null`,
+      )
+      return null
+    }
     // Peerly's `verification_status` is not yet a hardened enum on their side;
     // parse defensively so an unrecognized value degrades to the in-progress
     // state instead of 500ing the compliance-state read (agent + FE).

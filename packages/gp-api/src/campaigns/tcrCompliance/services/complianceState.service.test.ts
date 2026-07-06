@@ -12,6 +12,7 @@ import {
   PeerlyCvVerificationStatus,
 } from '@goodparty_org/contracts'
 import { Test, TestingModule } from '@nestjs/testing'
+import { BadGatewayException } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PinoLogger } from 'nestjs-pino'
 import { PrismaService } from '@/prisma/prisma.service'
@@ -331,6 +332,22 @@ describe('ComplianceStateService - findStateForCampaign', () => {
 
     const result = await service.findStateForCampaign(42)
 
+    expect(result.peerlyCvStatus).toBeNull()
+  })
+
+  // A transient Peerly error must not 502 the compliance-state read (polled by
+  // the agent + FE). retrieveCampaignVerifyStatus throws BadGatewayException via
+  // handleApiError on any non-404 failure, so mock that production error here.
+  it('degrades to null when the Peerly CV read throws', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+    mockRetrieveCv.mockRejectedValue(
+      new BadGatewayException('Peerly retrieve_cv failed'),
+    )
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.stage).toBe(ComplianceStage.awaiting_pin)
     expect(result.peerlyCvStatus).toBeNull()
   })
 
