@@ -93,6 +93,35 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
+    slug: 'win-outreach-paid-not-scheduled',
+    name: '[Win] P2P outreach paid but not scheduled',
+    type: 'log',
+    // A paid P2P text purchase whose free-texts offer was redeemed by the
+    // async Stripe webhook (POST /v1/payments/events) rather than the
+    // browser-driven complete-checkout-session means the client dropped after
+    // paying and never fired POST /outreach — so no Outreach row, Peerly job,
+    // or Slack schedule was ever created. Healthy purchases always redeem via
+    // complete-checkout-session / complete-free-purchase. See the campaign
+    // 318735 incident (2026-07-01): money taken, nothing scheduled, and no
+    // error logged because the request never arrived.
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "Free texts offer redeemed for campaign"',
+      '| json',
+      '| request_endpoint = "POST /v1/payments/events"',
+      '[1h]))',
+    ].join(' '),
+    threshold: 0,
+    for: '5m',
+    message: [
+      'A paid P2P outreach purchase was fulfilled by the Stripe webhook fallback in the last hour, which means the buyer likely paid but never completed campaign submission — no Peerly job or Slack schedule request would have been created.',
+      'Click *View in Grafana* to find the log line and read the `campaign <id>` in the message. Then confirm in the DB whether an `outreach` row exists for that campaign: if none, the candidate paid with nothing scheduled and needs manual recovery/outreach.',
+      'Note: this only catches free-texts-eligible purchases and can rarely false-positive when the webhook wins the completion race against a client that did finish — the DB check above disambiguates.',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
     slug: 'admin-impersonation-email-fallback-spike',
     name: '[Admin] Impersonation falling back to email actor',
     type: 'log',
