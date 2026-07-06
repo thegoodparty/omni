@@ -60,10 +60,7 @@ type TcrComplianceBaseData = {
   filingUrl: string
 }
 
-export const addFilingUrlIssues = (
-  filingUrl: string,
-  ctx: z.RefinementCtx,
-) => {
+export const addFilingUrlIssues = (filingUrl: string, ctx: z.RefinementCtx) => {
   // The WHATWG parser treats any text before an '@' as userinfo, so
   // https://goodparty.org@sos.gov/x parses hostname 'sos.gov' and would slip
   // the host guard below. A public filing URL never carries credentials.
