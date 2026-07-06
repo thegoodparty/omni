@@ -1,0 +1,310 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "find_existing_ordinances",
+  "version": 3,
+  "model": "sonnet",
+  "max_turns": 100,
+  "timeout_seconds": 3000,
+  "runtime": {
+    "max_thinking_tokens": 0,
+    "max_parallel_subagents": 3
+  },
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Find existing ordinances \u2014 params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "organization_slug",
+      "state",
+      "office"
+    ],
+    "properties": {
+      "organization_slug": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Stable slug for the org/EO the run is for. Echoed into the artifact."
+      },
+      "state": {
+        "type": "string",
+        "pattern": "^[A-Z]{2}$",
+        "description": "2-letter state code (e.g. MN)."
+      },
+      "office": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "The EO's office/position name (e.g. 'Ramsey City Council'). The agent derives the place name from it."
+      },
+      "county": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Optional county name to disambiguate same-name places."
+      },
+      "user_provided_code_url": {
+        "type": "string",
+        "pattern": "^https?://",
+        "maxLength": 2048,
+        "description": "Optional code link the EO pasted at intake; highest-trust source when it verifies."
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Existing ordinances \u2014 artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "schema_version",
+      "organization_slug",
+      "generated_for_run_id",
+      "generated_at",
+      "jurisdiction",
+      "code_found",
+      "code_source",
+      "confidence",
+      "data_quality",
+      "code_capture"
+    ],
+    "properties": {
+      "schema_version": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1,
+        "description": "Artifact schema version."
+      },
+      "organization_slug": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "Echoed from PARAMS.organization_slug."
+      },
+      "generated_for_run_id": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "description": "The run_id this artifact was generated for."
+      },
+      "generated_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "ISO 8601 timestamp when the artifact was produced."
+      },
+      "jurisdiction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "place",
+          "verified_evidence"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$",
+            "description": "2-letter state code, echoed from PARAMS.state."
+          },
+          "place": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The verified place name (derived from PARAMS.office, confirmed against the source)."
+          },
+          "verified_evidence": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "How identity was verified, e.g. page header reads 'City of Ramsey, MN'. Empty-verification not allowed."
+          }
+        }
+      },
+      "code_found": {
+        "type": "boolean",
+        "description": "True only when a code source was verified for this exact jurisdiction."
+      },
+      "code_source": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "host_type",
+          "url"
+        ],
+        "properties": {
+          "host_type": {
+            "type": "string",
+            "enum": [
+              "municode",
+              "ecode360",
+              "american_legal",
+              "codepublishing",
+              "encodeplus",
+              "municipalcodeonline",
+              "city_gov",
+              "other"
+            ],
+            "description": "Codifier/host family for the source."
+          },
+          "url": {
+            "type": "string",
+            "pattern": "^https?://",
+            "maxLength": 2048,
+            "description": "The verified code URL."
+          },
+          "edition_or_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256,
+            "description": "Edition / adoption / through date if the page shows one, else null."
+          },
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128,
+            "description": "Municode client id (stable handle for later retrieval), else null."
+          },
+          "product_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 128,
+            "description": "Municode product id (stable handle for later retrieval), else null."
+          }
+        },
+        "description": "The verified source, or null when no code was tied to this jurisdiction."
+      },
+      "confidence": {
+        "type": "string",
+        "enum": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "description": "Confidence the source is the correct jurisdiction's current code."
+      },
+      "toc": {
+        "type": "array",
+        "maxItems": 200,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "number": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32,
+              "description": "Chapter/title number or label."
+            },
+            "title": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "description": "Chapter/title text."
+            }
+          }
+        },
+        "description": "Optional top-level chapter/title list."
+      },
+      "data_quality": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "partial",
+          "uncodified",
+          "not_found",
+          "ambiguous"
+        ],
+        "description": "Outcome quality of the resolution."
+      },
+      "code_capture": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "saved",
+          "files"
+        ],
+        "properties": {
+          "saved": {
+            "type": "boolean",
+            "description": "True only when actual code text (a code document file) was captured. README/snapshots/API-JSON alone keep this false."
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "byte_size",
+                "content_type",
+                "source_url"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "description": "Path relative to /workspace (e.g. code_capture/code.zip). Persisted by the runner at s3://gp-agent-artifacts-{env}/find_existing_ordinances/{run_id}/logs/workspace/{path}."
+                },
+                "byte_size": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "content_type": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "source_url": {
+                  "type": "string",
+                  "pattern": "^https?://",
+                  "maxLength": 2048
+                }
+              }
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500,
+            "description": "Why nothing (or only part) was captured, e.g. 'codifier is bot-walled; retrieve via client_id/product_id on demand'."
+          }
+        },
+        "description": "Captured code text files, saved under the run's S3 prefix by the runner's workspace upload (50MB/file cap). Null or saved:false when the host is walled; the code_source pointer remains the retrieval path."
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "code_found": {
+              "const": true
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "code_source": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
