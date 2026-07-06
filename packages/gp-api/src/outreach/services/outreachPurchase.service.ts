@@ -4,12 +4,14 @@ import { PurchaseHandler } from 'src/payments/purchase.types'
 import { FREE_TEXTS_OFFER } from 'src/shared/constants/freeTextsOffer'
 import { calcTextAmountInCents } from 'src/shared/util/textPricing.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
+import { OutreachService } from './outreach.service'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
 export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachPurchaseMetadata> {
   constructor(
     private readonly campaignsService: CampaignsService,
+    private readonly outreachService: OutreachService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(OutreachPurchaseHandlerService.name)
@@ -90,6 +92,23 @@ export class OutreachPurchaseHandlerService implements PurchaseHandler<OutreachP
 
     if (!campaignId || outreachType !== 'p2p') {
       return
+    }
+
+    // Stripe metadata values round-trip as strings; Number handles both the
+    // free-purchase path (number) and the checkout-session path (string).
+    const rawOutreachId =
+      'outreachId' in rawMetadata ? rawMetadata.outreachId : undefined
+    const outreachId = rawOutreachId ? Number(rawOutreachId) : undefined
+
+    // Finalize before redeeming: a throw here must reach the caller so the
+    // idempotency marker is never stamped and Stripe retries the webhook.
+    // Sessions without an outreachId predate draft-first — for those the
+    // campaign was (or will be) created by the client's own POST /outreach.
+    if (outreachId) {
+      await this.outreachService.finalizeOutreachPurchase(outreachId)
+      this.logger.info(
+        `Outreach ${outreachId} finalized after payment ${paymentIntentId}`,
+      )
     }
 
     try {

@@ -13,4 +13,7 @@ export interface OutreachPurchaseMetadata extends BasePurchaseMetadata {
   script?: string
   message?: string
   date?: string
+  // Links the checkout session to the pending_payment draft the post-purchase
+  // handler finalizes. Absent on sessions from clients predating draft-first.
+  outreachId?: number
 }

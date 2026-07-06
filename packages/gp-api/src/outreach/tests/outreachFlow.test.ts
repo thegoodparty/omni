@@ -23,7 +23,8 @@ import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.serv
 import { GooglePlacesService } from '@/vendors/google/services/google-places.service'
 import { AreaCodeFromZipService } from '@/ai/util/areaCodeFromZip.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { Campaign, OutreachType } from '../../generated/prisma'
+import { Campaign, OutreachStatus, OutreachType } from '../../generated/prisma'
+import { OutreachService } from '../services/outreach.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 
@@ -129,6 +130,10 @@ interface SubmitOpts {
   phoneListId?: number
   voterFileFilterId?: number
   audienceRequest?: string
+  draft?: boolean
+  textCount?: number
+  billableTextCount?: number
+  campaignPlanDueDate?: string
 }
 
 /**
@@ -148,6 +153,16 @@ async function submitOutreach(opts: SubmitOpts) {
     form.append('voterFileFilterId', String(opts.voterFileFilterId))
   }
   if (opts.audienceRequest) form.append('audienceRequest', opts.audienceRequest)
+  if (opts.draft !== undefined) form.append('draft', String(opts.draft))
+  if (opts.textCount !== undefined) {
+    form.append('textCount', String(opts.textCount))
+  }
+  if (opts.billableTextCount !== undefined) {
+    form.append('billableTextCount', String(opts.billableTextCount))
+  }
+  if (opts.campaignPlanDueDate) {
+    form.append('campaignPlanDueDate', opts.campaignPlanDueDate)
+  }
 
   // Required image for p2p / text per controller validation.
   if (
@@ -374,6 +389,183 @@ describe('Outreach submission flow — single API call contract', () => {
         where: { campaignId: campaign.id },
       })
       expect(rows.length).toBe(1)
+    })
+  })
+
+  describe('draft-first purchase flow', () => {
+    const draftScript = 'Vote for me. Reply STOP to opt-out.'
+
+    const submitDraft = () =>
+      submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: draftScript,
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+        textCount: 5200,
+        billableTextCount: 200,
+        campaignPlanDueDate: '2026-04-19',
+      })
+
+    const createDraftRow = async () => {
+      const res = await submitDraft()
+      expect(res.status).toBe(201)
+      return firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+    }
+
+    const mockDraftImageInS3 = () => {
+      const s3Svc = service.app.get(S3Service)
+      vi.spyOn(s3Svc, 'getFileBytesWithContentType').mockResolvedValue({
+        bytes: Buffer.from('fake-image-bytes'),
+        contentType: 'image/png',
+      })
+    }
+
+    it('draft create persists a pending_payment row with no Peerly job or Slack', async () => {
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: {
+          aiContent: {
+            smsKey: {
+              name: 'smsKey',
+              content: '<p>Hi from AI</p>',
+              updatedAt: Date.now(),
+            },
+          },
+        },
+      })
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'smsKey',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+        textCount: 5200,
+        billableTextCount: 200,
+        campaignPlanDueDate: '2026-04-19',
+      })
+      expect(res.status).toBe(201)
+
+      const row = firstOrThrow(
+        await service.prisma.outreach.findMany({
+          where: { campaignId: campaign.id },
+        }),
+      )
+      expect(row.status).toBe(OutreachStatus.pending_payment)
+      expect(row.identityId).toBe('11538886')
+      expect(row.script).toBe('Hi from AI')
+      expect(row.textCount).toBe(5200)
+      expect(row.billableTextCount).toBe(200)
+      expect(row.campaignPlanDueDate).toBe('2026-04-19')
+      expect(row.projectId).toBeNull()
+
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+      expect(slackMessage).not.toHaveBeenCalled()
+
+      // Unpaid drafts are hidden from the listing; the draft is the only row.
+      const list = await service.client.get('/v1/outreach', orgHeaders())
+      expect(list.status).toBe(404)
+    })
+
+    it('finalize submits to Peerly, fires success Slack, and no-ops on repeat', async () => {
+      const draft = await createDraftRow()
+      mockDraftImageInS3()
+
+      const outreachSvc = service.app.get(OutreachService)
+      await outreachSvc.finalizeOutreachPurchase(draft.id)
+
+      const finalized = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.id },
+      })
+      expect(finalized.status).toBe(OutreachStatus.pending)
+      expect(finalized.projectId).toBe('peerly-job-abc-123')
+
+      expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(1)
+      expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          campaignId: campaign.id,
+          listId: 3180213,
+          identityId: '11538886',
+          scriptText: draftScript,
+        }),
+      )
+
+      expect(slackMessage).toHaveBeenCalledTimes(1)
+      const [blocks, channel] = firstOrThrow(slackMessage.mock.calls)
+      expect(channel).toBe(EXPECTED_CHANNEL)
+      const blob = JSON.stringify(blocks)
+      expect(blob).toContain('Campaign Schedule Request')
+      expect(blob).toContain('peerly.com')
+
+      await outreachSvc.finalizeOutreachPurchase(draft.id)
+      expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('concurrent finalize calls create exactly one Peerly job', async () => {
+      const draft = await createDraftRow()
+      mockDraftImageInS3()
+
+      const outreachSvc = service.app.get(OutreachService)
+      const results = await Promise.allSettled([
+        outreachSvc.finalizeOutreachPurchase(draft.id),
+        outreachSvc.finalizeOutreachPurchase(draft.id),
+      ])
+
+      expect(results.every((r) => r.status === 'fulfilled')).toBe(true)
+      expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('Peerly failure reverts to pending_payment, fires failure Slack, and a retry succeeds', async () => {
+      const draft = await createDraftRow()
+      mockDraftImageInS3()
+      peerlyCreatePeerlyP2pJob.mockRejectedValueOnce(
+        new Error('Peerly API ERROR: account_id required'),
+      )
+
+      const outreachSvc = service.app.get(OutreachService)
+      await expect(
+        outreachSvc.finalizeOutreachPurchase(draft.id),
+      ).rejects.toThrow()
+
+      const reverted = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.id },
+      })
+      expect(reverted.status).toBe(OutreachStatus.pending_payment)
+      expect(reverted.projectId).toBeNull()
+
+      expect(slackMessage).toHaveBeenCalledTimes(1)
+      const [blocks, channel] = firstOrThrow(slackMessage.mock.calls)
+      expect(channel).toBe(EXPECTED_CHANNEL)
+      expect(JSON.stringify(blocks)).toContain('FAILED')
+
+      await outreachSvc.finalizeOutreachPurchase(draft.id)
+
+      const finalized = await service.prisma.outreach.findUniqueOrThrow({
+        where: { id: draft.id },
+      })
+      expect(finalized.status).toBe(OutreachStatus.pending)
+      expect(finalized.projectId).toBe('peerly-job-abc-123')
+      expect(peerlyCreatePeerlyP2pJob).toHaveBeenCalledTimes(2)
+    })
+
+    it('draft with a non-p2p outreachType → 400, no DB row', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.text,
+        script: 'Vote for me. Reply STOP to opt-out.',
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        draft: true,
+      })
+
+      expect(res.status).toBe(400)
+      const rows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(rows.length).toBe(0)
     })
   })
 })
