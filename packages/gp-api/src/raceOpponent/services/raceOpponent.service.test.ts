@@ -24,6 +24,7 @@ describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     // PrismaBase exposes `client` via a getter over the injected `_prisma`;
     // direct instantiation skips onModuleInit, so wire the campaign delegate
@@ -127,6 +128,7 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
   }): RaceOpponentService => {
     const service = new RaceOpponentService(
       features as unknown as FeaturesService,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -353,6 +355,7 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     Object.defineProperty(service, '_prisma', {
       value: {
@@ -396,5 +399,76 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
     await service.rechainSummaryForNewerCollection(campaign, SUMMARY_RUN_AT)
 
     expect(service.dispatchSummary).not.toHaveBeenCalled()
+  })
+})
+
+// The same deferred-chain problem one link later: an actions run completing
+// must re-chain when a summary newer than it completed while it was in flight
+// (dispatchActions' in-flight dedup skipped that summary's chained dispatch).
+describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
+  const features = { isFeatureEnabled: vi.fn() }
+  const ACTIONS_RUN_AT = new Date('2026-07-01T10:00:00.000Z')
+  const SUMMARY_NEWER = new Date('2026-07-01T10:03:00.000Z')
+  const SUMMARY_OLDER = new Date('2026-07-01T09:57:00.000Z')
+
+  const campaign = {
+    id: 42,
+    organizationSlug: 'org-42',
+    isPro: true,
+    user: { id: 7, clerkId: 'user_abc' },
+  } as unknown as CampaignWith<'user'>
+
+  const setup = (
+    latestCompletedSummary: { createdAt: Date } | null,
+  ): RaceOpponentService => {
+    const service = new RaceOpponentService(
+      features as unknown as FeaturesService,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    )
+    Object.defineProperty(service, '_prisma', {
+      value: {
+        experimentRun: {
+          findFirst: vi.fn().mockResolvedValue(latestCompletedSummary),
+        },
+      },
+      writable: true,
+    })
+    Object.defineProperty(service, 'logger', {
+      value: createMockLogger(),
+      writable: true,
+    })
+    service.dispatchActions = vi.fn().mockResolvedValue(undefined)
+    return service
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('re-dispatches actions when a completed summary is newer than the actions run', async () => {
+    const service = setup({ createdAt: SUMMARY_NEWER })
+
+    await service.rechainActionsForNewerSummary(campaign, ACTIONS_RUN_AT)
+
+    expect(service.dispatchActions).toHaveBeenCalledExactlyOnceWith(campaign)
+  })
+
+  it('does not re-dispatch on the normal cycle (the completed summary pre-dates its own actions run)', async () => {
+    const service = setup({ createdAt: SUMMARY_OLDER })
+
+    await service.rechainActionsForNewerSummary(campaign, ACTIONS_RUN_AT)
+
+    expect(service.dispatchActions).not.toHaveBeenCalled()
+  })
+
+  it('does not re-dispatch when no completed summary run exists', async () => {
+    const service = setup(null)
+
+    await service.rechainActionsForNewerSummary(campaign, ACTIONS_RUN_AT)
+
+    expect(service.dispatchActions).not.toHaveBeenCalled()
   })
 })

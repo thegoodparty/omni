@@ -14,7 +14,7 @@ common mistake.
 
 | | **Relaxed path** (P2/P3/P4) | **Strict engine** (P1) |
 |---|---|---|
-| Experiments | `race_opponent_collection` → `race_opponent_summary` | `self_research` → `opponent_research` |
+| Experiments | `race_opponent_collection` → `race_opponent_summary` → `race_opponent_actions` | `self_research` → `opponent_research` |
 | What it produces | `RaceOpponent` (raw collected text) + `RaceOpponentSummary` (threat tier, why-it-matters, issue contrasts) | `RaceOpponentResearch` → sourced `RaceOpponentFinding` → `RaceOpponentContrast` |
 | Sourcing bar | relaxed — structures already-collected text | **sourced-or-silent**: every finding/contrast carries a `source_url` + extract, grounded by the QA gate |
 | What renders it | the live `/dashboard/race-opponent` page (list, threat tiers, issue contrasts) | `OpponentResearch` / contrasts UI (self-research front door, fair-line review) |
@@ -61,13 +61,23 @@ Every route is owner-scoped (`@UseCampaign`) and gated by **`assertAccess`** (Pr
 
 ## Experiments it dispatches (CAP / agentExperiments)
 
-`race_opponent_collection`, `race_opponent_summary`, `self_research`,
-`opponent_research` — manifests in `packages/runbooks/experiments/<id>/`. Dispatch
-goes through `ExperimentRunsService` (SQS → gp-ai-projects pmf_engine). In-flight
+`race_opponent_collection`, `race_opponent_summary`, `race_opponent_actions`,
+`self_research`, `opponent_research` — manifests in
+`packages/runbooks/experiments/<id>/`. Dispatch goes through
+`ExperimentRunsService` (SQS → gp-ai-projects pmf_engine). In-flight
 dedup on `ExperimentRun` keyed by type+status prevents double paid runs; the
 auto-dispatch trigger (Pro upgrade) and the daily cron reuse the same guard. Per-row
 lifetime caps (`MAX_SELF_RESEARCH_ATTEMPTS`, `MAX_OPPONENT_RESEARCH_ATTEMPTS`) surface
 `retry` instead of looping paid Fargate runs.
+
+The relaxed pipeline chains: a completed collection persists rows then dispatches
+`race_opponent_summary`; a completed summary persists `RaceOpponentSummary` rows
+then dispatches `race_opponent_actions` (flat `state`/`l2_district_*` params from
+`DistrictResolverService`, omitted all-or-nothing — the dispatch Lambda reserves a
+nested `district` param for scope derivation). Each link has a terminal-state
+re-chain for a newer upstream run its in-flight dedup skipped, and
+`collectionStatus` ignores actions runs entirely. Actions artifact persistence is
+ENG-10647 (not built yet).
 
 ## Sourced-or-silent + fair-line (the strict engine's invariants)
 

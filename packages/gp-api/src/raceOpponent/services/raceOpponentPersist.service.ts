@@ -18,6 +18,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import {
+  RACE_OPPONENT_ACTIONS,
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
 } from '../raceOpponent.constants'
@@ -133,6 +134,16 @@ export class RaceOpponentPersistService extends createPrismaBase(
         await this.onSummaryCompleted(run)
       } else if (run.status === ExperimentRunStatus.FAILED) {
         await this.onSummaryFailed(run)
+      }
+    } else if (run.experimentType === RACE_OPPONENT_ACTIONS) {
+      // Artifact persistence for actions runs is ENG-10647; for now every
+      // terminal outcome only re-chains for a summary that landed while this
+      // run was in flight, mirroring the summary's own terminal handling.
+      if (
+        run.status === ExperimentRunStatus.COMPLETED ||
+        run.status === ExperimentRunStatus.FAILED
+      ) {
+        await this.onActionsTerminal(run)
       }
     }
   }
@@ -259,6 +270,20 @@ export class RaceOpponentPersistService extends createPrismaBase(
         )
         throw error
       }
+
+      // Fire-and-forget: the actions run persists on its own completion event
+      // (ENG-10647). dispatchActions reads the summaries just committed above
+      // and skips when none survived. A dispatch failure must not fail the
+      // summary persist — the summaries are already committed and actions can
+      // be re-dispatched on the next summary — so log rather than rethrow.
+      try {
+        await this.raceOpponent.dispatchActions(campaign)
+      } catch (error) {
+        this.logger.error(
+          { runId: run.runId, error },
+          'failed to chain race_opponent_actions dispatch after summary',
+        )
+      }
     } finally {
       await this.rechainAfterSummary(campaign, run.createdAt)
     }
@@ -271,6 +296,27 @@ export class RaceOpponentPersistService extends createPrismaBase(
     const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
     await this.rechainAfterSummary(campaign, run.createdAt)
+  }
+
+  // A race_opponent_actions run reached a terminal state. Re-chain when a
+  // newer COMPLETED summary landed while this run was in flight (its chained
+  // dispatch was skipped by dispatchActions' in-flight dedup). Fire-and-forget:
+  // a dispatch failure must not fail the terminal handling — the next summary
+  // re-chains — so log rather than rethrow.
+  private async onActionsTerminal(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    try {
+      await this.raceOpponent.rechainActionsForNewerSummary(
+        campaign,
+        run.createdAt,
+      )
+    } catch (error) {
+      this.logger.error(
+        { runId: run.runId, error },
+        'failed to re-chain race_opponent_actions after a newer summary',
+      )
+    }
   }
 
   // Fire-and-forget re-chain, run on every terminal summary outcome. A dispatch
