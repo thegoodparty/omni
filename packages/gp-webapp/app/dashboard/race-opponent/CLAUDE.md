@@ -170,6 +170,21 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `destructive` — added `TrendingUpIcon`/`OctagonAlertIcon` to
   `packages/styleguide/src/components/ui/icons.tsx` for this (weaknesses reuses
   the existing `TriangleAlertIcon`, opportunities the existing `SparklesIcon`).
+- **Stand-out actions (P6, ENG-10650)**: `StandoutActionsSection` renders the
+  "N ways to stand out" action cards below the field SWOT in
+  `RaceOpponentList`, reading `data.standoutActions`
+  (`RaceOpponentStandoutAction` in `gpApi/api-endpoints.ts`, mirroring
+  `RaceOpponentStandoutActionSchema` in contracts; the contract defaults the
+  array to `[]`, the mirror keeps it optional for older payloads). A client
+  component (`'use client'` — the CTA uses `useRouter`). Each card: SendIcon +
+  "Voter outreach" eyebrow, title, body (rendered verbatim — no truncation),
+  and a full-width primary "Send SMS to voters" `Button` that pushes
+  `/dashboard/outreach?compose=text&message=<encodeURIComponent(smsMessage)>`
+  — the outreach text composer opens with the message preset behind the same
+  Pro/compliance gates as the manual path (the Lovable sample's sidebar
+  interaction is wrong per the PO; the CTA navigates). Renders nothing for an
+  absent/empty `standoutActions` (actions run in flight or failed — the brief
+  ends at the SWOT). No analytics yet (ENG-10651 adds them).
 
 ## Status polling — one poller, it is the source of truth
 
