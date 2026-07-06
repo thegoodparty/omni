@@ -62,7 +62,7 @@ model RaceOpponentStandoutAction {
   smsMessage   String   @map("sms_message")
   opponentName String?  @map("opponent_name")
   issue        String
-  runId        String   @map("run_id")
+  runId        String?  @map("run_id")
 
   @@unique([campaignId, order])
   @@map("race_opponent_standout_action")

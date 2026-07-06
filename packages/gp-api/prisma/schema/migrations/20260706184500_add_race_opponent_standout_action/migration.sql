@@ -10,7 +10,7 @@ CREATE TABLE "race_opponent_standout_action" (
     "sms_message" TEXT NOT NULL,
     "opponent_name" TEXT,
     "issue" TEXT NOT NULL,
-    "run_id" TEXT NOT NULL,
+    "run_id" TEXT,
 
     CONSTRAINT "race_opponent_standout_action_pkey" PRIMARY KEY ("id")
 );
