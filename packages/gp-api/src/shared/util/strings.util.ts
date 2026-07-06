@@ -54,6 +54,20 @@ export const urlIncludesPath = (urlStr: string): boolean =>
   // optional protocol, but must have path (e.g. http://example.com/path not just http://example.com)
   /^(https?:\/\/)?[^\/\s]+\/[^\/\s]+.*$/i.test(urlStr)
 
+// Lowercased, www-stripped host of a URL-or-domain string. isURL (used by
+// UrlOrDomainSchema with require_protocol:false) is looser than the WHATWG URL
+// parser, so guard the parse: an uncaught throw inside a Zod refine would
+// surface as a 500 instead of a clean validation error. Returns '' on failure.
+export const getUrlHostname = (urlStr: string): string => {
+  try {
+    return new URL(ensureUrlHasProtocol(urlStr)).hostname
+      .toLowerCase()
+      .replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
 export function normalizePhoneNumber(phoneNumber: string): string {
   let cleaned = phoneNumber
     .replaceAll('+1', '')

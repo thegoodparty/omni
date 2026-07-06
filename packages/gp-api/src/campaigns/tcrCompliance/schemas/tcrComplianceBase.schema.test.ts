@@ -22,6 +22,11 @@ const federalBase = {
   filingUrl: 'https://www.fec.gov/data/committee/C00936328/',
 }
 
+const localBase = {
+  officeLevel: OfficeLevel.local,
+  filingUrl: 'https://sos.example.gov/candidates/jane',
+}
+
 describe('tcrComplianceBaseShape.fecCommitteeId', () => {
   it('normalizes an empty string to undefined (so the service ?? fallback fires)', () => {
     expect(tcrComplianceBaseShape.fecCommitteeId.parse('')).toBeUndefined()
@@ -109,5 +114,45 @@ describe('tcrComplianceSuperRefine — fecCommitteeId', () => {
         result.error.issues.some((i) => i.path[0] === 'fecCommitteeId'),
       ).toBe(true)
     }
+  })
+})
+
+describe('tcrComplianceSuperRefine — filingUrl host', () => {
+  const expectFilingUrlRejected = (filingUrl: string) => {
+    const result = schema().safeParse({ ...localBase, filingUrl })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path[0] === 'filingUrl')).toBe(
+        true,
+      )
+    }
+  }
+
+  it('rejects a goodparty.org filing URL (our own page, never a filing)', () => {
+    expectFilingUrlRejected('https://goodparty.org/candidate/jane-doe')
+  })
+
+  it('rejects a bare goodparty.org domain filing URL', () => {
+    expectFilingUrlRejected('goodparty.org/candidate/jane-doe')
+  })
+
+  it('rejects www.goodparty.org', () => {
+    expectFilingUrlRejected('https://www.goodparty.org/elections/jane-doe')
+  })
+
+  it('rejects a goodparty.org subdomain', () => {
+    expectFilingUrlRejected('https://elections.goodparty.org/jane-doe')
+  })
+
+  it('does not reject a lookalike domain that merely ends in goodparty.org', () => {
+    const result = schema().safeParse({
+      ...localBase,
+      filingUrl: 'https://notgoodparty.org/candidates/jane-doe',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a real election-authority filing URL', () => {
+    expect(schema().safeParse(localBase).success).toBe(true)
   })
 })

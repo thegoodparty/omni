@@ -6,7 +6,10 @@ import {
   WriteEmailSchema,
 } from '../../../shared/schemas'
 import { CommitteeType, OfficeLevel } from '../../../generated/prisma'
-import { urlIncludesPath } from '../../../shared/util/strings.util'
+import {
+  getUrlHostname,
+  urlIncludesPath,
+} from '../../../shared/util/strings.util'
 import { Logger } from '@nestjs/common'
 
 const logger = new Logger('TcrComplianceDto')
@@ -65,6 +68,24 @@ export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
   options: { requireFecCommitteeId?: boolean } = {},
 ) => {
   const { requireFecCommitteeId = true } = options
+
+  // goodparty.org is our own marketing/profile site, never an official
+  // election filing. The compliance agent was resolving filing URLs to
+  // goodparty.org candidate pages, so CampaignVerify couldn't match the
+  // candidate against a filing and had to contact the election authority by
+  // hand. Reject it here so the agent must supply a real filing record.
+  const filingHost = getUrlHostname(data.filingUrl)
+  if (filingHost === 'goodparty.org' || filingHost.endsWith('.goodparty.org')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'Filing URL must be an official election-authority filing record ' +
+        '(Secretary of State, county or city clerk, or FEC), not a ' +
+        'goodparty.org page',
+      path: ['filingUrl'],
+    })
+  }
+
   const isFederal = data.officeLevel === OfficeLevel.federal
 
   if (isFederal) {
