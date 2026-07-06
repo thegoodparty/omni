@@ -47,7 +47,7 @@ import {
 import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { ComplianceStateService } from './complianceState.service'
-import { SubmitToPeerlyDto } from '../schemas/submitToPeerlyDto.schema'
+import { submitToPeerlyFilingSchema } from '../schemas/submitToPeerlyDto.schema'
 import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
 import {
   ComplianceStage,
@@ -627,7 +627,6 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   async submitToPeerlyForAgent(
     user: User,
     campaign: Campaign,
-    input: SubmitToPeerlyDto,
   ): Promise<SubmitToPeerlyOutput> {
     const existing = await this.fetchByCampaignId(campaign.id)
     if (!existing) {
@@ -690,15 +689,45 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
 
+    // Source the website host from the campaign's registered domain (the apex
+    // name, matching the legacy create() path), not from the agent request.
+    // The awaiting_pin stage gate above guarantees the domain is registered
+    // and the site is live, so a domain always exists here.
+    const { domain } = await this.websitesService.findFirstOrThrow({
+      where: { campaignId: campaign.id },
+      include: { domain: true },
+    })
+    if (!domain) {
+      throw new BadRequestException(
+        'Campaign must have a domain to submit TCR compliance',
+      )
+    }
+    const hostname = domain.name.replace(/^www\./, '')
+
+    // Every Peerly field is sourced from the persisted TcrCompliance record —
+    // the agent request is not trusted (the compliance_setup instruction
+    // already promises gp-api reads the candidate's saved details itself).
+    // Re-apply PR #643's filing-URL guards to the persisted value: a record
+    // saved before that guard shipped can still carry a goodparty.org page or
+    // the candidate's own campaign site, which CampaignVerify can't match a
+    // candidate against.
+    const filingCheck = submitToPeerlyFilingSchema.safeParse({
+      filingUrl: existing.filingUrl,
+      websiteHost: hostname,
+    })
+    if (!filingCheck.success) {
+      throw new BadRequestException(
+        filingCheck.error.issues.map((issue) => issue.message).join('; '),
+      )
+    }
+
     // The agent resolves the FEC committee id by scraping FEC public records,
-    // which is unreliable — so it may submit without one. The submit DTO
-    // intentionally defers the federal requirement to here: fall back to the
-    // value persisted on the TcrCompliance row (e.g. backfilled by staff),
-    // then re-enforce presence + format so a federal brand never reaches
-    // Peerly without a valid committee id.
-    const fecCommitteeId =
-      input.fecCommitteeId ?? existing.fecCommitteeId ?? undefined
-    if (input.officeLevel === OfficeLevel.federal) {
+    // which is unreliable — so it may be absent. The federal requirement is
+    // enforced here against the value persisted on the TcrCompliance row (e.g.
+    // backfilled by staff), re-checking presence + format so a federal brand
+    // never reaches Peerly without a valid committee id.
+    const fecCommitteeId = existing.fecCommitteeId ?? undefined
+    if (existing.officeLevel === OfficeLevel.federal) {
       if (!fecCommitteeId) {
         throw new BadRequestException(
           'FEC Committee ID is required for federal office level',
@@ -742,19 +771,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
 
-    // Strip leading www. so Peerly's 10DLC brand `website` + `email` fields
-    // and the persisted websiteDomain all use the apex domain — matching the
-    // legacy create() path (which sources from Domain.name, an apex domain).
-    const hostname = new URL(input.websiteUrl).hostname.replace(/^www\./, '')
     const helperPayload: CreateTcrCompliancePayload = {
-      ein: input.ein,
-      committeeName: input.committeeName,
-      filingUrl: input.filingUrl,
-      email: input.email,
-      phone: input.phone,
-      officeLevel: input.officeLevel,
+      ein: existing.ein,
+      committeeName: existing.committeeName,
+      filingUrl: existing.filingUrl,
+      email: existing.email,
+      phone: existing.phone,
+      officeLevel: existing.officeLevel,
       fecCommitteeId,
-      committeeType: input.committeeType,
+      committeeType: existing.committeeType,
       websiteDomain: hostname,
     }
 
@@ -809,14 +834,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     const updated = await this.model.update({
       where: { id: existing.id },
       data: {
-        ein: input.ein,
-        committeeName: input.committeeName,
-        filingUrl: input.filingUrl,
-        email: input.email,
-        phone: input.phone,
-        officeLevel: input.officeLevel,
-        fecCommitteeId: fecCommitteeId ?? null,
-        committeeType: input.committeeType,
+        // Every Peerly field was already sourced from this record; only the
+        // canonical website host, postal address, and the Peerly result need
+        // persisting back.
         websiteDomain: hostname,
         postalAddress: campaign.formattedAddress ?? existing.postalAddress,
         peerlyIdentityId: peerlyResult.peerlyIdentityId,

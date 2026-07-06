@@ -20,7 +20,6 @@ import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.s
 import { ComplianceStateService } from './services/complianceState.service'
 import { CreateTcrComplianceDto } from './schemas/createTcrComplianceDto.schema'
 import { CreateAgenticTcrComplianceDto } from './schemas/createAgenticTcrComplianceDto.schema'
-import { SubmitToPeerlyDto } from './schemas/submitToPeerlyDto.schema'
 import { UseCampaign } from '../decorators/UseCampaign.decorator'
 import { ReqCampaign } from '../decorators/ReqCampaign.decorator'
 import { Campaign, TcrComplianceStatus, User } from '../../generated/prisma'
@@ -94,12 +93,14 @@ export class CampaignTcrComplianceController {
       'of at least 500 characters and at least one real, non-template ' +
       'issue). Calls with any earlier stage return 422; calls with ' +
       'generic or template content return 400. ' +
-      'Required inputs: EIN, committee name, office level, election ' +
-      'filing details, contact email and phone, and the verified ' +
-      'website URL. The filing URL must be the official ' +
-      'election-authority filing record for the candidate (Secretary ' +
-      'of State, county or city clerk, or FEC), not a goodparty.org ' +
-      "page or the candidate's own campaign website; those return 400. " +
+      'No request body is needed: gp-api reads the EIN, committee name, ' +
+      'office level, election filing details, contact email and phone, ' +
+      "and website host from the candidate's saved compliance record — " +
+      'just call it for the current campaign. gp-api re-validates the ' +
+      'saved filing URL and returns 400 if it is a goodparty.org page or ' +
+      "the candidate's own campaign website (CampaignVerify cannot match " +
+      'a candidate against those); the candidate must correct their ' +
+      'saved filing details before this can succeed. ' +
       'Creates the Peerly Identity, Identity Profile, ' +
       '10DLC Brand, and Campaign Verify Request; Peerly then sends a ' +
       'PIN to the candidate via the contact channels supplied. ' +
@@ -109,20 +110,13 @@ export class CampaignTcrComplianceController {
       'check. Idempotent on retry: a second call returns the existing ' +
       'record without re-submitting to Peerly.',
   })
-  async submitToPeerly(
-    @ReqCampaign() campaign: Campaign,
-    @Body() input: SubmitToPeerlyDto,
-  ) {
+  async submitToPeerly(@ReqCampaign() campaign: Campaign) {
     const user = await this.userService.findByCampaign(campaign)
     if (!user) {
       throw new NotFoundException('User not found for this campaign')
     }
 
-    return this.tcrComplianceService.submitToPeerlyForAgent(
-      user,
-      campaign,
-      input,
-    )
+    return this.tcrComplianceService.submitToPeerlyForAgent(user, campaign)
   }
 
   @Post('agentic')
