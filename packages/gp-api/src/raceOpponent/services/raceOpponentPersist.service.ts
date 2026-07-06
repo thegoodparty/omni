@@ -462,6 +462,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
       await tx.raceOpponent.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
       await tx.raceOpponentFieldAnalysis.deleteMany({ where: { campaignId } })
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
       await tx.raceOpponent.createMany({
         data: items.map((item) => ({
           campaignId,
@@ -608,6 +609,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
     ].map(([, summary]) => summary)
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
+      // Stand-out cards derive from the summaries being replaced here; clear
+      // them in the same transaction so GET never pairs fresh summaries with
+      // cards built from the old ones. The chained actions run repopulates.
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.createMany({
         data: deduped.map((summary) => ({
           campaignId,

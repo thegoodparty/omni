@@ -1732,7 +1732,20 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     expect(opponent.summary.overview.text).toBe('second')
   })
 
-  it('clears stale summaries and field analysis when a collection run replaces the collected rows', async () => {
+  const seedStaleCard = () =>
+    service.prisma.raceOpponentStandoutAction.create({
+      data: {
+        campaignId,
+        order: 0,
+        title: 'Stale card',
+        body: 'Old body.',
+        smsMessage: 'Old sms.',
+        issue: 'housing',
+        runId: 'actions-stale',
+      },
+    })
+
+  it('clears stale summaries, field analysis, and stand-out actions when a collection run replaces the collected rows', async () => {
     // Seed a prior summary + field analysis plus the prior collected row they
     // were built from.
     await seedCollectedRow()
@@ -1751,6 +1764,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
         where: { campaignId },
       }),
     ).toBe(1)
+    await seedStaleCard()
 
     // A fresh collection run replaces the collected rows; its chained summary
     // dispatch is stubbed, so without the cleanup the stale summary and SWOT
@@ -1792,6 +1806,38 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     ).toBe(0)
     expect(
       await service.prisma.raceOpponentFieldAnalysis.count({
+        where: { campaignId },
+      }),
+    ).toBe(0)
+    expect(
+      await service.prisma.raceOpponentStandoutAction.count({
+        where: { campaignId },
+      }),
+    ).toBe(0)
+  })
+
+  it('clears stale stand-out actions when a summary run replaces the summaries', async () => {
+    await seedCollectedRow()
+    await seedStaleCard()
+
+    const summaryRun = await seedSummaryRun('summary-replaces-cards')
+    stubSummaryArtifact(summaryArtifact({}))
+    vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    ).mockResolvedValue({ runId: 'chained-actions' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(summaryRun)
+
+    // The cards derived from the replaced summaries are gone in the same
+    // transaction; the chained actions run (stubbed here) repopulates.
+    expect(
+      await service.prisma.raceOpponentSummary.count({ where: { campaignId } }),
+    ).toBe(1)
+    expect(
+      await service.prisma.raceOpponentStandoutAction.count({
         where: { campaignId },
       }),
     ).toBe(0)
