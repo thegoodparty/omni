@@ -1103,6 +1103,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   }
   let mockComplianceState: {
     findStateForCampaign: ReturnType<typeof vi.fn>
+    getStageForCampaign: ReturnType<typeof vi.fn>
   }
   let mockWebsites: {
     findFirstOrThrow: ReturnType<typeof vi.fn>
@@ -1186,7 +1187,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         domain: null,
         websiteId: null,
         peerlyVerificationId: null,
+        peerlyCvStatus: null,
       }),
+      getStageForCampaign: vi.fn().mockResolvedValue('awaiting_pin'),
     }
     mockTcrModel = {
       findUnique: vi.fn().mockResolvedValue(existingRecord),
@@ -1580,12 +1583,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
   })
 
   it('throws UnprocessableEntityException when compliance stage is not awaiting_pin (website not yet live)', async () => {
-    mockComplianceState.findStateForCampaign.mockResolvedValueOnce({
-      stage: 'pending_website_live',
-      domain: null,
-      websiteId: null,
-      peerlyVerificationId: null,
-    })
+    mockComplianceState.getStageForCampaign.mockResolvedValueOnce(
+      'pending_website_live',
+    )
 
     await expect(
       service.submitToPeerlyForAgent(user, campaign),

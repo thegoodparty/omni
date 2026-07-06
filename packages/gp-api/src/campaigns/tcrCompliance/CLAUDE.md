@@ -180,12 +180,20 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   checks the CV status first and, when it is already `VERIFIED`, skips re-verifying
   and mints the token so the retry finishes the flow. Don't reintroduce an
   unconditional `verify_pin` call ahead of that check.
-- **PIN screen can show before a PIN exists:** `deriveComplianceStage` returns
-  `awaiting_pin` from the DB `status` alone (a `submitted` record with a live site),
-  with no knowledge of Peerly's CV state. A candidate whose CV is still `IN_REVIEW` /
-  `REQUESTED` (Peerly hasn't issued a PIN yet) is shown the PIN-entry screen anyway, so
-  "I never got a PIN" reports are expected for those. Gating the screen on the live CV
-  status (`APPROVED`+) is a known follow-up; it needs the CV status surfaced to the FE.
+- **PIN screen is gated on the live Peerly CV status (ENG-10654):**
+  `deriveComplianceStage` still returns `awaiting_pin` from the DB `status` alone (a
+  `submitted` record with a live site) — that stage value is unchanged because
+  `submitToPeerlyForAgent`'s gate depends on it. What changed is that
+  `findStateForCampaign` now also resolves the *live* CV status into
+  `ComplianceStateOutput.peerlyCvStatus`, and only at the `awaiting_pin` stage (so the
+  extra Peerly `retrieve_cv` read stays off the other stages the agent polls). The FE
+  (`ProUpgrade3Compliance.tsx`) shows the PIN-entry box only when `peerlyCvStatus` is
+  `APPROVED`/`VERIFIED`; for `REQUESTED`/`IN_REVIEW`/`null` (Peerly hasn't issued a PIN
+  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvStatus`
+  short-circuits to `APPROVED` in non-prod (Peerly is stubbed there, mirroring
+  `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN screen, and
+  parses Peerly's status defensively so an unrecognized value degrades to the
+  in-progress state rather than 500ing the read.
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.

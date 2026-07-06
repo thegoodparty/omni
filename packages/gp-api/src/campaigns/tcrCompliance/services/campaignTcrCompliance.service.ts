@@ -631,13 +631,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // domain is registered (derived stage = awaiting_pin with identity still
     // null). Reject all earlier stages so an agent can't kick a Peerly brand
     // submission for an unverified/unregistered domain.
-    const stateBeforeSubmit =
-      await this.complianceStateService.findStateForCampaign(campaign.id)
-    if (stateBeforeSubmit.stage !== ComplianceStage.awaiting_pin) {
+    const stageBeforeSubmit =
+      await this.complianceStateService.getStageForCampaign(campaign.id)
+    if (stageBeforeSubmit !== ComplianceStage.awaiting_pin) {
       throw new UnprocessableEntityException(
         `Cannot submit TCR registration to Peerly until the candidate's ` +
           `website is published and live. Current compliance stage: ` +
-          `${stateBeforeSubmit.stage}. Wait for stage = awaiting_pin.`,
+          `${stageBeforeSubmit}. Wait for stage = awaiting_pin.`,
       )
     }
 
@@ -806,7 +806,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   private async buildSubmitToPeerlyResponse(
     record: TcrCompliance,
   ): Promise<SubmitToPeerlyOutput> {
-    const state = await this.complianceStateService.findStateForCampaign(
+    // Stage-only lookup: findStateForCampaign now fires a Peerly retrieve_cv
+    // call at awaiting_pin, which must not sit on this write-completion path.
+    const stage = await this.complianceStateService.getStageForCampaign(
       record.campaignId,
     )
     if (!record.peerlyIdentityId) {
@@ -821,7 +823,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       peerlyIdentityProfileLink: record.peerlyIdentityProfileLink,
       peerly10DLCBrandSubmissionKey: record.peerly10DLCBrandSubmissionKey,
       peerlyVerificationId: record.peerlyCvVerificationId,
-      stage: state.stage,
+      stage,
       pinDeliveryChannels: { email: record.email, phone: record.phone },
     }
   }
