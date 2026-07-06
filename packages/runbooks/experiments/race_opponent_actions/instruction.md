@@ -195,9 +195,54 @@ def run(q, p):
         time.sleep(2)
     return []
 
-ALLOWED_COLS = INLINE_HAYSTAQ_COLUMNS  # the set of column names in the catalog above
+ALLOWED_COLS = {
+    "hs_abortion_pro_choice", "hs_abortion_pro_life",
+    "hs_affordable_housing_gov_has_role", "hs_affordable_housing_gov_no_role",
+    "hs_any_home_buyer", "hs_capitalism_believe_flawed",
+    "hs_capitalism_believe_sound", "hs_charter_schools_oppose",
+    "hs_charter_schools_support", "hs_climate_change_believer",
+    "hs_climate_change_nonbeliever", "hs_community_college_free_oppose",
+    "hs_community_college_free_support", "hs_death_penalty_oppose",
+    "hs_death_penalty_support", "hs_dei_oppose",
+    "hs_dei_support", "hs_electric_vehicle_likely_buyer",
+    "hs_electric_vehicle_not_likely", "hs_family_medical_leave_oppose",
+    "hs_family_medical_leave_support", "hs_gas_tax_oppose",
+    "hs_gas_tax_support", "hs_gentrification_oppose",
+    "hs_gentrification_support", "hs_green_new_deal_oppose",
+    "hs_green_new_deal_support", "hs_gun_control_oppose",
+    "hs_gun_control_support", "hs_ideology_fiscal_conserv",
+    "hs_ideology_fiscal_liberal", "hs_immigration_process_unfair",
+    "hs_immigration_undesirable", "hs_income_inequality_no_issue",
+    "hs_income_inequality_serious", "hs_infrastructure_funding_enough_spent",
+    "hs_infrastructure_funding_fund_more", "hs_mass_deporations_oppose",
+    "hs_mass_deporations_support", "hs_medicaid_expansion_oppose",
+    "hs_medicaid_expansion_support", "hs_medicare_for_all_oppose",
+    "hs_medicare_for_all_support", "hs_mexican_wall_oppose",
+    "hs_mexican_wall_support", "hs_min_wage_15_increase_oppose",
+    "hs_min_wage_15_increase_support", "hs_new_home_buyer",
+    "hs_obamacare_aca_expand", "hs_obamacare_aca_oppose",
+    "hs_obamacare_aca_protect", "hs_opioid_crisis_enforce",
+    "hs_opioid_crisis_treat", "hs_pipeline_fracking_oppose",
+    "hs_pipeline_fracking_support", "hs_police_trust_no",
+    "hs_police_trust_yes", "hs_regulations_good",
+    "hs_regulations_too_harsh", "hs_religion_important",
+    "hs_religion_not_important", "hs_same_sex_marriage_oppose",
+    "hs_same_sex_marriage_support", "hs_school_choice_oppose",
+    "hs_school_choice_support", "hs_school_funding_less",
+    "hs_school_funding_more", "hs_sell_federal_lands_oppose",
+    "hs_sell_federal_lands_support", "hs_social_security_tax_increase_oppose",
+    "hs_social_security_tax_increase_support", "hs_solar_panel_buyer_no",
+    "hs_solar_panel_buyer_yes", "hs_tax_cuts_oppose",
+    "hs_tax_cuts_support", "hs_teachers_union_negative",
+    "hs_teachers_union_positive", "hs_trans_athlete_no",
+    "hs_trans_athlete_yes", "hs_unions_beneficial",
+    "hs_unions_not_beneficial", "hs_violent_crime_not_worried",
+    "hs_violent_crime_very_worried",
+}  # every hs_* name in the inline catalog above
 cols = [...]  # the Step 3 columns, one per angle that found a match
-assert cols, "no angle matched a catalog column — skip this step, haystaq_status: no_coverage"
+# If no angle matched a catalog column, do NOT run any Databricks query:
+# skip the rest of this step, set haystaq_status = "no_coverage", and write
+# every card numberless per Step 5. That outcome is valid, not an error.
 assert all(re.fullmatch(r"hs_[a-z0-9_]{1,60}", c) for c in cols)
 assert all(c in ALLOWED_COLS for c in cols)
 
@@ -311,7 +356,12 @@ for c in out["actions"]:
     assert len(c["title"]) <= 99
     assert len(c["sms_message"]) <= 320
     assert c["body"].rstrip().endswith((".", "!", "?"))
-    assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", c["body"])) <= 3
+    # strip title abbreviations so their periods don't count as sentence ends
+    body = re.sub(
+        r"\b(Mr|Mrs|Ms|Dr|Gov|Sen|Rep|Lt|Gen|Col|Rev|St|vs|Jr|Sr)\.",
+        r"\1", c["body"],
+    )
+    assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", body)) <= 3
     assert "—" not in (
         c["title"] + c["body"] + c["sms_message"]
         + (c["opponent_name"] or "") + c["issue"]
