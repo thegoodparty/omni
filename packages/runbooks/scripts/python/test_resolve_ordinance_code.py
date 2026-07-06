@@ -236,3 +236,23 @@ def test_read_pairs_accepts_even_arg_count():
     assert r._read_pairs(["GA", "Alpharetta", "MN", "Ramsey"]) == [
         ("GA", "Alpharetta"), ("MN", "Ramsey")
     ]
+
+
+def test_gc_index_warns_on_link_without_state_heading(monkeypatch, capsys):
+    # A CMS heading variation ("New Jersey<sup>1</sup>") breaks the exact
+    # STATE_NAMES match; the links under it must be skipped LOUDLY, not
+    # silently dropped (lru_cache would make the silent gap permanent).
+    html = """
+    <h2>Not A State Name</h2>
+    <ul><li><a href="https://ecode360.com/XX9999">City of Nowhere</a></li></ul>
+    """
+
+    def fake(url, timeout=30):
+        return html.encode()
+
+    monkeypatch.setattr(r, "_get", fake)
+    r._gc_index.cache_clear()
+    out = r._gc_index()
+    r._gc_index.cache_clear()
+    assert out == []
+    assert "recognised state heading" in capsys.readouterr().err

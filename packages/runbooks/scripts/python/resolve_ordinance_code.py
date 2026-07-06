@@ -199,7 +199,15 @@ def _gc_index():
         elif m.group(4):
             place = re.sub("<[^>]+>", "", m.group(5)).strip()
             if place:
-                out.append((cur_state, place, m.group(4)))
+                if cur_state is None:
+                    # A heading variation broke the exact STATE_NAMES match; the
+                    # lru_cache would make a silent drop permanent — be loud.
+                    print(
+                        f"generalcode index: link '{place}' seen before any recognised state heading — skipped",
+                        file=sys.stderr,
+                    )
+                else:
+                    out.append((cur_state, place, m.group(4)))
     return out
 
 
