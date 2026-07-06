@@ -90,3 +90,28 @@ export const COMPLIANCE_STAGE_VALUES = [
 export type ComplianceStage = (typeof COMPLIANCE_STAGE_VALUES)[number]
 export const ComplianceStageSchema = z.enum(COMPLIANCE_STAGE_VALUES)
 export const ComplianceStage = toEnumObject(COMPLIANCE_STAGE_VALUES)
+
+// Peerly CampaignVerify (CV) states, in lifecycle order:
+// REQUESTED/IN_REVIEW (no PIN issued yet) → APPROVED (PIN sent, awaiting
+// entry) → VERIFIED (candidate's PIN entered; a CV token can now be minted and
+// the usecase submitted — distinct from APPROVED, which the CV authority can
+// reach before the candidate completes PIN entry). Mirrors the values Peerly
+// returns from retrieve_cv; surfaced so the FE can gate the PIN-entry screen on
+// APPROVED+. This is the single source of truth for the enum — the gp-api
+// Peerly vendor layer re-exports it (vendors/peerly/peerly.types.ts).
+export const PEERLY_CV_VERIFICATION_STATUS_VALUES = [
+  'REQUESTED',
+  'IN_REVIEW',
+  'APPROVED',
+  'VERIFIED',
+  'REJECTED',
+  'WITHDRAWN',
+] as const
+export type PeerlyCvVerificationStatus =
+  (typeof PEERLY_CV_VERIFICATION_STATUS_VALUES)[number]
+export const PeerlyCvVerificationStatusSchema = z.enum(
+  PEERLY_CV_VERIFICATION_STATUS_VALUES,
+)
+export const PeerlyCvVerificationStatus = toEnumObject(
+  PEERLY_CV_VERIFICATION_STATUS_VALUES,
+)
