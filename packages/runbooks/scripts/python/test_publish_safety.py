@@ -83,12 +83,14 @@ class _RecordingS3:
     def __init__(self, fail_on_key_prefix=None):
         self.keys = []
         self.deleted = []
+        self.ops = []  # ordered ("put"|"delete", key) log — lets tests assert call ORDER
         self.fail_on_key_prefix = fail_on_key_prefix
 
     def put_object(self, Bucket, Key, Body, ContentType):
         if self.fail_on_key_prefix and Key.startswith(self.fail_on_key_prefix):
             raise ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
         self.keys.append(Key)
+        self.ops.append(("put", Key))
 
     def get_object(self, Bucket, Key):
         raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
@@ -98,7 +100,9 @@ class _RecordingS3:
         return {"Contents": [{"Key": k} for k in live]}
 
     def delete_objects(self, Bucket, Delete):
-        self.deleted.extend(o["Key"] for o in Delete["Objects"])
+        for o in Delete["Objects"]:
+            self.deleted.append(o["Key"])
+            self.ops.append(("delete", o["Key"]))
 
 
 @pytest.fixture
@@ -167,6 +171,12 @@ def test_publish_reclaims_orphaned_qa_and_attachment_objects(real_experiment_tre
     # The atomic switch still happened, and only the orphans were removed.
     assert "index.json" in s3.keys
     assert "index.json" not in s3.deleted
+    # ORDER is the guarantee: reclaim runs strictly AFTER the index.json atomic
+    # switch, so a crash mid-reclaim can never leave a live index pointing at
+    # already-deleted objects.
+    index_put = s3.ops.index(("put", "index.json"))
+    first_delete = min(i for i, (op, _k) in enumerate(s3.ops) if op == "delete")
+    assert index_put < first_delete
 
 
 def test_dry_run_never_deletes_orphans(real_experiment_tree, monkeypatch):

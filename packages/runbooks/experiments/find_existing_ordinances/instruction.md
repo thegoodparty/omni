@@ -81,13 +81,17 @@ kind = "municipal"
 if re.search(r"\b(house of delegates|house of representatives|state senate|state assembly|"
              r"general assembly|state house)\b", o, re.I):
     kind = "state"; place = state   # state-level office: municipal code does not apply.
-    # Conclude NOW: found=false, data_quality "not_found", confidence "low", verified_evidence
-    # notes the office is state-level. Do not search — skip straight to Step 7 (assemble/validate).
-m = re.match(r"^(.*?)\s+County:\s*(.*)$", o, flags=re.I)   # "Washington County: Muskingum Township Trustee"
-if m:
-    county = county or m.group(1).strip(); o = m.group(2).strip()
+if kind == "state":
+    # HARD STOP for state-level offices: none of Steps 2-6 apply. Write the artifact NOW
+    # (Step 7): found=false, data_quality "not_found", confidence "low", code_source null,
+    # verified_evidence notes the office is state-level. Do not search, do not continue below.
+    pass   # (in your actual run: jump to Step 7 here and finish)
+else:
+    m = re.match(r"^(.*?)\s+County:\s*(.*)$", o, flags=re.I)   # "Washington County: Muskingum Township Trustee"
+    if m:
+        county = county or m.group(1).strip(); o = m.group(2).strip()
 CBODY = r"(county commission(ers)?|county council|county legislature|county board of supervisors|county board)"
-m2 = re.match(rf"^(.*?)\s+{CBODY}\b", o, flags=re.I)
+m2 = re.match(rf"^(.*?)\s+{CBODY}\b", o, flags=re.I) if kind == "municipal" else None
 if kind == "municipal" and m2:
     kind = "county"; place = m2.group(1).strip() + " County"
     # County office: the COUNTY's code of ordinances IS the target (Municode hosts county codes).
