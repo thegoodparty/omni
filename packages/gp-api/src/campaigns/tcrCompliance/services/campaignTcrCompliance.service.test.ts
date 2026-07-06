@@ -3,8 +3,11 @@ import {
   BadGatewayException,
   BadRequestException,
   NotFoundException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
+import { subMinutes } from 'date-fns'
+import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
 import {
   CommitteeType,
   ExperimentRunStatus,
@@ -1688,6 +1691,55 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     // breaks the lock rollback.
     expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
     expect(mockTcrModel.update).not.toHaveBeenCalled()
+  })
+
+  it('stamps peerlyBillingBlockedAt and rethrows when Peerly reports the billing failure', async () => {
+    // submitCampaignVerifyRequest throws PeerlyBillingException on the
+    // unrecoverable "No payment method available" billing error.
+    const billingErr = new PeerlyBillingException('billing hold')
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(billingErr)
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, input),
+    ).rejects.toBe(billingErr)
+
+    // Claim rolled back (updateMany #2), then the billing block is stamped.
+    expect(mockTcrModel.update).toHaveBeenCalledWith({
+      where: { id: existingRecord.id },
+      data: { peerlyBillingBlockedAt: expect.any(Date) },
+    })
+  })
+
+  it('holds off re-submitting (no Peerly call) while the billing block is within cooldown', async () => {
+    mockTcrModel.findUnique.mockResolvedValueOnce({
+      ...existingRecord,
+      peerlyBillingBlockedAt: new Date(),
+    })
+
+    await expect(
+      service.submitToPeerlyForAgent(user, campaign, input),
+    ).rejects.toThrow(ServiceUnavailableException)
+
+    // The retry storm is broken: no Peerly submission, no claim write.
+    expect(mockPeerly.getIdentities).not.toHaveBeenCalled()
+    expect(mockPeerly.submitCampaignVerifyRequest).not.toHaveBeenCalled()
+    expect(mockTcrModel.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('retries normally once the billing block is older than the cooldown', async () => {
+    mockTcrModel.findUnique.mockResolvedValueOnce({
+      ...existingRecord,
+      peerlyBillingBlockedAt: subMinutes(new Date(), 6 * 60 + 1),
+    })
+
+    await service.submitToPeerlyForAgent(user, campaign, input)
+
+    expect(mockPeerly.submitCampaignVerifyRequest).toHaveBeenCalledTimes(1)
+    // A successful submit clears any prior billing hold.
+    expect(mockTcrModel.update).toHaveBeenCalledWith({
+      where: { id: existingRecord.id },
+      data: expect.objectContaining({ peerlyBillingBlockedAt: null }),
+    })
   })
 })
 

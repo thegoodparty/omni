@@ -16,7 +16,12 @@ import { PeerlyCvVerificationType } from '../peerly.types'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyIdentityService } from './peerlyIdentity.service'
+import {
+  PeerlyBillingException,
+  PEERLY_NO_PAYMENT_METHOD_MESSAGE,
+} from '../utils/peerlyBillingError.util'
 import { SlackService } from '../../slack/services/slack.service'
+import { SlackChannel } from '../../slack/slackService.types'
 import { UsersService } from '../../../users/services/users.service'
 import {
   createMockLogger,
@@ -477,6 +482,79 @@ describe('PeerlyIdentityService', () => {
           baseDomainName,
         ),
       ).rejects.toThrow(BadRequestException)
+    })
+
+    it('fires a distinct billing alert and throws PeerlyBillingException on the "No payment method available" 400', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValue({
+        isAxiosError: true,
+        status: 400,
+        response: {
+          status: 400,
+          data: {
+            message: 'Campaign Verify API request failed',
+            details: { message: PEERLY_NO_PAYMENT_METHOD_MESSAGE },
+          },
+        },
+      })
+
+      await expect(
+        service.submitCampaignVerifyRequest(
+          {
+            email: 'candidate@example.com',
+            ein: '12-3456789',
+            phone: '15551234567',
+            peerlyIdentityId: 'peerly-billing-1',
+            filingUrl: 'https://example.gov/elections',
+            officeLevel: OfficeLevel.state,
+            fecCommitteeId: null,
+            committeeType: CommitteeType.CANDIDATE,
+          },
+          baseUser,
+          createMockCampaign(),
+          baseDomainName,
+        ),
+      ).rejects.toBeInstanceOf(PeerlyBillingException)
+
+      expect(slackService.message).toHaveBeenCalledWith(
+        expect.objectContaining({ blocks: expect.any(Array) }),
+        SlackChannel.bot10DlcCompliance,
+      )
+      // The generic per-identity error path is bypassed, so the billing outage
+      // is not double-alerted as ordinary error noise.
+      expect(errorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it('routes a transient 500 through handleApiError (still retryable)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.post = vi.fn().mockRejectedValue({
+        isAxiosError: true,
+        status: 500,
+        response: { status: 500, data: { message: 'Internal error' } },
+      })
+
+      await service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-500',
+          filingUrl: 'https://example.gov/elections',
+          officeLevel: OfficeLevel.state,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+        },
+        baseUser,
+        createMockCampaign(),
+        baseDomainName,
+      )
+
+      expect(errorHandling.handleApiError).toHaveBeenCalledTimes(1)
     })
   })
 

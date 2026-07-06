@@ -48,11 +48,16 @@ import {
   PEERLY_USECASE,
 } from './peerly.const'
 import { SlackService } from '../../slack/services/slack.service'
-import { SlackChannel } from '../../slack/slackService.types'
+import { SlackChannel, SlackMessageType } from '../../slack/slackService.types'
 import { UsersService } from '../../../users/services/users.service'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { buildPeerlySlackErrorMessage } from '../utils/buildPeerlySlackErrorMessage.util'
+import {
+  isPeerlyBillingError,
+  PeerlyBillingException,
+  PEERLY_NO_PAYMENT_METHOD_MESSAGE,
+} from '../utils/peerlyBillingError.util'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
@@ -601,12 +606,61 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       this.logger.debug(`Successfully submitted CV request: ${data}`)
       result = data
     } catch (error) {
+      // Peerly-side billing outage ("No payment method available"): retrying
+      // re-fails deterministically and spams Peerly, so fire a distinct,
+      // actionable alert and throw a marker the agentic caller uses to persist
+      // a hold instead of storming re-submissions.
+      if (isPeerlyBillingError(error)) {
+        await this.alertPeerlyBillingFailure(campaign, peerlyIdentityId)
+        throw new PeerlyBillingException(
+          'Peerly Campaign Verify submission failed: ' +
+            `"${PEERLY_NO_PAYMENT_METHOD_MESSAGE}" (Peerly billing/account ` +
+            'issue). Holding retries until Peerly billing is resolved.',
+          { cause: error },
+        )
+      }
       await this.handleApiError(error, {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
       })
     }
     return result
+  }
+
+  // Distinct from the generic Peerly error alert: a billing outage blocks every
+  // candidate's PIN, so it needs a recognizable, actionable Slack message on
+  // the 10DLC channel rather than being buried among per-identity error noise.
+  private async alertPeerlyBillingFailure(
+    campaign: Campaign,
+    peerlyIdentityId?: string | null,
+  ): Promise<void> {
+    const user = await this.usersService.findByCampaign(campaign)
+    const candidate = user
+      ? `${getUserFullName(user)} (${user.email})`
+      : `campaignId=${campaign.id}`
+    const blocks = [
+      {
+        type: SlackMessageType.HEADER,
+        text: {
+          type: SlackMessageType.PLAIN_TEXT,
+          text: '💳 Peerly billing failure — 10DLC registrations blocked',
+          emoji: true,
+        },
+      },
+      {
+        type: SlackMessageType.SECTION,
+        text: {
+          type: SlackMessageType.MRKDWN,
+          text:
+            `Peerly returned *"${PEERLY_NO_PAYMENT_METHOD_MESSAGE}"* for a ` +
+            'Campaign Verify submission — a billing/account issue on ' +
+            "Peerly's side. New 10DLC registrations will keep failing until " +
+            `it is resolved.\n*Candidate:* ${candidate}\n` +
+            `*Peerly identity:* ${peerlyIdentityId ?? 'N/A'}`,
+        },
+      },
+    ]
+    await this.slackService.message({ blocks }, SlackChannel.bot10DlcCompliance)
   }
 
   async retrieveCampaignVerifyStatus(
