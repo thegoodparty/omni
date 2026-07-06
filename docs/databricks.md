@@ -102,7 +102,7 @@ Both read the same connection coordinates from the environment:
 | `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` | OAuth M2M service-principal creds (gp-api, preferred) |
 | `DATABRICKS_API_KEY`                                | Personal access token (PAT fallback)                  |
 | `WIN_DATABRICKS_SERVER_HOSTNAME`                    | `dbc-3d8ca484-79f3.cloud.databricks.com` (same workspace) |
-| `WIN_DATABRICKS_HTTP_PATH`                          | `/sql/1.0/warehouses/fe28f5b2b54c17f8` (Win warehouse)    |
+| `WIN_DATABRICKS_HTTP_PATH`                          | `/sql/1.0/warehouses/a6f5281417d1c869` (wh-win-agents)      |
 | `WIN_DATABRICKS_CLIENT_ID` / `WIN_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_win_agent` (Campaign Manager) |
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
