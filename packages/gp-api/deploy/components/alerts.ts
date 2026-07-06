@@ -93,7 +93,7 @@ export const GLOBAL_ALERTS: Alert[] = [
     notify: 'win-bugs',
   },
   {
-    slug: 'win-outreach-paid-not-scheduled',
+    slug: 'win-outreach-paid-not-scheduled-warning',
     name: '[Win] P2P outreach paid but not scheduled',
     type: 'log',
     // A paid P2P text purchase whose free-texts offer was redeemed by the
