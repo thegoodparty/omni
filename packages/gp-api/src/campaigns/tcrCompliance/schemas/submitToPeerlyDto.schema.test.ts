@@ -49,4 +49,18 @@ describe('SubmitToPeerlyDto — filingUrl vs campaign website', () => {
       filingUrl: 'https://goodparty.org/candidate/jane',
     })
   })
+
+  it('rejects a website URL with userinfo so it cannot dodge the own-site check', () => {
+    const result = SubmitToPeerlyDto.schema.safeParse({
+      ...validBase,
+      websiteUrl: 'https://janeforcity.com@evil.com',
+      filingUrl: 'https://sos.example.gov/candidates/jane',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path[0] === 'websiteUrl')).toBe(
+        true,
+      )
+    }
+  })
 })

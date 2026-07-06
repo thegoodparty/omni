@@ -5,7 +5,10 @@ import {
   tcrComplianceSuperRefine,
   tcrComplianceTransform,
 } from './tcrComplianceBase.schema'
-import { getUrlHostname } from '../../../shared/util/strings.util'
+import {
+  getUrlHostname,
+  urlHasCredentials,
+} from '../../../shared/util/strings.util'
 
 export class SubmitToPeerlyDto extends createZodDto(
   z
@@ -22,6 +25,21 @@ export class SubmitToPeerlyDto extends createZodDto(
     })
     .superRefine((data, ctx) => {
       tcrComplianceSuperRefine(data, ctx, { requireFecCommitteeId: false })
+
+      // Credentialed website URLs would make getUrlHostname read the host
+      // from after the '@', dodging the own-website comparison below. Reject
+      // them so the comparison can't be fooled (filingUrl is guarded the same
+      // way in tcrComplianceSuperRefine).
+      if (urlHasCredentials(data.websiteUrl)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'Website URL must be a plain public URL without embedded ' +
+            'credentials (no "user@host")',
+          path: ['websiteUrl'],
+        })
+        return
+      }
 
       // The candidate's own campaign website is not an official filing
       // record, so CampaignVerify can't match them against it. The agent

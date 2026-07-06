@@ -60,9 +60,13 @@ export const urlIncludesPath = (urlStr: string): boolean =>
 // surface as a 500 instead of a clean validation error. Returns '' on failure.
 export const getUrlHostname = (urlStr: string): string => {
   try {
-    return new URL(ensureUrlHasProtocol(urlStr)).hostname
-      .toLowerCase()
-      .replace(/^www\./, '')
+    const url = new URL(ensureUrlHasProtocol(urlStr))
+    // Userinfo (user:pass@) makes the parser read the host from *after* the
+    // '@', so a value like https://goodparty.org@sos.gov/x would report
+    // sos.gov and slip a host guard. Refuse to hand back a host in that case;
+    // callers reject credentialed URLs outright via urlHasCredentials.
+    if (url.username || url.password) return ''
+    return url.hostname.toLowerCase().replace(/^www\./, '')
   } catch {
     return ''
   }
