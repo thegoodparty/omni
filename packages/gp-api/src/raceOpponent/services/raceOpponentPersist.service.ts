@@ -115,7 +115,9 @@ const ArtifactSummaryEnvelopeSchema = z.object({
 // An EMPTY actions array is a valid artifact — the agent found no grounded
 // angles — unlike the summary envelope's .min(1) opponents.
 const ArtifactActionsEnvelopeSchema = z.object({
-  actions: z.array(z.record(z.string(), z.unknown())),
+  // Elements stay unvalidated here on purpose: a non-object element must fall
+  // through to parseActions' per-card salvage, not fail the whole envelope.
+  actions: z.array(z.unknown()),
 })
 
 @Injectable()
@@ -647,11 +649,17 @@ export class RaceOpponentPersistService extends createPrismaBase(
   // not fatal. Only the caller's all-cards-invalid check fails the run.
   private parseActions(
     runId: string,
-    rawActions: Record<string, unknown>[],
+    rawActions: unknown[],
   ): RaceOpponentStandoutAction[] {
     const actions: RaceOpponentStandoutAction[] = []
     let dropped = 0
-    for (const rawAction of rawActions) {
+    for (const raw of rawActions) {
+      const record = z.record(z.string(), z.unknown()).safeParse(raw)
+      if (!record.success) {
+        dropped += 1
+        continue
+      }
+      const rawAction = record.data
       const result = RaceOpponentStandoutActionSchema.safeParse({
         title: rawAction.title,
         body: rawAction.body,

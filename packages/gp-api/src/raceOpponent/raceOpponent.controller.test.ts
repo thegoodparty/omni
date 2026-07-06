@@ -2496,6 +2496,9 @@ describe('race_opponent_actions persist / read', () => {
     stubActionsArtifact([
       actionCard({ title: 'x'.repeat(100) }),
       actionCard({ title: 'Valid card', issue: 'water' }),
+      // Non-object elements must hit per-card salvage, not fail the envelope.
+      null as never,
+      'not an object' as never,
       actionCard({ sms_message: 'y'.repeat(321), issue: 'roads' }),
       actionCard({ title: 'Another valid card', issue: 'schools' }),
     ])
