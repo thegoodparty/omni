@@ -1,7 +1,7 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "find_existing_ordinances",
-  "version": 4,
+  "version": 5,
   "model": "sonnet",
   "max_turns": 100,
   "timeout_seconds": 3000,
