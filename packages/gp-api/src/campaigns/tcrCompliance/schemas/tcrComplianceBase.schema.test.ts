@@ -148,6 +148,10 @@ describe('tcrComplianceSuperRefine — filingUrl host', () => {
     expectFilingUrlRejected('ftp://goodparty.org/candidate/jane-doe')
   })
 
+  it('rejects a URL with userinfo that hides the real host before the @', () => {
+    expectFilingUrlRejected('https://goodparty.org@sos.example.gov/path')
+  })
+
   it('does not reject a lookalike domain that merely ends in goodparty.org', () => {
     const result = schema().safeParse({
       ...localBase,

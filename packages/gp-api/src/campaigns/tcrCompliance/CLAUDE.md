@@ -116,7 +116,11 @@ kickoff path must not race it.
   description names this so the agent knows the contract. Host matching uses
   `getUrlHostname` (`shared/util/strings.util.ts`), which lowercases and strips `www.`;
   match `goodparty.org` as `host === 'goodparty.org' || host.endsWith('.goodparty.org')`
-  so a lookalike like `notgoodparty.org` is not caught. The filing-URL *instructions*
+  so a lookalike like `notgoodparty.org` is not caught. Two host-parse footguns are
+  closed alongside: `getUrlProtocol` matches any scheme (so `ftp://goodparty.org/x`
+  is not re-prefixed into `https://ftp://…`, which would parse host `ftp`), and
+  `urlHasCredentials` rejects any URL with userinfo (so `https://goodparty.org@sos.gov`
+  can't hide the guarded host before an `@`). The filing-URL *instructions*
   Peerly asked about (`filing_url_instructions` in `peerlyIdentity.service.ts`) are a
   separate, still-sent field — the mismatch was the URL value, not the instructions.
 

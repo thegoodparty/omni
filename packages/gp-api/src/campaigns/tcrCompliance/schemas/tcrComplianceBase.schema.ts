@@ -8,6 +8,7 @@ import {
 import { CommitteeType, OfficeLevel } from '../../../generated/prisma'
 import {
   getUrlHostname,
+  urlHasCredentials,
   urlIncludesPath,
 } from '../../../shared/util/strings.util'
 import { Logger } from '@nestjs/common'
@@ -58,6 +59,38 @@ type TcrComplianceBaseData = {
   filingUrl: string
 }
 
+const addFilingUrlIssues = (filingUrl: string, ctx: z.RefinementCtx) => {
+  // The WHATWG parser treats any text before an '@' as userinfo, so
+  // https://goodparty.org@sos.gov/x parses hostname 'sos.gov' and would slip
+  // the host guard below. A public filing URL never carries credentials.
+  if (urlHasCredentials(filingUrl)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'Filing URL must be a plain public URL without embedded ' +
+        'credentials (no "user@host")',
+      path: ['filingUrl'],
+    })
+  }
+
+  // goodparty.org is our own marketing/profile site, never an official
+  // election filing. The compliance agent was resolving filing URLs to
+  // goodparty.org candidate pages, so CampaignVerify couldn't match the
+  // candidate against a filing and had to contact the election authority by
+  // hand. Reject it here so the agent must supply a real filing record.
+  const filingHost = getUrlHostname(filingUrl)
+  if (filingHost === 'goodparty.org' || filingHost.endsWith('.goodparty.org')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'Filing URL must be an official election-authority filing record ' +
+        '(Secretary of State, county or city clerk, or FEC), not a ' +
+        'goodparty.org page',
+      path: ['filingUrl'],
+    })
+  }
+}
+
 export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
   data: T,
   ctx: z.RefinementCtx,
@@ -69,22 +102,7 @@ export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
 ) => {
   const { requireFecCommitteeId = true } = options
 
-  // goodparty.org is our own marketing/profile site, never an official
-  // election filing. The compliance agent was resolving filing URLs to
-  // goodparty.org candidate pages, so CampaignVerify couldn't match the
-  // candidate against a filing and had to contact the election authority by
-  // hand. Reject it here so the agent must supply a real filing record.
-  const filingHost = getUrlHostname(data.filingUrl)
-  if (filingHost === 'goodparty.org' || filingHost.endsWith('.goodparty.org')) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message:
-        'Filing URL must be an official election-authority filing record ' +
-        '(Secretary of State, county or city clerk, or FEC), not a ' +
-        'goodparty.org page',
-      path: ['filingUrl'],
-    })
-  }
+  addFilingUrlIssues(data.filingUrl, ctx)
 
   const isFederal = data.officeLevel === OfficeLevel.federal
 

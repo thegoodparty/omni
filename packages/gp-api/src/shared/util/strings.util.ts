@@ -68,6 +68,20 @@ export const getUrlHostname = (urlStr: string): string => {
   }
 }
 
+// The WHATWG parser treats everything before an '@' as userinfo, so
+// `https://goodparty.org@sos.gov/x` parses hostname `sos.gov` and would slip a
+// host guard. A public filing URL never carries `user:pass@` credentials, so
+// callers can reject any URL where this returns true. Returns false on parse
+// failure (the field's own format validation already ran).
+export const urlHasCredentials = (urlStr: string): boolean => {
+  try {
+    const url = new URL(ensureUrlHasProtocol(urlStr))
+    return url.username !== '' || url.password !== ''
+  } catch {
+    return false
+  }
+}
+
 export function normalizePhoneNumber(phoneNumber: string): string {
   let cleaned = phoneNumber
     .replaceAll('+1', '')
