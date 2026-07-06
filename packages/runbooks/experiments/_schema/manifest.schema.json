@@ -31,8 +31,8 @@
     },
     "model": {
       "type": "string",
-      "enum": ["sonnet", "opus", "haiku"],
-      "description": "Claude model the harness drives."
+      "enum": ["sonnet", "opus", "haiku", "claude-fable-5"],
+      "description": "Claude model the harness drives. Aliases (sonnet/opus/haiku) resolve inside the Claude CLI; a full model id (e.g. claude-fable-5) passes through the CLI verbatim."
     },
     "max_turns": {
       "type": "integer",
