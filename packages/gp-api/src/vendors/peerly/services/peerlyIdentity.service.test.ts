@@ -537,22 +537,29 @@ describe('PeerlyIdentityService', () => {
         status: 500,
         response: { status: 500, data: { message: 'Internal error' } },
       })
+      // The real handleApiError is typed Promise<never> and always throws;
+      // mock it to reject so this asserts the error actually propagates (a
+      // no-op mock would let the method resolve to null and pass vacuously).
+      const sentinel = new Error('handleApiError sentinel')
+      errorHandling.handleApiError = vi.fn().mockRejectedValue(sentinel)
 
-      await service.submitCampaignVerifyRequest(
-        {
-          email: 'candidate@example.com',
-          ein: '12-3456789',
-          phone: '15551234567',
-          peerlyIdentityId: 'peerly-500',
-          filingUrl: 'https://example.gov/elections',
-          officeLevel: OfficeLevel.state,
-          fecCommitteeId: null,
-          committeeType: CommitteeType.CANDIDATE,
-        },
-        baseUser,
-        createMockCampaign(),
-        baseDomainName,
-      )
+      await expect(
+        service.submitCampaignVerifyRequest(
+          {
+            email: 'candidate@example.com',
+            ein: '12-3456789',
+            phone: '15551234567',
+            peerlyIdentityId: 'peerly-500',
+            filingUrl: 'https://example.gov/elections',
+            officeLevel: OfficeLevel.state,
+            fecCommitteeId: null,
+            committeeType: CommitteeType.CANDIDATE,
+          },
+          baseUser,
+          createMockCampaign(),
+          baseDomainName,
+        ),
+      ).rejects.toThrow(sentinel)
 
       expect(errorHandling.handleApiError).toHaveBeenCalledTimes(1)
     })
