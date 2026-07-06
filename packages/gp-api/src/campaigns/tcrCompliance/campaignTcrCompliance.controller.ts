@@ -96,7 +96,11 @@ export class CampaignTcrComplianceController {
       'generic or template content return 400. ' +
       'Required inputs: EIN, committee name, office level, election ' +
       'filing details, contact email and phone, and the verified ' +
-      'website URL. Creates the Peerly Identity, Identity Profile, ' +
+      'website URL. The filing URL must be the official ' +
+      'election-authority filing record for the candidate (Secretary ' +
+      'of State, county or city clerk, or FEC), not a goodparty.org ' +
+      "page or the candidate's own campaign website; those return 400. " +
+      'Creates the Peerly Identity, Identity Profile, ' +
       '10DLC Brand, and Campaign Verify Request; Peerly then sends a ' +
       'PIN to the candidate via the contact channels supplied. ' +
       'Returns the Peerly identity id, CV verification id, derived ' +
