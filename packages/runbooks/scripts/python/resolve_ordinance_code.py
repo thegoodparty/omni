@@ -133,6 +133,20 @@ def _muni_clients(state_id):
     return json.loads(_get(f"{MUNI_API}/Clients/stateId/{state_id}"))
 
 
+_CODE_PRODUCT_RE = re.compile(
+    r"code of ordinances|municipal code|city code|town code|village code|county code|code of laws|general code", re.I
+)
+
+
+def _pick_code_product(prods):
+    """The consolidated general code only — 'Zoning Ordinance' or a land
+    development code is not it (the Somerville false-positive)."""
+    for p in prods:
+        if _CODE_PRODUCT_RE.search(p.get("ProductName") or ""):
+            return p
+    return None
+
+
 def resolve_municode(state, name):
     sid = _muni_states().get(state)
     if not sid:
@@ -153,8 +167,12 @@ def resolve_municode(state, name):
         prods = json.loads(_get(f"{MUNI_API}/Products/clientId/{cid}"))
     except Exception:
         prods = []
-    code = next((p for p in prods if "ordinance" in (p.get("ProductName") or "").lower()), None)
-    pid = (code or (prods[0] if prods else {})).get("ProductID")
+    code = _pick_code_product(prods)
+    if code is None:
+        # Somerville lesson: a directory client whose products are zoning/land-use
+        # only does NOT host the Code of Ordinances. Fall through to the web tier.
+        return None
+    pid = code.get("ProductID")
     slug = _muni_slug(c["ClientName"])
     return {
         "source": "municode",

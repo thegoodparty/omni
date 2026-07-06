@@ -47,7 +47,7 @@ Hosts 2-7 are not directly listable/guessable in this runtime, so you reach them
 
 **`data_quality` semantics:** `ok` = current consolidated code. `partial` = consolidated but degraded: stale (e.g. "updated through 2015" with later amendments as loose PDFs, put the date in `edition_or_date`) or codified-by-reference (basic-code adoption). `uncodified` / `not_found` / `ambiguous` = per Step 5.
 
-**SAME-NAME TRAP.** Never trust a name match alone. Small towns surface a same-named bigger city (Horton KS->Kansas City MO; Melbourne AR->Melbourne FL; Madison MS->Madison MO/County). Verify the page names the same state AND exact place; record how in `verified_evidence`. Reject same-name-other-state, county codes, single ordinances — EXCEPT when Step 1 classified the office as county-level (`kind == "county"`): then the county code IS the target and same-named city codes are the trap instead.
+**SAME-NAME TRAP.** Never trust a name match alone. Small towns surface a same-named bigger city (Horton KS->Kansas City MO; Melbourne AR->Melbourne FL; Madison MS->Madison MO/County). Verify the page names the same state AND exact place; record how in `verified_evidence`. **When `county` is known** (the optional param, or extracted by Step 1 from a "X County:" office prefix), use it as the tiebreaker wherever two in-state candidates share a name or a page's identity is ambiguous: prefer the candidate whose page/address/directory entry names that county, and mention the county check in `verified_evidence`. Reject same-name-other-state, county codes, single ordinances — EXCEPT when Step 1 classified the office as county-level (`kind == "county"`): then the county code IS the target and same-named city codes are the trap instead.
 
 **Walled-host rule.** On a host that returns 403 or a "security verification"/Cloudflare body, treat the WHOLE host as walled: do not retry its sibling paths. A walled codifier still counts as `found` when the snippet evidence is convergent, e.g. WebSearch shows multiple indexed SECTIONS of that city's code on the codifier (article/chapter pages naming the exact city+state). Record `confidence` "medium" and state in `verified_evidence` that the landing page was walled and identity comes from indexed-section snippets. City sites that 403 non-browser clients often still render via `http.get` (browser render); try it once before giving up.
 
@@ -141,7 +141,12 @@ sid     = next((s["StateID"] for s in states if s["StateAbbreviation"] == state)
 clients = japi(f"https://api.municode.com/Clients/stateId/{sid}") if sid else []   # state-scoped -> cannot leak another state
 client  = next((c for c in clients if c["ClientName"].lower() == place.lower()), None) \
           or next((c for c in clients if nrm(c["ClientName"]) == nrm(place)), None)   # exact first, normalized second
-prods   = japi(f"https://api.municode.com/Products/clientId/{client['ClientID']}") if client else []  # pick ProductName containing "Ordinance"
+prods   = japi(f"https://api.municode.com/Products/clientId/{client['ClientID']}") if client else []
+CODE_PROD = r"code of ordinances|municipal code|city code|town code|village code|county code|code of laws|general code"
+prod    = next((p for p in prods if re.search(CODE_PROD, p.get("ProductName") or "", re.I)), None)
+product_id = str(prod["ProductID"]) if prod else None
+# prod None (client exists but products are zoning/land-use only — the Somerville case):
+# this is NOT a Tier-1 hit. Treat as a Municode miss and go to Step 4.
 # Canonical Municode slug: FULL ClientName, spaces->"_", lowercase, punctuation KEPT, plus "/"->"-fs-", "\\"->"-bs-", "~"->"-t-"
 slug    = client["ClientName"].replace("/", "-fs-").replace("\\", "-bs-").replace("~", "-t-").replace(" ", "_").lower() if client else None   # "St. Louis" -> "st._louis"
 ```

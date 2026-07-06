@@ -23,7 +23,8 @@ _STATES = [
     {"StateID": 27, "StateAbbreviation": "MN"},
 ]
 _CLIENTS = {
-    10: [{"ClientID": 999, "ClientName": "Alpharetta"}],
+    10: [{"ClientID": 999, "ClientName": "Alpharetta"},
+         {"ClientID": 998, "ClientName": "Somerville"}],   # zoning-only client (the wrong-product trap)
     17: [{"ClientID": 100, "ClientName": "Herington"}],   # Kansas, no Horton
     25: [{"ClientID": 200, "ClientName": "Kansas City"},   # the small-town trap target
          {"ClientID": 201, "ClientName": "St. Louis"}],
@@ -38,7 +39,17 @@ _CLIENTS = {
     # Minnesota: a county client (Municode hosts county codes).
     27: [{"ClientID": 600, "ClientName": "Wadena County"}],
 }
-_PRODUCTS = {999: [{"ProductID": 12100, "ProductName": "Code of Ordinances"}]}
+_PRODUCTS = {
+    999: [{"ProductID": 12100, "ProductName": "Code of Ordinances"}],
+    998: [{"ProductID": 12200, "ProductName": "Zoning Ordinance"}],  # zoning-only -> must NOT resolve
+    200: [{"ProductID": 12300, "ProductName": "Code of Ordinances"}],
+    201: [{"ProductID": 12301, "ProductName": "Code of Ordinances"}],
+    500: [{"ProductID": 12500, "ProductName": "Code of Ordinances"}],
+    501: [{"ProductID": 12501, "ProductName": "Code of Ordinances"}],
+    502: [{"ProductID": 12502, "ProductName": "Code of Ordinances"}],
+    503: [{"ProductID": 12503, "ProductName": "Code of Ordinances"}],
+    600: [{"ProductID": 12600, "ProductName": "County Code of Ordinances"}],
+}
 _GC_HTML = """
 <h2>New Jersey</h2>
 <ul><li><a href="https://ecode360.com/CL0966">City of Clifton</a></li></ul>
@@ -120,6 +131,14 @@ def test_municode_exact_match_returns_stable_handles():
     # Strings, matching the experiment manifest's output_schema (["string", "null"]).
     assert out["client_id"] == "999"
     assert out["product_id"] == "12100"  # picked the "Code of Ordinances" product
+
+
+def test_municode_zoning_only_client_is_not_resolved():
+    # Somerville lesson: a directory hit whose only product is a Zoning code is
+    # NOT the Code of Ordinances. Tier-1 must fall through to the web tier
+    # instead of returning a zoning ProductID at high confidence.
+    out = r.resolve("GA", "Somerville City Council")
+    assert out["resolved"] is False
 
 
 def test_municode_slug_keeps_trailing_body_word():
