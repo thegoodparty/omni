@@ -1558,9 +1558,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     const peerlyErr = new BadGatewayException('Peerly down')
     mockPeerly.createIdentity.mockRejectedValueOnce(peerlyErr)
 
-    await expect(
-      service.submitToPeerlyForAgent(user, campaign),
-    ).rejects.toBe(peerlyErr)
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      peerlyErr,
+    )
 
     // Two updateMany calls: claim, then rollback
     expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
@@ -1671,9 +1671,9 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     )
     mockPeerly.submit10DlcBrand.mockRejectedValueOnce(missingCommitteeErr)
 
-    await expect(
-      service.submitToPeerlyForAgent(user, campaign),
-    ).rejects.toBe(missingCommitteeErr)
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      missingCommitteeErr,
+    )
 
     // Two updateMany calls: claim, then rollback scoped to our own timestamp.
     expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)

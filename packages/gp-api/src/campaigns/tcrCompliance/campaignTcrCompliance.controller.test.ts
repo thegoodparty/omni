@@ -383,9 +383,9 @@ describe('CampaignTcrComplianceController', () => {
       mockUserService.findByCampaign.mockResolvedValue(null)
       mockTcrService.submitToPeerlyForAgent = vi.fn()
 
-      await expect(
-        controller.submitToPeerly(mockCampaign),
-      ).rejects.toThrow('User not found for this campaign')
+      await expect(controller.submitToPeerly(mockCampaign)).rejects.toThrow(
+        'User not found for this campaign',
+      )
 
       expect(mockTcrService.submitToPeerlyForAgent).not.toHaveBeenCalled()
     })
