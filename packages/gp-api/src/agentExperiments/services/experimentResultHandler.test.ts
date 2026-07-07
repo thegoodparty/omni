@@ -78,6 +78,9 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   let raceOpponentResearch: {
     onExperimentRunCompleted: ReturnType<typeof vi.fn>
   }
+  let ordinanceCodePersist: {
+    onExperimentRunCompleted: ReturnType<typeof vi.fn>
+  }
   let s3Service: { getFile: ReturnType<typeof vi.fn> }
   let logger: PinoLogger
 
@@ -117,6 +120,9 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     raceOpponentResearch = {
       onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
     }
+    ordinanceCodePersist = {
+      onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+    }
     s3Service = { getFile: vi.fn().mockResolvedValue(undefined) }
 
     service = new QueueConsumerService(
@@ -147,6 +153,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       raceOpponent as never,
       raceOpponentResearch as never,
       {} as never,
+      ordinanceCodePersist as never,
       logger,
     )
   })
