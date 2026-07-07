@@ -40,15 +40,14 @@ describe('GET /v1/organizations/:slug/ordinance-code', () => {
     expect(res.status).toBe(200)
     expect(res.data).toEqual({
       codeFound: true,
-      dataQuality: OrdinanceDataQuality.OK,
-      confidence: OrdinanceConfidence.HIGH,
-      hostType: OrdinanceHostType.MUNICODE,
+      dataQuality: 'ok',
+      confidence: 'high',
+      hostType: 'municode',
       url: 'https://library.municode.com/co/leadville',
       editionOrDate: 'Supp. 12, 2026-03-01',
       place: 'Leadville',
       state: 'CO',
       verifiedAt: '2026-06-30T12:00:00.000Z',
-      supersededNote: null,
     })
   })
 
