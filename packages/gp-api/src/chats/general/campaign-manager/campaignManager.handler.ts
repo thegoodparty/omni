@@ -109,6 +109,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   districtFilters: null,
   constituentToolEnabled: false,
   story: null,
+  plan: null,
 }
 
 @Injectable()
@@ -221,9 +222,12 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           .filter(Boolean)
           .join(' ')
       : ''
-    const story = this.storyIntake
-      ? await this.storyIntake.read(campaign.id)
-      : null
+    const [story, plan] = this.storyIntake
+      ? await Promise.all([
+          this.storyIntake.read(campaign.id),
+          this.storyIntake.readPlan(campaign.id),
+        ])
+      : [null, null]
     const details = campaign.details
     const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
@@ -260,6 +264,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       districtFilters,
       constituentToolEnabled,
       story,
+      plan,
     }
   }
 

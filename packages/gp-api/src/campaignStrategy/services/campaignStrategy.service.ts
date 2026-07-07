@@ -1134,6 +1134,38 @@ export class CampaignStrategyService
     return updated
   }
 
+  // Pure read for consumers that must NEVER trigger (paid) generation or the
+  // align/reset machinery — today the Campaign Manager chat, which grounds its
+  // system prompt in the plan. Returns null until BOTH sections are persisted
+  // (the same gate the polling endpoint uses for 'ready'), so a partial plan
+  // is never surfaced. May serve content from before an office change; the
+  // plan tab's getOrGenerateStrategicLandscape remains the canonical fresh
+  // read.
+  async readLandscapeForCampaign(
+    campaignId: number,
+  ): Promise<StrategicLandscapeResult | null> {
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      include: {
+        opportunities: { orderBy: { order: 'asc' } },
+        challenges: { orderBy: { order: 'asc' } },
+        opponents: true,
+      },
+    })
+    if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) {
+      return null
+    }
+    return {
+      opportunities: plan.opportunities.map((o) => o.content),
+      challenges: plan.challenges.map((c) => c.content),
+      opponents: plan.opponents.map((o) => ({
+        fullName: o.fullName,
+        partyAffiliation: o.partyAffiliation,
+        incumbent: o.incumbent,
+      })),
+    }
+  }
+
   private async readStrategicLandscape(
     campaignStrategyId: number,
   ): Promise<StrategicLandscapeResult> {

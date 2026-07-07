@@ -39,6 +39,7 @@ const ctxWith = (
   districtFilters: null,
   constituentToolEnabled: false,
   story: null,
+  plan: null,
   ...over,
 })
 

@@ -26,6 +26,7 @@ const ctx = (
   districtFilters: null,
   constituentToolEnabled: false,
   story: null,
+  plan: null,
   ...over,
 })
 
@@ -53,6 +54,33 @@ describe('buildCampaignManagerSystemPrompt', () => {
     expect(prompt).toContain('nonpartisan')
     // It must not claim it can do the in-person work only the candidate can do.
     expect(prompt).toContain('cannot')
+  })
+
+  it('grounds the manager in the plan landscape when it exists', () => {
+    const prompt = buildCampaignManagerSystemPrompt(
+      ctx({
+        plan: {
+          opportunities: ['Strong ward-level volunteer base'],
+          challenges: ['Low name recognition'],
+          opponents: [
+            {
+              fullName: 'Pat Smith',
+              partyAffiliation: 'Republican',
+              incumbent: true,
+            },
+          ],
+        },
+      }),
+    )
+    expect(prompt).toContain('Strong ward-level volunteer base')
+    expect(prompt).toContain('Low name recognition')
+    expect(prompt).toContain('Pat Smith (Republican, incumbent)')
+    expect(prompt).not.toContain('has not been generated yet')
+  })
+
+  it('says the plan is not generated yet when it is missing', () => {
+    const prompt = buildCampaignManagerSystemPrompt(ctx({ plan: null }))
+    expect(prompt).toContain('has not been generated yet')
   })
 
   it('advertises the constituent-data tool only when it is enabled', () => {
