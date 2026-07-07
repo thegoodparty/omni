@@ -1,5 +1,6 @@
 import { useTestService } from '@/test-service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { ConflictException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -259,6 +260,35 @@ describe('ElectedOfficeService.create', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ id: office.id }),
     )
+  })
+
+  it('dispatches ordinance sourcing after creating an office', async () => {
+    const dispatch = vi
+      .spyOn(
+        service.app.get(OrdinanceDispatchService),
+        'onElectedOfficeCreated',
+      )
+      .mockResolvedValue(undefined)
+
+    const office = await electedOffices.create({ userId: service.user.id })
+
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ id: office.id }),
+    )
+  })
+
+  it('still creates the office when the ordinance dispatch rejects', async () => {
+    // dispatchRun throws BadGatewayException in preview envs (no queue); the
+    // hook must swallow it so EO creation never 500s on a dispatch failure.
+    vi.spyOn(
+      service.app.get(OrdinanceDispatchService),
+      'onElectedOfficeCreated',
+    ).mockRejectedValue(new Error('dispatch failed'))
+
+    const office = await electedOffices.create({ userId: service.user.id })
+
+    expect(office.id).toBeDefined()
+    expect(await service.prisma.electedOffice.count()).toBe(1)
   })
 })
 
