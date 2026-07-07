@@ -25,7 +25,12 @@ import { dirname, join, relative } from 'node:path'
 
 // Lower this when you remove client components; never raise it without a
 // justified reason (see RATCHET POLICY above).
-const BASELINE = 504
+// 2026-07-07: re-synced 504 -> 524, the count the script itself measures on
+// develop. The original baseline was below develop's actual count when the
+// ratchet merged, so every PR failed regardless of its changes. No new client
+// components were added by this change; the ratchet holds the line from the
+// real number.
+const BASELINE = 524
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
