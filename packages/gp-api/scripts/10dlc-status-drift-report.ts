@@ -20,8 +20,17 @@ import { writeFileSync } from 'fs'
 import pg from 'pg'
 import { Client } from '@hubspot/api-client'
 import { chunk } from 'es-toolkit'
-import { TcrComplianceStatus } from '../src/generated/prisma'
 import { isGenericComplianceContent } from '../src/websites/util/genericContent.util'
+
+// Mirrors the Prisma TcrComplianceStatus enum values. Inlined so this raw-`pg`
+// script does not depend on the generated (git-ignored) Prisma client.
+const TcrComplianceStatus = {
+  submitted: 'submitted',
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+  error: 'error',
+} as const
 
 // --- CLI args ---
 const limitArg = process.argv.find((a) => a.startsWith('--limit='))
@@ -135,6 +144,7 @@ type MismatchType =
   | 'NO_HUBSPOT_ID'
   | 'NOT_FOUND_IN_HUBSPOT'
   | '10_DLC_NOT_SET_IN_HUBSPOT'
+  | 'UNKNOWN_HUBSPOT_VALUE'
   | 'ERROR'
 
 interface DbRow {
@@ -355,6 +365,9 @@ function classifyMismatch(
   if (actual === null || actual === undefined || actual === '')
     return '10_DLC_NOT_SET_IN_HUBSPOT'
   if (actual === expected) return 'OK'
+  // A HubSpot value we don't rank (e.g. a retired or newly-added option) would
+  // otherwise fall to -1 and always read as BEHIND — surface it distinctly.
+  if (!(actual in HUBSPOT_ORDER)) return 'UNKNOWN_HUBSPOT_VALUE'
 
   const expectedOrder = HUBSPOT_ORDER[expected] ?? -1
   const actualOrder = HUBSPOT_ORDER[actual] ?? -1
