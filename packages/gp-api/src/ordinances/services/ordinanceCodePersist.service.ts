@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common'
-import { isBefore, parseISO } from 'date-fns'
+import { isBefore, min, parseISO } from 'date-fns'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
   ExperimentRun,
@@ -109,6 +109,14 @@ export class OrdinanceCodePersistService extends createPrismaBase(
         run.artifactKey,
       )
     } catch (error) {
+      this.logger.error(
+        {
+          err: error,
+          runId: run.runId,
+          organizationSlug: run.organizationSlug,
+        },
+        'ordinance persist failed; marking run failed',
+      )
       await this.experimentRuns.markFailed(
         run.runId,
         error instanceof Error ? error.message : String(error),
@@ -123,6 +131,22 @@ export class OrdinanceCodePersistService extends createPrismaBase(
     artifactBucket: string,
     artifactKey: string,
   ): Promise<void> {
+    // An artifactKey pointing at another run's or org's artifact must never
+    // write this org's record, so refuse to persist unless the artifact was
+    // generated for exactly this run and org.
+    if (artifact.organization_slug !== run.organizationSlug) {
+      throw new Error(
+        `artifact org ${artifact.organization_slug} does not match ` +
+          `run org ${run.organizationSlug}`,
+      )
+    }
+    if (artifact.generated_for_run_id !== run.runId) {
+      throw new Error(
+        `artifact run ${artifact.generated_for_run_id} does not match ` +
+          `run ${run.runId}`,
+      )
+    }
+
     const existing = await this.model.findUnique({
       where: { organizationSlug: run.organizationSlug },
     })
@@ -132,7 +156,18 @@ export class OrdinanceCodePersistService extends createPrismaBase(
 
     // An older run's late result must never overwrite what a newer run
     // already verified.
-    if (existing && isBefore(run.createdAt, existing.verifiedAt)) return
+    if (existing && isBefore(run.createdAt, existing.verifiedAt)) {
+      this.logger.info(
+        {
+          runId: run.runId,
+          organizationSlug: run.organizationSlug,
+          runCreatedAt: run.createdAt,
+          recordVerifiedAt: existing.verifiedAt,
+        },
+        'ordinance persist skipped: run older than current record',
+      )
+      return
+    }
 
     // Never-regress: a found:false conclusion never erases found data.
     // Record why the current record was kept; the run link stays on the run
@@ -159,7 +194,9 @@ export class OrdinanceCodePersistService extends createPrismaBase(
       verifiedEvidence: artifact.jurisdiction.verified_evidence,
       artifactBucket,
       artifactKey,
-      verifiedAt: parseISO(artifact.generated_at),
+      // Clamp to now: an agent-authored future timestamp must not freeze the
+      // org out of its refresh cycle by pushing verifiedAt past every cutoff.
+      verifiedAt: min([parseISO(artifact.generated_at), new Date()]),
       experimentRunId: run.runId,
       supersededNote: null,
     }

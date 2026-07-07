@@ -424,4 +424,93 @@ describe('OrdinanceCodePersistService.onExperimentRunCompleted', () => {
     })
     expect(failed?.status).toBe(ExperimentRunStatus.FAILED)
   })
+
+  it('persists an artifact whose code_capture note is null', async () => {
+    const key = 'find_existing_ordinances/run-nullnote/artifact.json'
+    const run = await seedRun({ artifactKey: key })
+    mockS3({
+      [key]: JSON.stringify(
+        uncodifiedArtifact(run.runId, {
+          code_capture: { saved: false, files: [], note: null },
+        }),
+      ),
+    })
+
+    await persist().onExperimentRunCompleted(run)
+
+    expect(await findRecord()).toMatchObject({
+      codeFound: false,
+      dataQuality: OrdinanceDataQuality.UNCODIFIED,
+      experimentRunId: run.runId,
+    })
+  })
+
+  it('marks the run failed when code_found is true but code_source is null', async () => {
+    const key = 'find_existing_ordinances/run-invariant/artifact.json'
+    const run = await seedRun({ artifactKey: key })
+    mockS3({
+      [key]: JSON.stringify(municodeArtifact(run.runId, { code_source: null })),
+    })
+
+    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow()
+
+    const failed = await service.prisma.experimentRun.findUnique({
+      where: { runId: run.runId },
+    })
+    expect(failed?.status).toBe(ExperimentRunStatus.FAILED)
+    expect(await findRecord()).toBeNull()
+  })
+
+  it('marks the run failed when the artifact org slug does not match the run', async () => {
+    const key = 'find_existing_ordinances/run-orgmismatch/artifact.json'
+    const run = await seedRun({ artifactKey: key })
+    mockS3({
+      [key]: JSON.stringify(
+        municodeArtifact(run.runId, { organization_slug: 'a-different-org' }),
+      ),
+    })
+
+    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow()
+
+    const failed = await service.prisma.experimentRun.findUnique({
+      where: { runId: run.runId },
+    })
+    expect(failed?.status).toBe(ExperimentRunStatus.FAILED)
+    expect(await findRecord()).toBeNull()
+  })
+
+  it('marks the run failed when the artifact run id does not match the run', async () => {
+    const key = 'find_existing_ordinances/run-runmismatch/artifact.json'
+    const run = await seedRun({ artifactKey: key })
+    mockS3({
+      [key]: JSON.stringify(
+        municodeArtifact(run.runId, {
+          generated_for_run_id: 'a-different-run',
+        }),
+      ),
+    })
+
+    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow()
+
+    const failed = await service.prisma.experimentRun.findUnique({
+      where: { runId: run.runId },
+    })
+    expect(failed?.status).toBe(ExperimentRunStatus.FAILED)
+    expect(await findRecord()).toBeNull()
+  })
+
+  it('clamps a future generated_at to now when persisting', async () => {
+    const key = 'find_existing_ordinances/run-future/artifact.json'
+    const run = await seedRun({ artifactKey: key })
+    mockS3({
+      [key]: JSON.stringify(
+        municodeArtifact(run.runId, { generated_at: '2099-01-01T00:00:00Z' }),
+      ),
+    })
+
+    await persist().onExperimentRunCompleted(run)
+
+    const record = await findRecord()
+    expect(record?.verifiedAt.getTime()).toBeLessThanOrEqual(Date.now())
+  })
 })

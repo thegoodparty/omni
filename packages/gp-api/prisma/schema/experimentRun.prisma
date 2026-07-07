@@ -49,5 +49,6 @@ model ExperimentRun {
 
   @@index([organizationSlug, experimentType])
   @@index([status, resumeScheduledFor])
+  @@index([experimentType, status])
   @@map("experiment_run")
 }
