@@ -13,8 +13,14 @@ import {
 } from '@shared/organization-picker'
 import { usePositionName } from '@shared/hooks/usePositionName'
 import { useUser } from '@shared/hooks/useUser'
-import { useElectedOffice } from '@shared/hooks/useElectedOffice'
-import { useQueryClient } from '@tanstack/react-query'
+import {
+  useElectedOffice,
+  electedOfficeQueryOptions,
+} from '@shared/hooks/useElectedOffice'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { clientRequest } from 'gpApi/typed-request'
+import { buildDisabledRanges } from 'app/serve/onboarding/termDates.shared'
+import { ElectedOfficeTermDatesModal } from 'app/dashboard/shared/ElectedOfficeTermDatesModal'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 import ReadField from './ReadField'
 
@@ -70,10 +76,26 @@ export default function OfficeDetailsCard(
 
   const [campaign, setCampaign] = useState<Campaign | undefined>(props.campaign)
   const [showModal, setShowModal] = useState(false)
+  const [showTermDates, setShowTermDates] = useState(false)
 
   useEffect(() => {
     setCampaign(props.campaign)
   }, [props.campaign])
+
+  // All of the user's offices, so the term-date picker can enforce the same
+  // no-overlap rule as serve onboarding. Only needed in elected-office mode.
+  const { data: myOffices } = useQuery<ElectedOffice[]>({
+    queryKey: ['electedOffice', 'mine'],
+    queryFn: async () => {
+      const res = await clientRequest(
+        'GET /v1/elected-office/mine',
+        {},
+        { ignoreResponseError: true },
+      )
+      return res.ok ? (res.data as ElectedOffice[]) : []
+    },
+    enabled: isElectedOffice,
+  })
 
   const details = campaign?.details
   const orgState = organization?.position?.state || ''
@@ -103,6 +125,24 @@ export default function OfficeDetailsCard(
     setShowModal(false)
   }
 
+  const handleEditTermDates = (): void => {
+    trackEvent(EVENTS.Profile.OfficeDetails.ClickEdit)
+    setShowTermDates(true)
+  }
+
+  const handleTermDatesSaved = async (): Promise<void> => {
+    trackEvent(EVENTS.Profile.OfficeDetails.ClickSave)
+    // Term length is derived from these dates, so refetch the office (and the
+    // offices list feeding overlap validation) to refresh the display.
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: electedOfficeQueryOptions(organization?.slug).queryKey,
+      }),
+      queryClient.invalidateQueries({ queryKey: ['electedOffice', 'mine'] }),
+    ])
+    setShowTermDates(false)
+  }
+
   return (
     <Card className="w-full max-w-[640px] gap-4 p-6">
       <div className="flex items-center justify-between">
@@ -123,6 +163,17 @@ export default function OfficeDetailsCard(
           label="Term length"
           value={formatTermLength(electedOffice)}
           placeholder
+          action={
+            electedOffice
+              ? {
+                  label:
+                    electedOffice.termStartDate && electedOffice.termEndDate
+                      ? 'Edit'
+                      : 'Add',
+                  onClick: handleEditTermDates,
+                }
+              : undefined
+          }
         />
       ) : (
         <ReadField
@@ -147,6 +198,19 @@ export default function OfficeDetailsCard(
           onClose={() => setShowModal(false)}
           onSelect={handleUpdate}
           organizationSlug={organization?.slug}
+        />
+      )}
+
+      {isElectedOffice && showTermDates && electedOffice && (
+        <ElectedOfficeTermDatesModal
+          office={electedOffice}
+          otherRanges={buildDisabledRanges(myOffices ?? [], electedOffice.id)}
+          dismissible
+          title="Term dates"
+          description="Set your term start and end dates. Your term length is calculated from these."
+          saveLabel="Save"
+          onSaved={handleTermDatesSaved}
+          onDismiss={() => setShowTermDates(false)}
         />
       )}
     </Card>

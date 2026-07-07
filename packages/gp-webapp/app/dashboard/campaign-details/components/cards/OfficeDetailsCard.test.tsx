@@ -28,10 +28,27 @@ vi.mock('@shared/hooks/useUser', () => ({
 let mockElectedOffice: ElectedOffice | null
 vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => ({ data: mockElectedOffice }),
+  electedOfficeQueryOptions: (slug?: string) => ({
+    queryKey: ['electedOffice', slug],
+  }),
 }))
 
 vi.mock('app/onboarding/shared/ajaxActions', () => ({
   getCampaign: vi.fn().mockResolvedValue(false),
+}))
+
+// The "my offices" fetch (for term-date overlap validation) shouldn't hit the
+// network in tests.
+vi.mock('gpApi/typed-request', () => ({
+  clientRequest: vi.fn().mockResolvedValue({ ok: true, data: [] }),
+}))
+
+// Stub the term-date editor so the test asserts it opens without driving the
+// calendar UI.
+vi.mock('app/dashboard/shared/ElectedOfficeTermDatesModal', () => ({
+  ElectedOfficeTermDatesModal: ({ office }: { office: ElectedOffice }) => (
+    <div>term-dates-modal:{office.id}</div>
+  ),
 }))
 
 // Stub both office-change modals so the test asserts *which* flow opens
@@ -150,5 +167,27 @@ describe('OfficeDetailsCard — elected official mode', () => {
 
     expect(screen.getByText('elected-office-modal')).toBeInTheDocument()
     expect(screen.queryByText('campaign-office-modal')).not.toBeInTheDocument()
+  })
+
+  it('opens the term-dates editor from the Term length field', async () => {
+    const user = userEvent.setup()
+    render(<OfficeDetailsCard campaign={undefined} />)
+
+    // Dates are set in this suite, so the affordance reads "Edit".
+    await user.click(screen.getByRole('button', { name: /edit/i }))
+
+    expect(screen.getByText('term-dates-modal:eo-1')).toBeInTheDocument()
+  })
+
+  it('offers "Add" when the office has no term dates yet', () => {
+    mockElectedOffice = electedOffice({
+      termStartDate: null,
+      termEndDate: null,
+    })
+    render(<OfficeDetailsCard campaign={undefined} />)
+
+    expect(screen.getByRole('button', { name: /add/i })).toBeInTheDocument()
+    // Term length is empty, so the read-only field shows its placeholder.
+    expect(screen.getByText('Add Information')).toBeInTheDocument()
   })
 })
