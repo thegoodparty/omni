@@ -1,6 +1,9 @@
 export type ComplianceSetupOutput = {
   [k: string]: unknown
 }
+export type ExistingOrdinancesArtifact = {
+  [k: string]: unknown
+}
 /**
  * v2 artifact schema for the meeting_briefing experiment. Drop into manifest.json's output_schema field at port time.
  */
@@ -87,6 +90,10 @@ export interface AgentJobContracts {
   district_issue_snapshot: {
     Input: DistrictIssueSnapshotInput
     Output: DistrictIssueSnapshotOutput
+  }
+  find_existing_ordinances: {
+    Input: FindExistingOrdinancesParams
+    Output: ExistingOrdinancesArtifact
   }
   meeting_briefing: {
     Input: {
@@ -2440,6 +2447,28 @@ export interface DistrictIssueSnapshotOutput {
   }
   state: string
   total_active_voters: number
+}
+export interface FindExistingOrdinancesParams {
+  /**
+   * Optional county name to disambiguate same-name places.
+   */
+  county?: string
+  /**
+   * The EO's office/position name (e.g. 'Ramsey City Council'). The agent derives the place name from it.
+   */
+  office: string
+  /**
+   * Stable slug for the org/EO the run is for. Echoed into the artifact.
+   */
+  organization_slug: string
+  /**
+   * 2-letter state code (e.g. MN).
+   */
+  state: string
+  /**
+   * Optional code link the EO pasted at intake; highest-trust source when it verifies.
+   */
+  user_provided_code_url?: string
 }
 export interface MeetingBriefingFull {
   /**
