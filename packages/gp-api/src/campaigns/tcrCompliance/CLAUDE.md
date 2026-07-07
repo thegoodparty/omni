@@ -91,6 +91,16 @@ kickoff path must not race it.
 
 ## `submitToPeerlyForAgent` notes
 
+- **No request body — every Peerly field comes from the persisted record.**
+  `submit-to-peerly` takes no `@Body`; gp-api sources `ein`, `committeeName`,
+  `filingUrl`, `email`, `phone`, `officeLevel`, `committeeType`, and `fecCommitteeId`
+  off the persisted `TcrCompliance` row, and the website host off the campaign's
+  registered `Domain.name`. The agent only supplies the campaign context (resolved by
+  `@UseCampaign`), matching what the `compliance_setup` instruction already promises
+  ("gp-api reads the candidate's data itself"). This is the ENG-10640 fix: the DTO used
+  to carry these fields and the handler trusted the agent's values, which is how
+  `goodparty.org/candidate/...` filing URLs reached CampaignVerify. Don't reintroduce a
+  request body that feeds these fields.
 - **Stage gate:** rejects with 422 unless the derived compliance stage is `awaiting_pin`
   (domain registered + site published & verified live). The `@McpTool` description names
   this precondition and the route enforces it — keep them in sync.
@@ -98,22 +108,40 @@ kickoff path must not race it.
   callers; rollback scoped to the exact claim timestamp.
 - **Idempotent:** a record that already has a `peerlyIdentityId` returns the existing
   response without re-submitting. The response is built from the **persisted record**
-  (`buildSubmitToPeerlyResponse`), not request input, so a retry can't misreport state.
-- Federal office requires a valid `fecCommitteeId` (DTO defers this; re-enforced here,
-  falling back to the persisted value).
-- Strips leading `www.` from the website URL so Peerly's brand `website`/`email` use the
+  (`buildSubmitToPeerlyResponse`), so a retry can't misreport state.
+- Federal office requires a valid `fecCommitteeId`, re-enforced here against the
+  persisted value (the agent can't resolve it reliably; staff may backfill it).
+- **Peerly billing-outage hold (ENG-10653).** When Peerly's CampaignVerify `submit_cv`
+  returns its unrecoverable billing error (`400` with `details.message` =
+  `"No payment method available"`), `submitCampaignVerifyRequest`
+  (`peerlyIdentity.service.ts`) detects it via `isPeerlyBillingError`
+  (`utils/peerlyBillingError.util.ts`), fires a **distinct** Slack alert to
+  `bot-10dlc-compliance` (separate from the generic per-identity error alert so a
+  billing outage is recognizable), and throws `PeerlyBillingException` (a
+  `BadGatewayException` subclass). `submitToPeerlyForAgent` catches it, stamps
+  `TcrCompliance.peerlyBillingBlockedAt`, and on any subsequent call within
+  `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES` (6h) refuses with a `503` **before touching
+  Peerly** — so an agent-resume / kickoff re-dispatch can't storm Peerly with the same
+  deterministically-failing submission. After the cooldown it probes again (re-alerting
+  if still failing); a successful submit clears the block. Only this billing signal is
+  matched — normal transient 5xx still flow through `handleApiError` and retry.
+- Strips leading `www.` from `Domain.name` so Peerly's brand `website`/`email` use the
   apex domain, matching the legacy `create()` path.
 - **`filing_url` must be an official election filing.** CampaignVerify verifies the
   candidate against the URL, so a goodparty.org page or the candidate's own campaign
   site forces CV to contact the election authority by hand for the real filed contact
   info (the increased-mismatch delays Peerly reported after the agentic flow shipped —
   the agent was resolving `filing_url` to `goodparty.org/candidate/...` pages). The
-  `filingUrl` guard lives in two layers: `tcrComplianceSuperRefine`
-  (`tcrComplianceBase.schema.ts`) rejects any `goodparty.org` host for **all** callers
-  (wizard, agentic-create, submit), and `SubmitToPeerlyDto` additionally rejects a
-  `filing_url` whose host equals the campaign's own `websiteUrl`. Both return 400 so
-  the agent must supply the real filing record; the `submit-to-peerly` `@McpTool`
-  description names this so the agent knows the contract. Host matching uses
+  guard lives in two layers. `tcrComplianceSuperRefine` (`tcrComplianceBase.schema.ts`,
+  via the exported `addFilingUrlIssues`) rejects any `goodparty.org` host / credentialed
+  URL for the **create** callers (wizard, agentic-create) at write time. The **submit**
+  path no longer has a request DTO, so it re-applies those same guards to the *persisted*
+  `filingUrl` at submit time via `submitToPeerlyFilingSchema`
+  (`submitToPeerlyDto.schema.ts`), plus an own-site check against the registered domain
+  host — a record saved before the guard shipped (or via a path without it) can still
+  carry a bad value, and it must 400 rather than reach Peerly (existing bad rows are a
+  data-repair follow-up). All return 400 so the candidate's saved filing details must be
+  corrected; the `submit-to-peerly` `@McpTool` description names this. Host matching uses
   `getUrlHostname` (`shared/util/strings.util.ts`), which lowercases and strips `www.`;
   match `goodparty.org` as `host === 'goodparty.org' || host.endsWith('.goodparty.org')`
   so a lookalike like `notgoodparty.org` is not caught. Two host-parse footguns are
@@ -166,12 +194,20 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   checks the CV status first and, when it is already `VERIFIED`, skips re-verifying
   and mints the token so the retry finishes the flow. Don't reintroduce an
   unconditional `verify_pin` call ahead of that check.
-- **PIN screen can show before a PIN exists:** `deriveComplianceStage` returns
-  `awaiting_pin` from the DB `status` alone (a `submitted` record with a live site),
-  with no knowledge of Peerly's CV state. A candidate whose CV is still `IN_REVIEW` /
-  `REQUESTED` (Peerly hasn't issued a PIN yet) is shown the PIN-entry screen anyway, so
-  "I never got a PIN" reports are expected for those. Gating the screen on the live CV
-  status (`APPROVED`+) is a known follow-up; it needs the CV status surfaced to the FE.
+- **PIN screen is gated on the live Peerly CV status (ENG-10654):**
+  `deriveComplianceStage` still returns `awaiting_pin` from the DB `status` alone (a
+  `submitted` record with a live site) — that stage value is unchanged because
+  `submitToPeerlyForAgent`'s gate depends on it. What changed is that
+  `findStateForCampaign` now also resolves the *live* CV status into
+  `ComplianceStateOutput.peerlyCvStatus`, and only at the `awaiting_pin` stage (so the
+  extra Peerly `retrieve_cv` read stays off the other stages the agent polls). The FE
+  (`ProUpgrade3Compliance.tsx`) shows the PIN-entry box only when `peerlyCvStatus` is
+  `APPROVED`/`VERIFIED`; for `REQUESTED`/`IN_REVIEW`/`null` (Peerly hasn't issued a PIN
+  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvStatus`
+  short-circuits to `APPROVED` in non-prod (Peerly is stubbed there, mirroring
+  `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN screen, and
+  parses Peerly's status defensively so an unrecognized value degrades to the
+  in-progress state rather than 500ing the read.
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.

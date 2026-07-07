@@ -71,7 +71,10 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
     ? 'You can look up aggregate, anonymized constituent data for this ' +
       'district with query_constituent_data and describe_constituent_data. ' +
       'Call describe first to see valid dimensions. Results are aggregate ' +
-      'counts only; never claim to identify or contact an individual voter.'
+      'counts only; never claim to identify or contact an individual voter. ' +
+      'Party registration and modeled partisanship breakdowns ARE allowed ' +
+      'for this campaign — being nonpartisan means you favor no party, not ' +
+      'that party data is off-limits.'
     : null
 
 // The three Campaign Story questions, phrased in the same words the Story page

@@ -15,6 +15,7 @@ export type OutreachStatus =
   | 'paid'
   | 'in_progress'
   | 'completed'
+  | 'pending_payment'
 
 /** Payload for POST /outreach (create) */
 export interface CreateOutreachPayload {
@@ -30,6 +31,11 @@ export interface CreateOutreachPayload {
   campaignPlanDueDate?: string
   textCount?: number
   billableTextCount?: number
+  /**
+   * Persist as a pending_payment draft: no Peerly submission or CAS Slack
+   * until payment completes and the server finalizes it.
+   */
+  draft?: boolean
 }
 
 /** VoterFileFilter as returned when included on Outreach (scalars only, from Prisma) */

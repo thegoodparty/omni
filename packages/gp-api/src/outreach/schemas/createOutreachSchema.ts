@@ -43,9 +43,18 @@ export class CreateOutreachSchema extends createZodDto(
           'campaignPlanDueDate must be a valid calendar date',
         )
         .optional(),
-      // Notification-only metadata for the CAS Slack message — not persisted.
+      // Metadata for the CAS Slack message, persisted so a payment-webhook
+      // finalize can rebuild the notification after the request is gone.
       textCount: z.coerce.number().int().nonnegative().optional(),
       billableTextCount: z.coerce.number().int().nonnegative().optional(),
+      // z.coerce.boolean() treats the multipart string 'false' as true, so
+      // string values need an explicit transform.
+      draft: z
+        .union([
+          z.boolean(),
+          z.enum(['true', 'false']).transform((v) => v === 'true'),
+        ])
+        .optional(),
     })
     .strict()
     .superRefine((data, ctx) => {
@@ -61,6 +70,20 @@ export class CreateOutreachSchema extends createZodDto(
           path: ['script'],
           code: z.ZodIssueCode.custom,
           message: 'Script is required for P2P outreach',
+        })
+      }
+      if (data.draft && data.outreachType !== OutreachType.p2p) {
+        ctx.addIssue({
+          path: ['draft'],
+          code: z.ZodIssueCode.custom,
+          message: 'Draft creation is only supported for P2P outreach',
+        })
+      }
+      if (data.status === OutreachStatus.pending_payment) {
+        ctx.addIssue({
+          path: ['status'],
+          code: z.ZodIssueCode.custom,
+          message: 'pending_payment is set by the draft flow, not the client',
         })
       }
     }),

@@ -135,7 +135,12 @@ for c in out["cards"]:
     assert len(c["title"]) < 100
     assert len(c["sms_message"]) <= 320
     assert c["body"].rstrip().endswith((".", "!", "?"))
-    assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", c["body"])) <= 3
+    # strip title abbreviations so their periods don't count as sentence ends
+    body = re.sub(
+        r"\b(Mr|Mrs|Ms|Dr|Gov|Sen|Rep|Lt|Gen|Col|Rev|St|vs|Jr|Sr|e\.g|i\.e|etc)\.",
+        r"\1", c["body"],
+    )
+    assert len(re.findall(r"(?<![A-Z])[.!?](?:\s+[A-Z]|$)", body)) <= 3
     assert "—" not in (
         c["title"] + c["body"] + c["sms_message"]
         + (c["opponent_name"] or "") + c["issue"]

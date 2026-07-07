@@ -24,6 +24,19 @@ Voter outreach hub. Lets a campaign create text/voicemail/script outreach to vot
 - **Action options compose**: each `*ActionOption.tsx` is a self-contained menu item (icon + label + handler). New channels = new option components, registered in `OutreachActions`.
 - **Audience downloads** go through `helpers/createOutreach.ts` and `helpers/createP2pPhoneList.ts` — don't reinvent the file shape.
 
+## Draft-first purchase flow (text/p2p)
+
+The paid text flow persists the campaign BEFORE payment: entering the purchase
+step in `components/tasks/flows/TaskFlow.tsx` creates the outreach with
+`draft: true` (server stores it as `pending_payment`, hidden from
+`GET /outreach`), and the draft's id rides in the checkout session metadata as
+`outreachId`. The SERVER finalizes (Peerly + CAS Slack) during payment
+completion — the client no longer POSTs the campaign after paying, it just
+refetches the list. A tab that dies after payment loses nothing: the Stripe
+webhook finalizes the draft on its own. Going back from the purchase step
+discards the draft id; re-entry creates a fresh draft (stale ones stay hidden
+server-side).
+
 ## Gotchas
 
 - The `FreeTextsBanner` nag is part of free-tier gating — check `app/dashboard/shared/ProUpgradeModal.tsx` rules before changing it.

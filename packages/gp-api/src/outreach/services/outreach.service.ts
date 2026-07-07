@@ -12,8 +12,10 @@ import {
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { ASSET_DOMAIN } from 'src/shared/util/appEnvironment.util'
 import { DateFormats, formatDate } from 'src/shared/util/date.util'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
+import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
 import { Readable } from 'stream'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
@@ -46,18 +48,12 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly notificationService: OutreachNotificationService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly attributionService: OutreachAttributionService,
+    private readonly s3: S3Service,
   ) {
     super()
   }
 
-  private async createP2pOutreach(
-    campaign: Campaign,
-    createOutreachDto: CreateOutreachSchema,
-    p2pImage: P2pOutreachImageInput,
-    imageUrl: string,
-    script: string,
-    phoneListId: number,
-  ) {
+  private async requirePeerlyIdentityId(campaign: Campaign): Promise<string> {
     let peerlyIdentityId: string | null
     try {
       ;({ peerlyIdentityId } = await this.tcrComplianceService.findFirstOrThrow(
@@ -74,6 +70,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         'TCR Compliance Peerly identity ID is required for P2P outreach',
       )
     }
+
+    return peerlyIdentityId
+  }
+
+  private async resolveP2pCreateInputs(
+    campaign: Campaign,
+    createOutreachDto: CreateOutreachSchema,
+    script: string,
+  ) {
+    const peerlyIdentityId = await this.requirePeerlyIdentityId(campaign)
 
     const name = `${campaign.slug}${
       createOutreachDto.date
@@ -93,6 +99,62 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     const didState = createOutreachDto.didState ?? resolvedGeography.didState
     const didNpaSubset =
       createOutreachDto.didNpaSubset ?? resolvedGeography.didNpaSubset
+
+    return {
+      peerlyIdentityId,
+      name,
+      resolvedScriptText,
+      didState,
+      didNpaSubset,
+    }
+  }
+
+  // Persists everything the payment-webhook finalize will need: the browser
+  // (and its request) may be gone by the time payment settles, so the row must
+  // be self-contained — resolved script, identity, name, and geography.
+  private async createP2pDraft(
+    campaign: Campaign,
+    createOutreachDto: CreateOutreachSchema,
+    imageUrl: string,
+    script: string,
+  ) {
+    const {
+      peerlyIdentityId,
+      name,
+      resolvedScriptText,
+      didState,
+      didNpaSubset,
+    } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
+
+    return await this.createRecord(
+      {
+        ...createOutreachDto,
+        script: resolvedScriptText,
+        status: OutreachStatus.pending_payment,
+        name,
+        didState,
+        didNpaSubset,
+      },
+      imageUrl,
+      peerlyIdentityId,
+    )
+  }
+
+  private async createP2pOutreach(
+    campaign: Campaign,
+    createOutreachDto: CreateOutreachSchema,
+    p2pImage: P2pOutreachImageInput,
+    imageUrl: string,
+    script: string,
+    phoneListId: number,
+  ) {
+    const {
+      peerlyIdentityId,
+      name,
+      resolvedScriptText,
+      didState,
+      didNpaSubset,
+    } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
 
     let jobId: string
     try {
@@ -175,6 +237,15 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         )
       }
 
+      if (createOutreachDto.draft) {
+        return await this.createP2pDraft(
+          campaign,
+          createOutreachDto,
+          imageUrl,
+          createOutreachDto.script,
+        )
+      }
+
       const outreach = await this.createP2pOutreach(
         campaign,
         createOutreachDto,
@@ -192,6 +263,200 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
     await this.tryRecordSegmentAttribution(user, campaign, outreach)
     return outreach
+  }
+
+  /**
+   * Submits a paid draft to Peerly. Invoked by the TEXT post-purchase handler,
+   * which runs from BOTH the client's complete-checkout-session call and the
+   * Stripe webhook — the status claim below is the DB lock that makes the race
+   * harmless. Throwing here is deliberate: completeCheckoutSession only stamps
+   * its idempotency marker after handler success, so a throw makes Stripe
+   * retry, and the revert re-arms the claim for that retry. campaignId scopes
+   * the claim to the paying campaign — outreachId arrives via client-influenced
+   * checkout metadata and must not finalize another campaign's draft.
+   */
+  async finalizeOutreachPurchase(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<void> {
+    const claimed = await this.model.updateMany({
+      where: {
+        id: outreachId,
+        campaignId,
+        status: OutreachStatus.pending_payment,
+      },
+      data: { status: OutreachStatus.pending },
+    })
+    if (claimed.count === 0) {
+      await this.confirmFinalized(outreachId, campaignId)
+      return
+    }
+
+    const outreach = await this.model.findUniqueOrThrow({
+      where: { id: outreachId },
+      include: {
+        voterFileFilter: true,
+        campaign: { include: { user: true } },
+      },
+    })
+    const { campaign } = outreach
+    const user = campaign.user
+
+    let jobId: string
+    try {
+      jobId = await this.submitDraftToPeerly(outreach)
+    } catch (err) {
+      await this.model.updateMany({
+        where: {
+          id: outreachId,
+          status: OutreachStatus.pending,
+          projectId: null,
+        },
+        data: { status: OutreachStatus.pending_payment },
+      })
+      this.logger.error(
+        { err, outreachId, campaignId: campaign.id },
+        'P2P outreach finalize failed after payment',
+      )
+      if (user) {
+        try {
+          await this.notificationService.notifyFailure({
+            user,
+            campaign,
+            createOutreachDto: {
+              outreachType: outreach.outreachType,
+              script: outreach.script ?? undefined,
+              date: outreach.date?.toISOString(),
+            },
+            step:
+              err instanceof OutreachStepError ? err.step : 'peerlyJobCreation',
+            error: err,
+          })
+        } catch (notifyErr) {
+          this.logger.error(
+            { err: notifyErr, outreachId },
+            'Finalize failure notification failed',
+          )
+        }
+      }
+      throw err
+    }
+
+    await this.model.update({
+      where: { id: outreachId },
+      data: { projectId: jobId },
+    })
+
+    if (!user) {
+      this.logger.error(
+        { outreachId, campaignId: campaign.id },
+        'Campaign has no user — skipping finalize notifications',
+      )
+      return
+    }
+
+    const finalized = { ...outreach, projectId: jobId }
+    await this.tryNotifySuccess(user, campaign, finalized, {
+      audienceRequest: outreach.audienceRequest ?? undefined,
+      campaignPlanDueDate: outreach.campaignPlanDueDate ?? undefined,
+      textCount: outreach.textCount ?? undefined,
+      billableTextCount: outreach.billableTextCount ?? undefined,
+    })
+    await this.tryRecordSegmentAttribution(user, campaign, finalized)
+  }
+
+  /**
+   * A lost claim does NOT mean the work happened: the winner may still be
+   * mid-Peerly, may have failed and reverted the row, or the id may not match
+   * any draft of this campaign at all. Only a stamped projectId proves
+   * fulfillment — everything else throws, so the payment layer never marks
+   * the purchase processed on the strength of a lost race and Stripe keeps
+   * retrying.
+   */
+  private async confirmFinalized(
+    outreachId: number,
+    campaignId: number,
+  ): Promise<void> {
+    // Covers the winner's inline Peerly submission (~10s worst case observed).
+    const POLL_ATTEMPTS = 30
+    const POLL_INTERVAL_MS = 1000
+
+    for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt++) {
+      const row = await this.model.findFirst({
+        where: { id: outreachId, campaignId },
+        select: { status: true, projectId: true },
+      })
+      if (!row || row.status === OutreachStatus.pending_payment) {
+        break
+      }
+      if (row.projectId) {
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
+    }
+
+    this.logger.error(
+      { outreachId, campaignId },
+      'P2P outreach finalize failed after payment',
+    )
+    throw new OutreachStepError(
+      'peerlyJobCreation',
+      new Error(
+        `Outreach ${outreachId} was not finalized: missing, not owned by ` +
+          `campaign ${campaignId}, or a concurrent finalize failed`,
+      ),
+    )
+  }
+
+  private async submitDraftToPeerly(
+    outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
+  ): Promise<string> {
+    if (
+      !outreach.imageUrl ||
+      !outreach.phoneListId ||
+      !outreach.script ||
+      !outreach.identityId
+    ) {
+      throw new OutreachStepError(
+        'validation',
+        new Error('Draft outreach is missing fields required for Peerly'),
+      )
+    }
+
+    const imageKey = decodeURIComponent(
+      new URL(outreach.imageUrl).pathname.slice(1),
+    )
+    const image = await this.s3.getFileBytesWithContentType(
+      ASSET_DOMAIN,
+      imageKey,
+    )
+    if (!image) {
+      throw new OutreachStepError(
+        'peerlyMediaUpload',
+        new Error(`Draft image not found in S3: ${imageKey}`),
+      )
+    }
+
+    try {
+      return await this.peerlyP2pJobService.createPeerlyP2pJob({
+        campaignId: outreach.campaignId,
+        listId: outreach.phoneListId,
+        imageInfo: {
+          fileStream: image.bytes,
+          fileName: imageKey.split('/').pop() ?? 'outreach-image',
+          mimeType: image.contentType ?? 'image/jpeg',
+          title: outreach.title ?? undefined,
+        },
+        scriptText: outreach.script,
+        identityId: outreach.identityId,
+        name: outreach.name ?? undefined,
+        didState: outreach.didState ?? undefined,
+        didNpaSubset: outreach.didNpaSubset,
+        scheduledDate: outreach.date?.toISOString(),
+      })
+    } catch (err) {
+      throw new OutreachStepError('peerlyJobCreation', err)
+    }
   }
 
   // Per-voter attribution for the channels that resolve a segment (p2p, text,
@@ -222,17 +487,23 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     user: User,
     campaign: Campaign,
     outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
-    createOutreachDto: CreateOutreachSchema,
+    notificationMeta: Pick<
+      CreateOutreachSchema,
+      | 'audienceRequest'
+      | 'campaignPlanDueDate'
+      | 'textCount'
+      | 'billableTextCount'
+    >,
   ) {
     try {
       await this.notificationService.notifySuccess({
         user,
         campaign,
         outreach,
-        audienceRequest: createOutreachDto.audienceRequest,
-        campaignPlanDueDate: createOutreachDto.campaignPlanDueDate,
-        textCount: createOutreachDto.textCount,
-        billableTextCount: createOutreachDto.billableTextCount,
+        audienceRequest: notificationMeta.audienceRequest,
+        campaignPlanDueDate: notificationMeta.campaignPlanDueDate,
+        textCount: notificationMeta.textCount,
+        billableTextCount: notificationMeta.billableTextCount,
       })
     } catch (err) {
       this.logger.error(
@@ -246,17 +517,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
   private async createRecord(
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
+    identityId?: string,
   ) {
-    // campaignPlanDueDate and the text counts are notification-only metadata;
-    // they have no Outreach column, so they must not reach Prisma's create.
+    // draft is a flow selector, not an Outreach column.
     const outreachData = { ...createOutreachDto }
-    delete outreachData.campaignPlanDueDate
-    delete outreachData.textCount
-    delete outreachData.billableTextCount
+    delete outreachData.draft
     return await this.model.create({
       data: {
         ...outreachData,
         ...(imageUrl ? { imageUrl } : {}),
+        ...(identityId ? { identityId } : {}),
       },
       include: {
         voterFileFilter: true,
@@ -266,7 +536,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
   async findByCampaignId(campaignId: number) {
     const outreachCampaigns = await this.findMany({
-      where: { campaignId },
+      where: {
+        campaignId,
+        // Unpaid drafts are an implementation detail of the purchase flow.
+        // Prisma's `not` also excludes NULL, so nullable legacy rows need the
+        // explicit OR branch.
+        OR: [
+          { status: { not: OutreachStatus.pending_payment } },
+          { status: null },
+        ],
+      },
       include: {
         voterFileFilter: true,
       },

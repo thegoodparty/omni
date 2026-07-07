@@ -25,14 +25,15 @@ export const tcrComplianceBaseShape = {
   // at the boundary. `.trim()` runs before `.min(1)` so a whitespace-only value
   // can't slip through and get persisted to the campaign by createAgentic ahead
   // of the service-level `.trim()` guards. Only the create DTOs pick these
-  // fields; SubmitToPeerlyDto omits them (it reuses the persisted address).
+  // fields; the submit path has no request body — it reuses the persisted
+  // address.
   placeId: z.string().trim().min(1, 'A candidate address is required'),
   formattedAddress: z.string().trim().min(1, 'A candidate address is required'),
   // committeeName is sent to Peerly's 10DLC brand approval and interpolated
   // into the sample SMS messages, so a whitespace-only value produces a
   // malformed sample that fails the paid Peerly step. Trim + min like the
-  // address fields. SubmitToPeerlyDto reuses this field; the agent always sends
-  // the campaign's persisted (non-empty) committee name.
+  // address fields. The submit path reads the persisted (non-empty) committee
+  // name off the TcrCompliance row rather than the request.
   committeeName: z.string().trim().min(1, 'A committee name is required'),
   filingUrl: UrlOrDomainSchema.refine(urlIncludesPath, {
     message:
@@ -59,7 +60,7 @@ type TcrComplianceBaseData = {
   filingUrl: string
 }
 
-const addFilingUrlIssues = (filingUrl: string, ctx: z.RefinementCtx) => {
+export const addFilingUrlIssues = (filingUrl: string, ctx: z.RefinementCtx) => {
   // The WHATWG parser treats any text before an '@' as userinfo, so
   // https://goodparty.org@sos.gov/x parses hostname 'sos.gov' and would slip
   // the host guard below. A public filing URL never carries credentials.

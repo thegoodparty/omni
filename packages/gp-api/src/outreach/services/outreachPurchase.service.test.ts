@@ -6,7 +6,9 @@ import {
   PRICE_PER_TEXT_TENTH_CENTS,
 } from '@/shared/util/textPricing.util'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { OutreachPurchaseMetadata } from '../types/outreach.types'
+import { OutreachService } from './outreach.service'
 import { OutreachPurchaseHandlerService } from './outreachPurchase.service'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -15,8 +17,13 @@ const mockCampaignsService = {
   redeemFreeTexts: vi.fn(),
 } as unknown as CampaignsService
 
+const mockOutreachService = {
+  finalizeOutreachPurchase: vi.fn(),
+} as unknown as OutreachService
+
 const service = new OutreachPurchaseHandlerService(
   mockCampaignsService,
+  mockOutreachService,
   createMockLogger(),
 )
 
@@ -210,6 +217,90 @@ describe('OutreachPurchaseHandlerService', () => {
       const discount = await service.calculateDiscount(200, 1, 'p2p')
 
       expect(discount).toBe(calcTextAmountInCents(200))
+    })
+  })
+
+  describe('executePostPurchase', () => {
+    const purchaseMetadata = {
+      ...baseMetadata,
+      campaignId: 111,
+    }
+
+    it('finalizes a string outreachId before redeeming free texts', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockResolvedValueOnce(undefined)
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      await service.executePostPurchase('pi_draft', {
+        ...purchaseMetadata,
+        outreachId: '123',
+      })
+
+      expect(mockOutreachService.finalizeOutreachPurchase).toHaveBeenCalledWith(
+        123,
+        111,
+      )
+      expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
+
+      const finalizeOrder = firstOrThrow(
+        vi.mocked(mockOutreachService.finalizeOutreachPurchase).mock
+          .invocationCallOrder,
+      )
+      const redeemOrder = firstOrThrow(
+        vi.mocked(mockCampaignsService.redeemFreeTexts).mock
+          .invocationCallOrder,
+      )
+      expect(finalizeOrder).toBeLessThan(redeemOrder)
+    })
+
+    it('rethrows a finalize failure and skips redemption', async () => {
+      vi.mocked(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).mockRejectedValueOnce(new Error('peerly down'))
+
+      await expect(
+        service.executePostPurchase('pi_fail', {
+          ...purchaseMetadata,
+          outreachId: 123,
+        }),
+      ).rejects.toThrow('peerly down')
+
+      expect(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).not.toHaveBeenCalled()
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
+    })
+
+    it('runs legacy redemption when metadata has no outreachId', async () => {
+      vi.mocked(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).mockResolvedValueOnce(true)
+
+      await service.executePostPurchase('pi_legacy', purchaseMetadata)
+
+      expect(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).not.toHaveBeenCalled()
+      expect(mockCampaignsService.redeemFreeTexts).toHaveBeenCalledWith(111)
+    })
+
+    it('does nothing for non-p2p outreachType even with an outreachId', async () => {
+      await service.executePostPurchase('pi_text', {
+        ...purchaseMetadata,
+        outreachType: 'text',
+        outreachId: 123,
+      })
+
+      expect(
+        mockOutreachService.finalizeOutreachPurchase,
+      ).not.toHaveBeenCalled()
+      expect(
+        mockCampaignsService.checkFreeTextsEligibility,
+      ).not.toHaveBeenCalled()
+      expect(mockCampaignsService.redeemFreeTexts).not.toHaveBeenCalled()
     })
   })
 })
