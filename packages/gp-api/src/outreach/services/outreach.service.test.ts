@@ -20,6 +20,7 @@ import { PrismaService } from 'src/prisma/prisma.service'
 import { GooglePlacesService } from 'src/vendors/google/services/google-places.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import { PeerlyP2pJobService } from 'src/vendors/peerly/services/peerlyP2pJob.service'
+import { S3Service } from 'src/vendors/aws/services/s3.service'
 import type {
   CampaignGeographyInput,
   ResolveP2pJobGeographyServices,
@@ -146,6 +147,10 @@ describe('OutreachService', () => {
             recordSegmentAttribution: mockRecordSegmentAttribution,
           },
         },
+        {
+          provide: S3Service,
+          useValue: { getFileBytesWithContentType: vi.fn() },
+        },
         OutreachService,
       ],
     }).compile()
@@ -241,24 +246,24 @@ describe('OutreachService', () => {
       )
     })
 
-    it('does not persist campaignPlanDueDate (no such Outreach column)', async () => {
+    it('persists campaignPlanDueDate on the outreach row', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
         campaignPlanDueDate: '2026-04-19',
       }
       mockOutreachCreate.mockResolvedValue({
         id: 1,
-        ...baseCreateDto,
+        ...dto,
         voterFileFilter: null,
       })
 
       await service.create(mockUser, mockCampaign, dto, undefined, undefined)
 
       const [createArg] = firstOrThrow(mockOutreachCreate.mock.calls)
-      expect(createArg.data).not.toHaveProperty('campaignPlanDueDate')
+      expect(createArg.data).toHaveProperty('campaignPlanDueDate', '2026-04-19')
     })
 
-    it('forwards text counts into notifySuccess without persisting them', async () => {
+    it('forwards text counts into notifySuccess and persists them', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
         textCount: 5200,
@@ -266,7 +271,7 @@ describe('OutreachService', () => {
       }
       mockOutreachCreate.mockResolvedValue({
         id: 1,
-        ...baseCreateDto,
+        ...dto,
         voterFileFilter: null,
       })
 
@@ -276,8 +281,10 @@ describe('OutreachService', () => {
         expect.objectContaining({ textCount: 5200, billableTextCount: 200 }),
       )
       const [createArg] = firstOrThrow(mockOutreachCreate.mock.calls)
-      expect(createArg.data).not.toHaveProperty('textCount')
-      expect(createArg.data).not.toHaveProperty('billableTextCount')
+      expect(createArg.data).toMatchObject({
+        textCount: 5200,
+        billableTextCount: 200,
+      })
     })
 
     it('creates non-P2P outreach without imageUrl when both omitted', async () => {
@@ -538,7 +545,13 @@ describe('OutreachService', () => {
       const result = await service.findByCampaignId(1)
 
       expect(mockOutreachFindMany).toHaveBeenCalledWith({
-        where: { campaignId: 1 },
+        where: {
+          campaignId: 1,
+          OR: [
+            { status: { not: OutreachStatus.pending_payment } },
+            { status: null },
+          ],
+        },
         include: { voterFileFilter: true },
       })
       expect(result).toEqual(list)

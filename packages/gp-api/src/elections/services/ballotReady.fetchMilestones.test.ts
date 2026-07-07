@@ -2,7 +2,8 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { BallotReadyMilestone } from '../types/ballotReady.types'
-import { BallotReadyService, collapseMilestones } from './ballotReady.service'
+import { BallotReadyService } from './ballotReady.service'
+import { collapseMilestones } from '../util/ballotReady.util'
 
 // BR's Milestone.date is `ISO8601Date` per introspection — a calendar
 // date string like '2026-09-01' with no time / offset component. All

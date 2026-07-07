@@ -3,7 +3,7 @@ import { ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
-import { CONSTITUENT_TABLES } from '../chief-of-staff/services/constituentDataScope'
+import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
   buildStoryGreeting,
@@ -22,7 +22,7 @@ const buildHandler = (provider?: DatabricksProvider): CampaignManagerHandler =>
     {} as GeneralChatStoreService,
     {} as CampaignsService,
     {} as ChatStoreService,
-    CONSTITUENT_TABLES,
+    WIN_CONSTITUENT_TABLES,
     provider,
   )
 
@@ -39,6 +39,7 @@ const ctxWith = (
   districtFilters: null,
   constituentToolEnabled: false,
   story: null,
+  plan: null,
   ...over,
 })
 
@@ -82,7 +83,7 @@ const buildHandlerWithStory = (): CampaignManagerHandler =>
     {} as GeneralChatStoreService,
     {} as CampaignsService,
     {} as ChatStoreService,
-    CONSTITUENT_TABLES,
+    WIN_CONSTITUENT_TABLES,
     undefined,
     undefined,
     undefined,
@@ -152,7 +153,7 @@ describe('CampaignManagerHandler.resolveConversation — single ongoing thread',
       store as GeneralChatStoreService,
       {} as CampaignsService,
       chatStore as ChatStoreService,
-      CONSTITUENT_TABLES,
+      WIN_CONSTITUENT_TABLES,
     )
 
   const params = {

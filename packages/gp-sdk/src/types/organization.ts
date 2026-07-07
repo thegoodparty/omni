@@ -6,6 +6,8 @@ export type OrgDistrict = {
 
 export type OrgPosition = {
   id: string
+  // Optional: older gp-api deployments omit it, current ones return it.
+  name?: string | null
   state: string
   brPositionId: string
 }
@@ -17,6 +19,8 @@ export type AdminOrganization = {
   slug: string
   name: string | null
   positionName: string | null
+  // Optional: older gp-api deployments omit it, current ones return it.
+  customPositionName?: string | null
   position: OrgPosition | null
   district: OrgDistrict | null
   electedOfficeId: string | null

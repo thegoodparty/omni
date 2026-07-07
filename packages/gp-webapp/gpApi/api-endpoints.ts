@@ -37,6 +37,7 @@ import type {
   GetIndividualActivitiesResponse,
 } from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
+import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
   ChatConversationListResponse,
   ChatConversationMessagesResponse,
@@ -175,6 +176,13 @@ export type APIEndpoints = {
   'GET /v1/users/me': {
     Request: {}
     Response: User
+  }
+
+  // Used to refresh the outreach list after payment finalizes a draft
+  // (draft-first purchase flow). Server hides pending_payment rows.
+  'GET /v1/outreach': {
+    Request: {}
+    Response: Outreach[]
   }
 
   // Server-side flag resolution: gp-api evaluates Amplitude Experiment for the
