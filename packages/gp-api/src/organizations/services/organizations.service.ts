@@ -151,12 +151,13 @@ export class OrganizationsService extends createPrismaBase(
       }
     }
 
-    // Picking a structured position must also drop a stale custom name:
+    // Changing the position link must also drop a stale custom name:
     // resolvePositionContext prefers customPositionName, so leaving it in
-    // place would keep shadowing the newly resolved position everywhere
-    // downstream (including the HubSpot candidate_office sync).
+    // place would keep shadowing the resolved position (or survive an
+    // unlink) everywhere downstream, including the HubSpot
+    // candidate_office sync.
     const clearsStaleCustomName =
-      !!updates.ballotReadyPositionId && !('customPositionName' in updates)
+      'ballotReadyPositionId' in updates && !('customPositionName' in updates)
 
     const updated = await this.client.organization.update({
       where: { slug: org.slug },

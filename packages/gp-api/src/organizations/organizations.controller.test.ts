@@ -1161,6 +1161,42 @@ describe('PATCH /v1/organizations/:slug', () => {
     })
     expect(updated?.customPositionName).toBe('Keep Me')
   })
+
+  it('clears a stale customPositionName when the position is unlinked', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-212',
+        ownerId: service.user.id,
+        positionId: 'pos-unlink',
+        customPositionName: 'City Council',
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'test-campaign-212',
+        details: {},
+        organizationSlug: 'campaign-212',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/campaign-212',
+      { ballotReadyPositionId: null },
+    )
+
+    expect(result).toMatchObject({
+      status: 200,
+      data: { positionName: null, customPositionName: null },
+    })
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-212' },
+    })
+    expect(updated?.positionId).toBeNull()
+    expect(updated?.customPositionName).toBeNull()
+  })
 })
 
 describe('GET /v1/organizations/admin/:slug', () => {

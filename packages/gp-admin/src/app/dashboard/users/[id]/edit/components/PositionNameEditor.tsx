@@ -21,8 +21,10 @@ export function PositionNameEditor({
   structuredPositionName,
 }: PositionNameEditorProps) {
   const { showToast } = useToast()
-  const [value, setValue] = useState(initialCustomPositionName ?? '')
-  const [savedValue, setSavedValue] = useState(initialCustomPositionName ?? '')
+  const [value, setValue] = useState((initialCustomPositionName ?? '').trim())
+  const [savedValue, setSavedValue] = useState(
+    (initialCustomPositionName ?? '').trim()
+  )
   const [saving, setSaving] = useState(false)
 
   const isDirty = value.trim() !== savedValue
