@@ -45,6 +45,7 @@ model ExperimentRun {
   meetingBriefings         MeetingBriefing[]
   meetingResourceLocations MeetingResourceLocation[]
   userAgendaUploads        UserAgendaUpload[]
+  ordinanceCodeRecords     OrdinanceCodeRecord[]
 
   @@index([organizationSlug, experimentType])
   @@index([status, resumeScheduledFor])

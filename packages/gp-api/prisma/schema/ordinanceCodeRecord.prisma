@@ -1,0 +1,66 @@
+enum OrdinanceDataQuality {
+  OK
+  PARTIAL
+  UNCODIFIED
+  NOT_FOUND
+  AMBIGUOUS
+}
+
+enum OrdinanceConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum OrdinanceHostType {
+  MUNICODE
+  ECODE360
+  AMERICAN_LEGAL
+  CODEPUBLISHING
+  ENCODEPLUS
+  MUNICIPALCODEONLINE
+  CITY_GOV
+  OTHER
+}
+
+model OrdinanceCodeRecord {
+  id String @id @default(uuid(7))
+
+  organizationSlug String       @unique @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+
+  codeFound   Boolean              @map("code_found")
+  dataQuality OrdinanceDataQuality @map("data_quality")
+  confidence  OrdinanceConfidence
+
+  // Pointer to the authoritative code source. Nullable as a group: null when
+  // the run found nothing to point at, populated even on found:false
+  // uncodified results.
+  hostType      OrdinanceHostType? @map("host_type")
+  url           String?
+  editionOrDate String?            @map("edition_or_date")
+  clientId      String?            @map("client_id")
+  productId     String?            @map("product_id")
+
+  place            String
+  state            String
+  verifiedEvidence String @map("verified_evidence") @db.Text
+
+  artifactBucket String @map("artifact_bucket")
+  artifactKey    String @map("artifact_key")
+
+  // Set when never-regress rejects an incoming downgrade, recording why the
+  // current record was kept over the newer run's result.
+  supersededNote String? @map("superseded_note")
+
+  experimentRunId String?        @map("experiment_run_id")
+  experimentRun   ExperimentRun? @relation(fields: [experimentRunId], references: [runId], onDelete: SetNull)
+
+  verifiedAt DateTime @map("verified_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([experimentRunId])
+  @@index([state, place])
+  @@map("ordinance_code_record")
+}
