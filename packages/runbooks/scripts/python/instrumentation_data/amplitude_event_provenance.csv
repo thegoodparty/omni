@@ -430,8 +430,8 @@ Voter Outreach - Payment Started,voter_outreach_payment_started,2b9f22689ccc9e29
 Win - Opponent Activity Viewed,win_opponent_activity_viewed,,,2026-06-28,,,,,,2026-06-28,,,2026-06-28T07:37:49
 Win - Opponent Profile Viewed,win_opponent_profile_viewed,,,2026-06-28,,,,,,2026-06-28,,,2026-06-28T07:37:49
 Win - Opponent Research Started,win_opponent_research_started,,https://github.com/thegoodparty/omni/pull/557,2026-06-30,,,,,,2026-06-30,,,2026-06-30T15:16:14
-Win - Opponent Standout Action Clicked,win_opponent_standout_action_clicked,,,2026-07-07,,,,,,2026-07-07,,,2026-07-07T00:20:08
-Win - Opponent Standout Actions Viewed,win_opponent_standout_actions_viewed,,,2026-07-07,,,,,,2026-07-07,,,2026-07-07T00:20:08
+Win - Opponent Standout Action Clicked,win_opponent_standout_action_clicked,902bea1fd,663,2026-07-07,,,,,,2026-07-07,,,2026-07-07T00:20:08
+Win - Opponent Standout Actions Viewed,win_opponent_standout_actions_viewed,902bea1fd,663,2026-07-07,,,,,,2026-07-07,,,2026-07-07T00:20:08
 Win - Opponent Upgrade Viewed,win_opponent_upgrade_viewed,,https://github.com/thegoodparty/omni/pull/557,2026-06-30,,,,,,2026-06-30,,,2026-06-30T15:16:13
 Win - Opponents Manually Added,win_opponents_manually_added,,https://github.com/thegoodparty/omni/pull/557,2026-06-30,,,,,,2026-06-30,,,2026-06-30T15:16:14
 Win - Self Research Completed,win_self_research_completed,,,2026-06-28,,,,,,2026-06-28,,,2026-06-28T07:37:49
