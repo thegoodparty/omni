@@ -1,5 +1,11 @@
+import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ExperimentRunStatus } from '../../generated/prisma'
+import {
+  ExperimentRunStatus,
+  OrdinanceConfidence,
+  OrdinanceDataQuality,
+} from '../../generated/prisma'
+import { CronLockService } from '@/cron/services/cronLock.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { TEST_CLERK_ID, useTestService } from '@/test-service'
@@ -226,5 +232,236 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
       .onElectedOfficeCreated(office)
 
     expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+})
+
+const seedRecord = (
+  slug: string,
+  data: {
+    verifiedAt: Date
+    confidence?: OrdinanceConfidence
+    codeFound?: boolean
+  },
+) =>
+  service.prisma.ordinanceCodeRecord.create({
+    data: {
+      organizationSlug: slug,
+      codeFound: data.codeFound ?? true,
+      dataQuality: OrdinanceDataQuality.OK,
+      confidence: data.confidence ?? OrdinanceConfidence.HIGH,
+      place: 'Ramsey',
+      state: 'MN',
+      verifiedEvidence: 'evidence',
+      artifactBucket: 'bucket',
+      artifactKey: 'key',
+      verifiedAt: data.verifiedAt,
+    },
+  })
+
+const mockCronLock = (claimed: boolean) => {
+  const cronLock = service.app.get(CronLockService)
+  return {
+    claimSpy: vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(claimed),
+    completeSpy: vi
+      .spyOn(cronLock, 'markCompleted')
+      .mockResolvedValue(undefined),
+  }
+}
+
+describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
+  beforeEach(() => {
+    vi.stubEnv('ORDINANCES_AUTOMATION_ENABLED', 'true')
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'Ramsey City Council',
+      isServeIcp: true,
+    })
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it('does nothing when automation is disabled', async () => {
+    vi.stubEnv('ORDINANCES_AUTOMATION_ENABLED', '')
+    const orgSlug = `ord-cron-off-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 61) })
+    const dispatchSpy = mockDispatchRun()
+    const { claimSpy } = mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(claimSpy).not.toHaveBeenCalled()
+  })
+
+  it('does no work when another replica holds the daily lease', async () => {
+    const orgSlug = `ord-cron-lease-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 61) })
+    const dispatchSpy = mockDispatchRun()
+    const { completeSpy } = mockCronLock(false)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(completeSpy).not.toHaveBeenCalled()
+  })
+
+  it('skips an org whose record is fresh', async () => {
+    const orgSlug = `ord-cron-fresh-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 5) })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('dispatches a refresh for a record older than 60 days', async () => {
+    const orgSlug = `ord-cron-stale-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 61) })
+    const dispatchSpy = mockDispatchRun()
+    const { completeSpy } = mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith({
+      type: FIND_EXISTING_ORDINANCES,
+      organizationSlug: orgSlug,
+      clerkUserId: TEST_CLERK_ID,
+      params: {
+        organization_slug: orgSlug,
+        state: 'MN',
+        office: 'Ramsey City Council',
+      },
+    })
+    expect(completeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-checks a low-confidence not-found record after 14 days', async () => {
+    const orgSlug = `ord-cron-leash-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, {
+      verifiedAt: subDays(new Date(), 15),
+      confidence: OrdinanceConfidence.LOW,
+      codeFound: false,
+    })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: orgSlug }),
+    )
+  })
+
+  it('holds the 14-day leash on a young low-confidence not-found record', async () => {
+    const orgSlug = `ord-cron-young-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, {
+      verifiedAt: subDays(new Date(), 5),
+      confidence: OrdinanceConfidence.LOW,
+      codeFound: false,
+    })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('dispatches a first run for an office org with no record or run', async () => {
+    const orgSlug = `ord-cron-norec-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: orgSlug }),
+    )
+  })
+
+  it('skips a no-record org whose run completed within 60 days', async () => {
+    const orgSlug = `ord-cron-recent-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('skips an org with an in-flight run', async () => {
+    const orgSlug = `ord-cron-inflight-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 61) })
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: ExperimentRunStatus.QUEUED,
+      },
+    })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('caps dispatches at 200 per tick and still completes the lease', async () => {
+    const slugs = Array.from({ length: 201 }, (_, i) => `ord-cap-${i}`)
+    await service.prisma.organization.createMany({
+      data: slugs.map((slug) => ({ slug, ownerId: service.user.id })),
+    })
+    await service.prisma.electedOffice.createMany({
+      data: slugs.map((slug) => ({
+        userId: service.user.id,
+        organizationSlug: slug,
+      })),
+    })
+    const verifiedAt = subDays(new Date(), 61)
+    await service.prisma.ordinanceCodeRecord.createMany({
+      data: slugs.map((slug) => ({
+        organizationSlug: slug,
+        codeFound: true,
+        dataQuality: OrdinanceDataQuality.OK,
+        confidence: OrdinanceConfidence.HIGH,
+        place: 'Ramsey',
+        state: 'MN',
+        verifiedEvidence: 'evidence',
+        artifactBucket: 'bucket',
+        artifactKey: 'key',
+        verifiedAt,
+      })),
+    })
+    const dispatchSpy = mockDispatchRun()
+    const { completeSpy } = mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(200)
+    expect(completeSpy).toHaveBeenCalledTimes(1)
   })
 })
