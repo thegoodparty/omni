@@ -465,3 +465,37 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
     expect(completeSpy).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('clerkless elected-office users', () => {
+  beforeEach(() => {
+    vi.stubEnv('ORDINANCES_AUTOMATION_ENABLED', 'true')
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.restoreAllMocks()
+  })
+
+  it('dispatches without a clerk user id when the office user has none', async () => {
+    const orgSlug = `ord-clerkless-${Date.now()}`
+    const office = await seedOrgWithOffice(orgSlug)
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { clerkId: null },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'Ramsey City Council',
+      isServeIcp: true,
+    })
+    const dispatchSpy = mockDispatchRun()
+
+    await service.app
+      .get(OrdinanceDispatchService)
+      .onElectedOfficeCreated(office)
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ clerkUserId: undefined }),
+    )
+  })
+})

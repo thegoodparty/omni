@@ -40,14 +40,14 @@ const LOW_CONFIDENCE_RECHECK_DAYS = 14
 const DISPATCH_CAP_PER_TICK = 200
 
 type ResolvedDispatchContext = {
-  clerkUserId: string
+  clerkUserId: string | undefined
   state: string
   positionName: string
   isServeIcp?: boolean | null
 }
 
 type DispatchableOrg = {
-  clerkUserId: string
+  clerkUserId: string | undefined
   state: string
   office: string
 }
@@ -314,10 +314,10 @@ export class OrdinanceDispatchService extends createPrismaBase(
       }),
     ])
 
-    if (!eo?.user?.clerkId) {
+    if (!eo) {
       this.logger.warn(
         { organizationSlug },
-        'ordinance_dispatch_skipped: no elected office or user clerkId',
+        'ordinance_dispatch_skipped: no elected office',
       )
       return null
     }
@@ -335,7 +335,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
     }
 
     return {
-      clerkUserId: eo.user.clerkId,
+      clerkUserId: eo.user?.clerkId ?? undefined,
       state: serveCtx.state,
       positionName: serveCtx.positionName,
       isServeIcp: serveCtx.isServeIcp,
