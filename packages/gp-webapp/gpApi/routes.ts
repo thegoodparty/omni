@@ -274,6 +274,10 @@ export const apiRoutes = {
         path: '/campaigns/tcr-compliance/mine',
         method: 'GET',
       },
+      complianceState: {
+        path: '/campaigns/tcr-compliance/mine/compliance-state',
+        method: 'GET',
+      },
       create: {
         path: '/campaigns/tcr-compliance',
         method: 'POST',

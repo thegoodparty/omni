@@ -10,6 +10,8 @@ Voter outreach hub. Lets a campaign create text/voicemail/script outreach to vot
 | `components/OutreachPage.tsx` | Top-level layout for the feature |
 | `hooks/OutreachContext.tsx` | Feature-level context — current outreach selection, audience filters |
 | `components/OutreachCreateCards.tsx` / `OutreachCreateCard.tsx` | Channel picker (text, voicemail, etc.) |
+| `components/OutreachComposeDeepLink.tsx` | Consumes `?compose=text&message=<sms>` — opens the text TaskFlow with the preset script through the same gate as the create card, then strips the params (consume-once via `router.replace`) |
+| `hooks/useTextOutreachGate.tsx` | Single source for the text-channel gate (non-Pro → `P2PUpgradeModal`, Pro non-compliant → `ComplianceModal`, else pass) — both the create card and the deep link call it |
 | `components/OutreachActions.tsx` + `*ActionOption.tsx` | Per-channel actions (download audience, copy script) |
 | `components/OutreachImpact.tsx` | Sent / delivered metrics |
 | `hooks/` | Feature-local hooks (audience fetching, scheduling) |

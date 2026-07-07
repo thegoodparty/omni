@@ -50,6 +50,24 @@ model RaceOpponentFieldAnalysis {
   @@map("race_opponent_field_analysis")
 }
 
+model RaceOpponentStandoutAction {
+  id           Int      @id @default(autoincrement())
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  campaign     Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId   Int      @map("campaign_id")
+  order        Int
+  title        String
+  body         String
+  smsMessage   String   @map("sms_message")
+  opponentName String?  @map("opponent_name")
+  issue        String
+  runId        String?  @map("run_id")
+
+  @@unique([campaignId, order])
+  @@map("race_opponent_standout_action")
+}
+
 enum RaceOpponentResearchStatus {
   not_started
   queued

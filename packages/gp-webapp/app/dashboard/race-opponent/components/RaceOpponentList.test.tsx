@@ -976,6 +976,54 @@ describe('<RaceOpponentList>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('renders the stand-out actions section in the report state when standoutActions is populated', () => {
+    render(
+      <RaceOpponentList
+        initialData={{
+          ...withSummary,
+          standoutActions: [
+            {
+              title: 'Contrast on housing',
+              body: 'Voters care most about housing affordability.',
+              smsMessage: 'Hi, this is a housing message.',
+              opponentName: 'Jane Rival',
+              issue: 'Housing',
+            },
+            {
+              title: 'Show up in the suburbs',
+              body: 'The field has no ground game there.',
+              smsMessage: 'Hi, this is a suburbs message.',
+              opponentName: null,
+              issue: 'Turnout',
+            },
+          ],
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByRole('heading', { name: '2 ways to stand out' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getAllByRole('button', { name: 'Send SMS to voters' }),
+    ).toHaveLength(2)
+  })
+
+  it('does not render the stand-out actions section when standoutActions is empty', () => {
+    render(
+      <RaceOpponentList
+        initialData={{ ...withSummary, standoutActions: [] }}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('heading', { name: /ways? to stand out/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Send SMS to voters' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders the field-header heading with the opponent count and no eyebrow label', () => {
     render(<RaceOpponentList initialData={withSummary} />)
 

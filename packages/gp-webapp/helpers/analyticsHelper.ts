@@ -36,16 +36,22 @@ export const EVENTS = {
   // activity stream renders, UpgradeViewed when a non-Pro candidate lands on the
   // locked upgrade pitch, OpponentsManuallyAdded when the manual-entry form is
   // submitted, and ResearchStarted when a research run starts (manual submit or
-  // the auto-fired collection that follows discovery). Together they measure how
-  // far candidates get from upgrade through activation to the report. The
-  // self-research-completion and contrast events are server-truth and fire from
-  // gp-api, not here.
+  // the auto-fired collection that follows discovery). StandoutActionsViewed
+  // fires when the "N ways to stand out" cards render on the brief, and
+  // StandoutActionClicked when a card's "Send SMS to voters" CTA is clicked —
+  // the race-opponent half of the outreach funnel, joining to
+  // Outreach.ClickCreate with source 'deep_link' when the composer opens.
+  // Together they measure how far candidates get from upgrade through
+  // activation to the report. The self-research-completion and contrast events
+  // are server-truth and fire from gp-api, not here.
   RaceOpponent: {
     OpponentProfileViewed: 'Win - Opponent Profile Viewed',
     OpponentActivityViewed: 'Win - Opponent Activity Viewed',
     UpgradeViewed: 'Win - Opponent Upgrade Viewed',
     OpponentsManuallyAdded: 'Win - Opponents Manually Added',
     ResearchStarted: 'Win - Opponent Research Started',
+    StandoutActionsViewed: 'Win - Opponent Standout Actions Viewed',
+    StandoutActionClicked: 'Win - Opponent Standout Action Clicked',
   },
   polls: {
     resultsViewed: 'Polls - Poll Results Overview Viewed',

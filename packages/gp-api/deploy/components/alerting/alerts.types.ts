@@ -45,6 +45,19 @@ export type Alert = {
   /** The Slack group to notify when the alert is triggered. */
   notify?: SlackGroup
 
+  /**
+   * How far back (in seconds) the alerting engine fetches data from the
+   * datasource on each evaluation. Defaults to 600 (10 minutes). The
+   * effective lookback of a range vector is capped by this window — a `[1h]`
+   * vector with a 600s fetch only ever sees 10 minutes of data — so set it
+   * >= the largest range vector in `expr` when the full window must be
+   * visible. Alerts that predate this field keep the 600s cap on purpose:
+   * their firing behavior was tuned under it, and widening the fetch would
+   * change sensitivity and re-fire duration. Retune those deliberately, not
+   * in passing.
+   */
+  timeRangeSeconds?: number
+
   /** Whether the alert is disabled. */
   disabled?: boolean
 }

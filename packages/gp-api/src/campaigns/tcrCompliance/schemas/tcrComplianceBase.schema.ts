@@ -6,7 +6,11 @@ import {
   WriteEmailSchema,
 } from '../../../shared/schemas'
 import { CommitteeType, OfficeLevel } from '../../../generated/prisma'
-import { urlIncludesPath } from '../../../shared/util/strings.util'
+import {
+  getUrlHostname,
+  urlHasCredentials,
+  urlIncludesPath,
+} from '../../../shared/util/strings.util'
 import { Logger } from '@nestjs/common'
 
 const logger = new Logger('TcrComplianceDto')
@@ -21,14 +25,15 @@ export const tcrComplianceBaseShape = {
   // at the boundary. `.trim()` runs before `.min(1)` so a whitespace-only value
   // can't slip through and get persisted to the campaign by createAgentic ahead
   // of the service-level `.trim()` guards. Only the create DTOs pick these
-  // fields; SubmitToPeerlyDto omits them (it reuses the persisted address).
+  // fields; the submit path has no request body — it reuses the persisted
+  // address.
   placeId: z.string().trim().min(1, 'A candidate address is required'),
   formattedAddress: z.string().trim().min(1, 'A candidate address is required'),
   // committeeName is sent to Peerly's 10DLC brand approval and interpolated
   // into the sample SMS messages, so a whitespace-only value produces a
   // malformed sample that fails the paid Peerly step. Trim + min like the
-  // address fields. SubmitToPeerlyDto reuses this field; the agent always sends
-  // the campaign's persisted (non-empty) committee name.
+  // address fields. The submit path reads the persisted (non-empty) committee
+  // name off the TcrCompliance row rather than the request.
   committeeName: z.string().trim().min(1, 'A committee name is required'),
   filingUrl: UrlOrDomainSchema.refine(urlIncludesPath, {
     message:
@@ -55,6 +60,38 @@ type TcrComplianceBaseData = {
   filingUrl: string
 }
 
+export const addFilingUrlIssues = (filingUrl: string, ctx: z.RefinementCtx) => {
+  // The WHATWG parser treats any text before an '@' as userinfo, so
+  // https://goodparty.org@sos.gov/x parses hostname 'sos.gov' and would slip
+  // the host guard below. A public filing URL never carries credentials.
+  if (urlHasCredentials(filingUrl)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'Filing URL must be a plain public URL without embedded ' +
+        'credentials (no "user@host")',
+      path: ['filingUrl'],
+    })
+  }
+
+  // goodparty.org is our own marketing/profile site, never an official
+  // election filing. The compliance agent was resolving filing URLs to
+  // goodparty.org candidate pages, so CampaignVerify couldn't match the
+  // candidate against a filing and had to contact the election authority by
+  // hand. Reject it here so the agent must supply a real filing record.
+  const filingHost = getUrlHostname(filingUrl)
+  if (filingHost === 'goodparty.org' || filingHost.endsWith('.goodparty.org')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'Filing URL must be an official election-authority filing record ' +
+        '(Secretary of State, county or city clerk, or FEC), not a ' +
+        'goodparty.org page',
+      path: ['filingUrl'],
+    })
+  }
+}
+
 export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
   data: T,
   ctx: z.RefinementCtx,
@@ -65,6 +102,9 @@ export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
   options: { requireFecCommitteeId?: boolean } = {},
 ) => {
   const { requireFecCommitteeId = true } = options
+
+  addFilingUrlIssues(data.filingUrl, ctx)
+
   const isFederal = data.officeLevel === OfficeLevel.federal
 
   if (isFederal) {

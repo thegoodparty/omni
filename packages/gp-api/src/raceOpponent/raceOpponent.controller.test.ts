@@ -4,8 +4,9 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
 import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
 import { StrategicLandscapeParamsService } from '@/campaignStrategy/services/strategicLandscapeParams.service'
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
-import { ExperimentRunStatus } from '@/generated/prisma'
+import { ExperimentRun, ExperimentRunStatus } from '@/generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -513,6 +514,7 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
       lastCollectedAt: null,
       collectionStatus: 'idle',
       fieldAnalysis: null,
+      standoutActions: [],
     })
   })
 
@@ -1730,7 +1732,20 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     expect(opponent.summary.overview.text).toBe('second')
   })
 
-  it('clears stale summaries and field analysis when a collection run replaces the collected rows', async () => {
+  const seedStaleCard = () =>
+    service.prisma.raceOpponentStandoutAction.create({
+      data: {
+        campaignId,
+        order: 0,
+        title: 'Stale card',
+        body: 'Old body.',
+        smsMessage: 'Old sms.',
+        issue: 'housing',
+        runId: 'actions-stale',
+      },
+    })
+
+  it('clears stale summaries, field analysis, and stand-out actions when a collection run replaces the collected rows', async () => {
     // Seed a prior summary + field analysis plus the prior collected row they
     // were built from.
     await seedCollectedRow()
@@ -1749,6 +1764,7 @@ describe('race_opponent_summary dispatch / persist / read', () => {
         where: { campaignId },
       }),
     ).toBe(1)
+    await seedStaleCard()
 
     // A fresh collection run replaces the collected rows; its chained summary
     // dispatch is stubbed, so without the cleanup the stale summary and SWOT
@@ -1790,6 +1806,38 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     ).toBe(0)
     expect(
       await service.prisma.raceOpponentFieldAnalysis.count({
+        where: { campaignId },
+      }),
+    ).toBe(0)
+    expect(
+      await service.prisma.raceOpponentStandoutAction.count({
+        where: { campaignId },
+      }),
+    ).toBe(0)
+  })
+
+  it('clears stale stand-out actions when a summary run replaces the summaries', async () => {
+    await seedCollectedRow()
+    await seedStaleCard()
+
+    const summaryRun = await seedSummaryRun('summary-replaces-cards')
+    stubSummaryArtifact(summaryArtifact({}))
+    vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    ).mockResolvedValue({ runId: 'chained-actions' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(summaryRun)
+
+    // The cards derived from the replaced summaries are gone in the same
+    // transaction; the chained actions run (stubbed here) repopulates.
+    expect(
+      await service.prisma.raceOpponentSummary.count({ where: { campaignId } }),
+    ).toBe(1)
+    expect(
+      await service.prisma.raceOpponentStandoutAction.count({
         where: { campaignId },
       }),
     ).toBe(0)
@@ -1971,5 +2019,690 @@ describe('race_opponent_summary dispatch / persist / read', () => {
     )
     expect(nora.threatTier).toBeUndefined()
     expect(nora.summary).toBeNull()
+  })
+
+  // ENG-10646: race_opponent_actions chains off a completed summary the same
+  // way the summary chains off a completed collection.
+
+  it('chains race_opponent_actions with fully-hydrated params after the summary persists', async () => {
+    await seedCollectedRow({
+      sourceType: 'ballotpedia',
+      sourceUrl: BALLOTPEDIA_URL,
+    })
+    await seedWebsite({
+      bio: 'A lifelong resident running for council.',
+      issues: [
+        { title: 'Water security', description: 'Publish a 50-year plan.' },
+      ],
+    })
+    const run = await seedSummaryRun('summary-chains-actions')
+    stubSummaryArtifact(
+      summaryArtifact({
+        issues_that_matter: {
+          items: ['Housing'],
+          sources: [richSource(BALLOTPEDIA_URL)],
+        },
+      }),
+    )
+    // Prototype spy: DistrictResolverService is provided per-module (this
+    // module, campaign-manager, chief-of-staff, briefing-chats), so app.get
+    // may return a different instance than the one injected here.
+    vi.spyOn(
+      DistrictResolverService.prototype,
+      'resolveByOrgSlug',
+    ).mockResolvedValue({
+      state: 'NC',
+      l2DistrictType: 'City',
+      l2DistrictName: 'HENDERSONVILLE CITY',
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-1' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(run)
+
+    const actionsCall = dispatchRun.mock.calls.find(
+      ([input]) => input.type === 'race_opponent_actions',
+    )
+    expect(actionsCall?.[0].params).toEqual({
+      opponents: [
+        {
+          opponent_name: JANE,
+          threat_tier: 'watch_closely',
+          overview_text: 'who they are',
+          background_text: 'career',
+          issues_that_matter: ['Housing'],
+        },
+      ],
+      candidate_platform: {
+        bio: 'A lifelong resident running for council.',
+        issues: [
+          { title: 'Water security', description: 'Publish a 50-year plan.' },
+        ],
+      },
+      state: 'NC',
+      l2_district_type: 'City',
+      l2_district_name: 'HENDERSONVILLE CITY',
+      race_context: {
+        city: null,
+        election_date: null,
+        office_name: null,
+        state: null,
+      },
+    })
+  })
+
+  it('dispatchActions omits the flat district params entirely when resolution returns null', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    // Explicit null (not the real resolver): clearMocks doesn't restore the
+    // prototype spy's implementation from the hydration test above.
+    vi.spyOn(
+      DistrictResolverService.prototype,
+      'resolveByOrgSlug',
+    ).mockResolvedValue(null)
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-nodistrict' } as never)
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    expect(dispatchRun).toHaveBeenCalledTimes(1)
+    const params = dispatchRun.mock.calls[0]?.[0].params
+    expect(params).not.toHaveProperty('state')
+    expect(params).not.toHaveProperty('l2_district_type')
+    expect(params).not.toHaveProperty('l2_district_name')
+  })
+
+  it('dispatchActions is a no-op when no summaries are persisted', async () => {
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('dispatchActions skips when an actions run is already in flight', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-inflight',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.RUNNING,
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+
+  it('dispatchActions bounds oversized summary text producer-side', async () => {
+    await service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: 'summary-long',
+        opponentName: JANE,
+        sections: {
+          opponentName: JANE,
+          overview: {
+            text: 'x'.repeat(4100),
+            sources: [
+              { sourceType: 'ballotpedia', sourceUrl: BALLOTPEDIA_URL },
+            ],
+          },
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-06-28T00:00:00.000Z',
+          threatTier: 'watch_closely',
+        },
+      },
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-capped' } as never)
+
+    await service.app
+      .get(RaceOpponentService)
+      .dispatchActions(await loadCampaign())
+
+    const params = dispatchRun.mock.calls[0]?.[0].params as {
+      opponents: { overview_text: string | null }[]
+    }
+    expect(params.opponents[0]?.overview_text).toBe('x'.repeat(4000))
+  })
+
+  it("GET collectionStatus stays 'completed' while an actions run is RUNNING", async () => {
+    await seedCollectedRow()
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-cycle',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-cycle',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-running',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.RUNNING,
+        createdAt: new Date('2026-07-01T10:10:00.000Z'),
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.collectionStatus).toBe('completed')
+  })
+
+  it("GET collectionStatus stays 'completed' when an actions run FAILED", async () => {
+    await seedCollectedRow()
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'collect-cycle-2',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_collection',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-cycle-2',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-failed-status',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-07-01T10:10:00.000Z'),
+      },
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.collectionStatus).toBe('completed')
+  })
+
+  it('re-chains actions when a terminal actions run leaves a newer summary unprocessed', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    const failedActions = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-failed',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-newer',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-rechained' } as never)
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedActions)
+
+    expect(dispatchRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'race_opponent_actions' }),
+    )
+  })
+
+  it('does not re-chain on a terminal actions run when no newer summary exists', async () => {
+    await seedTieredSummary(JANE, 'watch_closely')
+    const failedActions = await service.prisma.experimentRun.create({
+      data: {
+        runId: 'actions-failed-solo',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: ExperimentRunStatus.FAILED,
+        createdAt: new Date('2026-07-01T10:05:00.000Z'),
+      },
+    })
+    // The only completed summary pre-dates this actions run (its own cycle),
+    // so there is nothing newer to re-chain for — re-dispatching would loop.
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-older',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-01T10:00:00.000Z'),
+      },
+    })
+    const dispatchRun = vi.spyOn(
+      service.app.get(ExperimentRunsService),
+      'dispatchRun',
+    )
+
+    await service.app
+      .get(RaceOpponentPersistService)
+      .onExperimentRunCompleted(failedActions)
+
+    expect(dispatchRun).not.toHaveBeenCalled()
+  })
+})
+
+// ENG-10647: the actions artifact persists into race_opponent_standout_action
+// and GET serves the cards back through the contract.
+describe('race_opponent_actions persist / read', () => {
+  let campaignId: number
+
+  beforeEach(async () => {
+    const campaign = await seedCampaign({
+      slug: SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    campaignId = campaign.id
+    flagOn()
+  })
+
+  const seedActionsRun = (
+    runId: string,
+    overrides: Partial<{
+      status: ExperimentRunStatus
+      artifactBucket: string | null
+      artifactKey: string | null
+      createdAt: Date
+    }> = {},
+  ) =>
+    service.prisma.experimentRun.create({
+      data: {
+        runId,
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_actions',
+        status: overrides.status ?? ExperimentRunStatus.COMPLETED,
+        artifactBucket:
+          overrides.artifactBucket === undefined
+            ? 'bucket'
+            : overrides.artifactBucket,
+        artifactKey:
+          overrides.artifactKey === undefined
+            ? `${runId}.json`
+            : overrides.artifactKey,
+        ...(overrides.createdAt ? { createdAt: overrides.createdAt } : {}),
+      },
+    })
+
+  const stubActionsArtifact = (actions: unknown[]) =>
+    vi.spyOn(service.app.get(S3Service), 'getFile').mockResolvedValue(
+      JSON.stringify({
+        generated_at: '2026-07-06T00:00:00.000Z',
+        haystaq_status: 'no_district',
+        actions,
+      }),
+    )
+
+  const actionCard = (overrides: Record<string, unknown> = {}) => ({
+    title: `Stand out against ${JANE} on housing`,
+    body: 'Jane has no published housing plan. You have committed to one.',
+    sms_message:
+      'Hi, this is Alex — unlike my opponent, I have a housing plan.',
+    opponent_name: JANE,
+    issue: 'housing',
+    ...overrides,
+  })
+
+  const seedStandoutRow = (
+    order: number,
+    overrides: Record<string, unknown> = {},
+  ) =>
+    service.prisma.raceOpponentStandoutAction.create({
+      data: {
+        campaignId,
+        runId: 'prior-actions-run',
+        order,
+        title: `Prior card ${order}`,
+        body: 'Prior body.',
+        smsMessage: 'Prior sms.',
+        opponentName: JANE,
+        issue: 'roads',
+        ...overrides,
+      },
+    })
+
+  const persist = (run: ExperimentRun) =>
+    service.app.get(RaceOpponentPersistService).onExperimentRunCompleted(run)
+
+  it('persists artifact cards with order = array index, runId, and camelCase mapping', async () => {
+    const run = await seedActionsRun('actions-a')
+    stubActionsArtifact([
+      actionCard(),
+      actionCard({
+        title: 'Own the roads issue',
+        opponent_name: null,
+        issue: 'roads',
+      }),
+    ])
+
+    await persist(run)
+
+    const rows = await service.prisma.raceOpponentStandoutAction.findMany({
+      where: { campaignId },
+      orderBy: { order: 'asc' },
+    })
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({
+      order: 0,
+      runId: 'actions-a',
+      title: `Stand out against ${JANE} on housing`,
+      body: 'Jane has no published housing plan. You have committed to one.',
+      smsMessage:
+        'Hi, this is Alex — unlike my opponent, I have a housing plan.',
+      opponentName: JANE,
+      issue: 'housing',
+    })
+    expect(rows[1]).toMatchObject({
+      order: 1,
+      title: 'Own the roads issue',
+      opponentName: null,
+      issue: 'roads',
+    })
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'actions-a' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
+  })
+
+  it('replaces prior cards on re-run and (campaignId, order) stays unique', async () => {
+    const first = await seedActionsRun('actions-first')
+    stubActionsArtifact([actionCard(), actionCard({ issue: 'water' })])
+    await persist(first)
+
+    const second = await seedActionsRun('actions-second')
+    stubActionsArtifact([actionCard({ title: 'Fresh card', issue: 'schools' })])
+    await persist(second)
+
+    const rows = await service.prisma.raceOpponentStandoutAction.findMany({
+      where: { campaignId },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      order: 0,
+      runId: 'actions-second',
+      title: 'Fresh card',
+    })
+  })
+
+  it('a valid empty artifact clears prior cards and the run stays COMPLETED', async () => {
+    await seedStandoutRow(0)
+    const run = await seedActionsRun('actions-empty')
+    stubActionsArtifact([])
+
+    await persist(run)
+
+    expect(
+      await service.prisma.raceOpponentStandoutAction.count({
+        where: { campaignId },
+      }),
+    ).toBe(0)
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'actions-empty' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
+  })
+
+  it('drops a card failing per-card validation and persists the remainder compacted', async () => {
+    const run = await seedActionsRun('actions-mixed')
+    stubActionsArtifact([
+      actionCard({ title: 'x'.repeat(100) }),
+      actionCard({ title: 'Valid card', issue: 'water' }),
+      // Non-object elements must hit per-card salvage, not fail the envelope.
+      null as never,
+      'not an object' as never,
+      actionCard({ sms_message: 'y'.repeat(321), issue: 'roads' }),
+      actionCard({ title: 'Another valid card', issue: 'schools' }),
+    ])
+
+    await persist(run)
+
+    const rows = await service.prisma.raceOpponentStandoutAction.findMany({
+      where: { campaignId },
+      orderBy: { order: 'asc' },
+    })
+    expect(rows).toHaveLength(2)
+    expect(rows.map((row) => [row.order, row.title])).toEqual([
+      [0, 'Valid card'],
+      [1, 'Another valid card'],
+    ])
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'actions-mixed' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.COMPLETED)
+  })
+
+  it('fails the run and leaves prior cards untouched when every card is invalid', async () => {
+    await seedStandoutRow(0)
+    const run = await seedActionsRun('actions-all-invalid')
+    stubActionsArtifact([
+      actionCard({ title: '' }),
+      actionCard({ sms_message: 'y'.repeat(321) }),
+    ])
+
+    await expect(persist(run)).rejects.toThrow()
+
+    const rows = await service.prisma.raceOpponentStandoutAction.findMany({
+      where: { campaignId },
+    })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.runId).toBe('prior-actions-run')
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'actions-all-invalid' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.FAILED)
+  })
+
+  it('fails a COMPLETED run that has no artifact location', async () => {
+    const run = await seedActionsRun('actions-no-artifact', {
+      artifactBucket: null,
+      artifactKey: null,
+    })
+
+    await expect(persist(run)).rejects.toThrow()
+
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'actions-no-artifact' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.FAILED)
+  })
+
+  it('a FAILED actions run leaves prior cards untouched and still re-chains', async () => {
+    await seedStandoutRow(0)
+    // dispatchActions (the re-chain target) reads persisted summaries; seed one
+    // so the re-chain has something to dispatch.
+    await service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: 'summary-for-rechain',
+        opponentName: JANE,
+        sections: {
+          opponentName: JANE,
+          overview: null,
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-07-06T00:00:00.000Z',
+          threatTier: 'watch_closely',
+        },
+      },
+    })
+    const failed = await seedActionsRun('actions-failed-prior', {
+      status: ExperimentRunStatus.FAILED,
+      createdAt: new Date('2026-07-06T10:00:00.000Z'),
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-newer-than-failed',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-06T10:05:00.000Z'),
+      },
+    })
+    const getFile = vi.spyOn(service.app.get(S3Service), 'getFile')
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-rechained-2' } as never)
+
+    await persist(failed)
+
+    // No artifact is read on the FAILED path; the prior cards survive.
+    expect(getFile).not.toHaveBeenCalled()
+    expect(
+      await service.prisma.raceOpponentStandoutAction.count({
+        where: { campaignId },
+      }),
+    ).toBe(1)
+    expect(dispatchRun).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ type: 'race_opponent_actions' }),
+    )
+  })
+
+  it('re-chains for a newer summary even when the actions artifact fails to persist', async () => {
+    await service.prisma.raceOpponentSummary.create({
+      data: {
+        campaignId,
+        runId: 'summary-for-rechain-2',
+        opponentName: JANE,
+        sections: {
+          opponentName: JANE,
+          overview: null,
+          background: null,
+          keyPositions: [],
+          generatedAt: '2026-07-06T00:00:00.000Z',
+          threatTier: 'watch_closely',
+        },
+      },
+    })
+    const run = await seedActionsRun('actions-bad-artifact', {
+      createdAt: new Date('2026-07-06T10:00:00.000Z'),
+    })
+    await service.prisma.experimentRun.create({
+      data: {
+        runId: 'summary-newer-than-bad',
+        organizationSlug: SLUG,
+        experimentType: 'race_opponent_summary',
+        status: ExperimentRunStatus.COMPLETED,
+        createdAt: new Date('2026-07-06T10:05:00.000Z'),
+      },
+    })
+    vi.spyOn(service.app.get(S3Service), 'getFile').mockResolvedValue(
+      JSON.stringify({ notActions: true }),
+    )
+    const dispatchRun = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue({ runId: 'actions-rechained-3' } as never)
+
+    await expect(persist(run)).rejects.toThrow()
+
+    const persisted = await service.prisma.experimentRun.findUniqueOrThrow({
+      where: { runId: 'actions-bad-artifact' },
+    })
+    expect(persisted.status).toBe(ExperimentRunStatus.FAILED)
+    expect(dispatchRun).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'race_opponent_actions' }),
+    )
+  })
+
+  it('GET returns the cards ordered by order through the response contract', async () => {
+    // Insert out of order so the read's orderBy (not insertion order) is what
+    // produces the sequence.
+    await seedStandoutRow(2, { title: 'Third card', issue: 'schools' })
+    await seedStandoutRow(0, { title: 'First card' })
+    await seedStandoutRow(1, {
+      title: 'Second card',
+      issue: 'water',
+      opponentName: null,
+    })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(
+      result.data.standoutActions.map((a: { title: string }) => a.title),
+    ).toEqual(['First card', 'Second card', 'Third card'])
+    expect(result.data.standoutActions[0]).toEqual({
+      title: 'First card',
+      body: 'Prior body.',
+      smsMessage: 'Prior sms.',
+      opponentName: JANE,
+      issue: 'roads',
+    })
+    expect(result.data.standoutActions[1].opponentName).toBeNull()
+  })
+
+  it('GET omits a persisted card that fails contract re-parse instead of 500ing', async () => {
+    await seedStandoutRow(0, { title: 'Good card' })
+    // Directly-seeded bad row: over the contract's 99-char title cap. The DB
+    // column has no length limit, so a drifted row must be tolerated on read.
+    await seedStandoutRow(1, { title: 'z'.repeat(120) })
+
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(
+      result.data.standoutActions.map((a: { title: string }) => a.title),
+    ).toEqual(['Good card'])
+  })
+
+  it('GET returns an empty standoutActions array for a campaign with no cards', async () => {
+    const result = await service.client.get(GET_PATH, {
+      headers: { [ORG_SLUG_HEADER]: SLUG },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.standoutActions).toEqual([])
   })
 })

@@ -1045,6 +1045,17 @@ export type RaceOpponentFieldAnalysis = {
   generatedAt: string | null
 }
 
+// Stand-out action cards (ENG-10644/ENG-10650). Mirrors
+// RaceOpponentStandoutActionSchema in @goodparty_org/contracts.
+export type RaceOpponentStandoutAction = {
+  title: string
+  body: string
+  smsMessage: string
+  // Nullish: DB nulls round-trip, and older payloads may omit it.
+  opponentName?: string | null
+  issue: string
+}
+
 export type RaceOpponentResponse = {
   opponents: Array<{
     opponentName: string
@@ -1071,6 +1082,10 @@ export type RaceOpponentResponse = {
   // v2 (ENG-10630/ENG-10636): campaign-level SWOT, null until candidate_platform
   // data is available; nullish so older gp-api payloads still parse.
   fieldAnalysis?: RaceOpponentFieldAnalysis | null
+  // Phase 6 (ENG-10644/ENG-10650): the contract defaults this to [] so current
+  // gp-api always sends an array (never null); optional here so older payloads
+  // that predate the field still parse.
+  standoutActions?: RaceOpponentStandoutAction[]
 }
 
 // Where a contrast is routed. Mirrors RaceOpponentContrastRoutingSchema in

@@ -81,6 +81,7 @@ type TaskFlowProps = {
   onComplete?: () => void | Promise<void>
   defaultAiTemplateId?: string | number
   campaignPlanDueDate?: string
+  initialScriptText?: string
 }
 
 const TaskFlow = ({
@@ -93,6 +94,7 @@ const TaskFlow = ({
   onComplete,
   defaultAiTemplateId,
   campaignPlanDueDate,
+  initialScriptText,
 }: TaskFlowProps): React.JSX.Element => {
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [open, setOpen] = useState(forceOpen)
@@ -397,6 +399,7 @@ const TaskFlow = ({
               campaign,
               onComplete: handleAddScriptOnComplete,
               defaultAiTemplateId,
+              initialScriptText,
               ...callbackProps,
             }}
           />
