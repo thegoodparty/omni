@@ -60,6 +60,12 @@ export interface ConstituentDataScope {
   // DistrictResolverService.resolveByUserId — NEVER from agent input.
   mandatoryFilters: MandatoryFilter[]
   minCellSize?: number
+  // Whether partisan columns (party registration, partisanship/ideology
+  // scores) may be queried. Serve scopes omit this (false): elected officials
+  // must not slice constituents by party, and the description carries that as
+  // a hard line. The Win scope sets true: its mart retains partisan fields by
+  // design for campaign targeting, so the description invites them instead.
+  partisanQueriesAllowed?: boolean
 }
 
 const normalizeColumn = (name: string): string => name.toLowerCase()
@@ -375,7 +381,11 @@ RULES:
       SUM(CASE WHEN Voters_Age BETWEEN 35 AND 64 THEN 1 ELSE 0 END) AS age_35_64
   - Each select item must be ONE bare aggregate — do NOT wrap an aggregate in arithmetic (no AVG(...) * 100, no SUM(a) / SUM(b)). For a share/percentage, return the raw aggregate, e.g. AVG(CASE WHEN <col> = '<value>' THEN 1.0 ELSE 0.0 END) AS support_rate (a 0–1 share), and state the percentage or ratio in your written answer. Categorical flag columns hold string values (e.g. 'support', 'oppose'), not 1/0.
   - No SELECT *, no DISTINCT, no window functions, no subqueries, no UNION.
-  - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.
+${
+  scope.partisanQueriesAllowed
+    ? '  - Party registration (Parties_Description) and modeled partisanship/ideology score columns are available and ALLOWED — breaking constituents down by party is a normal campaign analysis here.'
+    : '  - Never select, filter, or group by political party or any partisan-lean column. This is a hard legal line.'
+}
   - Small cells (COUNT(*) below the suppression floor) are dropped automatically.
 
 Surface findings to the user in plain language — counts and percentages, not raw scores. Never echo the SQL or internal column names.`
