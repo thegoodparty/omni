@@ -19,6 +19,11 @@ describe('win constituent scope', () => {
     }
   })
 
+  it('advertises each dimension exactly once', () => {
+    const names = WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS.map((d) => d.name)
+    expect(new Set(names).size).toBe(names.length)
+  })
+
   it('advertises the partisan block (Win-specific decision)', () => {
     const names = WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS.map((d) => d.name)
     expect(names).toContain('Parties_Description')

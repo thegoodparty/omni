@@ -443,10 +443,6 @@ export const WIN_AGENT_VOTER_SUGGESTED_DIMENSIONS: AdvertisedDimension[] = [
   { name: 'hs_police_trust_no', label: 'Police Trust No' },
   { name: 'hs_police_trust_yes', label: 'Police Trust Yes' },
   {
-    name: 'hs_political_donations_likely',
-    label: 'Political Donations Likely',
-  },
-  {
     name: 'hs_political_donations_unlikely',
     label: 'Political Donations Unlikely',
   },
