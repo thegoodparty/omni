@@ -68,7 +68,7 @@ test.describe('campaign-story flag flow', () => {
     await acceptCookieBanner(page)
   })
 
-  test('onboarding pledge step routes campaign-story users to their story', async ({
+  test('onboarding pledge step routes campaign-story users to the Campaign Manager', async ({
     page,
   }) => {
     await enableCampaignStoryFlag(page)
@@ -91,7 +91,8 @@ test.describe('campaign-story flag flow', () => {
     await completeOnboardingUpToPledge(page)
 
     // For campaign-story users the pledge CTA points at writing the story, not
-    // generating a plan — and submitting lands on the Campaign Story page.
+    // generating a plan — and submitting lands on the Campaign Manager home
+    // (/dashboard), whose chat opens with the story intake.
     const submit = page
       .getByRole('button', { name: /let's create your story/i })
       .first()
@@ -99,9 +100,9 @@ test.describe('campaign-story flag flow', () => {
     await expect(submit).toBeEnabled()
     await submit.click()
 
-    await page.waitForURL('**/dashboard/campaign-story', { timeout: 30000 })
+    await page.waitForURL('**/dashboard', { timeout: 30000 })
     await expect(
-      page.getByRole('heading', { name: 'Campaign Story', level: 2 }),
+      page.getByRole('heading', { name: 'Your campaign manager', level: 1 }),
     ).toBeVisible({ timeout: 30000 })
   })
 
