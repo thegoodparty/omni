@@ -4,6 +4,8 @@ import {
   NormalizedSummarySource,
   RaceOpponentFieldAnalysis,
   RaceOpponentFieldAnalysisSchema,
+  RaceOpponentStandoutAction,
+  RaceOpponentStandoutActionSchema,
   RaceOpponentSummary,
   RaceOpponentSummarySchema,
   RaceOpponentThreatTierSchema,
@@ -18,6 +20,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import {
+  RACE_OPPONENT_ACTIONS,
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
 } from '../raceOpponent.constants'
@@ -105,6 +108,18 @@ const ArtifactSummaryEnvelopeSchema = z.object({
   field_analysis: ArtifactFieldAnalysisSchema.nullable().optional(),
 })
 
+// The actions artifact (race_opponent_actions output). Like the collection
+// envelope, only `actions` is parsed strictly here (generated_at /
+// haystaq_status ride along unpersisted); cards are validated one-by-one in
+// parseActions so a single malformed card can't fail an otherwise-good run.
+// An EMPTY actions array is a valid artifact — the agent found no grounded
+// angles — unlike the summary envelope's .min(1) opponents.
+const ArtifactActionsEnvelopeSchema = z.object({
+  // Elements stay unvalidated here on purpose: a non-object element must fall
+  // through to parseActions' per-card salvage, not fail the whole envelope.
+  actions: z.array(z.unknown()),
+})
+
 @Injectable()
 export class RaceOpponentPersistService extends createPrismaBase(
   MODELS.RaceOpponent,
@@ -133,6 +148,15 @@ export class RaceOpponentPersistService extends createPrismaBase(
         await this.onSummaryCompleted(run)
       } else if (run.status === ExperimentRunStatus.FAILED) {
         await this.onSummaryFailed(run)
+      }
+    } else if (run.experimentType === RACE_OPPONENT_ACTIONS) {
+      // Mirrors the summary handling: COMPLETED persists the cards, and either
+      // terminal outcome re-chains for a newer summary this run's in-flight
+      // dedup skipped.
+      if (run.status === ExperimentRunStatus.COMPLETED) {
+        await this.onActionsCompleted(run)
+      } else if (run.status === ExperimentRunStatus.FAILED) {
+        await this.onActionsFailed(run)
       }
     }
   }
@@ -259,6 +283,20 @@ export class RaceOpponentPersistService extends createPrismaBase(
         )
         throw error
       }
+
+      // Fire-and-forget: the actions run persists on its own completion event
+      // (ENG-10647). dispatchActions reads the summaries just committed above
+      // and skips when none survived. A dispatch failure must not fail the
+      // summary persist — the summaries are already committed and actions can
+      // be re-dispatched on the next summary — so log rather than rethrow.
+      try {
+        await this.raceOpponent.dispatchActions(campaign)
+      } catch (error) {
+        this.logger.error(
+          { runId: run.runId, error },
+          'failed to chain race_opponent_actions dispatch after summary',
+        )
+      }
     } finally {
       await this.rechainAfterSummary(campaign, run.createdAt)
     }
@@ -271,6 +309,85 @@ export class RaceOpponentPersistService extends createPrismaBase(
     const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
     await this.rechainAfterSummary(campaign, run.createdAt)
+  }
+
+  // A race_opponent_actions run completed. Load its artifact, validate each
+  // card against the contract, then idempotently replace the campaign's
+  // persisted stand-out actions. Structured like onSummaryCompleted: the
+  // re-chain sits in a finally so it fires on every terminal outcome of this
+  // handler, and a persist failure marks the run FAILED without touching the
+  // prior rows.
+  private async onActionsCompleted(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+
+    try {
+      if (!run.artifactBucket || !run.artifactKey) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          'completed run has no artifact location',
+        )
+        throw new Error(
+          `run ${run.runId} completed without an artifact location`,
+        )
+      }
+
+      try {
+        const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
+        if (!raw) throw new Error('artifact is missing or empty')
+        const envelope = ArtifactActionsEnvelopeSchema.parse(JSON.parse(raw))
+
+        const actions = this.parseActions(run.runId, envelope.actions)
+
+        // The artifact carried cards but every one failed per-card validation
+        // — an agent/contract defect, not the valid "no grounded angles" empty
+        // artifact. Fail the run and leave the prior cards untouched. An
+        // actually-empty artifact falls through to the replace, which clears
+        // any prior cards: the agent's current answer is "no cards".
+        if (envelope.actions.length > 0 && actions.length === 0) {
+          throw new Error('every artifact action failed per-card validation')
+        }
+
+        await this.replaceStandoutActions(campaign.id, run.runId, actions)
+      } catch (error) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          error instanceof Error ? error.message : String(error),
+        )
+        throw error
+      }
+    } finally {
+      await this.rechainAfterActions(campaign, run.createdAt)
+    }
+  }
+
+  // A race_opponent_actions run FAILED at the queue level (no artifact to
+  // persist; prior cards stay). Still re-chain: a newer summary may be waiting
+  // on the actions run this run's in-flight dedup skipped.
+  private async onActionsFailed(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterActions(campaign, run.createdAt)
+  }
+
+  // Fire-and-forget re-chain, run on every terminal actions outcome. Placed in
+  // a finally by onActionsCompleted, so it must never throw or it would mask
+  // the original persist error the caller re-raises for redelivery visibility.
+  private async rechainAfterActions(
+    campaign: CampaignWith<'user'>,
+    actionsRunCreatedAt: Date,
+  ): Promise<void> {
+    try {
+      await this.raceOpponent.rechainActionsForNewerSummary(
+        campaign,
+        actionsRunCreatedAt,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error },
+        'failed to re-chain race_opponent_actions after a newer summary',
+      )
+    }
   }
 
   // Fire-and-forget re-chain, run on every terminal summary outcome. A dispatch
@@ -347,6 +464,7 @@ export class RaceOpponentPersistService extends createPrismaBase(
       await tx.raceOpponent.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
       await tx.raceOpponentFieldAnalysis.deleteMany({ where: { campaignId } })
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
       await tx.raceOpponent.createMany({
         data: items.map((item) => ({
           campaignId,
@@ -493,6 +611,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
     ].map(([, summary]) => summary)
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
+      // Stand-out cards derive from the summaries being replaced here; clear
+      // them in the same transaction so GET never pairs fresh summaries with
+      // cards built from the old ones. The chained actions run repopulates.
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.createMany({
         data: deduped.map((summary) => ({
           campaignId,
@@ -517,6 +639,76 @@ export class RaceOpponentPersistService extends createPrismaBase(
         })
       } else {
         await tx.raceOpponentFieldAnalysis.deleteMany({ where: { campaignId } })
+      }
+    })
+  }
+
+  // Per-card salvage (the parseItems pattern): map each raw card's snake_case
+  // keys onto the contract shape and validate in one safeParse — a card that
+  // fails (over-limit title/smsMessage, missing field) is dropped and logged,
+  // not fatal. Only the caller's all-cards-invalid check fails the run.
+  private parseActions(
+    runId: string,
+    rawActions: unknown[],
+  ): RaceOpponentStandoutAction[] {
+    const actions: RaceOpponentStandoutAction[] = []
+    let dropped = 0
+    for (const raw of rawActions) {
+      const record = z.record(z.string(), z.unknown()).safeParse(raw)
+      if (!record.success) {
+        dropped += 1
+        continue
+      }
+      const rawAction = record.data
+      const result = RaceOpponentStandoutActionSchema.safeParse({
+        title: rawAction.title,
+        body: rawAction.body,
+        smsMessage: rawAction.sms_message,
+        opponentName: rawAction.opponent_name,
+        issue: rawAction.issue,
+      })
+      if (result.success) {
+        actions.push(result.data)
+      } else {
+        dropped += 1
+      }
+    }
+    if (dropped > 0) {
+      this.logger.warn(
+        { runId, dropped, kept: actions.length },
+        'dropped stand-out action cards failing per-card validation',
+      )
+    }
+    return actions
+  }
+
+  // Idempotent replace-on-persist for stand-out actions: delete the campaign's
+  // existing cards and re-insert from the artifact in one transaction (the
+  // replaceSummaries pattern), so a mid-failure leaves the prior cards intact
+  // and a re-run overwrites cleanly. order is the artifact's card position
+  // after per-card salvage, satisfying @@unique([campaignId, order]). A valid
+  // empty artifact reaches here with zero cards and clears the prior set — the
+  // agent's current answer is "no grounded angles".
+  private async replaceStandoutActions(
+    campaignId: number,
+    runId: string,
+    actions: RaceOpponentStandoutAction[],
+  ): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
+      if (actions.length > 0) {
+        await tx.raceOpponentStandoutAction.createMany({
+          data: actions.map((action, order) => ({
+            campaignId,
+            runId,
+            order,
+            title: action.title,
+            body: action.body,
+            smsMessage: action.smsMessage,
+            opponentName: action.opponentName ?? null,
+            issue: action.issue,
+          })),
+        })
       }
     })
   }

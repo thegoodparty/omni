@@ -1,8 +1,10 @@
 'use client'
+import { Suspense } from 'react'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { OutreachHeader } from './OutreachHeader'
 import FreeTextsBanner from './FreeTextsBanner'
 import OutreachCreateCards from './OutreachCreateCards'
+import { OutreachComposeDeepLink } from './OutreachComposeDeepLink'
 import { OutreachTable } from 'app/dashboard/outreach/components/OutreachTable'
 import {
   OutreachProvider,
@@ -36,6 +38,9 @@ export const OutreachPage = ({
         <OutreachHeader />
         <FreeTextsBanner tcrCompliance={tcrCompliance} />
         <OutreachCreateCards tcrCompliance={tcrCompliance} />
+        <Suspense>
+          <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
+        </Suspense>
         <OutreachTable
           {...{
             mockOutreaches,

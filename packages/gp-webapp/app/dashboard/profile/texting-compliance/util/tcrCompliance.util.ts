@@ -1,8 +1,11 @@
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
+import type { ComplianceStateOutput } from '@goodparty_org/contracts'
 import type { TcrCompliance, TcrComplianceStatus } from 'helpers/types'
 
 export const TCR_COMPLIANCE_QUERY_KEY = ['tcrCompliance'] as const
+
+export const COMPLIANCE_STATE_QUERY_KEY = ['complianceState'] as const
 
 export const TCR_COMPLIANCE_STATUS: {
   SUBMITTED: 'submitted'
@@ -55,3 +58,12 @@ export const getTcrCompliance = async (): Promise<TcrCompliance | null> => {
   if (!response.ok) return null
   return response.data ?? null
 }
+
+export const getComplianceState =
+  async (): Promise<ComplianceStateOutput | null> => {
+    const response = await clientFetch<ComplianceStateOutput | null>(
+      apiRoutes.campaign.tcrCompliance.complianceState,
+    )
+    if (!response.ok) return null
+    return response.data ?? null
+  }

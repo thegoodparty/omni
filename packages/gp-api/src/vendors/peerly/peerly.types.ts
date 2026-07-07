@@ -1,5 +1,11 @@
 import { HttpException, HttpExceptionOptions } from '@nestjs/common'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { Campaign } from '../../generated/prisma'
+
+// Peerly's retrieve_cv `verification_status` values. Single source of truth is
+// @goodparty_org/contracts (surfaced in the compliance-state response);
+// re-exported here so the Peerly vendor layer keeps importing it locally.
+export { PeerlyCvVerificationStatus }
 
 export type PeerlyIdentity = {
   identity_id: string
@@ -247,18 +253,6 @@ export type PeerlyGetIdentityBrandInfoResponse = {
 }
 export type PeerlyCreateCVTokenResponse = {
   campaign_verify_token: string
-}
-
-export enum PeerlyCvVerificationStatus {
-  REQUESTED = 'REQUESTED',
-  IN_REVIEW = 'IN_REVIEW',
-  // The candidate's PIN has been verified; a CV token can now be minted and the
-  // usecase submitted. (Distinct from APPROVED, which the CV authority can reach
-  // before the candidate has completed PIN verification.)
-  VERIFIED = 'VERIFIED',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  WITHDRAWN = 'WITHDRAWN',
 }
 
 // TODO: make this an enum once we have the answer to this question:

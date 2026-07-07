@@ -11,6 +11,8 @@ import {
   RaceOpponentFieldAnalysis,
   RaceOpponentFieldAnalysisSchema,
   RaceOpponentResponse,
+  RaceOpponentStandoutAction,
+  RaceOpponentStandoutActionSchema,
   RaceOpponentSummary,
   RaceOpponentSummarySchema,
   RaceOpponentThreatTier,
@@ -28,8 +30,10 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
+import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   KNOW_YOUR_OPPONENT_FEATURE,
+  RACE_OPPONENT_ACTIONS,
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
 } from '../raceOpponent.constants'
@@ -38,6 +42,13 @@ import { ManualOpponentsRequest } from '../schemas/manualOpponents.schema'
 
 type CollectionInput = AgentJobContracts['race_opponent_collection']['Input']
 type SummaryInput = AgentJobContracts['race_opponent_summary']['Input']
+type ActionsInput = AgentJobContracts['race_opponent_actions']['Input']
+
+// Producer-side bound on the summary section text forwarded to the actions
+// dispatch — every dispatchRun caller with variable-length text bounds it
+// (the fitPlatform precedent in opponentResearch.service.ts). Summary text is
+// LLM-emitted and usually short; a per-field char cap is enough headroom.
+const MAX_ACTIONS_TEXT_CHARS = 4000
 
 // Only the campaign-details keys this module reads; the column is untyped JSON
 // at runtime, so each leaf is independently fault-tolerant.
@@ -70,6 +81,7 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     private readonly experimentRuns: ExperimentRunsService,
     private readonly electionApi: ElectionApiService,
     private readonly campaignStrategy: CampaignStrategyService,
+    private readonly districtResolver: DistrictResolverService,
   ) {
     super()
   }
@@ -424,6 +436,137 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
     }
   }
 
+  // Chain the stand-out-actions run off a completed summary (called from
+  // RaceOpponentPersistService once the summary rows are committed), mirroring
+  // how dispatchSummary chains off a completed collection. Reads the persisted
+  // summaries back, flattens each into the plain-text actions input, and
+  // dispatches race_opponent_actions. Skips dispatch when no summaries
+  // persisted: there is nothing to build cards from.
+  async dispatchActions(campaign: CampaignWith<'user'>): Promise<void> {
+    const clerkUserId = campaign.user?.clerkId
+    if (!clerkUserId) return
+
+    const opponents = await this.buildActionsOpponents(campaign.id)
+    if (opponents.length === 0) return
+
+    // Reuse an already-in-flight actions run instead of dispatching a second:
+    // a summary that completes while a prior actions run is still going would
+    // otherwise spawn a duplicate paid run. Mirrors dispatchSummary's in-flight
+    // dedup; not a hard claim, but it closes the common chained-retry case.
+    const inFlight = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: RACE_OPPONENT_ACTIONS,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+            ExperimentRunStatus.SUPERSEDED,
+          ],
+        },
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { runId: true },
+    })
+    if (inFlight) return
+
+    const candidatePlatform = await this.buildCandidatePlatform(campaign.id)
+    const district = await this.districtResolver.resolveByOrgSlug(
+      campaign.organizationSlug,
+    )
+
+    await this.experimentRuns.dispatchRun({
+      type: RACE_OPPONENT_ACTIONS,
+      organizationSlug: campaign.organizationSlug,
+      clerkUserId,
+      params: {
+        // The contract types opponents as a non-empty tuple; the
+        // empty-array case is filtered out above, but the type can't prove it.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        opponents: opponents as ActionsInput['opponents'],
+        ...(candidatePlatform ? { candidate_platform: candidatePlatform } : {}),
+        // FLAT district params, all-or-nothing: the dispatch Lambda's scope
+        // derivation reads params.state top-level and reserves a nested
+        // 'district' object (it would fail dispatch). No resolution = omit all
+        // three so the agent skips Databricks (haystaq_status: no_district).
+        ...(district
+          ? {
+              state: district.state,
+              l2_district_type: district.l2DistrictType,
+              l2_district_name: district.l2DistrictName,
+            }
+          : {}),
+        race_context: await this.buildRaceContext(campaign),
+      },
+    })
+  }
+
+  // Re-chain an actions run when a summary newer than the just-finished
+  // actions run has completed — the same deferred-chain problem
+  // rechainSummaryForNewerCollection solves one link earlier: a fresh summary
+  // that landed while this actions run was in flight had its chained dispatch
+  // skipped by dispatchActions' in-flight dedup, so its cards would never be
+  // regenerated. Called on every terminal actions outcome.
+  async rechainActionsForNewerSummary(
+    campaign: CampaignWith<'user'>,
+    actionsRunCreatedAt: Date,
+  ): Promise<void> {
+    const latestSummary = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: campaign.organizationSlug,
+        experimentType: RACE_OPPONENT_SUMMARY,
+        status: ExperimentRunStatus.COMPLETED,
+      },
+      orderBy: { createdAt: Prisma.SortOrder.desc },
+      select: { createdAt: true },
+    })
+    if (
+      latestSummary &&
+      isAfter(latestSummary.createdAt, actionsRunCreatedAt)
+    ) {
+      await this.dispatchActions(campaign)
+    }
+  }
+
+  // Flatten the persisted summaries into the actions input: plain section text
+  // only, re-validated through the contract on read (same as loadSummaries) —
+  // never raw JSON. The actions contract requires a threat tier (it drives
+  // card ordering), so a legacy v1 row without one contributes no entry.
+  private async buildActionsOpponents(
+    campaignId: number,
+  ): Promise<ActionsInput['opponents'][number][]> {
+    const rows = await this.client.raceOpponentSummary.findMany({
+      where: { campaignId },
+    })
+    return rows.flatMap((row) => {
+      const parsed = RaceOpponentSummarySchema.safeParse(row.sections)
+      if (!parsed.success) {
+        this.logger.warn(
+          { campaignId, opponentName: row.opponentName },
+          'persisted opponent summary failed contract re-parse; omitting',
+        )
+        return []
+      }
+      const summary = parsed.data
+      if (!summary.threatTier) return []
+      return [
+        {
+          opponent_name: summary.opponentName,
+          threat_tier: summary.threatTier,
+          overview_text: summary.overview
+            ? capActionsText(summary.overview.text)
+            : null,
+          background_text: summary.background
+            ? capActionsText(summary.background.text)
+            : null,
+          issues_that_matter:
+            summary.issuesThatMatter?.items.map(capActionsText) ?? null,
+        },
+      ]
+    })
+  }
+
   // The candidate's own platform (bio + issues), read from
   // Website.content.about — the pre-Pro-upgrade CandidateProfileStep capture,
   // NOT CampaignStory (the self-research duplicate we avoid). Returns undefined
@@ -506,7 +649,38 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         campaign.organizationSlug,
       ),
       fieldAnalysis: await this.loadFieldAnalysis(campaign.id),
+      standoutActions: await this.loadStandoutActions(campaign.id),
     }
+  }
+
+  // The persisted stand-out action cards, in artifact order. Re-validated
+  // against the contract on read, mirroring loadSummaries/loadFieldAnalysis:
+  // a row that somehow doesn't parse is omitted rather than 500-ing the whole
+  // read. Always an array — empty when the campaign has no cards.
+  private async loadStandoutActions(
+    campaignId: number,
+  ): Promise<RaceOpponentStandoutAction[]> {
+    const rows = await this.client.raceOpponentStandoutAction.findMany({
+      where: { campaignId },
+      orderBy: { order: Prisma.SortOrder.asc },
+    })
+    return rows.flatMap((row) => {
+      const parsed = RaceOpponentStandoutActionSchema.safeParse({
+        title: row.title,
+        body: row.body,
+        smsMessage: row.smsMessage,
+        opponentName: row.opponentName,
+        issue: row.issue,
+      })
+      if (!parsed.success) {
+        this.logger.warn(
+          { campaignId, order: row.order },
+          'persisted stand-out action failed contract re-parse; omitting',
+        )
+        return []
+      }
+      return [parsed.data]
+    })
   }
 
   // The persisted campaign-level SWOT (one row per campaign). Re-validated
@@ -860,3 +1034,6 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
 // parse can't throw.
 const apexDomain = (url: string): string =>
   new URL(url).hostname.replace(/^www\./, '')
+
+const capActionsText = (text: string): string =>
+  text.slice(0, MAX_ACTIONS_TEXT_CHARS)

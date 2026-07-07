@@ -6,6 +6,7 @@ import {
   RaceOpponentSummarySchema,
   RaceOpponentThreatTierSchema,
 } from './RaceOpponentSummary.schema'
+import { RaceOpponentStandoutActionSchema } from './RaceOpponentStandoutAction.schema'
 
 export const RaceOpponentSchema = z.object({
   id: z.number(),
@@ -69,5 +70,9 @@ export const RaceOpponentResponseSchema = z.object({
   // v2 (ENG-10630): campaign-level SWOT, null until candidate_platform data is
   // available; nullish so older gp-api payloads still parse.
   fieldAnalysis: RaceOpponentFieldAnalysisSchema.nullish(),
+  // Phase 6 (ENG-10644/ENG-10647): stand-out action cards, empty array when
+  // the campaign has none. Defaulted rather than required so a producer that
+  // predates the field still parses while consumers always see an array.
+  standoutActions: z.array(RaceOpponentStandoutActionSchema).default([]),
 })
 export type RaceOpponentResponse = z.infer<typeof RaceOpponentResponseSchema>
