@@ -15,6 +15,7 @@ type OutreachStatus =
   | 'paid'
   | 'in_progress'
   | 'completed'
+  | 'pending_payment'
 const OUTREACH_TYPES: OutreachType[] = [
   'text',
   'doorKnocking',

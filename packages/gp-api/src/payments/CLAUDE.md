@@ -29,6 +29,24 @@ Filename note: `paymentEventsService.ts` intentionally lacks the `.service` suff
 - **External calls are wrapped in try/catch and throw `BadGatewayException`** (`.cursor/rules/rules.mdc` Rule 3). DB writes are not wrapped — let `PrismaExceptionFilter` handle them.
 - `forwardRef(() => CampaignsModule)` because purchase fulfillment touches campaign state.
 
+## Draft-first outreach fulfillment (TEXT)
+
+P2P outreach is persisted as an `Outreach` row with `status: pending_payment`
+BEFORE checkout; the session metadata carries `outreachId`. The TEXT
+post-purchase handler (`outreach/services/outreachPurchase.service.ts`)
+finalizes it: an atomic status claim (`updateMany` on
+`pending_payment → pending`, scoped to the paying campaign) is the DB lock
+that makes the client-vs-webhook completion race harmless, then Peerly
+submission, Slack, attribution, and free-texts redemption. On Peerly failure
+the row reverts to `pending_payment` and the handler THROWS on purpose —
+`completeCheckoutSession` only stamps its `postPurchaseCompletedAt`
+idempotency marker after handler success, so the throw makes Stripe's webhook
+retry re-attempt the finalize. Losing the claim proves nothing: the loser
+polls for the winner's `projectId` and throws unless fulfillment is confirmed,
+so a loser's success can never stamp the marker while the winner fails.
+Sessions without `outreachId` (pre-draft-first clients) fall back to
+free-texts redemption only.
+
 ## Gotchas
 
 - Stripe webhooks must be idempotent — events can replay. Preserve dedupe in `PaymentEventsService` when adding handlers.

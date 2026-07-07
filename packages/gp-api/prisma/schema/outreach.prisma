@@ -14,6 +14,7 @@ enum OutreachStatus {
   paid
   in_progress
   completed
+  pending_payment
 }
 
 model Outreach {
@@ -40,6 +41,11 @@ model Outreach {
   didState              String?                 @map("did_state")
   didNpaSubset          String[]                @default([]) @map("did_npa_subset")
   title                 String?
+  // Persisted at draft time so a payment-webhook finalize can rebuild the CAS
+  // Slack message when the original request (and browser) is long gone.
+  textCount             Int?                    @map("text_count")
+  billableTextCount     Int?                    @map("billable_text_count")
+  campaignPlanDueDate   String?                 @map("campaign_plan_due_date")
   voterActivities       VoterOutreachActivity[]
   raceOpponentContrasts RaceOpponentContrast[]
 
