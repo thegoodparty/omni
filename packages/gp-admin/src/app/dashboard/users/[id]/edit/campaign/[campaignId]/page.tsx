@@ -40,6 +40,7 @@ export default async function EditCampaignDetailPage({
   return (
     <EditCampaignClient
       campaign={campaign}
+      organization={organization}
       initialDistrictType={organization?.district?.l2Type}
       initialDistrictName={organization?.district?.l2Name}
     />

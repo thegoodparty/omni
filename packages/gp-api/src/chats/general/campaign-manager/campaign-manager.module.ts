@@ -14,7 +14,7 @@ import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
-import { CONSTITUENT_TABLES } from '../chief-of-staff/services/constituentDataScope'
+import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { CampaignStoryIntakeService } from './campaignStoryIntake.service'
 import {
@@ -26,20 +26,20 @@ import {
 
 export { CAMPAIGN_MANAGER_MODELS }
 
-// Aggregate-only Databricks provider for the constituent-data tool. Reads the
-// SAME shared Databricks credential Chief of Staff and the briefing chat use
-// (OAuth M2M or a PAT fallback — see resolveDatabricksConnection), against the
-// serve_agent_voters mart. Returns null unless host/path and a credential are
-// set, so with nothing configured the tool never registers. No separate Win
-// warehouse identity: the aggregate-only safety is the app-layer scope
-// (allowlist + forbidden columns + cell-size floor), not the credential.
+// Aggregate-only Databricks provider for the constituent-data tool, on Win's
+// own warehouse identity: the sp_win_agent service principal + dedicated
+// warehouse (WIN_DATABRICKS_* env), against the win_agent_voters mart —
+// NOT the shared Serve credential. Returns null unless host/path and a
+// credential are set, so with nothing configured the tool never registers.
+// Aggregate-only safety stays app-layer (allowlist + forbidden columns +
+// cell-size floor); the dedicated credential adds the governance boundary.
 const constituentDataProviderFactory = (): DatabricksProvider | null => {
-  const conn = resolveDatabricksConnection()
+  const conn = resolveDatabricksConnection('WIN_DATABRICKS_')
   if (!conn) return null
   return new DatabricksSqlProvider({
     ...conn,
     catalog: 'goodparty_data_catalog',
-    schema: 'mart_serve_agents',
+    schema: 'mart_win_agents',
   })
 }
 
@@ -70,7 +70,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     },
     {
       provide: CM_CONSTITUENT_TABLES_CONFIG,
-      useValue: CONSTITUENT_TABLES,
+      useValue: WIN_CONSTITUENT_TABLES,
     },
   ],
   exports: [CampaignManagerHandler],

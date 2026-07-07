@@ -11,10 +11,8 @@ import {
   buildDescribeConstituentDataTool,
   buildQueryConstituentDataTool,
 } from '@/llm/tools/queryConstituentData.tool'
-import {
-  buildConstituentDataScope,
-  ConstituentTableConfig,
-} from '../chief-of-staff/services/constituentDataScope'
+import type { ConstituentTableConfig } from '../chief-of-staff/services/constituentDataScope'
+import { buildWinConstituentDataScope } from './services/constituentDataScope'
 import {
   ChatScopeHandler,
   ResolveConversationParams,
@@ -111,6 +109,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   districtFilters: null,
   constituentToolEnabled: false,
   story: null,
+  plan: null,
 }
 
 @Injectable()
@@ -223,9 +222,12 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
           .filter(Boolean)
           .join(' ')
       : ''
-    const story = this.storyIntake
-      ? await this.storyIntake.read(campaign.id)
-      : null
+    const [story, plan] = this.storyIntake
+      ? await Promise.all([
+          this.storyIntake.read(campaign.id),
+          this.storyIntake.readPlan(campaign.id),
+        ])
+      : [null, null]
     const details = campaign.details
     const electionDate = details.electionDate ?? details.primaryElectionDate
     const location =
@@ -262,6 +264,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       districtFilters,
       constituentToolEnabled,
       story,
+      plan,
     }
   }
 
@@ -294,8 +297,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       tools.web_search = { kind: 'native_web_search', maxUses: 5 }
     }
 
-    // Aggregate-only constituent data, reusing the Chief of Staff building
-    // blocks (shared Databricks provider + serve_agent_voters allowlist + SQL
+    // Aggregate-only constituent data against the dedicated Win mart
+    // (sp_win_agent credential + win_agent_voters allowlist + the shared SQL
     // validator + cell-size floor). Registers only when the provider is
     // configured, the campaign's district resolved into server-bound filters,
     // and the per-user rollout flag is on — otherwise it stays dark.
@@ -304,7 +307,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       ctx.districtFilters &&
       ctx.constituentToolEnabled
     ) {
-      const scope = buildConstituentDataScope(
+      const scope = buildWinConstituentDataScope(
         ctx.districtFilters,
         this.constituentTables,
       )
