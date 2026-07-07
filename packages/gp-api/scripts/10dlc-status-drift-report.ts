@@ -20,6 +20,8 @@ import { writeFileSync } from 'fs'
 import pg from 'pg'
 import { Client } from '@hubspot/api-client'
 import { chunk } from 'es-toolkit'
+import { TcrComplianceStatus } from '../src/generated/prisma'
+import { isGenericComplianceContent } from '../src/websites/util/genericContent.util'
 
 // --- CLI args ---
 const limitArg = process.argv.find((a) => a.startsWith('--limit='))
@@ -58,6 +60,7 @@ const SQL = `
     u.meta_data->>'customerId'       AS stripe_customer_id,
     c.details->>'subscriptionId'     AS stripe_subscription_id,
     w.status                  AS website_status,
+    w.content                 AS website_content,
     d.status                  AS domain_status,
     tcr.status                AS tcr_status,
     user_counts.campaign_count
@@ -80,35 +83,34 @@ const SQL = `
 `
 
 // ---------------------------------------------------------------------------
-// DB step → expected HubSpot value mapping
+// Expected HubSpot status, derived from DB state.
 //
-// The DB step reflects which compliance stage the campaign is currently at.
-// HubSpot tracks which step was last *completed* via Segment events/workflows.
+// The authoritative vocabulary AND order is the HubSpot company property
+// `n10_dlc_compliance_status` itself. Its options, in displayOrder, are below.
+// The API returns the STORED value (not the UI label), so that is what we
+// compare against and what determineStep must emit. Note `Info Submitted` is
+// the value shown in the ticket/HubSpot UI as "Candidate Profile Completed":
 //
-//   DB Step (current stage)            HubSpot (last completed event)
-//   ─────────────────────────────────  ──────────────────────────────
-//   Step 1: Create Website          →  Not Started
-//   Step 2: Buy Domain              →  Website Created
-//   Step 3: Submit Registration     →  Domain Purchased
-//   Step 4: Enter PIN               →  Registration Submitted
-//   Completed (Pending Approval)    →  Compliance Pending
-//   Fully Approved                  →  Compliant
+//   order  stored value (compared)  HubSpot UI label
+//   ─────  ───────────────────────  ────────────────────────────
+//     0    Not Started              Not Started
+//     1    Info Submitted           Candidate Profile Completed
+//     2    Registration Submitted   Registration Submitted
+//     3    Compliance Pending       Compliance Pending
+//     4    Compliance Rejected      Compliance Rejected
+//     5    Compliant                Compliant
+//
+// This reflects the agentic Pro-upgrade flow (epic ENG-7508): the candidate
+// submits their profile ("Info Submitted") and filing details ("Registration
+// Submitted"), the agent runs and the PIN is verified ("Compliance Pending"),
+// then approval ("Compliant"). Website + domain are automated, no own status.
 // ---------------------------------------------------------------------------
-const STEP_TO_HUBSPOT: Record<ComplianceStep, string> = {
-  'Step 1: Create Website': 'Not Started',
-  'Step 2: Buy Domain': 'Website Created',
-  'Step 3: Submit Registration': 'Domain Purchased',
-  'Step 4: Enter PIN': 'Registration Submitted',
-  'Completed (Pending Approval)': 'Compliance Pending',
-  'Fully Approved': 'Compliant',
-}
-
 const HUBSPOT_ORDER: Record<string, number> = {
   'Not Started': 0,
-  'Website Created': 1,
-  'Domain Purchased': 2,
-  'Registration Submitted': 3,
-  'Compliance Pending': 4,
+  'Info Submitted': 1,
+  'Registration Submitted': 2,
+  'Compliance Pending': 3,
+  'Compliance Rejected': 4,
   Compliant: 5,
 }
 
@@ -119,16 +121,15 @@ const HUBSPOT_PROPERTY = 'n10_dlc_compliance_status'
 // Types
 // ---------------------------------------------------------------------------
 type ComplianceStep =
-  | 'Step 1: Create Website'
-  | 'Step 2: Buy Domain'
-  | 'Step 3: Submit Registration'
-  | 'Step 4: Enter PIN'
-  | 'Completed (Pending Approval)'
-  | 'Fully Approved'
+  | 'Not Started'
+  | 'Info Submitted'
+  | 'Registration Submitted'
+  | 'Compliance Pending'
+  | 'Compliance Rejected'
+  | 'Compliant'
 
 type MismatchType =
   | 'OK'
-  | 'OK_UNPUBLISHED_WEBSITE'
   | 'BEHIND'
   | 'AHEAD'
   | 'NO_HUBSPOT_ID'
@@ -147,6 +148,7 @@ interface DbRow {
   stripe_customer_id: string | null
   stripe_subscription_id: string | null
   website_status: string | null
+  website_content: PrismaJson.WebsiteContent | null
   domain_status: string | null
   tcr_status: string | null
   campaign_count: number
@@ -174,36 +176,27 @@ interface ReportRow {
 }
 
 // ---------------------------------------------------------------------------
-// Step logic — mirrors the webapp's ComplianceSteps.tsx
-//
-//   Step 1  Create Website       website.status = 'published'
-//   Step 2  Buy Domain           domain.status  IN ('submitted','registered','active')
-//   Step 3  Submit Registration  tcr.status     IN ('submitted','pending','approved')
-//   Step 4  Enter PIN            tcr.status     IN ('pending','approved')
-//   Done    Fully Approved       tcr.status     = 'approved'
+// Expected status from DB state, emitting the stored HubSpot values above.
+// tcr.status is the dominant signal and every filing state outranks a profile
+// (Registration Submitted is order 2, Info Submitted order 1), matching the
+// property's own order. A genuine candidate profile with no filing record yet
+// maps to "Info Submitted". `profileComplete` uses the same genuineness rule as
+// the webapp's isCandidateProfileComplete (shared via @goodparty_org/contracts).
+// tcr.status 'error' has no HubSpot value; it falls through to the profile /
+// Not Started rungs.
 // ---------------------------------------------------------------------------
 function determineStep(
-  websiteStatus: string | null,
-  domainStatus: string | null,
   tcrStatus: string | null,
+  profileComplete: boolean,
 ): ComplianceStep {
-  const websiteComplete = websiteStatus === 'published'
-  const domainComplete =
-    domainStatus === 'submitted' ||
-    domainStatus === 'registered' ||
-    domainStatus === 'active'
-  const registrationComplete =
-    tcrStatus === 'submitted' ||
-    tcrStatus === 'pending' ||
-    tcrStatus === 'approved'
-  const pinComplete = tcrStatus === 'pending' || tcrStatus === 'approved'
-
-  if (tcrStatus === 'approved') return 'Fully Approved'
-  if (pinComplete) return 'Completed (Pending Approval)'
-  if (registrationComplete && !pinComplete) return 'Step 4: Enter PIN'
-  if (websiteComplete && domainComplete) return 'Step 3: Submit Registration'
-  if (websiteComplete) return 'Step 2: Buy Domain'
-  return 'Step 1: Create Website'
+  if (tcrStatus === TcrComplianceStatus.approved) return 'Compliant'
+  if (tcrStatus === TcrComplianceStatus.rejected) return 'Compliance Rejected'
+  if (tcrStatus === TcrComplianceStatus.pending) return 'Compliance Pending'
+  if (tcrStatus === TcrComplianceStatus.submitted) {
+    return 'Registration Submitted'
+  }
+  if (profileComplete) return 'Info Submitted'
+  return 'Not Started'
 }
 
 // ---------------------------------------------------------------------------
@@ -452,12 +445,8 @@ async function main() {
   const report: ReportRow[] = dbRows.map((row) => {
     const email = row.email.toLowerCase()
     const hubspotId = row.hubspot_id ?? null
-    const dbStep = determineStep(
-      row.website_status,
-      row.domain_status,
-      row.tcr_status,
-    )
-    const expected = STEP_TO_HUBSPOT[dbStep]
+    const profileComplete = !isGenericComplianceContent(row.website_content)
+    const dbStep = determineStep(row.tcr_status, profileComplete)
     const hasHubSpotId = !!hubspotId
     const foundInBatch = hasHubSpotId && hsMap.has(hubspotId)
 
@@ -475,33 +464,12 @@ async function main() {
 
     const found = foundInBatch || mergeMap.has(hubspotId ?? '')
 
-    let match = classifyMismatch(expected, actual, hasHubSpotId, found)
+    const match = classifyMismatch(dbStep, actual, hasHubSpotId, found)
 
-    // If the only reason for a mismatch is an unpublished website, treat it
-    // as OK_UNPUBLISHED_WEBSITE. We re-run the step check pretending the
-    // website is published — if that makes it match, the website is the sole cause.
+    // The website is agent-managed and no longer gates a step; kept as a
+    // diagnostic column only.
     const websiteUnpublished =
       row.website_status !== null && row.website_status !== 'published'
-    if (websiteUnpublished && match !== 'OK' && found) {
-      const stepIfPublished = determineStep(
-        'published', // Pretending the website is published.
-        row.domain_status,
-        row.tcr_status,
-      )
-      if (
-        classifyMismatch(
-          STEP_TO_HUBSPOT[stepIfPublished],
-          actual,
-          hasHubSpotId,
-          found,
-        ) === 'OK'
-      ) {
-        // Indicates that the only reason for a mismatch is the unpublished website,
-        // which is a semi common thing for candidates to do and we don't really care
-        // about their subdomain.goodparty.org website being published.
-        match = 'OK_UNPUBLISHED_WEBSITE'
-      }
-    }
 
     return {
       email,
@@ -518,7 +486,7 @@ async function main() {
       domainStatus: row.domain_status ?? '(none)',
       tcrStatus: row.tcr_status ?? '(none)',
       dbStep,
-      expectedHS: expected,
+      expectedHS: dbStep,
       actualHS: actual ?? '(not set)',
       match,
       multiCampaign:
@@ -527,9 +495,7 @@ async function main() {
   })
 
   // --- Summary (all counts are per campaign row) ---
-  const mismatches = report.filter(
-    (r) => r.match !== 'OK' && r.match !== 'OK_UNPUBLISHED_WEBSITE',
-  )
+  const mismatches = report.filter((r) => r.match !== 'OK')
   const withId = report.filter((r) => r.hubspotId).length
   const noId = report.filter((r) => r.match === 'NO_HUBSPOT_ID').length
   const resolvedViaMerge = report.filter((r) => r.mergedTo !== '').length
