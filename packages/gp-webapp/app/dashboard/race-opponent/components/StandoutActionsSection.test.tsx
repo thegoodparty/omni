@@ -3,8 +3,19 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { RaceOpponentStandoutAction } from 'gpApi/api-endpoints'
 import StandoutActionsSection from './StandoutActionsSection'
+
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: vi.fn() }
+})
+
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [{ id: 42 }],
+}))
 
 const actionFor = (n: number): RaceOpponentStandoutAction => ({
   title: `Action title ${n}`,
@@ -105,5 +116,98 @@ describe('<StandoutActionsSection>', () => {
     expect(
       screen.getByText('Contrast your housing plan with the field.'),
     ).toBeInTheDocument()
+  })
+
+  it('fires the viewed event exactly once when cards render', () => {
+    render(<StandoutActionsSection standoutActions={fiveActions} />)
+
+    const viewedCalls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) => name === EVENTS.RaceOpponent.StandoutActionsViewed,
+      )
+    expect(viewedCalls).toHaveLength(1)
+    expect(viewedCalls[0]?.[1]).toEqual({ campaignId: 42, actionCount: 5 })
+  })
+
+  it('does not fire the viewed event for empty or nullish actions', () => {
+    render(<StandoutActionsSection standoutActions={[]} />)
+    render(<StandoutActionsSection standoutActions={null} />)
+    render(<StandoutActionsSection standoutActions={undefined} />)
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not re-fire the viewed event on a re-render of the same mount', () => {
+    const { rerender } = render(
+      <StandoutActionsSection standoutActions={fiveActions} />,
+    )
+    rerender(
+      <StandoutActionsSection standoutActions={fiveActions.map((a) => a)} />,
+    )
+
+    const viewedCalls = vi
+      .mocked(trackEvent)
+      .mock.calls.filter(
+        ([name]) => name === EVENTS.RaceOpponent.StandoutActionsViewed,
+      )
+    expect(viewedCalls).toHaveLength(1)
+  })
+
+  it('fires the clicked event with the card properties on CTA click', async () => {
+    const user = userEvent.setup()
+    render(<StandoutActionsSection standoutActions={fiveActions.slice(0, 3)} />)
+
+    const buttons = screen.getAllByRole('button', {
+      name: 'Send SMS to voters',
+    })
+    await user.click(buttons[2]!)
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.RaceOpponent.StandoutActionClicked,
+      {
+        campaignId: 42,
+        order: 2,
+        issue: 'Issue 3',
+        opponentName: 'Jane Rival',
+        messageLength: 'Sms message 3'.length,
+      },
+    )
+  })
+
+  it('omits the opponentName key from the clicked event when null', async () => {
+    const user = userEvent.setup()
+    const action: RaceOpponentStandoutAction = {
+      ...actionFor(1),
+      opponentName: null,
+    }
+    render(<StandoutActionsSection standoutActions={[action]} />)
+
+    await user.click(screen.getByRole('button', { name: 'Send SMS to voters' }))
+
+    const clickedCall = vi
+      .mocked(trackEvent)
+      .mock.calls.find(
+        ([name]) => name === EVENTS.RaceOpponent.StandoutActionClicked,
+      )
+    expect(clickedCall?.[1]).toEqual({
+      campaignId: 42,
+      order: 0,
+      issue: 'Issue 1',
+      messageLength: 'Sms message 1'.length,
+    })
+    expect(clickedCall?.[1]).not.toHaveProperty('opponentName')
+  })
+
+  it('fires the clicked event before navigating', async () => {
+    const user = userEvent.setup()
+    render(<StandoutActionsSection standoutActions={[actionFor(1)]} />)
+
+    await user.click(screen.getByRole('button', { name: 'Send SMS to voters' }))
+
+    const clickedOrder = vi.mocked(trackEvent).mock.invocationCallOrder.at(-1)!
+    const pushOrder = vi.mocked(router.push!).mock.invocationCallOrder[0]!
+    expect(router.push).toHaveBeenCalledTimes(1)
+    expect(clickedOrder).toBeLessThan(pushOrder)
   })
 })

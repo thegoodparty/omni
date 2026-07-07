@@ -184,7 +184,9 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   Pro/compliance gates as the manual path (the Lovable sample's sidebar
   interaction is wrong per the PO; the CTA navigates). Renders nothing for an
   absent/empty `standoutActions` (actions run in flight or failed — the brief
-  ends at the SWOT). No analytics yet (ENG-10651 adds them).
+  ends at the SWOT). Fires the two ENG-10651 events (see Analytics below):
+  viewed once per mount when cards render (ref-guarded against the 5s poll),
+  clicked on each CTA press before the `router.push`.
 
 ## Status polling — one poller, it is the source of truth
 
@@ -226,7 +228,16 @@ Fire via `trackEvent`, once per trigger: `Win - Opponent Upgrade Viewed` (locked
 mount), `Win - Opponents Manually Added` (manual submit, with `opponentCount`),
 `Win - Opponent Research Started` (a run starts — ref-guarded + seeded from
 `initialData` so a mid-run reload doesn't over-count), plus `OpponentProfileViewed`,
-`OpponentsManuallyAdded`, contrast events. Governance metadata for new events: the
+`OpponentsManuallyAdded`, contrast events. Stand-out actions (ENG-10651, fired from
+`StandoutActionsSection`, never from `RaceOpponentList`, so an absent section can't
+fire): `Win - Opponent Standout Actions Viewed` (once per mount when cards render,
+ref-guarded against the 5s poll; `campaignId`, `actionCount`) and
+`Win - Opponent Standout Action Clicked` (each CTA press, before the push;
+`campaignId`, `order`, `issue`, `messageLength`, plus `opponentName` — the key is
+omitted, not null, when the card has none). The clicked event is the
+race-opponent half of the SMS funnel; the outreach side fires
+`EVENTS.Outreach.ClickCreate` with `source: 'deep_link'` when the composer opens
+(ENG-10649) — don't double-fire it here. Governance metadata for new events: the
 `event-metadata` skill (Amplitude).
 
 ## Gotchas
