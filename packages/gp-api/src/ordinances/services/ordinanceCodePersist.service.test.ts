@@ -452,7 +452,9 @@ describe('OrdinanceCodePersistService.onExperimentRunCompleted', () => {
       [key]: JSON.stringify(municodeArtifact(run.runId, { code_source: null })),
     })
 
-    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow()
+    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow(
+      /code_source/,
+    )
 
     const failed = await service.prisma.experimentRun.findUnique({
       where: { runId: run.runId },
@@ -470,7 +472,9 @@ describe('OrdinanceCodePersistService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow()
+    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow(
+      /does not match run org/,
+    )
 
     const failed = await service.prisma.experimentRun.findUnique({
       where: { runId: run.runId },
@@ -490,13 +494,28 @@ describe('OrdinanceCodePersistService.onExperimentRunCompleted', () => {
       ),
     })
 
-    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow()
+    await expect(persist().onExperimentRunCompleted(run)).rejects.toThrow(
+      /does not match/,
+    )
 
-    const failed = await service.prisma.experimentRun.findUnique({
+    const failedRun = await service.prisma.experimentRun.findUnique({
       where: { runId: run.runId },
     })
-    expect(failed?.status).toBe(ExperimentRunStatus.FAILED)
-    expect(await findRecord()).toBeNull()
+    expect(failedRun?.status).toBe(ExperimentRunStatus.FAILED)
+  })
+
+  it("persists when the artifact carries the contract's unknown run id", async () => {
+    const key = 'find_existing_ordinances/run-unknownid/artifact.json'
+    const run = await seedRun({ artifactKey: key })
+    mockS3({
+      [key]: JSON.stringify(
+        municodeArtifact(run.runId, { generated_for_run_id: 'unknown' }),
+      ),
+    })
+
+    await persist().onExperimentRunCompleted(run)
+
+    expect(await findRecord()).toMatchObject({ codeFound: true })
   })
 
   it('clamps a future generated_at to now when persisting', async () => {

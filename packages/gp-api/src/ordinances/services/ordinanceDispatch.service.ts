@@ -17,6 +17,22 @@ import { FIND_EXISTING_ORDINANCES } from '../ordinances.constants'
 const isAutomationEnabled = () =>
   process.env.ORDINANCES_AUTOMATION_ENABLED === 'true'
 
+// A hung election-api connection must not stall the uncapped tick — the
+// per-org resolve gets a hard deadline and the org is skipped for the day.
+const contextResolveTimeoutMs = () =>
+  Number(process.env.ORDINANCE_RESOLVE_TIMEOUT_MS ?? 15_000)
+
+const withDeadline = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+  Promise.race([
+    promise,
+    new Promise<never>((_resolve, reject) =>
+      setTimeout(
+        () => reject(new Error(`resolve timed out after ${ms}ms`)),
+        ms,
+      ),
+    ),
+  ])
+
 // Manifest maxLength for office. customPositionName is unbounded user input;
 // the place name the agent derives sits at the front of the string, so
 // truncation is safe.
@@ -162,6 +178,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
     }
 
     let dispatched = 0
+    let failed = 0
     for (const organizationSlug of eligible) {
       try {
         const inFlight = await this.model.findFirst({
@@ -182,7 +199,10 @@ export class OrdinanceDispatchService extends createPrismaBase(
           continue
         }
 
-        const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
+        const dispatchable = await withDeadline(
+          this.resolveDispatchableOrg(organizationSlug),
+          contextResolveTimeoutMs(),
+        )
         if (!dispatchable) continue
 
         await this.experimentRuns.dispatchRun({
@@ -197,6 +217,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
         })
         dispatched++
       } catch (err) {
+        failed++
         this.logger.error(
           { err, organizationSlug },
           'ordinance refresh dispatch failed for org; continuing',
@@ -205,7 +226,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
     }
 
     this.logger.info(
-      { eligible: eligible.length, dispatched },
+      { eligible: eligible.length, dispatched, failed },
       'ordinance refresh cron finished',
     )
     await this.cronLock.markCompleted(REFRESH_CRON_JOB, now)
@@ -244,7 +265,10 @@ export class OrdinanceDispatchService extends createPrismaBase(
             },
             {
               status: ExperimentRunStatus.FAILED,
-              createdAt: { gte: failedBackoffCutoff },
+              // failure time, not dispatch time — a run that fails days after
+              // it was created must still get the full backoff (updatedAt is
+              // stamped at the terminal transition)
+              updatedAt: { gte: failedBackoffCutoff },
             },
           ],
         },

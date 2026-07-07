@@ -292,14 +292,17 @@ describe('ElectedOfficeService.create', () => {
   })
 
   it('returns without waiting for the ordinance dispatch to settle', async () => {
-    vi.spyOn(
-      service.app.get(OrdinanceDispatchService),
-      'onElectedOfficeCreated',
-    ).mockReturnValue(new Promise<void>(() => undefined))
+    const hookSpy = vi
+      .spyOn(
+        service.app.get(OrdinanceDispatchService),
+        'onElectedOfficeCreated',
+      )
+      .mockReturnValue(new Promise<void>(() => undefined))
 
     const office = await electedOffices.create({ userId: service.user.id })
 
     expect(office.id).toBeDefined()
+    hookSpy.mockRestore()
   }, 3000)
 })
 

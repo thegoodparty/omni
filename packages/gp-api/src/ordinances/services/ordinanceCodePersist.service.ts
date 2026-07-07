@@ -140,7 +140,12 @@ export class OrdinanceCodePersistService extends createPrismaBase(
           `run org ${run.organizationSlug}`,
       )
     }
-    if (artifact.generated_for_run_id !== run.runId) {
+    // the experiment contract sanctions 'unknown' when the runner env lacks
+    // RUN_ID; only a concrete mismatching id indicates a mispointed artifact
+    if (
+      artifact.generated_for_run_id !== 'unknown' &&
+      artifact.generated_for_run_id !== run.runId
+    ) {
       throw new Error(
         `artifact run ${artifact.generated_for_run_id} does not match ` +
           `run ${run.runId}`,
