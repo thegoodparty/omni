@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { CampaignStoryService } from '@/campaignStory/services/campaignStory.service'
 import { CampaignStoryRewriteService } from '@/campaignStory/services/campaignStoryRewrite.service'
 import type { RewriteCampaignStoryInput } from '@/campaignStory/schemas/rewriteCampaignStory.schema'
+import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { WebsitesService } from '@/websites/services/websites.service'
@@ -158,6 +159,13 @@ export class CampaignStoryIntakeService {
     candidateName: string,
   ): Promise<{ rewrite: string }> {
     return this.rewrites.rewrite(input, candidateName, campaignId)
+  }
+
+  // Read-only view of the generated plan's strategic landscape for the
+  // manager's context. Null until both sections are persisted; never
+  // dispatches generation.
+  async readPlan(campaignId: number): Promise<StrategicLandscapeResult | null> {
+    return this.strategy.readLandscapeForCampaign(campaignId)
   }
 
   // Same completion path as the story page → plan tab: kick off plan generation,

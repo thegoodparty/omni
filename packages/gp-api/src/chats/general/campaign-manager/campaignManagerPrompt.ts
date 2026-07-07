@@ -1,5 +1,6 @@
 import { format } from 'date-fns'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
+import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { StoryState } from './campaignStoryIntake.service'
 
 // Compact, grounded context the manager agent reasons over. Assembled by the
@@ -23,6 +24,10 @@ export interface CampaignManagerContext {
   // Current Campaign Story answers + which are still missing (null when no
   // campaign resolved). Drives the intake in the system prompt.
   story: StoryState | null
+  // The generated plan's strategic landscape (opportunities, challenges,
+  // opponents). Null until both plan sections have persisted, so the manager
+  // never coaches from a partial plan.
+  plan: StrategicLandscapeResult | null
 }
 
 const ROLE = `You are the candidate's AI campaign manager for a first-time \
@@ -63,6 +68,39 @@ const tasksBlock = (ctx: CampaignManagerContext): string =>
         .join('\n')}`
     : 'There are no generated tracker tasks yet; guide the candidate from the ' +
       'plan and the fundamentals of a local race.'
+
+const opponentLine = (o: StrategicLandscapeResult['opponents'][number]) =>
+  `- ${o.fullName} (${o.partyAffiliation}${o.incumbent ? ', incumbent' : ''})`
+
+// The generated plan's strategic landscape, so the manager's judgment and
+// sequencing are grounded in the plan rather than generic local-race advice.
+const planBlock = (ctx: CampaignManagerContext): string | null => {
+  if (!ctx.plan) {
+    return 'The campaign plan has not been generated yet (it is built from the Campaign Story). Coach from the story, the tracker tasks, and local-race fundamentals until it exists.'
+  }
+  const parts = ['The campaign plan\u2019s strategic landscape:']
+  if (ctx.plan.opportunities.length > 0) {
+    parts.push(
+      `Opportunities:\n${ctx.plan.opportunities.map((o) => `- ${o}`).join('\n')}`,
+    )
+  }
+  if (ctx.plan.challenges.length > 0) {
+    parts.push(
+      `Challenges:\n${ctx.plan.challenges.map((c) => `- ${c}`).join('\n')}`,
+    )
+  }
+  parts.push(
+    ctx.plan.opponents.length > 0
+      ? `Opponents in the race:\n${ctx.plan.opponents
+          .map(opponentLine)
+          .join('\n')}`
+      : 'No opponents found for the race so far.',
+  )
+  parts.push(
+    'Ground your advice in this landscape: lean on the opportunities, plan around the challenges, and factor in the opposition.',
+  )
+  return parts.join('\n')
+}
 
 // Advertised only when the constituent-data tool is actually registered, so the
 // prompt never promises a tool the model can't call.
@@ -129,6 +167,7 @@ export const buildCampaignManagerSystemPrompt = (
     ROLE,
     raceContext(ctx),
     storyBlock(ctx),
+    planBlock(ctx),
     tasksBlock(ctx),
     dataBlock(ctx),
     GUARDRAILS,
