@@ -1197,6 +1197,37 @@ describe('PATCH /v1/organizations/:slug', () => {
     expect(updated?.positionId).toBeNull()
     expect(updated?.customPositionName).toBeNull()
   })
+
+  it('rejects an empty-string ballotReadyPositionId', async () => {
+    await service.prisma.organization.create({
+      data: {
+        slug: 'campaign-213',
+        ownerId: service.user.id,
+        customPositionName: 'Keep Me Too',
+      },
+    })
+
+    await service.prisma.campaign.create({
+      data: {
+        userId: service.user.id,
+        slug: 'test-campaign-213',
+        details: {},
+        organizationSlug: 'campaign-213',
+      },
+    })
+
+    const result = await service.client.patch(
+      '/v1/organizations/campaign-213',
+      { ballotReadyPositionId: '' },
+    )
+
+    expect(result.status).toBe(400)
+
+    const updated = await service.prisma.organization.findUnique({
+      where: { slug: 'campaign-213' },
+    })
+    expect(updated?.customPositionName).toBe('Keep Me Too')
+  })
 })
 
 describe('GET /v1/organizations/admin/:slug', () => {
