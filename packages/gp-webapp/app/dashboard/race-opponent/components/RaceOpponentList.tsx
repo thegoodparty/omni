@@ -34,6 +34,7 @@ import AddOpponentsForm from './AddOpponentsForm'
 import type { ManualOpponentInput } from './AddOpponentsForm'
 import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
 import FieldAnalysisSection from './FieldAnalysisSection'
+import StandoutActionsSection from './StandoutActionsSection'
 
 const initialsFor = (name: string): string =>
   name
@@ -738,7 +739,10 @@ const RaceOpponentList = ({
         </section>
       )}
       {data.opponents.length > 0 && (
-        <FieldAnalysisSection fieldAnalysis={data.fieldAnalysis} />
+        <>
+          <FieldAnalysisSection fieldAnalysis={data.fieldAnalysis} />
+          <StandoutActionsSection standoutActions={data.standoutActions} />
+        </>
       )}
     </div>
   )
