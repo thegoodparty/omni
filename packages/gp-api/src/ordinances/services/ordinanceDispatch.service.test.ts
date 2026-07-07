@@ -488,42 +488,21 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
-  it('caps dispatches at 200 per tick and still completes the lease', async () => {
+  it('dispatches every eligible org in one tick with no cap', async () => {
     const slugs = slugsInTodaysBucket('ord-cap', 201)
-    await service.prisma.organization.createMany({
-      data: slugs.map((slug) => ({ slug, ownerId: service.user.id })),
-    })
-    await service.prisma.electedOffice.createMany({
-      data: slugs.map((slug) => ({
-        userId: service.user.id,
-        organizationSlug: slug,
-      })),
-    })
-    const verifiedAt = subDays(new Date(), 61)
-    await service.prisma.ordinanceCodeRecord.createMany({
-      data: slugs.map((slug) => ({
-        organizationSlug: slug,
-        codeFound: true,
-        dataQuality: OrdinanceDataQuality.OK,
-        confidence: OrdinanceConfidence.HIGH,
-        place: 'Ramsey',
-        state: 'MN',
-        verifiedEvidence: 'evidence',
-        artifactBucket: 'bucket',
-        artifactKey: 'key',
-        verifiedAt,
-      })),
-    })
+    for (const slug of slugs) {
+      await seedOrgWithOffice(slug)
+      await seedRecord(slug, { verifiedAt: subDays(new Date(), 61) })
+    }
     const dispatchSpy = mockDispatchRun()
-    const { completeSpy } = mockCronLock(true)
+    mockCronLock(true)
 
     await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
 
-    expect(dispatchSpy).toHaveBeenCalledTimes(200)
-    expect(completeSpy).toHaveBeenCalledTimes(1)
-  })
+    expect(dispatchSpy).toHaveBeenCalledTimes(201)
+  }, 60000)
 
-  it('dispatches only the stale org whose slug is in today bucket', async () => {
+  it('dispatches stale orgs regardless of slug bucket', async () => {
     const inBucket = slugInTodaysBucket('ord-cron-inbucket')
     const outBucket = slugOutsideTodaysBucket('ord-cron-outbucket')
     await seedOrgWithOffice(inBucket)
@@ -535,9 +514,9 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
 
     await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
 
-    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledTimes(2)
     expect(dispatchSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationSlug: inBucket }),
+      expect.objectContaining({ organizationSlug: outBucket }),
     )
   })
 

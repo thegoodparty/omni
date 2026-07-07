@@ -303,7 +303,11 @@ export class ElectedOfficeService extends createPrismaBase(
         )
       })
 
-    await this.ordinanceDispatch
+    // Fire-and-forget: ordinance sourcing writes no signup-critical state, so
+    // it must add zero latency to the create request. The daily refresh cron
+    // recovers any org missed if the process dies before this settles, and the
+    // one-time exists-guard makes that re-entry safe.
+    void this.ordinanceDispatch
       .onElectedOfficeCreated(electedOffice)
       .catch((err: Error) => {
         this.logger.error(

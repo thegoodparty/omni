@@ -10,7 +10,6 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { bucketForSlug } from '../../communityIssues/communityIssueBucketing'
 import { FIND_EXISTING_ORDINANCES } from '../ordinances.constants'
 
 // Own flag (campaignTracker precedent): ordinance sourcing rolls out
@@ -36,13 +35,13 @@ const RECORD_REFRESH_DAYS = 60
 // refresh window.
 const LOW_CONFIDENCE_RECHECK_DAYS = 14
 
-// Per-cron-tick cap (communityIssues convention): bounds SQS fan-out from a
-// single run. The remainder stays eligible for the next tick.
-const DISPATCH_CAP_PER_TICK = 200
-
 // A persistently-failing org must not be re-dispatched every day. Skip it
 // while a FAILED run sits inside this window, then let it retry.
 const FAILED_RETRY_BACKOFF_DAYS = 2
+
+// Not a cap — the agent platform's concurrency limiter paces execution.
+// This only flags unexpected eligibility volume for the ops alarm.
+const EXPECTED_VOLUME_WARN_THRESHOLD = 400
 
 type ResolvedDispatchContext = {
   clerkUserId: string | undefined
@@ -152,17 +151,18 @@ export class OrdinanceDispatchService extends createPrismaBase(
     if (!claimed) return
 
     const eligible = await this.selectOrgsNeedingRun(now)
-    if (eligible.length > DISPATCH_CAP_PER_TICK) {
+    if (eligible.length > EXPECTED_VOLUME_WARN_THRESHOLD) {
       this.logger.warn(
-        { eligible: eligible.length, cap: DISPATCH_CAP_PER_TICK },
-        'ordinance refresh eligibility exceeds per-tick cap; ' +
-          'remainder waits for a later tick',
+        {
+          eligible: eligible.length,
+          threshold: EXPECTED_VOLUME_WARN_THRESHOLD,
+        },
+        'ordinance refresh eligibility unexpectedly high; dispatching all',
       )
     }
-    const capped = eligible.slice(0, DISPATCH_CAP_PER_TICK)
 
     let dispatched = 0
-    for (const organizationSlug of capped) {
+    for (const organizationSlug of eligible) {
       try {
         const inFlight = await this.model.findFirst({
           where: {
@@ -205,7 +205,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
     }
 
     this.logger.info(
-      { eligible: eligible.length, dispatched, cap: DISPATCH_CAP_PER_TICK },
+      { eligible: eligible.length, dispatched },
       'ordinance refresh cron finished',
     )
     await this.cronLock.markCompleted(REFRESH_CRON_JOB, now)
@@ -215,7 +215,6 @@ export class OrdinanceDispatchService extends createPrismaBase(
     const staleCutoff = subDays(now, RECORD_REFRESH_DAYS)
     const recheckCutoff = subDays(now, LOW_CONFIDENCE_RECHECK_DAYS)
     const failedBackoffCutoff = subDays(now, FAILED_RETRY_BACKOFF_DAYS)
-    const todayBucket = now.getUTCDay()
 
     const [offices, records, runs] = await Promise.all([
       this.client.electedOffice.findMany({
@@ -271,13 +270,8 @@ export class OrdinanceDispatchService extends createPrismaBase(
       }
     }
 
-    // Day-bucket slicing (communityIssues convention): each tick handles the
-    // ~1/7 of the fleet whose slug hashes to today's UTC-day, so a
-    // permanently-ineligible org only occupies its own bucket day instead of
-    // starving the whole fleet from the front of an alphabetical scan.
     return offices
       .map((o) => o.organizationSlug)
-      .filter((slug) => bucketForSlug(slug, 7) === todayBucket)
       .filter((slug) => {
         if (inFlightSlugs.has(slug) || recentlyFailedSlugs.has(slug)) {
           return false

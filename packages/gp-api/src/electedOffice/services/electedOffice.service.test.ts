@@ -290,6 +290,17 @@ describe('ElectedOfficeService.create', () => {
     expect(office.id).toBeDefined()
     expect(await service.prisma.electedOffice.count()).toBe(1)
   })
+
+  it('returns without waiting for the ordinance dispatch to settle', async () => {
+    vi.spyOn(
+      service.app.get(OrdinanceDispatchService),
+      'onElectedOfficeCreated',
+    ).mockReturnValue(new Promise<void>(() => undefined))
+
+    const office = await electedOffices.create({ userId: service.user.id })
+
+    expect(office.id).toBeDefined()
+  }, 3000)
 })
 
 describe('ElectedOfficeService.update', () => {
