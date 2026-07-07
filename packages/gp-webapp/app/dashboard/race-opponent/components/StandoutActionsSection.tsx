@@ -1,8 +1,11 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@styleguide'
 import { SendIcon } from '@styleguide/components/ui/icons'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useCampaign } from '@shared/hooks/useCampaign'
 import type { RaceOpponentStandoutAction } from 'gpApi/api-endpoints'
 
 type Props = {
@@ -19,7 +22,44 @@ const StandoutActionsSection = ({
   standoutActions,
 }: Props): React.JSX.Element | null => {
   const router = useRouter()
+  const [campaign] = useCampaign()
+
+  const actionCount = standoutActions?.length ?? 0
+  // Fire the viewed event once per mount, only when cards actually render. The
+  // parent polls every 5s, so without the ref an unguarded effect would re-fire
+  // on every tick's fresh array reference.
+  const viewedRef = useRef(false)
+  useEffect(() => {
+    // campaign?.id in the guard: cards can arrive before the campaign context
+    // resolves, and latching the ref then would emit campaignId: undefined
+    // once and never the real id.
+    if (actionCount === 0 || viewedRef.current || campaign?.id == null) return
+    viewedRef.current = true
+    trackEvent(EVENTS.RaceOpponent.StandoutActionsViewed, {
+      campaignId: campaign.id,
+      actionCount,
+    })
+  }, [actionCount, campaign?.id])
+
   if (!standoutActions || standoutActions.length === 0) return null
+
+  const handleSendSms = (
+    action: RaceOpponentStandoutAction,
+    index: number,
+  ): void => {
+    trackEvent(EVENTS.RaceOpponent.StandoutActionClicked, {
+      campaignId: campaign?.id,
+      order: index,
+      issue: action.issue,
+      ...(action.opponentName != null && {
+        opponentName: action.opponentName,
+      }),
+      messageLength: action.smsMessage.length,
+    })
+    router.push(
+      `/dashboard/outreach?compose=text&message=${encodeURIComponent(action.smsMessage)}`,
+    )
+  }
 
   return (
     <section className="mx-auto mt-4 w-full max-w-[608px]">
@@ -49,11 +89,7 @@ const StandoutActionsSection = ({
             </p>
             <Button
               className="w-full"
-              onClick={() =>
-                router.push(
-                  `/dashboard/outreach?compose=text&message=${encodeURIComponent(action.smsMessage)}`,
-                )
-              }
+              onClick={() => handleSendSms(action, index)}
             >
               Send SMS to voters
             </Button>
