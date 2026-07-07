@@ -1,3 +1,4 @@
+import { BadGatewayException } from '@nestjs/common'
 import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -9,6 +10,7 @@ import { CronLockService } from '@/cron/services/cronLock.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { TEST_CLERK_ID, useTestService } from '@/test-service'
+import { bucketForSlug } from '../../communityIssues/communityIssueBucketing'
 import { FIND_EXISTING_ORDINANCES } from '../ordinances.constants'
 import { OrdinanceDispatchService } from './ordinanceDispatch.service'
 
@@ -38,6 +40,35 @@ const mockDispatchRun = () =>
   vi
     .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
     .mockResolvedValue(undefined)
+
+// The refresh cron only considers orgs whose slug hashes to today's UTC-day
+// bucket. These helpers build slugs that land in / out of that bucket so the
+// cron tests exercise the staleness logic rather than the bucket filter.
+const slugsInTodaysBucket = (prefix: string, count: number): string[] => {
+  const bucket = new Date().getUTCDay()
+  const slugs: string[] = []
+  let i = 0
+  while (slugs.length < count) {
+    const slug = `${prefix}-${i}`
+    if (bucketForSlug(slug, 7) === bucket) slugs.push(slug)
+    i++
+  }
+  return slugs
+}
+
+const slugInTodaysBucket = (prefix: string): string => {
+  const bucket = new Date().getUTCDay()
+  let i = 0
+  while (bucketForSlug(`${prefix}-${i}`, 7) !== bucket) i++
+  return `${prefix}-${i}`
+}
+
+const slugOutsideTodaysBucket = (prefix: string): string => {
+  const bucket = new Date().getUTCDay()
+  let i = 0
+  while (bucketForSlug(`${prefix}-${i}`, 7) === bucket) i++
+  return `${prefix}-${i}`
+}
 
 describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
   beforeEach(() => {
@@ -197,6 +228,33 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
+  it('does not resolve serve context when a completed run already exists', async () => {
+    const orgSlug = `ord-completed-${Date.now()}`
+    const office = await seedOrgWithOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    const serveSpy = vi
+      .spyOn(service.app.get(OrganizationsService), 'resolveServeContext')
+      .mockResolvedValue({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+    const dispatchSpy = mockDispatchRun()
+
+    await service.app
+      .get(OrdinanceDispatchService)
+      .onElectedOfficeCreated(office)
+
+    expect(serveSpy).not.toHaveBeenCalled()
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
   it('re-dispatches when the only prior run is FAILED', async () => {
     const orgSlug = `ord-failed-${Date.now()}`
     const office = await seedOrgWithOffice(orgSlug)
@@ -310,7 +368,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('skips an org whose record is fresh', async () => {
-    const orgSlug = `ord-cron-fresh-${Date.now()}`
+    const orgSlug = slugInTodaysBucket('ord-cron-fresh')
     await seedOrgWithOffice(orgSlug)
     await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 5) })
     const dispatchSpy = mockDispatchRun()
@@ -322,7 +380,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('dispatches a refresh for a record older than 60 days', async () => {
-    const orgSlug = `ord-cron-stale-${Date.now()}`
+    const orgSlug = slugInTodaysBucket('ord-cron-stale')
     await seedOrgWithOffice(orgSlug)
     await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 61) })
     const dispatchSpy = mockDispatchRun()
@@ -345,7 +403,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('re-checks a low-confidence not-found record after 14 days', async () => {
-    const orgSlug = `ord-cron-leash-${Date.now()}`
+    const orgSlug = slugInTodaysBucket('ord-cron-leash')
     await seedOrgWithOffice(orgSlug)
     await seedRecord(orgSlug, {
       verifiedAt: subDays(new Date(), 15),
@@ -364,7 +422,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('holds the 14-day leash on a young low-confidence not-found record', async () => {
-    const orgSlug = `ord-cron-young-${Date.now()}`
+    const orgSlug = slugInTodaysBucket('ord-cron-young')
     await seedOrgWithOffice(orgSlug)
     await seedRecord(orgSlug, {
       verifiedAt: subDays(new Date(), 5),
@@ -380,7 +438,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('dispatches a first run for an office org with no record or run', async () => {
-    const orgSlug = `ord-cron-norec-${Date.now()}`
+    const orgSlug = slugInTodaysBucket('ord-cron-norec')
     await seedOrgWithOffice(orgSlug)
     const dispatchSpy = mockDispatchRun()
     mockCronLock(true)
@@ -394,7 +452,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('skips a no-record org whose run completed within 60 days', async () => {
-    const orgSlug = `ord-cron-recent-${Date.now()}`
+    const orgSlug = slugInTodaysBucket('ord-cron-recent')
     await seedOrgWithOffice(orgSlug)
     await service.prisma.experimentRun.create({
       data: {
@@ -412,7 +470,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('skips an org with an in-flight run', async () => {
-    const orgSlug = `ord-cron-inflight-${Date.now()}`
+    const orgSlug = slugInTodaysBucket('ord-cron-inflight')
     await seedOrgWithOffice(orgSlug)
     await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 61) })
     await service.prisma.experimentRun.create({
@@ -431,7 +489,7 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
   })
 
   it('caps dispatches at 200 per tick and still completes the lease', async () => {
-    const slugs = Array.from({ length: 201 }, (_, i) => `ord-cap-${i}`)
+    const slugs = slugsInTodaysBucket('ord-cap', 201)
     await service.prisma.organization.createMany({
       data: slugs.map((slug) => ({ slug, ownerId: service.user.id })),
     })
@@ -463,6 +521,115 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
 
     expect(dispatchSpy).toHaveBeenCalledTimes(200)
     expect(completeSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('dispatches only the stale org whose slug is in today bucket', async () => {
+    const inBucket = slugInTodaysBucket('ord-cron-inbucket')
+    const outBucket = slugOutsideTodaysBucket('ord-cron-outbucket')
+    await seedOrgWithOffice(inBucket)
+    await seedOrgWithOffice(outBucket)
+    await seedRecord(inBucket, { verifiedAt: subDays(new Date(), 61) })
+    await seedRecord(outBucket, { verifiedAt: subDays(new Date(), 61) })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: inBucket }),
+    )
+  })
+
+  it('isolates a serve-context failure to one org and dispatches the rest', async () => {
+    const failSlug = slugInTodaysBucket('ord-cron-fault-a')
+    const okSlug = slugInTodaysBucket('ord-cron-fault-b')
+    await seedOrgWithOffice(failSlug)
+    await seedOrgWithOffice(okSlug)
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+    vi.spyOn(
+      service.app.get(OrganizationsService),
+      'resolveServeContext',
+    ).mockImplementation(async (org) => {
+      if (org.slug === failSlug) {
+        throw new BadGatewayException('election-api unavailable')
+      }
+      return { state: 'MN', positionName: 'City Council', isServeIcp: true }
+    })
+
+    await expect(
+      service.app.get(OrdinanceDispatchService).dispatchDailyRefresh(),
+    ).resolves.toBeUndefined()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: okSlug }),
+    )
+  })
+
+  it('skips an org with a FAILED run inside the retry backoff window', async () => {
+    const orgSlug = slugInTodaysBucket('ord-cron-failrecent')
+    await seedOrgWithOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: ExperimentRunStatus.FAILED,
+        createdAt: subDays(new Date(), 1),
+      },
+    })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('re-dispatches an org whose FAILED run predates the retry backoff', async () => {
+    const orgSlug = slugInTodaysBucket('ord-cron-failold')
+    await seedOrgWithOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: ExperimentRunStatus.FAILED,
+        createdAt: subDays(new Date(), 3),
+      },
+    })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationSlug: orgSlug }),
+    )
+  })
+
+  it('holds the leash when a recent completed run outdates a stale record', async () => {
+    const orgSlug = slugInTodaysBucket('ord-cron-maxbranch')
+    await seedOrgWithOffice(orgSlug)
+    await seedRecord(orgSlug, { verifiedAt: subDays(new Date(), 100) })
+    const run = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.$executeRaw`
+      UPDATE experiment_run SET updated_at = ${subDays(new Date(), 5)}
+      WHERE run_id = ${run.runId}
+    `
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
   })
 })
 

@@ -10,6 +10,7 @@ import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
+import { bucketForSlug } from '../../communityIssues/communityIssueBucketing'
 import { FIND_EXISTING_ORDINANCES } from '../ordinances.constants'
 
 // Own flag (campaignTracker precedent): ordinance sourcing rolls out
@@ -38,6 +39,10 @@ const LOW_CONFIDENCE_RECHECK_DAYS = 14
 // Per-cron-tick cap (communityIssues convention): bounds SQS fan-out from a
 // single run. The remainder stays eligible for the next tick.
 const DISPATCH_CAP_PER_TICK = 200
+
+// A persistently-failing org must not be re-dispatched every day. Skip it
+// while a FAILED run sits inside this window, then let it retry.
+const FAILED_RETRY_BACKOFF_DAYS = 2
 
 type ResolvedDispatchContext = {
   clerkUserId: string | undefined
@@ -82,8 +87,6 @@ export class OrdinanceDispatchService extends createPrismaBase(
     }
 
     const { organizationSlug } = electedOffice
-    const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
-    if (!dispatchable) return
 
     const existing = await this.model.findFirst({
       where: {
@@ -107,6 +110,9 @@ export class OrdinanceDispatchService extends createPrismaBase(
       )
       return
     }
+
+    const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
+    if (!dispatchable) return
 
     await this.experimentRuns.dispatchRun({
       type: FIND_EXISTING_ORDINANCES,
@@ -157,22 +163,28 @@ export class OrdinanceDispatchService extends createPrismaBase(
 
     let dispatched = 0
     for (const organizationSlug of capped) {
-      const inFlight = await this.model.findFirst({
-        where: {
-          organizationSlug,
-          experimentType: FIND_EXISTING_ORDINANCES,
-          status: {
-            in: [ExperimentRunStatus.QUEUED, ExperimentRunStatus.RUNNING],
-          },
-        },
-        select: { runId: true },
-      })
-      if (inFlight) continue
-
-      const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
-      if (!dispatchable) continue
-
       try {
+        const inFlight = await this.model.findFirst({
+          where: {
+            organizationSlug,
+            experimentType: FIND_EXISTING_ORDINANCES,
+            status: {
+              in: [ExperimentRunStatus.QUEUED, ExperimentRunStatus.RUNNING],
+            },
+          },
+          select: { runId: true },
+        })
+        if (inFlight) {
+          this.logger.info(
+            { organizationSlug, runId: inFlight.runId },
+            'ordinance_refresh_skipped: in-flight run exists',
+          )
+          continue
+        }
+
+        const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
+        if (!dispatchable) continue
+
         await this.experimentRuns.dispatchRun({
           type: FIND_EXISTING_ORDINANCES,
           organizationSlug,
@@ -202,6 +214,8 @@ export class OrdinanceDispatchService extends createPrismaBase(
   private async selectOrgsNeedingRun(now: Date): Promise<string[]> {
     const staleCutoff = subDays(now, RECORD_REFRESH_DAYS)
     const recheckCutoff = subDays(now, LOW_CONFIDENCE_RECHECK_DAYS)
+    const failedBackoffCutoff = subDays(now, FAILED_RETRY_BACKOFF_DAYS)
+    const todayBucket = now.getUTCDay()
 
     const [offices, records, runs] = await Promise.all([
       this.client.electedOffice.findMany({
@@ -219,13 +233,21 @@ export class OrdinanceDispatchService extends createPrismaBase(
       this.model.findMany({
         where: {
           experimentType: FIND_EXISTING_ORDINANCES,
-          status: {
-            in: [
-              ExperimentRunStatus.QUEUED,
-              ExperimentRunStatus.RUNNING,
-              ExperimentRunStatus.COMPLETED,
-            ],
-          },
+          OR: [
+            {
+              status: {
+                in: [
+                  ExperimentRunStatus.QUEUED,
+                  ExperimentRunStatus.RUNNING,
+                  ExperimentRunStatus.COMPLETED,
+                ],
+              },
+            },
+            {
+              status: ExperimentRunStatus.FAILED,
+              createdAt: { gte: failedBackoffCutoff },
+            },
+          ],
         },
         select: { organizationSlug: true, status: true, updatedAt: true },
       }),
@@ -233,6 +255,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
 
     const recordBySlug = new Map(records.map((r) => [r.organizationSlug, r]))
     const inFlightSlugs = new Set<string>()
+    const recentlyFailedSlugs = new Set<string>()
     const lastCompletedBySlug = new Map<string, Date>()
     for (const run of runs) {
       if (run.status === ExperimentRunStatus.COMPLETED) {
@@ -241,15 +264,24 @@ export class OrdinanceDispatchService extends createPrismaBase(
           run.organizationSlug,
           prev ? max([prev, run.updatedAt]) : run.updatedAt,
         )
+      } else if (run.status === ExperimentRunStatus.FAILED) {
+        recentlyFailedSlugs.add(run.organizationSlug)
       } else {
         inFlightSlugs.add(run.organizationSlug)
       }
     }
 
+    // Day-bucket slicing (communityIssues convention): each tick handles the
+    // ~1/7 of the fleet whose slug hashes to today's UTC-day, so a
+    // permanently-ineligible org only occupies its own bucket day instead of
+    // starving the whole fleet from the front of an alphabetical scan.
     return offices
       .map((o) => o.organizationSlug)
+      .filter((slug) => bucketForSlug(slug, 7) === todayBucket)
       .filter((slug) => {
-        if (inFlightSlugs.has(slug)) return false
+        if (inFlightSlugs.has(slug) || recentlyFailedSlugs.has(slug)) {
+          return false
+        }
         const record = recordBySlug.get(slug)
         const lastCompleted = lastCompletedBySlug.get(slug)
         if (!record) {
