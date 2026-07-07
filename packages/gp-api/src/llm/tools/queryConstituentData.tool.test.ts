@@ -513,7 +513,7 @@ describe('buildDescribeConstituentDataTool', () => {
 })
 
 describe('tool description — partisan guidance follows the scope', () => {
-  const provider = new InMemoryDatabricksProvider([])
+  const provider = new InMemoryDatabricksProvider(new Map())
 
   it('carries the hard line when partisan queries are not allowed', () => {
     const tool = buildQueryConstituentDataTool({ provider, scope })
