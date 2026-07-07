@@ -182,8 +182,10 @@ interface ReportRow {
 // property's own order. A genuine candidate profile with no filing record yet
 // maps to "Info Submitted". `profileComplete` uses the same genuineness rule as
 // the webapp's isCandidateProfileComplete (shared via @goodparty_org/contracts).
-// tcr.status 'error' has no HubSpot value; it falls through to the profile /
-// Not Started rungs.
+// 'error' is treated as 'submitted': the filing-submitted Segment event already
+// set HubSpot to "Registration Submitted" and is never rolled back when the
+// later Peerly attempt errors, so the DB should expect that same rung — not a
+// lower one, which would report every errored campaign as a false AHEAD.
 // ---------------------------------------------------------------------------
 function determineStep(
   tcrStatus: string | null,
@@ -192,7 +194,10 @@ function determineStep(
   if (tcrStatus === TcrComplianceStatus.approved) return 'Compliant'
   if (tcrStatus === TcrComplianceStatus.rejected) return 'Compliance Rejected'
   if (tcrStatus === TcrComplianceStatus.pending) return 'Compliance Pending'
-  if (tcrStatus === TcrComplianceStatus.submitted) {
+  if (
+    tcrStatus === TcrComplianceStatus.submitted ||
+    tcrStatus === TcrComplianceStatus.error
+  ) {
     return 'Registration Submitted'
   }
   if (profileComplete) return 'Info Submitted'
