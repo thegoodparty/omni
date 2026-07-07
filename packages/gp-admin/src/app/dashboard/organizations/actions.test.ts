@@ -119,6 +119,17 @@ describe('updateOrganizationPositionName', () => {
     )
   })
 
+  it('revalidates the page even when the CRM re-sync fails', async () => {
+    mockCampaignUpdate.mockRejectedValue(new Error('hubspot sync failed'))
+    await expect(
+      updateOrganizationPositionName('campaign-1', 'Mayor', 1, 595)
+    ).rejects.toThrow('hubspot sync failed')
+    expect(mockRevalidatePath).toHaveBeenCalledWith(
+      '/dashboard/users/595',
+      'layout'
+    )
+  })
+
   it('saves null to clear the override', async () => {
     await updateOrganizationPositionName('campaign-1', null, 1, 595)
     expect(mockPatch).toHaveBeenCalledWith('campaign-1', {

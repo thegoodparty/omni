@@ -44,10 +44,10 @@ export async function updateOrganizationPositionName(
   }
   await gpAction(async (client) => {
     await client.organizations.patch(slug, { customPositionName })
+    revalidatePath(`/dashboard/users/${userId}`, 'layout')
     // Org patches don't sync to HubSpot on their own; an empty campaign
     // update triggers gp-api's trackCampaign so candidate_office reflects
     // the corrected position right away.
     await client.campaigns.update(campaignId, {})
-    revalidatePath(`/dashboard/users/${userId}`, 'layout')
   })
 }
