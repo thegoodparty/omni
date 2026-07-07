@@ -7,6 +7,11 @@ const KEYS = [
   'DATABRICKS_CLIENT_ID',
   'DATABRICKS_CLIENT_SECRET',
   'DATABRICKS_API_KEY',
+  'WIN_DATABRICKS_SERVER_HOSTNAME',
+  'WIN_DATABRICKS_HTTP_PATH',
+  'WIN_DATABRICKS_CLIENT_ID',
+  'WIN_DATABRICKS_CLIENT_SECRET',
+  'WIN_DATABRICKS_API_KEY',
 ] as const
 
 const saved: Record<string, string | undefined> = {}
@@ -98,5 +103,31 @@ describe('resolveDatabricksConnection', () => {
     process.env.DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/abc'
 
     expect(resolveDatabricksConnection()).toBeNull()
+  })
+
+  it('reads only the prefixed vars when a prefix is given', () => {
+    process.env.DATABRICKS_SERVER_HOSTNAME = 'serve-host'
+    process.env.DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/serve'
+    process.env.DATABRICKS_API_KEY = 'serve-pat'
+    process.env.WIN_DATABRICKS_SERVER_HOSTNAME = 'win-host'
+    process.env.WIN_DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/win'
+    process.env.WIN_DATABRICKS_CLIENT_ID = 'win-id'
+    process.env.WIN_DATABRICKS_CLIENT_SECRET = 'win-secret'
+
+    expect(resolveDatabricksConnection('WIN_DATABRICKS_')).toEqual({
+      hostname: 'win-host',
+      httpPath: '/sql/1.0/warehouses/win',
+      accessToken: undefined,
+      oauthClientId: 'win-id',
+      oauthClientSecret: 'win-secret',
+    })
+  })
+
+  it('returns null for an absent prefix even with defaults set', () => {
+    process.env.DATABRICKS_SERVER_HOSTNAME = 'serve-host'
+    process.env.DATABRICKS_HTTP_PATH = '/sql/1.0/warehouses/serve'
+    process.env.DATABRICKS_API_KEY = 'serve-pat'
+
+    expect(resolveDatabricksConnection('WIN_DATABRICKS_')).toBeNull()
   })
 })

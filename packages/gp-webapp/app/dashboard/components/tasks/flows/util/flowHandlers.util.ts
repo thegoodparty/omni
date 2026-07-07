@@ -132,12 +132,13 @@ export const handleCreateOutreach =
     refreshCampaign = noopAsync,
     p2pUxEnabled = true,
   }: CreateOutreachParams) =>
-  async (): Promise<Outreach | undefined> => {
+  async (options?: { draft?: boolean }): Promise<Outreach | undefined> => {
     const { audience_request: audienceRequest } = audience || {}
     const { message } = schedule || {}
     const date = schedule?.date
     const voterFileFilterId = voterFileFilter?.id
     const outreachType = getEffectiveOutreachType(type, p2pUxEnabled)
+    const draft = options?.draft
 
     const discount = hasFreeTextsOffer
       ? Math.min(textCount ?? 0, FREE_TEXTS_OFFER.COUNT)
@@ -168,6 +169,7 @@ export const handleCreateOutreach =
           : {}),
         ...(campaignPlanDueDate ? { campaignPlanDueDate } : {}),
         ...textCounts,
+        ...(draft ? { draft: true } : {}),
       },
       image || null,
     )
@@ -177,9 +179,12 @@ export const handleCreateOutreach =
       return
     }
 
-    setOutreaches([...outreaches, outreach])
-
-    await refreshCampaign()
+    // Drafts are hidden server-side until payment finalizes them — appending
+    // one to the visible list would show a phantom campaign.
+    if (!draft) {
+      setOutreaches([...outreaches, outreach])
+      await refreshCampaign()
+    }
 
     return outreach
   }
