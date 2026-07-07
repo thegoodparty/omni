@@ -3,7 +3,10 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/lib/test-utils'
 import { CampaignForm } from './CampaignForm'
-import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+import type {
+  AdminOrganization,
+  CampaignWithLiveContext,
+} from '@goodparty_org/sdk'
 import {
   CampaignLaunchStatus,
   OnboardingStep,
@@ -20,6 +23,10 @@ import { useNavigationGuard } from 'next-navigation-guard'
 
 vi.mock('next-navigation-guard', () => ({
   useNavigationGuard: vi.fn(),
+}))
+
+vi.mock('@/app/dashboard/organizations/actions', () => ({
+  updateOrganizationPositionName: vi.fn(),
 }))
 
 class ResizeObserverMock {
@@ -131,6 +138,47 @@ describe('CampaignForm', () => {
       // "Party" appears as section heading and field label
       expect(screen.getByRole('heading', { name: 'Party' })).toBeInTheDocument()
       expect(screen.getByText('Background')).toBeInTheDocument()
+    })
+
+    it('renders an editable position editor when the organization is provided', () => {
+      const organization: AdminOrganization = {
+        slug: 'campaign-1',
+        name: '2026 Campaign',
+        positionName: 'City Council',
+        customPositionName: 'City Council',
+        position: {
+          id: 'pos-1',
+          name: 'City Council - District 1',
+          state: 'FL',
+          brPositionId: 'br-1',
+        },
+        district: null,
+        electedOfficeId: null,
+        campaignId: 1,
+      }
+
+      renderWithProviders(
+        <CampaignForm
+          initialData={mockCampaign}
+          organization={organization}
+          onSave={onSave}
+          onCancel={onCancel}
+        />
+      )
+
+      expect(screen.getByDisplayValue('City Council')).toBeEnabled()
+      expect(
+        screen.getByRole('button', { name: 'Save Position' })
+      ).toBeInTheDocument()
+    })
+
+    it('renders a read-only position when the organization is missing', () => {
+      renderForm()
+
+      expect(
+        screen.queryByRole('button', { name: 'Save Position' })
+      ).not.toBeInTheDocument()
+      expect(screen.getByText(/no organization record/)).toBeInTheDocument()
     })
 
     it('renders status flag toggles', () => {
