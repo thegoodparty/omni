@@ -13,8 +13,9 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+let mockCampaign: { id: number } | undefined = { id: 42 }
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ id: 42 }],
+  useCampaign: () => [mockCampaign],
 }))
 
 const actionFor = (n: number): RaceOpponentStandoutAction => ({
@@ -29,6 +30,7 @@ const fiveActions: RaceOpponentStandoutAction[] = [1, 2, 3, 4, 5].map(actionFor)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockCampaign = { id: 42 }
 })
 
 describe('<StandoutActionsSection>', () => {
@@ -136,6 +138,22 @@ describe('<StandoutActionsSection>', () => {
     render(<StandoutActionsSection standoutActions={undefined} />)
 
     expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('waits for the campaign to resolve before firing viewed with the real id', () => {
+    mockCampaign = undefined
+    const { rerender } = render(
+      <StandoutActionsSection standoutActions={fiveActions} />,
+    )
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    mockCampaign = { id: 42 }
+    rerender(<StandoutActionsSection standoutActions={fiveActions} />)
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.RaceOpponent.StandoutActionsViewed,
+      { campaignId: 42, actionCount: 5 },
+    )
   })
 
   it('does not re-fire the viewed event on a re-render of the same mount', () => {

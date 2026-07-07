@@ -30,10 +30,13 @@ const StandoutActionsSection = ({
   // on every tick's fresh array reference.
   const viewedRef = useRef(false)
   useEffect(() => {
-    if (actionCount === 0 || viewedRef.current) return
+    // campaign?.id in the guard: cards can arrive before the campaign context
+    // resolves, and latching the ref then would emit campaignId: undefined
+    // once and never the real id.
+    if (actionCount === 0 || viewedRef.current || campaign?.id == null) return
     viewedRef.current = true
     trackEvent(EVENTS.RaceOpponent.StandoutActionsViewed, {
-      campaignId: campaign?.id,
+      campaignId: campaign.id,
       actionCount,
     })
   }, [actionCount, campaign?.id])
