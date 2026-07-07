@@ -46,4 +46,5 @@ export const buildWinConstituentDataScope = (
   forbiddenColumns: FORBIDDEN_COLUMNS,
   mandatoryFilters: districtFilters,
   minCellSize: CONSTITUENT_MIN_CELL_SIZE,
+  partisanQueriesAllowed: true,
 })

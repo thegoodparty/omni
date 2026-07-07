@@ -511,3 +511,24 @@ describe('buildDescribeConstituentDataTool', () => {
     await expect((async () => tool.execute({}))()).resolves.toBeDefined()
   })
 })
+
+describe('tool description — partisan guidance follows the scope', () => {
+  const provider = new InMemoryDatabricksProvider([])
+
+  it('carries the hard line when partisan queries are not allowed', () => {
+    const tool = buildQueryConstituentDataTool({ provider, scope })
+    expect(tool.description).toContain('hard legal line')
+    expect(tool.description).not.toContain('ALLOWED')
+  })
+
+  it('invites partisan breakdowns when the scope allows them', () => {
+    const winScope: ConstituentDataScope = {
+      ...scope,
+      forbiddenColumns: new Set(['email', 'voter_id']),
+      partisanQueriesAllowed: true,
+    }
+    const tool = buildQueryConstituentDataTool({ provider, scope: winScope })
+    expect(tool.description).toContain('Parties_Description')
+    expect(tool.description).not.toContain('hard legal line')
+  })
+})
