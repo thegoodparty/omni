@@ -62,39 +62,26 @@ export const getTcrCompliance = async (): Promise<TcrCompliance | null> => {
   return response.data ?? null
 }
 
-const maskEmail = (email: string): string => {
-  const [local, domain] = email.split('@')
-  if (!domain || !local) return email
-  return `${local.slice(0, 1)}•••@${domain}`
-}
-
-const maskPhone = (phone: string): string => {
-  const digits = phone.replace(/\D/g, '')
-  if (digits.length < 4) return phone
-  const last4 = digits.slice(-4)
-  const area = digits.length >= 10 ? digits.slice(-10, -7) : ''
-  return area ? `(${area}) •••-${last4}` : `•••-${last4}`
-}
-
-// Sentence telling the candidate where Peerly sent their PIN, with the
-// destination lightly masked. Returns null when Peerly hasn't reported a
+// Sentence telling the candidate where Peerly sent their PIN. `displayString`
+// is already masked server-side (the raw filing info never reaches the client),
+// so this only composes the copy. Returns null when Peerly hasn't reported a
 // delivery yet so the caller falls back to the generic "email, phone or
 // address" copy.
 export const describePinDelivery = (
   pinDelivery: PinDelivery | null | undefined,
 ): string | null => {
   if (!pinDelivery) return null
-  const { method, destination } = pinDelivery
+  const { method, displayString } = pinDelivery
   switch (method) {
     case 'email':
-      return `We sent your PIN by email to ${maskEmail(destination)}.`
+      return `We sent your PIN by email to ${displayString}.`
     case 'text':
-      return `We sent your PIN by text to ${maskPhone(destination)}.`
+      return `We sent your PIN by text to ${displayString}.`
     case 'phone':
     case 'call':
-      return `We sent your PIN by phone to ${maskPhone(destination)}.`
+      return `We sent your PIN by phone to ${displayString}.`
     case 'mail':
-      return `We mailed your PIN to ${destination}.`
+      return `We mailed your PIN to ${displayString}.`
   }
 }
 

@@ -122,7 +122,7 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
     mockGetComplianceState.mockResolvedValue(
       stateWith(PeerlyCvVerificationStatus.APPROVED, {
         method: 'text',
-        destination: '3126851162',
+        displayString: '(312) •••-1162',
       }),
     )
     render(<ProUpgrade3Compliance />)

@@ -299,9 +299,10 @@ describe('ComplianceStateService - findStateForCampaign', () => {
 
     expect(result.stage).toBe(ComplianceStage.awaiting_pin)
     expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
+    // Raw destination masked server-side into the display string.
     expect(result.pinDelivery).toEqual({
       method: 'text',
-      destination: '3126851162',
+      displayString: '(312) •••-1162',
     })
     expect(mockRetrieveCv).toHaveBeenCalledWith(
       PEERLY_IDENTITY_ID,

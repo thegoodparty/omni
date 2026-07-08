@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { derivePinDelivery } from './peerlyPinDelivery.util'
+import {
+  derivePinDelivery,
+  maskPinDeliveryDestination,
+} from './peerlyPinDelivery.util'
 
 describe('derivePinDelivery', () => {
   it('maps email to the filing email', () => {
@@ -79,5 +82,33 @@ describe('derivePinDelivery', () => {
         filing_city: 'Madison',
       }),
     ).toBeNull()
+  })
+})
+
+describe('maskPinDeliveryDestination', () => {
+  it('masks an email to first character + domain', () => {
+    expect(
+      maskPinDeliveryDestination({
+        method: 'email',
+        destination: 'lindsey@gmail.com',
+      }),
+    ).toBe('l•••@gmail.com')
+  })
+
+  it('masks text/phone/call to area code + last four', () => {
+    for (const method of ['text', 'phone', 'call'] as const) {
+      expect(
+        maskPinDeliveryDestination({ method, destination: '3126851162' }),
+      ).toBe('(312) •••-1162')
+    }
+  })
+
+  it('drops the postal address entirely', () => {
+    expect(
+      maskPinDeliveryDestination({
+        method: 'mail',
+        destination: '1221 Glengary Way, Henderson, KY 42420',
+      }),
+    ).toBe('your address on file')
   })
 })

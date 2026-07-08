@@ -53,9 +53,9 @@ import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
 import {
   ComplianceStage,
   MIN_BIO_LENGTH,
-  PinDelivery,
   SubmitToPeerlyOutput,
 } from '@goodparty_org/contracts'
+import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
 import { isGenericComplianceContent } from '../../../websites/util/genericContent.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
@@ -447,7 +447,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   private async firePinSentEvent(
     userId: number,
     campaign: Campaign,
-    pinDelivery: PinDelivery,
+    pinDelivery: DerivedPinDelivery,
     context: { peerlyIdentityId: string; pinSentAt: Date },
   ) {
     // Only the channel is sent to Segment (→ analytics warehouse + HubSpot),

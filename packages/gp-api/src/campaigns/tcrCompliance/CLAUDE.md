@@ -212,9 +212,12 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
 - **PIN delivery channel is surfaced live + to HubSpot (ENG-10658):**
   `resolvePeerlyCvState` uses one `retrieveCampaignVerifyDetails` call (enriched
   `retrieve_cv`) to return both `peerlyCvStatus` and `ComplianceStateOutput.pinDelivery`
-  (`{ method, destination } | null`) at `awaiting_pin`. The FE PIN screen uses
-  `pinDelivery` to tell the candidate exactly where the PIN went; `null` (method absent
-  or unrecognized, or non-prod) falls back to the generic copy. Persisting the channel +
+  (`{ method, displayString } | null`) at `awaiting_pin`. `displayString` is
+  **masked server-side** (`maskPinDeliveryDestination`) — the raw filing
+  email/phone is redacted and the postal address dropped, so the unredacted
+  destination never crosses the wire (the raw value stays on the DB record). The
+  FE PIN screen composes the "we sent your PIN…" copy from it; `null` (method
+  absent or unrecognized, or non-prod) falls back to the generic copy. Persisting the channel +
   firing the `CompliancePinSent` event is the background `sweepPinDeliveryDetection`'s
   job (see the sweeps table), **not** this read — the read only displays, so a candidate
   who never opens the app is still detected + nudged.

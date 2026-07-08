@@ -1,9 +1,17 @@
 import {
-  PinDelivery,
   PinDeliveryMethod,
   PinDeliveryMethodSchema,
 } from '@goodparty_org/contracts'
 import { PeerlyCvVerificationData } from '../peerly.types'
+
+// The channel Peerly used plus the raw destination it sent the PIN to. Internal
+// to gp-api: the raw destination is persisted on the TcrCompliance record (like
+// the existing email/phone columns) but never leaves the API — callers that
+// return it to the browser mask it via maskPinDeliveryDestination first.
+export interface DerivedPinDelivery {
+  method: PinDeliveryMethod
+  destination: string
+}
 
 const formatFilingAddress = (data: PeerlyCvVerificationData): string | null => {
   const line1 = data.filing_address_line1?.trim()
@@ -44,7 +52,7 @@ const destinationForMethod = (
 // treat null as "in progress" rather than coercing a partial value.
 export const derivePinDelivery = (
   data: PeerlyCvVerificationData | null | undefined,
-): PinDelivery | null => {
+): DerivedPinDelivery | null => {
   const method = PinDeliveryMethodSchema.safeParse(
     data?.verification_method?.trim().toLowerCase(),
   )
@@ -53,4 +61,41 @@ export const derivePinDelivery = (
   }
   const destination = destinationForMethod(method.data, data!)
   return destination ? { method: method.data, destination } : null
+}
+
+const maskEmail = (email: string): string => {
+  const [local, domain] = email.split('@')
+  if (!domain || !local) {
+    return email
+  }
+  return `${local.slice(0, 1)}•••@${domain}`
+}
+
+const maskPhone = (phone: string): string => {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length < 4) {
+    return phone
+  }
+  const last4 = digits.slice(-4)
+  const area = digits.length >= 10 ? digits.slice(-10, -7) : ''
+  return area ? `(${area}) •••-${last4}` : `•••-${last4}`
+}
+
+// A browser-safe rendering of the destination for the compliance-state read:
+// the raw filing email/phone is masked and the postal address is dropped
+// entirely, so the unredacted value never leaves the API.
+export const maskPinDeliveryDestination = ({
+  method,
+  destination,
+}: DerivedPinDelivery): string => {
+  switch (method) {
+    case PinDeliveryMethod.email:
+      return maskEmail(destination)
+    case PinDeliveryMethod.text:
+    case PinDeliveryMethod.phone:
+    case PinDeliveryMethod.call:
+      return maskPhone(destination)
+    case PinDeliveryMethod.mail:
+      return 'your address on file'
+  }
 }

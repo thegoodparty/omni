@@ -17,6 +17,7 @@ import {
 import { formatISO } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { maskPinDeliveryDestination } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
 
 const DOMAIN_REGISTERED_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -151,7 +152,14 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
     const parsed = PeerlyCvVerificationStatusSchema.safeParse(details.status)
     return {
       peerlyCvStatus: parsed.success ? parsed.data : null,
-      pinDelivery: details.pinDelivery,
+      // Mask the raw destination server-side so the candidate's filing
+      // email/phone/address never crosses the wire (only the display string).
+      pinDelivery: details.pinDelivery
+        ? {
+            method: details.pinDelivery.method,
+            displayString: maskPinDeliveryDestination(details.pinDelivery),
+          }
+        : null,
     }
   }
 }

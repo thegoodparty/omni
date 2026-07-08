@@ -14,9 +14,11 @@ import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
 import {
   BallotReadyPositionLevel,
   PeerlyCvVerificationStatus,
-  PinDelivery,
 } from '@goodparty_org/contracts'
-import { derivePinDelivery } from '../utils/peerlyPinDelivery.util'
+import {
+  derivePinDelivery,
+  DerivedPinDelivery,
+} from '../utils/peerlyPinDelivery.util'
 import { CampaignsService } from '../../../campaigns/services/campaigns.service'
 import { CreateTcrCompliancePayload } from '../../../campaigns/tcrCompliance/campaignTcrCompliance.types'
 import { DateFormats, formatDate } from '../../../shared/util/date.util'
@@ -724,7 +726,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
     campaign: Campaign,
   ): Promise<{
     status: PeerlyCvVerificationStatus | null
-    pinDelivery: PinDelivery | null
+    pinDelivery: DerivedPinDelivery | null
   }> {
     try {
       const response =

@@ -8,11 +8,13 @@ import { DomainStatusSchema } from '../generated/enums'
 
 // Where Peerly sent the candidate's CampaignVerify PIN, once it has been sent.
 // Only populated at `awaiting_pin` (from the live retrieve_cv read); null before
-// Peerly issues the PIN or when the method is unrecognized. `destination` is the
-// filing email/phone/address the PIN went to, for the FE to show the candidate.
+// Peerly issues the PIN or when the method is unrecognized. `displayString` is a
+// server-masked rendering of the destination (e.g. `(312) •••-1162`,
+// `l•••@gmail.com`) — the candidate's raw filing email/phone/address never
+// crosses the wire; the FE composes the "we sent your PIN…" copy from it.
 export const PinDeliverySchema = z.object({
   method: PinDeliveryMethodSchema,
-  destination: z.string(),
+  displayString: z.string(),
 })
 
 export type PinDelivery = z.infer<typeof PinDeliverySchema>
