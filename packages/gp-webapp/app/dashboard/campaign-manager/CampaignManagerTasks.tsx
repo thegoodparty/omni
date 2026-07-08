@@ -40,6 +40,14 @@ const taskLink = (task: { link: string | null }): string | null =>
 // (mirrors the tracker rows); everything else falls back to the tracker page.
 const OUTREACH_COMPOSE_FLOW_TYPES = new Set(['text', 'robocall'])
 
+const opensComposeFlow = (task: {
+  link: string | null
+  flowType: string | null
+}): boolean =>
+  !taskLink(task) &&
+  !!task.flowType &&
+  OUTREACH_COMPOSE_FLOW_TYPES.has(task.flowType)
+
 // Each card links to the task's own action, falling back to the tracker page.
 const taskHref = (task: {
   link: string | null
@@ -48,7 +56,7 @@ const taskHref = (task: {
 }): string => {
   const own = taskLink(task)
   if (own) return own
-  if (task.flowType && OUTREACH_COMPOSE_FLOW_TYPES.has(task.flowType)) {
+  if (opensComposeFlow(task)) {
     return `/dashboard/outreach?compose=${task.flowType}&due=${task.date.slice(0, 10)}`
   }
   return TRACKER_HREF
@@ -169,10 +177,15 @@ export default function CampaignManagerTasks({
                   meta={[formatDue(task.date)]}
                   summary={task.description || undefined}
                   // With its own action link, "Open" it (like the tracker);
-                  // otherwise route to the tracker to act on it there.
+                  // text/robocall start the outreach flow; otherwise route to
+                  // the tracker to act on it there.
                   ctaLabel={
                     task.cta?.trim() ||
-                    (taskLink(task) ? 'Open' : 'See details')
+                    (taskLink(task)
+                      ? 'Open'
+                      : opensComposeFlow(task)
+                        ? 'Start outreach'
+                        : 'See details')
                   }
                   ctaHref={taskHref(task)}
                   onComplete={() => onComplete(task)}

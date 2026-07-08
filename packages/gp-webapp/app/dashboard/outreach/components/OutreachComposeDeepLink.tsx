@@ -45,7 +45,16 @@ export const OutreachComposeDeepLink = ({
   const composeType = COMPOSE_TYPES[searchParams?.get('compose') ?? '']
 
   useEffect(() => {
-    if (consumedRef.current || !composeType || !campaign) return
+    // Once router.replace strips the params, composeType goes falsy: re-arm
+    // the guard so a later deep link (from a tracker task clicked while this
+    // page stays mounted — same route, new params) opens a fresh flow. The
+    // ref only guards the async window between replace() and the params
+    // actually updating.
+    if (!composeType) {
+      consumedRef.current = false
+      return
+    }
+    if (consumedRef.current || !campaign) return
     consumedRef.current = true
     const message = (searchParams?.get('message') || '').slice(
       0,
