@@ -171,5 +171,9 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
       .mockRejectedValueOnce(new Error('DB down')) // rollback fails
 
     await expect(service.sweepPinDeliveryDetection()).resolves.toBeUndefined()
+    // The rollback must have been attempted (claim + rollback = 2 calls); a
+    // regression that skipped it would leave the record claimed-but-never-fired
+    // and permanently excluded by the pinDeliveryMethod IS NULL filter.
+    expect(mockModel.updateMany).toHaveBeenCalledTimes(2)
   })
 })
