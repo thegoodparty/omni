@@ -22,6 +22,7 @@ import CampaignStrategyTaskRow from './CampaignStrategyTaskRow'
 interface CampaignStrategyPhaseProps {
   phase: CampaignStrategyPhaseModel
   onToggleComplete?: (id: string, completed: boolean) => void
+  onStartOutreach?: (channel: 'text' | 'robocall', date: string | null) => void
 }
 
 // `start` is the Monday (yyyy-MM-dd); show the Mon-Sun span. Parse via the same
@@ -40,9 +41,11 @@ const weekLabel = (start: string): string => {
 const WeekNavigator = ({
   weeks,
   onToggleComplete,
+  onStartOutreach,
 }: {
   weeks: CampaignStrategyWeek[]
   onToggleComplete?: (id: string, completed: boolean) => void
+  onStartOutreach?: (channel: 'text' | 'robocall', date: string | null) => void
 }): React.JSX.Element => {
   const rawIndex = weeks.findIndex((w) => w.isCurrent)
   const currentIndex = rawIndex === -1 ? weeks.length - 1 : rawIndex
@@ -105,6 +108,7 @@ const WeekNavigator = ({
               task={task}
               index={index + 1}
               onToggleComplete={onToggleComplete}
+              onStartOutreach={onStartOutreach}
             />
           ))}
         </ul>
@@ -146,6 +150,7 @@ const PhaseStatus = ({
 const CampaignStrategyPhase = ({
   phase,
   onToggleComplete,
+  onStartOutreach,
 }: CampaignStrategyPhaseProps): React.JSX.Element => (
   <AccordionItem
     value={phase.key}
@@ -177,6 +182,7 @@ const CampaignStrategyPhase = ({
         <WeekNavigator
           weeks={phase.weeks}
           onToggleComplete={onToggleComplete}
+          onStartOutreach={onStartOutreach}
         />
       ) : (
         phase.groups.map((group) => (
@@ -195,6 +201,7 @@ const CampaignStrategyPhase = ({
                   task={task}
                   index={index + 1}
                   onToggleComplete={onToggleComplete}
+                  onStartOutreach={onStartOutreach}
                 />
               ))}
             </ul>
