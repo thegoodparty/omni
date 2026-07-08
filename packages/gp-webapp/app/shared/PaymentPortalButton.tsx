@@ -1,5 +1,5 @@
 'use client'
-import React, { ReactNode, MouseEvent, useState, HTMLAttributes } from 'react'
+import React, { ReactNode, MouseEvent, useState, ComponentProps } from 'react'
 import Link from 'next/link'
 import { Button } from '@styleguide'
 import { clientFetch } from 'gpApi/clientFetch'
@@ -7,7 +7,7 @@ import { apiRoutes } from 'gpApi/routes'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 
 interface PaymentPortalButtonProps extends Omit<
-  HTMLAttributes<HTMLButtonElement>,
+  ComponentProps<typeof Button>,
   'children'
 > {
   redirectUrl?: string | null

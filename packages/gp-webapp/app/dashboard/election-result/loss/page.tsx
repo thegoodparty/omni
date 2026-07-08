@@ -1,6 +1,7 @@
 'use client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@styleguide'
+import { ActiveProSubscriptionAlert } from '../components/ActiveProSubscriptionAlert'
 
 export default function LossPage(): React.JSX.Element {
   const router = useRouter()
@@ -13,6 +14,7 @@ export default function LossPage(): React.JSX.Element {
     <div className="flex flex-col">
       <main className="flex-1 pb-24 md:pb-0">
         <section className="max-w-screen-md mx-auto p-4 sm:p-8 lg:p-16 bg-white md:border md:border-slate-200 md:rounded-xl md:mt-12">
+          <ActiveProSubscriptionAlert className="mb-8" />
           <div className="flex flex-col items-center md:justify-center">
             <h1 className="text-center font-semibold text-2xl md:text-4xl w-full mt-4 md:mt-0">
               Not every campaign wins, but every campaign matters.
