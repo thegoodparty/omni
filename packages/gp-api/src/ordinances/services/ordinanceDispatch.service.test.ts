@@ -225,6 +225,35 @@ describe('OrdinanceDispatchService.onElectedOfficeCreated', () => {
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 
+  it('skips when a run appears while the serve context resolves', async () => {
+    const orgSlug = `ord-race-${Date.now()}`
+    const office = await seedOrgWithOffice(orgSlug)
+    vi.spyOn(
+      service.app.get(OrganizationsService),
+      'resolveServeContext',
+    ).mockImplementation(async () => {
+      await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: FIND_EXISTING_ORDINANCES,
+          status: ExperimentRunStatus.QUEUED,
+        },
+      })
+      return {
+        state: 'MN',
+        positionName: 'Ramsey City Council',
+        isServeIcp: true,
+      }
+    })
+    const dispatchSpy = mockDispatchRun()
+
+    await service.app
+      .get(OrdinanceDispatchService)
+      .onElectedOfficeCreated(office)
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
   it('re-dispatches when the only prior run is FAILED', async () => {
     const orgSlug = `ord-failed-${Date.now()}`
     const office = await seedOrgWithOffice(orgSlug)

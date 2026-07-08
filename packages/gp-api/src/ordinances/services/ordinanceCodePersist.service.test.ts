@@ -1,3 +1,4 @@
+import { subHours, subMinutes } from 'date-fns'
 import {
   ExperimentRunStatus,
   OrdinanceConfidence,
@@ -516,6 +517,45 @@ describe('OrdinanceCodePersistService.onExperimentRunCompleted', () => {
     await persist().onExperimentRunCompleted(run)
 
     expect(await findRecord()).toMatchObject({ codeFound: true })
+  })
+
+  it('compares run dispatch times, not content times, in the older-run guard', async () => {
+    const newerKey = 'find_existing_ordinances/run-newer/artifact.json'
+    const newerRun = await seedRun({
+      artifactKey: newerKey,
+      createdAt: subMinutes(new Date(), 30),
+    })
+    mockS3({
+      [newerKey]: JSON.stringify(
+        municodeArtifact(newerRun.runId, {
+          // verification content predates BOTH runs' dispatch times
+          generated_at: subHours(new Date(), 3).toISOString(),
+        }),
+      ),
+    })
+    await persist().onExperimentRunCompleted(newerRun)
+
+    const olderKey = 'find_existing_ordinances/run-older/artifact.json'
+    const olderRun = await seedRun({
+      artifactKey: olderKey,
+      createdAt: subHours(new Date(), 2),
+    })
+    mockS3({
+      [olderKey]: JSON.stringify(
+        municodeArtifact(olderRun.runId, {
+          code_source: {
+            host_type: 'city_gov',
+            url: 'https://stale.example.gov/old-code',
+          },
+        }),
+      ),
+    })
+    await persist().onExperimentRunCompleted(olderRun)
+
+    expect(await findRecord()).toMatchObject({
+      codeFound: true,
+      experimentRunId: newerRun.runId,
+    })
   })
 
   it('clamps a future generated_at to now when persisting', async () => {

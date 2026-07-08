@@ -154,20 +154,28 @@ export class OrdinanceCodePersistService extends createPrismaBase(
 
     const existing = await this.model.findUnique({
       where: { organizationSlug: run.organizationSlug },
+      include: { experimentRun: { select: { createdAt: true } } },
     })
 
     // SQS redelivery replays a result the record already reflects.
     if (existing?.experimentRunId === run.runId) return
 
     // An older run's late result must never overwrite what a newer run
-    // already verified.
-    if (existing && isBefore(run.createdAt, existing.verifiedAt)) {
+    // already verified. Compare dispatch times run-to-run — verifiedAt is
+    // agent-authored content time and lives on a different clock (the FK is
+    // SetNull, so a pruned producing run simply allows the write).
+    const producingRunCreatedAt = existing?.experimentRun?.createdAt
+    if (
+      existing &&
+      producingRunCreatedAt &&
+      isBefore(run.createdAt, producingRunCreatedAt)
+    ) {
       this.logger.info(
         {
           runId: run.runId,
           organizationSlug: run.organizationSlug,
           runCreatedAt: run.createdAt,
-          recordVerifiedAt: existing.verifiedAt,
+          recordRunCreatedAt: producingRunCreatedAt,
         },
         'ordinance persist skipped: run older than current record',
       )

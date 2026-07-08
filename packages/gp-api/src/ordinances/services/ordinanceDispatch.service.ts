@@ -92,6 +92,33 @@ export class OrdinanceDispatchService extends createPrismaBase(
    * on serve-ICP, fail-closed: sourcing a municipal code only pays off for
    * orgs the serve product targets.
    */
+  // Final pre-dispatch re-check: the eligibility checks run before the slow
+  // serve-context resolve, so a concurrent path (signup hook vs cron tick)
+  // can enqueue during that window. This narrows the race to milliseconds;
+  // a residual duplicate is bounded (one run) and persists idempotently.
+  private async runAppearedDuringResolve(
+    organizationSlug: string,
+  ): Promise<boolean> {
+    const appeared = await this.model.findFirst({
+      where: {
+        organizationSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: {
+          in: [ExperimentRunStatus.QUEUED, ExperimentRunStatus.RUNNING],
+        },
+      },
+      select: { runId: true },
+    })
+    if (appeared) {
+      this.logger.info(
+        { organizationSlug, runId: appeared.runId },
+        'ordinance_dispatch_skipped: run appeared during resolve',
+      )
+      return true
+    }
+    return false
+  }
+
   async onElectedOfficeCreated(electedOffice: ElectedOffice): Promise<void> {
     if (!isAutomationEnabled()) {
       this.logger.info(
@@ -128,6 +155,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
 
     const dispatchable = await this.resolveDispatchableOrg(organizationSlug)
     if (!dispatchable) return
+    if (await this.runAppearedDuringResolve(organizationSlug)) return
 
     await this.experimentRuns.dispatchRun({
       type: FIND_EXISTING_ORDINANCES,
@@ -204,6 +232,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
           contextResolveTimeoutMs(),
         )
         if (!dispatchable) continue
+        if (await this.runAppearedDuringResolve(organizationSlug)) continue
 
         await this.experimentRuns.dispatchRun({
           type: FIND_EXISTING_ORDINANCES,
