@@ -63,6 +63,14 @@ const FAILED_RETRY_BACKOFF_DAYS = 2
 // This only flags unexpected eligibility volume for the ops alarm.
 const EXPECTED_VOLUME_WARN_THRESHOLD = 400
 
+// Every in-flight check in this file MUST use this set — the three earlier
+// sites diverged twice during review (AWAITING_RESUME omissions).
+const IN_FLIGHT_STATUSES = [
+  ExperimentRunStatus.QUEUED,
+  ExperimentRunStatus.RUNNING,
+  ExperimentRunStatus.AWAITING_RESUME,
+]
+
 type ResolvedDispatchContext = {
   clerkUserId: string | undefined
   state: string
@@ -107,13 +115,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
       where: {
         organizationSlug,
         experimentType: FIND_EXISTING_ORDINANCES,
-        status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-          ],
-        },
+        status: { in: IN_FLIGHT_STATUSES },
       },
       select: { runId: true },
     })
@@ -143,12 +145,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
         organizationSlug,
         experimentType: FIND_EXISTING_ORDINANCES,
         status: {
-          in: [
-            ExperimentRunStatus.QUEUED,
-            ExperimentRunStatus.RUNNING,
-            ExperimentRunStatus.AWAITING_RESUME,
-            ExperimentRunStatus.COMPLETED,
-          ],
+          in: [...IN_FLIGHT_STATUSES, ExperimentRunStatus.COMPLETED],
         },
       },
       select: { runId: true },
@@ -222,9 +219,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
             where: {
               organizationSlug,
               experimentType: FIND_EXISTING_ORDINANCES,
-              status: {
-                in: [ExperimentRunStatus.QUEUED, ExperimentRunStatus.RUNNING],
-              },
+              status: { in: IN_FLIGHT_STATUSES },
             },
             select: { runId: true },
           })
@@ -300,12 +295,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
           OR: [
             {
               status: {
-                in: [
-                  ExperimentRunStatus.QUEUED,
-                  ExperimentRunStatus.RUNNING,
-                  ExperimentRunStatus.AWAITING_RESUME,
-                  ExperimentRunStatus.COMPLETED,
-                ],
+                in: [...IN_FLIGHT_STATUSES, ExperimentRunStatus.COMPLETED],
               },
             },
             {
