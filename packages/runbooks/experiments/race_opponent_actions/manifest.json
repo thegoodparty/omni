@@ -239,7 +239,7 @@
             "body": {
               "type": "string",
               "minLength": 1,
-              "maxLength": 400,
+              "maxLength": 399,
               "description": "2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing."
             },
             "sms_message": {
