@@ -1,4 +1,5 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { BadRequestException } from '@nestjs/common'
 import { Campaign, Organization, User, UserRole } from '../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -50,6 +51,7 @@ describe('PurchaseController', () => {
     completeCheckoutSession: ReturnType<typeof vi.fn>
     completeFreePurchase: ReturnType<typeof vi.fn>
   }
+  let campaignsService: { findActiveByUserId: ReturnType<typeof vi.fn> }
 
   beforeEach(() => {
     stripeService = {
@@ -63,11 +65,15 @@ describe('PurchaseController', () => {
       completeCheckoutSession: vi.fn(),
       completeFreePurchase: vi.fn(),
     }
+    campaignsService = {
+      findActiveByUserId: vi.fn().mockResolvedValue(mockCampaign),
+    }
 
     controller = new PurchaseController(
       stripeService as unknown as StripeService,
       usersService as unknown as UsersService,
       purchaseService as unknown as PurchaseService,
+      campaignsService as unknown as CampaignsService,
       createMockLogger(),
     )
   })
@@ -132,6 +138,28 @@ describe('PurchaseController', () => {
         stripeService.createEmbeddedProSubscriptionCheckoutSession,
       ).not.toHaveBeenCalled()
       expect(result).toEqual({ redirectUrl })
+    })
+
+    it('throws 400 before any Stripe call when there is no active campaign (redirect)', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        controller.createProCheckoutSession(mockUser),
+      ).rejects.toThrow(BadRequestException)
+      expect(stripeService.createCheckoutSession).not.toHaveBeenCalled()
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+    })
+
+    it('throws 400 before any Stripe call when there is no active campaign (embedded)', async () => {
+      campaignsService.findActiveByUserId.mockResolvedValue(null)
+
+      await expect(
+        controller.createProCheckoutSession(mockUser, { embedded: true }),
+      ).rejects.toThrow(BadRequestException)
+      expect(
+        stripeService.createEmbeddedProSubscriptionCheckoutSession,
+      ).not.toHaveBeenCalled()
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
     })
   })
 
