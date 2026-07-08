@@ -12,12 +12,15 @@ import {
 } from '@styleguide'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { useSubmitCvPin } from 'app/dashboard/profile/texting-compliance/shared/useSubmitCvPin'
+import { describePinDelivery } from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
+import type { PinDelivery } from '@goodparty_org/contracts'
 import type { TcrCompliance } from 'helpers/types'
 
 const PIN_LENGTH = 6
 
 interface ProUpgrade3PinEntryProps {
   tcrCompliance: TcrCompliance
+  pinDelivery?: PinDelivery | null
 }
 
 // The `submitted` (awaiting-PIN) state of the Pro-upgrade compliance surface,
@@ -27,6 +30,7 @@ interface ProUpgrade3PinEntryProps {
 // the TCR query and the surface re-renders to the in-review state.
 export default function ProUpgrade3PinEntry({
   tcrCompliance,
+  pinDelivery,
 }: ProUpgrade3PinEntryProps): React.JSX.Element {
   const [pin, setPin] = useState('')
   const { submit, submitting, error } = useSubmitCvPin(tcrCompliance, {
@@ -74,8 +78,9 @@ export default function ProUpgrade3PinEntry({
             Enter your PIN
           </p>
           <p className="text-sm text-base-muted-foreground">
-            You will be sent a PIN within 7 business days to your email, phone
-            or address.
+            {describePinDelivery(pinDelivery) ??
+              'You will be sent a PIN within 7 business days to your email, ' +
+                'phone or address.'}
           </p>
         </div>
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-2">

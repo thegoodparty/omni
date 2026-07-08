@@ -87,6 +87,7 @@ kickoff path must not race it.
 |-------|---------------|
 | `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. |
 | `sweepUnsubmittedUsecases` | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
+| `sweepPinDeliveryDetection` (ENG-10658) | Records `submitted`/`pending`/`approved` + Peerly identity + no `pinDeliveryMethod` yet — reads the enriched `retrieve_cv`, records the channel + destination Peerly sent the PIN to on the record, and fires the `CompliancePinSent` Segment event **once** so HubSpot can stamp the company + nudge. The event carries the **method only** (`pin_delivery_method`), never the destination — the raw filing email/phone/address stays in our DB and is not synced to the analytics warehouse / HubSpot. The `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected (not a growing bulk loop). Once-only via an atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim is rolled back (scoped to its timestamp, and the rollback is itself try/caught so its failure can't mask the original error) so the next sweep retries. **Includes `pending` + `approved`** (not just `submitted`) because the in-app PIN entry / VERIFIED usecase sweep advance a record to `pending` then `approved` the moment the candidate acts — which can beat the hourly sweep — and pre-existing records were already `pending`/`approved` when this shipped; all three states imply the PIN went out, so this never fires for a never-sent record (`rejected`/`error` are failure states, excluded). |
 | `bootstrapTcrComplianceCheck` | Re-queues `pending` records for status checking. |
 
 ## `submitToPeerlyForAgent` notes
@@ -203,11 +204,23 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   extra Peerly `retrieve_cv` read stays off the other stages the agent polls). The FE
   (`ProUpgrade3Compliance.tsx`) shows the PIN-entry box only when `peerlyCvStatus` is
   `APPROVED`/`VERIFIED`; for `REQUESTED`/`IN_REVIEW`/`null` (Peerly hasn't issued a PIN
-  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvStatus`
+  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvState`
   short-circuits to `APPROVED` in non-prod (Peerly is stubbed there, mirroring
   `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN screen, and
   parses Peerly's status defensively so an unrecognized value degrades to the
   in-progress state rather than 500ing the read.
+- **PIN delivery channel is surfaced live + to HubSpot (ENG-10658):**
+  `resolvePeerlyCvState` uses one `retrieveCampaignVerifyDetails` call (enriched
+  `retrieve_cv`) to return both `peerlyCvStatus` and `ComplianceStateOutput.pinDelivery`
+  (`{ method, displayString } | null`) at `awaiting_pin`. `displayString` is
+  **masked server-side** (`maskPinDeliveryDestination`) — the raw filing
+  email/phone is redacted and the postal address dropped, so the unredacted
+  destination never crosses the wire (the raw value stays on the DB record). The
+  FE PIN screen composes the "we sent your PIN…" copy from it; `null` (method
+  absent or unrecognized, or non-prod) falls back to the generic copy. Persisting the channel +
+  firing the `CompliancePinSent` event is the background `sweepPinDeliveryDetection`'s
+  job (see the sweeps table), **not** this read — the read only displays, so a candidate
+  who never opens the app is still detected + nudged.
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.

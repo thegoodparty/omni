@@ -45,6 +45,10 @@ export const EVENTS = {
     ComplianceFormSubmitted: 'Voter Outreach - 10DLC Compliance Form Submitted',
     //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
     CompliancePinSubmitted: 'Voter Outreach - 10DLC Compliance PIN Submitted',
+    //  ⚠️  DO NOT MODIFY - Used by HubSpot to stamp PIN delivery channel +
+    //  destination on the company and trigger the "check your texts/email"
+    //  nudge. Fired once by the PIN-delivery detection sweep.
+    CompliancePinSent: 'Voter Outreach - 10DLC Compliance PIN Sent',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
     // Carries peerlyIdentityId so Segment can stamp it onto the campaign's

@@ -145,6 +145,9 @@ export {
   PEERLY_CV_VERIFICATION_STATUS_VALUES,
   PeerlyCvVerificationStatus,
   PeerlyCvVerificationStatusSchema,
+  PIN_DELIVERY_METHOD_VALUES,
+  PinDeliveryMethod,
+  PinDeliveryMethodSchema,
   ORGANIZATION_STATUS_VALUES,
   OrganizationStatus,
   OrganizationStatusSchema,
@@ -288,6 +291,8 @@ export {
 export {
   ComplianceStateDomainSchema,
   type ComplianceStateDomain,
+  PinDeliverySchema,
+  type PinDelivery,
   ComplianceStateOutputSchema,
   type ComplianceStateOutput,
 } from './campaigns/ComplianceStateOutput.schema'
