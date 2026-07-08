@@ -198,71 +198,78 @@ export class OrdinanceDispatchService extends createPrismaBase(
     const claimed = await this.cronLock.tryClaimDailyRun(REFRESH_CRON_JOB, now)
     if (!claimed) return
 
-    const eligible = await this.selectOrgsNeedingRun(now)
-    if (eligible.length > EXPECTED_VOLUME_WARN_THRESHOLD) {
-      this.logger.warn(
-        {
-          eligible: eligible.length,
-          threshold: EXPECTED_VOLUME_WARN_THRESHOLD,
-        },
-        'ordinance refresh eligibility unexpectedly high; dispatching all',
-      )
-    }
-
-    let dispatched = 0
-    let failed = 0
-    for (const organizationSlug of eligible) {
-      try {
-        const inFlight = await this.model.findFirst({
-          where: {
-            organizationSlug,
-            experimentType: FIND_EXISTING_ORDINANCES,
-            status: {
-              in: [ExperimentRunStatus.QUEUED, ExperimentRunStatus.RUNNING],
-            },
+    try {
+      const eligible = await this.selectOrgsNeedingRun(now)
+      if (eligible.length > EXPECTED_VOLUME_WARN_THRESHOLD) {
+        this.logger.warn(
+          {
+            eligible: eligible.length,
+            threshold: EXPECTED_VOLUME_WARN_THRESHOLD,
           },
-          select: { runId: true },
-        })
-        if (inFlight) {
-          this.logger.info(
-            { organizationSlug, runId: inFlight.runId },
-            'ordinance_refresh_skipped: in-flight run exists',
-          )
-          continue
-        }
-
-        const dispatchable = await withDeadline(
-          this.resolveDispatchableOrg(organizationSlug),
-          contextResolveTimeoutMs(),
-        )
-        if (!dispatchable) continue
-        if (await this.runAppearedDuringResolve(organizationSlug)) continue
-
-        await this.experimentRuns.dispatchRun({
-          type: FIND_EXISTING_ORDINANCES,
-          organizationSlug,
-          clerkUserId: dispatchable.clerkUserId,
-          params: {
-            organization_slug: organizationSlug,
-            state: dispatchable.state,
-            office: dispatchable.office,
-          },
-        })
-        dispatched++
-      } catch (err) {
-        failed++
-        this.logger.error(
-          { err, organizationSlug },
-          'ordinance refresh dispatch failed for org; continuing',
+          'ordinance refresh eligibility unexpectedly high; dispatching all',
         )
       }
-    }
 
-    this.logger.info(
-      { eligible: eligible.length, dispatched, failed },
-      'ordinance refresh cron finished',
-    )
-    await this.cronLock.markCompleted(REFRESH_CRON_JOB, now)
+      let dispatched = 0
+      let failed = 0
+      for (const organizationSlug of eligible) {
+        try {
+          const inFlight = await this.model.findFirst({
+            where: {
+              organizationSlug,
+              experimentType: FIND_EXISTING_ORDINANCES,
+              status: {
+                in: [ExperimentRunStatus.QUEUED, ExperimentRunStatus.RUNNING],
+              },
+            },
+            select: { runId: true },
+          })
+          if (inFlight) {
+            this.logger.info(
+              { organizationSlug, runId: inFlight.runId },
+              'ordinance_refresh_skipped: in-flight run exists',
+            )
+            continue
+          }
+
+          const dispatchable = await withDeadline(
+            this.resolveDispatchableOrg(organizationSlug),
+            contextResolveTimeoutMs(),
+          )
+          if (!dispatchable) continue
+          if (await this.runAppearedDuringResolve(organizationSlug)) continue
+
+          await this.experimentRuns.dispatchRun({
+            type: FIND_EXISTING_ORDINANCES,
+            organizationSlug,
+            clerkUserId: dispatchable.clerkUserId,
+            params: {
+              organization_slug: organizationSlug,
+              state: dispatchable.state,
+              office: dispatchable.office,
+            },
+          })
+          dispatched++
+        } catch (err) {
+          failed++
+          this.logger.error(
+            { err, organizationSlug },
+            'ordinance refresh dispatch failed for org; continuing',
+          )
+        }
+      }
+
+      this.logger.info(
+        { eligible: eligible.length, dispatched, failed },
+        'ordinance refresh cron finished',
+      )
+    } catch (err) {
+      // a selection failure must be LOUD (the alarm watches this log) and
+      // must still seal the lease — there is no same-day retry tick either way
+      this.logger.error({ err }, 'ordinance refresh cron failed')
+    } finally {
+      await this.cronLock.markCompleted(REFRESH_CRON_JOB, now)
+    }
   }
 
   private async selectOrgsNeedingRun(now: Date): Promise<string[]> {

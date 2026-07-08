@@ -528,6 +528,21 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
     )
   })
 
+  it('seals the daily lease even when eligibility selection throws', async () => {
+    const lock = service.app.get(CronLockService)
+    vi.spyOn(lock, 'tryClaimDailyRun').mockResolvedValue(true)
+    const completedSpy = vi
+      .spyOn(lock, 'markCompleted')
+      .mockResolvedValue(undefined)
+    vi.spyOn(service.prisma.electedOffice, 'findMany').mockRejectedValue(
+      new Error('connection reset'),
+    )
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(completedSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('skips an org with a paused AWAITING_RESUME run', async () => {
     const orgSlug = `ord-cron-paused-${Date.now()}`
     await seedOrgWithOffice(orgSlug)
