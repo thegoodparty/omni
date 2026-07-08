@@ -172,6 +172,26 @@ describe('ElectionResultPage', () => {
     expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
   })
 
+  it('hides the subscription alert on the term-dates step after declaring a win', async () => {
+    mockCampaign.current = {
+      id: 1,
+      isPro: true,
+      details: { electionDate: '2025-05-20', subscriptionId: 'sub_123' },
+    }
+
+    render(<ElectionResultPage />)
+    expect(
+      screen.getByText(/Pro subscription is still active/i),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+
+    // A cancellation nudge alongside "Congratulations!" would be confusing —
+    // the alert belongs on the result-choice view only.
+    expect(await screen.findByText('Congratulations!')).toBeInTheDocument()
+    expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
+  })
+
   it('lets an impersonating admin dismiss the gate without saving a result', () => {
     mockIsImpersonating.mockReturnValue(true)
 

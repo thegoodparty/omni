@@ -9,6 +9,10 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: vi.fn() }
 })
 
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: vi.fn() }),
+}))
+
 describe('AccountSettingsButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()

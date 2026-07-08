@@ -282,7 +282,9 @@ export default function ElectionResultPage(): React.JSX.Element {
               </AlertAction>
             </Alert>
           )}
-          <ActiveProSubscriptionAlert className="mb-8" />
+          {view !== 'term-dates' && (
+            <ActiveProSubscriptionAlert className="mb-8" />
+          )}
           <div className="flex flex-col items-center md:justify-center">
             {isLoading ? (
               <div

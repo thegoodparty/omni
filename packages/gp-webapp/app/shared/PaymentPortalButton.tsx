@@ -5,10 +5,11 @@ import { Button } from '@styleguide'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
+import { useSnackbar } from 'helpers/useSnackbar'
 
 interface PaymentPortalButtonProps extends Omit<
   ComponentProps<typeof Button>,
-  'children'
+  'children' | 'loading' | 'disabled' | 'onClick'
 > {
   redirectUrl?: string | null
   children: ReactNode
@@ -20,6 +21,7 @@ export const PaymentPortalButton = ({
   ...restProps
 }: PaymentPortalButtonProps): React.JSX.Element => {
   const [loading, setLoading] = useState(false)
+  const { errorSnackbar } = useSnackbar()
 
   const onClick = async (e: MouseEvent<HTMLButtonElement>): Promise<void> => {
     e.preventDefault()
@@ -39,6 +41,9 @@ export const PaymentPortalButton = ({
       window.location.href = portalRedirectUrl
     } catch (error) {
       console.error('Error creating billing portal session:', error)
+      errorSnackbar(
+        'Unable to open the billing portal. Please try again or contact support.',
+      )
     } finally {
       setLoading(false)
     }

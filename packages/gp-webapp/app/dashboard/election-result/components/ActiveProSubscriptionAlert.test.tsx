@@ -15,8 +15,9 @@ type MockCampaign = {
   }
 } | null
 
-const { mockCampaign } = vi.hoisted(() => ({
+const { mockCampaign, mockErrorSnackbar } = vi.hoisted(() => ({
   mockCampaign: { current: null as MockCampaign },
+  mockErrorSnackbar: vi.fn(),
 }))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
@@ -32,6 +33,10 @@ vi.mock('helpers/analyticsHelper', () => ({
     Settings: { Account: { ClickManageSubscription: 'manage_subscription' } },
   },
   trackEvent: vi.fn(),
+}))
+
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: mockErrorSnackbar }),
 }))
 
 const mockClientFetch = vi.mocked(clientFetch)
@@ -100,7 +105,7 @@ describe('ActiveProSubscriptionAlert', () => {
     })
   })
 
-  it('re-enables the portal button when the API call rejects', async () => {
+  it('re-enables the portal button and surfaces an error when the API call rejects', async () => {
     mockClientFetch.mockRejectedValue(new Error('network error'))
 
     render(<ActiveProSubscriptionAlert />)
@@ -110,6 +115,7 @@ describe('ActiveProSubscriptionAlert', () => {
     await waitFor(() => {
       expect(btn).not.toBeDisabled()
     })
+    expect(mockErrorSnackbar).toHaveBeenCalled()
   })
 
   it('renders nothing for a non-Pro campaign', () => {

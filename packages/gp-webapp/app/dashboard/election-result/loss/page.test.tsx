@@ -28,6 +28,10 @@ vi.mock('helpers/analyticsHelper', () => ({
   trackEvent: vi.fn(),
 }))
 
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: vi.fn() }),
+}))
+
 describe('LossPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
