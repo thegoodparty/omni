@@ -33,6 +33,7 @@ import { ArtifactFeedbackModule } from '@/artifactFeedback/artifactFeedback.modu
 import { ArtifactReviewModule } from '@/artifactReview/artifactReview.module'
 import { PollsModule } from '@/polls/polls.module'
 import { PrioritiesModule } from '@/priorities/priorities.module'
+import { PersonProfilesModule } from '@/personProfiles/personProfiles.module'
 import { PrismaModule } from '@/prisma/prisma.module'
 import { QueueConsumerModule } from '@/queue/consumer/queueConsumer.module'
 import { ScheduledMessagingModule } from '@/scheduled-messaging/scheduled-messaging.module'
@@ -105,6 +106,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     ContactEngagementModule,
     PollsModule,
     PrioritiesModule,
+    PersonProfilesModule,
     CampaignPlanSharesModule,
     MeetingsModule,
     DashboardCardsModule,

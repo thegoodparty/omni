@@ -1,0 +1,46 @@
+// A canonical person in the civics graph — the spine behind a public
+// /people/<slug>-<personId> profile. `id` is the civics canonical
+// `gp_candidate_id` (person grain), minted by the gp-data-platform entity
+// resolution and written here by ETL (BallotReady-anchored or GoodParty-native
+// for people BallotReady doesn't know about). The application never writes this
+// table. Fields mirror int__ballotready_person; the gp-api PersonProfile overlay
+// holds the user-editable/product-owned fields, composed at render time.
+model Person {
+  id           String   @id @map("id") @db.Uuid // = gp_candidate_id
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  brPersonId   Int?     @map("br_person_id") // BallotReady Person databaseId; null for GP-native persons
+  slug         String   @unique // slugify(firstName-lastName); cosmetic prefix of the URL
+
+  // Name parts (BallotReady Person)
+  firstName  String? @map("first_name")
+  middleName String? @map("middle_name")
+  lastName   String? @map("last_name")
+  nickname   String?
+  suffix     String?
+  fullName   String? @map("full_name")
+
+  // Narrative + media
+  bioText     String? @map("bio_text") // default About Me; overlay bioOverride wins
+  headshotUrl String? @map("headshot_url") // primary of BallotReady images[]
+
+  // Public links (BallotReady urls[], typed)
+  websiteUrl  String? @map("website_url")
+  linkedinUrl String? @map("linkedin_url")
+  facebookUrl String? @map("facebook_url")
+  twitterUrl  String? @map("twitter_url")
+
+  // Personal contact PII — omitted from default responses (see persons.service).
+  email String?
+  phone String?
+
+  // Variable nested BallotReady arrays; write-once from ETL, not queried.
+  degrees     Json? // [{ degree, major, school, gradYear }]
+  experiences Json? // [{ title, organization, start, end, type }]
+
+  state String?
+
+  // Relations
+  Candidacies   Candidacy[]
+  OfficeHolders OfficeHolder[]
+}

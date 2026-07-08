@@ -18,6 +18,7 @@ model Priority {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   briefingItemLinks MeetingBriefingItemLink[]
+  profileIssues     PersonProfileIssue[]
 
   @@index([electedOfficeId, archivedAt])
   @@map("priority")

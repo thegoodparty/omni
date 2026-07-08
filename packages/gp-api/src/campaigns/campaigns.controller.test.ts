@@ -57,6 +57,7 @@ const userDefaults = {
   metaData: null,
   passwordResetToken: null,
   clerkId: null,
+  personId: null,
 }
 
 const mockUser: User = {

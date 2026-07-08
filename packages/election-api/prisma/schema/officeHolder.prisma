@@ -1,0 +1,57 @@
+// A term a Person holds (or held) in an office — the "elected official" spine
+// for public profiles. Populated by ETL from int__civics_elected_official_* /
+// BallotReady office_holders_v3; `personId` is reconciled into the canonical
+// `gp_candidate_id` space so a Person can join to both Candidacies and
+// OfficeHolders. The application never writes this table.
+model OfficeHolder {
+  id              String   @id @map("id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  brOfficeHolderId Int?    @map("br_office_holder_id")
+
+  // Office identity
+  positionName           String? @map("position_name")
+  normalizedPositionName String? @map("normalized_position_name")
+  officeTitle            String? @map("office_title")
+  partyNames             String[] @map("party_names")
+
+  // Term (BallotReady). termDateSpecificity flags year-only vs full-date values.
+  startAt             DateTime? @map("start_at") @db.Date
+  endAt               DateTime? @map("end_at") @db.Date
+  termDateSpecificity String?   @map("term_date_specificity")
+  isCurrent           Boolean?  @map("is_current")
+  isAppointed         Boolean?  @map("is_appointed")
+  isVacant            Boolean?  @map("is_vacant")
+  numberOfSeats       Int?      @map("number_of_seats")
+
+  // Mailing address (BallotReady office_holder_mailing_*)
+  mailingAddressLine1 String? @map("mailing_address_line_1")
+  mailingAddressLine2 String? @map("mailing_address_line_2")
+  mailingCity         String? @map("mailing_city")
+  mailingState        String? @map("mailing_state")
+  mailingZip          String? @map("mailing_zip")
+
+  // Office contact + links
+  officePhone String? @map("office_phone")
+  officeEmail String? @map("office_email")
+  websiteUrl  String? @map("website_url")
+  linkedinUrl String? @map("linkedin_url")
+  facebookUrl String? @map("facebook_url")
+  twitterUrl  String? @map("twitter_url")
+
+  // Geography / district
+  subAreaName  String? @map("sub_area_name")
+  subAreaValue String? @map("sub_area_value")
+  state        String?
+  geoId        String? @map("geo_id")
+  mtfcc        String?
+
+  // Relations
+  Person     Person    @relation(fields: [personId], references: [id])
+  personId   String    @map("person_id") @db.Uuid
+  Position   Position? @relation(fields: [positionId], references: [id])
+  positionId String?   @map("position_id") @db.Uuid
+
+  @@index([personId])
+  @@index([positionId])
+}

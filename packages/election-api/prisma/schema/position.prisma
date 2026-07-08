@@ -21,6 +21,7 @@ model Position {
 
     Races          Race[]
     ZipToPositions ZipToPosition[]
+    OfficeHolders  OfficeHolder[]
 
     @@index([placeId])
 }
