@@ -7,8 +7,10 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
-import { clientFetch } from 'gpApi/clientFetch'
-import { apiRoutes } from 'gpApi/routes'
+import {
+  getTcrCompliance,
+  TCR_COMPLIANCE_QUERY_KEY,
+} from 'app/dashboard/profile/texting-compliance/util/tcrCompliance.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type { TcrCompliance } from 'helpers/types'
 
@@ -23,16 +25,13 @@ interface OpenFlow {
 // The text gate needs the campaign's TCR compliance, which the outreach page
 // fetches server-side. Surfaces that open the flow in place (campaign tracker,
 // manager home) fetch it here instead; undefined (loading or error) simply
-// makes the gate treat the campaign as not-yet-compliant.
+// makes the gate treat the campaign as not-yet-compliant. Uses the shared
+// query key so completing TCR filing (which invalidates it) unblocks the gate
+// here immediately.
 const useTcrCompliance = (): TcrCompliance | undefined => {
   const { data } = useQuery({
-    queryKey: ['tcr-compliance', 'mine'],
-    queryFn: async () => {
-      const response = await clientFetch<TcrCompliance>(
-        apiRoutes.campaign.tcrCompliance.fetch,
-      )
-      return response.ok ? response.data : null
-    },
+    queryKey: TCR_COMPLIANCE_QUERY_KEY,
+    queryFn: getTcrCompliance,
     staleTime: 5 * 60 * 1000,
   })
   return data ?? undefined
@@ -51,7 +50,7 @@ export const useOutreachComposeFlow = (
 } => {
   const [campaign] = useCampaign()
   const tcrCompliance = useTcrCompliance()
-  const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+  const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance, source)
   const [flow, setFlow] = useState<OpenFlow | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
 
