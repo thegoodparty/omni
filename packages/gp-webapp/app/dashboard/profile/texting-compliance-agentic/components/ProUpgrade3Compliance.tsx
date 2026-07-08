@@ -72,7 +72,10 @@ export default function ProUpgrade3Compliance(): React.JSX.Element {
           cvStatus === PeerlyCvVerificationStatus.APPROVED ||
           cvStatus === PeerlyCvVerificationStatus.VERIFIED
         return pinReady ? (
-          <ProUpgrade3PinEntry tcrCompliance={tcrCompliance} />
+          <ProUpgrade3PinEntry
+            tcrCompliance={tcrCompliance}
+            pinDelivery={complianceState?.pinDelivery ?? null}
+          />
         ) : (
           <TextingComplianceInReview
             title="Your registration is being verified"

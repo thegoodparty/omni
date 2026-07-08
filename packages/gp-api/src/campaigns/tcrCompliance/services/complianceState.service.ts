@@ -70,6 +70,12 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       tcrCompliance,
     )
 
+    const cvState = await this.resolvePeerlyCvState(
+      stage,
+      campaign,
+      tcrCompliance,
+    )
+
     return {
       stage,
       domain: domain
@@ -83,44 +89,48 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
         : null,
       websiteId: website?.id ?? null,
       peerlyVerificationId: tcrCompliance?.peerlyCvVerificationId ?? null,
-      peerlyCvStatus: await this.resolvePeerlyCvStatus(
-        stage,
-        campaign,
-        tcrCompliance,
-      ),
+      ...cvState,
     }
   }
 
-  // The live CV status only matters at `awaiting_pin`, where the FE gates the
-  // PIN-entry screen on it (APPROVED+ means Peerly has issued a PIN). Resolving
-  // it only in that stage keeps the extra Peerly read off the other stages the
-  // compliance_setup agent polls on every run.
-  private async resolvePeerlyCvStatus(
+  // The live CV status + PIN delivery only matter at `awaiting_pin`, where the
+  // FE gates the PIN-entry screen on the status (APPROVED+ means Peerly has
+  // issued a PIN) and shows the candidate where the PIN was sent. Resolving
+  // them only in that stage keeps the extra Peerly read off the other stages
+  // the compliance_setup agent polls on every run. One retrieve_cv call yields
+  // both.
+  private async resolvePeerlyCvState(
     stage: ComplianceStage,
     campaign: Campaign,
     tcrCompliance: Pick<TcrCompliance, 'peerlyIdentityId'> | null,
-  ): Promise<ComplianceStateOutput['peerlyCvStatus']> {
+  ): Promise<Pick<ComplianceStateOutput, 'peerlyCvStatus' | 'pinDelivery'>> {
     if (stage !== ComplianceStage.awaiting_pin) {
-      return null
+      return { peerlyCvStatus: null, pinDelivery: null }
     }
 
     // Non-prod short-circuits Peerly submission (see websites.service.ts
     // verifyLive), so there is no real CV to query; report APPROVED so testers
     // still reach the PIN screen (mirrors retrieveCampaignVerifyToken's bypass).
+    // There is no real delivery, so pinDelivery stays null.
     if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
-      return PeerlyCvVerificationStatus.APPROVED
+      return {
+        peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED,
+        pinDelivery: null,
+      }
     }
 
     const peerlyIdentityId = tcrCompliance?.peerlyIdentityId
     if (!peerlyIdentityId) {
-      return null
+      return { peerlyCvStatus: null, pinDelivery: null }
     }
 
-    let status: Awaited<
-      ReturnType<typeof this.peerlyIdentityService.retrieveCampaignVerifyStatus>
+    let details: Awaited<
+      ReturnType<
+        typeof this.peerlyIdentityService.retrieveCampaignVerifyDetails
+      >
     >
     try {
-      status = await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+      details = await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         peerlyIdentityId,
         campaign,
       )
@@ -130,16 +140,19 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
       // compliance-state read (agent + FE). Degrade to the in-progress state.
       this.logger.error(
         { e },
-        `Failed to retrieve Peerly CV status for identity ` +
+        `Failed to retrieve Peerly CV details for identity ` +
           `${peerlyIdentityId}; degrading to null`,
       )
-      return null
+      return { peerlyCvStatus: null, pinDelivery: null }
     }
     // Peerly's `verification_status` is not yet a hardened enum on their side;
     // parse defensively so an unrecognized value degrades to the in-progress
     // state instead of 500ing the compliance-state read (agent + FE).
-    const parsed = PeerlyCvVerificationStatusSchema.safeParse(status)
-    return parsed.success ? parsed.data : null
+    const parsed = PeerlyCvVerificationStatusSchema.safeParse(details.status)
+    return {
+      peerlyCvStatus: parsed.success ? parsed.data : null,
+      pinDelivery: details.pinDelivery,
+    }
   }
 }
 

@@ -11,7 +11,12 @@ import { parsePhoneNumberWithError } from 'libphonenumber-js'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { resolveJobGeographyFromAddress } from 'src/outreach/util/campaignGeography.util'
 import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
-import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
+import {
+  BallotReadyPositionLevel,
+  PeerlyCvVerificationStatus,
+  PinDelivery,
+} from '@goodparty_org/contracts'
+import { derivePinDelivery } from '../utils/peerlyPinDelivery.util'
 import { CampaignsService } from '../../../campaigns/services/campaigns.service'
 import { CreateTcrCompliancePayload } from '../../../campaigns/tcrCompliance/campaignTcrCompliance.types'
 import { DateFormats, formatDate } from '../../../shared/util/date.util'
@@ -36,6 +41,7 @@ import {
   PeerlyIdentityProfileResponseBody,
   PeerlyIdentityUseCaseResponseBody,
   PeerlyRetrieveCampaignVerifyStatusResponseBody,
+  PeerlyRetrieveCvResponseBody,
   PeerlySubmitCVResponseBody,
   PeerlyVerifyCVPinResponse,
 } from '../peerly.types'
@@ -703,6 +709,40 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
             `No Campaign Verify request found for identityId: ${peerlyIdentityId}`,
           )
           return null
+        }
+      }
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
+    }
+  }
+
+  // Like retrieveCampaignVerifyStatus, but also parses the enriched retrieve_cv
+  // payload into the PIN delivery channel + destination Peerly used (present
+  // only once the PIN is sent). One Peerly call serves both the live FE display
+  // and the detection sweep. Same 404-as-null handling as the status read.
+  async retrieveCampaignVerifyDetails(
+    peerlyIdentityId: string,
+    campaign: Campaign,
+  ): Promise<{
+    status: PeerlyCvVerificationStatus | null
+    pinDelivery: PinDelivery | null
+  }> {
+    try {
+      const response =
+        await this.peerlyHttpService.get<PeerlyRetrieveCvResponseBody>(
+          `/v2/tdlc/${peerlyIdentityId}/retrieve_cv`,
+        )
+      const { data } = response
+      return {
+        status: data.verification_status ?? null,
+        pinDelivery: derivePinDelivery(data.verification_data),
+      }
+    } catch (e) {
+      if (isAxiosError<{ status_code?: number }>(e)) {
+        const is404 =
+          e.status === 404 ||
+          (e.status === 400 && e.response?.data?.status_code === 404)
+        if (is404) {
+          return { status: null, pinDelivery: null }
         }
       }
       return await this.handleApiError(e, { campaign, peerlyIdentityId })

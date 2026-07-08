@@ -273,7 +273,7 @@ describe('ComplianceStateService - findStateForCampaign', () => {
         },
         {
           provide: PeerlyIdentityService,
-          useValue: { retrieveCampaignVerifyStatus: mockRetrieveCv },
+          useValue: { retrieveCampaignVerifyDetails: mockRetrieveCv },
         },
         { provide: PinoLogger, useValue: createMockLogger() },
         ComplianceStateService,
@@ -287,32 +287,43 @@ describe('ComplianceStateService - findStateForCampaign', () => {
     vi.unstubAllEnvs()
   })
 
-  it('surfaces the live Peerly CV status at awaiting_pin in prod', async () => {
+  it('surfaces the live Peerly CV status + PIN delivery at awaiting_pin in prod', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
-    mockRetrieveCv.mockResolvedValue(PeerlyCvVerificationStatus.APPROVED)
+    mockRetrieveCv.mockResolvedValue({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
 
     const result = await service.findStateForCampaign(42)
 
     expect(result.stage).toBe(ComplianceStage.awaiting_pin)
     expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
+    expect(result.pinDelivery).toEqual({
+      method: 'text',
+      destination: '3126851162',
+    })
     expect(mockRetrieveCv).toHaveBeenCalledWith(
       PEERLY_IDENTITY_ID,
       expect.anything(),
     )
   })
 
-  it('reports IN_REVIEW when Peerly has not issued a PIN yet', async () => {
+  it('reports IN_REVIEW with null PIN delivery before Peerly issues a PIN', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
-    mockRetrieveCv.mockResolvedValue(PeerlyCvVerificationStatus.IN_REVIEW)
+    mockRetrieveCv.mockResolvedValue({
+      status: PeerlyCvVerificationStatus.IN_REVIEW,
+      pinDelivery: null,
+    })
 
     const result = await service.findStateForCampaign(42)
 
     expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.IN_REVIEW)
+    expect(result.pinDelivery).toBeNull()
   })
 
-  it('returns null CV status without calling Peerly when no identity exists', async () => {
+  it('returns null CV status + PIN delivery without calling Peerly when no identity exists', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(
       awaitingPinCampaign({ peerlyIdentityId: null }),
@@ -322,23 +333,28 @@ describe('ComplianceStateService - findStateForCampaign', () => {
 
     expect(result.stage).toBe(ComplianceStage.awaiting_pin)
     expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
     expect(mockRetrieveCv).not.toHaveBeenCalled()
   })
 
-  it('degrades an unrecognized Peerly status to null', async () => {
+  it('degrades an unrecognized Peerly status to null (keeping PIN delivery)', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
-    mockRetrieveCv.mockResolvedValue('SOMETHING_NEW')
+    mockRetrieveCv.mockResolvedValue({
+      status: 'SOMETHING_NEW',
+      pinDelivery: null,
+    })
 
     const result = await service.findStateForCampaign(42)
 
     expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
   })
 
   // A transient Peerly error must not 502 the compliance-state read (polled by
-  // the agent + FE). retrieveCampaignVerifyStatus throws BadGatewayException via
+  // the agent + FE). retrieveCampaignVerifyDetails throws BadGatewayException via
   // handleApiError on any non-404 failure, so mock that production error here.
-  it('degrades to null when the Peerly CV read throws', async () => {
+  it('degrades CV status + PIN delivery to null when the Peerly read throws', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
     mockRetrieveCv.mockRejectedValue(
@@ -349,19 +365,21 @@ describe('ComplianceStateService - findStateForCampaign', () => {
 
     expect(result.stage).toBe(ComplianceStage.awaiting_pin)
     expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
   })
 
-  it('short-circuits to APPROVED in non-prod without calling Peerly', async () => {
+  it('short-circuits to APPROVED with null PIN delivery in non-prod', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
     mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
 
     const result = await service.findStateForCampaign(42)
 
     expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
+    expect(result.pinDelivery).toBeNull()
     expect(mockRetrieveCv).not.toHaveBeenCalled()
   })
 
-  it('does not resolve CV status outside the awaiting_pin stage', async () => {
+  it('does not resolve CV state outside the awaiting_pin stage', async () => {
     vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
     mockFindUniqueOrThrow.mockResolvedValue(
       awaitingPinCampaign({ status: TcrComplianceStatus.pending }),
@@ -371,6 +389,7 @@ describe('ComplianceStateService - findStateForCampaign', () => {
 
     expect(result.stage).toBe(ComplianceStage.tcr_in_review)
     expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
     expect(mockRetrieveCv).not.toHaveBeenCalled()
   })
 })
