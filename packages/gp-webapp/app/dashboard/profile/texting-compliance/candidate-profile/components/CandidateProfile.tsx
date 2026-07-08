@@ -9,14 +9,14 @@ import CandidateProfileFields from './CandidateProfileFields'
 export default function CandidateProfile(): React.JSX.Element {
   const router = useRouter()
   const form = useCandidateProfileForm({
-    onSaved: () => router.push('/dashboard/profile'),
+    onSaved: () => router.push('/dashboard/account'),
   })
 
   return (
     <div className="flex h-screen flex-col items-center justify-between pt-2 md:pt-4">
       <div className="mx-auto w-full max-w-2xl p-4">
         <div className="flex items-center justify-between">
-          <Link href="/dashboard/profile" aria-label="Back to profile">
+          <Link href="/dashboard/account" aria-label="Back to account">
             <ChevronLeft className="h-6 w-6" />
           </Link>
           <div className="font-medium md:text-xl">Candidate profile</div>

@@ -33,7 +33,11 @@ import { useIsMobile } from '@styleguide/hooks/use-mobile'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCampaign } from './hooks/useCampaign'
 
-const SHARED_PATHS = ['/dashboard/profile', '/dashboard/campaign-details']
+const SHARED_PATHS = [
+  '/dashboard/profile',
+  '/dashboard/campaign-details',
+  '/dashboard/account',
+]
 
 interface OrganizationContextValue {
   organizations: Organization[]

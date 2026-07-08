@@ -133,7 +133,8 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
   ['/dashboard/website', 'Website'],
-  ['/dashboard/campaign-details', 'My Profile'],
+  ['/dashboard/profile', 'My Profile'],
+  ['/dashboard/account', 'Account Settings'],
   ['/dashboard/campaign-assistant', 'AI Assistant'],
   ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],

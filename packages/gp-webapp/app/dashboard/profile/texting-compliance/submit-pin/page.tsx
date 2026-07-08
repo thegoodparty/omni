@@ -34,7 +34,7 @@ const Page = async (): Promise<React.JSX.Element> => {
     }
   } catch (e) {
     console.error('Error fetching TCR Compliance data:', e)
-    return redirect('/dashboard/profile')
+    return redirect('/dashboard/account')
   }
 
   return <TextingComplianceSubmitPinPage {...{ tcrCompliance }} />
