@@ -519,6 +519,73 @@ describe('OrdinanceCodePersistService.onExperimentRunCompleted', () => {
     expect(await findRecord()).toMatchObject({ codeFound: true })
   })
 
+  it('upgrades a not_found record when a later run finds the code', async () => {
+    const firstKey = 'find_existing_ordinances/run-neg/artifact.json'
+    const firstRun = await seedRun({
+      artifactKey: firstKey,
+      createdAt: subHours(new Date(), 2),
+    })
+    mockS3({
+      [firstKey]: JSON.stringify(
+        municodeArtifact(firstRun.runId, {
+          code_found: false,
+          code_source: null,
+          data_quality: 'not_found',
+          confidence: 'low',
+        }),
+      ),
+    })
+    await persist().onExperimentRunCompleted(firstRun)
+    expect(await findRecord()).toMatchObject({ codeFound: false })
+
+    const secondKey = 'find_existing_ordinances/run-pos/artifact.json'
+    const secondRun = await seedRun({ artifactKey: secondKey })
+    mockS3({
+      [secondKey]: JSON.stringify(municodeArtifact(secondRun.runId)),
+    })
+    await persist().onExperimentRunCompleted(secondRun)
+
+    expect(await findRecord()).toMatchObject({
+      codeFound: true,
+      dataQuality: OrdinanceDataQuality.OK,
+      experimentRunId: secondRun.runId,
+    })
+  })
+
+  it('serializes concurrent results so the newer run always wins', async () => {
+    const newerKey = 'find_existing_ordinances/run-conc-new/artifact.json'
+    const olderKey = 'find_existing_ordinances/run-conc-old/artifact.json'
+    const newerRun = await seedRun({
+      artifactKey: newerKey,
+      createdAt: subMinutes(new Date(), 5),
+    })
+    const olderRun = await seedRun({
+      artifactKey: olderKey,
+      createdAt: subHours(new Date(), 2),
+    })
+    mockS3({
+      [newerKey]: JSON.stringify(municodeArtifact(newerRun.runId)),
+      [olderKey]: JSON.stringify(
+        municodeArtifact(olderRun.runId, {
+          code_source: {
+            host_type: 'city_gov',
+            url: 'https://stale.example.gov/old-code',
+          },
+        }),
+      ),
+    })
+
+    await Promise.all([
+      persist().onExperimentRunCompleted(newerRun),
+      persist().onExperimentRunCompleted(olderRun),
+    ])
+
+    expect(await findRecord()).toMatchObject({
+      experimentRunId: newerRun.runId,
+      hostType: OrdinanceHostType.MUNICODE,
+    })
+  })
+
   it('compares run dispatch times, not content times, in the older-run guard', async () => {
     const newerKey = 'find_existing_ordinances/run-newer/artifact.json'
     const newerRun = await seedRun({

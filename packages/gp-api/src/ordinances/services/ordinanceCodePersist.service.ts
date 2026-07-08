@@ -67,6 +67,11 @@ const mapCodeSource = (source: OrdinanceArtifact['code_source']) =>
         productId: null,
       }
 
+// Serializes the read-guard-write below per organization: two results for
+// the same org arriving concurrently (cron + signup dispatches completing
+// together) must not interleave the ordering/never-regress guards.
+const ORDINANCE_PERSIST_ADVISORY_LOCK_KEY = 71_882_301
+
 @Injectable()
 export class OrdinanceCodePersistService extends createPrismaBase(
   MODELS.OrdinanceCodeRecord,
@@ -152,72 +157,75 @@ export class OrdinanceCodePersistService extends createPrismaBase(
       )
     }
 
-    const existing = await this.model.findUnique({
-      where: { organizationSlug: run.organizationSlug },
-      include: { experimentRun: { select: { createdAt: true } } },
-    })
-
-    // SQS redelivery replays a result the record already reflects.
-    if (existing?.experimentRunId === run.runId) return
-
-    // An older run's late result must never overwrite what a newer run
-    // already verified. Compare dispatch times run-to-run — verifiedAt is
-    // agent-authored content time and lives on a different clock (the FK is
-    // SetNull, so a pruned producing run simply allows the write).
-    const producingRunCreatedAt = existing?.experimentRun?.createdAt
-    if (
-      existing &&
-      producingRunCreatedAt &&
-      isBefore(run.createdAt, producingRunCreatedAt)
-    ) {
-      this.logger.info(
-        {
-          runId: run.runId,
-          organizationSlug: run.organizationSlug,
-          runCreatedAt: run.createdAt,
-          recordRunCreatedAt: producingRunCreatedAt,
-        },
-        'ordinance persist skipped: run older than current record',
-      )
-      return
-    }
-
-    // Never-regress: a found:false conclusion never erases found data.
-    // Record why the current record was kept; the run link stays on the run
-    // that actually found the code.
-    if (existing?.codeFound && !artifact.code_found) {
-      const supersededNote =
-        `run ${run.runId} at ${artifact.generated_at} concluded ` +
-        `${artifact.data_quality}; record retained`
-      if (existing.supersededNote === supersededNote) return
-      await this.model.update({
+    await this.client.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${ORDINANCE_PERSIST_ADVISORY_LOCK_KEY}::integer, hashtext(${run.organizationSlug})::integer)`
+      const existing = await tx.ordinanceCodeRecord.findUnique({
         where: { organizationSlug: run.organizationSlug },
-        data: { supersededNote },
+        include: { experimentRun: { select: { createdAt: true } } },
       })
-      return
-    }
 
-    const data = {
-      codeFound: artifact.code_found,
-      dataQuality: DATA_QUALITY_BY_ARTIFACT[artifact.data_quality],
-      confidence: CONFIDENCE_BY_ARTIFACT[artifact.confidence],
-      ...mapCodeSource(artifact.code_source),
-      place: artifact.jurisdiction.place,
-      state: artifact.jurisdiction.state,
-      verifiedEvidence: artifact.jurisdiction.verified_evidence,
-      artifactBucket,
-      artifactKey,
-      // Clamp to now: an agent-authored future timestamp must not freeze the
-      // org out of its refresh cycle by pushing verifiedAt past every cutoff.
-      verifiedAt: min([parseISO(artifact.generated_at), new Date()]),
-      experimentRunId: run.runId,
-      supersededNote: null,
-    }
+      // SQS redelivery replays a result the record already reflects.
+      if (existing?.experimentRunId === run.runId) return
 
-    await this.model.upsert({
-      where: { organizationSlug: run.organizationSlug },
-      create: { organizationSlug: run.organizationSlug, ...data },
-      update: data,
+      // An older run's late result must never overwrite what a newer run
+      // already verified. Compare dispatch times run-to-run — verifiedAt is
+      // agent-authored content time and lives on a different clock (the FK is
+      // SetNull, so a pruned producing run simply allows the write).
+      const producingRunCreatedAt = existing?.experimentRun?.createdAt
+      if (
+        existing &&
+        producingRunCreatedAt &&
+        isBefore(run.createdAt, producingRunCreatedAt)
+      ) {
+        this.logger.info(
+          {
+            runId: run.runId,
+            organizationSlug: run.organizationSlug,
+            runCreatedAt: run.createdAt,
+            recordRunCreatedAt: producingRunCreatedAt,
+          },
+          'ordinance persist skipped: run older than current record',
+        )
+        return
+      }
+
+      // Never-regress: a found:false conclusion never erases found data.
+      // Record why the current record was kept; the run link stays on the run
+      // that actually found the code.
+      if (existing?.codeFound && !artifact.code_found) {
+        const supersededNote =
+          `run ${run.runId} at ${artifact.generated_at} concluded ` +
+          `${artifact.data_quality}; record retained`
+        if (existing.supersededNote === supersededNote) return
+        await tx.ordinanceCodeRecord.update({
+          where: { organizationSlug: run.organizationSlug },
+          data: { supersededNote },
+        })
+        return
+      }
+
+      const data = {
+        codeFound: artifact.code_found,
+        dataQuality: DATA_QUALITY_BY_ARTIFACT[artifact.data_quality],
+        confidence: CONFIDENCE_BY_ARTIFACT[artifact.confidence],
+        ...mapCodeSource(artifact.code_source),
+        place: artifact.jurisdiction.place,
+        state: artifact.jurisdiction.state,
+        verifiedEvidence: artifact.jurisdiction.verified_evidence,
+        artifactBucket,
+        artifactKey,
+        // Clamp to now: an agent-authored future timestamp must not freeze the
+        // org out of its refresh cycle by pushing verifiedAt past every cutoff.
+        verifiedAt: min([parseISO(artifact.generated_at), new Date()]),
+        experimentRunId: run.runId,
+        supersededNote: null,
+      }
+
+      await tx.ordinanceCodeRecord.upsert({
+        where: { organizationSlug: run.organizationSlug },
+        create: { organizationSlug: run.organizationSlug, ...data },
+        update: data,
+      })
     })
   }
 }
