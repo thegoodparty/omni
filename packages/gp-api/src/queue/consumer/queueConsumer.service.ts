@@ -34,6 +34,7 @@ import { CommunityIssueService } from 'src/communityIssues/services/communityIss
 import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
 import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
 import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
+import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -143,6 +144,7 @@ export class QueueConsumerService {
     private readonly raceOpponent: RaceOpponentPersistService,
     private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
     private readonly annotationAttachments: AnnotationAttachmentService,
+    private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -1073,6 +1075,10 @@ export class QueueConsumerService {
     // on FAILED, so it is called for both terminal states (not just COMPLETED).
     // Same markFailed-then-throw + idempotent-replace contract as above.
     await this.raceOpponentResearch.onExperimentRunCompleted(updatedRun)
+
+    // Same contract again: markFailed-then-throw on a persist fault, no-op for
+    // other experiment types, idempotent under bounded redelivery.
+    await this.ordinanceCodePersist.onExperimentRunCompleted(updatedRun)
 
     return true
   }

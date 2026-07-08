@@ -146,10 +146,17 @@ const CampaignStrategyTaskRow = ({
             size="small"
             className="text-primary h-auto p-0"
           >
-            <a href={task.href} target="_blank" rel="noreferrer">
-              {task.hrefLabel ?? 'Open'}
-              <ExternalLinkIcon className="size-3" />
-            </a>
+            {task.href.startsWith('/') ? (
+              <a href={task.href}>
+                {task.hrefLabel ?? 'Open'}
+                <ExternalLinkIcon className="size-3" />
+              </a>
+            ) : (
+              <a href={task.href} target="_blank" rel="noreferrer">
+                {task.hrefLabel ?? 'Open'}
+                <ExternalLinkIcon className="size-3" />
+              </a>
+            )}
           </Button>
         )}
       </div>

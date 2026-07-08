@@ -417,10 +417,41 @@ const StrategicLandscapeSkeleton = (): React.JSX.Element => (
   </>
 )
 
+// The strategic-landscape bullets cite sources as markdown links, e.g.
+// "([Ballotpedia](https://ballotpedia.org/...))". Render those as real links
+// instead of showing the raw [label](url) syntax. Only http(s) urls become
+// anchors; anything else stays literal text.
+const MD_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g
+
+const renderMarkdownLinks = (text: string): React.ReactNode => {
+  const parts: React.ReactNode[] = []
+  let last = 0
+  for (const match of text.matchAll(MD_LINK_RE)) {
+    const [full, label, url] = match
+    const at = match.index
+    if (at > last) parts.push(text.slice(last, at))
+    parts.push(
+      <a
+        key={`${url}-${at}`}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className="underline hover:text-foreground"
+      >
+        {label}
+      </a>,
+    )
+    last = at + full.length
+  }
+  if (parts.length === 0) return text
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
 const BulletList = ({ items }: { items: string[] }): React.JSX.Element => (
   <ul className="space-y-1.5 pl-5 text-sm text-muted-foreground [list-style:disc]">
     {items.map((item) => (
-      <li key={item}>{item}</li>
+      <li key={item}>{renderMarkdownLinks(item)}</li>
     ))}
   </ul>
 )

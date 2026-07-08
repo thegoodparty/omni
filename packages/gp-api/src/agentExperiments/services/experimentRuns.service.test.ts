@@ -730,7 +730,11 @@ describe('ExperimentRunsService', () => {
         experimentType: { notIn: string[] }
       }
       expect(where.experimentType.notIn).toEqual(
-        expect.arrayContaining(['meeting_briefing', 'meeting_schedule']),
+        expect.arrayContaining([
+          'meeting_briefing',
+          'meeting_schedule',
+          'find_existing_ordinances',
+        ]),
       )
     })
 

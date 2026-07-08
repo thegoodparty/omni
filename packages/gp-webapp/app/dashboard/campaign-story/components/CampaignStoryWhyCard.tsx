@@ -41,9 +41,12 @@ const STARTED_HINT =
   'Worth saying more: another 1-2 sentences will sharpen this a lot.'
 const ENOUGH_HINT = "That's great! The more you give us, the better!"
 
-// Soft suggestion shown to the writer, NOT an input cap — the bio's enforced
-// minimum lives in the Pro-upgrade flow, not here (the story stays lenient).
+// Soft suggestion shown to the writer — the nudge hints flip on this.
 const SUGGESTED_CHARS = 100
+
+// Hard cap on the why during the story intake (it stays editable afterwards).
+// Enforced for typing only: a longer pre-existing website bio loads intact.
+const MAX_WHY_CHARS = 500
 
 const EXAMPLE =
   'I spent fifteen years running the family hardware store on Main Street, and I watched our downtown empty out while the council handed tax breaks to out-of-town developers. The last straw was when they cut funding for the after-school program my own kids relied on. I decided I was done complaining at the kitchen table and ready to do something about it.'
@@ -186,9 +189,10 @@ const CampaignStoryWhyCard = ({
             onChangeCallback={handleChange}
             onTextLengthChange={handleLength}
             hideToolbar
+            maxLength={MAX_WHY_CHARS}
           />
           <span className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">
-            {bioPlainLength}/{SUGGESTED_CHARS}
+            {bioPlainLength}/{MAX_WHY_CHARS}
           </span>
         </div>
 

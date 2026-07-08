@@ -30,7 +30,12 @@ import { dirname, join, relative } from 'node:path'
 // ratchet merged, so every PR failed regardless of its changes. No new client
 // components were added by this change; the ratchet holds the line from the
 // real number.
-const BASELINE = 524
+// 2026-07-08: 524 -> 527 for the profile/account consolidation. The new
+// profile/account cards and dialogs (office details, your details, personal &
+// account info, term-date editor, etc.) are interactive — they use React state,
+// event handlers, and hooks — so they can't be server components. Net +3 after
+// deleting the retired inline-edit sections.
+const BASELINE = 527
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

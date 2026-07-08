@@ -103,7 +103,7 @@ describe('CandidateProfile — submit validation messaging', () => {
       }),
     )
     await waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/profile'),
+      expect(router.push).toHaveBeenCalledWith('/dashboard/account'),
     )
     expect(screen.queryByText('Please add your bio')).not.toBeInTheDocument()
   })
@@ -180,7 +180,7 @@ describe('CandidateProfile — deleting a policy priority persists (ENG-10270)',
       }),
     )
     await waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/profile'),
+      expect(router.push).toHaveBeenCalledWith('/dashboard/account'),
     )
   })
 })

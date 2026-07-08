@@ -2,7 +2,7 @@
 
 # Trending Issues
 
-Given an elected official's district, produce a ranked list of up to 5 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks/Haystaq data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
+Given an elected official's district, produce a ranked list of up to 5 community issues that are actively trending in local news and public discourse right now. Draws from recent local news, direct resident voice (letters/op-eds), and the public output of local community advocacy groups, via web search — no Databricks or internal modeled-data. The signal here is recency and volume: what is the community talking about this week, not what residents privately scored highest. Begin by reading the current issue feed via the MCP tool so carried issues keep their existing IDs.
 
 ## BEFORE YOU START
 
