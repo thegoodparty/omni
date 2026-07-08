@@ -161,18 +161,19 @@ describe('<ContactsTable>', () => {
     expect(selectPerson).not.toHaveBeenCalled()
   })
 
-  it('blurs sensitive cells for non-pro users', () => {
+  it('blurs every data cell for non-pro users', () => {
     setContext({
       filteredContacts: [makePerson()],
       canUseProFeatures: false,
     })
     const { container } = render(<ContactsTable />)
 
-    // Cell phone, landline, and address are wrapped in a blurred span for
-    // non-pro users. Exactly three fields blur per row — assert the exact
-    // count so accidentally blurring more cells fails the test.
+    // All six columns (name, gender, age, address, cell phone, landline)
+    // blur for non-pro users so the preview rows can't be mistaken for
+    // readable real data. Assert the exact count so dropping a blur fails
+    // the test.
     const blurredEls = container.querySelectorAll('.blur-\\[6px\\]')
-    expect(blurredEls).toHaveLength(3)
+    expect(blurredEls).toHaveLength(6)
   })
 
   it('does not blur sensitive cells for pro users', () => {
