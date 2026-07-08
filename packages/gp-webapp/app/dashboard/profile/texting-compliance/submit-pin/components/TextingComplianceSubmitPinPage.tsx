@@ -60,7 +60,7 @@ const TextingComplianceSubmitPinPage = ({
       })
 
       successSnackbar('Successfully submitted Campaign Verify PIN')
-      router.push('/dashboard/profile')
+      router.push('/dashboard/account')
     } catch {
       errorSnackbar(
         'Failed to submit Campaign Verify PIN. Please try again later.',

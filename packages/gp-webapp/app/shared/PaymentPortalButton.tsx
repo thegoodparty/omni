@@ -1,14 +1,15 @@
 'use client'
-import React, { ReactNode, MouseEvent, useState, HTMLAttributes } from 'react'
+import React, { ReactNode, MouseEvent, useState, ComponentProps } from 'react'
 import Link from 'next/link'
 import { Button } from '@styleguide'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
+import { useSnackbar } from 'helpers/useSnackbar'
 
 interface PaymentPortalButtonProps extends Omit<
-  HTMLAttributes<HTMLButtonElement>,
-  'children'
+  ComponentProps<typeof Button>,
+  'children' | 'loading' | 'disabled' | 'onClick'
 > {
   redirectUrl?: string | null
   children: ReactNode
@@ -20,19 +21,33 @@ export const PaymentPortalButton = ({
   ...restProps
 }: PaymentPortalButtonProps): React.JSX.Element => {
   const [loading, setLoading] = useState(false)
+  const { errorSnackbar } = useSnackbar()
 
   const onClick = async (e: MouseEvent<HTMLButtonElement>): Promise<void> => {
     e.preventDefault()
     trackEvent(EVENTS.Settings.Account.ClickManageSubscription)
     setLoading(true)
-    const resp = await clientFetch<{ redirectUrl: string }>(
-      apiRoutes.payments.createPortalSession,
-    )
-    const portalRedirectUrl = resp.data?.redirectUrl
-    if (!portalRedirectUrl) {
-      throw new Error('No portal redirect url found')
+    // A failed portal request must re-enable the button: on the post-election
+    // gated screen this button is the user's only path to the Stripe portal,
+    // so a stuck disabled state would strand them with no recovery.
+    try {
+      const resp = await clientFetch<{ redirectUrl: string }>(
+        apiRoutes.payments.createPortalSession,
+      )
+      const portalRedirectUrl = resp.data?.redirectUrl
+      if (!portalRedirectUrl) {
+        throw new Error('No portal redirect url found')
+      }
+      window.location.href = portalRedirectUrl
+    } catch (error) {
+      console.error('Error creating billing portal session:', error)
+      errorSnackbar(
+        'Unable to open the billing portal. Please try again or contact support.',
+      )
+      // Reset only on failure: on success the href assignment is navigating
+      // away, and re-enabling before unload would allow a duplicate request.
+      setLoading(false)
     }
-    window.location.href = portalRedirectUrl
   }
 
   if (redirectUrl) {
@@ -46,7 +61,7 @@ export const PaymentPortalButton = ({
   return (
     <Button
       className="flex items-center"
-      disabled={loading}
+      loading={loading}
       onClick={onClick}
       {...restProps}
     >

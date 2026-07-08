@@ -21,7 +21,7 @@ test.describe('Profile Management', () => {
     await page.waitForURL(/\/dashboard\/profile/)
     await WaitHelper.waitForPageReady(page)
     await expect(
-      page.getByRole('heading', { name: 'Contact Information' }).first(),
+      page.getByRole('heading', { name: 'Office Details' }).first(),
     ).toBeVisible({ timeout: 5000 })
     await expect(page).toHaveURL(/\/profile$/)
 

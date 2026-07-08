@@ -27,16 +27,19 @@ vi.mock('app/dashboard/components/tasks/flows/TaskFlow', () => ({
     type,
     forceOpen,
     initialScriptText,
+    campaignPlanDueDate,
   }: {
     type: string
     forceOpen?: boolean
     initialScriptText?: string
+    campaignPlanDueDate?: string
   }) => (
     <div
       data-testid="task-flow"
       data-type={type}
       data-force-open={String(forceOpen)}
       data-initial-script={initialScriptText ?? ''}
+      data-due-date={campaignPlanDueDate ?? ''}
     />
   ),
 }))
@@ -111,6 +114,47 @@ describe('OutreachComposeDeepLink', () => {
 
     const taskFlow = await screen.findByTestId('task-flow')
     expect(taskFlow.getAttribute('data-initial-script')).toHaveLength(1600)
+  })
+
+  it('passes a valid due param through as the campaign-plan due date', async () => {
+    mockSearchParams = new URLSearchParams('compose=text&due=2026-08-03')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    const taskFlow = await screen.findByTestId('task-flow')
+    expect(taskFlow).toHaveAttribute('data-due-date', '2026-08-03')
+  })
+
+  it('ignores a malformed due param', async () => {
+    mockSearchParams = new URLSearchParams('compose=text&due=next-tuesday')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    const taskFlow = await screen.findByTestId('task-flow')
+    expect(taskFlow).toHaveAttribute('data-due-date', '')
+  })
+
+  it('opens the robocall flow with the due date for a Pro user', async () => {
+    mockSearchParams = new URLSearchParams('compose=robocall&due=2026-08-03')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    const taskFlow = await screen.findByTestId('task-flow')
+    expect(taskFlow).toHaveAttribute('data-type', 'robocall')
+    expect(taskFlow).toHaveAttribute('data-due-date', '2026-08-03')
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Outreach.ClickCreate, {
+      type: 'robocall',
+      source: 'deep_link',
+    })
+  })
+
+  it('gates robocall behind Pro with the upgrade modal', async () => {
+    mockSearchParams = new URLSearchParams('compose=robocall')
+    renderDeepLink({ isPro: false, tcrCompliance: approvedCompliance })
+
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
+        scroll: false,
+      }),
+    )
+    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
   it('shows the P2P upgrade modal instead of the flow for a non-Pro user', async () => {

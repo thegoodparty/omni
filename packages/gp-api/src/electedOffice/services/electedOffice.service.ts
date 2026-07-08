@@ -17,6 +17,7 @@ import { PaginatedResults } from 'src/shared/types/utility.types'
 import { v7 as uuidv7 } from 'uuid'
 import { CommunityIssueDispatchService } from '@/communityIssues/services/communityIssueDispatch.service'
 import { MeetingBriefingsService } from '@/meetings/services/meetingBriefings.service'
+import { OrdinanceDispatchService } from '@/ordinances/services/ordinanceDispatch.service'
 import { PrioritiesService } from '@/priorities/services/priorities.service'
 import { ListElectedOfficePaginationSchema } from '../schemas/ListElectedOfficePagination.schema'
 import { ELECTED_OFFICE_CREATE_ADVISORY_LOCK_KEY } from '../electedOffice.consts'
@@ -94,6 +95,7 @@ export class ElectedOfficeService extends createPrismaBase(
     @Inject(forwardRef(() => PrioritiesService))
     private readonly priorities: PrioritiesService,
     private readonly communityIssueDispatch: CommunityIssueDispatchService,
+    private readonly ordinanceDispatch: OrdinanceDispatchService,
   ) {
     super()
   }
@@ -298,6 +300,19 @@ export class ElectedOfficeService extends createPrismaBase(
         this.logger.error(
           { err, electedOfficeId: electedOffice.id },
           'community issue dispatch failed after EO created',
+        )
+      })
+
+    // Fire-and-forget: ordinance sourcing writes no signup-critical state, so
+    // it must add zero latency to the create request. The daily refresh cron
+    // recovers any org missed if the process dies before this settles, and the
+    // one-time exists-guard makes that re-entry safe.
+    void this.ordinanceDispatch
+      .onElectedOfficeCreated(electedOffice)
+      .catch((err: Error) => {
+        this.logger.error(
+          { err, electedOfficeId: electedOffice.id },
+          'ordinance dispatch failed after EO created',
         )
       })
   }
