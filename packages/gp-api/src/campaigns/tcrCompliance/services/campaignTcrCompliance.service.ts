@@ -336,15 +336,22 @@ export class CampaignTcrComplianceService extends createPrismaBase(
 
   // Detect that Peerly has sent the candidate's CampaignVerify PIN, record the
   // channel + destination, and fire the "PIN Sent" Segment event once so
-  // HubSpot can stamp the company and nudge the candidate. Scoped to records
-  // still awaiting the PIN (`submitted` + Peerly identity + no method recorded
-  // yet); the `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are
-  // detected, so this is not a growing bulk loop hammering Peerly.
+  // HubSpot can stamp the company and nudge the candidate. The
+  // `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected, so
+  // this is not a growing bulk loop hammering Peerly. Both `submitted` and
+  // `pending` are in scope: the in-app PIN entry (and the VERIFIED usecase
+  // sweep) advance a record to `pending` as soon as the candidate acts, which
+  // can happen before this hourly sweep runs — a record that raced past
+  // `submitted` still had its PIN sent, so without `pending` its channel + the
+  // event would be dropped forever. `pending` always means the PIN was sent, so
+  // this never fires for a record whose PIN never went out.
   @Interval(PIN_DELIVERY_DETECTION_SWEEP_INTERVAL * 1000)
   async sweepPinDeliveryDetection() {
     const candidates = await this.model.findMany({
       where: {
-        status: TcrComplianceStatus.submitted,
+        status: {
+          in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+        },
         peerlyIdentityId: { not: null },
         pinDeliveryMethod: null,
       },
@@ -413,15 +420,26 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // The event is the whole point of the detection — if it fails, roll back
       // our claim (scoped to the exact timestamp we wrote, so a concurrent
       // re-claimant's live claim isn't disturbed) so the next sweep retries
-      // rather than silently dropping the nudge.
-      await this.model.updateMany({
-        where: { id: tcrCompliance.id, pinSentDetectedAt: claimTimestamp },
-        data: {
-          pinDeliveryMethod: null,
-          pinDeliveryDestination: null,
-          pinSentDetectedAt: null,
-        },
-      })
+      // rather than silently dropping the nudge. Guard the rollback itself: if
+      // it throws, its error must not mask the original (nor leave the record
+      // claimed-but-never-fired and thus permanently excluded by the sweep's
+      // `pinDeliveryMethod IS NULL` filter) — mirrors submitToPeerlyForAgent.
+      try {
+        await this.model.updateMany({
+          where: { id: tcrCompliance.id, pinSentDetectedAt: claimTimestamp },
+          data: {
+            pinDeliveryMethod: null,
+            pinDeliveryDestination: null,
+            pinSentDetectedAt: null,
+          },
+        })
+      } catch (rollbackErr) {
+        this.logger.error(
+          { rollbackErr, tcrComplianceId: tcrCompliance.id },
+          '[TCR Compliance] Failed to roll back PIN-delivery claim; ' +
+            'record may be stuck with no PIN Sent event fired',
+        )
+      }
       throw err
     }
   }

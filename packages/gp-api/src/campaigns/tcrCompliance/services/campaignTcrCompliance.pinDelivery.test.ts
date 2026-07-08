@@ -142,4 +142,34 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
       },
     })
   })
+
+  it('sweeps both submitted and pending records so a fast PIN entry is not dropped', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'APPROVED',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.findMany).toHaveBeenCalledWith({
+      where: {
+        status: { in: ['submitted', 'pending'] },
+        peerlyIdentityId: { not: null },
+        pinDeliveryMethod: null,
+      },
+    })
+  })
+
+  it('does not crash the sweep when the rollback also fails', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
+    mockTrack.mockRejectedValue(new Error('Segment down'))
+    mockModel.updateMany
+      .mockResolvedValueOnce({ count: 1 }) // claim succeeds
+      .mockRejectedValueOnce(new Error('DB down')) // rollback fails
+
+    await expect(service.sweepPinDeliveryDetection()).resolves.toBeUndefined()
+  })
 })
