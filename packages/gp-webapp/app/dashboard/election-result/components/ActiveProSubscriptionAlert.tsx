@@ -1,4 +1,6 @@
-'use client'
+// No 'use client': both consumers (the election-result gate page and the loss
+// page) are already client components, so this stays out of the guarded
+// use-client count without changing the bundle boundary.
 import {
   Alert,
   AlertDescription,
