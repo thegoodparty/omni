@@ -22,16 +22,20 @@ const isAutomationEnabled = () =>
 const contextResolveTimeoutMs = () =>
   Number(process.env.ORDINANCE_RESOLVE_TIMEOUT_MS ?? 15_000)
 
-const withDeadline = <T>(promise: Promise<T>, ms: number): Promise<T> =>
-  Promise.race([
-    promise,
-    new Promise<never>((_resolve, reject) =>
-      setTimeout(
-        () => reject(new Error(`resolve timed out after ${ms}ms`)),
-        ms,
-      ),
-    ),
-  ])
+const withDeadline = async <T>(promise: Promise<T>, ms: number): Promise<T> => {
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`resolve timed out after ${ms}ms`)),
+      ms,
+    )
+  })
+  try {
+    return await Promise.race([promise, deadline])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
 
 // Manifest maxLength for office. customPositionName is unbounded user input;
 // the place name the agent derives sits at the front of the string, so

@@ -528,6 +528,23 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
     )
   })
 
+  it('clears the resolve deadline timer when the resolve wins', async () => {
+    const orgSlug = `ord-cron-timer-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'Ramsey City Council',
+      isServeIcp: true,
+    })
+    mockDispatchRun()
+    mockCronLock(true)
+    const clearSpy = vi.spyOn(global, 'clearTimeout')
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(clearSpy).toHaveBeenCalled()
+  })
+
   it('seals the daily lease even when eligibility selection throws', async () => {
     const lock = service.app.get(CronLockService)
     vi.spyOn(lock, 'tryClaimDailyRun').mockResolvedValue(true)
