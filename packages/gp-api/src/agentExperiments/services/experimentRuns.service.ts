@@ -25,7 +25,7 @@ export type ExperimentRunDispatchInput<
 > = {
   type: ExperimentType
   organizationSlug: string
-  clerkUserId: string
+  clerkUserId: string | undefined
   params: AgentJobContracts[ExperimentType]['Input']
   priority?: DispatchPriority
 }
@@ -86,7 +86,7 @@ export class ExperimentRunsService extends createPrismaBase(
       runId: string
       organizationSlug: string
       experimentType: string
-      clerkUserId: string
+      clerkUserId: string | undefined
       params: unknown
       priority: DispatchPriority
     },
@@ -111,7 +111,7 @@ export class ExperimentRunsService extends createPrismaBase(
   private async createAndEnqueueRun(input: {
     experimentType: string
     organizationSlug: string
-    clerkUserId: string
+    clerkUserId: string | undefined
     params: Prisma.InputJsonValue
     priority?: DispatchPriority
     resumeAttempts?: number

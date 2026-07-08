@@ -8,6 +8,7 @@ import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponent
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
+import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
@@ -230,6 +231,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -926,6 +928,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1116,6 +1119,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1248,11 +1252,15 @@ describe('QueueConsumerService - message type routing', () => {
         { provide: ExperimentRunsService, useValue: {} },
         {
           provide: MeetingBriefingsService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CommunityIssueService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CampaignStrategyService,
@@ -1268,6 +1276,10 @@ describe('QueueConsumerService - message type routing', () => {
         },
         {
           provide: RaceOpponentResearchPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: OrdinanceCodePersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
@@ -1473,15 +1485,18 @@ describe('QueueConsumerService - message type routing', () => {
 describe('QueueConsumerService - handleAgentExperimentResult', () => {
   let service: QueueConsumerService
   let module: TestingModule
-  let runs: Map<string, { runId: string; status: string }>
+  let runs: Map<
+    string,
+    { runId: string; status: string; experimentType?: string }
+  >
   let mockExperimentRuns: {
     findUnique: ReturnType<typeof vi.fn>
     optimisticLockingUpdate: ReturnType<typeof vi.fn>
     markStarted: ReturnType<typeof vi.fn>
   }
 
-  const seedRun = (runId: string, status: string) => {
-    runs.set(runId, { runId, status })
+  const seedRun = (runId: string, status: string, experimentType?: string) => {
+    runs.set(runId, { runId, status, experimentType })
     return runs.get(runId)
   }
 
@@ -1547,11 +1562,15 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         {
           provide: MeetingBriefingsService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CommunityIssueService,
-          useValue: { onExperimentRunCompleted: vi.fn() },
+          useValue: {
+            onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+          },
         },
         {
           provide: CampaignStrategyService,
@@ -1567,6 +1586,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         },
         {
           provide: RaceOpponentResearchPersistService,
+          useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: OrdinanceCodePersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
@@ -1617,6 +1640,29 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(result).toBe(true)
     expect(runs.get('run-done')?.status).toBe('COMPLETED')
     expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
+  })
+
+  // The silent-gap trap: without this fan-out call the run completes but its
+  // artifact is never persisted, and nothing else would catch that.
+  it('invokes the ordinance persist hook with the completed run', async () => {
+    seedRun('run-ordinance', 'RUNNING', 'find_existing_ordinances')
+    const persistSpy = vi.spyOn(
+      module.get(OrdinanceCodePersistService),
+      'onExperimentRunCompleted',
+    )
+
+    const result = await service.processMessage(
+      agentResultMessage({ runId: 'run-ordinance', status: 'success' }),
+    )
+
+    expect(result).toBe(true)
+    expect(persistSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run-ordinance',
+        status: 'COMPLETED',
+        experimentType: 'find_existing_ordinances',
+      }),
+    )
   })
 
   it('skips a late result for a SUPERSEDED run without mutating state', async () => {

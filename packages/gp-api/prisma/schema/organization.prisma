@@ -13,6 +13,7 @@ model Organization {
   experimentRuns       ExperimentRun[]
   artifactFeedbacks    ArtifactFeedback[]
   communityIssues      CommunityIssue[]
+  ordinanceCodeRecord  OrdinanceCodeRecord?
 
   @@index([ownerId])
   @@map("organization")
