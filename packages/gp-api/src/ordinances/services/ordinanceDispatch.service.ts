@@ -104,7 +104,11 @@ export class OrdinanceDispatchService extends createPrismaBase(
         organizationSlug,
         experimentType: FIND_EXISTING_ORDINANCES,
         status: {
-          in: [ExperimentRunStatus.QUEUED, ExperimentRunStatus.RUNNING],
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
         },
       },
       select: { runId: true },
@@ -288,6 +292,7 @@ export class OrdinanceDispatchService extends createPrismaBase(
                 in: [
                   ExperimentRunStatus.QUEUED,
                   ExperimentRunStatus.RUNNING,
+                  ExperimentRunStatus.AWAITING_RESUME,
                   ExperimentRunStatus.COMPLETED,
                 ],
               },

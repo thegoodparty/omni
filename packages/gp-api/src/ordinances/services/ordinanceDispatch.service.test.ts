@@ -528,6 +528,24 @@ describe('OrdinanceDispatchService.dispatchDailyRefresh', () => {
     )
   })
 
+  it('skips an org with a paused AWAITING_RESUME run', async () => {
+    const orgSlug = `ord-cron-paused-${Date.now()}`
+    await seedOrgWithOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: FIND_EXISTING_ORDINANCES,
+        status: ExperimentRunStatus.AWAITING_RESUME,
+      },
+    })
+    const dispatchSpy = mockDispatchRun()
+    mockCronLock(true)
+
+    await service.app.get(OrdinanceDispatchService).dispatchDailyRefresh()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
   it('skips an org with a FAILED run inside the retry backoff window', async () => {
     const orgSlug = `ord-cron-failrecent-${Date.now()}`
     await seedOrgWithOffice(orgSlug)
