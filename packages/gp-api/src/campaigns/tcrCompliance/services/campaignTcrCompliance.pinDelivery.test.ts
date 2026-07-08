@@ -5,6 +5,7 @@ import { PrismaService } from '@/prisma/prisma.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   createMockCampaign,
   createMockUser,
@@ -92,10 +93,13 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
       expect.objectContaining({
         peerly_identity_id: '11540083',
         pin_delivery_method: 'text',
-        pin_delivery_destination: '3126851162',
         company_hubspot_id: 'company-1',
       }),
     )
+    // The raw destination is persisted to our DB (updateMany above) but must
+    // never be sent to Segment / the analytics warehouse / HubSpot.
+    const eventProps = firstOrThrow(mockTrack.mock.calls)[2]
+    expect(eventProps).not.toHaveProperty('pin_delivery_destination')
   })
 
   it('does not fire the event when another caller already claimed the record', async () => {
