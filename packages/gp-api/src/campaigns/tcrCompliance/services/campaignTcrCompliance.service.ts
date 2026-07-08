@@ -4,10 +4,11 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
-import { isValid, parseISO, subMinutes } from 'date-fns'
+import { isAfter, isValid, parseISO, subMinutes } from 'date-fns'
 import {
   Campaign,
   ExperimentRun,
@@ -46,12 +47,23 @@ import {
 import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { ComplianceStateService } from './complianceState.service'
-import { SubmitToPeerlyDto } from '../schemas/submitToPeerlyDto.schema'
+import { submitToPeerlyFilingSchema } from '../schemas/submitToPeerlyDto.schema'
 import { FEC_COMMITTEE_ID_PATTERN } from '../schemas/tcrComplianceBase.schema'
-import { ComplianceStage, SubmitToPeerlyOutput } from '@goodparty_org/contracts'
+import {
+  ComplianceStage,
+  MIN_BIO_LENGTH,
+  SubmitToPeerlyOutput,
+} from '@goodparty_org/contracts'
+import { isGenericComplianceContent } from '../../../websites/util/genericContent.util'
+import { AnalyticsService } from 'src/analytics/analytics.service'
+import { EVENTS } from 'src/vendors/segment/segment.types'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AgenticComplianceKickoffMessage } from '../../../queue/queue.types'
 import { ExperimentRunStatus } from '../../../generated/prisma'
+import {
+  PeerlyBillingException,
+  PEERLY_NO_PAYMENT_METHOD_MESSAGE,
+} from '../../../vendors/peerly/utils/peerlyBillingError.util'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -78,6 +90,14 @@ const PEERLY_SUBMISSION_CLAIM_TTL_MINUTES = 5
 // plus a comfortable margin.
 const AGENTIC_DISPATCH_CLAIM_TTL_MINUTES = 5
 
+// How long to hold off re-submitting to Peerly after a billing/account failure
+// ("No payment method available"). The failure is unrecoverable until Peerly
+// fixes billing, so agent-resume / kickoff re-dispatches within this window
+// short-circuit instead of re-hitting Peerly — one alert, no retry storm. After
+// it elapses the next attempt probes again (and re-alerts if still failing), so
+// registrations resume automatically once billing clears.
+const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
+
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 
 const NON_PROD_BYPASS_CV_TOKEN = 'non-prod-bypass-cv-token'
@@ -101,6 +121,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private readonly complianceStateService: ComplianceStateService,
     private queueService: QueueProducerService,
     private readonly experimentRunsService: ExperimentRunsService,
+    private readonly analytics: AnalyticsService,
   ) {
     super()
   }
@@ -473,6 +494,26 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     }
     const peerlyIdentityId = tcrComplianceIdentity.identity_id
 
+    // Push the Peerly identity id onto the campaign's HubSpot company (via
+    // Segment) so Campaign Success can match Peerly's 10DLC Slack
+    // notifications, which carry only this id, to the right company record.
+    // Only when we just created the identity — an existing-identity pass
+    // (idempotent retry or account-level reuse) already emitted this, so
+    // re-firing would duplicate the event for the same id. companyHubspotId is
+    // where Campaign Success wants peerly_identity_id to land; the contact id
+    // already rides along in the event's context traits. Omitted when the
+    // company record isn't known yet.
+    if (!existingIdentity) {
+      void this.analytics
+        .track(user.id, EVENTS.Outreach.PeerlyIdentityIdCreated, {
+          peerly_identity_id: peerlyIdentityId,
+          ...(campaign.data.hubspotId
+            ? { company_hubspot_id: campaign.data.hubspotId }
+            : {}),
+        })
+        .catch(() => undefined)
+    }
+
     let existingIdentityProfileResponse: PeerlyIdentityProfileResponseBody | null =
       null
     try {
@@ -586,7 +627,6 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   async submitToPeerlyForAgent(
     user: User,
     campaign: Campaign,
-    input: SubmitToPeerlyDto,
   ): Promise<SubmitToPeerlyOutput> {
     const existing = await this.fetchByCampaignId(campaign.id)
     if (!existing) {
@@ -600,29 +640,94 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return this.buildSubmitToPeerlyResponse(existing)
     }
 
+    // Billing-outage hold: a prior submission hit Peerly's unrecoverable
+    // "No payment method available" billing error. Retrying re-fails and spams
+    // Peerly, so an agent resume / kickoff re-dispatch that lands here during
+    // the cooldown is refused before touching Peerly — this is what breaks the
+    // retry storm. The cooldown lets it probe again automatically once billing
+    // clears.
+    if (
+      existing.peerlyBillingBlockedAt &&
+      isAfter(
+        existing.peerlyBillingBlockedAt,
+        subMinutes(new Date(), PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+      )
+    ) {
+      throw new ServiceUnavailableException(
+        'Peerly Campaign Verify submission is on hold: Peerly reported a ' +
+          `billing/account issue ("${PEERLY_NO_PAYMENT_METHOD_MESSAGE}"). ` +
+          'Retrying is paused until the billing issue clears.',
+      )
+    }
+
     // Stage gate: only proceed when the candidate's website is live + the
     // domain is registered (derived stage = awaiting_pin with identity still
     // null). Reject all earlier stages so an agent can't kick a Peerly brand
     // submission for an unverified/unregistered domain.
-    const stateBeforeSubmit =
-      await this.complianceStateService.findStateForCampaign(campaign.id)
-    if (stateBeforeSubmit.stage !== ComplianceStage.awaiting_pin) {
+    const stageBeforeSubmit =
+      await this.complianceStateService.getStageForCampaign(campaign.id)
+    if (stageBeforeSubmit !== ComplianceStage.awaiting_pin) {
       throw new UnprocessableEntityException(
         `Cannot submit TCR registration to Peerly until the candidate's ` +
           `website is published and live. Current compliance stage: ` +
-          `${stateBeforeSubmit.stage}. Wait for stage = awaiting_pin.`,
+          `${stageBeforeSubmit}. Wait for stage = awaiting_pin.`,
+      )
+    }
+
+    // Content gate: never submit templated / too-short content to Peerly — it
+    // is rejected as "not genuine". Read the persisted website (source of
+    // truth), not the request input, so a retry can't smuggle content past it.
+    const content = await this.websitesService.getContentForCampaign(
+      campaign.id,
+    )
+    if (isGenericComplianceContent(content)) {
+      throw new BadRequestException(
+        'Website content is not genuine enough to submit for 10DLC ' +
+          'compliance: the candidate must add a real bio (>= ' +
+          `${MIN_BIO_LENGTH} characters) and at least one real issue before ` +
+          'submission.',
+      )
+    }
+
+    // Source the website host from the campaign's registered domain (the apex
+    // name, matching the legacy create() path), not from the agent request.
+    // The awaiting_pin stage gate above guarantees the domain is registered
+    // and the site is live, so a domain always exists here.
+    const { domain } = await this.websitesService.findFirstOrThrow({
+      where: { campaignId: campaign.id },
+      include: { domain: true },
+    })
+    if (!domain) {
+      throw new BadRequestException(
+        'Campaign must have a domain to submit TCR compliance',
+      )
+    }
+    const hostname = domain.name.replace(/^www\./, '')
+
+    // Every Peerly field is sourced from the persisted TcrCompliance record —
+    // the agent request is not trusted (the compliance_setup instruction
+    // already promises gp-api reads the candidate's saved details itself).
+    // Re-apply PR #643's filing-URL guards to the persisted value: a record
+    // saved before that guard shipped can still carry a goodparty.org page or
+    // the candidate's own campaign site, which CampaignVerify can't match a
+    // candidate against.
+    const filingCheck = submitToPeerlyFilingSchema.safeParse({
+      filingUrl: existing.filingUrl,
+      websiteHost: hostname,
+    })
+    if (!filingCheck.success) {
+      throw new BadRequestException(
+        filingCheck.error.issues.map((issue) => issue.message).join('; '),
       )
     }
 
     // The agent resolves the FEC committee id by scraping FEC public records,
-    // which is unreliable — so it may submit without one. The submit DTO
-    // intentionally defers the federal requirement to here: fall back to the
-    // value persisted on the TcrCompliance row (e.g. backfilled by staff),
-    // then re-enforce presence + format so a federal brand never reaches
-    // Peerly without a valid committee id.
-    const fecCommitteeId =
-      input.fecCommitteeId ?? existing.fecCommitteeId ?? undefined
-    if (input.officeLevel === OfficeLevel.federal) {
+    // which is unreliable — so it may be absent. The federal requirement is
+    // enforced here against the value persisted on the TcrCompliance row (e.g.
+    // backfilled by staff), re-checking presence + format so a federal brand
+    // never reaches Peerly without a valid committee id.
+    const fecCommitteeId = existing.fecCommitteeId ?? undefined
+    if (existing.officeLevel === OfficeLevel.federal) {
       if (!fecCommitteeId) {
         throw new BadRequestException(
           'FEC Committee ID is required for federal office level',
@@ -666,19 +771,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
 
-    // Strip leading www. so Peerly's 10DLC brand `website` + `email` fields
-    // and the persisted websiteDomain all use the apex domain — matching the
-    // legacy create() path (which sources from Domain.name, an apex domain).
-    const hostname = new URL(input.websiteUrl).hostname.replace(/^www\./, '')
     const helperPayload: CreateTcrCompliancePayload = {
-      ein: input.ein,
-      committeeName: input.committeeName,
-      filingUrl: input.filingUrl,
-      email: input.email,
-      phone: input.phone,
-      officeLevel: input.officeLevel,
+      ein: existing.ein,
+      committeeName: existing.committeeName,
+      filingUrl: existing.filingUrl,
+      email: existing.email,
+      phone: existing.phone,
+      officeLevel: existing.officeLevel,
       fecCommitteeId,
-      committeeType: input.committeeType,
+      committeeType: existing.committeeType,
       websiteDomain: hostname,
     }
 
@@ -691,31 +792,51 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         hostname,
       )
     } catch (error) {
-      // Roll back only this caller's claim by matching the exact timestamp we
-      // wrote. A TTL re-claimant (caller B, after our call exceeded TTL) will
-      // have a different timestamp, so its in-flight claim isn't disturbed.
-      await this.model.updateMany({
-        where: {
-          id: existing.id,
-          peerlyIdentityId: null,
-          peerlySubmissionStartedAt: claimTimestamp,
-        },
-        data: { peerlySubmissionStartedAt: null },
-      })
+      // Roll back this caller's claim and, on a billing outage, stamp the hold
+      // in ONE transaction. If these were separate writes, a crash between them
+      // could release the claim while leaving peerlyBillingBlockedAt unset — the
+      // next resume would then find no cooldown, bypass the guard, and re-storm
+      // Peerly, which is exactly what the hold prevents.
+      try {
+        await this.client.$transaction(async (tx) => {
+          // Roll back only this caller's claim by matching the exact timestamp
+          // we wrote. A TTL re-claimant (caller B, after our call exceeded TTL)
+          // will have a different timestamp, so its in-flight claim isn't
+          // disturbed.
+          await tx.tcrCompliance.updateMany({
+            where: {
+              id: existing.id,
+              peerlyIdentityId: null,
+              peerlySubmissionStartedAt: claimTimestamp,
+            },
+            data: { peerlySubmissionStartedAt: null },
+          })
+          if (error instanceof PeerlyBillingException) {
+            await tx.tcrCompliance.update({
+              where: { id: existing.id },
+              data: { peerlyBillingBlockedAt: new Date() },
+            })
+          }
+        })
+      } catch (rollbackErr) {
+        // If the rollback/stamp transaction itself fails, the claim TTL will
+        // release the held claim later. Log and fall through so the original
+        // error (e.g. PeerlyBillingException) is always the one rethrown.
+        this.logger.error(
+          { rollbackErr, campaignId: campaign.id },
+          '[TCR Compliance] Failed to roll back Peerly submission claim; ' +
+            'TTL will recover',
+        )
+      }
       throw error
     }
 
     const updated = await this.model.update({
       where: { id: existing.id },
       data: {
-        ein: input.ein,
-        committeeName: input.committeeName,
-        filingUrl: input.filingUrl,
-        email: input.email,
-        phone: input.phone,
-        officeLevel: input.officeLevel,
-        fecCommitteeId: fecCommitteeId ?? null,
-        committeeType: input.committeeType,
+        // Every Peerly field was already sourced from this record; only the
+        // canonical website host, postal address, and the Peerly result need
+        // persisting back.
         websiteDomain: hostname,
         postalAddress: campaign.formattedAddress ?? existing.postalAddress,
         peerlyIdentityId: peerlyResult.peerlyIdentityId,
@@ -728,6 +849,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         // overwritten on retry.
         peerlyCvVerificationId:
           peerlyResult.cvVerificationId ?? existing.peerlyCvVerificationId,
+        // Submission succeeded — clear any prior billing hold.
+        peerlyBillingBlockedAt: null,
       },
     })
 
@@ -743,7 +866,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   private async buildSubmitToPeerlyResponse(
     record: TcrCompliance,
   ): Promise<SubmitToPeerlyOutput> {
-    const state = await this.complianceStateService.findStateForCampaign(
+    // Stage-only lookup: findStateForCampaign now fires a Peerly retrieve_cv
+    // call at awaiting_pin, which must not sit on this write-completion path.
+    const stage = await this.complianceStateService.getStageForCampaign(
       record.campaignId,
     )
     if (!record.peerlyIdentityId) {
@@ -758,7 +883,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       peerlyIdentityProfileLink: record.peerlyIdentityProfileLink,
       peerly10DLCBrandSubmissionKey: record.peerly10DLCBrandSubmissionKey,
       peerlyVerificationId: record.peerlyCvVerificationId,
-      stage: state.stage,
+      stage,
       pinDeliveryChannels: { email: record.email, phone: record.phone },
     }
   }

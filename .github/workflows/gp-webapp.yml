@@ -46,6 +46,9 @@ jobs:
       - name: Lint
         run: npm run lint -w ${{ env.WORKSPACE }}
 
+      - name: Guard 'use client' count
+        run: npm run check:use-client -w ${{ env.WORKSPACE }}
+
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
 

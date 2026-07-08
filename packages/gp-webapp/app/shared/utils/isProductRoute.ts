@@ -14,12 +14,16 @@ export const isProductRoute = (
   // chrome, so the global site footer should be suppressed here — the same way
   // the win onboarding flow (/onboarding) is treated as a product route.
   const isServePath = pathname?.startsWith('/serve')
+  // Dev-only surfaces (e.g. the /dev/briefings gallery) reuse dashboard chrome
+  // and should not show the global site footer.
+  const isDevPath = pathname?.startsWith('/dev')
 
   return Boolean(
     isOnboardingPath ||
     isDashboardPath ||
     isProfilePath ||
     isPollsPath ||
-    isServePath,
+    isServePath ||
+    isDevPath,
   )
 }

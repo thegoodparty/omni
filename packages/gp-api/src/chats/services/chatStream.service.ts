@@ -121,8 +121,22 @@ const toLlmMessages = (
   systemPrompt: string,
   history: ChatMessage[],
 ): LlmMessage[] => {
-  const out: LlmMessage[] = [{ role: 'system', content: systemPrompt }]
-  for (const m of history) {
+  // A scope may seed an assistant greeting as the conversation's first message
+  // (Campaign Manager) so it persists and replays. Anthropic requires the
+  // message list to open with a user turn, so fold a leading assistant message
+  // into the system prompt instead of sending it as an invalid leading turn.
+  // (Also covers the rare case where history truncation starts on an assistant
+  // reply.)
+  const [first, ...tail] = history
+  const leadingGreeting =
+    first?.role === ChatMessageRole.assistant ? first : null
+  const system = leadingGreeting
+    ? `${systemPrompt}\n\nYou already greeted the candidate with:\n${leadingGreeting.content}`
+    : systemPrompt
+  const rest = leadingGreeting ? tail : history
+
+  const out: LlmMessage[] = [{ role: 'system', content: system }]
+  for (const m of rest) {
     const role = roleToOpenAiRole(m.role)
     if (role === 'system') {
       out.push({ role: 'system', content: m.content })

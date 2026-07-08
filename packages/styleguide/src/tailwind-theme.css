@@ -619,6 +619,31 @@
 
   /* Indeterminate progress bar (LoadingAnimation). */
   --animate-indeterminate: indeterminate 1.5s ease-in-out infinite;
+
+  /* Rotating gradient border (AI chat bar). */
+  --animate-spin-gradient: spin-gradient 4s linear infinite;
+}
+
+@property --gradient-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes spin-gradient {
+  to {
+    --gradient-angle: 360deg;
+  }
+}
+
+:root {
+  --ai-gradient-from: var(--color-brand-red-400);
+  --ai-gradient-to: var(--color-brand-blue-400);
+}
+
+.dark {
+  --ai-gradient-from: var(--color-brand-red-400);
+  --ai-gradient-to: var(--color-brand-blue-400);
 }
 
 @keyframes collapsible-down {

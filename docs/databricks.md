@@ -86,6 +86,13 @@ credentials from the environment. Two consumers exist today:
   tool stays unregistered if neither host/path nor a usable credential is set.
 - **runbooks** — `packages/runbooks/scripts/python/databricks_query.py` uses a PAT.
 
+`resolveDatabricksConnection(prefix)` resolves per-identity credentials: the
+default `DATABRICKS_` prefix is the shared Serve credential (`sp_serve_agent`,
+Chief of Staff + briefing chats, `mart_serve_agents`); the `WIN_DATABRICKS_`
+prefix is the Campaign Manager's `sp_win_agent` (own warehouse,
+`mart_win_agents.win_agent_voters`). Grants are per service principal — the two
+identities are deliberately not interchangeable.
+
 Both read the same connection coordinates from the environment:
 
 | Variable                                            | Value for this workspace                              |
@@ -94,6 +101,9 @@ Both read the same connection coordinates from the environment:
 | `DATABRICKS_HTTP_PATH`                              | `/sql/1.0/warehouses/18583d8b081c6486`                |
 | `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET` | OAuth M2M service-principal creds (gp-api, preferred) |
 | `DATABRICKS_API_KEY`                                | Personal access token (PAT fallback)                  |
+| `WIN_DATABRICKS_SERVER_HOSTNAME`                    | `dbc-3d8ca484-79f3.cloud.databricks.com` (same workspace) |
+| `WIN_DATABRICKS_HTTP_PATH`                          | `/sql/1.0/warehouses/a6f5281417d1c869` (wh-win-agents)      |
+| `WIN_DATABRICKS_CLIENT_ID` / `WIN_DATABRICKS_CLIENT_SECRET` | OAuth M2M creds for `sp_win_agent` (Campaign Manager) |
 
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not

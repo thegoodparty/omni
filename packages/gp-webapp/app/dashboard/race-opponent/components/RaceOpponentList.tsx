@@ -7,19 +7,14 @@ import {
   AccordionItem,
   AccordionTrigger,
   Button,
+  IconButton,
   cn,
 } from '@styleguide'
 import {
-  CheckCircleIcon,
-  CircleIcon,
+  DownloadIcon,
   ExternalLinkIcon,
-  InfoIcon,
-  Loader2Icon,
   RefreshIcon,
-  SearchIcon,
-  SwordsIcon,
   TriangleAlertIcon,
-  XCircleIcon,
 } from '@styleguide/components/ui/icons'
 import { clientRequest } from 'gpApi/typed-request'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -29,19 +24,17 @@ import type {
   RaceOpponentItem,
   RaceOpponentResponse,
   RaceOpponentSummary,
-  RaceOpponentSummaryKeyPosition,
   RaceOpponentSummarySection,
-  RaceOpponentSummarySourceRef,
 } from 'gpApi/api-endpoints'
 import type { RaceOpponentSourceType } from '@goodparty_org/contracts'
-import OpponentSection from './OpponentSection'
-import OpponentPageHeader from './OpponentPageHeader'
 import OpponentOverviewCard from './OpponentOverviewCard'
-import SourceAttribution from './SourceAttribution'
-import IssueContrastCard from './IssueContrastCard'
+import SourceRow from './SourceRow'
 import OpponentResearchProgress from './OpponentResearchProgress'
 import AddOpponentsForm from './AddOpponentsForm'
 import type { ManualOpponentInput } from './AddOpponentsForm'
+import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
+import FieldAnalysisSection from './FieldAnalysisSection'
+import StandoutActionsSection from './StandoutActionsSection'
 
 const initialsFor = (name: string): string =>
   name
@@ -65,254 +58,108 @@ const SOURCE_TYPE_LABELS: Record<RaceOpponentSourceType, string> = {
   campaign_plan_db: 'Campaign plan',
 }
 
-type CollectionStatus = RaceOpponentResponse['collectionStatus']
-
-type StatusDescriptor = {
-  label: string
-  Icon: typeof CircleIcon
-  // Container tone classes for the styled indicator pill.
-  className: string
-  spin?: boolean
-}
-
-const STATUS_DESCRIPTORS: Record<CollectionStatus, StatusDescriptor> = {
-  idle: {
-    label: 'Idle',
-    Icon: CircleIcon,
-    className: 'bg-muted text-muted-foreground border-border',
-  },
-  discovering: {
-    label: 'Discovering opponents',
-    Icon: SearchIcon,
-    className: 'bg-info-50 text-info-600 border-info-600/20',
-    spin: false,
-  },
-  running: {
-    label: 'Running',
-    Icon: Loader2Icon,
-    className: 'bg-info-50 text-info-600 border-info-600/20',
-    spin: true,
-  },
-  completed: {
-    label: 'Completed',
-    Icon: CheckCircleIcon,
-    className: 'bg-success-light text-success-dark border-success/20',
-  },
-  failed: {
-    label: 'Failed',
-    Icon: XCircleIcon,
-    className: 'bg-destructive/10 text-destructive border-destructive/20',
-  },
-}
-
-const CollectionStatusIndicator = ({
-  status,
+// The overview section (no heading, per the Lovable design): the opponent's
+// overview prose, then an optional "Campaign website" link, then its
+// citations. Background no longer merges in here — it's its own flat section
+// below (see DetailSection usages in OpponentSummaryView).
+const OverviewSection = ({
+  overview,
+  websiteUrl,
 }: {
-  status: CollectionStatus
+  overview: RaceOpponentSummarySection
+  websiteUrl?: string | null
 }): React.JSX.Element => {
-  const { label, Icon, className, spin } = STATUS_DESCRIPTORS[status]
+  // websiteUrl is not always a full URL: gp-api's GET falls back to the roster
+  // hint, which the manual-entry path persists as a bare apex domain (e.g.
+  // 'janerival.com'). A schemeless href renders as a relative link and
+  // navigates in-app to a 404, so prepend a scheme when one is missing.
+  const websiteHref =
+    websiteUrl && !/^https?:\/\//.test(websiteUrl)
+      ? `https://${websiteUrl}`
+      : websiteUrl
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium',
-        className,
+    <section className="flex w-full min-w-0 flex-col gap-2">
+      <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+        {overview.text}
+      </p>
+      {websiteHref && (
+        <a
+          href={websiteHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex w-fit items-center gap-1 text-sm font-semibold text-info hover:underline"
+        >
+          <ExternalLinkIcon className="size-3.5 shrink-0" aria-hidden />
+          Campaign website
+        </a>
       )}
-    >
-      <Icon
-        className={cn('size-3.5 shrink-0', spin && 'animate-spin')}
-        aria-hidden
-      />
-      {label}
-    </span>
+      <SourceRow sources={overview.sources} />
+    </section>
   )
 }
 
-const formatTimestamp = (iso: string | null): string => {
-  if (!iso) {
-    return 'never'
-  }
-  const date = new Date(iso)
-  return Number.isNaN(date.getTime()) ? 'never' : date.toLocaleString()
-}
-
-// Renders the source citations attached to a summary section/item. The contract
-// guarantees sources.min(1), so this always has at least one to show.
-const SummarySources = ({
-  sources,
+// A flat detail section: an uppercase blue label plus its body. Card v2
+// (ENG-10635) drops the nested accordion/collapsible structure the detail body
+// used to have — every section here is a plain stack, no
+// Accordion/Collapsible inside.
+const DetailSection = ({
+  label,
+  children,
 }: {
-  sources: RaceOpponentSummarySourceRef[]
-}): React.JSX.Element => (
-  <div className="flex flex-col gap-1">
-    {sources.map((source) => (
-      <SourceAttribution
-        key={`${source.sourceType}-${source.sourceUrl}`}
-        sourceUrl={source.sourceUrl}
-        sourceType={SOURCE_TYPE_LABELS[source.sourceType]}
-        label={source.sourceUrl}
-      />
-    ))}
-  </div>
-)
-
-const SummaryProseSection = ({
-  heading,
-  section,
-}: {
-  heading: string
-  section: RaceOpponentSummarySection
+  label: string
+  children: React.ReactNode
 }): React.JSX.Element => (
   <section className="flex w-full min-w-0 flex-col gap-2">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-      {heading}
+    <h3 className="text-xs font-bold uppercase tracking-wide text-primary">
+      {label}
     </h3>
-    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
-      {section.text}
-    </p>
-    <SummarySources sources={section.sources} />
+    {children}
   </section>
 )
 
-const KeyPositionItem = ({
-  position,
-}: {
-  position: RaceOpponentSummaryKeyPosition
-}): React.JSX.Element => (
-  <li className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3">
-    <span className="text-sm font-semibold text-foreground">
-      {position.label}
-    </span>
-    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-muted-foreground">
-      {position.detail}
-    </p>
-    <SummarySources sources={position.sources} />
-  </li>
-)
-
-// Phase 3: the "why they matter most" callout, a tinted info block shown under
-// the opponent header. Hidden when the analysis has no whyTheyMatter.
-const WhyTheyMatterCallout = ({
-  text,
-}: {
-  text: string
-}): React.JSX.Element => (
-  <section className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-info-600/20 bg-info-50 p-4">
-    <h3 className="text-xs font-semibold uppercase tracking-wide text-info-600">
-      Why they matter most
-    </h3>
-    <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
-      {text}
-    </p>
-  </section>
-)
-
-// Phase 3: the "what you need to know" takeaways list, with an item count in
-// the section header. Hidden when the list is empty/absent.
-const WhatYouNeedToKnow = ({
-  items,
-}: {
-  items: string[]
-}): React.JSX.Element => (
-  <OpponentSection
-    title="What you need to know"
-    icon={<InfoIcon className="size-4" aria-hidden />}
-    meta={`${items.length} ${items.length === 1 ? 'item' : 'items'}`}
-  >
-    <ul className="flex w-full min-w-0 list-none flex-col gap-2">
-      {items.map((item) => (
-        <li
-          key={item}
-          className="flex w-full min-w-0 items-start gap-2 text-sm text-foreground"
-        >
-          <span
-            className="mt-1.5 size-1.5 shrink-0 rounded-full bg-info-600"
-            aria-hidden
-          />
-          <span className="w-full min-w-0 break-words">{item}</span>
-        </li>
-      ))}
-    </ul>
-  </OpponentSection>
-)
-
-// Phase 3: the "where they're soft" vulnerability list, with an openings count.
-// Relaxed sourcing — an item renders whether or not it carries a source. Hidden
-// when there are no items.
-const WhereTheySoft = ({
-  items,
-}: {
-  items: NonNullable<RaceOpponentSummary['whereSoft']>
-}): React.JSX.Element => (
-  <OpponentSection
-    title="Where they're soft"
-    icon={<TriangleAlertIcon className="size-4" aria-hidden />}
-    meta={`${items.length} ${items.length === 1 ? 'opening' : 'openings'}`}
-  >
-    <ul className="flex w-full min-w-0 list-none flex-col gap-3">
-      {items.map((item) => (
-        <li
-          key={item.text}
-          className="flex w-full min-w-0 flex-col gap-1 rounded-md border border-border bg-card p-3"
-        >
-          <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
-            {item.text}
-          </p>
-          {item.sources && item.sources.length > 0 && (
-            <SummarySources sources={item.sources} />
-          )}
-        </li>
-      ))}
-    </ul>
-  </OpponentSection>
-)
-
+// The four v2 sections, each rendered only when its data is present
+// (sourced-or-silent) — a legacy-only summary (no whyTheyreRunning/
+// issuesThatMatter) falls back to just overview + background.
 const OpponentSummaryView = ({
   summary,
+  websiteUrl,
 }: {
   summary: RaceOpponentSummary
+  websiteUrl?: string | null
 }): React.JSX.Element => (
-  <div className="flex w-full min-w-0 flex-col gap-5">
+  <div className="flex w-full min-w-0 flex-col gap-6">
     {summary.overview && (
-      <SummaryProseSection heading="Overview" section={summary.overview} />
+      <OverviewSection overview={summary.overview} websiteUrl={websiteUrl} />
     )}
-    {summary.whyTheyMatter && (
-      <WhyTheyMatterCallout text={summary.whyTheyMatter} />
-    )}
-    {summary.whatYouNeedToKnow && summary.whatYouNeedToKnow.length > 0 && (
-      <WhatYouNeedToKnow items={summary.whatYouNeedToKnow} />
+    {summary.whyTheyreRunning && (
+      <DetailSection label="Why they're running">
+        <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+          {summary.whyTheyreRunning.text}
+        </p>
+      </DetailSection>
     )}
     {summary.background && (
-      <SummaryProseSection heading="Background" section={summary.background} />
+      <DetailSection label="Their background">
+        <p className="w-full min-w-0 whitespace-pre-wrap break-words text-sm text-foreground">
+          {summary.background.text}
+        </p>
+        <SourceRow sources={summary.background.sources} />
+      </DetailSection>
     )}
-    {summary.keyPositions.length > 0 && (
-      <section className="flex w-full min-w-0 flex-col gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Key positions
-        </h3>
-        <ul className="flex w-full min-w-0 flex-col gap-2">
-          {summary.keyPositions.map((position) => (
-            <KeyPositionItem key={position.label} position={position} />
+    {summary.issuesThatMatter && (
+      <DetailSection label="Issues that matter most to them">
+        <ul className="mt-2 space-y-2 text-sm text-foreground">
+          {summary.issuesThatMatter.items.map((item, index) => (
+            <li
+              key={`${item}-${index}`}
+              className="list-disc list-outside ml-5"
+            >
+              {item}
+            </li>
           ))}
         </ul>
-      </section>
-    )}
-    {summary.whereSoft && summary.whereSoft.length > 0 && (
-      <WhereTheySoft items={summary.whereSoft} />
-    )}
-    {summary.issueContrasts && summary.issueContrasts.length > 0 && (
-      <section className="flex w-full min-w-0 flex-col gap-3">
-        <div className="flex w-full min-w-0 flex-col gap-1">
-          <h3 className="text-base font-semibold text-foreground">
-            Where you contrast
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            How your positions differ from theirs on the issues voters care
-            about.
-          </p>
-        </div>
-        {summary.issueContrasts.map((contrast) => (
-          <IssueContrastCard key={contrast.issue} contrast={contrast} />
-        ))}
-      </section>
+        <SourceRow sources={summary.issuesThatMatter.sources} />
+      </DetailSection>
     )}
   </div>
 )
@@ -417,24 +264,21 @@ const RawResearch = ({
 // The expanded detail for an opponent, rendered inline inside its accordion
 // panel. Identity (avatar, name, party/incumbency, threat tier) lives in the
 // accordion trigger row, so this body omits a header and shows only the
-// structured summary (or readable raw-text fallback), with the raw scrape tucked
-// into a collapsible when a summary exists.
+// structured summary (or a readable raw-text fallback when no summary exists).
+// Card v2 (ENG-10635): flat sections, no nested Accordion/Collapsible.
 const OpponentDetailBody = ({
   opponent,
 }: {
   opponent: RaceOpponentResponse['opponents'][number]
 }): React.JSX.Element => (
-  <div className="flex w-full min-w-0 flex-col gap-5 pt-1">
+  <div className="flex w-full min-w-0 flex-col gap-6 p-4 md:p-6">
     {opponent.summary ? (
-      <OpponentSummaryView summary={opponent.summary} />
+      <OpponentSummaryView
+        summary={opponent.summary}
+        websiteUrl={opponent.websiteUrl}
+      />
     ) : (
-      <RawResearch items={opponent.items} />
-    )}
-
-    {opponent.summary && opponent.items.length > 0 && (
-      <OpponentSection title="View source research" defaultOpen={false}>
-        <RawResearch items={opponent.items} />
-      </OpponentSection>
+      <RawResearch items={opponent.items ?? []} />
     )}
   </div>
 )
@@ -456,16 +300,19 @@ const COLLECT_TIMEOUT_MS = 30_000
 
 type Props = {
   initialData: RaceOpponentResponse
+  // Office/district + election date — feeds the PDF export header.
   raceContext?: string
+  // Office/district only — feeds the field-header subtitle.
+  racePlace?: string
 }
 
 const RaceOpponentList = ({
   initialData,
   raceContext,
+  racePlace,
 }: Props): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const [data, setData] = useState<RaceOpponentResponse>(initialData)
-  const [refreshing, setRefreshing] = useState(false)
   const [collecting, setCollecting] = useState(false)
   // Synchronous in-flight guard. `collecting` state is stale in the auto-fire
   // effect's closure and doesn't disable the button until React re-renders, so
@@ -510,17 +357,6 @@ const RaceOpponentList = ({
     )
     setData(latest)
   }, [])
-
-  const refresh = async () => {
-    setRefreshing(true)
-    try {
-      await loadStatus()
-    } catch {
-      errorSnackbar('Failed to refresh opponent data. Please try again.')
-    } finally {
-      setRefreshing(false)
-    }
-  }
 
   const collect = useCallback(async () => {
     if (collectingRef.current) return
@@ -605,6 +441,33 @@ const RaceOpponentList = ({
     [errorSnackbar, campaign?.id],
   )
 
+  // Export the on-screen briefs to a PDF (one section per opponent that has a
+  // structured summary).
+  const [exporting, setExporting] = useState(false)
+  // Synchronous in-flight guard, mirroring collectingRef: setExporting only
+  // disables the button after a re-render, so two rapid clicks could both fire
+  // before React repaints. The ref is set before the await, so the second
+  // synchronous call sees it and bails immediately.
+  const exportingRef = useRef(false)
+  const hasExportableBrief = data.opponents.some((opponent) => opponent.summary)
+  const exportBriefs = useCallback(async () => {
+    if (exportingRef.current) return
+    exportingRef.current = true
+    setExporting(true)
+    try {
+      await downloadOpponentBriefsPdf(
+        data.opponents,
+        raceContext,
+        data.fieldAnalysis,
+      )
+    } catch {
+      errorSnackbar('Failed to export the brief. Please try again.')
+    } finally {
+      exportingRef.current = false
+      setExporting(false)
+    }
+  }, [data.opponents, data.fieldAnalysis, raceContext, errorSnackbar])
+
   const status = data.collectionStatus
 
   // Two-call discovery: collect() dispatches opposition_research and returns
@@ -647,28 +510,63 @@ const RaceOpponentList = ({
     }
   }, [status, collect])
 
-  // Discovery (opposition_research) and collection both keep the run busy, so
-  // both disable a fresh Collect to avoid stacking paid runs.
+  // Discovery (opposition_research) and collection both keep the run busy.
   const isBusy = status === 'running' || status === 'discovering'
 
-  // Two-call discovery briefly reports 'idle' between discovery finishing and
-  // the auto-fired collect flipping the run to 'running'. Treating that gap as
-  // not-processing would flicker the screen out to the empty/report view and
-  // snap back. The gap is exactly the window where the auto-fired collect is
-  // pending or in flight, so key "idle still processing" off that — NOT a sticky
-  // session flag, which would also wedge the screen when collect legitimately
-  // settles to a terminal 'idle' (uncontested/unavailable race, where no
-  // collection run is dispatched). `justLeftDiscovery` covers the one render
-  // before the auto-fire effect flips `collecting` on; `collecting` covers the
-  // in-flight collect. A brand-new 'idle' user (never discovered, never
-  // collecting) stays out of the processing screen.
-  const justLeftDiscovery = prevStatus.current === 'discovering'
-  const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
-  const isProcessing = isBusy || idleMidRun
+  // A Pro user reaches this page with the agent never having run (idle + no
+  // prior collection) when the pro-upgrade auto-dispatch didn't fire — e.g. a
+  // legacy Pro who upgraded before that shipped. Rather than a manual "start"
+  // prompt, kick off the agentic flow automatically and drop them on the
+  // processing screen. `/collect` is idempotent against the server-side discovery
+  // marker: for an already-discovered uncontested race (also idle +
+  // lastCollectedAt null) it returns idle WITHOUT dispatching a fresh paid run,
+  // so firing this blind can't stack paid runs. Ref-guarded to once per mount so
+  // an uncontested race that settles back to idle can't re-fire into a loop.
+  //
+  // Seeded true for ANY non-idle initial status: non-idle means a run already
+  // ran or is running (never-ran is idle-only), so the auto-start must stay
+  // disarmed. Otherwise a manual action from a non-idle state (the failed card's
+  // "Try again", or a manual-form submit) that resolves to a terminal `idle`
+  // (the uncontested server path patches only collectionStatus, leaving
+  // lastCollectedAt null) would flip `neverRan` true with the guard down and
+  // fire a second (paid) collect().
+  const neverRan = status === 'idle' && data.lastCollectedAt === null
+  const autoStartedRef = useRef(initialData.collectionStatus !== 'idle')
+  useEffect(() => {
+    if (autoStartedRef.current || !neverRan) return
+    autoStartedRef.current = true
+    void collect()
+  }, [neverRan, collect])
 
-  // Fire one Opponent Research Started per run, keyed off isProcessing (not the
-  // raw busy status) so the transient idle-mid-run gap of the two-call discovery
-  // flow doesn't release the guard and re-fire. One ref-guarded fire covers
+  // Two-call discovery briefly reports 'idle' between discovery finishing and the
+  // auto-fired collect flipping the run to 'running'; treating that gap as
+  // not-processing would flicker the screen out and snap back. `justLeftDiscovery`
+  // covers the one render before the auto-fire effect flips `collecting` on;
+  // `collecting` covers the in-flight collect. `autoStartPending` extends the same
+  // idea to the initial mount: hold the processing screen while the never-ran
+  // auto-start is pending/in flight so a fresh Pro user never flashes the empty
+  // state. Once auto-start has fired (ref set) and an uncontested race settles
+  // back to idle, this drops so the manual form takes over — it does NOT wedge on
+  // a terminal idle.
+  const justLeftDiscovery = prevStatus.current === 'discovering'
+  const autoStartPending = neverRan && !autoStartedRef.current
+  const idleMidRun = status === 'idle' && (justLeftDiscovery || collecting)
+  const isProcessing = isBusy || idleMidRun || autoStartPending
+  // Analytics-only variant: the run-start event must fire only once a run is
+  // SERVER-confirmed — status is discovering/running (isBusy), or the transient
+  // post-discovery idle gap (justLeftDiscovery) where the auto-fired collect is
+  // flipping to running. It deliberately EXCLUDES both autoStartPending (the
+  // pre-dispatch render) and the bare `collecting` window (the auto-start POST in
+  // flight while status is still idle): those cover collects that may fail or
+  // return a terminal idle (uncontested race) WITHOUT a run ever starting. Firing
+  // during that window would count a run that never began — and if the collect
+  // then fails, the guard resets and a later manual submit re-counts it.
+  const isConfirmedProcessing =
+    isBusy || (status === 'idle' && justLeftDiscovery)
+
+  // Fire one Opponent Research Started per run, keyed off isConfirmedProcessing
+  // (not the raw busy status) so the transient idle-mid-run gap of the two-call
+  // discovery flow doesn't release the guard and re-fire. One ref-guarded fire covers
   // every entry point — Collect (idle -> discovering -> running), manual submit
   // (-> running), and the auto-fired collection after discovery — counting the
   // whole run once. The guard releases only when the run truly settles
@@ -682,15 +580,15 @@ const RaceOpponentList = ({
       initialData.collectionStatus === 'discovering',
   )
   useEffect(() => {
-    if (isProcessing && !researchStartedRef.current) {
+    if (isConfirmedProcessing && !researchStartedRef.current) {
       researchStartedRef.current = true
       trackEvent(EVENTS.RaceOpponent.ResearchStarted, {
         campaignId: campaign?.id,
       })
-    } else if (!isProcessing) {
+    } else if (!isConfirmedProcessing) {
       researchStartedRef.current = false
     }
-  }, [isProcessing, campaign?.id])
+  }, [isConfirmedProcessing, campaign?.id])
 
   // While the real run is processing, show the cosmetic 4-step progress screen
   // instead of the bare empty/status row. The steps advance on their own timer
@@ -737,189 +635,116 @@ const RaceOpponentList = ({
   // readyHold piggybacks on (1) to hold the "ready" terminal beat before the
   // report or manual form takes over.
   if (isProcessing || readyHold) {
-    return (
-      <>
-        <div className="border-b border-border bg-background">
-          <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
-            <OpponentPageHeader
-              title="Know your opponent"
-              raceContext={raceContext}
-            />
-          </div>
-        </div>
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pb-28 pt-6">
-          <OpponentResearchProgress ready={readyHold} />
-        </div>
-      </>
-    )
+    return <OpponentResearchProgress ready={readyHold} />
   }
 
   return (
-    <>
-      {/* Full-bleed white header band (title + race context + Export brief),
-          matching the Lovable design; the dev controls and the field sit below
-          on the gray content background. */}
-      <div className="border-b border-border bg-background">
-        <div className="mx-auto w-full max-w-[1120px] px-6 py-5">
-          <OpponentPageHeader
-            title="Know your opponent"
-            raceContext={raceContext}
-            actions={
-              <Button
-                variant="outline"
-                disabled
-                title="Export brief — coming soon"
-              >
-                Export brief
-              </Button>
-            }
-          />
-        </div>
-      </div>
-
-      <div className="mx-auto flex w-full max-w-[1120px] flex-col gap-6 px-6 pb-28 pt-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-muted-foreground">
-            <CollectionStatusIndicator status={data.collectionStatus} />
-            {data.lastCollectedAt && (
-              <span>
-                Last collected {formatTimestamp(data.lastCollectedAt)}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2">
+    <div className="mx-auto flex w-full max-w-[608px] flex-col gap-6 pb-28">
+      {data.opponents.length === 0 ? (
+        // No opponents and not processing — a run in flight (incl. the never-ran
+        // auto-start and the idle-mid-run gap) is handled above by the processing
+        // screen early return, so this block only reaches the SETTLED-empty
+        // states. A failed run shows a retry card; every other settled-empty case
+        // (completed-with-zero, or an uncontested race that ran discovery and
+        // settled back to idle) means "we looked and found nobody", so the
+        // manual-entry form is shown directly for the candidate to add opponents
+        // by hand. The full status state-machine is ENG-10611.
+        status === 'failed' ? (
+          <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
+            <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <TriangleAlertIcon className="size-6" aria-hidden />
+            </span>
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-semibold text-foreground">
+                Collection failed
+              </h2>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                Something went wrong gathering research on your race.
+              </p>
+            </div>
             <Button
               onClick={collect}
-              disabled={collecting || isBusy || submittingManual}
-              className="flex items-center gap-1.5"
+              disabled={collecting || isBusy}
+              icon={<RefreshIcon className="size-4" aria-hidden />}
             >
-              <RefreshIcon className="size-4" aria-hidden />
-              Collect now
-            </Button>
-            <Button
-              variant="outline"
-              onClick={refresh}
-              disabled={refreshing}
-              className="flex items-center gap-1.5"
-            >
-              <RefreshIcon className="size-4" aria-hidden />
-              Refresh
+              Try again
             </Button>
           </div>
-        </div>
-
-        {data.opponents.length === 0 ? (
-          // No opponents yet — the branch depends on collection status. A run in
-          // flight (running/discovering/idle-mid-run) is handled above by the
-          // processing screen early return, so this block only reaches the
-          // settled states: a failed run shows a failure/retry message;
-          // completed-with-zero is the "we ran it and found nobody" case, so the
-          // form acknowledges the prior run (ranAlready) and gates a fresh submit
-          // behind a disclosure rather than inviting indefinite (paid) re-runs;
-          // idle/never-run prompts to start collection. The full status
-          // state-machine is ENG-10611.
-          status === 'failed' ? (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-destructive/20 bg-destructive/10 px-6 py-12 text-center">
-              <span className="flex size-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-                <TriangleAlertIcon className="size-6" aria-hidden />
-              </span>
-              <div className="flex flex-col gap-1">
-                <h2 className="text-base font-semibold text-foreground">
-                  Collection failed
-                </h2>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  Something went wrong gathering research on your race. Use
-                  &quot;Collect now&quot; above to try again.
-                </p>
-              </div>
-            </div>
-          ) : status === 'completed' ? (
-            <AddOpponentsForm
-              submitting={submittingManual || collecting}
-              onSubmit={submitManualOpponents}
-              ranAlready
-            />
-          ) : (
-            // idle / never-run: no collection has fired yet, so don't claim "no
-            // opponents found" — prompt the candidate to start collection.
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border bg-muted/30 px-6 py-12 text-center">
-              <span className="flex size-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <SwordsIcon className="size-6" aria-hidden />
-              </span>
-              <div className="flex flex-col gap-1">
-                <h2 className="text-base font-semibold text-foreground">
-                  No opponent research yet
-                </h2>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  Hit &quot;Collect now&quot; to gather sourced research on the
-                  candidates in your race.
-                </p>
-              </div>
-            </div>
-          )
         ) : (
-          <section className="flex flex-col gap-3">
+          <AddOpponentsForm
+            submitting={submittingManual || collecting}
+            onSubmit={submitManualOpponents}
+          />
+        )
+      ) : (
+        <section className="flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex flex-col gap-0.5">
-              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <SwordsIcon className="size-3.5 shrink-0" aria-hidden />
-                The field
-              </span>
               <h2 className="text-lg font-semibold text-foreground">
                 {data.opponents.length}{' '}
                 {data.opponents.length === 1 ? 'candidate' : 'candidates'} filed
                 for this seat
               </h2>
               <p className="text-sm text-muted-foreground">
-                Focus on the candidate most likely to take votes from you.
-                Usually the incumbent or a party-backed challenger.
+                We identified and ranked every candidate running{' '}
+                {racePlace ? <>for {racePlace}</> : 'in your race'}.
               </p>
             </div>
-            {/* type=single + collapsible: one opponent open at a time, and
+            <IconButton
+              variant="outline"
+              className="!h-9 !w-9"
+              onClick={exportBriefs}
+              disabled={!hasExportableBrief || exporting}
+              aria-label="Export brief"
+            >
+              <DownloadIcon className="h-4 w-4" aria-hidden />
+            </IconButton>
+          </div>
+          {/* type=single + collapsible: one opponent open at a time, and
                 clicking the open row collapses it. Opens the primary threat by
                 default (see openName + the auto-open effect). */}
-            <Accordion
-              type="single"
-              collapsible
-              value={openName}
-              onValueChange={setOpenName}
-              aria-label="Select an opponent to view their research"
-              className="flex flex-col gap-3"
-            >
-              {data.opponents.map((opponent) => (
-                <AccordionItem
-                  key={opponent.opponentName}
-                  value={opponent.opponentName}
-                  className={cn(
-                    'rounded-lg border border-border bg-card px-4 transition last:border-b',
-                    'hover:border-info-600/40',
-                    'data-[state=open]:border-info-600 data-[state=open]:ring-1 data-[state=open]:ring-info-600/20',
-                    // Emphasize the primary threat (Lovable highlights it). The
-                    // open-state variants are re-specified for the destructive
-                    // emphasis, or the unconditional data-[state=open]:*-info-600
-                    // rules above win and the highlight vanishes when open.
-                    opponent.threatTier === 'primary_threat' &&
-                      'border-destructive/40 ring-1 ring-destructive/20 hover:border-destructive/60 data-[state=open]:border-destructive data-[state=open]:ring-destructive/20',
-                  )}
-                >
-                  <AccordionTrigger className="items-center hover:no-underline focus-visible:no-underline">
-                    <OpponentOverviewCard
-                      name={opponent.opponentName}
-                      initials={initialsFor(opponent.opponentName)}
-                      party={opponent.party}
-                      isIncumbent={opponent.isIncumbent}
-                      threatTier={opponent.threatTier}
-                    />
-                  </AccordionTrigger>
-                  <AccordionContent className="border-t border-border">
-                    <OpponentDetailBody opponent={opponent} />
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          </section>
-        )}
-      </div>
-    </>
+          <Accordion
+            type="single"
+            collapsible
+            value={openName}
+            onValueChange={setOpenName}
+            aria-label="Select an opponent to view their research"
+            className="flex flex-col gap-3"
+          >
+            {data.opponents.map((opponent) => (
+              <AccordionItem
+                key={opponent.opponentName}
+                value={opponent.opponentName}
+                className={cn(
+                  'overflow-hidden rounded-xl border bg-card transition-all',
+                  'data-[state=closed]:border-border data-[state=closed]:hover:border-foreground/30',
+                  'data-[state=open]:border-primary data-[state=open]:ring-2 data-[state=open]:ring-primary/30',
+                )}
+              >
+                <AccordionTrigger className="items-center gap-3 px-3 py-2.5 hover:bg-muted/30 hover:no-underline focus-visible:no-underline md:px-4 md:py-3">
+                  <OpponentOverviewCard
+                    name={opponent.opponentName}
+                    initials={initialsFor(opponent.opponentName)}
+                    party={opponent.party}
+                    isIncumbent={opponent.isIncumbent}
+                    threatTier={opponent.threatTier}
+                  />
+                </AccordionTrigger>
+                <AccordionContent className="border-t border-border">
+                  <OpponentDetailBody opponent={opponent} />
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </section>
+      )}
+      {data.opponents.length > 0 && (
+        <>
+          <FieldAnalysisSection fieldAnalysis={data.fieldAnalysis} />
+          <StandoutActionsSection standoutActions={data.standoutActions} />
+        </>
+      )}
+    </div>
   )
 }
 

@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
 import {
+  NormalizedSummarySource,
+  RaceOpponentFieldAnalysis,
+  RaceOpponentFieldAnalysisSchema,
+  RaceOpponentStandoutAction,
+  RaceOpponentStandoutActionSchema,
   RaceOpponentSummary,
   RaceOpponentSummarySchema,
-  SummarySourceRef,
+  RaceOpponentThreatTierSchema,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import {
@@ -15,6 +20,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import {
+  RACE_OPPONENT_ACTIONS,
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
 } from '../raceOpponent.constants'
@@ -39,56 +45,80 @@ const ArtifactEnvelopeSchema = z.object({
 
 type ArtifactItem = z.infer<typeof ArtifactItemSchema>
 
-// The summary artifact (race_opponent_summary output). Each section carries a
-// non-empty flat list of source URLs (the @minItems 1 in the output schema);
-// the persist below upgrades those URLs to { sourceType, sourceUrl } before
-// validating against the contract. Parsed strictly — an artifact whose section
-// has no source URL fails here and never persists a partial/unsourced summary.
-const ArtifactSummarySectionSchema = z.object({
-  text: z.string(),
-  sources: z.array(z.string().min(1)).min(1),
+// The summary artifact (race_opponent_summary v2 output). Rich sources carry
+// title/publisher/description alongside the url so the UI can render a source
+// carousel without a second fetch. Descriptive sections (overview, background,
+// issues_that_matter) require >=1 source at the artifact level; mapSummary
+// below re-applies sourced-or-silent against the campaign's actually-collected
+// URLs and nulls a section that loses every source to that check, rather than
+// failing the run.
+const ArtifactRichSourceSchema = z.object({
+  url: z.string().min(1),
+  title: z.string().min(1),
+  publisher: z.string().min(1),
+  description: z.string().optional(),
 })
-const ArtifactKeyPositionSchema = z.object({
-  label: z.string(),
-  detail: z.string(),
-  sources: z.array(z.string().min(1)).min(1),
-})
+type ArtifactRichSource = z.infer<typeof ArtifactRichSourceSchema>
 
-// Phase 3 analytical fields. Relaxed sourcing — unlike the descriptive sections
-// above, sources are optional (cite where direct), so these parse with or
-// without a sources array. Kept optional on the artifact so a summary run that
-// predates the analytical instruction still persists its descriptive sections
-// rather than failing the whole run mid-rollout.
-const ArtifactWhereSoftSchema = z.object({
+const ArtifactDescriptiveSectionSchema = z.object({
   text: z.string(),
-  sources: z.array(z.string().min(1)).optional(),
+  sources: z.array(ArtifactRichSourceSchema).min(1),
 })
-const ArtifactIssueContrastSchema = z.object({
-  issue: z.string(),
-  salience: z.enum(['high', 'medium', 'low']),
-  why_it_matters: z.string(),
-  opponent_stance: z.string(),
-  opponent_sources: z.array(z.string().min(1)).optional(),
-  candidate_stance: z.string(),
+type ArtifactDescriptiveSection = z.infer<
+  typeof ArtifactDescriptiveSectionSchema
+>
+
+const ArtifactIssuesThatMatterSchema = z.object({
+  items: z.array(z.string()).min(1),
+  sources: z.array(ArtifactRichSourceSchema).min(1),
 })
+type ArtifactIssuesThatMatter = z.infer<typeof ArtifactIssuesThatMatterSchema>
+
+const ArtifactWhyTheyreRunningSchema = z.object({ text: z.string() })
+
+// Campaign-level SWOT. Interpretive: bullets carry no required source, so
+// sources is the relaxed path (kept, just filtered) rather than sourced-or-
+// silent — an empty sources array never nulls the section.
+const ArtifactFieldAnalysisSchema = z.object({
+  strengths: z.array(z.string()),
+  weaknesses: z.array(z.string()),
+  opportunities: z.array(z.string()),
+  threats: z.array(z.string()),
+  sources: z.array(ArtifactRichSourceSchema),
+})
+type ArtifactFieldAnalysis = z.infer<typeof ArtifactFieldAnalysisSchema>
+
 const ArtifactSummaryOpponentSchema = z.object({
   opponent_name: z.string(),
-  overview: ArtifactSummarySectionSchema.nullable(),
-  background: ArtifactSummarySectionSchema.nullable(),
-  key_positions: z.array(ArtifactKeyPositionSchema),
-  threat_tier: z
-    .enum(['primary_threat', 'watch_closely', 'low_priority'])
-    .optional(),
-  why_they_matter: z.string().optional(),
-  what_you_need_to_know: z.array(z.string()).optional(),
-  where_soft: z.array(ArtifactWhereSoftSchema).optional(),
-  issue_contrasts: z.array(ArtifactIssueContrastSchema).optional(),
+  // The v2 output schema requires this, but a v1 run dispatched before this
+  // deploy (v1 emitted the tier optionally) can complete after it, and
+  // ExperimentRun carries no manifest-version discriminator to branch on — a
+  // missing tier must not fail the whole run.
+  threat_tier: RaceOpponentThreatTierSchema.optional(),
+  overview: ArtifactDescriptiveSectionSchema.nullable().optional(),
+  why_theyre_running: ArtifactWhyTheyreRunningSchema.nullable().optional(),
+  background: ArtifactDescriptiveSectionSchema.nullable().optional(),
+  issues_that_matter: ArtifactIssuesThatMatterSchema.nullable().optional(),
 })
+type ArtifactSummaryOpponent = z.infer<typeof ArtifactSummaryOpponentSchema>
+
 const ArtifactSummaryEnvelopeSchema = z.object({
   generated_at: z.string(),
   opponents: z.array(ArtifactSummaryOpponentSchema).min(1),
+  field_analysis: ArtifactFieldAnalysisSchema.nullable().optional(),
 })
-type ArtifactSummaryOpponent = z.infer<typeof ArtifactSummaryOpponentSchema>
+
+// The actions artifact (race_opponent_actions output). Like the collection
+// envelope, only `actions` is parsed strictly here (generated_at /
+// haystaq_status ride along unpersisted); cards are validated one-by-one in
+// parseActions so a single malformed card can't fail an otherwise-good run.
+// An EMPTY actions array is a valid artifact — the agent found no grounded
+// angles — unlike the summary envelope's .min(1) opponents.
+const ArtifactActionsEnvelopeSchema = z.object({
+  // Elements stay unvalidated here on purpose: a non-object element must fall
+  // through to parseActions' per-card salvage, not fail the whole envelope.
+  actions: z.array(z.unknown()),
+})
 
 @Injectable()
 export class RaceOpponentPersistService extends createPrismaBase(
@@ -102,14 +132,32 @@ export class RaceOpponentPersistService extends createPrismaBase(
     super()
   }
 
-  // Queue-consumer hook: route a completed race_opponent run to its handler.
-  // No-op for any other experiment type or a non-COMPLETED status.
+  // Queue-consumer hook: route a terminal race_opponent run to its handler.
+  // No-op for any other experiment type. Collection persists on COMPLETED only.
+  // A summary is handled on BOTH terminal states: COMPLETED persists the
+  // analysis, and either outcome re-chains a summary for a newer collection its
+  // in-flight dedup skipped — a FAILED summary that skipped the re-chain would
+  // otherwise strand collectionStatus on 'running' forever (ENG-10614).
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {
-    if (run.status !== ExperimentRunStatus.COMPLETED) return
     if (run.experimentType === RACE_OPPONENT_COLLECTION) {
-      await this.onCollectionCompleted(run)
+      if (run.status === ExperimentRunStatus.COMPLETED) {
+        await this.onCollectionCompleted(run)
+      }
     } else if (run.experimentType === RACE_OPPONENT_SUMMARY) {
-      await this.onSummaryCompleted(run)
+      if (run.status === ExperimentRunStatus.COMPLETED) {
+        await this.onSummaryCompleted(run)
+      } else if (run.status === ExperimentRunStatus.FAILED) {
+        await this.onSummaryFailed(run)
+      }
+    } else if (run.experimentType === RACE_OPPONENT_ACTIONS) {
+      // Mirrors the summary handling: COMPLETED persists the cards, and either
+      // terminal outcome re-chains for a newer summary this run's in-flight
+      // dedup skipped.
+      if (run.status === ExperimentRunStatus.COMPLETED) {
+        await this.onActionsCompleted(run)
+      } else if (run.status === ExperimentRunStatus.FAILED) {
+        await this.onActionsFailed(run)
+      }
     }
   }
 
@@ -181,39 +229,186 @@ export class RaceOpponentPersistService extends createPrismaBase(
     }
   }
 
-  // A race_opponent_summary run completed. Load its artifact, upgrade each
-  // section's flat source URLs to { sourceType, sourceUrl } (resolved against
-  // the campaign's collected rows), validate against the contract, then
-  // idempotently replace the campaign's persisted summaries.
+  // A race_opponent_summary run completed. Load its artifact, resolve each
+  // rich source's URL against the campaign's collected rows, validate against
+  // the contract, then idempotently replace the campaign's persisted summaries
+  // and campaign-level field analysis.
   private async onSummaryCompleted(run: ExperimentRun): Promise<void> {
     const campaign = await this.loadCampaign(run.organizationSlug)
     if (!campaign) return
 
-    if (!run.artifactBucket || !run.artifactKey) {
-      await this.experimentRuns.markFailed(
-        run.runId,
-        'completed run has no artifact location',
-      )
-      throw new Error(`run ${run.runId} completed without an artifact location`)
+    // The re-chain must fire on EVERY terminal outcome of this run — a clean
+    // persist, a missing artifact, or an artifact that fails processing — so it
+    // sits in a finally. Without it, the throw paths below would skip the re-
+    // chain and strand collectionStatus on 'running' when a newer collection is
+    // waiting on the summary this run's dedup skipped (ENG-10614).
+    try {
+      if (!run.artifactBucket || !run.artifactKey) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          'completed run has no artifact location',
+        )
+        throw new Error(
+          `run ${run.runId} completed without an artifact location`,
+        )
+      }
+
+      try {
+        const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
+        if (!raw) throw new Error('artifact is missing or empty')
+        const envelope = ArtifactSummaryEnvelopeSchema.parse(JSON.parse(raw))
+
+        const sourceTypeByUrl = await this.sourceTypeByUrl(campaign.id)
+        const summaries = envelope.opponents.map((opponent) =>
+          this.mapSummary(opponent, envelope.generated_at, sourceTypeByUrl),
+        )
+        const fieldAnalysis = envelope.field_analysis
+          ? this.mapFieldAnalysis(
+              envelope.field_analysis,
+              envelope.generated_at,
+              sourceTypeByUrl,
+            )
+          : null
+
+        await this.replaceSummaries(
+          campaign.id,
+          run.runId,
+          summaries,
+          fieldAnalysis,
+        )
+      } catch (error) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          error instanceof Error ? error.message : String(error),
+        )
+        throw error
+      }
+
+      // Fire-and-forget: the actions run persists on its own completion event
+      // (ENG-10647). dispatchActions reads the summaries just committed above
+      // and skips when none survived. A dispatch failure must not fail the
+      // summary persist — the summaries are already committed and actions can
+      // be re-dispatched on the next summary — so log rather than rethrow.
+      try {
+        await this.raceOpponent.dispatchActions(campaign)
+      } catch (error) {
+        this.logger.error(
+          { runId: run.runId, error },
+          'failed to chain race_opponent_actions dispatch after summary',
+        )
+      }
+    } finally {
+      await this.rechainAfterSummary(campaign, run.createdAt)
     }
+  }
+
+  // A race_opponent_summary run FAILED at the queue level (no artifact to
+  // persist). Still re-chain: a newer collection may be waiting on the summary
+  // this run's in-flight dedup skipped.
+  private async onSummaryFailed(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterSummary(campaign, run.createdAt)
+  }
+
+  // A race_opponent_actions run completed. Load its artifact, validate each
+  // card against the contract, then idempotently replace the campaign's
+  // persisted stand-out actions. Structured like onSummaryCompleted: the
+  // re-chain sits in a finally so it fires on every terminal outcome of this
+  // handler, and a persist failure marks the run FAILED without touching the
+  // prior rows.
+  private async onActionsCompleted(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
 
     try {
-      const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
-      if (!raw) throw new Error('artifact is missing or empty')
-      const envelope = ArtifactSummaryEnvelopeSchema.parse(JSON.parse(raw))
+      if (!run.artifactBucket || !run.artifactKey) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          'completed run has no artifact location',
+        )
+        throw new Error(
+          `run ${run.runId} completed without an artifact location`,
+        )
+      }
 
-      const sourceTypeByUrl = await this.sourceTypeByUrl(campaign.id)
-      const summaries = envelope.opponents.map((opponent) =>
-        this.mapSummary(opponent, envelope.generated_at, sourceTypeByUrl),
+      try {
+        const raw = await this.s3.getFile(run.artifactBucket, run.artifactKey)
+        if (!raw) throw new Error('artifact is missing or empty')
+        const envelope = ArtifactActionsEnvelopeSchema.parse(JSON.parse(raw))
+
+        const actions = this.parseActions(run.runId, envelope.actions)
+
+        // The artifact carried cards but every one failed per-card validation
+        // — an agent/contract defect, not the valid "no grounded angles" empty
+        // artifact. Fail the run and leave the prior cards untouched. An
+        // actually-empty artifact falls through to the replace, which clears
+        // any prior cards: the agent's current answer is "no cards".
+        if (envelope.actions.length > 0 && actions.length === 0) {
+          throw new Error('every artifact action failed per-card validation')
+        }
+
+        await this.replaceStandoutActions(campaign.id, run.runId, actions)
+      } catch (error) {
+        await this.experimentRuns.markFailed(
+          run.runId,
+          error instanceof Error ? error.message : String(error),
+        )
+        throw error
+      }
+    } finally {
+      await this.rechainAfterActions(campaign, run.createdAt)
+    }
+  }
+
+  // A race_opponent_actions run FAILED at the queue level (no artifact to
+  // persist; prior cards stay). Still re-chain: a newer summary may be waiting
+  // on the actions run this run's in-flight dedup skipped.
+  private async onActionsFailed(run: ExperimentRun): Promise<void> {
+    const campaign = await this.loadCampaign(run.organizationSlug)
+    if (!campaign) return
+    await this.rechainAfterActions(campaign, run.createdAt)
+  }
+
+  // Fire-and-forget re-chain, run on every terminal actions outcome. Placed in
+  // a finally by onActionsCompleted, so it must never throw or it would mask
+  // the original persist error the caller re-raises for redelivery visibility.
+  private async rechainAfterActions(
+    campaign: CampaignWith<'user'>,
+    actionsRunCreatedAt: Date,
+  ): Promise<void> {
+    try {
+      await this.raceOpponent.rechainActionsForNewerSummary(
+        campaign,
+        actionsRunCreatedAt,
       )
-
-      await this.replaceSummaries(campaign.id, run.runId, summaries)
     } catch (error) {
-      await this.experimentRuns.markFailed(
-        run.runId,
-        error instanceof Error ? error.message : String(error),
+      this.logger.error(
+        { error },
+        'failed to re-chain race_opponent_actions after a newer summary',
       )
-      throw error
+    }
+  }
+
+  // Fire-and-forget re-chain, run on every terminal summary outcome. A dispatch
+  // failure must not fail an already-persisted (or already-terminal) run — the
+  // next collection re-chains — so log rather than rethrow. Placed in a finally
+  // by onSummaryCompleted, so it must never throw or it would mask the original
+  // persist error the caller re-raises for redelivery visibility.
+  private async rechainAfterSummary(
+    campaign: CampaignWith<'user'>,
+    summaryRunCreatedAt: Date,
+  ): Promise<void> {
+    try {
+      await this.raceOpponent.rechainSummaryForNewerCollection(
+        campaign,
+        summaryRunCreatedAt,
+      )
+    } catch (error) {
+      this.logger.error(
+        { error },
+        'failed to re-chain race_opponent_summary after a newer collection',
+      )
     }
   }
 
@@ -256,9 +451,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
   // re-insert from the artifact in one transaction, so a re-run overwrites
   // cleanly rather than accumulating duplicates. The caller guarantees a
   // non-empty items list — the empty cases are handled upstream. The campaign's
-  // structured summaries are cleared in the same transaction: they were built
-  // from the now-replaced collected text, so leaving them would let GET pair
-  // fresh items with stale summary text until the chained summary run lands.
+  // structured summaries AND field analysis are cleared in the same
+  // transaction: both were built from the now-replaced collected text, so
+  // leaving either would let GET pair fresh items with stale analysis until
+  // the chained summary run lands — indefinitely, if that run fails.
   private async replaceForCampaign(
     campaignId: number,
     runId: string,
@@ -267,6 +463,8 @@ export class RaceOpponentPersistService extends createPrismaBase(
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponent.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
+      await tx.raceOpponentFieldAnalysis.deleteMany({ where: { campaignId } })
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
       await tx.raceOpponent.createMany({
         data: items.map((item) => ({
           campaignId,
@@ -300,82 +498,109 @@ export class RaceOpponentPersistService extends createPrismaBase(
     return byUrl
   }
 
-  // Map one artifact opponent (snake_case, flat string[] sources) into the
-  // contract summary shape (camelCase, { sourceType, sourceUrl } sources), then
-  // validate against the contract. A section missing a source URL fails the
-  // strict envelope parse upstream, so by here every section is sourced; the
-  // contract re-validation is the final sourced-or-silent gate before persist.
+  // Sourced-or-silent (v2): drop a source whose URL no collected row carries —
+  // the agent is given only collected URLs, so an uncollected one was never
+  // fetched and can't be a real source. Kept sources carry the transitional
+  // sourceUrl/sourceType passthrough: the deployed webapp still reads
+  // source.sourceUrl until the UI tickets (ENG-10635) move it to the rich
+  // shape, so a freshly regenerated summary must not break its source links
+  // during the rollout window.
+  private resolveSources(
+    sources: ArtifactRichSource[],
+    sourceTypeByUrl: Map<string, RaceOpponentSourceType>,
+  ): NormalizedSummarySource[] {
+    return sources.flatMap((source) => {
+      const sourceType = sourceTypeByUrl.get(source.url)
+      if (!sourceType) return []
+      return [
+        {
+          url: source.url,
+          title: source.title,
+          publisher: source.publisher,
+          ...(source.description ? { description: source.description } : {}),
+          sourceUrl: source.url,
+          sourceType,
+        },
+      ]
+    })
+  }
+
+  // Map one artifact opponent (snake_case, rich sources) into the contract
+  // summary shape (camelCase), then validate against the contract. A
+  // descriptive section that loses every source to resolveSources becomes
+  // null (silent) rather than failing the run — the artifact-level .min(1)
+  // above only guarantees the agent cited *something*, not that it was
+  // actually collected.
   private mapSummary(
     opponent: ArtifactSummaryOpponent,
     generatedAt: string,
     sourceTypeByUrl: Map<string, RaceOpponentSourceType>,
   ): RaceOpponentSummary {
-    // Sourced-or-silent: a URL the agent cites but no collected row carries
-    // was never fetched, so it can't be a real source — drop it rather than
-    // inventing a type. If dropping empties a section, the contract's
-    // .min(1) below throws, the run is marked FAILED, and nothing persists.
-    const refs = (urls: string[]): SummarySourceRef[] =>
-      urls.flatMap((url) => {
-        const sourceType = sourceTypeByUrl.get(url)
-        return sourceType ? [{ sourceType, sourceUrl: url }] : []
-      })
+    const descriptiveSection = (
+      section: ArtifactDescriptiveSection | null | undefined,
+    ) => {
+      if (!section) return null
+      const sources = this.resolveSources(section.sources, sourceTypeByUrl)
+      return sources.length > 0 ? { text: section.text, sources } : null
+    }
 
-    // Relaxed sourcing for the analytical items: drop a URL the collected rows
-    // can't type (same as refs), but KEEP the item and omit the sources key
-    // entirely when none resolve — these cite where direct, they are never
-    // sourced-or-silent like the descriptive sections above.
-    const optionalRefs = (urls: string[] | undefined): SummarySourceRef[] =>
-      refs(urls ?? [])
+    // Unlike overview/background (contract-required, always coerced to null),
+    // issuesThatMatter is nullish on the contract — an artifact that never
+    // emits the key stays undefined rather than being forced to null.
+    const issuesThatMatter = (
+      section: ArtifactIssuesThatMatter | null | undefined,
+    ) => {
+      if (section === undefined) return undefined
+      if (section === null) return null
+      const sources = this.resolveSources(section.sources, sourceTypeByUrl)
+      return sources.length > 0 ? { items: section.items, sources } : null
+    }
 
     return RaceOpponentSummarySchema.parse({
       opponentName: opponent.opponent_name,
-      overview: opponent.overview
-        ? {
-            text: opponent.overview.text,
-            sources: refs(opponent.overview.sources),
-          }
-        : null,
-      background: opponent.background
-        ? {
-            text: opponent.background.text,
-            sources: refs(opponent.background.sources),
-          }
-        : null,
-      keyPositions: opponent.key_positions.map((position) => ({
-        label: position.label,
-        detail: position.detail,
-        sources: refs(position.sources),
-      })),
+      overview: descriptiveSection(opponent.overview),
+      background: descriptiveSection(opponent.background),
       generatedAt,
       threatTier: opponent.threat_tier,
-      whyTheyMatter: opponent.why_they_matter,
-      whatYouNeedToKnow: opponent.what_you_need_to_know,
-      whereSoft: opponent.where_soft?.map((item) => {
-        const sources = optionalRefs(item.sources)
-        return { text: item.text, ...(sources.length > 0 ? { sources } : {}) }
-      }),
-      issueContrasts: opponent.issue_contrasts?.map((contrast) => {
-        const opponentSources = optionalRefs(contrast.opponent_sources)
-        return {
-          issue: contrast.issue,
-          salience: contrast.salience,
-          whyItMatters: contrast.why_it_matters,
-          opponentStance: contrast.opponent_stance,
-          candidateStance: contrast.candidate_stance,
-          ...(opponentSources.length > 0 ? { opponentSources } : {}),
-        }
-      }),
+      whyTheyreRunning: opponent.why_theyre_running,
+      issuesThatMatter: issuesThatMatter(opponent.issues_that_matter),
+      // Transitional: the deployed webapp reads keyPositions.length unguarded,
+      // so a persisted summary must carry the key until ENG-10635 migrates the
+      // UI off it — then drop this.
+      keyPositions: [],
+    })
+  }
+
+  // Campaign-level SWOT: interpretive bullets persist regardless of sourcing,
+  // only the sources list is filtered (the relaxed path, unlike
+  // descriptiveSection's sourced-or-silent null-out above).
+  private mapFieldAnalysis(
+    fieldAnalysis: ArtifactFieldAnalysis,
+    generatedAt: string,
+    sourceTypeByUrl: Map<string, RaceOpponentSourceType>,
+  ): RaceOpponentFieldAnalysis {
+    return RaceOpponentFieldAnalysisSchema.parse({
+      strengths: fieldAnalysis.strengths,
+      weaknesses: fieldAnalysis.weaknesses,
+      opportunities: fieldAnalysis.opportunities,
+      threats: fieldAnalysis.threats,
+      sources: this.resolveSources(fieldAnalysis.sources, sourceTypeByUrl),
+      generatedAt,
     })
   }
 
   // Idempotent replace-on-persist for summaries: delete the campaign's existing
   // summary rows and re-insert one per opponent in one transaction, keyed by
   // (campaignId, opponentName), so a re-run overwrites cleanly rather than
-  // accumulating duplicates.
+  // accumulating duplicates. The campaign-level field analysis shares the
+  // transaction: upserted (one row per campaignId) when the artifact carries
+  // one, deleted when the artifact's field_analysis is null (e.g. the
+  // campaign has no candidate_platform yet).
   private async replaceSummaries(
     campaignId: number,
     runId: string,
     summaries: RaceOpponentSummary[],
+    fieldAnalysis: RaceOpponentFieldAnalysis | null,
   ): Promise<void> {
     // Dedup by opponentName before insert — a non-deterministic LLM can emit
     // the same opponent twice, and createMany would otherwise hit the
@@ -386,6 +611,10 @@ export class RaceOpponentPersistService extends createPrismaBase(
     ].map(([, summary]) => summary)
     await this.client.$transaction(async (tx) => {
       await tx.raceOpponentSummary.deleteMany({ where: { campaignId } })
+      // Stand-out cards derive from the summaries being replaced here; clear
+      // them in the same transaction so GET never pairs fresh summaries with
+      // cards built from the old ones. The chained actions run repopulates.
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
       await tx.raceOpponentSummary.createMany({
         data: deduped.map((summary) => ({
           campaignId,
@@ -397,9 +626,96 @@ export class RaceOpponentPersistService extends createPrismaBase(
           sections: { ...summary, generatedAt: generatedAtIso(summary) },
         })),
       })
+
+      if (fieldAnalysis) {
+        const sections = {
+          ...fieldAnalysis,
+          generatedAt: generatedAtIso(fieldAnalysis),
+        }
+        await tx.raceOpponentFieldAnalysis.upsert({
+          where: { campaignId },
+          create: { campaignId, runId, sections },
+          update: { runId, sections },
+        })
+      } else {
+        await tx.raceOpponentFieldAnalysis.deleteMany({ where: { campaignId } })
+      }
+    })
+  }
+
+  // Per-card salvage (the parseItems pattern): map each raw card's snake_case
+  // keys onto the contract shape and validate in one safeParse — a card that
+  // fails (over-limit title/smsMessage, missing field) is dropped and logged,
+  // not fatal. Only the caller's all-cards-invalid check fails the run.
+  private parseActions(
+    runId: string,
+    rawActions: unknown[],
+  ): RaceOpponentStandoutAction[] {
+    const actions: RaceOpponentStandoutAction[] = []
+    let dropped = 0
+    for (const raw of rawActions) {
+      const record = z.record(z.string(), z.unknown()).safeParse(raw)
+      if (!record.success) {
+        dropped += 1
+        continue
+      }
+      const rawAction = record.data
+      const result = RaceOpponentStandoutActionSchema.safeParse({
+        title: rawAction.title,
+        body: rawAction.body,
+        smsMessage: rawAction.sms_message,
+        opponentName: rawAction.opponent_name,
+        issue: rawAction.issue,
+      })
+      if (result.success) {
+        actions.push(result.data)
+      } else {
+        dropped += 1
+      }
+    }
+    if (dropped > 0) {
+      this.logger.warn(
+        { runId, dropped, kept: actions.length },
+        'dropped stand-out action cards failing per-card validation',
+      )
+    }
+    return actions
+  }
+
+  // Idempotent replace-on-persist for stand-out actions: delete the campaign's
+  // existing cards and re-insert from the artifact in one transaction (the
+  // replaceSummaries pattern), so a mid-failure leaves the prior cards intact
+  // and a re-run overwrites cleanly. order is the artifact's card position
+  // after per-card salvage, satisfying @@unique([campaignId, order]). A valid
+  // empty artifact reaches here with zero cards and clears the prior set — the
+  // agent's current answer is "no grounded angles".
+  private async replaceStandoutActions(
+    campaignId: number,
+    runId: string,
+    actions: RaceOpponentStandoutAction[],
+  ): Promise<void> {
+    await this.client.$transaction(async (tx) => {
+      await tx.raceOpponentStandoutAction.deleteMany({ where: { campaignId } })
+      if (actions.length > 0) {
+        await tx.raceOpponentStandoutAction.createMany({
+          data: actions.map((action, order) => ({
+            campaignId,
+            runId,
+            order,
+            title: action.title,
+            body: action.body,
+            smsMessage: action.smsMessage,
+            opponentName: action.opponentName ?? null,
+            issue: action.issue,
+          })),
+        })
+      }
     })
   }
 }
 
-const generatedAtIso = (summary: RaceOpponentSummary): string | null =>
-  summary.generatedAt ? summary.generatedAt.toISOString() : null
+// Shared by both RaceOpponentSummary and RaceOpponentFieldAnalysis — both
+// carry a coerced Date generatedAt that needs re-serializing for the Json
+// column.
+const generatedAtIso = (value: { generatedAt: Date | null }): string | null =>
+  value.generatedAt ? value.generatedAt.toISOString() : null

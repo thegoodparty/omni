@@ -4,11 +4,11 @@
 Pull a ClickUp task (typically one created by `/clickup-epic-create`), load its Epic-level plan, set up a focused working context, then implement it yourself while two read-only subagents give it the review the implementer can't give itself: `gp-reviewer` (an independent senior review of the diff that **mirrors the `delegate-reviewer` bot's blocker bar** — across correctness, security, tests, conventions, ai-rules, cross-file, and thematic — so its blockers are the ones delegate would post and delegate passes on the first try) and, for UI work, `gp-ui-tester` (drives a real browser via the Playwright MCP). You implement and fix in your own context; the reviewers critique the cumulative diff in parallel; you loop on their blocking findings until the work converges or hits a small iteration cap. Same safety nets as before — scope confirmation, todo list seeded from acceptance criteria, AC walk before "done".
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
+> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/runbooks`, `$HOME/code/runbooks`, `$HOME/runbooks`.
-> 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
+> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
 <!-- END: resolve-runbooks-dir -->
 
 ## Prerequisites

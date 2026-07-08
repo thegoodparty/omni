@@ -403,6 +403,29 @@ describe('ChatStreamService', () => {
   })
 
   describe('happy path', () => {
+    it('folds a leading assistant greeting into the system prompt (user-first)', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content: "Hi, I'm your campaign manager.",
+      })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(service.stream(baseStreamArgs({ userMessage: 'hello' })))
+
+      const { messages } = firstOrThrow(llm.calls).options
+      // Anthropic requires the first non-system turn to be the user, so a seeded
+      // assistant greeting is folded into the system prompt, not sent as an
+      // invalid leading assistant turn.
+      expect(messages[0]?.role).toBe('system')
+      expect(String(messages[0]?.content)).toContain(
+        "Hi, I'm your campaign manager.",
+      )
+      expect(messages[1]?.role).toBe('user')
+      expect(messages.some((m) => m.role === 'assistant')).toBe(false)
+    })
+
     it('records appendMessage:user before streamChatCompletion', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([{ kind: 'text', delta: 'hi' }])

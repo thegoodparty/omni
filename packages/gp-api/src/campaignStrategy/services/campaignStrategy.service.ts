@@ -222,6 +222,12 @@ export class CampaignStrategyService
       return { status: 'ready', data: EMPTY_STRATEGIC_LANDSCAPE }
     }
 
+    // Materialize the tracker's static rows now, at generation start, so they
+    // render immediately while the dynamic tasks generate in the background
+    // (the initial CAP dispatch still fires from the plan-completion bootstrap).
+    // Story-gated to the tracker cohort, best-effort, and idempotent.
+    await this.ensureTrackerStaticTasks(campaign)
+
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
     const brHashId = resolveRaceId(campaign.details)
@@ -469,6 +475,32 @@ export class CampaignStrategyService
     }
 
     await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
+  }
+
+  // Materialize the tracker's static rows at plan-generation start so they
+  // render immediately, rather than waiting for the plan-completion bootstrap
+  // (which is CAP/SQS-driven and never fires locally). Story-gated to the
+  // tracker cohort so legacy campaigns never get tracker rows, and best-effort
+  // so a tracker hiccup can't fail plan generation. materializeStaticTasks is
+  // idempotent and race-safe, so calling it on every poll is cheap and the
+  // initial dynamic dispatch still happens once, from the bootstrap below.
+  private async ensureTrackerStaticTasks(
+    campaign: CampaignWith<'user'>,
+  ): Promise<void> {
+    const story = await this.client.campaignStory.findUnique({
+      where: { campaignId: campaign.id },
+      select: { id: true },
+    })
+    if (!story) return
+
+    await this.campaignTrackerTasks
+      .materializeStaticTasks(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'tracker static-task materialization failed at plan start',
+        ),
+      )
   }
 
   // The plan is fully generated once both sections are persisted — that is the
@@ -1100,6 +1132,38 @@ export class CampaignStrategyService
     }
 
     return updated
+  }
+
+  // Pure read for consumers that must NEVER trigger (paid) generation or the
+  // align/reset machinery — today the Campaign Manager chat, which grounds its
+  // system prompt in the plan. Returns null until BOTH sections are persisted
+  // (the same gate the polling endpoint uses for 'ready'), so a partial plan
+  // is never surfaced. May serve content from before an office change; the
+  // plan tab's getOrGenerateStrategicLandscape remains the canonical fresh
+  // read.
+  async readLandscapeForCampaign(
+    campaignId: number,
+  ): Promise<StrategicLandscapeResult | null> {
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      include: {
+        opportunities: { orderBy: { order: 'asc' } },
+        challenges: { orderBy: { order: 'asc' } },
+        opponents: true,
+      },
+    })
+    if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) {
+      return null
+    }
+    return {
+      opportunities: plan.opportunities.map((o) => o.content),
+      challenges: plan.challenges.map((c) => c.content),
+      opponents: plan.opponents.map((o) => ({
+        fullName: o.fullName,
+        partyAffiliation: o.partyAffiliation,
+        incumbent: o.incumbent,
+      })),
+    }
   }
 
   private async readStrategicLandscape(

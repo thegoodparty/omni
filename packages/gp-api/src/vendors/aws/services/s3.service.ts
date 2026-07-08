@@ -184,6 +184,31 @@ export class S3Service extends AwsService {
     }, 'getFileBytes')
   }
 
+  async getFileBytesWithContentType(
+    bucket: string,
+    key: string,
+  ): Promise<{ bytes: Buffer; contentType?: string } | undefined> {
+    return this.executeAwsOperation(async () => {
+      try {
+        const response = await this.s3Client.send(
+          new GetObjectCommand({
+            Bucket: bucket,
+            Key: key,
+          }),
+        )
+        const bytes = await response.Body?.transformToByteArray()
+        return bytes
+          ? { bytes: Buffer.from(bytes), contentType: response.ContentType }
+          : undefined
+      } catch (error) {
+        if (error instanceof NoSuchKey) {
+          return undefined
+        }
+        throw error
+      }
+    }, 'getFileBytesWithContentType')
+  }
+
   async deleteObject(bucket: string, key: string): Promise<void> {
     return this.executeAwsOperation(async () => {
       try {

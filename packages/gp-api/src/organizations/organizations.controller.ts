@@ -55,9 +55,11 @@ const APIOrganizationSchema = z.object({
   slug: z.string(),
   name: z.string().nullish(),
   positionName: z.string().nullish(),
+  customPositionName: z.string().nullish(),
   position: z
     .object({
       id: z.string().nullish(),
+      name: z.string().nullish(),
       state: z.string().nullish(),
       brPositionId: z.string().nullish(),
     })
@@ -113,6 +115,7 @@ const toAPIOrganization = (
     slug: org.slug,
     name: null,
     positionName: org.customPositionName ?? org.position?.name ?? null,
+    customPositionName: org.customPositionName ?? null,
     position: null,
     district: null,
     electedOfficeId: null,
@@ -123,6 +126,7 @@ const toAPIOrganization = (
   result.position = org.position
     ? {
         id: org.position.id,
+        name: org.position.name,
         state: org.position.state,
         brPositionId: org.position.brPositionId,
       }

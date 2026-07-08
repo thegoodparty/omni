@@ -11,7 +11,7 @@ Source of truth for the lifecycle model: the Analytics event change SOP (ClickUp
 
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
   Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with
-  `DATABRICKS_CONFIG_PROFILE` if it is not the default. No PAT (that is the backfill's path).
+  `DATABRICKS_CONFIG_PROFILE` if it is not the default. No PAT — the backfill shares this path.
 - **Tools**: `uv`, `git`, `ripgrep` (`rg`), a clone of the omni monorepo (this package lives in it).
 - **Setup**: `cd scripts/python && uv sync`.
 - **Code axis**: `scripts/python/instrumentation_data/amplitude_event_provenance.csv` must be
@@ -47,10 +47,10 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
-Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firing · 2 anomaly
-drop on an active elevated event · 3 anomaly drop on any active/system event · 4 intent
-divergence · 5 dormant elevated · 6 instrumented-never-observed · 7 dormant (collapsed to a
-single tail line in the digest).
+Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
+removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
+anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
+instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
 
 ## Stage 1 — run the monitor
 
@@ -68,7 +68,7 @@ flagged set, for next run's changes-since-last-run diff). Useful flags:
 - `--no-log` — print only, do not append to the log.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
-Read the digest top-down: priority flags table first (ranks 1-6), then the dormant tail,
+Read the digest top-down: priority flags table first (ranks 1-7), then the dormant tail,
 then changes-since-last-run, then metadata completeness, then watchlist proposals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
@@ -88,6 +88,31 @@ follow-up when a flag needs a verdict.
    continuity-gap (code change, no replacement; dashboards now blind) · likely break (no code
    change explains the drop — the loud one).
 5. Record event, classification, confidence, drop dates, and supporting PR/commit + replacement links.
+
+### Rank 2 — call site removed, name constant remains (DATA-2046)
+
+A rank-2 flag means the event's name is still declared in the `EVENTS` map
+(`analyticsHelper.ts`) but it has zero `trackEvent(EVENTS.X.Y, …)` call sites and has
+stopped firing. The provenance CSV shows `call_site_count = 0` and usually a
+`call_site_retired_date`. This is a removed call site hiding behind a surviving constant —
+not a silent break.
+
+This flag's propose-and-confirm flow (never auto-decide):
+
+1. Confirm in git: `git log -S'EVENTS.<KeyPath>' -- packages/gp-webapp` and read the removing
+   diff. The key-path is the one resolved from the `EVENTS` map for this event name.
+2. Decide the verdict to propose:
+   - **Retired** — the call site was deleted and nothing replaced it.
+   - **Superseded by <event>** — a new event took its place (cite it). Never guess; if a
+     replacement is not evident in the diff, propose "retired" and note the uncertainty.
+3. Present the proposal (event, verdict, removing PR/commit, date) for human confirmation.
+4. On confirmation, hand off to the `event-metadata` skill to stamp the status in Amplitude
+   Govern (dev + prod), embedding the PR/commit as code-removal proof. The monitor itself
+   never writes a status.
+
+Note: a rank-2 flag with `call_site_count = 0` but the event **still firing** does not occur
+under the current rule (the flag requires a firing flatline); a genuinely still-firing event
+with no callers would surface as an anomaly/orphaned-firing flag instead.
 
 ## Stage 3 — heal the watchlist (review + agree on additions)
 
@@ -118,6 +143,22 @@ entries to the event-metadata skill:
    (`.claude/skills/event-metadata`), which writes the `gp-meta` block into the Amplitude event
    description (read-modify-write, dev + prod). Client (Amplitude) events only.
 
+## Stage 5 — refresh the consumer surface (independent, non-fatal)
+
+After the monitor's run and log/state write-back (Stage 1), bring the event-state Google
+Sheet current. Its status column is recomputed live from the underlying data, so this path
+needs no override — a plain refresh is enough:
+
+```bash
+scripts/shell/refresh-event-state.sh
+```
+
+On a host without the shared Sheets credentials the wrapper exits 0 with `…not configured…;
+skipping` — that is expected, not an error; the sheet is refreshed by whichever configured
+host runs the monitor. If it fails for another reason, note it and continue — the monitor run
+has already completed its own work; re-run the wrapper manually once the issue is resolved.
+Do not fail the monitor run on a refresh error.
+
 ## gp-meta parsing spec (from the SOP)
 
 Block delimited by `<!-- gp-meta -->` … `<!-- /gp-meta -->` inside the description:
@@ -143,8 +184,19 @@ Set as constants at the top of `analytics_event_health.py`:
 
 The committed durable artifacts are the longitudinal log and the diff state. The full JSON
 report (`--json`) and the remediation payloads are gitignored transients. Route rank-1/2
-flags + their stage-2 verdicts to Eng/PM. (Future: post the digest to Slack and optionally
-open a fix PR — DATA-1952 phase 2.)
+flags + their stage-2 verdicts to Eng/PM.
+
+### Post the digest to Slack (`--slack`, DATA-2057)
+
+Pass `--slack` to also push a delta-led digest to the analytics event-lifecycle Slack
+channel: a parent message with the status transitions + newly flagged/resolved events, the
+anomaly/proposal headline, and the status breakdown, plus a threaded reply with per-event
+anomaly numbers and the watchlist proposals. It is **quiet** — nothing posts when no event
+was newly flagged, escalated, or resolved and no new anomaly appeared. The post happens
+inline **before** the state file is advanced (the diff is consumed once state is written),
+and is **non-fatal**: a Slack error prints a warning and never changes the monitor's exit
+code. Needs `SLACK_APP_BOT_TOKEN` + `SLACK_EVENT_LIFECYCLE_CHANNEL_ID` in `scripts/.env`;
+without them, `--slack` warns and skips while the monitor runs normally.
 
 ## Troubleshooting
 

@@ -8,17 +8,21 @@ rather than crashing the gate.
 
 What it checks, mechanically and cheaply, against the artifact alone:
   1. Schema validity against the runner-written contract schema.
-  2. Attribution shape — every NON-null overview / background and every
-     key_positions item carries at least one http(s) source_url. This is the
-     sourced-or-silent invariant the schema requires (minItems:1, pattern), so
+  2. Attribution shape — every NON-null overview / background / issues_that_matter
+     section carries at least one rich source (a {url, title, publisher} object).
+     This is the sourced-or-silent invariant the schema requires (minItems:1), so
      a passing schema implies this; the explicit fragment makes the metric
      visible in the verdict.
-  3. Attribution rate — fraction of emitted sections (overview, background, each
-     key_positions item across all opponents) that carry at least one source.
+  3. Attribution rate — fraction of emitted sections (overview, background,
+     issues_that_matter, across all opponents) that carry at least one source.
      Metric only. The stronger "source_url is one of the INPUT source URLs"
      check the agent runs as its own spot-check needs the dispatch params, which
      this stage is not given; this stage reports what is checkable from the
      artifact and never re-fetches.
+  4. field_analysis sourcing rate — whether the top-level, campaign-level SWOT
+     (when present) cites any source. Metric only: field_analysis sourcing is
+     relaxed/optional by design (interpretive synthesis across the whole field),
+     so this never fails the gate.
 
 The gate runs `python3 main.py --artifact <p> --workspace <root>` with cwd set
 to this materialized qa directory.
@@ -84,37 +88,32 @@ def has_valid_sources(section: dict) -> bool:
         return False
     sources = section.get("sources") or []
     return bool(sources) and all(
-        isinstance(u, str) and bool(HTTP_URL.match(u)) for u in sources
+        isinstance(s, dict)
+        and isinstance(s.get("url"), str)
+        and bool(HTTP_URL.match(s["url"]))
+        and isinstance(s.get("title"), str)
+        and bool(s.get("title"))
+        and isinstance(s.get("publisher"), str)
+        and bool(s.get("publisher"))
+        for s in sources
     )
 
 
 def collect_sections(artifact: dict) -> list[dict]:
-    """Every emitted (non-null) section that must carry attribution."""
+    """Every emitted (non-null) descriptive section that must carry attribution.
+
+    overview / background carry {text, sources} directly. issues_that_matter
+    carries {items, sources} — reuse the same has_valid_sources check since
+    both shapes key their citations under "sources"."""
     sections: list[dict] = []
     for opp in artifact.get("opponents") or []:
         if not isinstance(opp, dict):
             continue
-        for key in ("overview", "background"):
+        for key in ("overview", "background", "issues_that_matter"):
             section = opp.get(key)
             if section is not None:
                 sections.append(section)
-        sections.extend(opp.get("key_positions") or [])
     return sections
-
-
-def collect_analysis_items(artifact: dict) -> list[dict]:
-    """The Phase 3 analytical items whose sourcing is RELAXED (cite where
-    direct). Unlike collect_sections these may legitimately carry no source,
-    so they feed an observe-only rate metric, never the strict shape check."""
-    items: list[dict] = []
-    for opp in artifact.get("opponents") or []:
-        if not isinstance(opp, dict):
-            continue
-        items.extend(opp.get("where_soft") or [])
-        for contrast in opp.get("issue_contrasts") or []:
-            if isinstance(contrast, dict):
-                items.append({"sources": contrast.get("opponent_sources")})
-    return items
 
 
 def build_fragments(artifact: dict, schema: dict) -> list[dict]:
@@ -182,7 +181,8 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
     if not shape_ok:
         shape_frag["severity"] = "error"
         shape_frag["detail"] = (
-            f"{total - attributed}/{total} emitted sections lack a valid http(s) source_url"
+            f"{total - attributed}/{total} emitted sections lack a valid rich "
+            f"source (http(s) url + title + publisher)"
         )
     fragments.append(shape_frag)
 
@@ -199,25 +199,23 @@ def build_fragments(artifact: dict, schema: dict) -> list[dict]:
         ),
     })
 
-    # Phase 3 analytical items (where_soft, issue_contrasts) use relaxed sourcing
-    # — cite where direct. Report the citation rate as an observe-only metric;
-    # never fail the shape check on a relaxed item that legitimately omits a
-    # source.
-    analysis_items = collect_analysis_items(artifact)
-    analysis_sourced = sum(1 for s in analysis_items if has_valid_sources(s))
-    analysis_total = len(analysis_items)
-    analysis_rate = analysis_sourced / analysis_total if analysis_total else None
+    # field_analysis (the top-level, campaign-level SWOT) uses relaxed sourcing
+    # by design — its bullets are interpretive syntheses across the whole field
+    # and its `sources` array may legitimately stay empty. Report whether it
+    # cites anything as an observe-only metric; never fail the shape check on
+    # it, and treat a null field_analysis (no candidate_platform) as N/A.
+    field_analysis = artifact.get("field_analysis")
+    fa_present = isinstance(field_analysis, dict)
+    fa_sources = (field_analysis.get("sources") or []) if fa_present else []
     fragments.append({
-        "name": "analysis_sourcing_rate",
+        "name": "field_analysis_sourcing_rate",
         "passed": True,
         "type": "deterministic",
         "severity": "warning",
         "detail": (
-            f"{analysis_sourced}/{analysis_total} analytical items "
-            f"(where_soft + issue contrasts) cite a source ({analysis_rate:.0%}) "
-            "— relaxed, optional by design"
-            if analysis_total
-            else "not applicable — no analytical items emitted"
+            f"field_analysis cites {len(fa_sources)} source(s) — relaxed, optional by design"
+            if fa_present
+            else "not applicable — field_analysis is null (no candidate_platform provided)"
         ),
     })
 

@@ -82,15 +82,27 @@ class _RecordingS3:
 
     def __init__(self, fail_on_key_prefix=None):
         self.keys = []
+        self.deleted = []
+        self.ops = []  # ordered ("put"|"delete", key) log — lets tests assert call ORDER
         self.fail_on_key_prefix = fail_on_key_prefix
 
     def put_object(self, Bucket, Key, Body, ContentType):
         if self.fail_on_key_prefix and Key.startswith(self.fail_on_key_prefix):
             raise ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
         self.keys.append(Key)
+        self.ops.append(("put", Key))
 
     def get_object(self, Bucket, Key):
         raise ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
+
+    def list_objects_v2(self, Bucket, Prefix):
+        live = [k for k in self.keys if k.startswith(Prefix) and k not in self.deleted]
+        return {"Contents": [{"Key": k} for k in live]}
+
+    def delete_objects(self, Bucket, Delete):
+        for o in Delete["Objects"]:
+            self.deleted.append(o["Key"])
+            self.ops.append(("delete", o["Key"]))
 
 
 @pytest.fixture
@@ -135,3 +147,45 @@ def test_dry_run_makes_no_s3_writes(real_experiment_tree, monkeypatch):
     rc = pub.publish("dev", dry_run=True)
     assert rc == 0
     assert s3.keys == []
+
+
+# --- orphan reclamation: stale qa/attachment objects deleted after the switch ---
+
+def _exp_id(tree: Path) -> str:
+    return sorted(p.name for p in tree.iterdir() if p.name != "_schema")[0]
+
+
+def test_publish_reclaims_orphaned_qa_and_attachment_objects(real_experiment_tree, monkeypatch):
+    # Objects under <id>/attachments/ and <id>/qa/ that this publish does NOT
+    # emit are unreferenced by the new index and must be deleted after the switch.
+    exp_id = _exp_id(real_experiment_tree)
+    stale_att = f"{exp_id}/attachments/ZZZ_orphan.png"
+    stale_qa = f"{exp_id}/qa/ZZZ_orphan.py"
+    s3 = _RecordingS3()
+    s3.keys.extend([stale_att, stale_qa])  # pre-existing objects from a prior publish
+    monkeypatch.setattr(pub.boto3, "client", lambda *_a, **_k: s3)
+    rc = pub.publish("dev")
+    assert rc == 0
+    assert stale_att in s3.deleted
+    assert stale_qa in s3.deleted
+    # The atomic switch still happened, and only the orphans were removed.
+    assert "index.json" in s3.keys
+    assert "index.json" not in s3.deleted
+    # ORDER is the guarantee: reclaim runs strictly AFTER the index.json atomic
+    # switch, so a crash mid-reclaim can never leave a live index pointing at
+    # already-deleted objects.
+    index_put = s3.ops.index(("put", "index.json"))
+    first_delete = min(i for i, (op, _k) in enumerate(s3.ops) if op == "delete")
+    assert index_put < first_delete
+
+
+def test_dry_run_never_deletes_orphans(real_experiment_tree, monkeypatch):
+    # Same stale object, but a dry run must only report — never delete.
+    exp_id = _exp_id(real_experiment_tree)
+    stale_att = f"{exp_id}/attachments/ZZZ_orphan.png"
+    s3 = _RecordingS3()
+    s3.keys.append(stale_att)
+    monkeypatch.setattr(pub.boto3, "client", lambda *_a, **_k: s3)
+    rc = pub.publish("dev", dry_run=True, s3=s3)
+    assert rc == 0
+    assert s3.deleted == []

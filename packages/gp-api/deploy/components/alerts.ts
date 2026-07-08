@@ -86,9 +86,45 @@ export const GLOBAL_ALERTS: Alert[] = [
     ].join(' '),
     threshold: 0,
     for: '1m',
+    // Explicitly pins the pre-timeRangeSeconds default. The 600s fetch caps
+    // the [15m] vector to an effective 10-minute window; that has always been
+    // this alert's firing behavior and is kept as-is — widening it would
+    // lengthen re-firing after a transient error burst. Retune deliberately.
+    timeRangeSeconds: 600,
     message: [
       'Peerly-related endpoint errors detected in the last 15 minutes.',
       'Dashboard: https://goodparty.grafana.net/d/peerly-prod/peerly-e28094-prod',
+    ].join('\n\n'),
+    notify: 'win-bugs',
+  },
+  {
+    slug: 'win-outreach-paid-not-scheduled-warning',
+    name: '[Win] P2P outreach paid but not scheduled',
+    type: 'log',
+    // Draft-first outreach: the campaign is persisted as a pending_payment
+    // draft before checkout and finalized (Peerly + Slack) by the post-purchase
+    // handler after payment. This fires when that finalize fails AFTER money
+    // was taken — the row reverts to pending_payment and Stripe's webhook
+    // retries. Successor to the campaign 318735 incident alert (2026-07-01),
+    // which keyed off webhook-path free-texts redemption; that signal is
+    // healthy behavior under draft-first (async payments and recovered
+    // client drops finalize via webhook by design).
+    expr: [
+      'sum(count_over_time(',
+      '{service_name="gp-api", deployment_environment_name="$ENV"}',
+      '|= "P2P outreach finalize failed after payment"',
+      '[1h]))',
+    ].join(' '),
+    threshold: 0,
+    for: '5m',
+    // The [1h] range vector needs a matching fetch window; the default 600s
+    // would let the engine see only 10 minutes of logs and miss this
+    // low-frequency event.
+    timeRangeSeconds: 3600,
+    message: [
+      'A paid P2P outreach draft failed to submit to Peerly in the last hour. Money was taken; the draft reverted to pending_payment and the Stripe webhook will retry automatically.',
+      'Click *View in Grafana* to find the log line (search "P2P outreach finalize failed after payment") for the outreachId/campaignId and the underlying Peerly error. A CAS failure Slack message fires alongside this alert.',
+      'If it keeps firing for the same outreach, retries are not self-healing — the draft row holds everything needed for manual submission (script, image URL, phone list, identity).',
     ].join('\n\n'),
     notify: 'win-bugs',
   },
@@ -99,6 +135,10 @@ export const GLOBAL_ALERTS: Alert[] = [
     expr: 'sum(count_over_time({service_name="gp-api", deployment_environment_name="$ENV"} |= "Actor has no gp-api Clerk account" [15m]))',
     threshold: 5,
     for: '5m',
+    // Explicitly pins the pre-timeRangeSeconds default: effectively >5 events
+    // per 10 minutes, this alert's firing behavior since it shipped. Kept
+    // as-is; raising to 900 would make it more sensitive. Retune deliberately.
+    timeRangeSeconds: 600,
     message: [
       'More than 5 admin impersonations have used the email-as-actor.sub fallback in the last 15 minutes.',
       "This means actorEmail lookups against gp-api's Clerk instance returned no match for those impersonation requests. Possible causes:",

@@ -969,10 +969,10 @@ export default function OnboardingFlow({
       if (!effectiveCampaign) return
       const ok = await persistPledgeAndComplete()
       if (!ok) return
-      // Campaign-story users go write their story first (the plan + tracker
-      // are generated from it later, on the Campaign Plan tab). Otherwise:
-      // campaign-strategy on → /onboarding/success (legacy LLM plan);
-      // off → /dashboard (legacy, no plan).
+      // Campaign-story users land on the Campaign Manager home, whose chat
+      // opens with the story intake (the plan + tracker are generated from
+      // the story later). Otherwise: campaign-strategy on →
+      // /onboarding/success (legacy LLM plan); off → /dashboard (legacy).
       router.push(
         resolvePostPledgeRoute({
           campaignStoryEnabled,
