@@ -44,7 +44,8 @@ export const PaymentPortalButton = ({
       errorSnackbar(
         'Unable to open the billing portal. Please try again or contact support.',
       )
-    } finally {
+      // Reset only on failure: on success the href assignment is navigating
+      // away, and re-enabling before unload would allow a duplicate request.
       setLoading(false)
     }
   }
