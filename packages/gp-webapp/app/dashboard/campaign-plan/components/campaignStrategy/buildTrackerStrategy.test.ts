@@ -134,6 +134,52 @@ describe('buildTrackerStrategy', () => {
     expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe('done')
   })
 
+  it('links text/robocall rows to the outreach compose flow with the due date', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 't',
+          phase: 'launch',
+          flowType: 'text',
+          date: '2026-02-03T00:00:00.000Z',
+        }),
+        row({ id: 'r', phase: 'launch', flowType: 'robocall' }),
+        row({ id: 'd', phase: 'launch', flowType: 'doorKnocking' }),
+      ],
+      { electionDate: null, today },
+    )
+    const tasks = data.phases.flatMap((p) => p.groups).flatMap((g) => g.tasks)
+    const byId = new Map(tasks.map((t) => [t.id, t]))
+    expect(byId.get('t')?.href).toBe(
+      '/dashboard/outreach?compose=text&due=2026-02-03',
+    )
+    expect(byId.get('t')?.hrefLabel).toBe('Start outreach')
+    expect(byId.get('r')?.href).toBe(
+      '/dashboard/outreach?compose=robocall&due=2026-02-01',
+    )
+    expect(byId.get('d')?.href).toBeNull()
+  })
+
+  it('advances Launch to active when every pre-launch task is done', () => {
+    // preLaunch is the calendar-current phase (future date) but fully checked
+    // off; Launch must become the current phase instead of stranding at
+    // 'upcoming' (bug-bash finding: "pre-launch Done, launch stays Coming Up").
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'a',
+          phase: 'preLaunch',
+          date: '2026-02-01',
+          completed: true,
+        }),
+        row({ id: 'b', phase: 'launch', date: '2026-03-01' }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
+    expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('active')
+  })
+
   it('keeps "happening now" date-based: a date-past phase with open tasks is not upcoming', () => {
     // today is 2026-01-15; preLaunch dated in the past, launch in the future.
     const data = buildTrackerStrategy(

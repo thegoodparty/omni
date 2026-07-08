@@ -36,9 +36,23 @@ const TRACKER_HREF = '/dashboard/campaign-plan'
 const taskLink = (task: { link: string | null }): string | null =>
   task.link?.trim() ? task.link : null
 
+// Text/robocall tasks open the outreach compose flow with the due date bound
+// (mirrors the tracker rows); everything else falls back to the tracker page.
+const OUTREACH_COMPOSE_FLOW_TYPES = new Set(['text', 'robocall'])
+
 // Each card links to the task's own action, falling back to the tracker page.
-const taskHref = (task: { link: string | null }): string =>
-  taskLink(task) ?? TRACKER_HREF
+const taskHref = (task: {
+  link: string | null
+  flowType: string | null
+  date: string
+}): string => {
+  const own = taskLink(task)
+  if (own) return own
+  if (task.flowType && OUTREACH_COMPOSE_FLOW_TYPES.has(task.flowType)) {
+    return `/dashboard/outreach?compose=${task.flowType}&due=${task.date.slice(0, 10)}`
+  }
+  return TRACKER_HREF
+}
 
 // Eyebrow label + icon per tracker flowType (same set buildTrackerStrategy maps
 // to channels). Unknown/static rows fall back to a generic priority label.
@@ -134,8 +148,8 @@ export default function CampaignManagerTasks({
           </p>
         ) : isGeneratingDynamic ? (
           <p className="text-sm text-muted-foreground">
-            We are preparing your personalized tasks. Check back in a few
-            minutes.
+            We are preparing your personalized tasks. New tasks arrive every
+            Monday morning.
           </p>
         ) : top.length === 0 ? (
           <p className="text-sm text-muted-foreground">

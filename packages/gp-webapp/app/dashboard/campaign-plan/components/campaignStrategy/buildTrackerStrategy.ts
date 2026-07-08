@@ -59,22 +59,43 @@ const PHASE_KEYS = new Set<string>(PHASE_META.map((p) => p.key))
 const toChannel = (flowType: string | null): TaskChannel =>
   (flowType && FLOW_TYPE_TO_CHANNEL[flowType]) || 'general'
 
-const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
-  id: row.id,
-  title: row.title,
-  description: row.description,
-  channel: toChannel(row.flowType),
-  date: row.date,
-  param: null,
-  href: row.link,
-  hrefLabel: row.link ? 'Open' : null,
-  priorityTier: 'P2',
-  proRequired: row.proRequired ?? false,
-  status: 'live',
-  unlocksAfter: null,
-  isNext: false,
-  completed: row.completed,
-})
+// Text/robocall rows carry no link of their own; route them to the outreach
+// compose deep link with the task's due date attached, so the flow opens
+// pre-bound to the task and the due date reaches the outreach record (and its
+// Slack notification) — matching what the legacy task list did.
+const OUTREACH_COMPOSE_CHANNELS = new Set<TaskChannel>(['text', 'robocall'])
+
+const outreachComposeHref = (
+  channel: TaskChannel,
+  date: string | null,
+): string =>
+  `/dashboard/outreach?compose=${channel}${
+    date ? `&due=${date.slice(0, 10)}` : ''
+  }`
+
+const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => {
+  const channel = toChannel(row.flowType)
+  const composeHref =
+    !row.link && OUTREACH_COMPOSE_CHANNELS.has(channel)
+      ? outreachComposeHref(channel, row.date)
+      : null
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    channel,
+    date: row.date,
+    param: null,
+    href: row.link ?? composeHref,
+    hrefLabel: row.link ? 'Open' : composeHref ? 'Start outreach' : null,
+    priorityTier: 'P2',
+    proRequired: row.proRequired ?? false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: false,
+    completed: row.completed,
+  }
+}
 
 // API dates are full ISO at UTC midnight; the catalog fallback is date-only.
 // Parse both as LOCAL midnight (slice + dash->slash, matching the date chip in
@@ -112,7 +133,17 @@ const derivePhaseStatuses = (
     return latest != null && latest >= startOfToday
   }
   const nowIndex = order.findIndex(isCurrentlyInPlay)
-  const current = nowIndex === -1 ? order.length - 1 : nowIndex
+  let current = nowIndex === -1 ? order.length - 1 : nowIndex
+  // Completion advances "now" past the calendar: when the calendar-current
+  // phase (and any phases after it) are fully checked off, the first phase
+  // with open work becomes current — so finishing every pre-launch task flips
+  // Launch to 'active' instead of stranding it at 'upcoming' until its dates
+  // arrive.
+  while (current < order.length - 1) {
+    const key = order[current]
+    if (!key || !phaseAllCompleted.get(key)) break
+    current += 1
+  }
   const out = new Map<CampaignStrategyPhaseKey, CampaignStrategyPhaseStatus>()
   order.forEach((key, i) => {
     const status: CampaignStrategyPhaseStatus = phaseAllCompleted.get(key)
