@@ -43,6 +43,7 @@ export const Playground: Story = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="w-80">
       <Slider defaultValue={[33]} />
@@ -51,6 +52,7 @@ export const Default: Story = {
 }
 
 export const Range: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="w-80">
       <Slider defaultValue={[25, 75]} />
@@ -59,6 +61,7 @@ export const Range: Story = {
 }
 
 export const Stepped: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="w-80">
       <Slider defaultValue={[40]} step={10} />
@@ -67,6 +70,7 @@ export const Stepped: Story = {
 }
 
 export const Disabled: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <div className="w-80">
       <Slider defaultValue={[50]} disabled />

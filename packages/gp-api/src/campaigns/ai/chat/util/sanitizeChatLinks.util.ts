@@ -85,7 +85,7 @@ const isSafeLinkTarget = (target: string): boolean => {
   if (!trimmed) return false
 
   // Strip a trailing Markdown link title: (url "title")
-  const urlOnly = trimmed.split(/\s+/)[0]
+  const urlOnly = trimmed.split(/\s+/)[0] ?? ''
 
   let url: URL
   try {
@@ -128,7 +128,7 @@ export const sanitizeChatLinks = (content: string): string => {
 /** Returns the host for an http(s) URL, or null when it isn't parseable. */
 const httpHost = (rawUrl: string): string | null => {
   try {
-    const url = new URL(rawUrl.trim().split(/\s+/)[0])
+    const url = new URL(rawUrl.trim().split(/\s+/)[0] ?? '')
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
     return url.hostname || null
   } catch {
@@ -168,7 +168,10 @@ export const validateChatLinks = async (
   const uniqueUrls = [
     ...new Set(
       links
-        .map((m) => httpHost(m[2]) && m[2].trim())
+        .map((m) => {
+          const url = m[2]
+          return url && httpHost(url) ? url.trim() : undefined
+        })
         .filter((u): u is string => Boolean(u)),
     ),
   ]

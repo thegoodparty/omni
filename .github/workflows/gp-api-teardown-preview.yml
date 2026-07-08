@@ -40,7 +40,92 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-west-2
 
+      - name: Drop preview database
+        # The database lives on the shared Aurora cluster (not Pulumi-managed)
+        # and must be dropped via a SQL op from inside the VPC.
+        #
+        # Run this on the stable DEV cluster, NOT the per-PR cluster. A drop
+        # task launched into the per-PR cluster can outlive its work (e.g. a
+        # slow/blocked DROP) and then block that cluster's own destroy with
+        # ClusterContainsTasksException, stranding the stack and its ALB. The
+        # cron's drop-orphaned job already runs on the dev task def for the same
+        # reason; this mirrors it.
+        #
+        # The dev task def (gp-develop-fargateCluster-gp-api-develop) supplies
+        # DB_USER (gpuser) + DB_PASSWORD (Secrets Manager via GP_API_DEV, the
+        # shared cluster's master password); the runner resolves the shared
+        # cluster endpoint and passes it as DB_HOST. drop-preview-db.ts uses
+        # DROP ... WITH (FORCE), so the still-running preview app can't block
+        # the drop.
+        run: |
+          PR="${{ github.event.number }}"
+
+          CLUSTER_ENDPOINT=$(aws rds describe-db-clusters \
+            --db-cluster-identifier gp-api-preview-shared-db \
+            --query 'DBClusters[0].Endpoint' \
+            --output text 2>/dev/null || true)
+
+          if [ -z "$CLUSTER_ENDPOINT" ] || [ "$CLUSTER_ENDPOINT" = "None" ]; then
+            echo "Shared preview cluster not found; skipping DB drop."
+            exit 0
+          fi
+
+          ECS_CLUSTER="gp-develop-fargateCluster"
+          TASK_DEF_FAMILY="gp-develop-fargateCluster-gp-api-develop"
+
+          echo "Running drop-preview-db for PR #${PR} against ${CLUSTER_ENDPOINT}..."
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "$ECS_CLUSTER" \
+            --task-definition "$TASK_DEF_FAMILY" \
+            --launch-type FARGATE \
+            --network-configuration \
+              "awsvpcConfiguration={
+                subnets=[subnet-053357b931f0524d4,subnet-0bb591861f72dcb7f],
+                securityGroups=[sg-01de8d67b0f0ec787],
+                assignPublicIp=DISABLED
+              }" \
+            --overrides "{
+              \"containerOverrides\": [{
+                \"name\": \"gp-api-develop\",
+                \"command\": [\"npx\",\"tsx\",\"scripts/drop-preview-db.ts\"],
+                \"environment\": [
+                  {\"name\":\"DB_HOST\",\"value\":\"${CLUSTER_ENDPOINT}\"},
+                  {\"name\":\"PR_NUMBER\",\"value\":\"${PR}\"}
+                ]
+              }]
+            }" \
+            --query 'tasks[0].taskArn' \
+            --output text)
+
+          if [ -z "$TASK_ARN" ] || [ "$TASK_ARN" = "None" ]; then
+            echo "run-task failed or returned no task ARN; aborting DB drop."
+            exit 1
+          fi
+
+          echo "Waiting for drop task ${TASK_ARN} to complete..."
+          aws ecs wait tasks-stopped \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "$ECS_CLUSTER" \
+            --tasks "$TASK_ARN" \
+            --query \
+              "tasks[0].containers[?name=='gp-api-develop'].exitCode" \
+            --output text)
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            # Fail loudly so the failure() Slack alert fires and orphaned
+            # databases don't pile up unnoticed. Destroy still runs (always())
+            # so the ALB is reclaimed regardless.
+            echo "drop-preview-db task exited '${EXIT_CODE}'; check ECS logs."
+            exit 1
+          fi
+
       - name: Destroy preview stack
+        # always(): the DB-drop step above is allowed to fail, but the stack
+        # must still be destroyed so the ALB is reclaimed (ELB quota).
+        if: always()
         uses: ./.github/actions/destroy-preview-stack
         with:
           stack-name: gp-api-pr-${{ github.event.number }}

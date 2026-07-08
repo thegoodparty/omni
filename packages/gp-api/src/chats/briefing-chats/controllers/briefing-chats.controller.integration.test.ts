@@ -264,7 +264,7 @@ describe('BriefingChatsController (integration)', () => {
       )
       const frames = parseSseFrames(String(res.data))
       expect(frames.length).toBeGreaterThanOrEqual(1)
-      const first = frames[0].parsed as { type?: string }
+      const first = frames[0]?.parsed as { type?: string }
       expect(typeof first.type).toBe('string')
     })
 
@@ -283,7 +283,7 @@ describe('BriefingChatsController (integration)', () => {
         res.data.messages as Array<{ role: string; content: string }>
       ).filter((m) => m.role === ChatMessageRole.user)
       expect(userMessages).toHaveLength(1)
-      expect(userMessages[0].content).toBe('persisted message')
+      expect(userMessages[0]?.content).toBe('persisted message')
     })
 
     it('returns 401 when Authorization is invalid', async () => {
@@ -405,8 +405,8 @@ describe('BriefingChatsController (integration)', () => {
         },
       })
       expect(userMessages).toHaveLength(1)
-      expect(userMessages[0].content).toBe(content)
-      expect(userMessages[0].clientMessageId).toBe(clientMessageId)
+      expect(userMessages[0]?.content).toBe(content)
+      expect(userMessages[0]?.clientMessageId).toBe(clientMessageId)
     })
 
     it('rejects a clientMessageId reused with different content (mid-stream conflict)', async () => {
@@ -435,7 +435,7 @@ describe('BriefingChatsController (integration)', () => {
         },
       })
       expect(userMessages).toHaveLength(1)
-      expect(userMessages[0].content).toBe('original content')
+      expect(userMessages[0]?.content).toBe('original content')
     })
   })
 
@@ -465,10 +465,10 @@ describe('BriefingChatsController (integration)', () => {
         createdAt: string
       }>
       expect(messages).toHaveLength(2)
-      expect(messages[0].role).toBe(ChatMessageRole.user)
-      expect(messages[0].content).toBe('seeded user message')
-      expect(messages[1].role).toBe(ChatMessageRole.assistant)
-      expect(messages[1].content).toBe('seeded assistant reply')
+      expect(messages[0]?.role).toBe(ChatMessageRole.user)
+      expect(messages[0]?.content).toBe('seeded user message')
+      expect(messages[1]?.role).toBe(ChatMessageRole.assistant)
+      expect(messages[1]?.content).toBe('seeded assistant reply')
     })
 
     it('returns 401 when Authorization is invalid', async () => {

@@ -13,6 +13,7 @@ import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PrismaService } from 'src/prisma/prisma.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { WebsitesController } from './websites.controller'
 import { WebsitesService } from '../services/websites.service'
 import { WebsiteContactsService } from '../services/websiteContacts.service'
@@ -43,10 +44,25 @@ import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 const mockUser = createMockUser()
 const mockCampaign = createMockCampaign({ userId: mockUser.id })
 
+const GENUINE_BIO =
+  'Jordan Smith has served this community for over a decade, working ' +
+  'alongside neighbors to fix crumbling roads, expand access to ' +
+  'affordable housing, and keep local schools funded. As a small ' +
+  'business owner and parent, Jordan understands the everyday challenges ' +
+  'families face and has spent years volunteering with the local food ' +
+  'bank and youth mentorship programs. Jordan is running for city ' +
+  'council to bring practical, transparent leadership back to town hall, ' +
+  'focused on fixing potholes, supporting first responders, and making ' +
+  'sure every resident has a voice in decisions that affect their daily ' +
+  'lives. Jordan believes in listening first, showing up consistently, ' +
+  'and delivering results that make a measurable difference for working ' +
+  'families across every neighborhood in the district, not just the ' +
+  'ones with the loudest voices or the deepest pockets backing them.'
+
 const completeContent: PrismaJson.WebsiteContent = {
   main: { title: 'Smith for City Council' },
   about: {
-    bio: 'A real bio.',
+    bio: GENUINE_BIO,
     issues: [{ title: 'Issue 1', description: 'Description 1' }],
   },
   contact: {
@@ -383,6 +399,56 @@ describe('WebsitesController', () => {
       })
     })
 
+    it('rejects publish when the bio is the fallback template', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: {
+            ...completeContent.about,
+            bio:
+              '<p>X is a candidate in IA, running on local solutions ' +
+              'over party politics and committed to putting the ' +
+              'community first.</p>',
+          },
+        },
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('about.bio'),
+      })
+    })
+
+    it('rejects publish when issues are only the default', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: {
+            ...completeContent.about,
+            issues: [
+              {
+                title: 'Local Solutions, Not Party Politics',
+                description: 'focused on practical, community-first leadership',
+              },
+            ],
+          },
+        },
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('about.issues'),
+      })
+    })
+
     it('blocks publish when about.issues is empty', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {
@@ -443,6 +509,30 @@ describe('WebsitesController', () => {
       })
     })
 
+    it('blocks publish when a mixed array has an incomplete issue', async () => {
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: {
+            ...completeContent.about,
+            issues: [
+              { title: 'Real issue', description: 'Meaningful text.' },
+              { title: 'Incomplete', description: '' },
+            ],
+          },
+        },
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      await expect(
+        controller.updateWebsite(mockUser, mockCampaign, publishBody()),
+      ).rejects.toMatchObject({
+        status: HttpStatus.BAD_REQUEST,
+        message: expect.stringContaining('about.issues'),
+      })
+    })
+
     it('blocks publish when any contact field is missing', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: {
@@ -473,7 +563,7 @@ describe('WebsitesController', () => {
 
       const body = new UpdateWebsiteSchema()
       body.status = WebsiteStatus.published
-      body.about = { bio: 'Filling the missing bio in this request.' }
+      body.about = { bio: GENUINE_BIO }
 
       await controller.updateWebsite(mockUser, mockCampaign, body)
 
@@ -483,6 +573,26 @@ describe('WebsitesController', () => {
     it('allows publish when all required fields are populated', async () => {
       mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
         content: completeContent,
+        hasEverBeenPublished: false,
+        domain: { status: DomainStatus.submitted },
+      })
+
+      await controller.updateWebsite(mockUser, mockCampaign, publishBody())
+
+      expect(mockWebsitesService.update).toHaveBeenCalled()
+    })
+
+    it('allows publish with a short non-template bio (500-char bar is compliance-only)', async () => {
+      // The general website builder enforces its own 100-char minimum; the
+      // shared publish gate must not require the compliance 500-char bar.
+      mockWebsitesService.findUniqueOrThrow.mockResolvedValue({
+        content: {
+          ...completeContent,
+          about: {
+            ...completeContent.about,
+            bio: '<p>A short, genuine, candidate-written bio.</p>',
+          },
+        },
         hasEverBeenPublished: false,
         domain: { status: DomainStatus.submitted },
       })
@@ -504,7 +614,7 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, publishBody())
 
-      const updateCall = mockWebsitesService.update.mock.calls[0][0]
+      const updateCall = firstOrThrow(mockWebsitesService.update.mock.calls)[0]
       expect(updateCall.data.content.contact.address).toBe(
         '916 Silver Spur Rd, Rolling Hills Estates, CA 90274',
       )
@@ -523,7 +633,7 @@ describe('WebsitesController', () => {
 
       await controller.updateWebsite(mockUser, mockCampaign, publishBody())
 
-      const updateCall = mockWebsitesService.update.mock.calls[0][0]
+      const updateCall = firstOrThrow(mockWebsitesService.update.mock.calls)[0]
       expect(updateCall.data.content.contact.address).toBe(
         completeContent.contact!.address,
       )
@@ -641,7 +751,9 @@ describe('WebsitesController', () => {
 
       await controller.viewWebsite(vanityPath)
 
-      const { include } = mockWebsitesService.findUniqueOrThrow.mock.calls[0][0]
+      const { include } = firstOrThrow(
+        mockWebsitesService.findUniqueOrThrow.mock.calls,
+      )[0]
       expect(include.campaign.select.details).toBeUndefined()
       expect(include.campaign.select.user).toBeDefined()
     })
@@ -745,7 +857,9 @@ describe('WebsitesController', () => {
 
       await controller.getWebsiteByDomain(domain)
 
-      const { include } = mockWebsitesService.findUnique.mock.calls[0][0]
+      const { include } = firstOrThrow(
+        mockWebsitesService.findUnique.mock.calls,
+      )[0]
       expect(include.campaign.select.details).toBeUndefined()
       expect(include.campaign.select.user).toBeDefined()
     })

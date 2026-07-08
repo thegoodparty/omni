@@ -73,6 +73,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
 }
 
 export const Default: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -116,6 +117,7 @@ export const Default: Story = {
 }
 
 export const Confirm: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Dialog>
       <DialogTrigger asChild>
@@ -139,6 +141,7 @@ export const Confirm: Story = {
 }
 
 export const WithForm: Story = {
+  parameters: { controls: { disable: true } },
   render: () => (
     <Dialog>
       <DialogTrigger asChild>

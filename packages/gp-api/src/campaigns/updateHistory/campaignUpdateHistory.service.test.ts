@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
 import { Campaign, CampaignUpdateHistoryType } from '../../generated/prisma'
 import { CampaignUpdateHistoryService } from './campaignUpdateHistory.service'
-import { CampaignsService } from '../services/campaigns.service'
 
 const mockDeleteMany = vi.fn()
 const mockHistoryCreate = vi.fn()
@@ -30,10 +29,6 @@ const mockTransaction = vi.fn(
 
 const mockFindFirstOrThrow = vi.fn()
 
-const mockCampaignsService: Partial<CampaignsService> = {
-  update: vi.fn().mockResolvedValue({}),
-}
-
 const makeCampaign = (overrides: Partial<Campaign> = {}): Campaign =>
   ({
     id: 1,
@@ -54,9 +49,7 @@ describe('CampaignUpdateHistoryService', () => {
   let service: CampaignUpdateHistoryService
 
   beforeEach(() => {
-    service = new CampaignUpdateHistoryService(
-      mockCampaignsService as CampaignsService,
-    )
+    service = new CampaignUpdateHistoryService()
     Object.defineProperty(service, '_prisma', {
       get: () => ({
         campaignUpdateHistory: {},

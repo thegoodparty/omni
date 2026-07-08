@@ -9,14 +9,14 @@ import { z } from 'zod'
 // admin-only — see AdminPatchOrganizationDto.
 export class PatchOrganizationDto extends createZodDto(
   z.object({
-    ballotReadyPositionId: z.string().nullable().optional(),
+    ballotReadyPositionId: z.string().min(1).nullable().optional(),
     customPositionName: z.string().nullable().optional(),
   }),
 ) {}
 
 export class AdminPatchOrganizationDto extends createZodDto(
   z.object({
-    ballotReadyPositionId: z.string().nullable().optional(),
+    ballotReadyPositionId: z.string().min(1).nullable().optional(),
     overrideDistrictId: z.string().nullable().optional(),
     customPositionName: z.string().nullable().optional(),
   }),

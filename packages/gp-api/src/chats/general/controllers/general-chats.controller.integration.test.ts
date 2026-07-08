@@ -30,6 +30,19 @@ const createOrgAndElectedOffice = async (userId: number): Promise<Fixtures> => {
   return { slug, electedOffice }
 }
 
+const createOrgAndCampaign = async (
+  userId: number,
+): Promise<{ slug: string }> => {
+  const slug = `cam-${userId}-${Math.random().toString(36).slice(2, 10)}`
+  await service.prisma.organization.create({
+    data: { slug, ownerId: userId },
+  })
+  await service.prisma.campaign.create({
+    data: { organizationSlug: slug, slug, userId },
+  })
+  return { slug }
+}
+
 const buildStream =
   (
     chunks: ChatStreamChunk[],
@@ -106,9 +119,30 @@ describe('GeneralChatsController (integration)', () => {
       expect(row?.organizationSlug).toBe(fixtures.slug)
     })
 
-    it('requires the elected office header', async () => {
+    it('requires the organization slug header', async () => {
       const res = await service.client.post('/v1/chats', { scope: COS_SCOPE })
       expect(res.status).toBe(HttpStatus.NOT_FOUND)
+    })
+  })
+
+  describe('POST /v1/chats (campaign_assistant scope, Win candidate)', () => {
+    it('creates a conversation for a candidate with a campaign and no elected office', async () => {
+      const { slug } = await createOrgAndCampaign(service.user.id)
+      const camHeaders = { headers: { 'X-Organization-Slug': slug } }
+
+      const res = await service.client.post(
+        '/v1/chats',
+        { scope: ChatScope.campaign_assistant },
+        camHeaders,
+      )
+      expect(res.status).toBe(HttpStatus.CREATED)
+      expect(res.data.created).toBe(true)
+
+      const row = await service.prisma.chatConversation.findUnique({
+        where: { id: res.data.conversationId as string },
+      })
+      expect(row?.scope).toBe(ChatScope.campaign_assistant)
+      expect(row?.organizationSlug).toBe(slug)
     })
   })
 

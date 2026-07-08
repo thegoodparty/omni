@@ -166,6 +166,39 @@ describe('DistrictResolverService', () => {
     })
   })
 
+  describe('resolveByOrgSlug', () => {
+    it('returns null when no org exists for the slug', async () => {
+      const result = await resolver.resolveByOrgSlug('missing-slug')
+      expect(result).toBeNull()
+    })
+
+    it('returns null when the org has no positionId', async () => {
+      const org = await createOrg(service.user.id)
+      const result = await resolver.resolveByOrgSlug(org.slug)
+      expect(result).toBeNull()
+    })
+
+    it('resolves the district from the org position (no elected office)', async () => {
+      const org = await createOrg(service.user.id, { positionId: 'pos-cam' })
+      organizations.getDistrictForOrgSlug.mockResolvedValueOnce({
+        id: 'd-cam',
+        l2Type: 'City',
+        l2Name: 'Springfield',
+      })
+      elections.getPositionById.mockResolvedValueOnce({
+        id: 'pos-cam',
+        state: 'IL',
+      })
+
+      const result = await resolver.resolveByOrgSlug(org.slug)
+      expect(result).toEqual({
+        state: 'IL',
+        l2DistrictType: 'City',
+        l2DistrictName: 'Springfield',
+      })
+    })
+  })
+
   describe('toMandatoryFilters', () => {
     it('returns filters with state_postal_code and l2 district columns', () => {
       const filters = resolver.toMandatoryFilters({

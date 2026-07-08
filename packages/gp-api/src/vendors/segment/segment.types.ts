@@ -45,8 +45,16 @@ export const EVENTS = {
     ComplianceFormSubmitted: 'Voter Outreach - 10DLC Compliance Form Submitted',
     //  ⚠️  DO NOT MODIFY - Used by HubSpot workflows for 10DLC compliance tracking
     CompliancePinSubmitted: 'Voter Outreach - 10DLC Compliance PIN Submitted',
+    //  ⚠️  DO NOT MODIFY - Used by HubSpot to stamp PIN delivery channel +
+    //  destination on the company and trigger the "check your texts/email"
+    //  nudge. Fired once by the PIN-delivery detection sweep.
+    CompliancePinSent: 'Voter Outreach - 10DLC Compliance PIN Sent',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
+    // Carries peerlyIdentityId so Segment can stamp it onto the campaign's
+    // HubSpot company record. Peerly's 10DLC Slack notifications reference
+    // only this id, so it's the shared key Campaign Success matches on.
+    PeerlyIdentityIdCreated: 'Peerly Identity ID Created',
   },
   AiContent: {
     GenerationStarted: 'Content Builder: Generation Started',
@@ -91,6 +99,18 @@ export const EVENTS = {
   AiChat: {
     ResponseCompleted: 'AI Assistant - Response Completed',
     ResponseFailed: 'AI Assistant - Response Failed',
+  },
+  // Know Your Opponent (Win). SelfResearchCompleted is server-truth: it fires
+  // when the self-research agent job lands its findings and the pass reaches
+  // completed (the browser only sees the job start). ContrastUsed fires when a
+  // candidate routes an approved contrast into their Campaign Story or a draft
+  // texting Outreach — a DRAFT only, marking intent to use a contrast, not a
+  // send. ContrastEdited fires when the candidate edits a cleared or approved
+  // contrast's text before routing it.
+  RaceOpponent: {
+    SelfResearchCompleted: 'Win - Self Research Completed',
+    ContrastUsed: 'Win - Contrast Used',
+    ContrastEdited: 'Win - Contrast Edited',
   },
   // Community issues (Serve). The agent jobs generate the feed server-side; the
   // browser only sees a job *start*. These fire on job completion and carry the

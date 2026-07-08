@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTaskType } from '../../../generated/prisma'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
@@ -33,6 +34,12 @@ describe('WeeklyTasksDigestHandlerService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+
+    // handleWeeklyTasksDigest issues two queries (tracker cohort, then legacy
+    // cohort). Each test's mockResolvedValueOnce feeds the first (tracker)
+    // call; default the rest to [] so the legacy call is empty here. The
+    // cohort SQL itself is exercised in the integration test.
+    mockQueryRaw.mockResolvedValue([])
 
     service = new WeeklyTasksDigestHandlerService(
       mockAnalytics as AnalyticsService,
@@ -90,8 +97,9 @@ describe('WeeklyTasksDigestHandlerService', () => {
     })
 
     expect(mockAnalytics.track).toHaveBeenCalledOnce()
-    const [, , properties] = (mockAnalytics.track as ReturnType<typeof vi.fn>)
-      .mock.calls[0]
+    const [, , properties] = firstOrThrow(
+      (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls,
+    )
 
     expect(properties.plan_tasks_completed).toBe(1)
     expect(properties.plan_total_tasks).toBe(4)
@@ -134,8 +142,9 @@ describe('WeeklyTasksDigestHandlerService', () => {
       windowEnd: WINDOW_END,
     })
 
-    const [, , properties] = (mockAnalytics.track as ReturnType<typeof vi.fn>)
-      .mock.calls[0]
+    const [, , properties] = firstOrThrow(
+      (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls,
+    )
 
     expect(properties.task_name_1).toBe('T1')
     expect(properties.task_name_5).toBe('T5')
@@ -210,8 +219,9 @@ describe('WeeklyTasksDigestHandlerService', () => {
       windowEnd: WINDOW_END,
     })
 
-    const [, , properties] = (mockAnalytics.track as ReturnType<typeof vi.fn>)
-      .mock.calls[0]
+    const [, , properties] = firstOrThrow(
+      (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls,
+    )
 
     expect(properties.task_name_1).toBe('Outreach early')
     expect(properties.task_name_2).toBe('Education middle')
@@ -245,8 +255,9 @@ describe('WeeklyTasksDigestHandlerService', () => {
       windowEnd: WINDOW_END,
     })
 
-    const [, , properties] = (mockAnalytics.track as ReturnType<typeof vi.fn>)
-      .mock.calls[0]
+    const [, , properties] = firstOrThrow(
+      (mockAnalytics.track as ReturnType<typeof vi.fn>).mock.calls,
+    )
 
     expect(properties.task_name_1).toBe('Earliest')
     expect(properties.task_name_2).toBe('Middle')

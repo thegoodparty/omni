@@ -25,7 +25,6 @@ import {
   Send,
   Settings,
   Sparkles,
-  UserCog,
   UserRound,
   UsersRound,
   type LucideIcon,
@@ -123,7 +122,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     icon: <MdAccountCircle />,
     v2Icon: Circle,
     v2Category: null,
-    link: '/dashboard/campaign-details',
+    link: '/dashboard/profile',
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
   },
@@ -356,12 +355,21 @@ export const getDashboardMenuItems = (
   // the tab even before a plan exists: it hosts the "complete your story to
   // generate a plan" gate.
   if (campaignStrategyExists || campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_PLAN_MENU_ITEM)
+    // The story cohort gets the campaign tracker on this page, so label it as
+    // such; the legacy (story-off) cohort still sees the plan content there.
+    menuItems.splice(afterCampaignManager, 0, {
+      ...CAMPAIGN_PLAN_MENU_ITEM,
+      label: campaignStoryEnabled
+        ? 'Campaign Tracker'
+        : CAMPAIGN_PLAN_MENU_ITEM.label,
+    })
   }
 
   // Internal, read-only race-opponent page. Flag-gated so it can ramp to staff
-  // independently, and Pro-only like the page route itself.
-  if (knowYourOpponentEnabled && campaign?.isPro) {
+  // independently. Visible to flag-on non-Pro users too: the page renders a
+  // locked upgrade view rather than the feature, so the nav entry is gated on
+  // the flag only — the content is gated on isPro at the route.
+  if (knowYourOpponentEnabled) {
     menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
   }
 
@@ -473,18 +481,12 @@ const NewNavMenu = ({
       label: 'Profile',
       icon: CircleUserRound,
       id: 'nav-dash-profile',
-      href: '/dashboard/campaign-details',
+      href: '/dashboard/profile',
       onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
     },
-    settings: {
-      label: 'Settings',
-      icon: Settings,
-      id: 'nav-dash-settings',
-      href: '/dashboard/profile',
-    },
     account: {
-      label: 'Account',
-      icon: UserCog,
+      label: 'Account Settings',
+      icon: Settings,
       id: 'nav-dash-account',
       href: '/dashboard/account',
     },
@@ -598,7 +600,6 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
-                  {sidebarItem(accountManagementMenuItems.settings)}
                   {sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.logout)}
@@ -640,7 +641,6 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
-                  {dropDownItem(accountManagementMenuItems.settings)}
                   {dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.community)}

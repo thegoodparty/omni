@@ -6,6 +6,7 @@ import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceController } from './campaignTcrCompliance.controller'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
 import { ComplianceStateService } from './services/complianceState.service'
@@ -210,7 +211,7 @@ describe('CampaignTcrComplianceController', () => {
     it('accepts a payload with no websiteDomain', async () => {
       await controller.createAgenticTcrCompliance(mockCampaign, agenticDto)
 
-      const payload = mockTcrService.createAgentic.mock.calls[0][2]
+      const payload = firstOrThrow(mockTcrService.createAgentic.mock.calls)[2]
       expect(payload.websiteDomain).toBeUndefined()
     })
 
@@ -350,18 +351,6 @@ describe('CampaignTcrComplianceController', () => {
   })
 
   describe('submitToPeerly', () => {
-    const submitToPeerlyDto = {
-      ein: '12-3456789',
-      committeeName: 'Test Committee',
-      filingUrl: 'https://example.gov/filing',
-      email: 'test@example.com',
-      phone: '5555555555',
-      officeLevel: 'state' as const,
-      fecCommitteeId: undefined,
-      committeeType: CommitteeType.CANDIDATE,
-      websiteUrl: 'https://janedoe.com',
-    }
-
     it('delegates to service.submitToPeerlyForAgent and returns its output', async () => {
       const expectedOutput = {
         tcrComplianceId: 'tcr-1',
@@ -371,23 +360,21 @@ describe('CampaignTcrComplianceController', () => {
         peerlyVerificationId: 'cv-verif-1',
         stage: ComplianceStage.awaiting_pin,
         pinDeliveryChannels: {
-          email: submitToPeerlyDto.email,
-          phone: submitToPeerlyDto.phone,
+          email: 'test@example.com',
+          phone: '5555555555',
         },
       }
       mockTcrService.submitToPeerlyForAgent = vi
         .fn()
         .mockResolvedValue(expectedOutput)
 
-      const result = await controller.submitToPeerly(
-        mockCampaign,
-        submitToPeerlyDto,
-      )
+      const result = await controller.submitToPeerly(mockCampaign)
 
+      // No request body: the route sources every Peerly field from the
+      // persisted record, so it delegates with just the user + campaign.
       expect(mockTcrService.submitToPeerlyForAgent).toHaveBeenCalledWith(
         mockUser,
         mockCampaign,
-        submitToPeerlyDto,
       )
       expect(result).toEqual(expectedOutput)
     })
@@ -396,9 +383,9 @@ describe('CampaignTcrComplianceController', () => {
       mockUserService.findByCampaign.mockResolvedValue(null)
       mockTcrService.submitToPeerlyForAgent = vi.fn()
 
-      await expect(
-        controller.submitToPeerly(mockCampaign, submitToPeerlyDto),
-      ).rejects.toThrow('User not found for this campaign')
+      await expect(controller.submitToPeerly(mockCampaign)).rejects.toThrow(
+        'User not found for this campaign',
+      )
 
       expect(mockTcrService.submitToPeerlyForAgent).not.toHaveBeenCalled()
     })

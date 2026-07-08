@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   ChatConversation,
   ChatMessage,
@@ -309,7 +310,9 @@ const collect = async (
 
 const fakeTool: LlmStreamTool = {
   description: 'fake tool',
-  inputSchema: { parse: (v) => v } as unknown as LlmStreamTool['inputSchema'],
+  inputSchema: {
+    parse: <T>(v: T): T => v,
+  } as unknown as LlmStreamTool['inputSchema'],
   execute: (input) => input,
 }
 
@@ -400,6 +403,29 @@ describe('ChatStreamService', () => {
   })
 
   describe('happy path', () => {
+    it('folds a leading assistant greeting into the system prompt (user-first)', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content: "Hi, I'm your campaign manager.",
+      })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(service.stream(baseStreamArgs({ userMessage: 'hello' })))
+
+      const { messages } = firstOrThrow(llm.calls).options
+      // Anthropic requires the first non-system turn to be the user, so a seeded
+      // assistant greeting is folded into the system prompt, not sent as an
+      // invalid leading assistant turn.
+      expect(messages[0]?.role).toBe('system')
+      expect(String(messages[0]?.content)).toContain(
+        "Hi, I'm your campaign manager.",
+      )
+      expect(messages[1]?.role).toBe('user')
+      expect(messages.some((m) => m.role === 'assistant')).toBe(false)
+    })
+
     it('records appendMessage:user before streamChatCompletion', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([{ kind: 'text', delta: 'hi' }])
@@ -434,10 +460,10 @@ describe('ChatStreamService', () => {
       )
 
       expect(llm.calls).toHaveLength(1)
-      const sent = llm.calls[0].options.messages
+      const sent = firstOrThrow(llm.calls).options.messages
       const userMessages = sent.filter((m) => m.role === 'user')
       expect(userMessages).toHaveLength(1)
-      const first = userMessages[0]
+      const first = firstOrThrow(userMessages)
       expect(
         typeof first.content === 'string'
           ? first.content
@@ -475,7 +501,7 @@ describe('ChatStreamService', () => {
         (m) => m.role === ChatMessageRole.assistant,
       )
       expect(assistantRows).toHaveLength(1)
-      expect(assistantRows[0].content).toBe('Hello world')
+      expect(assistantRows[0]?.content).toBe('Hello world')
     })
 
     it('yields done chunk with assistantMessageId matching persisted row', async () => {
@@ -518,7 +544,7 @@ describe('ChatStreamService', () => {
 
       await collect(service.stream(baseStreamArgs({ userMessage: 'newest' })))
 
-      const sent = llm.calls[0].options.messages
+      const sent = firstOrThrow(llm.calls).options.messages
       const userMessages = sent.filter((m) => m.role === 'user')
       expect(userMessages.length).toBeLessThanOrEqual(MAX_CHAT_HISTORY_MESSAGES)
     })
@@ -698,7 +724,7 @@ describe('ChatStreamService', () => {
         service.stream(baseStreamArgs({ signal: controller.signal })),
       )
 
-      expect(llm.calls[0].options.abortSignal).toBe(controller.signal)
+      expect(llm.calls[0]?.options.abortSignal).toBe(controller.signal)
     })
   })
 
@@ -848,7 +874,7 @@ describe('ChatStreamService', () => {
         (m) => m.role === ChatMessageRole.assistant,
       )
       expect(assistantRows).toHaveLength(1)
-      expect(assistantRows[0].content).toBe('one two')
+      expect(assistantRows[0]?.content).toBe('one two')
     })
   })
 
@@ -888,7 +914,7 @@ describe('ChatStreamService', () => {
       )
 
       expect(traced).toHaveBeenCalledTimes(1)
-      const [name, fn, opts] = traced.mock.calls[0]
+      const [name, fn, opts] = firstOrThrow(traced.mock.calls)
       expect(name).toBe('briefing-chat-stream')
       expect(typeof fn).toBe('function')
       expect(opts).toMatchObject({
@@ -996,7 +1022,7 @@ describe('ChatStreamService', () => {
 
       await collect(service.stream(baseStreamArgs({ tools })))
 
-      expect(llm.calls[0].options.tools).toBe(tools)
+      expect(llm.calls[0]?.options.tools).toBe(tools)
     })
 
     it('forwards systemPrompt verbatim as first system message', async () => {
@@ -1007,8 +1033,8 @@ describe('ChatStreamService', () => {
       args.systemPrompt = 'YOU ARE TEST PROMPT'
       await collect(service.stream(args))
 
-      const sent = llm.calls[0].options.messages
-      const first = sent[0]
+      const sent = firstOrThrow(llm.calls).options.messages
+      const first = firstOrThrow(sent)
       expect(first.role).toBe('system')
       expect(first.content).toBe('YOU ARE TEST PROMPT')
     })
@@ -1035,7 +1061,7 @@ describe('ChatStreamService', () => {
         (m) => m.role === ChatMessageRole.assistant,
       )
       expect(assistantRows).toHaveLength(1)
-      expect(assistantRows[0].content).toBe(
+      expect(assistantRows[0]?.content).toBe(
         CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
       )
     })

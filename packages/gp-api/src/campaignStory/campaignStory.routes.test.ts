@@ -8,7 +8,7 @@ const service = useTestService()
 
 const STORY_URL = '/v1/campaigns/mine/story'
 const REWRITE_URL = '/v1/campaigns/mine/story/rewrite'
-const SAMPLE_WHY = 'Because nobody else would'
+const SAMPLE_BACKGROUND = 'Grew up here, ran a small business'
 const REWRITE_TEXT = 'i care about schools'
 
 describe('CampaignStory routes', () => {
@@ -40,23 +40,20 @@ describe('CampaignStory routes', () => {
 
       expect(result.status).toBe(200)
       expect(result.data).toEqual({
-        why: null,
         background: null,
-        issues: null,
       })
     })
 
     it('returns the saved story', async () => {
       await service.prisma.campaignStory.create({
-        data: { campaignId: campaign.id, why: 'I saw a gap' },
+        data: { campaignId: campaign.id, background: 'Grew up here' },
       })
 
       const result = await service.client.get(STORY_URL, {
         headers,
       })
 
-      expect(result.data.why).toBe('I saw a gap')
-      expect(result.data.background).toBeNull()
+      expect(result.data.background).toBe('Grew up here')
     })
   })
 
@@ -64,22 +61,22 @@ describe('CampaignStory routes', () => {
     it('creates the story on first write', async () => {
       const result = await service.client.put(
         STORY_URL,
-        { why: SAMPLE_WHY },
+        { background: SAMPLE_BACKGROUND },
         { headers },
       )
 
       expect(result.status).toBe(200)
-      expect(result.data.why).toBe(SAMPLE_WHY)
+      expect(result.data.background).toBe(SAMPLE_BACKGROUND)
 
       const row = await service.prisma.campaignStory.findUnique({
         where: { campaignId: campaign.id },
       })
-      expect(row?.why).toBe(SAMPLE_WHY)
+      expect(row?.background).toBe(SAMPLE_BACKGROUND)
     })
 
-    it('updates only the provided field, leaving others intact', async () => {
+    it('updates the background on an existing story', async () => {
       await service.prisma.campaignStory.create({
-        data: { campaignId: campaign.id, why: 'Original why' },
+        data: { campaignId: campaign.id, background: 'Original background' },
       })
 
       const result = await service.client.put(
@@ -88,21 +85,18 @@ describe('CampaignStory routes', () => {
         { headers },
       )
 
-      expect(result.data.why).toBe('Original why')
       expect(result.data.background).toBe('Grew up here')
     })
 
     it('strips unknown keys from the body', async () => {
       const result = await service.client.put(
         STORY_URL,
-        { why: 'kept', sneaky: 'dropped' },
+        { background: 'kept', sneaky: 'dropped' },
         { headers },
       )
 
       expect(result.data).toEqual({
-        why: 'kept',
-        background: null,
-        issues: null,
+        background: 'kept',
       })
     })
 
@@ -115,11 +109,11 @@ describe('CampaignStory routes', () => {
     it('trims whitespace-only input so it reads as empty', async () => {
       const result = await service.client.put(
         STORY_URL,
-        { why: '   ' },
+        { background: '   ' },
         { headers },
       )
 
-      expect(result.data.why).toBe('')
+      expect(result.data.background).toBe('')
     })
   })
 

@@ -16,6 +16,7 @@ import { useNavigationGuard } from 'next-navigation-guard'
 import { InfoCard } from '../../components/InfoCard'
 import { ErrorText } from '@/components/ErrorText'
 import { FormActions } from './FormActions'
+import { PositionNameEditor } from './PositionNameEditor'
 import { DistrictPicker } from '@/shared/district/DistrictPicker'
 import { updateCampaignDistrict } from '@/shared/district/district-actions'
 import {
@@ -28,7 +29,10 @@ import {
   BallotReadyPositionLevel,
   ElectionLevel,
 } from '@goodparty_org/sdk'
-import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+import type {
+  AdminOrganization,
+  CampaignWithLiveContext,
+} from '@goodparty_org/sdk'
 import {
   FORM_MODE,
   INPUT_TYPE,
@@ -139,6 +143,7 @@ function parseElectionYear(electionDate: string | null | undefined): number {
 
 interface CampaignFormProps {
   initialData: CampaignWithLiveContext
+  organization?: AdminOrganization | null
   initialDistrictType?: string
   initialDistrictName?: string
   onSave: (data: CombinedCampaignFormData) => void | Promise<void>
@@ -148,6 +153,7 @@ interface CampaignFormProps {
 
 export function CampaignForm({
   initialData,
+  organization,
   initialDistrictType,
   initialDistrictName,
   onSave,
@@ -400,16 +406,28 @@ export function CampaignForm({
 
         <InfoCard title={CAMPAIGN_FORM_SECTIONS.OFFICE}>
           <Flex direction="column" gap="4">
-            <Box>
-              <Text as="label" size="2" weight="medium" mb="1">
-                Position
-              </Text>
-              <TextField.Root value={positionName ?? ''} readOnly disabled />
-              <Text as="p" size="1" color="gray" mt="1">
-                Position is managed on the organization. Edit it from the
-                organization page.
-              </Text>
-            </Box>
+            {organization ? (
+              <PositionNameEditor
+                organizationSlug={organization.slug}
+                campaignId={initialData.id}
+                userId={initialData.userId}
+                initialCustomPositionName={
+                  organization.customPositionName ?? null
+                }
+                structuredPositionName={organization.position?.name ?? null}
+              />
+            ) : (
+              <Box>
+                <Text as="label" size="2" weight="medium" mb="1">
+                  Position
+                </Text>
+                <TextField.Root value={positionName ?? ''} readOnly disabled />
+                <Text as="p" size="1" color="gray" mt="1">
+                  This campaign has no organization record, so its position
+                  cannot be edited here.
+                </Text>
+              </Box>
+            )}
 
             {renderFields(OFFICE_TEXT_FIELDS)}
 

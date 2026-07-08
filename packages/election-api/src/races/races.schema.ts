@@ -2,7 +2,7 @@ import { Prisma } from '../generated/prisma'
 import { createZodDto } from 'nestjs-zod'
 import { candidacyColumns } from 'src/candidacies/candidacies.schema'
 import { placeColumns } from 'src/places/places.schema'
-import { STATE_CODES } from 'src/shared/constants/states'
+import { STATE_CODES } from '@goodparty_org/nest-common'
 import { toUpper } from 'src/shared/util/strings.util'
 import { z } from 'zod'
 

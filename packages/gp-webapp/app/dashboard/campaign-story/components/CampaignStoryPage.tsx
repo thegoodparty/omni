@@ -1,43 +1,85 @@
 'use client'
 
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import Paper from '@shared/utils/Paper'
 import H2 from '@shared/typography/H2'
-import { BookOpenIcon, Button } from '@styleguide'
+import { BookOpenIcon, Button, Card } from '@styleguide'
 import type { CampaignStory } from '@goodparty_org/contracts'
+import type { WebsiteIssue } from 'helpers/types'
+import { useSnackbar } from 'helpers/useSnackbar'
+import {
+  saveAboutFields,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
+import PolicyPriorities from 'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities'
+import { getBioPlainLength } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { CAMPAIGN_STORY_SECTIONS } from '../sections'
 import { isStoryFieldAnswered } from '../useCampaignStory'
-import type { CampaignStoryField } from './CampaignStoryCard'
 import CampaignStoryCard from './CampaignStoryCard'
+import CampaignStoryWhyCard from './CampaignStoryWhyCard'
 
 interface CampaignStoryPageProps {
   pathname?: string
   initialStory: CampaignStory
+  // The candidate's "why" (bio) and issues, sourced from their website (shared
+  // with the Pro-upgrade flow). Empty when they have no website yet.
+  initialBio: string
+  initialIssues: WebsiteIssue[]
+  // Whether campaign plan generation has already been kicked off (a strategy
+  // row exists), including via the campaign manager chat. When true the footer
+  // points to the plan instead of offering to generate it again.
+  planExists?: boolean
 }
-
-const answeredFromStory = (
-  story: CampaignStory,
-): Record<CampaignStoryField, boolean> => ({
-  why: isStoryFieldAnswered(story.why),
-  background: isStoryFieldAnswered(story.background),
-  issues: isStoryFieldAnswered(story.issues),
-})
 
 const CampaignStoryPage = ({
   pathname,
   initialStory,
+  initialBio,
+  initialIssues,
+  planExists = false,
 }: CampaignStoryPageProps): React.JSX.Element => {
-  // Seeded from the persisted story, then updated live as each card reports its
-  // answered-state on every keystroke — so the footer appears as soon as all
-  // three have content, without waiting for blur/save.
-  const [answered, setAnswered] = useState(() =>
-    answeredFromStory(initialStory),
-  )
-  const allAnswered = answered.why && answered.background && answered.issues
+  const { errorSnackbar } = useSnackbar()
+  const queryClient = useQueryClient()
+  // Seeded from the persisted story + website bio, then updated live as each
+  // card reports its answered-state on every keystroke — so the footer appears
+  // as soon as both have content, without waiting for a save. `why` is the
+  // website bio; `background` is the story field.
+  const [answered, setAnswered] = useState(() => ({
+    why: getBioPlainLength(initialBio) > 0,
+    background: isStoryFieldAnswered(initialStory.background),
+  }))
+  // Issues are the website issues; edited here via the shared PolicyPriorities
+  // editor and persisted to website.content.about.issues on every change
+  // (saveAboutFields creates the site on first write).
+  const [issues, setIssues] = useState<WebsiteIssue[]>(initialIssues)
+
+  // Persist on every change. saveAboutFields serializes overlapping writes and
+  // creates the website on first save, so no debounce/guard is needed here.
+  // On failure, revert to the pre-edit list so the UI (and the "ready" footer)
+  // reflects what's actually persisted rather than an unsaved optimistic edit.
+  const handleIssuesChange = (next: WebsiteIssue[]): void => {
+    const previous = issues
+    setIssues(next)
+    void saveAboutFields({ issues: next }).then((ok) => {
+      if (!ok) {
+        // Functional revert so a later overlapping edit isn't clobbered: only
+        // roll back if the state still shows this edit's optimistic value.
+        setIssues((current) => (current === next ? previous : current))
+        errorSnackbar('Could not save your issues. Please try again.')
+        return
+      }
+      // Invalidate the shared website cache the plan-tab gate reads, so freshly
+      // saved issues aren't hidden by a stale within-staleTime snapshot.
+      void queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    })
+  }
+
+  const allAnswered = answered.why && answered.background && issues.length > 0
 
   return (
     <FeatureFlagGuard flagKey={CAMPAIGN_STORY_FLAG_KEY}>
@@ -63,6 +105,15 @@ const CampaignStoryPage = ({
           </section>
 
           <div className="flex flex-col gap-6">
+            <CampaignStoryWhyCard
+              initialBio={initialBio}
+              onAnsweredChange={(value) =>
+                setAnswered((prev) =>
+                  prev.why === value ? prev : { ...prev, why: value },
+                )
+              }
+            />
+
             {CAMPAIGN_STORY_SECTIONS.map((section) => (
               <CampaignStoryCard
                 key={section.id}
@@ -70,23 +121,44 @@ const CampaignStoryPage = ({
                 initialValue={initialStory[section.id]}
                 onAnsweredChange={(value) =>
                   setAnswered((prev) =>
-                    prev[section.id] === value
+                    prev.background === value
                       ? prev
-                      : { ...prev, [section.id]: value },
+                      : { ...prev, background: value },
                   )
                 }
               />
             ))}
+
+            <Card className="p-6">
+              <div className="flex flex-col gap-1">
+                <h3 className="text-xl font-semibold text-foreground">
+                  Your Policies
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Two to four concrete fights for your first term. These are
+                  shared with your campaign website.
+                </p>
+              </div>
+              <PolicyPriorities
+                issues={issues}
+                onChange={handleIssuesChange}
+                hideToolbar
+              />
+            </Card>
           </div>
 
           {allAnswered && (
             <div className="sticky bottom-4 z-10 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-white p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
               <span className="text-sm font-medium text-foreground">
-                Your Campaign Story is ready.
+                {planExists
+                  ? 'Your Campaign Plan is on its way.'
+                  : 'Your Campaign Story is ready.'}
               </span>
               <Button asChild className="sm:shrink-0">
                 <Link href="/dashboard/campaign-plan">
-                  Generate my Campaign Plan
+                  {planExists
+                    ? 'View my Campaign Plan'
+                    : 'Generate my Campaign Plan'}
                 </Link>
               </Button>
             </div>

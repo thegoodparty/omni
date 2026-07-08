@@ -45,6 +45,12 @@ export type {
   ExperimentRunStatus,
   Eligibility,
   OrganizationStatus,
+  MeetingAgentDispatchKind,
+  DispatchMeetingAgentRequest,
+  DispatchMeetingAgentResult,
+  BriefingDispatchPreview,
+  CommunityIssuesDispatchRequest,
+  CommunityIssuesDispatchResult,
 } from '@goodparty_org/contracts'
 
 export {
@@ -103,7 +109,7 @@ export type {
 } from './types/briefing'
 
 export type {
-  Organization,
+  AdminOrganization,
   OrgDistrict,
   OrgPosition,
   OrganizationListItem,

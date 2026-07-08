@@ -1,16 +1,12 @@
 import { z } from 'zod'
-
-export const RACE_OPPONENT_SOURCE_TYPE_VALUES = [
-  'ballotpedia',
-  'opponent_website',
-  'campaign_plan_db',
-] as const
-export const RaceOpponentSourceTypeSchema = z.enum(
-  RACE_OPPONENT_SOURCE_TYPE_VALUES,
-)
-export type RaceOpponentSourceType = z.infer<
-  typeof RaceOpponentSourceTypeSchema
->
+import { zCoerceDate } from '../shared/Date.schema'
+import { RaceOpponentSourceTypeSchema } from './RaceOpponentSourceType.schema'
+import {
+  RaceOpponentFieldAnalysisSchema,
+  RaceOpponentSummarySchema,
+  RaceOpponentThreatTierSchema,
+} from './RaceOpponentSummary.schema'
+import { RaceOpponentStandoutActionSchema } from './RaceOpponentStandoutAction.schema'
 
 export const RaceOpponentSchema = z.object({
   id: z.number(),
@@ -20,7 +16,7 @@ export const RaceOpponentSchema = z.object({
   // Opaque in Phase 0: the as-collected payload's shape isn't known yet, so we
   // deliberately don't model it.
   content: z.unknown(),
-  collectedAt: z.coerce.date(),
+  collectedAt: zCoerceDate(),
 })
 export type RaceOpponent = z.infer<typeof RaceOpponentSchema>
 
@@ -46,10 +42,37 @@ export const RaceOpponentResponseSchema = z.object({
   opponents: z.array(
     z.object({
       opponentName: z.string(),
-      items: z.array(RaceOpponentSchema),
+      // Enriched from the campaign-strategy opponent roster by name match;
+      // null when the collected name doesn't match a roster row (don't guess).
+      party: z.string().nullable(),
+      isIncumbent: z.boolean().nullable(),
+      // Phase 3: surfaced on the opponent object (in addition to summary) so the
+      // roster can tier and order without opening the detail. Optional until an
+      // opponent has analysis.
+      threatTier: RaceOpponentThreatTierSchema.optional(),
+      // Raw per-source research rows. Sent only as the no-summary fallback the
+      // page renders when an opponent has no structured summary yet; once a
+      // summary exists these are redundant and gp-api omits them rather than
+      // shipping the full scraped page text (ENG-10622). Optional for that
+      // omit.
+      items: z.array(RaceOpponentSchema).optional(),
+      // Optional + nullable: ENG-10588 wires the producer to populate this from
+      // the race_opponent_summary step. Until then gp-api's get() omits the
+      // field, so it must be optional (not just nullable) to validate.
+      summary: RaceOpponentSummarySchema.nullish(),
+      // v2 (ENG-10630): populated from the opponent's roster/collected data;
+      // nullish so older gp-api payloads that predate this field still parse.
+      websiteUrl: z.string().nullish(),
     }),
   ),
-  lastCollectedAt: z.coerce.date().nullable(),
+  lastCollectedAt: zCoerceDate().nullable(),
   collectionStatus: RaceOpponentCollectionStatusSchema,
+  // v2 (ENG-10630): campaign-level SWOT, null until candidate_platform data is
+  // available; nullish so older gp-api payloads still parse.
+  fieldAnalysis: RaceOpponentFieldAnalysisSchema.nullish(),
+  // Phase 6 (ENG-10644/ENG-10647): stand-out action cards, empty array when
+  // the campaign has none. Defaulted rather than required so a producer that
+  // predates the field still parses while consumers always see an array.
+  standoutActions: z.array(RaceOpponentStandoutActionSchema).default([]),
 })
 export type RaceOpponentResponse = z.infer<typeof RaceOpponentResponseSchema>

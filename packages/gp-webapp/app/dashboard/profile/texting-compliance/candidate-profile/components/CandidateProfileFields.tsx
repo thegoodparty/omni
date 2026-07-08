@@ -1,7 +1,7 @@
 'use client'
 import { Alert, AlertDescription, CircleAlertIcon } from '@styleguide'
 import dynamic from 'next/dynamic'
-import { MIN_BIO_LENGTH } from '../candidateProfile.utils'
+import { MIN_BIO_LENGTH, WHY_RUNNING_PROMPT } from '../candidateProfile.utils'
 import type { CandidateProfileForm } from '../useCandidateProfileForm'
 import PolicyPriorities from './PolicyPriorities'
 
@@ -56,9 +56,10 @@ export default function CandidateProfileFields({
       )}
 
       <div>
-        <div className="mb-1.5 block text-sm font-medium">
-          Why are you running?
-        </div>
+        <div className="block text-sm font-medium">Your why</div>
+        <p className="mb-1.5 text-sm text-muted-foreground">
+          {WHY_RUNNING_PROMPT}
+        </p>
         {initialBio !== null && (
           <RichEditor
             initialText={initialBio}

@@ -314,6 +314,11 @@ export function createService({
       deploymentMinimumHealthyPercent: 100,
       deploymentMaximumPercent: 200,
       enableExecuteCommand: true,
+      // Propagate the task-definition's Project tag onto the running tasks so
+      // Fargate compute is attributed in Cost Explorer (tasks don't inherit
+      // task-def tags otherwise).
+      propagateTags: 'TASK_DEFINITION',
+      enableEcsManagedTags: true,
       waitForSteadyState: true,
     },
     { customTimeouts: { create: '5m', update: '5m' } },

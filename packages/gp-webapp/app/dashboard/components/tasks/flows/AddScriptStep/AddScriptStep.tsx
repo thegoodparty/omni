@@ -22,6 +22,7 @@ type AddScriptStepProps = {
   backCallback: () => void
   campaign: Campaign
   defaultAiTemplateId?: number | string
+  initialScriptText?: string
 }
 
 const AddScriptStep = ({
@@ -30,9 +31,12 @@ const AddScriptStep = ({
   backCallback,
   campaign,
   defaultAiTemplateId,
+  initialScriptText,
 }: AddScriptStepProps): React.JSX.Element => {
   const [currentScreen, setCurrentScreen] = useState<string | undefined>(
-    ADD_SCRIPT_FLOW.CHOOSE_FLOW,
+    initialScriptText
+      ? ADD_SCRIPT_FLOW.CREATE_SMS
+      : ADD_SCRIPT_FLOW.CHOOSE_FLOW,
   )
   const [aiTemplateKey, setAiTemplateKey] = useState('')
   const [aiScriptKey, setAiScriptKey] = useState<string | null>('')
@@ -124,6 +128,7 @@ const AddScriptStep = ({
     ),
     [ADD_SCRIPT_FLOW.CREATE_SMS]: (
       <CreateSmSScriptScreen
+        initialScriptText={initialScriptText}
         onBack={() => onBack(ADD_SCRIPT_FLOW.CHOOSE_FLOW)}
         onNext={(scriptText) => onComplete(scriptText)}
       />

@@ -52,7 +52,7 @@ export const UserAgendaFinalizeRequestSchema = z.discriminatedUnion('source', [
       // uploadId — never trust a client-supplied key, that's an IDOR vector.
       // .strict() below rejects any extra field (e.g. a smuggled uploadKey)
       // at the validation layer for fail-fast feedback.
-      uploadId: z.string().uuid(),
+      uploadId: z.guid(),
     })
     .strict(),
 ])

@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { ReadCampaignOutputSchema } from './ReadCampaignOutput.schema'
+import {
+  ReadCampaignOutputSchema,
+  type ReadCampaignOutput,
+} from './ReadCampaignOutput.schema'
 
 /**
  * Campaign list items are enriched with `positionName` (resolved from the
@@ -15,6 +18,10 @@ export const CampaignWithPositionNameSchema = ReadCampaignOutputSchema.extend({
   positionName: z.string().nullable(),
 })
 
-export type CampaignWithPositionName = z.infer<
-  typeof CampaignWithPositionNameSchema
->
+// The exported type intersects the hand-typed `ReadCampaignOutput` (which
+// overrides `data`/`details`/`aiContent` with their rich shapes) rather than the
+// schema's loose `z.infer`, so consumers keep strong typing on those fields. The
+// schema above stays the runtime source of truth for response validation.
+export type CampaignWithPositionName = ReadCampaignOutput & {
+  positionName: string | null
+}

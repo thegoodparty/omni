@@ -9,17 +9,37 @@ import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 
 interface AccountSettingsButtonProps {
   isPro: boolean
+  // Elected offices never see the Pro upgrade CTA. When elected and not
+  // subscribed, no button renders at all.
+  isElectedOffice?: boolean
+  // Stripe subscription id. A Pro account without one is in a "limbo" state
+  // (e.g. mid-cancellation) where the billing portal would error, so the
+  // manage-subscription control is hidden until a subscription exists.
+  subscriptionId?: string | null
 }
 
 export const AccountSettingsButton = ({
   isPro,
-}: AccountSettingsButtonProps): React.JSX.Element => {
-  return isPro ? (
-    <PaymentPortalButton>
-      Manage Subscription
-      <MdOpenInNew className="ml-2" />
-    </PaymentPortalButton>
-  ) : (
+  isElectedOffice = false,
+  subscriptionId,
+}: AccountSettingsButtonProps): React.JSX.Element | null => {
+  if (isPro) {
+    if (!subscriptionId) {
+      return null
+    }
+    return (
+      <PaymentPortalButton>
+        Manage Subscription
+        <MdOpenInNew className="ml-2" />
+      </PaymentPortalButton>
+    )
+  }
+
+  if (isElectedOffice) {
+    return null
+  }
+
+  return (
     <div>
       <Button asChild>
         <Link

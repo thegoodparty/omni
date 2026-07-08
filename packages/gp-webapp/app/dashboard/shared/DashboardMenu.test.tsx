@@ -159,6 +159,33 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
   })
 })
 
+describe('getDashboardMenuItems — Campaign Plan tab label', () => {
+  it('labels the item "Campaign Tracker" when campaignStoryEnabled is true', () => {
+    const items = links(proCampaign, { campaignStoryEnabled: true })
+    const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
+    expect(planItem?.label).toBe('Campaign Tracker')
+  })
+
+  it('labels the item "Campaign Plan" when campaignStoryEnabled is false', () => {
+    // Story off: the item only appears when a campaign strategy exists, so pass
+    // that flag (position 5) directly rather than via the `links` helper.
+    const items = getDashboardMenuItems(
+      proCampaign,
+      false, // serveAccessEnabled
+      false, // isElectedOffice
+      false, // isElectedOfficeLoading
+      true, // campaignStrategyExists
+      true, // winVoterDataReady
+      false, // winVoterDataEnabled
+      false, // campaignStoryEnabled
+      false, // communityIssuesEnabled
+      false, // knowYourOpponentEnabled
+    )
+    const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
+    expect(planItem?.label).toBe('Campaign Plan')
+  })
+})
+
 describe('getDashboardMenuItems — Website tab retired (ENG-10505)', () => {
   it('never includes the Website nav item for a pro campaign', () => {
     const items = links(proCampaign)
@@ -187,9 +214,9 @@ describe('getDashboardMenuItems — Know your opponent nav gating', () => {
     expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(false)
   })
 
-  it('hides the nav item for a non-pro campaign even when the flag is on', () => {
+  it('shows the nav item for a non-pro campaign when the flag is on (content is gated at the route, not the nav)', () => {
     const items = links(freeCampaign, { knowYourOpponentEnabled: true })
-    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(false)
+    expect(items.some((i) => i.id === 'race-opponent-dashboard')).toBe(true)
   })
 })
 

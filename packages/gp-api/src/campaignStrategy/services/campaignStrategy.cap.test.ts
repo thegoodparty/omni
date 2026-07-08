@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import {
   BadRequestException,
   InternalServerErrorException,
@@ -53,12 +54,24 @@ describe('CampaignStrategyService', () => {
   }
   let s3: { getFile: ReturnType<typeof vi.fn> }
   let analytics: { track: ReturnType<typeof vi.fn> }
+  let trackerTasks: {
+    bootstrapForCampaign: ReturnType<typeof vi.fn>
+    materializeStaticTasks: ReturnType<typeof vi.fn>
+  }
   let prisma: {
-    campaignStrategy: Record<string, ReturnType<typeof vi.fn>>
-    campaignStrategyOpportunity: Record<string, ReturnType<typeof vi.fn>>
-    campaignStrategyChallenge: Record<string, ReturnType<typeof vi.fn>>
-    campaignStrategyOpponent: Record<string, ReturnType<typeof vi.fn>>
-    campaign: Record<string, ReturnType<typeof vi.fn>>
+    campaignStrategy: {
+      upsert: ReturnType<typeof vi.fn>
+      findUnique: ReturnType<typeof vi.fn>
+      findUniqueOrThrow: ReturnType<typeof vi.fn>
+      update: ReturnType<typeof vi.fn>
+      updateMany: ReturnType<typeof vi.fn>
+      findFirst: ReturnType<typeof vi.fn>
+    }
+    campaignStrategyOpportunity: { deleteMany: ReturnType<typeof vi.fn> }
+    campaignStrategyChallenge: { deleteMany: ReturnType<typeof vi.fn> }
+    campaignStrategyOpponent: { deleteMany: ReturnType<typeof vi.fn> }
+    campaign: { findUnique: ReturnType<typeof vi.fn> }
+    campaignStory: { findUnique: ReturnType<typeof vi.fn> }
     $transaction: ReturnType<typeof vi.fn>
   }
 
@@ -87,6 +100,10 @@ describe('CampaignStrategyService', () => {
     }
     s3 = { getFile: vi.fn() }
     analytics = { track: vi.fn().mockResolvedValue(undefined) }
+    trackerTasks = {
+      bootstrapForCampaign: vi.fn().mockResolvedValue(undefined),
+      materializeStaticTasks: vi.fn().mockResolvedValue(0),
+    }
     prisma = {
       campaignStrategy: {
         upsert: vi.fn().mockResolvedValue(planRow()),
@@ -107,6 +124,9 @@ describe('CampaignStrategyService', () => {
       },
       campaign: {
         findUnique: vi.fn().mockResolvedValue({ userId: 7 }),
+      },
+      campaignStory: {
+        findUnique: vi.fn().mockResolvedValue({ id: 1, campaignId: 99 }),
       },
       // Supports both the array form and the interactive (callback) form,
       // handing the same mock delegates in as the tx client.
@@ -129,6 +149,7 @@ describe('CampaignStrategyService', () => {
       { getRaceContext: vi.fn() } as never,
       { getZipCodesByRaceId: vi.fn() } as never,
       analytics as never,
+      trackerTasks as never,
     )
     Object.defineProperty(service, '_prisma', { value: prisma })
     Object.assign(service, {
@@ -244,6 +265,29 @@ describe('CampaignStrategyService', () => {
         generationStartedAt: expect.any(Date),
       },
     })
+  })
+
+  it('materializes tracker static tasks at generation start for the story cohort', async () => {
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(campaign())
+
+    // Static rows are materialized eagerly (story exists) so the tracker renders
+    // without waiting for the CAP-completion bootstrap.
+    expect(trackerTasks.materializeStaticTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('skips static materialization when the campaign has no story (legacy)', async () => {
+    prisma.campaignStory.findUnique.mockResolvedValueOnce(null)
+    experimentRuns.dispatchRun
+      .mockResolvedValueOnce({ runId: 'opp-run' })
+      .mockResolvedValueOnce({ runId: 'oc-run' })
+
+    await service.getOrGenerateStrategicLandscape(campaign())
+
+    expect(trackerTasks.materializeStaticTasks).not.toHaveBeenCalled()
   })
 
   it('reports failed (not generating) when NO dispatch produces a run', async () => {
@@ -510,6 +554,32 @@ describe('CampaignStrategyService', () => {
     expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
   })
 
+  it('stays generating without re-dispatching while a run is SUPERSEDED', async () => {
+    prisma.campaignStrategy.upsert.mockResolvedValue(
+      planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
+    )
+    const runsById: Record<string, unknown> = {
+      'opp-run': run({
+        runId: 'opp-run',
+        status: ExperimentRunStatus.COMPLETED,
+      }),
+      'oc-run': run({
+        runId: 'oc-run',
+        status: ExperimentRunStatus.SUPERSEDED,
+      }),
+    }
+    experimentRuns.findUnique.mockImplementation(
+      (args: { where: { runId: string } }) =>
+        Promise.resolve(runsById[args.where.runId] ?? null),
+    )
+
+    const res = await service.getOrGenerateStrategicLandscape(campaign())
+
+    expect(res).toEqual({ status: 'generating' })
+    expect(params.build).not.toHaveBeenCalled()
+    expect(experimentRuns.dispatchRun).not.toHaveBeenCalled()
+  })
+
   it('re-dispatches a section whose previous run FAILED', async () => {
     prisma.campaignStrategy.upsert.mockResolvedValue(
       planRow({ oppositionRunId: 'opp-run', opportunitiesRunId: 'oc-run' }),
@@ -717,6 +787,45 @@ describe('CampaignStrategyService', () => {
     expect(persister.persistOpponents).not.toHaveBeenCalled()
   })
 
+  describe('tracker bootstrap gating on campaign story', () => {
+    beforeEach(() => {
+      // Plan fully persisted so the plan-complete check passes and we reach the
+      // story gate. findFirst is hit twice: to locate the plan by runId, then
+      // again inside the bootstrap to re-read its persisted stamps.
+      prisma.campaignStrategy.findFirst.mockResolvedValue(
+        planRow({
+          oppositionRunId: 'opp-run',
+          oppositionPersistedAt: new Date(),
+          opportunitiesPersistedAt: new Date(),
+        }),
+      )
+      s3.getFile.mockResolvedValue(JSON.stringify({ opponents: [] }))
+    })
+
+    it('does not bootstrap the tracker when the campaign has no story', async () => {
+      prisma.campaignStory.findUnique.mockResolvedValue(null)
+
+      await service.onExperimentRunCompleted(
+        run({ runId: 'opp-run', experimentType: 'opposition_research' }),
+      )
+
+      expect(trackerTasks.bootstrapForCampaign).not.toHaveBeenCalled()
+    })
+
+    it('bootstraps the tracker once the campaign has a story', async () => {
+      prisma.campaignStory.findUnique.mockResolvedValue({
+        id: 1,
+        campaignId: 99,
+      })
+
+      await service.onExperimentRunCompleted(
+        run({ runId: 'opp-run', experimentType: 'opposition_research' }),
+      )
+
+      expect(trackerTasks.bootstrapForCampaign).toHaveBeenCalledTimes(1)
+    })
+  })
+
   describe('race change alignment', () => {
     it('resets content in place and regenerates when the campaign race changed', async () => {
       prisma.campaignStrategy.upsert.mockResolvedValue(
@@ -765,7 +874,9 @@ describe('CampaignStrategyService', () => {
         }),
       })
       // Attempt counters survive the reset — they bound lifetime spend.
-      const resetData = prisma.campaignStrategy.updateMany.mock.calls[0][0].data
+      const resetData = firstOrThrow(
+        prisma.campaignStrategy.updateMany.mock.calls,
+      )[0].data
       expect(resetData).not.toHaveProperty('oppositionAttempts')
       expect(resetData).not.toHaveProperty('opportunitiesAttempts')
       expect(analytics.track).toHaveBeenCalledWith(

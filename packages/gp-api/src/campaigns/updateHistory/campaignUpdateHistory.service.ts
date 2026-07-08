@@ -1,22 +1,13 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common'
-import { CampaignsService } from '../services/campaigns.service'
+import { Injectable } from '@nestjs/common'
 import { CreateUpdateHistorySchema } from './schemas/createUpdateHistory.schema'
 import { Campaign } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { WrapperType } from 'src/shared/types/utility.types'
 import { VOTER_GOALS_ADVISORY_LOCK_KEY } from '../campaigns.consts'
 
 @Injectable()
 export class CampaignUpdateHistoryService extends createPrismaBase(
   MODELS.CampaignUpdateHistory,
 ) {
-  constructor(
-    @Inject(forwardRef(() => CampaignsService))
-    private readonly campaigns: WrapperType<CampaignsService>,
-  ) {
-    super()
-  }
-
   async create(
     { id: campaignId, userId }: Campaign,
     { type, quantity }: CreateUpdateHistorySchema,

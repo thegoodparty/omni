@@ -24,6 +24,7 @@ import { AiContentService } from 'src/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { AiGenerationService } from 'src/campaigns/tasks/services/aiGeneration.service'
 import { CampaignTasksService } from 'src/campaigns/tasks/services/campaignTasks.service'
+import { CampaignTrackerTasksService } from 'src/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { PersonOutput } from 'src/contacts/schemas/person.schema'
 import { SampleContacts } from 'src/contacts/schemas/sampleContacts.schema'
 import { ContactsService } from 'src/contacts/services/contacts.service'
@@ -32,6 +33,8 @@ import { MeetingBriefingsService } from 'src/meetings/services/meetingBriefings.
 import { CommunityIssueService } from 'src/communityIssues/services/communityIssue.service'
 import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignStrategy.service'
 import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
+import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
+import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -88,6 +91,7 @@ type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
 const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
   ExperimentRunStatus.COMPLETED,
   ExperimentRunStatus.FAILED,
+  ExperimentRunStatus.SUPERSEDED,
 ]
 
 const buildIssueProperties = (
@@ -121,6 +125,7 @@ export class QueueConsumerService {
     private readonly campaignsService: CampaignsService,
     private readonly aiGenerationService: AiGenerationService,
     private readonly campaignTasksService: CampaignTasksService,
+    private readonly campaignTrackerTasks: CampaignTrackerTasksService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
     private readonly domainsService: DomainsService,
     private readonly pollsService: PollsService,
@@ -137,7 +142,9 @@ export class QueueConsumerService {
     private readonly communityIssue: CommunityIssueService,
     private readonly campaignStrategy: CampaignStrategyService,
     private readonly raceOpponent: RaceOpponentPersistService,
+    private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
     private readonly annotationAttachments: AnnotationAttachmentService,
+    private readonly ordinanceCodePersist: OrdinanceCodePersistService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -707,6 +714,7 @@ export class QueueConsumerService {
 
     for (const [, groupRows] of Object.entries(groups)) {
       const first = groupRows[0]
+      if (!first) continue
       const { phoneNumber, originalMessage, receivedAt } = first
       const isOptOut = groupRows.some((r) => Boolean(r.isOptOut))
       const hasClusterId = groupRows.some(
@@ -1056,11 +1064,21 @@ export class QueueConsumerService {
     // backstop), not from the requeue. onExperimentRunCompleted is a no-op for
     // non-campaign-strategy runs, so this only throws on a real persist failure.
     await this.campaignStrategy.onExperimentRunCompleted(updatedRun)
+    await this.campaignTrackerTasks.onExperimentRunCompleted(updatedRun)
 
     // Same contract as campaignStrategy above: markFailed-then-throw on a
     // persist fault, no-op for other experiment types, and the persist is an
     // idempotent replace so bounded redelivery is safe.
     await this.raceOpponent.onExperimentRunCompleted(updatedRun)
+
+    // Self-research persists on COMPLETED and flips the research row to failed
+    // on FAILED, so it is called for both terminal states (not just COMPLETED).
+    // Same markFailed-then-throw + idempotent-replace contract as above.
+    await this.raceOpponentResearch.onExperimentRunCompleted(updatedRun)
+
+    // Same contract again: markFailed-then-throw on a persist fault, no-op for
+    // other experiment types, idempotent under bounded redelivery.
+    await this.ordinanceCodePersist.onExperimentRunCompleted(updatedRun)
 
     return true
   }
@@ -1270,7 +1288,7 @@ export class QueueConsumerService {
   }
 }
 
-const csvEscape = (value) => {
+const csvEscape = (value: PersonOutput[keyof PersonOutput]) => {
   if (value === null || value === undefined) return ''
   const str = String(value)
   const mustQuote = /[",\n]/.test(str)

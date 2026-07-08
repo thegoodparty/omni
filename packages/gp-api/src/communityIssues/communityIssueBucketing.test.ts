@@ -47,7 +47,7 @@ describe('bucketForSlug', () => {
     const counts = new Array<number>(7).fill(0)
     for (const slug of slugs) {
       const bucket = bucketForSlug(slug, 7)
-      counts[bucket]++
+      counts[bucket] = (counts[bucket] ?? 0) + 1
     }
     // Each bucket should have at least 1 hit — no bucket completely empty
     for (const count of counts) {
@@ -60,7 +60,7 @@ describe('bucketForSlug', () => {
     const counts = new Array<number>(28).fill(0)
     for (const slug of slugs) {
       const bucket = bucketForSlug(slug, 28)
-      counts[bucket]++
+      counts[bucket] = (counts[bucket] ?? 0) + 1
     }
     // Each bucket should have at least 1 hit
     for (const count of counts) {

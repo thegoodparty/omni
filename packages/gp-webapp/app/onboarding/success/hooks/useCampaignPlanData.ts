@@ -52,6 +52,11 @@ export interface CampaignPlanData {
 // both entry points.
 export const useCampaignPlanData = (
   initialUser: User | null,
+  // Community events are a story-off (legacy) plan section only. The dashboard
+  // gates this on the campaign-story flag so the story-on cohort, whose events
+  // come from the campaign tracker, never polls the legacy endpoint. The
+  // success page is story-off-only and leaves it on.
+  communityEventsEnabled = true,
 ): CampaignPlanData => {
   const [clientUser] = useUser()
   const user = clientUser ?? initialUser
@@ -63,10 +68,12 @@ export const useCampaignPlanData = (
     .join(' ')
     .trim()
   const metrics = campaign?.raceTargetMetrics
-  // Prefer election-api's officialOfficeName when present — it matches the
-  // BR canonical office name and is what voters will see on the ballot.
+  // officialOfficeName is deliberately NOT used here: despite its name it is
+  // a Civics/HubSpot taxonomy label (DATA-1922), not the ballot name — e.g. a
+  // Denver (consolidated city-county) council race classifies as "County
+  // Legislature//Executive Board". positionName is the BR-derived name the
+  // candidate actually picked.
   const race =
-    metrics?.officialOfficeName ||
     campaign?.positionName ||
     campaign?.organization?.customPositionName ||
     campaign?.office ||
@@ -74,9 +81,7 @@ export const useCampaignPlanData = (
   // Place-qualified position name ("Cook County Sheriff"), the same string
   // family the onboarding snapshot froze — but resolved by gp-api from the
   // org's CURRENT position pointer on every campaign fetch, so it tracks
-  // race edits. officialOfficeName is deliberately not in this chain: it's
-  // the bare ballot text ("County Sheriff"), wrong for the voter-insights
-  // headline.
+  // race edits.
   const currentPositionName =
     campaign?.positionName ||
     campaign?.organization?.customPositionName ||
@@ -121,7 +126,7 @@ export const useCampaignPlanData = (
   // Section 7 community events — same polling shape as strategy. Pre-warm
   // fires after office submit in onboarding, so the cache is usually warm
   // by the time the user lands here.
-  const events = useCommunityEvents()
+  const events = useCommunityEvents(communityEventsEnabled)
   // The BR position ID is in-memory on `answers.structuredOffice.positionId`
   // during onboarding. After pledge submit, `OnboardingFlow` persists the
   // whole `answers` object under `campaign.data.onboarding`, so it survives
@@ -167,11 +172,11 @@ export const useCampaignPlanData = (
   // `LocalNewsSourcesSection` sent (from
   // `answers.structuredOffice.{positionName, city, state}`), otherwise
   // React Query cold-misses and gp-api re-runs the expensive outlet
-  // generation. The success page's polished `race` is election-api's
-  // `officialOfficeName` (e.g. "Anytown Council"), which differs from
-  // BR's `positionName` ("City Council Member") that onboarding used —
-  // so pull from `onboardingStructuredOffice` first, falling back to
-  // the existing chain for manual-office-entry candidates.
+  // generation. The success page's `race` is the place-qualified
+  // positionName, which can differ from the bare
+  // `structuredOffice.positionName` onboarding sent — so pull from
+  // `onboardingStructuredOffice` first, falling back to the existing
+  // chain for manual-office-entry candidates.
   //
   // The voter-issues query and `voterInsightsContext` deliberately do
   // NOT use this tuple — see the comment on `voterIssuesQuery`.

@@ -9,22 +9,22 @@ If logic only runs once and lives elsewhere, it doesn't belong here. If it's reu
 
 ## Key files
 
-| Path                                                              | Purpose                                                                                                                       |
-| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `build-contracts.ts`                                              | Skips contract rebuild when `dist/` is fresher than `src/`; runs on `start:dev`, `build`, etc.                                |
-| `check-pending-migrations.ts`                                     | Boots-time warning banner if `prisma migrate status` reports unapplied migrations                                             |
-| `generate-route-types.ts`                                         | Walks `src/**/*.controller.ts` and emits a route-name → method/path map                                                       |
-| `generate-agent-job-types.ts`                                     | Compiles `packages/runbooks/experiments/*/manifest.json` schemas → `src/generated/agent-job-contracts.ts` (local read, no S3) |
-| `migrate-clean.ts` / `migrate-logger.ts`                          | Custom Prisma migrate wrappers used by `npm run migrate:*`                                                                    |
-| `aws-setup.sh` / `setup-readonly-role.sh`                         | Bash helpers for first-time AWS setup; not used in CI                                                                         |
-| `10dlc-status-drift-report.ts`                                    | Compares Peerly TCR state against our DB; one-shot operational                                                                |
+| Path                                                              | Purpose                                                                                                                            |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `build-contracts.ts`                                              | Skips contract rebuild when `dist/` is fresher than `src/`; runs on `start:dev`, `build`, etc.                                     |
+| `check-pending-migrations.ts`                                     | Boots-time warning banner if `prisma migrate status` reports unapplied migrations                                                  |
+| `generate-route-types.ts`                                         | Walks `src/**/*.controller.ts` and emits a route-name → method/path map                                                            |
+| `generate-agent-job-types.ts`                                     | Compiles `packages/runbooks/experiments/*/manifest.json` schemas → `src/generated/agent-job-contracts.ts` (local read, no S3)      |
+| `migrate-clean.ts` / `migrate-logger.ts`                          | Custom Prisma migrate wrappers used by `npm run migrate:*`                                                                         |
+| `aws-setup.sh` / `setup-readonly-role.sh`                         | Bash helpers for first-time AWS setup; not used in CI                                                                              |
+| `10dlc-status-drift-report.ts`                                    | Compares Peerly TCR state against our DB; one-shot operational                                                                     |
 | `requeue-stranded-compliance-runs.ts`                             | Flips compliance_setup runs stuck FAILED at `pending_website_live` back to AWAITING_RESUME (dry-run default, `--execute` to apply) |
-| `backfill-voter-file-filter-orgs.ts`                              | Migration helper for the org-scoping change on `VoterFileFilter`                                                              |
-| `find-stale-preview-stacks.ts`                                    | Lists Pulumi preview stacks with no matching open PR                                                                          |
-| `dispatch-experiment.ts` / `trigger-poll.ts` / `complete-poll.ts` | Manual queue producers for testing async flows                                                                                |
-| `test-weekly-tasks-digest-event.ts`                               | Locally fires the weekly tasks digest handler                                                                                 |
-| `output/`                                                         | Generated artefacts (e.g. agent metadata sync); gitignored content                                                            |
-| `*.sql`                                                           | Read-only diagnostic queries (run via `psql`, not from app code)                                                              |
+| `backfill-voter-file-filter-orgs.ts`                              | Migration helper for the org-scoping change on `VoterFileFilter`                                                                   |
+| `find-stale-preview-stacks.ts`                                    | Lists Pulumi preview stacks with no matching open PR                                                                               |
+| `dispatch-experiment.ts` / `trigger-poll.ts` / `complete-poll.ts` | Manual queue producers for testing async flows                                                                                     |
+| `test-weekly-tasks-digest-event.ts`                               | Locally fires the weekly tasks digest handler                                                                                      |
+| `output/`                                                         | Generated artefacts (e.g. agent metadata sync); gitignored content                                                                 |
+| `*.sql`                                                           | Read-only diagnostic queries (run via `psql`, not from app code)                                                                   |
 
 ## Patterns
 

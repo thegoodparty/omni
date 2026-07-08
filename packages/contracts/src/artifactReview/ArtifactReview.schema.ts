@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { zCoerceDate } from '../shared/Date.schema'
 import { ArtifactReviewVerdictSchema } from '../generated/enums'
 
 // Current pass/fail verdict on a reviewable artifact (briefings today).
@@ -7,7 +8,7 @@ export const ArtifactReviewSchema = z.object({
   verdict: ArtifactReviewVerdictSchema,
   failReason: z.string().nullable(),
   reviewerEmail: z.string().nullable(),
-  reviewedAt: z.coerce.date(),
+  reviewedAt: zCoerceDate(),
 })
 export type ArtifactReview = z.infer<typeof ArtifactReviewSchema>
 

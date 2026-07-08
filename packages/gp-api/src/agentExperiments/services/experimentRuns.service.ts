@@ -25,7 +25,7 @@ export type ExperimentRunDispatchInput<
 > = {
   type: ExperimentType
   organizationSlug: string
-  clerkUserId: string
+  clerkUserId: string | undefined
   params: AgentJobContracts[ExperimentType]['Input']
   priority?: DispatchPriority
 }
@@ -86,7 +86,7 @@ export class ExperimentRunsService extends createPrismaBase(
       runId: string
       organizationSlug: string
       experimentType: string
-      clerkUserId: string
+      clerkUserId: string | undefined
       params: unknown
       priority: DispatchPriority
     },
@@ -111,7 +111,7 @@ export class ExperimentRunsService extends createPrismaBase(
   private async createAndEnqueueRun(input: {
     experimentType: string
     organizationSlug: string
-    clerkUserId: string
+    clerkUserId: string | undefined
     params: Prisma.InputJsonValue
     priority?: DispatchPriority
     resumeAttempts?: number
@@ -308,7 +308,10 @@ export class ExperimentRunsService extends createPrismaBase(
 
     // A successor run was created; terminalize the old row so it can't linger
     // forever as a non-terminal orphan (the resume sweep ignores a null
-    // resumeScheduledFor, and the stale sweep only touches RUNNING).
+    // resumeScheduledFor, and the stale sweep only touches RUNNING). SUPERSEDED
+    // (not FAILED): the predecessor did real work (e.g. bought the domain +
+    // published the site) and handed off to its successor — it is not an error,
+    // so the admin renders it as a benign "Part 1 completed", not a red failure.
     try {
       await this.model.updateMany({
         where: {
@@ -316,7 +319,7 @@ export class ExperimentRunsService extends createPrismaBase(
           status: ExperimentRunStatus.AWAITING_RESUME,
         },
         data: {
-          status: ExperimentRunStatus.FAILED,
+          status: ExperimentRunStatus.SUPERSEDED,
           error: 'Superseded by resumed run',
         },
       })

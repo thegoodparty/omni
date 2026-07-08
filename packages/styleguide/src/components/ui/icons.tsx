@@ -1,4 +1,9 @@
 export {
+  Swords as SwordsIcon,
+  ChartColumn as ChartColumnIcon,
+  Scale as ScaleIcon,
+  Building2 as Building2Icon,
+  UserCheck as UserCheckIcon,
   AlignCenter as AlignCenterIcon,
   EllipsisVertical as EllipsisVerticalIcon,
   Eye as EyeIcon,
@@ -29,6 +34,8 @@ export {
   CircleAlert as CircleAlertIcon,
   CircleUserRound as CircleUserRoundIcon,
   ClipboardList as ClipboardListIcon,
+  ThumbsDown as ThumbsDownIcon,
+  ThumbsUp as ThumbsUpIcon,
   Copy as CopyIcon,
   Crop as CropIcon,
   Download as DownloadIcon,
@@ -92,4 +99,6 @@ export {
   WandSparkles as WandSparklesIcon,
   ListChecks as ListChecksIcon,
   RotateCw as RefreshIcon,
+  TrendingUp as TrendingUpIcon,
+  OctagonAlert as OctagonAlertIcon,
 } from 'lucide-react'

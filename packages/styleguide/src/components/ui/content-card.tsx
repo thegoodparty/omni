@@ -99,9 +99,9 @@ function ContentCard({
       {children ? <div className="w-full">{children}</div> : null}
 
       {hasActions ? (
-        <div className="flex w-full flex-col items-stretch gap-4 pt-2 min-[600px]:flex-row min-[600px]:items-center min-[600px]:justify-end">
-          {renderAction(secondaryAction, 'neutral')}
+        <div className="flex w-full flex-col items-stretch gap-4 pt-2 min-[600px]:flex-row-reverse min-[600px]:items-center min-[600px]:justify-start">
           {renderAction(primaryAction, 'default')}
+          {renderAction(secondaryAction, 'neutral')}
         </div>
       ) : null}
     </Card>

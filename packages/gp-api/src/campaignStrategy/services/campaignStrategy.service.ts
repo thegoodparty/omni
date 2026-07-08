@@ -42,6 +42,7 @@ import { StrategicLandscapeParamsService } from './strategicLandscapeParams.serv
 import { StrategicLandscapePersister } from './strategicLandscape.persister'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
+import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { isTestCampaign } from '@/users/util/users.util'
 
 const OPPOSITION = 'opposition_research'
@@ -189,6 +190,7 @@ export class CampaignStrategyService
     private readonly electionApi: ElectionApiService,
     private readonly races: RacesService,
     private readonly analytics: AnalyticsService,
+    private readonly campaignTrackerTasks: CampaignTrackerTasksService,
   ) {
     super()
   }
@@ -219,6 +221,12 @@ export class CampaignStrategyService
     if (isTestCampaign(campaign)) {
       return { status: 'ready', data: EMPTY_STRATEGIC_LANDSCAPE }
     }
+
+    // Materialize the tracker's static rows now, at generation start, so they
+    // render immediately while the dynamic tasks generate in the background
+    // (the initial CAP dispatch still fires from the plan-completion bootstrap).
+    // Story-gated to the tracker cohort, best-effort, and idempotent.
+    await this.ensureTrackerStaticTasks(campaign)
 
     // Resolve raceId synchronously so a 400 surfaces to this call rather than
     // a dispatch with no race.
@@ -465,6 +473,71 @@ export class CampaignStrategyService
       )
       throw error
     }
+
+    await this.bootstrapTrackerIfPlanComplete(plan.id, plan.campaignId)
+  }
+
+  // Materialize the tracker's static rows at plan-generation start so they
+  // render immediately, rather than waiting for the plan-completion bootstrap
+  // (which is CAP/SQS-driven and never fires locally). Story-gated to the
+  // tracker cohort so legacy campaigns never get tracker rows, and best-effort
+  // so a tracker hiccup can't fail plan generation. materializeStaticTasks is
+  // idempotent and race-safe, so calling it on every poll is cheap and the
+  // initial dynamic dispatch still happens once, from the bootstrap below.
+  private async ensureTrackerStaticTasks(
+    campaign: CampaignWith<'user'>,
+  ): Promise<void> {
+    const story = await this.client.campaignStory.findUnique({
+      where: { campaignId: campaign.id },
+      select: { id: true },
+    })
+    if (!story) return
+
+    await this.campaignTrackerTasks
+      .materializeStaticTasks(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId: campaign.id },
+          'tracker static-task materialization failed at plan start',
+        ),
+      )
+  }
+
+  // The plan is fully generated once both sections are persisted — that is the
+  // trigger to bootstrap the campaign tracker (static rows + the initial CAP
+  // generation). Fail-closed: a tracker hiccup must not throw back into the
+  // result handler, or the SQS result would replay and re-persist the section.
+  private async bootstrapTrackerIfPlanComplete(
+    planId: number,
+    campaignId: number,
+  ): Promise<void> {
+    const plan = await this.findFirst({ where: { id: planId } })
+    if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) return
+
+    // The tracker uses the campaign story as input, so it only exists once the
+    // campaign has gone through campaign story. Legacy (campaign-story off)
+    // campaigns never write a story, so they stay on the legacy task path and
+    // never bootstrap the tracker even though their plan still generates. This
+    // gate is on story data (not the flag) so it holds regardless of the flag.
+    const story = await this.client.campaignStory.findUnique({
+      where: { campaignId },
+    })
+    if (!story) return
+
+    const campaign = await this.client.campaign.findUnique({
+      where: { id: campaignId },
+      include: { user: true },
+    })
+    if (!campaign) return
+
+    await this.campaignTrackerTasks
+      .bootstrapForCampaign(campaign)
+      .catch((err: unknown) =>
+        this.logger.error(
+          { err, campaignId },
+          'campaign tracker bootstrap failed after plan completion',
+        ),
+      )
   }
 
   async getOrGenerateCommunityEvents(
@@ -709,14 +782,16 @@ export class CampaignStrategyService
     persistedAt: Date | null,
   ): SectionState {
     if (persistedAt) return 'persisted'
-    // QUEUED (waiting to launch), RUNNING, and AWAITING_RESUME (paused mid-run)
-    // are all in flight — none should be re-dispatched. Re-dispatching an
-    // AWAITING_RESUME run would overwrite its run id, orphan the paused run, and
-    // let sweepResumableRuns resume it into a second concurrent task.
+    // QUEUED (waiting to launch), RUNNING, AWAITING_RESUME (paused mid-run), and
+    // SUPERSEDED (the resume sweep already dispatched a live successor) are all
+    // in flight — none should be re-dispatched. Re-dispatching here would
+    // overwrite oppositionRunId, orphan the paused/successor run, and let a
+    // second concurrent task spawn against the same campaign.
     if (
       run?.status === ExperimentRunStatus.QUEUED ||
       run?.status === ExperimentRunStatus.RUNNING ||
-      run?.status === ExperimentRunStatus.AWAITING_RESUME
+      run?.status === ExperimentRunStatus.AWAITING_RESUME ||
+      run?.status === ExperimentRunStatus.SUPERSEDED
     ) {
       return 'inflight'
     }
@@ -1057,6 +1132,38 @@ export class CampaignStrategyService
     }
 
     return updated
+  }
+
+  // Pure read for consumers that must NEVER trigger (paid) generation or the
+  // align/reset machinery — today the Campaign Manager chat, which grounds its
+  // system prompt in the plan. Returns null until BOTH sections are persisted
+  // (the same gate the polling endpoint uses for 'ready'), so a partial plan
+  // is never surfaced. May serve content from before an office change; the
+  // plan tab's getOrGenerateStrategicLandscape remains the canonical fresh
+  // read.
+  async readLandscapeForCampaign(
+    campaignId: number,
+  ): Promise<StrategicLandscapeResult | null> {
+    const plan = await this.client.campaignStrategy.findUnique({
+      where: { campaignId },
+      include: {
+        opportunities: { orderBy: { order: 'asc' } },
+        challenges: { orderBy: { order: 'asc' } },
+        opponents: true,
+      },
+    })
+    if (!plan?.oppositionPersistedAt || !plan.opportunitiesPersistedAt) {
+      return null
+    }
+    return {
+      opportunities: plan.opportunities.map((o) => o.content),
+      challenges: plan.challenges.map((c) => c.content),
+      opponents: plan.opponents.map((o) => ({
+        fullName: o.fullName,
+        partyAffiliation: o.partyAffiliation,
+        incumbent: o.incumbent,
+      })),
+    }
   }
 
   private async readStrategicLandscape(

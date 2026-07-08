@@ -1,6 +1,7 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { BadGatewayException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { StripeService } from './stripe.service'
 
@@ -44,7 +45,7 @@ describe('StripeService Pro subscription checkout', () => {
         'https://app.test/dashboard/pro-upgrade?session_id={CHECKOUT_SESSION_ID}',
       )
 
-      const args = sessionsCreate.mock.calls[0][0]
+      const args = firstOrThrow(sessionsCreate.mock.calls)[0]
       expect(args.ui_mode).toBe('custom')
       expect(args.mode).toBe('subscription')
       expect(args.return_url).toBe(
@@ -79,10 +80,10 @@ describe('StripeService Pro subscription checkout', () => {
       })
 
       await service.createCheckoutSession(userId, email)
-      const redirectArgs = sessionsCreate.mock.calls[0][0]
+      const redirectArgs = firstOrThrow(sessionsCreate.mock.calls)[0]
 
       await service.createEmbeddedProSubscriptionCheckoutSession(userId, email)
-      const embeddedArgs = sessionsCreate.mock.calls[1][0]
+      const embeddedArgs = nthOrThrow(sessionsCreate.mock.calls, 1)[0]
 
       expect(embeddedArgs.metadata).toEqual(redirectArgs.metadata)
       expect(embeddedArgs.mode).toBe(redirectArgs.mode)

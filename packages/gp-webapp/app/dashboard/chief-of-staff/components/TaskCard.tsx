@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Button, Card } from '@styleguide'
+import { Button, Card, cn } from '@styleguide'
 import type { LucideIcon } from 'lucide-react'
 
 export interface TaskCardProps {
@@ -17,9 +17,21 @@ export interface TaskCardProps {
   ctaHref?: string
   /** When set (and no href), the CTA fires this instead. */
   onCta?: () => void
+  /** When set, renders a secondary "Mark done" action. */
+  onComplete?: () => void
+  completeDisabled?: boolean
   onSkip?: () => void
   skipDisabled?: boolean
+  /** Subtle top-to-bottom tint, for a featured (top) card. */
+  gradient?: boolean
 }
+
+// A task action can point off-app (a state SOS page, a form). Those must open
+// in a new tab via a plain anchor; internal routes go through the client router.
+const isExternalHref = (href: string): boolean =>
+  /^(https?:)?\/\//.test(href) ||
+  href.startsWith('mailto:') ||
+  href.startsWith('tel:')
 
 /**
  * Shared card for the dashboard task list, the onboarding cards, and the
@@ -35,11 +47,19 @@ export default function TaskCard({
   ctaLabel,
   ctaHref,
   onCta,
+  onComplete,
+  completeDisabled = false,
   onSkip,
   skipDisabled = false,
+  gradient = false,
 }: TaskCardProps): React.JSX.Element {
   return (
-    <Card className="gap-3 rounded-2xl border border-grayscale-300 p-4 shadow-sm transition-colors lg:p-6">
+    <Card
+      className={cn(
+        'gap-3 rounded-2xl border border-grayscale-300 p-4 shadow-sm transition-colors lg:p-6',
+        gradient && 'bg-gradient-to-b from-primary/5 to-card',
+      )}
+    >
       <div className="flex items-start justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
           <EyebrowIcon className="size-3.5" aria-hidden />
@@ -64,14 +84,32 @@ export default function TaskCard({
       <div className="flex flex-col gap-3 pt-2">
         {ctaLabel &&
           (ctaHref ? (
-            <Button asChild className="w-full">
-              <Link href={ctaHref}>{ctaLabel}</Link>
-            </Button>
+            isExternalHref(ctaHref) ? (
+              <Button asChild className="w-full">
+                <a href={ctaHref} target="_blank" rel="noreferrer">
+                  {ctaLabel}
+                </a>
+              </Button>
+            ) : (
+              <Button asChild className="w-full">
+                <Link href={ctaHref}>{ctaLabel}</Link>
+              </Button>
+            )
           ) : (
             <Button type="button" className="w-full" onClick={onCta}>
               {ctaLabel}
             </Button>
           ))}
+        {onComplete && (
+          <button
+            type="button"
+            onClick={onComplete}
+            disabled={completeDisabled}
+            className="self-center text-sm font-medium text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+          >
+            Mark done
+          </button>
+        )}
         {onSkip && (
           <button
             type="button"

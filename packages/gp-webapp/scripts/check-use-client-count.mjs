@@ -1,0 +1,95 @@
+#!/usr/bin/env node
+// 'use client' ratchet.
+//
+// Counts the source files under this package whose first non-empty line is a
+// `'use client'` directive and fails (exit 1) if that count exceeds the
+// committed baseline below. The goal is to stop the number of client
+// components from silently creeping up: every `'use client'` ships its module
+// (and its imports) to the browser, so each one is a bundle-size and
+// hydration cost.
+//
+// RATCHET POLICY:
+//   - When you REMOVE a client component (delete the file or drop its
+//     `'use client'` so it renders on the server), lower BASELINE to the new
+//     count this script prints. That locks in the win.
+//   - Do NOT raise BASELINE to make a red build green. A new client component
+//     is a deliberate trade-off; if it's truly justified, raise the baseline
+//     in the SAME PR with a one-line note in the PR description explaining why
+//     the work could not be a server component.
+//
+// Run: `npm run check:use-client -w packages/gp-webapp`
+
+import { readdir, readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { dirname, join, relative } from 'node:path'
+
+// Lower this when you remove client components; never raise it without a
+// justified reason (see RATCHET POLICY above).
+// 2026-07-07: re-synced 504 -> 524, the count the script itself measures on
+// develop. The original baseline was below develop's actual count when the
+// ratchet merged, so every PR failed regardless of its changes. No new client
+// components were added by this change; the ratchet holds the line from the
+// real number.
+// 2026-07-08: 524 -> 527 for the profile/account consolidation. The new
+// profile/account cards and dialogs (office details, your details, personal &
+// account info, term-date editor, etc.) are interactive — they use React state,
+// event handlers, and hooks — so they can't be server components. Net +3 after
+// deleting the retired inline-edit sections.
+const BASELINE = 527
+
+const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
+
+async function* walk(dir) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith('.git')) continue
+    const fullPath = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (IGNORED_DIRS.has(entry.name)) continue
+      yield* walk(fullPath)
+    } else if (SOURCE_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) {
+      yield fullPath
+    }
+  }
+}
+
+// Count a file when its first non-empty line is the `'use client'` directive.
+function startsWithUseClient(contents) {
+  for (const rawLine of contents.split('\n')) {
+    const line = rawLine.trim()
+    if (line === '') continue
+    return /^['"]use client['"];?$/.test(line)
+  }
+  return false
+}
+
+const clientFiles = []
+for await (const file of walk(PACKAGE_ROOT)) {
+  const contents = await readFile(file, 'utf8')
+  if (startsWithUseClient(contents)) {
+    clientFiles.push(relative(PACKAGE_ROOT, file))
+  }
+}
+
+const count = clientFiles.length
+console.log(`'use client' files: ${count} (baseline ${BASELINE})`)
+
+if (count > BASELINE) {
+  console.error(
+    `\nERROR: 'use client' count ${count} exceeds baseline ${BASELINE}.`,
+  )
+  console.error(
+    'Prefer keeping new components as server components. If a new client ' +
+      'component is truly necessary, raise BASELINE in ' +
+      'scripts/check-use-client-count.mjs in this PR and note why.',
+  )
+  process.exit(1)
+}
+
+if (count < BASELINE) {
+  console.log(
+    `Nice — ${BASELINE - count} below baseline. Consider lowering BASELINE to ` +
+      `${count} in scripts/check-use-client-count.mjs to lock in the win.`,
+  )
+}

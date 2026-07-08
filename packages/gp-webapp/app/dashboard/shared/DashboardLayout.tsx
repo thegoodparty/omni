@@ -27,7 +27,7 @@ interface DashboardLayoutProps {
   showAlert?: boolean
   wrapperClassName?: string
   hideMenu?: boolean
-  navHeader?: { icon: NavHeaderIconKey; label: string }
+  navHeader?: { icon: NavHeaderIconKey; label: string; centered?: boolean }
 }
 
 const DashboardLayout = ({
@@ -94,11 +94,15 @@ const DashboardLayout = ({
           </Sidebar>
         )}
         <SidebarInset className="bg-[#f5f5f5]">
-          {!hideMenu && <MobileMenuTrigger hideTitle={!!navHeader} />}
+          {!hideMenu && <MobileMenuTrigger />}
           <ImpersonationBanner />
           <ElectedOfficeTermDatesModalController />
           {navHeader && (
-            <DashboardNavHeader icon={navHeader.icon} label={navHeader.label} />
+            <DashboardNavHeader
+              icon={navHeader.icon}
+              label={navHeader.label}
+              centered={navHeader.centered}
+            />
           )}
           <div className={`flex-1 p-2 md:p-4 ${wrapperClassName}`}>
             <ProUpgradePrompt
@@ -115,16 +119,22 @@ const DashboardLayout = ({
   )
 }
 
+// The full-bleed DashboardNavHeader is desktop-only, so on mobile the tab title
+// is shown here in the top bar instead. Any route that renders a navHeader (or
+// IssuesNavHeader) needs a matching entry so its title survives on mobile.
 const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/chief-of-staff', 'Chief of Staff'],
   ['/dashboard/briefings', 'Briefing Assistant'],
+  ['/dashboard/community-issues', 'Community Issues'],
+  ['/dashboard/race-opponent', 'Know your opponent'],
   ['/dashboard/outreach', 'Voter Outreach'],
   ['/dashboard/voter-records', 'Voter Data'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],
   ['/dashboard/website', 'Website'],
-  ['/dashboard/campaign-details', 'My Profile'],
+  ['/dashboard/profile', 'My Profile'],
+  ['/dashboard/account', 'Account Settings'],
   ['/dashboard/campaign-assistant', 'AI Assistant'],
   ['/dashboard/content', 'Content Builder'],
   ['/dashboard/door-knocking', 'Door Knocking'],
@@ -142,7 +152,7 @@ const getMobilePageTitle = (pathname: string | null): string | null => {
   return null
 }
 
-const MobileMenuTrigger = ({ hideTitle = false }: { hideTitle?: boolean }) => {
+const MobileMenuTrigger = () => {
   const { setOpenMobile, openMobile } = useSidebar()
   const pathname = usePathname()
   // The Contacts route is shared: Win reads "Voter Data", Serve reads
@@ -150,11 +160,8 @@ const MobileMenuTrigger = ({ hideTitle = false }: { hideTitle?: boolean }) => {
   // (useWinVoterContext) so the header and content always agree — and wait for
   // isReady so a Win user never flashes "Constituent Data" during load.
   const { isWin, isReady } = useWinVoterContext()
-  // When the page renders a full-bleed nav header (icon + tab name), it already
-  // shows the title on mobile, so suppress the top-bar title to avoid doubling.
-  const pageTitle = hideTitle
-    ? null
-    : pathname && isContactsPath(pathname)
+  const pageTitle =
+    pathname && isContactsPath(pathname)
       ? isReady
         ? CONTACTS_DATA_TITLE[isWin ? 'win' : 'serve']
         : null

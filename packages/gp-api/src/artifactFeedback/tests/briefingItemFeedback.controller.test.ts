@@ -77,7 +77,7 @@ describe('PUT /v1/meetings/:date/briefing/items/:itemId/feedback', () => {
       where: { briefingId: briefing.id, submitterUserId: service.user.id },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].artifactId).toBe(ITEM_ID)
+    expect(rows[0]?.artifactId).toBe(ITEM_ID)
   })
 
   it('switching positive -> negative updates the same row in place', async () => {
@@ -104,7 +104,7 @@ describe('PUT /v1/meetings/:date/briefing/items/:itemId/feedback', () => {
       where: { briefingId: briefing.id, submitterUserId: service.user.id },
     })
     expect(rows).toHaveLength(1)
-    expect(rows[0].feedback).toBe('negative')
+    expect(rows[0]?.feedback).toBe('negative')
   })
 
   it('repeating the same vote is idempotent (single row)', async () => {
@@ -153,9 +153,9 @@ describe('PUT /v1/meetings/:date/briefing/items/:itemId/feedback', () => {
       where: { briefingId: briefingTwo.id, submitterUserId: service.user.id },
     })
     expect(rowsOne).toHaveLength(1)
-    expect(rowsOne[0].feedback).toBe('positive')
+    expect(rowsOne[0]?.feedback).toBe('positive')
     expect(rowsTwo).toHaveLength(1)
-    expect(rowsTwo[0].feedback).toBe('negative')
+    expect(rowsTwo[0]?.feedback).toBe('negative')
   })
 
   it('rejects an invalid feedback value', async () => {
@@ -415,7 +415,7 @@ describe('DELETE /v1/meetings/:date/briefing/items/:itemId/feedback', () => {
       where: { briefingId: briefing.id, artifactId: ITEM_ID },
     })
     expect(remaining).toHaveLength(1)
-    expect(remaining[0].submitterUserId).toBe(otherUser.id)
+    expect(remaining[0]?.submitterUserId).toBe(otherUser.id)
   })
 
   it('does not touch the same user feedback in a different briefing', async () => {

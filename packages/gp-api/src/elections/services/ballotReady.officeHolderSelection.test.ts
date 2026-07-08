@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectPreferredOfficeHolder } from './ballotReady.service'
+import { selectPreferredOfficeHolder } from '../util/ballotReady.util'
 import { PersonOfficeHolder } from '../types/ballotReady.types'
 
 const holder = (

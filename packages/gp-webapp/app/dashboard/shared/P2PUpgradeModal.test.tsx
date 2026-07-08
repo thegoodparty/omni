@@ -34,6 +34,6 @@ describe('P2PUpgradeModal', () => {
 
     expect(
       screen.getByRole('link', { name: 'Complete Registration' }),
-    ).toHaveAttribute('href', '/dashboard/profile#texting-compliance')
+    ).toHaveAttribute('href', '/dashboard/account#texting-compliance')
   })
 })

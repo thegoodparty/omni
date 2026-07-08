@@ -284,7 +284,7 @@ describe('briefingItemLinks: item link writing from stamped artifact', () => {
         where: { meetingBriefingId: briefing!.id },
       })
     expect(linksAfterFirst).toHaveLength(1)
-    expect(linksAfterFirst[0].briefingItemId).toBe('item_001')
+    expect(linksAfterFirst[0]?.briefingItemId).toBe('item_001')
 
     // Second run: item_002 stamped with community_issue_id only
     const run2 = await service.prisma.experimentRun.create({

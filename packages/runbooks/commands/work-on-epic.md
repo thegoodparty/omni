@@ -17,11 +17,11 @@ repo's PR-shipping flow per branch. For a single ticket, use `/work-on-clickup`
 directly.
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
+> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/runbooks`, `$HOME/code/runbooks`, `$HOME/runbooks`.
-> 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
+> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
 <!-- END: resolve-runbooks-dir -->
 
 ## Prerequisites
@@ -246,8 +246,15 @@ For each ticket in the current phase (skip any already in a closed/done status):
     - The worktree path it must work in.
     - The instruction: **run the `work-on-clickup` flow in auto-`go` mode** —
       load repo conventions (its step 7), seed todos from the AC, implement, run the
-      package's Verify, walk the AC as a checklist. Skip the interactive
+      package's Verify, then run its review loop (`gp-reviewer` over the diff, fixing
+      `blocker`/`major` findings) and walk the AC as a checklist. Skip the interactive
       scope-confirm gate (the user already approved the Epic plan). Stay in scope.
+    - **Pass `--no-ui`.** `work-on-clickup` auto-starts a dev server for its
+      `gp-ui-tester` pass, and parallel tickets on the same host would bind the same
+      port and clash. Epic-level UI coverage is already handled once by Phase 4's
+      Playwright pass over the delivered behavior, so per-ticket UI testing is both
+      redundant and unsafe here. (Other `work-on-clickup` knobs — `--max-iter=N`,
+      `--no-loop` — can be tuned per Epic if a phase warrants it.)
     - On a gap the ticket body doesn't cover, or a Verify failure it can't resolve,
       the subagent **returns the blocker** (with evidence) rather than guessing —
       the loop surfaces it to the user named by ticket.

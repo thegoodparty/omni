@@ -42,7 +42,7 @@ export class VotersService {
     partisanType: string,
     priorElectionDates: string[],
   ): Promise<VoterCounts> {
-    const searchJson = {
+    const searchJson: { filters: Record<string, string | number> } = {
       filters: {},
     }
 
@@ -114,7 +114,7 @@ export class VotersService {
     let electionDates: string[] | undefined
     if (partisanRace) {
       // update the electionDate to the first Tuesday of November.
-      const year = electionDate.split('-')[0]
+      const year = electionDate.split('-')[0] ?? ''
       const electionDateObj = this.getFirstTuesdayOfNovember(year)
       electionDate = electionDateObj.toISOString().slice(0, 10)
       this.logger.debug({ electionDate }, 'updated electionDate to GE date:')
@@ -208,7 +208,7 @@ export class VotersService {
     let trajectory = 0
     if (turnoutCounts.length > 1) {
       // the trajectory is the difference between the last 2 elections
-      trajectory = turnoutCounts[0] - turnoutCounts[1]
+      trajectory = (turnoutCounts[0] ?? 0) - (turnoutCounts[1] ?? 0)
     }
 
     let averageTurnoutPercent: string = '0'
@@ -542,6 +542,12 @@ export class VotersService {
             const electionSplit = electionKey.split('_')
             const electionKeyType = electionSplit[0]
             const electionKeyDate = electionSplit[1]
+            if (
+              electionKeyType === undefined ||
+              electionKeyDate === undefined
+            ) {
+              continue
+            }
             const electionKeyYearAndMonth = electionKeyDate.slice(0, 6)
             // we skip primaries and runoffs.
             if (

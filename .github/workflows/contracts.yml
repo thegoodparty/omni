@@ -29,6 +29,12 @@ jobs:
         with:
           app: contracts
 
+      - name: Lint
+        run: npm run lint -w ${{ env.WORKSPACE }}
+
+      - name: Typecheck
+        run: npm run typecheck -w ${{ env.WORKSPACE }}
+
       - name: Build contracts
         run: npm run build -w ${{ env.WORKSPACE }}
 

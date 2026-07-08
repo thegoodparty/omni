@@ -66,12 +66,15 @@ export type LlmStreamTool<
   ? {
       description: string
       inputSchema: TInput
-      execute: (input: z.infer<TInput>) => Promise<unknown> | unknown
+      // Method syntax (bivariant params) so concrete-input tools stay
+      // assignable to the erased `LlmTool` registry, whose inferred input is
+      // `unknown` under zod v4 (it was `any` in v3).
+      execute(input: z.infer<TInput>): Promise<unknown> | unknown
     }
   : {
       description: string
       inputSchema: z.ZodType<TInput>
-      execute: (input: TInput) => Promise<TOutput> | TOutput
+      execute(input: TInput): Promise<TOutput> | TOutput
     }
 
 /**
@@ -522,6 +525,7 @@ export class LlmService {
 
         for (let i = 0; i < models.length; i++) {
           const currentModel = models[i]
+          if (currentModel === undefined) continue
 
           try {
             const result = await fn(currentModel)

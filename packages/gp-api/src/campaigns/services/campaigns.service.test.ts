@@ -3,6 +3,7 @@ import { ElectionsService } from '@/elections/services/elections.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import { UsersService } from '@/users/services/users.service'
 import { GooglePlacesService } from '@/vendors/google/services/google-places.service'
 import { SegmentService } from '@/vendors/segment/segment.service'
@@ -805,7 +806,7 @@ describe('CampaignsService - redeemFreeTexts', () => {
 
       // Verify timestamp is set (within 1 second tolerance for execution time)
       expect(mockUpdateMany).toHaveBeenCalled()
-      const updateCall = mockUpdateMany.mock.calls[0]
+      const updateCall = firstOrThrow(mockUpdateMany.mock.calls)
       const redeemedAt = updateCall[0].data.freeTextsOfferRedeemedAt
       expect(redeemedAt).toBeInstanceOf(Date)
       expect(redeemedAt.getTime()).toBeCloseTo(fixedDate.getTime(), -3) // Within 1 second
@@ -838,7 +839,7 @@ describe('CampaignsService - redeemFreeTexts', () => {
 
       // Verify both fields are updated atomically
       expect(mockUpdateMany).toHaveBeenCalled()
-      const updateCall = mockUpdateMany.mock.calls[0]
+      const updateCall = firstOrThrow(mockUpdateMany.mock.calls)
       expect(updateCall[0].data).toEqual({
         hasFreeTextsOffer: false,
         freeTextsOfferRedeemedAt: expect.any(Date),
@@ -908,16 +909,12 @@ describe('CampaignsService - fetchLiveRaceTargetMetrics', () => {
     vi.mocked(mockBallotReady.fetchMilestones!).mockReset()
     vi.mocked(mockBallotReady.fetchMilestones!).mockResolvedValue(null)
     service = new CampaignsService(
-      {} as UsersService,
       {} as CrmCampaignsService,
       {} as AnalyticsService,
       {} as CampaignPlanVersionsService,
-      {} as StripeService,
-      {} as GooglePlacesService,
       mockElections as ElectionsService,
       mockBallotReady as BallotReadyService,
       mockOrganizations as OrganizationsService,
-      {} as SlackService,
       { notifySlackOnProUpgrade: vi.fn() } as unknown as CampaignTasksService,
     )
   })

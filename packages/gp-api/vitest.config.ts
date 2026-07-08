@@ -20,9 +20,20 @@ export default defineConfig({
     tsconfigPaths(),
   ],
   test: {
+    globalSetup: ['./src/test-global-setup.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary', 'json'],
+      // Pinned just below the current measured coverage so the suite can only
+      // hold or improve, never silently regress. Raise these as coverage grows.
+      // Measured 2026-06 (full suite): statements 65.25%, branches 55.08%,
+      // functions 61.38%, lines 74.21%.
+      thresholds: {
+        statements: 65,
+        branches: 55,
+        functions: 61,
+        lines: 74,
+      },
     },
     include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),

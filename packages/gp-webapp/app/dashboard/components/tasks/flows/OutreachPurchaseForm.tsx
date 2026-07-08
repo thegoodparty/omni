@@ -18,6 +18,7 @@ interface OutreachPurchaseFormProps {
   contactCount?: number
   pricePerContact?: number
   onError?: () => void
+  outreachId?: number
 }
 
 export const OutreachPurchaseForm = ({
@@ -25,6 +26,7 @@ export const OutreachPurchaseForm = ({
   contactCount = 0,
   pricePerContact = 0,
   onError = noop,
+  outreachId,
 }: OutreachPurchaseFormProps) => {
   const [campaign] = useCampaign()
   const { p2pUxEnabled } = useP2pUxEnabled()
@@ -50,6 +52,7 @@ export const OutreachPurchaseForm = ({
         contactCount,
         pricePerContact,
         outreachType: 'p2p',
+        outreachId,
       })
       if (!response.ok) {
         onError()

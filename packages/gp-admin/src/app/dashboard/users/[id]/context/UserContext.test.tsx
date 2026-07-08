@@ -9,6 +9,8 @@ const mockUser: User = {
   lastName: 'User',
   email: 'test@example.com',
   hasPassword: true,
+  zip: null,
+  phone: null,
 }
 
 describe('UserContext', () => {

@@ -6,16 +6,21 @@ import { useToast } from '@/components/Toast'
 import { updateCampaign } from '@/app/dashboard/campaigns/actions'
 import { CampaignForm } from '../../components/CampaignForm'
 import type { CombinedCampaignFormData } from '../../schema'
-import type { CampaignWithLiveContext } from '@goodparty_org/sdk'
+import type {
+  AdminOrganization,
+  CampaignWithLiveContext,
+} from '@goodparty_org/sdk'
 
 interface EditCampaignClientProps {
   campaign: CampaignWithLiveContext
+  organization?: AdminOrganization | null
   initialDistrictType?: string
   initialDistrictName?: string
 }
 
 export function EditCampaignClient({
   campaign,
+  organization,
   initialDistrictType,
   initialDistrictName,
 }: EditCampaignClientProps) {
@@ -47,6 +52,7 @@ export function EditCampaignClient({
   return (
     <CampaignForm
       initialData={campaign}
+      organization={organization}
       initialDistrictType={initialDistrictType}
       initialDistrictName={initialDistrictName}
       onSave={handleSave}

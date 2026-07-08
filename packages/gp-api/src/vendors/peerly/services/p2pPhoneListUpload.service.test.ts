@@ -141,8 +141,8 @@ describe('P2pPhoneListUploadService', () => {
 
       const calls = vi.mocked(voterFileUtil.typeToQuery).mock.calls
       expect(calls).toHaveLength(2)
-      expect(calls[0][6]).toBe(false) // count query: fixColumns=false
-      expect(calls[1][6]).toBe(false) // CSV query: fixColumns=false (count > 0)
+      expect(calls[0]?.[6]).toBe(false) // count query: fixColumns=false
+      expect(calls[1]?.[6]).toBe(false) // CSV query: fixColumns=false (count > 0)
     })
 
     it('calls typeToQuery twice: second with fixColumns=true when count is 0', async () => {
@@ -156,8 +156,8 @@ describe('P2pPhoneListUploadService', () => {
 
       const calls = vi.mocked(voterFileUtil.typeToQuery).mock.calls
       expect(calls).toHaveLength(2)
-      expect(calls[0][6]).toBe(false) // count query: always fixColumns=false
-      expect(calls[1][6]).toBe(true) // CSV query: fixColumns=true (count was 0)
+      expect(calls[0]?.[6]).toBe(false) // count query: always fixColumns=false
+      expect(calls[1]?.[6]).toBe(true) // CSV query: fixColumns=true (count was 0)
     })
 
     it('calls typeToQuery twice: second with fixColumns=true when count query fails with 42703', async () => {
@@ -175,8 +175,8 @@ describe('P2pPhoneListUploadService', () => {
 
       const calls = vi.mocked(voterFileUtil.typeToQuery).mock.calls
       expect(calls).toHaveLength(2)
-      expect(calls[0][6]).toBe(false) // count query: always fixColumns=false
-      expect(calls[1][6]).toBe(true) // CSV query: fixColumns=true (column not found)
+      expect(calls[0]?.[6]).toBe(false) // count query: always fixColumns=false
+      expect(calls[1]?.[6]).toBe(true) // CSV query: fixColumns=true (column not found)
     })
 
     it('rethrows count query errors that are not column-not-found', async () => {
@@ -199,7 +199,7 @@ describe('P2pPhoneListUploadService', () => {
 
       const calls = vi.mocked(voterFileUtil.typeToQuery).mock.calls
       expect(calls).toHaveLength(2)
-      expect(calls[1][7]).toBe(P2P_CSV_COLUMN_MAPPINGS)
+      expect(calls[1]?.[7]).toBe(P2P_CSV_COLUMN_MAPPINGS)
     })
   })
 })

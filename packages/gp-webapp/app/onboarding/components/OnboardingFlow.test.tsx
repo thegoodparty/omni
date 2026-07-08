@@ -134,16 +134,16 @@ describe('new onboarding flow shell', () => {
 })
 
 describe('resolvePostPledgeRoute', () => {
-  it('sends campaign-story users to the story page (highest precedence)', () => {
+  it('sends campaign-story users to the Campaign Manager home (highest precedence)', () => {
     expect(
       resolvePostPledgeRoute({
         campaignStoryEnabled: true,
         campaignStrategyEnabled: true,
       }),
-    ).toBe('/dashboard/campaign-story')
+    ).toBe('/dashboard')
   })
 
-  it('sends campaign-strategy-only users to the success page', () => {
+  it('sends campaign-strategy-only (story-off) users to the legacy success page', () => {
     expect(
       resolvePostPledgeRoute({
         campaignStoryEnabled: false,

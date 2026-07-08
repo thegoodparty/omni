@@ -16,25 +16,27 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 ## Procedure
 
-**Before step 1 — is this a pure removal?** If the change only **removes** a frontend `trackEvent` call and adds no new event, skip steps 1–5 (they are addition-oriented and will conclude "nothing to instrument") and go straight to "When a change removes an event" to complete the RETIRE handoff, then to step 7 (Verify).
+**Before step 1 — is this a pure removal?** If the change only **removes** a frontend `trackEvent` call and adds no new event, skip steps 1–5 (they are addition-oriented and will conclude "nothing to instrument") and go straight to "When a change removes an event" to complete the RETIRE handoff (including its CSV step), then to step 8 (Verify).
 
 1. **Decide whether to instrument.**
 
    The rule everything serves: **every event must answer a question you would put on a dashboard. If you cannot name the question, do not fire the event.** More events is not more insight; un-asked events are noise.
 
    **Instrument** these moments:
-   - Funnel steps and multi-step workflows, viewed and completed (so we can see drop-off). Any flow with more than one step counts, not just classic onboarding funnels.
+   - Every distinct stage of a multi-step flow, each fired as a `Viewed` (on entry) and a `Completed` (on advance) — per-stage drop-off is the dashboard question, so instrument the whole staircase, not just the first screen and the final outcome. Any flow with more than one step counts, not just classic onboarding funnels. This holds even when a stage does not change the URL (a wizard, stepper, or modal flow): the root `RouteTracker` fires a page view only on a route change, so URL-stable stages are invisible to it and must be instrumented explicitly. The unit is the stage, not the click: the `Viewed` event must fire every time the user enters a stage, including when they press Back and re-enter a stage they already passed. Sub-interactions inside a stage (field edits, toggles) still follow the skip list below. The Back and Next button clicks themselves are also skipped — the stage transition is captured by the stage's `Viewed` / `Completed` events, not by click events on the navigation controls.
    - Primary calls to action: the main action a screen exists to drive.
-   - Outcomes: the user produced the thing the feature makes (a poll sent, a website published).
+   - Outcomes: the user produced the thing the feature makes (a poll sent, a website published). When a flow's final stage both completes the funnel and produces the outcome, fire both — the stage `Completed` (funnel completion) and the outcome event (the thing produced) answer different questions; do not collapse them into one.
    - Blockers and errors that stop a user (they explain drop-off).
+
+   Concrete pattern — a multi-step flow done right (from the live registry): `Onboarding V2` fires `… - {Stage} Viewed` when a screen renders and `… - {Stage} Completed` when the user advances, all within a single route (e.g. `Onboarding V2 - Office Viewed` then `Onboarding V2 - Office Completed`). A purely informational stage with no user decision (a success page, a read-only value-prop slide) is legitimately `Viewed`-only — it presents no action to complete, so omitting `Completed` is correct and does not count as a missing instrumentation. Counter-example to fix, not copy: the `Schedule Text Campaign` wizard fired only `Next` / `Back` / `Submit` clicks, so per-stage entry and completion — and therefore drop-off — are invisible. The fix there is a `Viewed` + `Completed` per stage, not more click events.
 
    **Capture the core action; let the higher-level metric be derived.** Do not mint separate `Activated`, `Converted`, or `First-Time` events. Activation and conversion are metrics defined on top of the action events above. Which specific action counts as activation or conversion for a product (for example, a poll sent in Win) is a product designation that can change without re-instrumenting, and Amplitude derives first-occurrence-per-user from any event automatically. Your job is to make sure the underlying core action is tracked.
 
    **Skip** these:
-   - Pure UI state toggles (open/close, expand/collapse, show/hide). Exception: opening an AI chat and sending a message are real engagement, not chrome. Track both (chat opened and message sent) so we can see the open-to-send drop-off.
-   - In-page navigation with no decision (tab switches, scrolling, carousel arrows). Main navigation destinations are already captured as page views (the root `RouteTracker` fires a Segment `page()` call on every route change), so do not add click events for them unless you need the entry point or source and can name the question it answers.
+   - Opening or closing a single UI element (a menu, modal, accordion, drawer, tooltip — expand/collapse, show/hide). This covers one element's own state, not progress through a flow: closing a modal is a skip, but advancing to the next stage of a wizard is instrumented (see the multi-step rule above). Exception: opening an AI chat and sending a message are real engagement, not chrome. Track both (chat opened and message sent) so we can see the open-to-send drop-off.
+   - In-page navigation with no decision (tab switches, scrolling, carousel arrows). Main navigation destinations are already captured as page views (the root `RouteTracker` fires a Segment `page()` call on every route change), so do not add click events for them unless you need the entry point or source and can name the question it answers. A multi-step flow that advances without changing the URL is **not** in-page navigation of this kind — its stages are captured by no page view and must be instrumented per the multi-step rule above.
    - Hover, focus, mouseover.
-   - Anything a page view already captures (route changes auto-fire a `page()` call via the root `RouteTracker`; do not double-track).
+   - Anything a page view already captures (route changes auto-fire a `page()` call via the root `RouteTracker`; do not double-track). `RouteTracker` fires only on a route change, so this exemption does not reach the stages of a flow that advance without a URL change — those still need explicit events.
    - A variation that a property could capture instead (one event with a `channel` prop beats one event per channel).
 
 2. **Decide where it fires — frontend or backend.**
@@ -98,6 +100,8 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
      }, [briefingId])
      ```
 
+     In a URL-stable wizard where the stage component stays mounted across steps, a `useEffect` keyed on a value that does not change on Back (or `[]`) will not re-fire on re-entry. Key the `useEffect` on the active-stage identifier (e.g. `[currentStep]`) so the `Viewed` re-fires every time the user enters the stage, including via Back. Avoid `key={currentStep}` on stage components that hold form state — remounting tears down all component-local state (form values, validation, in-flight requests) on every navigation. Reserve `key={currentStep}` only for purely display stages that carry no local state.
+
    - Action / completion / outcome events fire in the handler, with camelCase properties:
 
      ```ts
@@ -150,7 +154,7 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
 6. **Record the event's metadata (frontend/client events).**
 
-   **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff, then go to step 7.
+   **If this change only removes a frontend `trackEvent` call (no new event is being added),** skip directly to "When a change removes an event" below, complete the RETIRE handoff (including its CSV step), then go to step 8.
 
    A new event is illegible later without its governance metadata. For a new **frontend** event, hand off to the **`event-metadata`** skill, which writes the purpose, status, product tag, and supersession lineage into Amplitude. Pass an ADD payload — you supply hints, it owns the write and the human confirmations:
    - `mode=add`,
@@ -161,9 +165,30 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    Backend (`segment.types.ts`) events are out of scope for metadata for now (ClickUp 86aj7bdkp) — skip the handoff for them.
 
-   If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff before moving to step 7.
+   If this change also **removes** a frontend `trackEvent` call, go to "When a change removes an event" below and complete the RETIRE handoff (including its CSV step), then complete steps 7–8.
 
-7. **Verify.**
+7. **Record code provenance (frontend AND backend).**
+
+   Unlike the metadata handoff above (client-only), this step runs for **every** event you
+   instrument — frontend or backend. It writes a *provisional* row into the omni provenance
+   CSV (`packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`),
+   the curated summary of instrumentation-related git events in this repo, read by the
+   DATA-1952 monitor. Resolve the PR number once (`gh pr view --json number -q .number` on the
+   current branch; omit `--pr` if none yet), then from the repo root:
+
+   ```bash
+   uv run --project packages/runbooks/scripts/python \
+     python packages/runbooks/scripts/python/amplitude_event_provenance_backfill.py \
+     upsert --event "Briefing Assistant - Agenda Submitted" --direction add --pr 1234
+   ```
+
+   The engine stores the PR as a full link (`https://github.com/thegoodparty/omni/pull/1234`),
+   writes today's date and status `present`, and leaves the exact merge SHA blank for the
+   periodic git-walk (`packages/runbooks/books/refresh-event-provenance.md`) to fill. The skill is the freshness
+   writer; the walk is the truth writer. Do not hand-edit the CSV — always go through `upsert`
+   so the file's sort and quoting stay identical to a full walk.
+
+8. **Verify.**
 
    **Frontend** (from the repo root):
 
@@ -182,6 +207,10 @@ Naming and governance are adopted from the Analytics Event Tracking Guide (produ
 
    To confirm the event actually reaches Segment, trigger the interaction and watch the Segment debugger — frontend: also the browser network tab for the Segment `t` call; backend: the `[ANALYTICS]` debug logs.
 
+   To confirm the provenance write, `git status` should show the modified
+   `packages/runbooks/scripts/python/instrumentation_data/amplitude_event_provenance.csv`
+   with exactly the row(s) for the event(s) you touched changed.
+
 ## When to skip
 
 - The interaction is on the **skip** list in step 1.
@@ -195,6 +224,17 @@ If the change you are working on **removes** a `trackEvent` call (a frontend/cli
 
 1. Confirm with the human that it is an intentional removal, and ask the human for a one-line reason (e.g. "feature removed", "replaced by new flow"). Block until they supply it — the handoff path trusts the incoming `reason` and will not re-prompt for it.
 2. Hand off to the **`event-metadata`** skill with a RETIRE payload: `mode=retire`, `event` = the removed Title Case event-name string, `reason` = the one-line reason the human gave. `event-metadata` stamps `not in use` with the date and PR.
+3. Record the removal in the provenance CSV (frontend AND backend), regardless of whether
+   the metadata handoff applied:
+
+   ```bash
+   uv run --project packages/runbooks/scripts/python \
+     python packages/runbooks/scripts/python/amplitude_event_provenance_backfill.py \
+     upsert --event "Briefing Assistant - Old Event" --direction retire --pr 1234
+   ```
+
+   This stamps today's `retired_date` + PR link (creating the row if the event predates the
+   CSV), flipping its derived status to `removed`. The exact merge SHA is left for the git-walk.
 
 Adds and removes are **independent**. A removal happening in the same change as an addition does _not_ mean the new event supersedes the removed one — only treat it as a supersession if the human explicitly says so (handled by the add's `supersedes` hint in step 6, not by pairing them automatically).
 
@@ -208,4 +248,5 @@ Adds and removes are **independent**. A removal happening in the same change as 
 - Wrong casing — group keys PascalCase, event-name values Title Case, property keys camelCase.
 - Firing a "Viewed" event on every render instead of once in a `useEffect`.
 - Tracking something page views already cover, or a moment no dashboard question depends on.
+- Skipping the intermediate stages of a wizard or stepper because the URL did not change — `RouteTracker` fires only on route changes, so URL-stable stages are invisible to page views and need explicit `Viewed` / `Completed` events.
 - Putting an array or nested object on an event that drives a HubSpot email — flatten the collection into indexed scalar props (`topIssue1Title`, …), see step 5.

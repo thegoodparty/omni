@@ -7,9 +7,21 @@ import {
   Website,
   WebsiteStatus,
 } from '../../../generated/prisma'
-import { ComplianceStage } from '@goodparty_org/contracts'
-import { describe, expect, it } from 'vitest'
-import { deriveComplianceStage } from './complianceState.service'
+import {
+  ComplianceStage,
+  PeerlyCvVerificationStatus,
+} from '@goodparty_org/contracts'
+import { Test, TestingModule } from '@nestjs/testing'
+import { BadGatewayException } from '@nestjs/common'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { PinoLogger } from 'nestjs-pino'
+import { PrismaService } from '@/prisma/prisma.service'
+import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
+import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import {
+  ComplianceStateService,
+  deriveComplianceStage,
+} from './complianceState.service'
 
 const mockCampaign = (
   overrides?: Partial<Pick<Campaign, 'formattedAddress'>>,
@@ -211,5 +223,174 @@ describe('deriveComplianceStage', () => {
         }),
       ),
     ).toBe(ComplianceStage.tcr_rejected)
+  })
+})
+
+describe('ComplianceStateService - findStateForCampaign', () => {
+  const PEERLY_IDENTITY_ID = 'peerly-123'
+  let service: ComplianceStateService
+  let mockRetrieveCv: ReturnType<typeof vi.fn>
+  let mockFindUniqueOrThrow: ReturnType<typeof vi.fn>
+
+  // A campaign row whose derived stage is `awaiting_pin` (live site + verified
+  // domain + a `submitted` TCR record), so the CV-status resolution runs.
+  const awaitingPinCampaign = (
+    tcrOverrides?: Partial<
+      Pick<
+        TcrCompliance,
+        'status' | 'peerlyIdentityId' | 'peerlyCvVerificationId'
+      >
+    >,
+  ) => ({
+    id: 42,
+    formattedAddress: '123 Main St, Anytown, USA',
+    website: {
+      id: 7,
+      status: WebsiteStatus.published,
+      domain: {
+        name: 'candidate.org',
+        status: DomainStatus.registered,
+        registrantVerifiedAt: new Date('2026-01-01T00:00:00Z'),
+      },
+    },
+    tcrCompliance: {
+      status: TcrComplianceStatus.submitted,
+      peerlyIdentityId: PEERLY_IDENTITY_ID,
+      peerlyCvVerificationId: 'cv-123',
+      ...tcrOverrides,
+    },
+  })
+
+  beforeEach(async () => {
+    mockRetrieveCv = vi.fn()
+    mockFindUniqueOrThrow = vi.fn()
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        {
+          provide: PrismaService,
+          useValue: { campaign: { findUniqueOrThrow: mockFindUniqueOrThrow } },
+        },
+        {
+          provide: PeerlyIdentityService,
+          useValue: { retrieveCampaignVerifyDetails: mockRetrieveCv },
+        },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        ComplianceStateService,
+      ],
+    }).compile()
+
+    service = module.get(ComplianceStateService)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('surfaces the live Peerly CV status + PIN delivery at awaiting_pin in prod', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+    mockRetrieveCv.mockResolvedValue({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.stage).toBe(ComplianceStage.awaiting_pin)
+    expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
+    // Raw destination masked server-side into the display string.
+    expect(result.pinDelivery).toEqual({
+      method: 'text',
+      displayString: '(312) •••-1162',
+    })
+    expect(mockRetrieveCv).toHaveBeenCalledWith(
+      PEERLY_IDENTITY_ID,
+      expect.anything(),
+    )
+  })
+
+  it('reports IN_REVIEW with null PIN delivery before Peerly issues a PIN', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+    mockRetrieveCv.mockResolvedValue({
+      status: PeerlyCvVerificationStatus.IN_REVIEW,
+      pinDelivery: null,
+    })
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.IN_REVIEW)
+    expect(result.pinDelivery).toBeNull()
+  })
+
+  it('returns null CV status + PIN delivery without calling Peerly when no identity exists', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(
+      awaitingPinCampaign({ peerlyIdentityId: null }),
+    )
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.stage).toBe(ComplianceStage.awaiting_pin)
+    expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
+    expect(mockRetrieveCv).not.toHaveBeenCalled()
+  })
+
+  it('degrades an unrecognized Peerly status to null (keeping PIN delivery)', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+    mockRetrieveCv.mockResolvedValue({
+      status: 'SOMETHING_NEW',
+      pinDelivery: null,
+    })
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
+  })
+
+  // A transient Peerly error must not 502 the compliance-state read (polled by
+  // the agent + FE). retrieveCampaignVerifyDetails throws BadGatewayException via
+  // handleApiError on any non-404 failure, so mock that production error here.
+  it('degrades CV status + PIN delivery to null when the Peerly read throws', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+    mockRetrieveCv.mockRejectedValue(
+      new BadGatewayException('Peerly retrieve_cv failed'),
+    )
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.stage).toBe(ComplianceStage.awaiting_pin)
+    expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
+  })
+
+  it('short-circuits to APPROVED with null PIN delivery in non-prod', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'dev')
+    mockFindUniqueOrThrow.mockResolvedValue(awaitingPinCampaign())
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.APPROVED)
+    expect(result.pinDelivery).toBeNull()
+    expect(mockRetrieveCv).not.toHaveBeenCalled()
+  })
+
+  it('does not resolve CV state outside the awaiting_pin stage', async () => {
+    vi.stubEnv('OTEL_SERVICE_ENVIRONMENT', 'prod')
+    mockFindUniqueOrThrow.mockResolvedValue(
+      awaitingPinCampaign({ status: TcrComplianceStatus.pending }),
+    )
+
+    const result = await service.findStateForCampaign(42)
+
+    expect(result.stage).toBe(ComplianceStage.tcr_in_review)
+    expect(result.peerlyCvStatus).toBeNull()
+    expect(result.pinDelivery).toBeNull()
+    expect(mockRetrieveCv).not.toHaveBeenCalled()
   })
 })

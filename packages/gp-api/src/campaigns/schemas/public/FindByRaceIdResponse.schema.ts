@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import { zDate } from '@goodparty_org/contracts'
 
 const DomainSchema = z.object({
   name: z.string(),
@@ -8,8 +9,8 @@ const DomainSchema = z.object({
 
 const WebsiteSchema = z.object({
   id: z.number(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: zDate(),
+  updatedAt: zDate(),
   campaignId: z.number(),
   status: z.string(),
   vanityPath: z.string(),
@@ -67,7 +68,7 @@ export const FindByRaceIdResponseSchema = z.object({
   id: z.number(),
   slug: z.string(),
   details: PublicCampaignDetailsSchema.nullable(),
-  updatedAt: z.date(),
+  updatedAt: zDate(),
   // The claimed candidate's uploaded photo (Clerk avatar), or null when they
   // haven't uploaded one — marketing falls back to the BallotReady image.
   avatar: z.string().nullable(),

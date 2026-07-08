@@ -4,6 +4,7 @@ import {
   Campaign,
   CommitteeType,
   OfficeLevel,
+  TcrCompliance,
   User,
 } from '../../../generated/prisma'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
@@ -15,7 +16,12 @@ import { PeerlyCvVerificationType } from '../peerly.types'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyIdentityService } from './peerlyIdentity.service'
+import {
+  PeerlyBillingException,
+  PEERLY_NO_PAYMENT_METHOD_MESSAGE,
+} from '../utils/peerlyBillingError.util'
 import { SlackService } from '../../slack/services/slack.service'
+import { SlackChannel } from '../../slack/slackService.types'
 import { UsersService } from '../../../users/services/users.service'
 import {
   createMockLogger,
@@ -477,6 +483,86 @@ describe('PeerlyIdentityService', () => {
         ),
       ).rejects.toThrow(BadRequestException)
     })
+
+    it('fires a distinct billing alert and throws PeerlyBillingException on the "No payment method available" 400', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      httpService.post = vi.fn().mockRejectedValue({
+        isAxiosError: true,
+        status: 400,
+        response: {
+          status: 400,
+          data: {
+            message: 'Campaign Verify API request failed',
+            details: { message: PEERLY_NO_PAYMENT_METHOD_MESSAGE },
+          },
+        },
+      })
+
+      await expect(
+        service.submitCampaignVerifyRequest(
+          {
+            email: 'candidate@example.com',
+            ein: '12-3456789',
+            phone: '15551234567',
+            peerlyIdentityId: 'peerly-billing-1',
+            filingUrl: 'https://example.gov/elections',
+            officeLevel: OfficeLevel.state,
+            fecCommitteeId: null,
+            committeeType: CommitteeType.CANDIDATE,
+          },
+          baseUser,
+          createMockCampaign(),
+          baseDomainName,
+        ),
+      ).rejects.toBeInstanceOf(PeerlyBillingException)
+
+      expect(slackService.message).toHaveBeenCalledWith(
+        expect.objectContaining({ blocks: expect.any(Array) }),
+        SlackChannel.bot10DlcCompliance,
+      )
+      // The generic per-identity error path is bypassed, so the billing outage
+      // is not double-alerted as ordinary error noise.
+      expect(errorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it('routes a transient 500 through handleApiError (still retryable)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.post = vi.fn().mockRejectedValue({
+        isAxiosError: true,
+        status: 500,
+        response: { status: 500, data: { message: 'Internal error' } },
+      })
+      // The real handleApiError is typed Promise<never> and always throws;
+      // mock it to reject so this asserts the error actually propagates (a
+      // no-op mock would let the method resolve to null and pass vacuously).
+      const sentinel = new Error('handleApiError sentinel')
+      errorHandling.handleApiError = vi.fn().mockRejectedValue(sentinel)
+
+      await expect(
+        service.submitCampaignVerifyRequest(
+          {
+            email: 'candidate@example.com',
+            ein: '12-3456789',
+            phone: '15551234567',
+            peerlyIdentityId: 'peerly-500',
+            filingUrl: 'https://example.gov/elections',
+            officeLevel: OfficeLevel.state,
+            fecCommitteeId: null,
+            committeeType: CommitteeType.CANDIDATE,
+          },
+          baseUser,
+          createMockCampaign(),
+          baseDomainName,
+        ),
+      ).rejects.toThrow(sentinel)
+
+      expect(errorHandling.handleApiError).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('submit10DlcBrand', () => {
@@ -512,7 +598,7 @@ describe('PeerlyIdentityService', () => {
       ])
     })
 
-    it('includes jobAreas with only didState when area code lookup returns empty', async () => {
+    it('includes jobAreas with didState and empty didNpaSubset when area code lookup returns empty', async () => {
       const areaCodeService = module.get(AreaCodeFromZipService)
       vi.mocked(areaCodeService.getAreaCodeFromZip).mockResolvedValue([])
 
@@ -527,11 +613,14 @@ describe('PeerlyIdentityService', () => {
         baseDomainName,
       )
 
-      // jobAreas is present with didState even when no area codes resolved
-      expect(lastSubmittedData.jobAreas).toEqual([{ didState: 'IL' }])
+      // didNpaSubset must always be present (empty array) — Peerly rejects its
+      // omission and the registration fails to load/finalize.
+      expect(lastSubmittedData.jobAreas).toEqual([
+        { didState: 'IL', didNpaSubset: [] },
+      ])
     })
 
-    it('includes jobAreas with only didState when area code lookup returns null', async () => {
+    it('includes jobAreas with didState and empty didNpaSubset when area code lookup returns null', async () => {
       const areaCodeService = module.get(AreaCodeFromZipService)
       vi.mocked(areaCodeService.getAreaCodeFromZip).mockResolvedValue(null)
 
@@ -546,7 +635,9 @@ describe('PeerlyIdentityService', () => {
         baseDomainName,
       )
 
-      expect(lastSubmittedData.jobAreas).toEqual([{ didState: 'IL' }])
+      expect(lastSubmittedData.jobAreas).toEqual([
+        { didState: 'IL', didNpaSubset: [] },
+      ])
     })
 
     it('sends state in both top-level field and jobAreas when geography is resolved', async () => {
@@ -570,7 +661,7 @@ describe('PeerlyIdentityService', () => {
       const jobAreas = lastSubmittedData.jobAreas as Array<{
         didState: string
       }>
-      expect(jobAreas[0].didState).toBe('IL')
+      expect(jobAreas[0]?.didState).toBe('IL')
     })
 
     it('omits jobAreas when geography falls back to USA default', async () => {
@@ -633,6 +724,202 @@ describe('PeerlyIdentityService', () => {
     })
   })
 
+  describe('submitCampaignVerifyTokenToBrand', () => {
+    const tcr = {
+      peerlyIdentityId: 'peerly-final',
+      campaignId: 7,
+      committeeName: 'Jane for Council',
+    } as TcrCompliance
+
+    it('re-opens via /submit then finalizes via /approve when the brand is finalized', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { profile: { status: 'finalized' } } })
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValueOnce({ data: { submission_key: 'sk1' } })
+        .mockResolvedValueOnce({ data: { status: 'waiting_to_finalize' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
+
+      // /submit re-opens + attaches the token; /approve then queues the
+      // submission. Order matters — approve 400s if the brand is still
+      // finalized, so submit must run first.
+      expect(postSpy).toHaveBeenNthCalledWith(
+        1,
+        '/v2/tdlc/peerly-final/submit',
+        {
+          campaign_verify_token: 'cv-token-1',
+        },
+      )
+      expect(postSpy).toHaveBeenNthCalledWith(
+        2,
+        '/v2/tdlc/peerly-final/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
+      // /finalize confirms the registration so it reaches the MNOs without an
+      // email-link click.
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
+    })
+
+    it('uses /approve when the brand is still pending', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { profile: { status: 'pending' } } })
+      httpService.get = getSpy
+      const postSpy = vi.fn().mockResolvedValue({ data: { status: 'pending' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
+
+      expect(postSpy).toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
+      // still finalizes (no /submit needed for a pending brand)
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
+      expect(postSpy).not.toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/submit',
+        expect.anything(),
+      )
+    })
+
+    it('still approves and finalizes when getIdentityProfile 404s (orphaned identity)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      // getProfile 404s (orphaned identity); the method swallows it and falls
+      // through to approve + finalize rather than attempting /submit.
+      const getSpy = vi
+        .fn()
+        .mockRejectedValueOnce({
+          isAxiosError: true,
+          status: 404,
+          config: { url: '/identities/peerly-final/getProfile', method: 'get' },
+          response: { data: {} },
+        })
+        .mockResolvedValue({ data: {} })
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1')
+
+      expect(postSpy).toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
+      expect(postSpy).not.toHaveBeenCalledWith(
+        '/v2/tdlc/peerly-final/submit',
+        expect.anything(),
+      )
+    })
+
+    it('approves directly (skips profile fetch, /submit, /finalize) when peerlyIdentityId is missing', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi.fn()
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+
+      await service.submitCampaignVerifyTokenToBrand(
+        { ...tcr, peerlyIdentityId: null } as TcrCompliance,
+        'cv-token-1',
+      )
+
+      // no identity → /approve only; no profile fetch, /submit, or /finalize
+      expect(postSpy).toHaveBeenCalledWith(
+        '/v2/tdlc/null/approve',
+        expect.objectContaining({ campaign_verify_token: 'cv-token-1' }),
+      )
+      expect(getSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/finalize'),
+      )
+      expect(postSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/submit'),
+        expect.anything(),
+      )
+    })
+
+    it('does not fail the operation when /finalize errors (best-effort)', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi
+        .fn()
+        .mockResolvedValueOnce({ data: { profile: { status: 'pending' } } })
+        .mockRejectedValueOnce({
+          isAxiosError: true,
+          status: 502,
+          config: { url: '/v2/tdlc/peerly-final/finalize', method: 'get' },
+          response: { data: {} },
+        })
+      httpService.get = getSpy
+      const postSpy = vi
+        .fn()
+        .mockResolvedValue({ data: { status: 'approved' } })
+      httpService.post = postSpy
+      // handleApiError throws in prod; finalizeBrand must swallow it so a
+      // transient /finalize failure after a successful /approve does not fail
+      // the whole operation.
+      vi.mocked(errorHandling.handleApiError).mockRejectedValue(
+        new Error('boom'),
+      )
+
+      await expect(
+        service.submitCampaignVerifyTokenToBrand(tcr, 'cv-token-1'),
+      ).resolves.toBeDefined()
+      expect(getSpy).toHaveBeenCalledWith('/v2/tdlc/peerly-final/finalize')
+    })
+
+    it('refuses to approve (and never finalizes) with an empty CV token', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const campaignsService = module.get(CampaignsService)
+      vi.mocked(campaignsService.findFirstOrThrow).mockResolvedValue(
+        campaignFactory({ id: 7 }) as Campaign,
+      )
+      const getSpy = vi.fn().mockResolvedValue({ data: { profile: {} } })
+      httpService.get = getSpy
+      const postSpy = vi.fn()
+      httpService.post = postSpy
+
+      await expect(service.approve10DLCBrand(tcr, '')).rejects.toThrow(
+        BadRequestException,
+      )
+      // No /approve call reached Peerly, so no token-less finalization.
+      expect(postSpy).not.toHaveBeenCalled()
+      expect(getSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('/finalize'),
+      )
+    })
+  })
+
   describe('retrieveCampaignVerifyStatus', () => {
     const campaign = campaignFactory({ id: 1 }) as Campaign
 
@@ -665,6 +952,80 @@ describe('PeerlyIdentityService', () => {
       })
 
       await service.retrieveCampaignVerifyStatus('peerly-500', campaign)
+
+      expect(errorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+
+  describe('retrieveCampaignVerifyDetails', () => {
+    const campaign = campaignFactory({ id: 1 }) as Campaign
+
+    it('returns the status and derived PIN delivery from the CV payload', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      httpService.get = vi.fn().mockResolvedValueOnce({
+        data: {
+          verification_status: 'APPROVED',
+          verification_data: {
+            verification_method: 'text',
+            filing_phone_number: '3126851162',
+            filing_email: 'candidate@example.com',
+          },
+        },
+      })
+
+      const result = await service.retrieveCampaignVerifyDetails(
+        'peerly-1',
+        campaign,
+      )
+
+      expect(result).toEqual({
+        status: 'APPROVED',
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+    })
+
+    it('returns null PIN delivery when Peerly has not sent the PIN yet', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      httpService.get = vi
+        .fn()
+        .mockResolvedValueOnce({ data: { verification_status: 'IN_REVIEW' } })
+
+      const result = await service.retrieveCampaignVerifyDetails(
+        'peerly-2',
+        campaign,
+      )
+
+      expect(result).toEqual({ status: 'IN_REVIEW', pinDelivery: null })
+    })
+
+    it('returns a null struct (no alert, no throw) when no CV request exists', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        response: { data: { status_code: 404 } },
+      })
+
+      const result = await service.retrieveCampaignVerifyDetails(
+        'peerly-no-cv',
+        campaign,
+      )
+
+      expect(result).toEqual({ status: null, pinDelivery: null })
+      expect(errorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it('routes other errors through handleApiError', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 500,
+        response: { data: {} },
+      })
+
+      await service.retrieveCampaignVerifyDetails('peerly-500', campaign)
 
       expect(errorHandling.handleApiError).toHaveBeenCalled()
     })

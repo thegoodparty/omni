@@ -26,16 +26,19 @@ export class DistrictResolverService extends createPrismaBase(
   async resolveByUserId(userId: number): Promise<DistrictResolution | null> {
     const electedOffice = await this.model.findFirst({ where: { userId } })
     if (!electedOffice) return null
+    return this.resolveByOrgSlug(electedOffice.organizationSlug)
+  }
 
-    const org = await this.client.organization.findUnique({
-      where: { slug: electedOffice.organizationSlug },
-    })
+  // Resolves a district straight from the organization (its position), so a Win
+  // campaign — which has no elected office — can scope constituent queries the
+  // same way Chief of Staff does. resolveByUserId funnels through here.
+  async resolveByOrgSlug(slug: string): Promise<DistrictResolution | null> {
+    const org = await this.client.organization.findUnique({ where: { slug } })
     if (!org) return null
-    if (!org.positionId && !org.overrideDistrictId) return null
     if (!org.positionId) return null
 
     const [district, position] = await Promise.all([
-      this.organizations.getDistrictForOrgSlug(electedOffice.organizationSlug),
+      this.organizations.getDistrictForOrgSlug(slug),
       this.elections.getPositionById(org.positionId, {
         includeDistrict: true,
       }),

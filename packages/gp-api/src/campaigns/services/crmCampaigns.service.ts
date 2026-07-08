@@ -24,6 +24,7 @@ import {
   CRMCompanyProperties,
   CRMCompanyPropertiesSchema,
 } from 'src/crm/schemas/CRMCompanyProperties.schema'
+import { filterPropertiesForUpdate } from '../util/crmCompanyProperties.util'
 import { WrapperType } from 'src/shared/types/utility.types'
 import { CampaignCreatedBy, OnboardingStep } from '@goodparty_org/contracts'
 import { PinoLogger } from 'nestjs-pino'
@@ -63,6 +64,7 @@ export class CrmCampaignsService {
         message,
         error,
       })
+      return undefined
     }
   }
 
@@ -78,6 +80,7 @@ export class CrmCampaignsService {
         message,
         error,
       })
+      return undefined
     }
   }
 
@@ -95,6 +98,7 @@ export class CrmCampaignsService {
       )
     } catch (e) {
       this.logger.error({ e }, 'error getting crm company owner')
+      return undefined
     }
   }
 
@@ -352,7 +356,7 @@ export class CrmCampaignsService {
       const msg = `CRM Push cancelled - validation failed for campaign slug: ${campaign.slug}.`
       this.logger.error(
         {
-          errors: validated.error.errors,
+          errors: validated.error.issues,
           fields: fieldsToSync,
         },
         msg,
@@ -525,7 +529,9 @@ export class CrmCampaignsService {
   ) {
     const campaignData = campaign.data
     const hubSpotUpdates = campaignData.hubSpotUpdates || {}
-    hubSpotUpdates[propertyName] = propertyValue
+    // propertyName is a dynamic HubSpot field name supplied at runtime.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+    hubSpotUpdates[propertyName as HubSpot.IncomingProperty] = propertyValue
 
     const updatePayload: Prisma.CampaignUpdateInput = {
       data: {
@@ -710,37 +716,11 @@ export class CrmCampaignsService {
       return null
     }
 
-    const properties = this.filterPropertiesForUpdate(
-      crmCompanyProperties,
-      fields,
-    )
+    const properties = filterPropertiesForUpdate(crmCompanyProperties, fields)
 
     // HubSpot SDK types are loosely typed — properties bag is Record<string, string>
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
     return { id, properties } as SimplePublicObjectBatchInput
-  }
-
-  private filterPropertiesForUpdate(
-    crmCompanyProperties: CRMCompanyProperties,
-    fields: Array<keyof CRMCompanyProperties | 'all'>,
-  ) {
-    const includeAll = fields.length === 1 && fields.includes('all')
-
-    return includeAll
-      ? crmCompanyProperties
-      : fields.reduce(
-          (acc: Record<string, string | number | undefined>, field) => {
-            if (
-              crmCompanyProperties[field] ||
-              crmCompanyProperties[field] === null
-            ) {
-              // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-              acc[field] = crmCompanyProperties[field]
-            }
-            return acc
-          },
-          {},
-        )
   }
 
   private async updateHubSpotCompaniesBatch(

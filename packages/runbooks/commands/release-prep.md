@@ -1,4 +1,4 @@
-<!-- v5 — 2026-06-26 -->
+<!-- v6 — 2026-06-29 -->
 # /release-prep
 
 Open each release repo's `develop → qa` PR with auto-merge enabled, wait for it to merge, then open the `qa → production` PR — the pending production release. Compile and print one `#devs-only` message that lists every included PR (across all repos), grouped per repo and then by author, so the team can confirm before the actual release.
@@ -13,11 +13,11 @@ There are **two release repos**, each promoted on its own three-branch line:
 `omni` is a monorepo (`dev / qa / prod`), so its prep is a single branch promotion. `gp-ai-projects` is a separate repo with the same shape but a `prod` production tip rather than `master`. A release prep loops over both repos; each repo is independent — one having no changes does not stop the other.
 
 <!-- BEGIN: resolve-runbooks-dir (keep in sync across commands/*.md) -->
-> **Where this runs:** All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to the runbooks repo root. When invoked from any directory, first resolve and `cd` into the repo:
+> **Where this runs:** Runbooks lives in the `omni` monorepo at `packages/runbooks`. All paths below (`scripts/python/...`, `books/.env`, `scripts/.env`) are relative to that package root. When invoked from any directory, first resolve and `cd` into it:
 >
 > 1. If `$RUNBOOKS_DIR` is set, use it.
-> 2. Else first that exists: `$HOME/Documents/gp/dev/runbooks`, `$HOME/code/runbooks`, `$HOME/runbooks`.
-> 3. Else ask the user where the runbooks repo is; suggest `export RUNBOOKS_DIR=<path>` in their shell profile.
+> 2. Else first that exists: `$HOME/Documents/gp/dev/omni/packages/runbooks`, `$HOME/code/omni/packages/runbooks`, `$HOME/omni/packages/runbooks`.
+> 3. Else ask the user where the omni repo is (the runbooks package is at `<omni>/packages/runbooks`); suggest `export RUNBOOKS_DIR=<omni>/packages/runbooks` in their shell profile.
 <!-- END: resolve-runbooks-dir -->
 
 <!-- BEGIN: resolve-release-repos (keep in sync across commands/*.md) -->
@@ -38,7 +38,7 @@ There are **two release repos**, each promoted on its own three-branch line:
 
 **books/.env variables**: `$RELEASE_OMNI_DIR`, `$RELEASE_AI_DIR`, `$RELEASE_AUTHOR_MAP`, `$RELEASE_DEVS_CHANNEL`, `$CLICKUP_TEAM_ID`, `$RELEASE_CLICKUP_TICKET_BASE`
 **scripts/.env variables**: none — this command builds ClickUp ticket links from the custom id (no API call); `CLICKUP_API_KEY` is not required here.
-**Tools**: `gh` (authenticated), `git`, `jq`
+**Tools**: `gh` (authenticated), `git`, `jq`; **plus `terraform` and an AWS CLI authenticated to the gp-ai-projects AWS account — only for Phase 2.5** (the gp-ai-projects control-plane deploy). Not needed when releasing omni only.
 
 Defaults if a `books/.env` value is unset: `$RELEASE_OMNI_DIR=$HOME/Documents/gp/dev/omni`, `$RELEASE_AI_DIR=$HOME/Documents/gp/dev/gp-ai-projects`, `$RELEASE_AUTHOR_MAP=$HOME/.claude/release-authors.json`, `$RELEASE_DEVS_CHANNEL=#devs-only`, `$RELEASE_CLICKUP_TICKET_BASE=https://goodparty.clickup.com/t/$CLICKUP_TEAM_ID`.
 
@@ -89,7 +89,7 @@ This command takes no arguments — the release targets are always `omni` and `g
    ```
 
    - **Both empty** → print `<repo>: no changes between qa and develop — nothing to release` and skip this repo's remaining Phase 2/3 steps (it contributes nothing to the Phase 4 message). There is nothing to prep for this repo.
-   - **`$TIP..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip the rest of Phase 2 for this repo and jump to step 8 to open the `qa → $TIP` PR, then continue.
+   - **`$TIP..qa` non-empty** → the promotion already merged but the release PR was never opened. Skip the rest of Phase 2 for this repo and jump to **Phase 2.5** (deploy the gp-ai-projects control-plane to qa — a no-op for omni), then step 8 to open the `qa → $TIP` PR, then continue.
 
 4. **Create (or reuse) the develop → qa PR.** This command is rerunnable; check for an existing open PR first to avoid `gh pr create`'s 422 on duplicates:
 
@@ -215,6 +215,57 @@ This command takes no arguments — the release targets are always `omni` and `g
    cd "$REPO_DIR"
    git fetch origin --prune
    ```
+
+### Phase 2.5: Deploy gp-ai-projects control-plane to qa (gp-ai-projects only)
+
+> **Skip this phase for omni** — omni deploys entirely on merge (Vercel + ECS). It applies only to **gp-ai-projects**, and only when its develop→qa merge landed (this run, or via the step 3 shortcut). In gp-ai-projects a merge auto-deploys the broker (ECS force-new-deployment) and runner (image tag), but the `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform and need a manual `terraform apply` — without it, a control-plane change merged to `qa` is **not** live there. Full procedure and rationale live in the **`terraform-deploy` skill** at `$REPO_DIR/.claude/skills/terraform-deploy.md`; the steps below mirror it.
+>
+> **If you reached this repo via the step 3 shortcut (`$TIP..qa` was already non-empty), still run 7a–7b here before opening the step 8 PR** — the prior run merged develop→qa but may not have applied the control-plane Terraform.
+
+7a. **Wait for the qa image build to finish.** The develop→qa merge triggered `build-pmf-engine.yml` on `qa`; let the runner/broker images land first so the environment is coherent. **Match the run to the merge commit's SHA** — a bare `--limit 1` would return the *prior* completed build on `qa` (already `completed`/`success`) before the new run is even created, so the poll would exit early and you'd deploy the Lambdas against stale images:
+
+   ```bash
+   cd "$REPO_DIR"
+   git fetch origin --prune   # gh pr merge updated the remote, not local refs
+   EXPECTED_SHA=$(git rev-parse origin/qa)   # the merge commit just landed on qa
+   gh run list --workflow build-pmf-engine.yml --branch qa --limit 5 \
+     --json status,conclusion,headSha \
+     | jq --arg sha "$EXPECTED_SHA" '.[] | select(.headSha == $sha) | {status, conclusion}'
+   ```
+
+   Poll until a run **for `$EXPECTED_SHA`** appears with `status` = `completed` (budget ~15 min). If that run's `conclusion` is not `success`, stop and report — do not deploy the Lambdas on top of a failed build.
+
+7b. **Apply the control-plane Terraform for qa**, in a throwaway worktree off `origin/qa` so the user's checkout is untouched (the apply zips `pmf_engine/.lambda_build` from the working tree, so it must be the released code):
+
+   ```bash
+   cd "$REPO_DIR"
+   git fetch origin --prune
+   git worktree remove --force .worktrees/release-cp-qa 2>/dev/null || true   # clear a leftover from a prior crashed/interrupted run — --force won't reuse a still-registered path
+   git worktree prune
+   git worktree add --force .worktrees/release-cp-qa origin/qa
+   cd .worktrees/release-cp-qa
+   bash pmf_engine/scripts/build_lambda_package.sh
+   cd infrastructure/environments/qa/pmf-engine-control-plane
+   eval "$(aws configure export-credentials --format env)"
+   terraform init -input=false
+   terraform plan -input=false -out=tfplan
+   ```
+
+   **Review the plan before applying.** A clean control-plane deploy is `0 to add, 3 to change, 0 to destroy` — the `dispatch`/`scheduler`/`task_reaper` Lambdas with only `source_code_hash` changing (or `No changes` if `qa` was already applied — the apply is idempotent, so re-running is safe). Anything beyond that (IAM, security groups, S3, networking) means drift — **remove the worktree first** (`cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-qa && git worktree prune`), then stop and surface it instead of applying (a left-behind worktree blocks the next run's `git worktree add`). If the plan is clean, apply and then remove the worktree:
+
+   ```bash
+   cd "$REPO_DIR/.worktrees/release-cp-qa/infrastructure/environments/qa/pmf-engine-control-plane"
+   eval "$(aws configure export-credentials --format env)"
+   terraform apply -input=false tfplan
+   ```
+
+   Then remove the worktree — **always, even if `terraform apply` exited non-zero** (on failure, run this before recording the error; the pre-flight teardown above is the backstop, but don't leave the worktree dangling):
+
+   ```bash
+   cd "$REPO_DIR" && git worktree remove --force .worktrees/release-cp-qa && git worktree prune
+   ```
+
+   Record the result (applied / `No changes` / skipped / failed) for the step 16 report.
 
 ### Phase 3: qa → production (the pending release; run once per repo)
 
@@ -370,6 +421,7 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
     - Per repo, if step 6 ended in `investigate` (auto-merge armed but a required check is failing): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed — it will merge on its own once the failing check goes green; re-run this command afterward to open the qa→$TIP PR". Name the failing check(s) (from the `gh pr checks` run in step 6).
     - Per repo, if step 6 hit the ~20-min budget timeout (checks stuck `PENDING`, never `BLOCKED`): nothing merged yet. List the develop→qa PR with URL and note "auto-merge is armed but checks haven't finished — it will merge on its own once they pass; re-run this command afterward to open the qa→$TIP PR". Name the still-`PENDING` check(s), not "failing" ones.
     - Per repo, if step 5 couldn't merge at all (both `--auto` and the direct-merge fallback failed): list the develop→qa PR with URL and the error, and note "merge could not be enabled — resolve in the GitHub UI (see Troubleshooting), then re-run from step 5"
+    - gp-ai-projects only (Phase 2.5): whether the qa control-plane Terraform was applied (Lambdas updated), reported `No changes` (already current), was skipped (omni / no gp-ai-projects merge this run), or failed (qa build not green, plan showed unexpected drift, or apply error) — note which, since a skip/failure means a control-plane change merged to `qa` is not yet live there.
     - Any unmapped GitHub authors that fell back to raw logins (suggest adding them to `$RELEASE_AUTHOR_MAP`)
     - Any PRs with no ticket tag found in title/body/branch/commits (rendered with no ticket link) — flag so the user can add a ticket reference if one was expected
     - Any commits with no PR backing them (no `(#<n>)` suffix and `gh api .../commits/<hash>/pulls` returned `[]`) — these appeared in the message with a commit-hash placeholder
@@ -382,6 +434,7 @@ Run steps 9–13 **per contributing repo**, accumulating results keyed by repo, 
 - **Auto-merge the develop→qa PR; don't block on checks already passed into develop.** Every included change already passed the repo's required checks into `develop` (for omni, the full E2E suite), so the promotion to `qa` is handed to GitHub via `gh pr merge --auto --merge` rather than a blocking `gh pr checks --watch`. The command only waits (poll on PR `state`) for the merge to actually land, since step 8 diffs against the updated `qa`.
 - **`--merge`, not `--squash`.** The merge style is load-bearing — `/release` parses the `qa..$TIP` diff to find included ticket tags. Squashing would collapse them into the parent PR's commit body, making the lookup more fragile.
 - **Skip silent on empty diff.** If a repo's `git log qa..develop` is empty, that's normal — note it in the final report and continue with the other repo.
+- **gp-ai-projects needs a Terraform apply to qa (omni doesn't).** A merge auto-deploys gp-ai-projects' broker + runner, but its `dispatch`/`scheduler`/`task_reaper` Lambdas are zip-packaged by Terraform — Phase 2.5 applies them to `qa` after the build lands. omni has no equivalent step (Vercel + ECS deploy on merge). See the `terraform-deploy` skill in the gp-ai-projects repo.
 - **Don't merge the qa → production PR.** This command only opens it. The actual release merge is done by `/release` once the team has confirmed.
 - **`gh` cwd detection.** When `cd`'d into a repo, `gh` resolves owner/repo from the git remote. Don't pass `--repo`.
 

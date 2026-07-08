@@ -20,7 +20,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 - **Access gating**: use `candidateAccess.ts` from client code, `serveAccess.ts` from server components. Don't read the user object directly to gate UI — go through the helpers so rules stay in one place.
 - **Pro-only features** wrap their content in `ProUpgradeModal` / `ProUpgradePrompt`. Free users see the prompt; pro users see the feature.
 - **Sidebar visibility** is driven by the menu config in `DashboardMenu.tsx` — adding a feature route means adding a menu entry there too.
-- **In-body tab header**: Serve tab pages pass `navHeader={{ icon, label }}` to `DashboardLayout` so the body opens with a full-bleed bar mirroring the nav item (icon + tab name). It also suppresses the redundant mobile top-bar title. `icon` is a string key (e.g. `'sparkles'`), not a component reference: the chief-of-staff and briefings pages are Server Components, and a function/component prop can't cross the RSC boundary into the client `DashboardLayout`. Add new keys to `NAV_HEADER_ICONS` in `DashboardNavHeader.tsx`. Match the page's `DashboardMenu` icon/label, and drop any in-page heading that just repeats the tab name (the bar is the title).
+- **In-body tab header**: Serve tab pages pass `navHeader={{ icon, label }}` to `DashboardLayout` so the body opens with a full-bleed bar mirroring the nav item (icon + tab name). The bar is **desktop-only** (`hidden lg:flex`); on mobile the title moves into the top bar (`MobileMenuTrigger`), so any route with a navHeader needs a matching entry in `MOBILE_PAGE_TITLES` (contacts is resolved separately by Win/Serve). `icon` is a string key (e.g. `'sparkles'`), not a component reference: the chief-of-staff and briefings pages are Server Components, and a function/component prop can't cross the RSC boundary into the client `DashboardLayout`. Add new keys to `NAV_HEADER_ICONS` in `DashboardNavHeader.tsx`. Match the page's `DashboardMenu` icon/label, and drop any in-page heading that just repeats the tab name (the bar is the title).
 
 ## Gotchas
 
@@ -30,7 +30,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 
 ## Related
 
-- Feature dirs each have their own `CLAUDE.md` — start there if you're working in `outreach/`, `polls/`, `website/`, etc.
+- Feature dirs each have their own `CLAUDE.md` — start there if you're working in `outreach/`, `polls/`, `website/`, `race-opponent/` (Know Your Opponent — flag + Pro gated), etc.
 - **Pro upgrade / 10DLC compliance** — `pro-upgrade/CLAUDE.md` (the pre-payment wizard) + its gp-api counterpart `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md` (the agentic `compliance_setup` flow).
 - `app/shared/user/UserProvider.tsx` — auth state the layout reads.
 - `app/shared/hooks/CampaignProvider.tsx` — current campaign context.

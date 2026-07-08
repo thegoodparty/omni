@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { PositionLevel } from 'src/generated/graphql.types'
 
@@ -43,7 +44,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
     it('fetchRaceById sends node(id: $id) with the id as a variable, not interpolated', async () => {
       await service.fetchRaceById('Z2lkOi8vYmFsbG90')
 
-      const [query, variables] = mockRequest.mock.calls[0]
+      const [query, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(query).toContain('node(id: $id)')
       expect(query).not.toContain('Z2lkOi8vYmFsbG90')
       expect(variables).toEqual({ id: 'Z2lkOi8vYmFsbG90' })
@@ -66,7 +67,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
     it('fetchRaceNormalizedPosition passes a valid id as a variable, not interpolated', async () => {
       await service.fetchRaceNormalizedPosition('Z2lkOi8vcG9zaXRpb24=')
 
-      const [query, variables] = mockRequest.mock.calls[0]
+      const [query, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(query).toContain('node(id: $id)')
       expect(query).not.toContain('Z2lkOi8vcG9zaXRpb24=')
       expect(variables).toEqual({ id: 'Z2lkOi8vcG9zaXRpb24=' })
@@ -82,7 +83,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
     it('fetchRacesWithOfficeHolders passes a valid id as a variable', async () => {
       await service.fetchRacesWithOfficeHolders('Z2lkOi8vcmFjZQ==')
 
-      const [query, variables] = mockRequest.mock.calls[0]
+      const [query, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(query).toContain('node(id: $id)')
       expect(variables).toEqual({ id: 'Z2lkOi8vcmFjZQ==' })
     })
@@ -98,7 +99,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
       mockRequest.mockResolvedValue({ node: null })
       await service.fetchPersonOfficeHolders('Z2lkOi8vcGVyc29u')
 
-      const [query, variables] = mockRequest.mock.calls[0]
+      const [query, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(query).toContain('node(id: $personId)')
       expect(query).not.toContain('Z2lkOi8vcGVyc29u')
       expect(variables).toEqual({ personId: 'Z2lkOi8vcGVyc29u' })
@@ -118,7 +119,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
 
       await service.fetchRacesWithElectionDates('97201', PositionLevel.CITY)
 
-      const [query, variables] = mockRequest.mock.calls[0]
+      const [query, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(query).toContain('location: { zip: $zip }')
       expect(query).toContain('level: CITY')
       expect(variables).toEqual({ zip: '97201', lt: expect.any(String) })
@@ -132,7 +133,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
         PositionLevel.CITY,
       )
 
-      const [, variables] = mockRequest.mock.calls[0]
+      const [, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(variables.zip).toBe('97201')
     })
 
@@ -153,7 +154,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
 
       await service.fetchRacesByZipcode('97201', 'LOCAL', null, 'cursor-1')
 
-      const [query, variables] = mockRequest.mock.calls[0]
+      const [query, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(query).toContain('location: { zip: $zip }')
       expect(query).toContain('electionDay: { gte: $gte, lte: $lte }')
       expect(query).toContain('level: [LOCAL,TOWNSHIP,CITY]')
@@ -170,7 +171,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
 
       await service.fetchRacesByZipcode('97201', 'STATE', null, null)
 
-      const [, variables] = mockRequest.mock.calls[0]
+      const [, variables] = firstOrThrow(mockRequest.mock.calls)
       expect(variables.after).toBeNull()
     })
 
@@ -179,7 +180,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
 
       await service.fetchRacesByZipcode('97201', 'EVIL] injected [', null, null)
 
-      const [query] = mockRequest.mock.calls[0]
+      const [query] = firstOrThrow(mockRequest.mock.calls)
       expect(query).not.toContain('injected')
       expect(query).not.toContain('level:')
     })
@@ -192,7 +193,7 @@ describe('BallotReadyService GraphQL injection hardening', () => {
 
       await service.fetchRacesByZipcode('00000', null, null, null)
 
-      const [query] = mockRequest.mock.calls[0]
+      const [query] = firstOrThrow(mockRequest.mock.calls)
       expect(query).not.toContain('state:')
     })
   })

@@ -1,5 +1,11 @@
 import { HttpException, HttpExceptionOptions } from '@nestjs/common'
+import { PeerlyCvVerificationStatus } from '@goodparty_org/contracts'
 import { Campaign } from '../../generated/prisma'
+
+// Peerly's retrieve_cv `verification_status` values. Single source of truth is
+// @goodparty_org/contracts (surfaced in the compliance-state response);
+// re-exported here so the Peerly vendor layer keeps importing it locally.
+export { PeerlyCvVerificationStatus }
 
 export type PeerlyIdentity = {
   identity_id: string
@@ -249,22 +255,31 @@ export type PeerlyCreateCVTokenResponse = {
   campaign_verify_token: string
 }
 
-export enum PeerlyCvVerificationStatus {
-  REQUESTED = 'REQUESTED',
-  IN_REVIEW = 'IN_REVIEW',
-  // The candidate's PIN has been verified; a CV token can now be minted and the
-  // usecase submitted. (Distinct from APPROVED, which the CV authority can reach
-  // before the candidate has completed PIN verification.)
-  VERIFIED = 'VERIFIED',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
-  WITHDRAWN = 'WITHDRAWN',
-}
-
 // TODO: make this an enum once we have the answer to this question:
 //  https://goodpartyorg.slack.com/archives/C09H3K02LLV/p1759423143435669
 export type PeerlyRetrieveCampaignVerifyStatusResponseBody = {
   verification_status: PeerlyCvVerificationStatus
+}
+
+// The `verification_data` block Peerly's retrieve_cv returns once the PIN has
+// been sent. `verification_method` is the delivery channel; the destination is
+// `filing_email` for email or `filing_phone_number` for text/phone/call (mail
+// uses the filing address). All optional — the block is absent before the PIN
+// is sent, and Peerly's field set is not a hardened contract.
+export interface PeerlyCvVerificationData {
+  verification_method?: string
+  filing_email?: string
+  filing_phone_number?: string
+  filing_address_line1?: string
+  filing_address_line2?: string
+  filing_city?: string
+  filing_state?: string
+  filing_zip?: string
+}
+
+export interface PeerlyRetrieveCvResponseBody {
+  verification_status: PeerlyCvVerificationStatus
+  verification_data?: PeerlyCvVerificationData
 }
 export enum PeerlyCommitteeType {
   House = 'H',

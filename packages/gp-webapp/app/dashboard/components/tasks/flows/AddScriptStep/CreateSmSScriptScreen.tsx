@@ -6,18 +6,20 @@ import { ModalFooter } from '@shared/ModalFooter'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { noop } from '@shared/utils/noop'
 
-const MAX_SMS_CHAR_COUNT = 1600
+export const MAX_SMS_CHAR_COUNT = 1600
 
 interface CreateSmSScriptScreenProps {
   onNext?: (scriptText: string) => void
   onBack?: () => void
+  initialScriptText?: string
 }
 
 export const CreateSmSScriptScreen = ({
   onNext = noop,
   onBack = noop,
+  initialScriptText,
 }: CreateSmSScriptScreenProps): React.JSX.Element => {
-  const [scriptText, setScriptText] = useState('')
+  const [scriptText, setScriptText] = useState(initialScriptText ?? '')
   const overLimit = scriptText.length > MAX_SMS_CHAR_COUNT
 
   const handleOnNext = () => {

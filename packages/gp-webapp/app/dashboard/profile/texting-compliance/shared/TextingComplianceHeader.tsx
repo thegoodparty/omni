@@ -30,7 +30,7 @@ export default function TextingComplianceHeader({
     >
       <div className="flex items-center justify-between">
         <Button asChild variant="ghost" className="md:hidden">
-          <Link href="/dashboard/profile">
+          <Link href="/dashboard/account">
             <MdArrowBack className="text-lg" />
           </Link>
         </Button>
@@ -42,7 +42,7 @@ export default function TextingComplianceHeader({
           variant="outline"
           className="hidden rounded-full px-6 py-2 md:flex"
         >
-          <Link href="/dashboard/profile">Exit</Link>
+          <Link href="/dashboard/account">Exit</Link>
         </Button>
       </div>
     </header>

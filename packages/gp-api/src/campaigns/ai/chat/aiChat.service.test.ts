@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
+import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import type { LlmStreamResult } from '@/llm/services/llm.service'
 import { AiChatService } from './aiChat.service'
 import type { PromptReplaceCampaign } from 'src/ai/services/promptReplace.service'
@@ -129,7 +130,7 @@ describe('AiChatService.streamChat', () => {
 
     expect(fakeModel.create).toHaveBeenCalledTimes(1)
     expect(fakeModel.update).not.toHaveBeenCalled()
-    const createArg = fakeModel.create.mock.calls[0][0]
+    const createArg = firstOrThrow(fakeModel.create.mock.calls)[0]
     expect(createArg.data.campaignId).toBe(10)
     expect(createArg.data.userId).toBe(7)
     expect(createArg.data.data.messages).toHaveLength(2)
@@ -170,7 +171,7 @@ describe('AiChatService.streamChat', () => {
       ),
     )
 
-    const messages = streamChatCompletion.mock.calls[0][0].messages
+    const messages = firstOrThrow(streamChatCompletion.mock.calls)[0].messages
     expect(messages[0].role).toBe('system')
     expect(messages[0].content).toMatch(/Markdown/i)
     expect(messages[0].content).toMatch(/do not output raw HTML/i)
@@ -191,12 +192,12 @@ describe('AiChatService.streamChat', () => {
       null,
     )
 
-    const sent = chatCompletion.mock.calls[0][0].messages
+    const sent = firstOrThrow(chatCompletion.mock.calls)[0].messages
     expect(sent[0].role).toBe('system')
     expect(sent[0].content).toMatch(/Markdown/i)
 
-    const storedAssistant =
-      fakeModel.create.mock.calls[0][0].data.data.messages[1]
+    const storedAssistant = firstOrThrow(fakeModel.create.mock.calls)[0].data
+      .data.messages[1]
     expect(storedAssistant.content).toBe('line one\nline two')
     expect(storedAssistant.content).not.toContain('<br')
   })
@@ -229,7 +230,7 @@ describe('AiChatService.streamChat', () => {
     })
     expect(fakeModel.create).not.toHaveBeenCalled()
     expect(fakeModel.update).toHaveBeenCalledTimes(1)
-    const updateArg = fakeModel.update.mock.calls[0][0]
+    const updateArg = firstOrThrow(fakeModel.update.mock.calls)[0]
     expect(updateArg.where).toEqual({ id: 5 })
     const messages = updateArg.data.data.messages
     expect(messages).toHaveLength(4)
@@ -261,7 +262,7 @@ describe('AiChatService.streamChat', () => {
       ),
     )
 
-    const sent = streamChatCompletion.mock.calls[0][0].messages
+    const sent = firstOrThrow(streamChatCompletion.mock.calls)[0].messages
     const priorAssistant = sent.find(
       (m: { role: string }) => m.role === 'assistant',
     )
@@ -290,7 +291,7 @@ describe('AiChatService.streamChat', () => {
     )
 
     expect(chunks.at(-1)?.type).toBe('done')
-    const updateArg = fakeModel.update.mock.calls[0][0]
+    const updateArg = firstOrThrow(fakeModel.update.mock.calls)[0]
     const messages = updateArg.data.data.messages
     expect(messages).toHaveLength(2)
     expect(messages[0]).toMatchObject({
@@ -488,7 +489,8 @@ describe('AiChatService.streamChat', () => {
       expect(done.message.content).toContain('[GP](https://goodparty.org/x)')
       expect(done.message.content).not.toContain('(/relative/path)')
     }
-    const stored = fakeModel.create.mock.calls[0][0].data.data.messages[1]
+    const stored = firstOrThrow(fakeModel.create.mock.calls)[0].data.data
+      .messages[1]
     expect(stored.content).not.toContain('(/relative/path)')
   })
 
@@ -595,7 +597,8 @@ describe('AiChatService.streamChat', () => {
         'What is my budget?',
       ])
     }
-    const stored = fakeModel.create.mock.calls[0][0].data.data.messages[1]
+    const stored = firstOrThrow(fakeModel.create.mock.calls)[0].data.data
+      .messages[1]
     expect(stored.followups).toHaveLength(2)
   })
 
@@ -613,7 +616,7 @@ describe('AiChatService.streamChat', () => {
       ),
     )
 
-    const createArg = fakeModel.create.mock.calls[0][0]
+    const createArg = firstOrThrow(fakeModel.create.mock.calls)[0]
     expect(createArg.data.data.title).toBe('Volunteer Recruitment Plan')
   })
 
@@ -635,7 +638,7 @@ describe('AiChatService.streamChat', () => {
       ),
     )
 
-    const updateArg = fakeModel.update.mock.calls[0][0]
+    const updateArg = firstOrThrow(fakeModel.update.mock.calls)[0]
     expect(updateArg.data.data.title).toBeUndefined()
   })
 
@@ -660,7 +663,7 @@ describe('AiChatService.streamChat', () => {
       ),
     )
 
-    const sent = streamChatCompletion.mock.calls[0][0].messages
+    const sent = firstOrThrow(streamChatCompletion.mock.calls)[0].messages
     // 1 system + 20 capped history + 1 current user message.
     expect(sent).toHaveLength(22)
     expect(sent[0].role).toBe('system')
@@ -678,7 +681,7 @@ describe('AiChatService.streamChat', () => {
       ),
     )
 
-    const sent = streamChatCompletion.mock.calls[0][0].messages
+    const sent = firstOrThrow(streamChatCompletion.mock.calls)[0].messages
     expect(sent.at(-1).content).not.toContain('<|system|>')
     expect(sent.at(-1).content).toContain('[delimiter-removed]')
   })

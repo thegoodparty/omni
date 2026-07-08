@@ -1,3 +1,4 @@
+import { BriefingDispatchPreview } from '@goodparty_org/contracts'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
@@ -141,6 +142,10 @@ const CRON_CONFIG = {
 // run would either bail to a placeholder (no packet published yet) or
 // repeat work we'll redo when the meeting gets closer.
 const IMMINENCE_WINDOW_DAYS = 3
+
+// Ungated manual dispatches ("brief now" / admin override) project this far
+// out instead, so an operator can pre-brief any office.
+const MANUAL_DISPATCH_WINDOW_DAYS = 60
 
 type TargetMeeting = {
   meetingDate: string // YYYY-MM-DD
@@ -427,7 +432,8 @@ export class MeetingBriefingsService extends createPrismaBase(
       from: now,
       to: windowEnd,
     })
-    if (upcoming.length === 0) {
+    const [meetingDate] = upcoming
+    if (!meetingDate) {
       this.logger.info(
         { electedOfficeId, windowDays },
         'skipping briefing: no projected meeting inside window',
@@ -435,7 +441,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       return null
     }
     return {
-      meetingDate: upcoming[0],
+      meetingDate,
       meetingTime: schedule.time,
       meetingTimezone: schedule.timezone,
     }
@@ -497,7 +503,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       ctx.organizationSlug,
       ctx.electedOfficeId,
       now,
-      useImminenceGate ? IMMINENCE_WINDOW_DAYS : 60,
+      useImminenceGate ? IMMINENCE_WINDOW_DAYS : MANUAL_DISPATCH_WINDOW_DAYS,
     )
     if (!target) return { dispatched: false }
 
@@ -505,6 +511,72 @@ export class MeetingBriefingsService extends createPrismaBase(
     // not configured); don't report success in that case.
     const result = await this.dispatchBriefing(ctx, target)
     return { dispatched: !!result }
+  }
+
+  async previewManualDispatch(
+    electedOfficeId: string,
+    requestingUserId?: number,
+  ): Promise<BriefingDispatchPreview> {
+    const electedOffice = await this.client.electedOffice.findUnique({
+      where: { id: electedOfficeId },
+    })
+    if (!electedOffice) {
+      throw new NotFoundException(`electedOffice not found: ${electedOfficeId}`)
+    }
+    if (
+      requestingUserId !== undefined &&
+      electedOffice.userId !== requestingUserId
+    ) {
+      throw new ForbiddenException(
+        'You do not have access to this elected office',
+      )
+    }
+
+    const ctx = await this.resolveDispatchContext(electedOffice)
+    const now = new Date()
+
+    const futureBriefing = await this.model.findFirst({
+      where: { electedOfficeId, meetingDate: { gte: now } },
+      orderBy: { meetingDate: Prisma.SortOrder.asc },
+      select: { meetingDate: true },
+    })
+    const coveredByBriefingDate = futureBriefing
+      ? formatInTimeZone(futureBriefing.meetingDate, 'UTC', 'yyyy-MM-dd')
+      : null
+
+    const schedule = ctx
+      ? await this.loadLatestScheduleForOrg(ctx.organizationSlug)
+      : null
+    const knownSchedule = schedule?.status === 'found' ? schedule : null
+
+    const imminentMeetingDate = knownSchedule
+      ? (this.projectMeetingDates({
+          schedule: knownSchedule,
+          from: now,
+          to: addDays(now, IMMINENCE_WINDOW_DAYS),
+        })[0] ?? null)
+      : null
+    const nextMeetingDate = knownSchedule
+      ? (this.projectMeetingDates({
+          schedule: knownSchedule,
+          from: now,
+          to: addDays(now, MANUAL_DISPATCH_WINDOW_DAYS),
+        })[0] ?? null)
+      : null
+
+    return {
+      contextOk: ctx !== null,
+      isServeIcp: ctx?.isServeIcp ?? null,
+      scheduleKnown: knownSchedule !== null,
+      nextMeetingDate,
+      imminentMeetingDate,
+      coveredByBriefingDate,
+      gateWouldDispatch:
+        ctx?.isServeIcp === true &&
+        !futureBriefing &&
+        imminentMeetingDate !== null,
+      overrideWouldDispatch: ctx !== null && nextMeetingDate !== null,
+    }
   }
 
   async onExperimentRunCompleted(run: ExperimentRun): Promise<void> {

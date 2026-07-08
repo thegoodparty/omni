@@ -42,7 +42,9 @@ const columns: ColumnDef<Person>[] = [
     ),
     cell: ({ row }) => (
       <p className="font-normal text-sm text-info-main">
-        {formatPersonName(row.original)}
+        <MaybeBlurredContent>
+          {formatPersonName(row.original)}
+        </MaybeBlurredContent>
       </p>
     ),
   },
@@ -54,10 +56,11 @@ const columns: ColumnDef<Person>[] = [
     ),
     cell: ({ row }) => {
       const gender = row.getValue('gender') as string
-      if (gender != 'Male' && gender != 'Female') {
-        return '--'
-      }
-      return gender.charAt(0).toUpperCase()
+      const value =
+        gender != 'Male' && gender != 'Female'
+          ? '--'
+          : gender.charAt(0).toUpperCase()
+      return <MaybeBlurredContent>{value}</MaybeBlurredContent>
     },
   },
   {
@@ -66,7 +69,11 @@ const columns: ColumnDef<Person>[] = [
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Age" />
     ),
-    cell: ({ row }) => valueFormatter(row.getValue('age')),
+    cell: ({ row }) => (
+      <MaybeBlurredContent>
+        {valueFormatter(row.getValue('age'))}
+      </MaybeBlurredContent>
+    ),
   },
   {
     accessorKey: 'address',

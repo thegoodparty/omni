@@ -1,0 +1,373 @@
+{
+  "$schema": "../_schema/manifest.schema.json",
+  "id": "race_opponent_summary",
+  "version": 2,
+  "model": "sonnet",
+  "max_turns": 20,
+  "timeout_seconds": 600,
+  "runtime": {
+    "max_parallel_subagents": 0,
+    "max_thinking_tokens": 0
+  },
+  "input_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opponent Summary input params",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "opponents",
+      "race_context"
+    ],
+    "properties": {
+      "opponents": {
+        "type": "array",
+        "minItems": 1,
+        "description": "The opponents to structure, with the already-collected per-source text gp-api hydrated from race_opponent.content.text (Phase 0). This is the ONLY text the agent works from \u2014 there is no fetching or discovery.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "opponent_name",
+            "sources"
+          ],
+          "properties": {
+            "opponent_name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The opponent this collected text is about. Echoed verbatim as opponent_name on the matching output entry."
+            },
+            "sources": {
+              "type": "array",
+              "description": "The already-collected sources for this opponent. May be empty when nothing was collected; an opponent with no sources contributes no groundable sections.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source_type",
+                  "source_url",
+                  "text"
+                ],
+                "properties": {
+                  "source_type": {
+                    "type": "string",
+                    "enum": [
+                      "ballotpedia",
+                      "opponent_website"
+                    ],
+                    "description": "Which collected source this text came from."
+                  },
+                  "source_url": {
+                    "type": "string",
+                    "pattern": "^https?://",
+                    "minLength": 1,
+                    "description": "The page this text was collected from. The ONLY URLs that may appear in any output section's sources are the source_url values present here."
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "The collected page text for this source, as captured in Phase 0. The agent structures THIS text and adds nothing not present in it."
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "candidate_platform": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The candidate's own platform, hydrated by gp-api from Website.content.about (NOT CampaignStory). Used to rank threat tiers relative to the candidate and to pair each issue contrast against the candidate's own stance. Absent when the campaign has no website bio yet, in which case issue_contrasts are omitted (empty array).",
+        "properties": {
+          "bio": {
+            "type": "string",
+            "description": "The candidate's own biography paragraph, as captured for their candidate site."
+          },
+          "issues": {
+            "type": "array",
+            "description": "The candidate's own issue positions. An issue contrast's candidate_stance is drawn only from these, never invented and never from CampaignStory.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "title",
+                "description"
+              ],
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Short issue title (e.g. 'Water security')."
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "The candidate's own stated stance on this issue."
+                }
+              }
+            }
+          }
+        }
+      },
+      "race_context": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "The race the opponents are running in, hydrated by gp-api. Light context for phrasing only (office / jurisdiction). The agent does NOT reason over it to add facts and never cites it.",
+        "properties": {
+          "office_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Readable office name (e.g. 'Fayetteville City Council')."
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "2-letter state code (e.g. NC), or null."
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "City / jurisdiction name, or null."
+          },
+          "election_date": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The election date for this race, or null."
+          }
+        }
+      }
+    }
+  },
+  "output_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Opponent Summary artifact",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "generated_at",
+      "field_analysis",
+      "opponents"
+    ],
+    "properties": {
+      "generated_at": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "opponents": {
+        "type": "array",
+        "minItems": 1,
+        "description": "One entry per input opponent, in input order. opponent_name echoes the input verbatim. Descriptive sections (overview, background, issues_that_matter) are sourced-or-silent: null when the provided text supports none, otherwise carrying >=1 rich source drawn from that opponent's input source_urls. threat_tier and why_theyre_running are interpretive and carry no source.",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "opponent_name",
+            "threat_tier"
+          ],
+          "properties": {
+            "opponent_name": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Matches an input opponent's opponent_name verbatim."
+            },
+            "threat_tier": {
+              "type": "string",
+              "enum": [
+                "primary_threat",
+                "watch_closely",
+                "low_priority"
+              ],
+              "description": "This opponent's threat level ranked RELATIVE to the whole field and the candidate (incumbency, endorsements/PAC backing, name recognition, overlap with the candidate's own issues). Exactly one realistic primary_threat for a normal field. Interpretive: carries no source."
+            },
+            "overview": {
+              "$ref": "#/definitions/DescriptiveSection"
+            },
+            "why_theyre_running": {
+              "$ref": "#/definitions/WhyTheyreRunning"
+            },
+            "background": {
+              "$ref": "#/definitions/DescriptiveSection"
+            },
+            "issues_that_matter": {
+              "$ref": "#/definitions/IssuesThatMatter"
+            }
+          }
+        }
+      },
+      "field_analysis": {
+        "$ref": "#/definitions/FieldAnalysis"
+      }
+    },
+    "definitions": {
+      "RichSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url",
+          "title",
+          "publisher"
+        ],
+        "description": "A cited source, with metadata derived from the collected text (never invented).",
+        "properties": {
+          "url": {
+            "type": "string",
+            "pattern": "^https?://",
+            "minLength": 1,
+            "description": "Verbatim one of that opponent's input source_urls. Never invented, never cross-opponent, never race_context or candidate_platform."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The cited page/document's human title, derived from the page's own content and source type. Falls back to a generic title (e.g. 'Ballotpedia profile') when the text names none."
+          },
+          "publisher": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The site/org name, derived from the page's own content and source type (e.g. 'Ballotpedia', a campaign/org name the page names). Falls back to the bare hostname of url when the text names no organization."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Optional. One sentence on what the source is, derived from the page's own content."
+          }
+        }
+      },
+      "DescriptiveSection": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "sources"
+        ],
+        "description": "Sourced-or-silent: a descriptive paragraph drawn only from the provided text (overview: short who-they-are; background: career/community ties/prior roles), or null when the text supports none. Used for both overview and background.",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "description": "One or more rich sources this text was drawn from, verbatim from that opponent's input source_urls.",
+            "items": {
+              "$ref": "#/definitions/RichSource"
+            }
+          }
+        }
+      },
+      "IssuesThatMatter": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "sources"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Short bullet strings capturing the issues/themes the opponent's own text emphasizes.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "description": "One or more rich sources shared across the section, verbatim from that opponent's input source_urls.",
+            "items": {
+              "$ref": "#/definitions/RichSource"
+            }
+          }
+        }
+      },
+      "WhyTheyreRunning": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ],
+        "description": "Interpretive: no sources property exists on this shape.",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "FieldAnalysis": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "strengths",
+          "weaknesses",
+          "opportunities",
+          "threats",
+          "sources"
+        ],
+        "description": "Campaign-level SWOT. Bullets are interpretive syntheses across the whole field and carry no required source; sources may be empty.",
+        "properties": {
+          "strengths": {
+            "type": "array",
+            "description": "Short bullets, up to 5, only as many as the field genuinely supports.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "weaknesses": {
+            "type": "array",
+            "description": "Short bullets, up to 5, only as many as the field genuinely supports.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "opportunities": {
+            "type": "array",
+            "description": "Short bullets, up to 5, only as many as the field genuinely supports.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "threats": {
+            "type": "array",
+            "description": "Short bullets, up to 5, only as many as the field genuinely supports.",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "sources": {
+            "type": "array",
+            "description": "Optional citations. Empty unless a bullet rests directly on a specific cited claim worth pinning down.",
+            "items": {
+              "$ref": "#/definitions/RichSource"
+            }
+          }
+        }
+      }
+    }
+  }
+}

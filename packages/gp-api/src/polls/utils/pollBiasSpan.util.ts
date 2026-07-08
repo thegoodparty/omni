@@ -22,11 +22,11 @@ export function findActualIndexAndLength(
   let actualPos = 0
 
   while (normalizedPos < normalizedIndex && actualPos < originalText.length) {
-    if (/\s/.test(originalText[actualPos])) {
+    if (/\s/.test(originalText[actualPos] ?? '')) {
       actualPos++
       while (
         actualPos < originalText.length &&
-        /\s/.test(originalText[actualPos])
+        /\s/.test(originalText[actualPos] ?? '')
       ) {
         actualPos++
       }
@@ -45,7 +45,8 @@ export function findActualIndexAndLength(
     const firstChar = normalizedSubstring[0]
     if (
       actualPos >= originalText.length ||
-      originalText[actualPos].toLowerCase() !== firstChar.toLowerCase()
+      (originalText[actualPos] ?? '').toLowerCase() !==
+        (firstChar ?? '').toLowerCase()
     ) {
       return null
     }
@@ -59,14 +60,15 @@ export function findActualIndexAndLength(
       if (char === ' ') {
         while (
           matchPos < originalText.length &&
-          /\s/.test(originalText[matchPos])
+          /\s/.test(originalText[matchPos] ?? '')
         ) {
           matchPos++
         }
       } else {
         if (
           matchPos >= originalText.length ||
-          originalText[matchPos].toLowerCase() !== char.toLowerCase()
+          (originalText[matchPos] ?? '').toLowerCase() !==
+            (char ?? '').toLowerCase()
         ) {
           matchFound = false
           break
@@ -201,7 +203,7 @@ function findActualMatchLength(
     if (char === ' ') {
       while (
         actualPos < originalText.length &&
-        /\s/.test(originalText[actualPos])
+        /\s/.test(originalText[actualPos] ?? '')
       ) {
         actualPos++
         matchedLength++
@@ -209,7 +211,8 @@ function findActualMatchLength(
     } else {
       if (
         actualPos < originalText.length &&
-        originalText[actualPos].toLowerCase() === char.toLowerCase()
+        (originalText[actualPos] ?? '').toLowerCase() ===
+          (char ?? '').toLowerCase()
       ) {
         actualPos++
         matchedLength++

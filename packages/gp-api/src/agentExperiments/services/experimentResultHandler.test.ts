@@ -75,6 +75,12 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
   let raceOpponent: {
     onExperimentRunCompleted: ReturnType<typeof vi.fn>
   }
+  let raceOpponentResearch: {
+    onExperimentRunCompleted: ReturnType<typeof vi.fn>
+  }
+  let ordinanceCodePersist: {
+    onExperimentRunCompleted: ReturnType<typeof vi.fn>
+  }
   let s3Service: { getFile: ReturnType<typeof vi.fn> }
   let logger: PinoLogger
 
@@ -111,6 +117,12 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     raceOpponent = {
       onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
     }
+    raceOpponentResearch = {
+      onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+    }
+    ordinanceCodePersist = {
+      onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+    }
     s3Service = { getFile: vi.fn().mockResolvedValue(undefined) }
 
     service = new QueueConsumerService(
@@ -120,6 +132,9 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       {} as never,
       {} as never,
       {} as never,
+      {
+        onExperimentRunCompleted: vi.fn().mockResolvedValue(undefined),
+      } as never,
       {} as never,
       {} as never,
       {} as never,
@@ -136,7 +151,9 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       communityIssue as never,
       campaignStrategy as never,
       raceOpponent as never,
+      raceOpponentResearch as never,
       {} as never,
+      ordinanceCodePersist as never,
       logger,
     )
   })
@@ -419,6 +436,42 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       makeMessage({
         status: 'success',
         artifactKey: 'meeting_briefing/run-abc/result.json',
+        artifactBucket: 'gp-agent-artifacts-dev',
+      }),
+    )
+
+    const [, modifier] = experimentRunsService.optimisticLockingUpdate.mock
+      .calls[0] as [
+      unknown,
+      (run: Record<string, unknown>) => Promise<Record<string, unknown>>,
+    ]
+    const patched = await callModifier(modifier)
+    expect(patched.status).toBe(ExperimentRunStatus.COMPLETED)
+    expect(patched.resumeScheduledFor).toBeNull()
+  })
+
+  it('maps a partial find_existing_ordinances to COMPLETED, never AWAITING_RESUME', async () => {
+    experimentRunsService.findUnique.mockResolvedValue({
+      runId: RUN_ID,
+      status: ExperimentRunStatus.RUNNING,
+      organizationSlug: 'org-1',
+      experimentType: 'find_existing_ordinances',
+      updatedAt: new Date(),
+    })
+    s3Service.getFile.mockResolvedValue(
+      JSON.stringify({
+        data_quality: { overall: 'partial' },
+        next_action: {
+          kind: 'wait_dns_propagation',
+          scheduled_for: '2026-06-10T12:00:00.000Z',
+        },
+      }),
+    )
+
+    await service.processMessage(
+      makeMessage({
+        status: 'success',
+        artifactKey: 'find_existing_ordinances/run-abc/artifact.json',
         artifactBucket: 'gp-agent-artifacts-dev',
       }),
     )

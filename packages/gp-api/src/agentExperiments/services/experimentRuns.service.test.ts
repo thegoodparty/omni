@@ -17,6 +17,12 @@ const sqsMock = mockClient(SQSClient)
 const RESOLVED_URL =
   'https://sqs.us-west-2.amazonaws.com/123/agent-dispatch-dev.fifo'
 
+const requireFirst = <T>(items: T[]): T => {
+  const [first] = items
+  if (first === undefined) throw new Error('expected at least one item')
+  return first
+}
+
 describe('ExperimentRunsService', () => {
   let service: ExperimentRunsService
   let mockModel: {
@@ -125,7 +131,7 @@ describe('ExperimentRunsService', () => {
         }),
       })
 
-      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
       expect(call).toBeDefined()
       const input = call.args[0].input
       expect(input.QueueUrl).toBe(RESOLVED_URL)
@@ -170,8 +176,8 @@ describe('ExperimentRunsService', () => {
         },
       })
 
-      const dbRunId = mockModel.create.mock.calls[0][0].data.runId as string
-      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const dbRunId = mockModel.create.mock.calls[0]?.[0].data.runId as string
+      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
       const body = JSON.parse(call.args[0].input.MessageBody as string) as {
         run_id: string
         clerk_user_id: string
@@ -207,10 +213,10 @@ describe('ExperimentRunsService', () => {
       })
 
       const calls = sqsMock.commandCalls(SendMessageCommand)
-      expect(calls[0].args[0].input.MessageGroupId).toBe(
+      expect(calls[0]?.args[0].input.MessageGroupId).toBe(
         'agent-dispatch-org-alpha',
       )
-      expect(calls[1].args[0].input.MessageGroupId).toBe(
+      expect(calls[1]?.args[0].input.MessageGroupId).toBe(
         'agent-dispatch-org-beta',
       )
     })
@@ -308,7 +314,7 @@ describe('ExperimentRunsService', () => {
         data: expect.objectContaining({ priority: 'HIGH' }),
       })
 
-      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
       const body = JSON.parse(call.args[0].input.MessageBody as string) as {
         priority: string
         run_id: string
@@ -337,7 +343,7 @@ describe('ExperimentRunsService', () => {
         data: expect.objectContaining({ priority: 'DEFAULT' }),
       })
 
-      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
       const body = JSON.parse(call.args[0].input.MessageBody as string) as {
         priority: string
       }
@@ -370,8 +376,8 @@ describe('ExperimentRunsService', () => {
         },
       })
 
-      const id1 = mockModel.create.mock.calls[0][0].data.runId as string
-      const id2 = mockModel.create.mock.calls[1][0].data.runId as string
+      const id1 = mockModel.create.mock.calls[0]?.[0].data.runId as string
+      const id2 = mockModel.create.mock.calls[1]?.[0].data.runId as string
       expect(id1).not.toBe(id2)
     })
   })
@@ -394,7 +400,7 @@ describe('ExperimentRunsService', () => {
 
       await service.resumeRun({ ...awaitingRun, priority: 'HIGH' })
 
-      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
       const body = JSON.parse(call.args[0].input.MessageBody as string) as {
         priority: string
       }
@@ -410,7 +416,7 @@ describe('ExperimentRunsService', () => {
 
       await service.resumeRun(awaitingRun)
 
-      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
       const body = JSON.parse(call.args[0].input.MessageBody as string) as {
         priority: string
       }
@@ -428,7 +434,7 @@ describe('ExperimentRunsService', () => {
         await service.resumeRun(awaitingRun)
 
         expect(mockModel.create).toHaveBeenCalledOnce()
-        const createCall = mockModel.create.mock.calls[0][0] as {
+        const createCall = mockModel.create.mock.calls[0]?.[0] as {
           data: Record<string, unknown>
         }
         expect(createCall.data.runId).toBeDefined()
@@ -440,7 +446,7 @@ describe('ExperimentRunsService', () => {
         )
         expect(createCall.data.stage).toBe(awaitingRun.stage)
 
-        const [call] = sqsMock.commandCalls(SendMessageCommand)
+        const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
         expect(call).toBeDefined()
         const body = JSON.parse(
           call.args[0].input.MessageBody as string,
@@ -458,7 +464,7 @@ describe('ExperimentRunsService', () => {
     )
 
     it(
-      'terminalizes the old row as FAILED (superseded) after a ' +
+      'terminalizes the old row as SUPERSEDED after a ' +
         'successful resume dispatch',
       async () => {
         sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-1' })
@@ -472,7 +478,7 @@ describe('ExperimentRunsService', () => {
             status: ExperimentRunStatus.AWAITING_RESUME,
           },
           data: {
-            status: ExperimentRunStatus.FAILED,
+            status: ExperimentRunStatus.SUPERSEDED,
             error: 'Superseded by resumed run',
           },
         })
@@ -516,7 +522,7 @@ describe('ExperimentRunsService', () => {
           priority: 'DEFAULT',
         })
 
-        const [call] = sqsMock.commandCalls(SendMessageCommand)
+        const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
         expect(call).toBeDefined()
         const body = JSON.parse(
           call.args[0].input.MessageBody as string,
@@ -707,7 +713,7 @@ describe('ExperimentRunsService', () => {
 
       await service.sweepResumableRuns()
 
-      const [call] = sqsMock.commandCalls(SendMessageCommand)
+      const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
       expect(call).toBeDefined()
       const body = JSON.parse(call.args[0].input.MessageBody as string) as {
         priority: string
@@ -720,11 +726,15 @@ describe('ExperimentRunsService', () => {
 
       await service.sweepResumableRuns()
 
-      const where = mockModel.findMany.mock.calls[0][0].where as {
+      const where = mockModel.findMany.mock.calls[0]?.[0].where as {
         experimentType: { notIn: string[] }
       }
       expect(where.experimentType.notIn).toEqual(
-        expect.arrayContaining(['meeting_briefing', 'meeting_schedule']),
+        expect.arrayContaining([
+          'meeting_briefing',
+          'meeting_schedule',
+          'find_existing_ordinances',
+        ]),
       )
     })
 
@@ -743,7 +753,7 @@ describe('ExperimentRunsService', () => {
 
         await service.sweepResumableRuns()
 
-        const [call] = sqsMock.commandCalls(SendMessageCommand)
+        const call = requireFirst(sqsMock.commandCalls(SendMessageCommand))
         expect(call).toBeDefined()
         const body = JSON.parse(
           call.args[0].input.MessageBody as string,
@@ -812,7 +822,9 @@ describe('ExperimentRunsService', () => {
       await service.sweepResumableRuns()
 
       expect(mockSlack.errorMessage).toHaveBeenCalledTimes(1)
-      const [{ message }, channel] = mockSlack.errorMessage.mock.calls[0]
+      const [{ message }, channel] = requireFirst(
+        mockSlack.errorMessage.mock.calls,
+      )
       expect(message).toContain(capRun.runId)
       expect(channel).toBe('bot-10dlc-compliance')
     })

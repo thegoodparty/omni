@@ -6,7 +6,7 @@ export const getPositionByBrIdParamsSchema = z.object({
 })
 
 export const getPositionByIdParamsSchema = z.object({
-  id: z.string().uuid('Position ID must be a valid UUID'),
+  id: z.guid('Position ID must be a valid UUID'),
 })
 
 export class GetPositionByIdParamsDTO extends createZodDto(

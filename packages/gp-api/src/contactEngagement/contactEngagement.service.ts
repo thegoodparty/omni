@@ -102,6 +102,7 @@ export class ContactEngagementService {
         compareDesc(a.sentAt, b.sentAt),
       )
       const mostRecent = sortedBySentAt[0]
+      if (!mostRecent) continue
       const events = sortedBySentAt.map((msg) => {
         const eventType =
           msg.sender === PollIndividualMessageSender.ELECTED_OFFICIAL

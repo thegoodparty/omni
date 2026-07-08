@@ -9,7 +9,7 @@ import { z } from 'zod'
 import { filtersSchema } from './schemas/filters.schema'
 
 const withDistrictInput = <T extends z.ZodRawShape>(shape: T) =>
-  z.object({ districtId: z.string().uuid() }).extend(shape)
+  z.object({ districtId: z.guid() }).extend(shape)
 
 export const listPeopleSchema = withDistrictInput({
   filters: filtersSchema,
@@ -59,14 +59,14 @@ export class StatsDTO extends createZodDto(withDistrictInput({})) {}
 export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),
-  excludeIds: z.array(z.string().uuid()).optional(),
+  excludeIds: z.array(z.guid()).optional(),
 })
 
 export class SamplePeopleDTO extends createZodDto(samplePeopleSchema) {}
 
 export class GetPersonParamsDTO extends createZodDto(
   z.object({
-    id: z.string().uuid(),
+    id: z.guid(),
   }),
 ) {}
 

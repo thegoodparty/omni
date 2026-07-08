@@ -118,12 +118,12 @@ describe('EnterPin — gating', () => {
   )
 
   it.each<[TcrComplianceStatus]>([['pending'], ['approved']])(
-    'redirects to /dashboard/profile when status is %s (already past PIN step)',
+    'redirects to /dashboard/account when status is %s (already past PIN step)',
     async (status) => {
       mockGetTcrCompliance.mockResolvedValue(tcrWith(status))
       render(<EnterPin />)
       await waitFor(() => {
-        expect(router.push).toHaveBeenCalledWith('/dashboard/profile')
+        expect(router.push).toHaveBeenCalledWith('/dashboard/account')
       })
       expect(screen.queryByRole('button', { name: /submit/i })).toBeNull()
     },
@@ -189,7 +189,7 @@ describe('EnterPin — submit flow', () => {
     await user.click(screen.getByRole('button', { name: /submit/i }))
 
     await waitFor(() => {
-      expect(router.push).toHaveBeenCalledWith('/dashboard/profile')
+      expect(router.push).toHaveBeenCalledWith('/dashboard/account')
     })
 
     expect(receivedBody).toEqual({ pin: '123456' })

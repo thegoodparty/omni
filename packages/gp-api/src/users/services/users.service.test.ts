@@ -1324,15 +1324,15 @@ describe('UsersService', () => {
         'clerk_test_5',
       ])
       expect(getUserList).toHaveBeenCalledTimes(3)
-      expect(getUserList.mock.calls[0][0]).toMatchObject({
+      expect(getUserList.mock.calls[0]?.[0]).toMatchObject({
         limit: 500,
         offset: 0,
         orderBy: '+created_at',
       })
       // offset advances past the non-deleted users left on each page:
       // page 1 leaves 497, page 2 leaves 499 -> cumulative 996.
-      expect(getUserList.mock.calls[1][0]).toMatchObject({ offset: 497 })
-      expect(getUserList.mock.calls[2][0]).toMatchObject({ offset: 996 })
+      expect(getUserList.mock.calls[1]?.[0]).toMatchObject({ offset: 497 })
+      expect(getUserList.mock.calls[2]?.[0]).toMatchObject({ offset: 996 })
     })
   })
 })

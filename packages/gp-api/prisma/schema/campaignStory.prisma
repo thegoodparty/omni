@@ -6,13 +6,13 @@ model CampaignStory {
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   campaignId Int      @unique @map("campaign_id")
 
-  why        String?
   background String?
-  issues     String?
 
   // Lifetime count of AI "Help me rewrite" attempts for this campaign, capped
   // server-side to bound Gemini cost/abuse. Counts attempts, not successes.
   rewriteCount Int @default(0) @map("rewrite_count")
+
+  raceOpponentContrasts RaceOpponentContrast[]
 
   @@map("campaign_story")
 }
