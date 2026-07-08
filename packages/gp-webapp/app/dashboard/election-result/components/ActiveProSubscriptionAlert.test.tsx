@@ -93,7 +93,7 @@ describe('ActiveProSubscriptionAlert', () => {
     })
   })
 
-  it('re-enables the portal button when the API returns no redirectUrl', async () => {
+  it('re-enables the portal button and surfaces an error when the API returns no redirectUrl', async () => {
     mockClientFetch.mockResolvedValue({ data: {} } as never)
 
     render(<ActiveProSubscriptionAlert />)
@@ -103,6 +103,7 @@ describe('ActiveProSubscriptionAlert', () => {
     await waitFor(() => {
       expect(btn).not.toBeDisabled()
     })
+    expect(mockErrorSnackbar).toHaveBeenCalled()
   })
 
   it('re-enables the portal button and surfaces an error when the API call rejects', async () => {

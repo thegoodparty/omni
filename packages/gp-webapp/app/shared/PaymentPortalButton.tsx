@@ -60,7 +60,7 @@ export const PaymentPortalButton = ({
   return (
     <Button
       className="flex items-center"
-      disabled={loading}
+      loading={loading}
       onClick={onClick}
       {...restProps}
     >
