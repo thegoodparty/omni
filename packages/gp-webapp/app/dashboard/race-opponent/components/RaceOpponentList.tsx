@@ -33,7 +33,6 @@ import OpponentResearchProgress from './OpponentResearchProgress'
 import AddOpponentsForm from './AddOpponentsForm'
 import type { ManualOpponentInput } from './AddOpponentsForm'
 import { downloadOpponentBriefsPdf } from '../pdf/downloadOpponentBriefPdf'
-import FieldAnalysisSection from './FieldAnalysisSection'
 import StandoutActionsSection from './StandoutActionsSection'
 
 const initialsFor = (name: string): string =>
@@ -455,18 +454,14 @@ const RaceOpponentList = ({
     exportingRef.current = true
     setExporting(true)
     try {
-      await downloadOpponentBriefsPdf(
-        data.opponents,
-        raceContext,
-        data.fieldAnalysis,
-      )
+      await downloadOpponentBriefsPdf(data.opponents, raceContext)
     } catch {
       errorSnackbar('Failed to export the brief. Please try again.')
     } finally {
       exportingRef.current = false
       setExporting(false)
     }
-  }, [data.opponents, data.fieldAnalysis, raceContext, errorSnackbar])
+  }, [data.opponents, raceContext, errorSnackbar])
 
   const status = data.collectionStatus
 
@@ -739,10 +734,7 @@ const RaceOpponentList = ({
         </section>
       )}
       {data.opponents.length > 0 && (
-        <>
-          <FieldAnalysisSection fieldAnalysis={data.fieldAnalysis} />
-          <StandoutActionsSection standoutActions={data.standoutActions} />
-        </>
+        <StandoutActionsSection standoutActions={data.standoutActions} />
       )}
     </div>
   )
