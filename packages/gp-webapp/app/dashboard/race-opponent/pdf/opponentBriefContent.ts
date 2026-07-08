@@ -1,5 +1,4 @@
 import type {
-  RaceOpponentFieldAnalysis,
   RaceOpponentResponse,
   RaceOpponentSummarySourceRef,
 } from 'gpApi/api-endpoints'
@@ -127,38 +126,4 @@ export const buildOpponentBrief = (opponent: Opponent): OpponentBrief => {
   }
 
   return { title, snapshot, sections }
-}
-
-export type FieldAnalysisQuadrant = { label: string; items: string[] }
-
-export type FieldAnalysisBrief = { quadrants: FieldAnalysisQuadrant[] }
-
-const FIELD_ANALYSIS_QUADRANTS: Array<{
-  key: 'strengths' | 'weaknesses' | 'opportunities' | 'threats'
-  label: string
-}> = [
-  { key: 'strengths', label: 'Strengths' },
-  { key: 'weaknesses', label: 'Weaknesses' },
-  { key: 'opportunities', label: 'Opportunities' },
-  { key: 'threats', label: 'Threats' },
-]
-
-// The document-level SWOT block, mirroring FieldAnalysisSection's omission
-// rules exactly: an empty quadrant is dropped, and the whole block is omitted
-// when fewer than 2 of the 4 quadrants have content (a single populated
-// quadrant doesn't read as a "how you stack up against the field"
-// comparison). null for a null/undefined fieldAnalysis.
-export const buildFieldAnalysisBrief = (
-  fieldAnalysis: RaceOpponentFieldAnalysis | null | undefined,
-): FieldAnalysisBrief | null => {
-  if (!fieldAnalysis) return null
-
-  const quadrants = FIELD_ANALYSIS_QUADRANTS.map(({ key, label }) => ({
-    label,
-    items: fieldAnalysis[key],
-  })).filter((quadrant) => quadrant.items.length > 0)
-
-  if (quadrants.length < 2) return null
-
-  return { quadrants }
 }

@@ -9,7 +9,6 @@ import {
   View,
 } from '@react-pdf/renderer'
 import type {
-  FieldAnalysisBrief,
   OpponentBrief,
   OpponentBriefSection,
 } from './opponentBriefContent'
@@ -64,12 +63,6 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 5,
-  },
-  sectionHeadingLg: {
-    fontSize: 13,
-    fontFamily: 'Helvetica-Bold',
-    color: COLOR.primary,
-    marginBottom: 8,
   },
   para: {
     marginBottom: 6,
@@ -202,39 +195,13 @@ const OpponentBriefView = ({
   </View>
 )
 
-// The campaign-level SWOT, rendered once after every opponent's brief.
-// Mirrors FieldAnalysisSection's heading and per-quadrant bullet lists; the
-// caller (downloadOpponentBriefsPdf) already applies its omission rules via
-// buildFieldAnalysisBrief, so this only renders what's passed.
-const FieldAnalysisBriefView = ({
-  fieldAnalysisBrief,
-  breakBefore,
-}: {
-  fieldAnalysisBrief: FieldAnalysisBrief
-  breakBefore: boolean
-}): React.JSX.Element => (
-  <View style={styles.opponent} break={breakBefore}>
-    <Text style={styles.sectionHeadingLg}>
-      How your campaign stacks up against the field
-    </Text>
-    {fieldAnalysisBrief.quadrants.map((quadrant) => (
-      <View key={quadrant.label} style={styles.section}>
-        <Text style={styles.sectionHeading}>{quadrant.label}</Text>
-        <Bullets items={quadrant.items} />
-      </View>
-    ))}
-  </View>
-)
-
 type BriefWithName = { brief: OpponentBrief; opponentName: string }
 
 export const OpponentBriefPdfDocument = ({
   briefs,
-  fieldAnalysisBrief,
   raceContext,
 }: {
   briefs: BriefWithName[]
-  fieldAnalysisBrief?: FieldAnalysisBrief | null
   raceContext?: string
 }): React.JSX.Element => (
   <Document title="Opponent brief">
@@ -250,12 +217,6 @@ export const OpponentBriefPdfDocument = ({
       {briefs.map(({ brief }, index) => (
         <OpponentBriefView key={index} brief={brief} breakBefore={index > 0} />
       ))}
-      {fieldAnalysisBrief ? (
-        <FieldAnalysisBriefView
-          fieldAnalysisBrief={fieldAnalysisBrief}
-          breakBefore={briefs.length > 0}
-        />
-      ) : null}
     </Page>
   </Document>
 )
