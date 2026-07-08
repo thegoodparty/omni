@@ -147,7 +147,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     })
   })
 
-  it('sweeps both submitted and pending records so a fast PIN entry is not dropped', async () => {
+  it('sweeps submitted, pending, and approved so a raced/pre-existing PIN is not dropped', async () => {
     mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
       status: 'APPROVED',
       pinDelivery: { method: 'email', destination: 'a@b.com' },
@@ -157,7 +157,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
 
     expect(mockModel.findMany).toHaveBeenCalledWith({
       where: {
-        status: { in: ['submitted', 'pending'] },
+        status: { in: ['submitted', 'pending', 'approved'] },
         peerlyIdentityId: { not: null },
         pinDeliveryMethod: null,
       },

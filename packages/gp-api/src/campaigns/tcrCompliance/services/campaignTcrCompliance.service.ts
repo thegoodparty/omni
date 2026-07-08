@@ -338,19 +338,25 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // channel + destination, and fire the "PIN Sent" Segment event once so
   // HubSpot can stamp the company and nudge the candidate. The
   // `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected, so
-  // this is not a growing bulk loop hammering Peerly. Both `submitted` and
-  // `pending` are in scope: the in-app PIN entry (and the VERIFIED usecase
-  // sweep) advance a record to `pending` as soon as the candidate acts, which
-  // can happen before this hourly sweep runs — a record that raced past
-  // `submitted` still had its PIN sent, so without `pending` its channel + the
-  // event would be dropped forever. `pending` always means the PIN was sent, so
-  // this never fires for a record whose PIN never went out.
+  // this is not a growing bulk loop hammering Peerly. The status set is every
+  // state that implies the PIN was already sent: `submitted` (awaiting entry),
+  // `pending` (entered, in review), and `approved` (completed). The candidate
+  // can race past `submitted` before this hourly sweep runs (in-app PIN entry
+  // or the VERIFIED usecase sweep advance to `pending`, then to `approved`), and
+  // pre-existing records were already `approved`/`pending` when this shipped —
+  // without the wider set their channel + the event would be dropped forever.
+  // These statuses always mean the PIN went out, so this never fires for a
+  // record whose PIN never did (`rejected`/`error` are failure states, excluded).
   @Interval(PIN_DELIVERY_DETECTION_SWEEP_INTERVAL * 1000)
   async sweepPinDeliveryDetection() {
     const candidates = await this.model.findMany({
       where: {
         status: {
-          in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+          in: [
+            TcrComplianceStatus.submitted,
+            TcrComplianceStatus.pending,
+            TcrComplianceStatus.approved,
+          ],
         },
         peerlyIdentityId: { not: null },
         pinDeliveryMethod: null,
