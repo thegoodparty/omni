@@ -88,6 +88,30 @@ describe('ActiveProSubscriptionAlert', () => {
     })
   })
 
+  it('re-enables the portal button when the API returns no redirectUrl', async () => {
+    mockClientFetch.mockResolvedValue({ data: {} } as never)
+
+    render(<ActiveProSubscriptionAlert />)
+    const btn = screen.getByRole('button', { name: 'Manage subscription' })
+    await userEvent.click(btn)
+
+    await waitFor(() => {
+      expect(btn).not.toBeDisabled()
+    })
+  })
+
+  it('re-enables the portal button when the API call rejects', async () => {
+    mockClientFetch.mockRejectedValue(new Error('network error'))
+
+    render(<ActiveProSubscriptionAlert />)
+    const btn = screen.getByRole('button', { name: 'Manage subscription' })
+    await userEvent.click(btn)
+
+    await waitFor(() => {
+      expect(btn).not.toBeDisabled()
+    })
+  })
+
   it('renders nothing for a non-Pro campaign', () => {
     mockCampaign.current = { id: 1, isPro: false, details: {} }
 
