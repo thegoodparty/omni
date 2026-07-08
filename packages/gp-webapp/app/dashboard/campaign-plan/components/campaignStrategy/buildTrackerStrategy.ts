@@ -59,22 +59,43 @@ const PHASE_KEYS = new Set<string>(PHASE_META.map((p) => p.key))
 const toChannel = (flowType: string | null): TaskChannel =>
   (flowType && FLOW_TYPE_TO_CHANNEL[flowType]) || 'general'
 
-const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => ({
-  id: row.id,
-  title: row.title,
-  description: row.description,
-  channel: toChannel(row.flowType),
-  date: row.date,
-  param: null,
-  href: row.link,
-  hrefLabel: row.link ? 'Open' : null,
-  priorityTier: 'P2',
-  proRequired: row.proRequired ?? false,
-  status: 'live',
-  unlocksAfter: null,
-  isNext: false,
-  completed: row.completed,
-})
+// Text/robocall rows carry no link of their own; route them to the outreach
+// compose deep link with the task's due date attached, so the flow opens
+// pre-bound to the task and the due date reaches the outreach record (and its
+// Slack notification) — matching what the legacy task list did.
+const OUTREACH_COMPOSE_CHANNELS = new Set<TaskChannel>(['text', 'robocall'])
+
+const outreachComposeHref = (
+  channel: TaskChannel,
+  date: string | null,
+): string =>
+  `/dashboard/outreach?compose=${channel}${
+    date ? `&due=${date.slice(0, 10)}` : ''
+  }`
+
+const toRenderTask = (row: CampaignTrackerTask): CampaignStrategyTask => {
+  const channel = toChannel(row.flowType)
+  const composeHref =
+    !row.link && OUTREACH_COMPOSE_CHANNELS.has(channel)
+      ? outreachComposeHref(channel, row.date)
+      : null
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    channel,
+    date: row.date,
+    param: null,
+    href: row.link ?? composeHref,
+    hrefLabel: row.link ? 'Open' : composeHref ? 'Start outreach' : null,
+    priorityTier: 'P2',
+    proRequired: row.proRequired ?? false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: false,
+    completed: row.completed,
+  }
+}
 
 // API dates are full ISO at UTC midnight; the catalog fallback is date-only.
 // Parse both as LOCAL midnight (slice + dash->slash, matching the date chip in
@@ -95,6 +116,7 @@ const compareTasks = (
 const derivePhaseStatuses = (
   phaseLatestDate: Map<CampaignStrategyPhaseKey, number | null>,
   phaseAllCompleted: Map<CampaignStrategyPhaseKey, boolean>,
+  phaseIsEmpty: Map<CampaignStrategyPhaseKey, boolean>,
   today: Date,
 ): Map<CampaignStrategyPhaseKey, CampaignStrategyPhaseStatus> => {
   const startOfToday = startOfDay(today).getTime()
@@ -112,14 +134,31 @@ const derivePhaseStatuses = (
     return latest != null && latest >= startOfToday
   }
   const nowIndex = order.findIndex(isCurrentlyInPlay)
-  const current = nowIndex === -1 ? order.length - 1 : nowIndex
+  let current = nowIndex === -1 ? order.length - 1 : nowIndex
+  // Completion advances "now" past the calendar: when the calendar-current
+  // phase (and any phases after it) are fully checked off, the first phase
+  // with open work becomes current — so finishing every pre-launch task flips
+  // Launch to 'active' instead of stranding it at 'upcoming' until its dates
+  // arrive.
+  // Empty phases are transparent to the advance: there is nothing in them to
+  // complete, so they must not strand the next populated phase at 'upcoming'.
+  while (current < order.length - 1) {
+    const key = order[current]
+    if (!key) break
+    if (!phaseAllCompleted.get(key) && !phaseIsEmpty.get(key)) break
+    current += 1
+  }
   const out = new Map<CampaignStrategyPhaseKey, CampaignStrategyPhaseStatus>()
   order.forEach((key, i) => {
-    const status: CampaignStrategyPhaseStatus = phaseAllCompleted.get(key)
-      ? 'done'
-      : i <= current
-        ? 'active'
-        : 'upcoming'
+    // An empty phase has nothing happening (or done) in it — never show it as
+    // 'active'; it also keeps the "do this next" pick on a populated phase.
+    const status: CampaignStrategyPhaseStatus = phaseIsEmpty.get(key)
+      ? 'upcoming'
+      : phaseAllCompleted.get(key)
+        ? 'done'
+        : i <= current
+          ? 'active'
+          : 'upcoming'
     out.set(key, status)
   })
   return out
@@ -205,6 +244,7 @@ export const buildTrackerStrategy = (
 
   const phaseLatestDate = new Map<CampaignStrategyPhaseKey, number | null>()
   const phaseAllCompleted = new Map<CampaignStrategyPhaseKey, boolean>()
+  const phaseIsEmpty = new Map<CampaignStrategyPhaseKey, boolean>()
   const phases: CampaignStrategyPhase[] = PHASE_META.map((meta) => {
     const phaseTasks = (byPhase.get(meta.key) ?? []).sort(compareTasks)
     const dates = phaseTasks
@@ -215,6 +255,7 @@ export const buildTrackerStrategy = (
       meta.key,
       phaseTasks.length > 0 && phaseTasks.every((t) => t.completed),
     )
+    phaseIsEmpty.set(meta.key, phaseTasks.length === 0)
     return {
       key: meta.key,
       title: meta.title,
@@ -226,33 +267,36 @@ export const buildTrackerStrategy = (
     }
   })
 
+  // The Active phase renders as a week navigator built from every generation
+  // (not just the latest). phaseAllCompleted above came from visibleTasks (the
+  // global latest generation), but a prior generation's open task can still be
+  // navigable — so correct Active's completion BEFORE deriving statuses, or the
+  // completion-driven advance walks past Active into GOTV while open tasks sit
+  // one week back in the navigator.
+  const activeWeeks = buildActiveWeeks(tasks, today)
+  const navigableTasks = activeWeeks.flatMap((w) => w.tasks)
+  if (navigableTasks.length > 0) {
+    phaseAllCompleted.set(
+      'active',
+      navigableTasks.every((t) => t.completed),
+    )
+    phaseIsEmpty.set('active', false)
+  }
+
   const statuses = derivePhaseStatuses(
     phaseLatestDate,
     phaseAllCompleted,
+    phaseIsEmpty,
     today,
   )
   for (const phase of phases) {
     phase.status = statuses.get(phase.key) ?? 'upcoming'
   }
 
-  // The Active phase renders as a week navigator built from every generation
-  // (not just the latest), so its flat group list is replaced by `weeks`.
   const activeKeyPhase = phases.find((p) => p.key === 'active')
   if (activeKeyPhase) {
-    const activeWeeks = buildActiveWeeks(tasks, today)
     activeKeyPhase.weeks = activeWeeks
     activeKeyPhase.groups = []
-    // phaseAllCompleted came from visibleTasks (the global latest generation),
-    // but the navigator renders per-week-latest tasks across all generations. A
-    // prior generation's open task can still be navigable, so re-check 'done'
-    // against everything the navigator can show; otherwise the header reads
-    // 'done' while open tasks sit one week back.
-    if (activeKeyPhase.status === 'done') {
-      const navigableTasks = activeWeeks.flatMap((w) => w.tasks)
-      const allDone =
-        navigableTasks.length > 0 && navigableTasks.every((t) => t.completed)
-      if (!allDone) activeKeyPhase.status = 'active'
-    }
   }
 
   // "Do this next" on the phase the calendar has reached. The Active phase marks
