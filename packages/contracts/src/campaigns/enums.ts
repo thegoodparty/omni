@@ -41,12 +41,8 @@ export const CampaignCreatedBy: { ADMIN: 'admin' } = { ADMIN: 'admin' }
 export const CAMPAIGN_LAUNCH_STATUS_VALUES = ['launched'] as const
 export type CampaignLaunchStatus =
   (typeof CAMPAIGN_LAUNCH_STATUS_VALUES)[number]
-export const CampaignLaunchStatusSchema = z.enum(
-  CAMPAIGN_LAUNCH_STATUS_VALUES,
-)
-export const CampaignLaunchStatus = toEnumObject(
-  CAMPAIGN_LAUNCH_STATUS_VALUES,
-)
+export const CampaignLaunchStatusSchema = z.enum(CAMPAIGN_LAUNCH_STATUS_VALUES)
+export const CampaignLaunchStatus = toEnumObject(CAMPAIGN_LAUNCH_STATUS_VALUES)
 
 export const CAMPAIGN_STATUS_VALUES = ['candidate', 'onboarding'] as const
 export type CampaignStatus = (typeof CAMPAIGN_STATUS_VALUES)[number]
@@ -115,3 +111,19 @@ export const PeerlyCvVerificationStatusSchema = z.enum(
 export const PeerlyCvVerificationStatus = toEnumObject(
   PEERLY_CV_VERIFICATION_STATUS_VALUES,
 )
+
+// The channel Peerly used to deliver the CampaignVerify PIN, from the enriched
+// retrieve_cv payload's `verification_method`. `email` → filing email;
+// `text`/`phone`/`call` → filing phone; `mail` → filing postal address. An
+// unrecognized Peerly value degrades to null upstream rather than being coerced
+// into one of these.
+export const PIN_DELIVERY_METHOD_VALUES = [
+  'email',
+  'text',
+  'phone',
+  'call',
+  'mail',
+] as const
+export type PinDeliveryMethod = (typeof PIN_DELIVERY_METHOD_VALUES)[number]
+export const PinDeliveryMethodSchema = z.enum(PIN_DELIVERY_METHOD_VALUES)
+export const PinDeliveryMethod = toEnumObject(PIN_DELIVERY_METHOD_VALUES)

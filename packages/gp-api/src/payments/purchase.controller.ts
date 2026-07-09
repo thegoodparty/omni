@@ -1,5 +1,6 @@
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
+import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { BadRequestException, Body, Controller, Post } from '@nestjs/common'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
@@ -23,6 +24,7 @@ export class PurchaseController {
     private readonly stripeService: StripeService,
     private readonly usersService: UsersService,
     private readonly purchaseService: PurchaseService,
+    private readonly campaignsService: CampaignsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(PurchaseController.name)
@@ -33,6 +35,20 @@ export class PurchaseController {
     @ReqUser() user: User,
     @Body() dto: CreateProCheckoutSessionDto = {},
   ) {
+    // The fulfillment webhooks resolve the campaign via findActiveByUserId
+    // and skip with a 2xx when nothing qualifies, so a session sold to a user
+    // with no active campaign charges them with no Pro and no cancel path
+    // (ENG-10657 follow-up). Refuse to sell instead.
+    const activeCampaign = await this.campaignsService.findActiveByUserId(
+      user.id,
+    )
+    if (!activeCampaign) {
+      throw new BadRequestException({
+        message: 'User does not have an active campaign',
+        errorCode: 'NO_ACTIVE_CAMPAIGN',
+      })
+    }
+
     const { email } = user
 
     if (dto.embedded) {

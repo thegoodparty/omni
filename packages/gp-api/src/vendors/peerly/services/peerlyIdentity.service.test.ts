@@ -957,6 +957,80 @@ describe('PeerlyIdentityService', () => {
     })
   })
 
+  describe('retrieveCampaignVerifyDetails', () => {
+    const campaign = campaignFactory({ id: 1 }) as Campaign
+
+    it('returns the status and derived PIN delivery from the CV payload', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      httpService.get = vi.fn().mockResolvedValueOnce({
+        data: {
+          verification_status: 'APPROVED',
+          verification_data: {
+            verification_method: 'text',
+            filing_phone_number: '3126851162',
+            filing_email: 'candidate@example.com',
+          },
+        },
+      })
+
+      const result = await service.retrieveCampaignVerifyDetails(
+        'peerly-1',
+        campaign,
+      )
+
+      expect(result).toEqual({
+        status: 'APPROVED',
+        pinDelivery: { method: 'text', destination: '3126851162' },
+      })
+    })
+
+    it('returns null PIN delivery when Peerly has not sent the PIN yet', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      httpService.get = vi
+        .fn()
+        .mockResolvedValueOnce({ data: { verification_status: 'IN_REVIEW' } })
+
+      const result = await service.retrieveCampaignVerifyDetails(
+        'peerly-2',
+        campaign,
+      )
+
+      expect(result).toEqual({ status: 'IN_REVIEW', pinDelivery: null })
+    })
+
+    it('returns a null struct (no alert, no throw) when no CV request exists', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 400,
+        response: { data: { status_code: 404 } },
+      })
+
+      const result = await service.retrieveCampaignVerifyDetails(
+        'peerly-no-cv',
+        campaign,
+      )
+
+      expect(result).toEqual({ status: null, pinDelivery: null })
+      expect(errorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it('routes other errors through handleApiError', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      httpService.get = vi.fn().mockRejectedValueOnce({
+        isAxiosError: true,
+        status: 500,
+        response: { data: {} },
+      })
+
+      await service.retrieveCampaignVerifyDetails('peerly-500', campaign)
+
+      expect(errorHandling.handleApiError).toHaveBeenCalled()
+    })
+  })
+
   describe('getIdentityProfile', () => {
     const campaign = campaignFactory({ id: 1 }) as Campaign
 

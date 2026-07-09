@@ -1,6 +1,9 @@
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
-import type { ComplianceStateOutput } from '@goodparty_org/contracts'
+import type {
+  ComplianceStateOutput,
+  PinDelivery,
+} from '@goodparty_org/contracts'
 import type { TcrCompliance, TcrComplianceStatus } from 'helpers/types'
 
 export const TCR_COMPLIANCE_QUERY_KEY = ['tcrCompliance'] as const
@@ -57,6 +60,29 @@ export const getTcrCompliance = async (): Promise<TcrCompliance | null> => {
   )
   if (!response.ok) return null
   return response.data ?? null
+}
+
+// Sentence telling the candidate where Peerly sent their PIN. `displayString`
+// is already masked server-side (the raw filing info never reaches the client),
+// so this only composes the copy. Returns null when Peerly hasn't reported a
+// delivery yet so the caller falls back to the generic "email, phone or
+// address" copy.
+export const describePinDelivery = (
+  pinDelivery: PinDelivery | null | undefined,
+): string | null => {
+  if (!pinDelivery) return null
+  const { method, displayString } = pinDelivery
+  switch (method) {
+    case 'email':
+      return `We sent your PIN by email to ${displayString}.`
+    case 'text':
+      return `We sent your PIN by text to ${displayString}.`
+    case 'phone':
+    case 'call':
+      return `We sent your PIN by phone to ${displayString}.`
+    case 'mail':
+      return `We mailed your PIN to ${displayString}.`
+  }
 }
 
 export const getComplianceState =
