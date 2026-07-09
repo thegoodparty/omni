@@ -91,11 +91,11 @@ export default function BriefingsLanding({
           <>
             <UpcomingCountdownCard summary={featured} />
             <BriefingListSection title="Upcoming" summaries={upcoming} />
-            <BriefingListSection title="Past" summaries={past} />
           </>
         ) : (
-          <EmptyState />
+          !past.length && <EmptyState />
         )}
+        <BriefingListSection title="Past" summaries={past} />
       </div>
     </div>
   )
