@@ -21,6 +21,7 @@ renamed onto this clean name once the dead module was removed.
 | `services/communityIssueRead.service.ts`       | Read queries (list, detail)                                    |
 | `services/communityIssuePrioritize.service.ts` | Prioritize / de-prioritize an issue                            |
 | `services/communityIssueDispatch.service.ts`   | Dispatch AI experiment runs per org slug (cohort + self-serve) |
+| `services/communityIssueSeed.service.ts`       | Preview/dev-only deterministic seeding for e2e tests           |
 | `communityIssueBucketing.ts`                   | FNV-1a bucket assignment (deterministic slug → list)           |
 | `communityIssueArtifact.validation.ts`         | Zod validation for S3 artifact JSON                            |
 
@@ -45,6 +46,13 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   (`dispatchSelfServe`). Staff-only: rejects with `403` unless the caller's
   email ends with `@goodparty.org`. Same serve-ICP + in-flight gating as the
   cohort path. Backs the staff-only buttons on the Serve Community Issues page.
+- `POST /seed` — `@UseElectedOffice()`; deterministic test seeding for the
+  caller's own org. Persists issues through the real `upsertFromArtifact` path
+  (one COMPLETED `ExperimentRun` + artifact per list) plus optional related
+  `MeetingBriefing` links — no S3 / SQS / agent run. **Disabled on qa/prod**
+  (`OTEL_SERVICE_ENVIRONMENT`), so it's reachable only on local/test/preview/dev.
+  Exists for the gp-webapp Community Issues e2e suite, which runs against the
+  per-PR preview stack (and dev post-merge).
 
 ## Test command
 
