@@ -178,6 +178,59 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.getByText('Found it.')).toBeInTheDocument()
   })
 
+  it('reveals streamed text gradually instead of dumping the chunk', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    const long = 'word '.repeat(120).trim()
+    streamMessageMock.mockReturnValue(
+      makeStream([{ type: 'text', delta: long }, { type: 'done' }]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    await user.type(screen.getByLabelText(/ask a question/i), 'go')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    // The reply starts appearing before the whole chunk is revealed...
+    await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
+    expect(screen.queryByText(long)).not.toBeInTheDocument()
+    // The network phase is over, so the composer unlocks during the drain.
+    expect(screen.getByLabelText(/ask a question/i)).toBeEnabled()
+    // ...and finishes revealing shortly after.
+    await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
+      timeout: 6000,
+    })
+  })
+
+  it('types in a seeded assistant-only transcript instead of dumping it', async () => {
+    const greeting =
+      "Hi, I'm your campaign manager. I keep an eye on your plan and tell " +
+      'you the two or three things that matter most this week.'
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_greet',
+        role: 'assistant',
+        content: greeting,
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_greet" />)
+
+    // Typing has begun (a prefix is visible) but the full greeting has not
+    // been dumped at once.
+    await waitFor(() =>
+      expect(screen.getByText(/^Hi, I'm your campaign/)).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(greeting)).not.toBeInTheDocument()
+    // It finishes typing and stays (committed to history).
+    await waitFor(
+      () => expect(screen.getByText(greeting)).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+  })
+
   it('surfaces a retryable error when the stream errors', async () => {
     const user = userEvent.setup()
     createMock.mockResolvedValue({ conversationId: 'conv_1' })
