@@ -75,7 +75,7 @@ export class CommunityIssueSeedService extends createPrismaBase(
     }
 
     const created = await this.model.findMany({
-      where: { organizationSlug: org },
+      where: { organizationSlug: org, archivedAt: null },
     })
     const idByKey = new Map(
       created.map((row) => [`${row.list}::${row.title}`, row]),
