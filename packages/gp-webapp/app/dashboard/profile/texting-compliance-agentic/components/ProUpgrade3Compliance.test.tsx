@@ -30,12 +30,14 @@ vi.mock(
 
 const stateWith = (
   peerlyCvStatus: ComplianceStateOutput['peerlyCvStatus'],
+  pinDelivery: ComplianceStateOutput['pinDelivery'] = null,
 ): ComplianceStateOutput => ({
   stage: 'awaiting_pin',
   domain: null,
   websiteId: null,
   peerlyVerificationId: 'cv-1',
   peerlyCvStatus,
+  pinDelivery,
 })
 
 const mockSuccessSnackbar = vi.fn()
@@ -113,6 +115,35 @@ describe('ProUpgrade3Compliance — status → state mapping', () => {
     })
     expect(screen.getByText('Enter your PIN')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /submit/i })).toBeInTheDocument()
+  })
+
+  it('shows the real delivery channel + masked destination when Peerly reports it', async () => {
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+    mockGetComplianceState.mockResolvedValue(
+      stateWith(PeerlyCvVerificationStatus.APPROVED, {
+        method: 'text',
+        displayString: '(312) •••-1162',
+      }),
+    )
+    render(<ProUpgrade3Compliance />)
+
+    await waitFor(() => expect(getPinInput()).not.toBeNull())
+    expect(
+      screen.getByText('We sent your PIN by text to (312) •••-1162.'),
+    ).toBeInTheDocument()
+  })
+
+  it('falls back to the generic PIN instructions when no delivery is reported', async () => {
+    mockGetTcrCompliance.mockResolvedValue(tcrWith('submitted'))
+    mockGetComplianceState.mockResolvedValue(
+      stateWith(PeerlyCvVerificationStatus.APPROVED, null),
+    )
+    render(<ProUpgrade3Compliance />)
+
+    await waitFor(() => expect(getPinInput()).not.toBeNull())
+    expect(
+      screen.getByText(/You will be sent a PIN within 7 business days/i),
+    ).toBeInTheDocument()
   })
 
   it('renders the PIN entry form when CV is VERIFIED (PIN already entered)', async () => {

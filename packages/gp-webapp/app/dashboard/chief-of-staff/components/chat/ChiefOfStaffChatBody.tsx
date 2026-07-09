@@ -232,12 +232,34 @@ export default function ChiefOfStaffChatBody({
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)
   const [introProgress, setIntroProgress] = useState(0)
+  // Characters of the live turn's text revealed so far — the streamed reply is
+  // typed toward what has actually arrived instead of jumping per SSE chunk.
+  const [revealed, setRevealed] = useState(0)
+  // A reloaded transcript with no user turn yet (the server-seeded greeting)
+  // is typed in on open instead of dumped, then committed to history.
+  const [playback, setPlayback] = useState<{
+    items: ChatItem[]
+    progress: number
+  } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const revealedRef = useRef(0)
+  const liveTextTotalRef = useRef(0)
+  // Set while a finished reply's reveal is still draining; invoking it commits
+  // the reply to history immediately (a mid-drain send flushes it first so the
+  // transcript stays ordered).
+  const pendingCommitRef = useRef<(() => void) | null>(null)
+  const playbackRef = useRef<{ items: ChatItem[]; progress: number } | null>(
+    null,
+  )
+
+  useEffect(() => {
+    playbackRef.current = playback
+  }, [playback])
 
   // The intro only plays on the user's first chat — they have no prior
   // conversations — and only once ever (a localStorage flag), typing the
@@ -311,6 +333,87 @@ export default function ChiefOfStaffChatBody({
     return parts
   }, [introProgress, introMessages])
 
+  // Smooth reveal for the live stream: tick the revealed counter toward the
+  // text that has arrived. The step scales with the backlog, so the reveal
+  // trails the network by a bounded amount and drains quickly after `done`.
+  const streamingActive = streaming !== null
+  useEffect(() => {
+    if (!streamingActive) return
+    const id = setInterval(() => {
+      setRevealed((r) => {
+        const total = liveTextTotalRef.current
+        if (r >= total) return r
+        const next = Math.min(
+          total,
+          r + Math.max(2, Math.ceil((total - r) / 50)),
+        )
+        revealedRef.current = next
+        return next
+      })
+    }, 24)
+    return () => clearInterval(id)
+  }, [streamingActive])
+
+  // The live segments sliced to the revealed budget. A partially revealed text
+  // block hides everything after it, so a tool pill never appears ahead of the
+  // text that precedes it.
+  const visibleSegments = useMemo(() => {
+    let budget = revealed
+    const out: LiveSegment[] = []
+    for (const seg of segments) {
+      if (seg.kind !== 'text') {
+        out.push(seg)
+        continue
+      }
+      if (budget < seg.text.length) {
+        if (budget > 0) {
+          out.push({ kind: 'text', text: seg.text.slice(0, budget) })
+        }
+        return out
+      }
+      out.push(seg)
+      budget -= seg.text.length
+    }
+    return out
+  }, [segments, revealed])
+
+  // Type the seeded-greeting playback in with the same pacing as the intro.
+  const playbackActive = playback !== null
+  useEffect(() => {
+    if (!playbackActive) return
+    const id = setInterval(() => {
+      setPlayback((p) => {
+        if (!p) return p
+        const total = p.items.reduce((sum, it) => sum + it.content.length, 0)
+        const step = Math.max(2, Math.ceil(total / 120))
+        const next = Math.min(p.progress + step, total)
+        return next === p.progress ? p : { ...p, progress: next }
+      })
+    }, 28)
+    return () => clearInterval(id)
+  }, [playbackActive])
+
+  // Once fully typed, the played-back transcript becomes regular history.
+  useEffect(() => {
+    if (!playback) return
+    const total = playback.items.reduce((sum, it) => sum + it.content.length, 0)
+    if (playback.progress < total) return
+    setHistory((prev) => (prev.length === 0 ? playback.items : prev))
+    setPlayback(null)
+  }, [playback])
+
+  const playbackParts = useMemo(() => {
+    if (!playback) return []
+    let remaining = playback.progress
+    const parts: string[] = []
+    for (const it of playback.items) {
+      if (remaining <= 0) break
+      parts.push(it.content.slice(0, remaining))
+      remaining -= it.content.length
+    }
+    return parts
+  }, [playback])
+
   // Override path — replay an existing conversation's messages once on mount.
   const loadExisting = useCallback(async () => {
     if (!conversationIdOverride) return
@@ -325,7 +428,20 @@ export default function ChiefOfStaffChatBody({
         const it = messageToItem(m)
         if (it) items.push(it)
       }
-      setHistory(items)
+      // No user turn yet means this is the server-seeded greeting (Campaign
+      // Manager seeds it on create). Play it like a live reply instead of
+      // dumping it as an already-sent transcript. Segment-bearing turns render
+      // structured blocks the playback can't, so they always dump.
+      const playable =
+        items.length > 0 &&
+        items.every(
+          (it) => it.kind === 'assistant' && !(it.segments ?? []).length,
+        )
+      if (playable) {
+        setPlayback({ items, progress: 0 })
+      } else {
+        setHistory(items)
+      }
     } catch (err) {
       reportErrorToSentry(err, {
         surface: 'chief-of-staff-chat',
@@ -371,7 +487,7 @@ export default function ChiefOfStaffChatBody({
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [streaming, history.length])
+  }, [streaming, history.length, revealed, playback])
 
   // Deferred create — return the existing id or mint a new conversation.
   const ensureConversationId = useCallback(async (): Promise<string | null> => {
@@ -408,6 +524,9 @@ export default function ChiefOfStaffChatBody({
       setSending(true)
       setStreaming('')
       setSegments([])
+      setRevealed(0)
+      revealedRef.current = 0
+      liveTextTotalRef.current = 0
       setError(null)
 
       try {
@@ -429,6 +548,12 @@ export default function ChiefOfStaffChatBody({
         let segs: LiveSegment[] = []
         const commitSegs = (next: LiveSegment[]): void => {
           segs = next
+          // Kept on a ref (not derived from state) so the post-`done` wait
+          // below sees the total synchronously with the stream.
+          liveTextTotalRef.current = next.reduce(
+            (sum, s) => (s.kind === 'text' ? sum + s.text.length : sum),
+            0,
+          )
           setSegments(next)
         }
         // Raw ordered segments mirroring what the backend persists (raw tool
@@ -527,18 +652,43 @@ export default function ChiefOfStaffChatBody({
             setStreaming(null)
           }
         } else {
-          setHistory((prev) => [
-            ...prev,
-            {
-              kind: 'assistant',
-              id: assistantId ?? `local_assistant_${clientMessageId}`,
-              content: assembled,
-              ...(committedSegs.some((s) => s.kind === 'tool')
-                ? { segments: committedSegs }
-                : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
-            },
-          ])
-          setStreaming(null)
+          // Network phase is over — release the send lock so the user can
+          // compose while the reveal drains.
+          sendingRef.current = false
+          setSending(false)
+          const assistantItem: ChatItem = {
+            kind: 'assistant',
+            id: assistantId ?? `local_assistant_${clientMessageId}`,
+            content: assembled,
+            ...(committedSegs.some((s) => s.kind === 'tool')
+              ? { segments: committedSegs }
+              : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
+          }
+          let committed = false
+          const commit = (): void => {
+            if (committed) return
+            committed = true
+            pendingCommitRef.current = null
+            setHistory((prev) => [...prev, assistantItem])
+            setStreaming(null)
+            setSegments([])
+          }
+          pendingCommitRef.current = commit
+          // Let the smooth reveal finish before committing, so the tail of
+          // the reply types out instead of snapping in with the history swap.
+          while (
+            !committed &&
+            !controller.signal.aborted &&
+            revealedRef.current < liveTextTotalRef.current
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 40))
+          }
+          // A close-abort mid-drain skips the local commit — the server has
+          // already persisted the message, so it replays on reload.
+          if (!controller.signal.aborted) commit()
+          if (pendingCommitRef.current === commit) {
+            pendingCommitRef.current = null
+          }
         }
       } catch (err) {
         reportErrorToSentry(err, {
@@ -555,10 +705,14 @@ export default function ChiefOfStaffChatBody({
         })
         setStreaming(null)
       } finally {
-        sendingRef.current = false
-        setSending(false)
-        setSegments([])
-        abortRef.current = null
+        // Guard on our own controller: a mid-drain send may have started the
+        // next turn, whose state this turn's cleanup must not clobber.
+        if (abortRef.current === controller) {
+          sendingRef.current = false
+          setSending(false)
+          setSegments([])
+          abortRef.current = null
+        }
       }
     },
     [],
@@ -597,6 +751,20 @@ export default function ChiefOfStaffChatBody({
       if (sendingRef.current || creatingRef.current) return false
       sendingRef.current = true
       const clientMessageId = newClientMessageId()
+      // A send during a reveal drain commits the previous assistant message
+      // first so the transcript stays ordered.
+      pendingCommitRef.current?.()
+      // Sending mid-playback flushes the rest of the greeting instantly so
+      // the transcript stays ordered ahead of the user's message.
+      const pending = playbackRef.current
+      if (pending) {
+        setPlayback(null)
+        // History is empty for the whole playback; the length guard keeps a
+        // same-frame race with the completion effect from double-committing.
+        setHistory((prev) =>
+          prev.length === 0 ? [...pending.items, ...prev] : prev,
+        )
+      }
       setHistory((prev) => [
         ...prev,
         { kind: 'user', id: `local_${clientMessageId}`, content: trimmed },
@@ -629,6 +797,7 @@ export default function ChiefOfStaffChatBody({
     (opener !== undefined || isFirstChat) &&
     history.length === 0 &&
     !streaming &&
+    !playback &&
     !error
 
   return (
@@ -661,6 +830,20 @@ export default function ChiefOfStaffChatBody({
               <div className={ASSISTANT_BUBBLE}>{text}</div>
             </div>
           ))}
+
+        {playbackParts.map((text, i) => (
+          <div
+            key={`pb-${i}`}
+            className="flex max-w-full items-start gap-2 self-start"
+          >
+            <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <SparklesIcon className="size-3.5" aria-hidden />
+            </span>
+            <div className={ASSISTANT_BUBBLE}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+            </div>
+          </div>
+        ))}
 
         {history.map((item) =>
           item.kind === 'user' ? (
@@ -734,12 +917,12 @@ export default function ChiefOfStaffChatBody({
               <SparklesIcon className="size-3.5" aria-hidden />
             </span>
             <div className="flex min-w-0 max-w-full flex-col gap-2">
-              {segments.length === 0 && (
+              {visibleSegments.length === 0 && (
                 <div className={ASSISTANT_BUBBLE}>
                   <span className="text-shimmer-muted">Thinking...</span>
                 </div>
               )}
-              {segments.map((seg, i) =>
+              {visibleSegments.map((seg, i) =>
                 seg.kind === 'text' ? (
                   <div key={`seg-${i}`} className={ASSISTANT_BUBBLE}>
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -789,7 +972,7 @@ export default function ChiefOfStaffChatBody({
         )}
       </div>
 
-      {history.length === 0 && streaming === null && !error && (
+      {history.length === 0 && streaming === null && !error && !playback && (
         <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
           {CHAT_SUGGESTIONS.map((s) => (
             <Badge

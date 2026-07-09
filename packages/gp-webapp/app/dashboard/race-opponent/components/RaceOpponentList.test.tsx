@@ -585,7 +585,6 @@ describe('<RaceOpponentList>', () => {
     expect(downloadOpponentBriefsPdf).toHaveBeenCalledWith(
       withSummary.opponents,
       'Test race',
-      withSummary.fieldAnalysis,
     )
   })
 
@@ -917,7 +916,7 @@ describe('<RaceOpponentList>', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders the field SWOT section below the roster when fieldAnalysis is present', () => {
+  it('does not render the field SWOT section even when fieldAnalysis is present (removed per ENG-10661)', () => {
     render(
       <RaceOpponentList
         initialData={{
@@ -927,41 +926,6 @@ describe('<RaceOpponentList>', () => {
             weaknesses: ['Low name recognition outside the district core'],
             opportunities: [],
             threats: ['Incumbent holds a 2-1 fundraising lead'],
-            sources: [],
-            generatedAt: null,
-          },
-        }}
-      />,
-    )
-
-    expect(
-      screen.getByRole('heading', {
-        name: 'How your campaign stacks up against the field',
-      }),
-    ).toBeInTheDocument()
-  })
-
-  it('does not render the field SWOT section when fieldAnalysis is absent', () => {
-    render(<RaceOpponentList initialData={withSummary} />)
-
-    expect(
-      screen.queryByRole('heading', {
-        name: 'How your campaign stacks up against the field',
-      }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('does not render the field SWOT section when there is no roster (manual form shown instead)', () => {
-    render(
-      <RaceOpponentList
-        initialData={{
-          ...empty,
-          collectionStatus: 'completed',
-          fieldAnalysis: {
-            strengths: ['Strong grassroots fundraising base'],
-            weaknesses: ['Low name recognition outside the district core'],
-            opportunities: [],
-            threats: [],
             sources: [],
             generatedAt: null,
           },

@@ -6127,7 +6127,7 @@ export interface OpponentActionsArtifact {
     | [
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6151,7 +6151,7 @@ export interface OpponentActionsArtifact {
     | [
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6173,75 +6173,7 @@ export interface OpponentActionsArtifact {
         },
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-      ]
-    | [
-        {
-          /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6265,7 +6197,7 @@ export interface OpponentActionsArtifact {
     | [
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6287,7 +6219,7 @@ export interface OpponentActionsArtifact {
         },
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6309,29 +6241,7 @@ export interface OpponentActionsArtifact {
         },
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
-           */
-          body: string
-          /**
-           * The issue this card contrasts on. At most one card per opponent+issue pair.
-           */
-          issue: string
-          /**
-           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
-           */
-          opponent_name: string | null
-          /**
-           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
-           */
-          sms_message: string
-          /**
-           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
-           */
-          title: string
-        },
-        {
-          /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6355,7 +6265,7 @@ export interface OpponentActionsArtifact {
     | [
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6377,7 +6287,7 @@ export interface OpponentActionsArtifact {
         },
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6399,7 +6309,7 @@ export interface OpponentActionsArtifact {
         },
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6421,7 +6331,31 @@ export interface OpponentActionsArtifact {
         },
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+      ]
+    | [
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**
@@ -6443,7 +6377,73 @@ export interface OpponentActionsArtifact {
         },
         {
           /**
-           * At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing.
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
+           */
+          body: string
+          /**
+           * The issue this card contrasts on. At most one card per opponent+issue pair.
+           */
+          issue: string
+          /**
+           * The input opponent this card contrasts against, echoed verbatim. Null only for an issue-ownership card the field's text supports without naming one opponent.
+           */
+          opponent_name: string | null
+          /**
+           * First-person candidate voice, plain factual contrast, sendable as-is. Only facts present in the input summaries and platform.
+           */
+          sms_message: string
+          /**
+           * Action-framed title naming the opponent and issue (e.g. 'Stand out against Jeff Groh on housing affordability').
+           */
+          title: string
+        },
+        {
+          /**
+           * 2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing.
            */
           body: string
           /**

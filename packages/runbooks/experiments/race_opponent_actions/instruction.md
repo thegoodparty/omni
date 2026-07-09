@@ -2,11 +2,11 @@
 
 Turn a campaign's persisted opponent summaries plus the candidate's own platform
 into up to 5 "stand out" action cards: each card names one issue where the
-candidate and an opponent diverge, a short body grounded in district Haystaq
-sentiment when the district has coverage, and a preset SMS message the candidate
-could send as-is. Two signals combine: the summaries + platform supply every fact
-the copy may state, and the district's Haystaq scores (Databricks) supply the only
-numbers the copy may cite. Degrades gracefully to numberless cards when the
+candidate and an opponent diverge, a two-sentence body grounded in district
+Haystaq sentiment when the district has coverage, and a preset SMS message the
+candidate could send as-is. Two signals combine: the summaries + platform supply
+every fact the copy may state, and the district's Haystaq scores (Databricks)
+supply the only numbers the copy may cite. Degrades gracefully to numberless cards when the
 district is unknown or Haystaq has no coverage.
 
 ## BEFORE YOU START
@@ -35,7 +35,7 @@ district is unknown or Haystaq has no coverage.
 - **Work ONLY from the provided text plus the Haystaq numbers you actually queried.** Every claim about an opponent traces to that opponent's own `overview_text` / `background_text` / `issues_that_matter`; every claim about the candidate traces to `candidate_platform`. Nothing from general knowledge. There is NO web access here — no `WebSearch`, no `pmf_runtime.http`. Do not write code or shell that reaches the network.
 - **Up to 5 cards, never padded.** Fewer when the field or the platform supports fewer distinct angles. A thin or absent `candidate_platform` means fewer cards, not invented planks.
 - **`title` is at most 99 characters**, action-framed and naming the opponent and issue (e.g. "Stand out against Jeff Groh on housing affordability").
-- **`body` is at most 3 sentences**, citing the district Haystaq percentages when coverage exists and stating that voters care about (or how they lean on) the issue. When coverage is missing, the body simply carries no statistic — never a made-up or borrowed one.
+- **`body` is 2 short, punchy sentences (3 only when a third is truly needed) and under 400 characters total.** Direct register, no throat-clearing: sentence one states what the district's voters believe or lean on the issue — with at most ONE Haystaq number when coverage exists — and sentence two makes the concrete contrast move against the opponent. Good: "77% of District 36's active voters lean toward government having a role in affordable housing. Challenge Noel Frame's Senate Housing Committee record with the right message." Bad: three long sentences stacking the opponent's biography, two percentages, and the candidate's plank. When coverage is missing, the body simply carries no statistic — never a made-up or borrowed one.
 - **`sms_message` is at most 320 characters**: plain, factual, first-person candidate voice, a contrast message the candidate could send as-is. No placeholders to fill in, no links required, no hype. Only facts present in the input summaries and platform.
 - **Every card is distinct**: at most one card per opponent+issue pair, no repeated facts, and no statistic repeated across cards. `opponent_name` echoes an input opponent verbatim; it may be null ONLY for an issue-ownership card the field's text supports without naming one opponent.
 - **No family, health, or private life. No rumor.** Contrast on record and issues, never character.
@@ -316,14 +316,17 @@ from pmf_runtime import milestone; milestone("write cards")
 ```
 
 For each angle, in threat order, write `title` / `body` / `sms_message` /
-`opponent_name` / `issue` under the copy rules in CRITICAL RULES. The body's
-factual spine is: (1) what the opponent's summary says (or is silent on), (2) the
-district numbers when the column survived Step 4 (from `stats`, verbatim), and
-(3) what the candidate's own plank commits to. The `sms_message` makes the same
-contrast in the candidate's first-person voice, self-contained and sendable
-as-is. A numberless body keeps the same spine with the statistic slot replaced by
-grounded salience from the inputs (e.g. the issue is contested in the race) or by
-the candidate's own commitment — never "many voters feel..." backed by nothing.
+`opponent_name` / `issue` under the copy rules in CRITICAL RULES. The body is
+two short sentences: (1) what the district's voters believe or lean on the
+issue — citing at most ONE of the surviving Step 4 numbers (from `stats`,
+verbatim) — and (2) the concrete contrast move against the opponent, grounded
+in what their summary says (or is silent on) and what the candidate's own plank
+commits to. Every fact still traces to the inputs; brevity trims words, never
+sourcing. The `sms_message` makes the same contrast in the candidate's
+first-person voice, self-contained and sendable as-is. A numberless body keeps
+the same shape with the statistic slot replaced by grounded salience from the
+inputs (e.g. the issue is contested in the race) or by the candidate's own
+commitment — never "many voters feel..." backed by nothing.
 
 Set `haystaq_status`:
 
@@ -355,6 +358,7 @@ seen_pairs, seen_numbers = set(), set()
 for c in out["actions"]:
     assert len(c["title"]) <= 99
     assert len(c["sms_message"]) <= 320
+    assert len(c["body"]) < 400
     assert c["body"].rstrip().endswith((".", "!", "?"))
     # strip title abbreviations so their periods don't count as sentence ends
     body = re.sub(
@@ -413,6 +417,7 @@ Validator-passing JSON can still be garbage. Before declaring success, confirm:
 | Query returns 0 rows | `Voters_Active = 1`, or the L2 value doesn't match verbatim | `Voters_Active = 'A'` (string); re-check the discovery match |
 | A card cites a number for a dropped column | Substituted an adjacent column | Direct column or nothing; the card goes out numberless |
 | A card claims voters "overwhelmingly" want something at 39.7% | Adjective inflation over an away-lean | State the number as what it is; sub-50 shares are leans away |
+| A body reads like a paragraph or trips the 400-char check | Stacked the opponent's record, multiple percentages, and the candidate's plank into one body | Two short sentences: voters' lean (one number max), then the contrast move |
 | An SMS reads as an attack or guesses motive | Contrast drifted from record/issues to character | Rewrite: facts from the summaries and platform only |
 | Two cards feel like the same card | Same contrast rephrased, or a statistic reused | One opponent+issue angle and one statistic per card |
 | Output has cards but no numbers and no district | That is correct behavior | Degrade path: numberless cards, `haystaq_status: "no_district"` |
