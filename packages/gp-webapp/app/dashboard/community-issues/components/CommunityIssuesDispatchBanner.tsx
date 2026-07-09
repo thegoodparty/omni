@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 
 const POLL_INTERVAL_MS = 5000
+const MAX_POLL_ATTEMPTS = 60 // 5s x 60 = 5 min ceiling
 
 type Props = {
   initiallyRunning: boolean
@@ -22,6 +23,7 @@ export default function CommunityIssuesDispatchBanner({
   initiallyRunning,
 }: Props): React.JSX.Element | null {
   const [polling, setPolling] = useState(initiallyRunning)
+  const [pollAttempts, setPollAttempts] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -58,10 +60,17 @@ export default function CommunityIssuesDispatchBanner({
 
   useEffect(() => {
     if (!statuses) return
-    if (statuses.top !== 'running' && statuses.trending !== 'running') {
+    const nextAttempts = pollAttempts + 1
+    if (
+      (statuses.top !== 'running' && statuses.trending !== 'running') ||
+      nextAttempts >= MAX_POLL_ATTEMPTS
+    ) {
       setPolling(false)
+      setPollAttempts(0)
+    } else {
+      setPollAttempts(nextAttempts)
     }
-  }, [statuses])
+  }, [statuses, pollAttempts])
 
   if (!polling) return null
 
