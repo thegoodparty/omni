@@ -126,6 +126,19 @@ kickoff path must not race it.
   deterministically-failing submission. After the cooldown it probes again (re-alerting
   if still failing); a successful submit clears the block. Only this billing signal is
   matched — normal transient 5xx still flow through `handleApiError` and retry.
+- **CampaignVerify data rejections surface as 400, not 502.** Peerly proxies CV on
+  `submit_cv`: a CV rejection comes back as HTTP 400 with
+  `Error: "Campaign Verify API request failed."` and CV's own status echoed in the
+  nested `status_code`. A nested 400 (e.g. `"FEC filing URLs are not allowed."`) is a
+  deterministic data rejection — `isPeerlyCvRejection`
+  (`utils/peerlyCvRejection.util.ts`) detects it and `submitCampaignVerifyRequest`
+  throws `BadRequestException` carrying CV's parsed `details` reason. Before this, the
+  generic handler wrapped it as a 502, which the compliance agent treats as transient:
+  3 in-run retries (one Slack alert each) plus recovery-loop re-dispatch to the
+  5-resume cap, then a FAILED run whose blocker said `peerly_transient` with no reason
+  (campaign-325772 / campaign-75502, Jul 2026). A nested 5xx (CV itself down) still
+  flows through the generic 502/transient path. The Slack alert still fires once per
+  attempt; the 400 is what stops the retries.
 - Strips leading `www.` from `Domain.name` so Peerly's brand `website`/`email` use the
   apex domain, matching the legacy `create()` path.
 - **`filing_url` must be an official election filing.** CampaignVerify verifies the
@@ -135,10 +148,15 @@ kickoff path must not race it.
   the agent was resolving `filing_url` to `goodparty.org/candidate/...` pages). The
   guard lives in two layers. `tcrComplianceSuperRefine` (`tcrComplianceBase.schema.ts`,
   via the exported `addFilingUrlIssues`) rejects any `goodparty.org` host / credentialed
-  URL for the **create** callers (wizard, agentic-create) at write time. The **submit**
+  URL for the **create** callers (wizard, agentic-create) at write time, and (via
+  `addNonFederalFecFilingUrlIssue`) any `fec.gov`-hosted URL for **non-federal**
+  records — CampaignVerify rejects those outright with
+  `"FEC filing URLs are not allowed."` (federal is the opposite: the create schema
+  *requires* an FEC.gov link). The **submit**
   path no longer has a request DTO, so it re-applies those same guards to the *persisted*
   `filingUrl` at submit time via `submitToPeerlyFilingSchema`
-  (`submitToPeerlyDto.schema.ts`), plus an own-site check against the registered domain
+  (`submitToPeerlyDto.schema.ts`) — which takes the persisted `officeLevel` for the
+  non-federal FEC check — plus an own-site check against the registered domain
   host — a record saved before the guard shipped (or via a path without it) can still
   carry a bad value, and it must 400 rather than reach Peerly (existing bad rows are a
   data-repair follow-up). All return 400 so the candidate's saved filing details must be
