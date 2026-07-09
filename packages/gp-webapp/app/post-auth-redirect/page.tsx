@@ -8,7 +8,7 @@ import {
   resolvePostAuthRedirectPath,
   CampaignStatus,
 } from 'helpers/resolvePostAuthRedirectPath.util'
-import { setCookie } from 'helpers/cookieHelper'
+import { getCookie, setCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { resolveSlug } from '@shared/hooks/useSelectedOrgSlug'
 import { trackRegistrationCompleted } from 'helpers/analyticsHelper'
@@ -168,6 +168,16 @@ const PostAuthRedirectPage = () => {
               Number.isFinite(createdAtMs) &&
               Date.now() - createdAtMs < REGISTRATION_FRESHNESS_MS
             if (isFreshlyCreated) {
+              // Submit the HubSpot registration form BEFORE any Segment
+              // identify: whichever call creates the HubSpot contact first
+              // locks its original source, and only a Forms API submission
+              // carrying the hubspotutk grants web/paid attribution.
+              const hutk = getCookie('hubspotutk')
+              await clientRequest(
+                'POST /v1/users/me/crm-registration',
+                hutk ? { hutk } : {},
+                { ignoreResponseError: true },
+              )
               await trackRegistrationCompleted({
                 analytics: getReadyAnalytics(),
                 userId: String(userData.id),
