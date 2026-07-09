@@ -280,6 +280,19 @@ export class MeetingsBriefingsController {
   }
 
   /**
+   * Self-serve landing catch-up: called client-side after the user lands on
+   * the dashboard. Resolves the office from the authenticated user (not an
+   * admin-supplied ID) and dispatches a briefing if the cron's gates would
+   * allow it, skipping only the activity gate — landing already proves the
+   * user is active. Distinct from the admin-only `briefings/dispatch` above.
+   */
+  @UseElectedOffice()
+  @Post('dispatch-if-needed')
+  async dispatchIfNeeded(@ReqElectedOffice() electedOffice: ElectedOffice) {
+    return this.meetingBriefings.dispatchBriefingIfDue(electedOffice)
+  }
+
+  /**
    * Step 1 of user-supplied agenda upload: returns a presigned S3 PUT URL
    * the browser uses to upload the PDF directly to the agent-run-inputs
    * bucket. No DB row is created here — finalizeUserAgenda creates the row

@@ -624,6 +624,21 @@ export type APIEndpoints = {
     Response: MeetingsListResponseDto
   }
 
+  // Self-serve landing catch-up: called client-side after landing on the
+  // dashboard. Resolves the office from the authenticated user and dispatches
+  // a briefing if the cron's gates would allow it, skipping only the 90-day
+  // activity gate (landing already proves activity). `inFlight` covers both
+  // a fresh dispatch from this call and a run already in progress from an
+  // earlier one — either way the caller should show the loading banner.
+  'POST /v1/meetings/dispatch-if-needed': {
+    Request: {}
+    Response: {
+      dispatched: boolean
+      inFlight: boolean
+      meetingDate: string | null
+    }
+  }
+
   'GET /v1/meetings/:date/briefing': {
     Request: { date: string }
     Response: MeetingBriefingOutput | MeetingBriefingAwaitingDto
@@ -828,6 +843,16 @@ export type APIEndpoints = {
         title: string
       }>
     }
+  }
+
+  // Self-serve landing catch-up: called client-side after landing on the
+  // community issues dashboard. Dispatches both experiment types if eligible
+  // and not already in flight, skipping only the 90-day activity gate.
+  // Distinct from self-dispatch above (staff-only, single-type, manual
+  // refresh button).
+  'POST /v1/community-issues/dispatch-if-needed': {
+    Request: {}
+    Response: { dispatched: number; skipped: number }
   }
 
   'GET /v1/campaigns/mine/race-opponent': {
