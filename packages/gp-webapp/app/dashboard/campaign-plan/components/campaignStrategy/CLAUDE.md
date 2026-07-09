@@ -10,7 +10,7 @@ cards the candidate checks off. Feature overview + backend:
 
 | File | Role |
 |------|------|
-| `useTrackerTasks.ts` | Fetches `/campaigns/tracker-tasks`; exposes `isGeneratingDynamic`; fast-polls (20s) while generating, slow background poll after, with a fast-poll budget cap. |
+| `useTrackerTasks.ts` | Fetches `/campaigns/tracker-tasks`; exposes `isGeneratingDynamic`; fast-polls (20s) while the tracker is *settling* (`isTrackerSettling`: no rows yet **or** static-only with dynamic still generating), slow background poll after, with a fast-poll budget cap; refetches on mount + window focus (and polls in the background) so navigating to the tab surfaces freshly materialized rows without a manual refresh. |
 | `buildTrackerStrategy.ts` | Builds the render shape from persisted rows (the only path). |
 | `CampaignStrategySection.tsx` | The section: loading / error / setting-up / generating states, then the accordion. Renders only from persisted rows. |
 | `CampaignStrategyTaskRow.tsx` | One task card (date chip, channel icon, completion toggle). |
@@ -59,4 +59,16 @@ cards the candidate checks off. Feature overview + backend:
   both shapes and anchored to local midnight.
 - `useTrackerTasks` can't tell "generation failed/never-dispatched" from "still
   generating" (no backend signal yet); the fast-poll budget caps the cost, but
-  the spinner can persist for a malformed campaign. Backend signal is a follow-up.
+  the "setting up" spinner can persist indefinitely for a campaign that never
+  populates — most commonly a story-cohort campaign (flag on) whose
+  `campaign_story` row was never written, so the story-gated bootstrap + static
+  materialization never run. A backend generation-status signal (+ a UI timeout)
+  is the real fix and remains a follow-up.
+- **There is no `loading.tsx` in the `campaign-plan/` route segment** (removed on
+  purpose). It rendered a bare full-screen `RouteLoading` with no dashboard
+  shell, so every tab click flashed the whole page — including the sidebar — into
+  a spinner, unlike the other dashboard tabs. Without it the App Router keeps the
+  current page (sidebar and all) mounted during the `force-dynamic` server
+  round-trip and swaps only the content, matching the other tabs. Don't
+  reintroduce a segment `loading.tsx` here unless it renders inside
+  `DashboardLayout`.
