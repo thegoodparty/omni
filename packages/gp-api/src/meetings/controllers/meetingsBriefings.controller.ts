@@ -8,8 +8,10 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ElectedOffice, User } from '../../generated/prisma'
 import { addMonths, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -27,6 +29,7 @@ import {
   MeetingDateParamSchema,
 } from '../schemas/meetingDateParam.schema'
 import {
+  BriefingDispatchOutcomeSchema,
   BriefingDispatchPreviewSchema,
   DispatchMeetingAgentDto,
   DispatchMeetingAgentSchema,
@@ -288,6 +291,8 @@ export class MeetingsBriefingsController {
    */
   @UseElectedOffice()
   @Post('dispatch-if-needed')
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(BriefingDispatchOutcomeSchema)
   async dispatchIfNeeded(@ReqElectedOffice() electedOffice: ElectedOffice) {
     return this.meetingBriefings.dispatchBriefingIfDue(electedOffice)
   }

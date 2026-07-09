@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 
 const POLL_INTERVAL_MS = 5000
+const MAX_POLL_ATTEMPTS = 60 // 5s x 60 = 5 min ceiling
 
 /**
  * Non-blocking landing catch-up: fires once after the dashboard has already
@@ -17,6 +18,7 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
   const [pendingMeetingDate, setPendingMeetingDate] = useState<string | null>(
     null,
   )
+  const [pollAttempts, setPollAttempts] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -48,10 +50,14 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
     const meeting = meetings.meetings.find(
       (m) => m.meetingDate === pendingMeetingDate,
     )
-    if (meeting?.hasBriefing) {
+    const nextAttempts = pollAttempts + 1
+    if (meeting?.hasBriefing || nextAttempts >= MAX_POLL_ATTEMPTS) {
       setPendingMeetingDate(null)
+      setPollAttempts(0)
+    } else {
+      setPollAttempts(nextAttempts)
     }
-  }, [meetings, pendingMeetingDate])
+  }, [meetings, pendingMeetingDate, pollAttempts])
 
   if (!pendingMeetingDate) return null
 
