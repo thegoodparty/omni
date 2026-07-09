@@ -648,7 +648,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       // top-level Error field and drops it) so the failure is actionable.
       if (isPeerlyCvRejection(error)) {
         const detail = getPeerlyCvRejectionDetail(error)
-        await this.handleApiError(error, {
+        return await this.handleApiError(error, {
           campaign,
           ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
           httpExceptionClass: BadRequestException,
