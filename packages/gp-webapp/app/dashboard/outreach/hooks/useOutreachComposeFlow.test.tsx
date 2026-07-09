@@ -103,6 +103,7 @@ describe('useOutreachComposeFlow', () => {
     renderHarness({ isPro: false }, { type: 'text', due: '2026-02-03' })
     fireEvent.click(screen.getByRole('button', { name: 'launch' }))
 
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
