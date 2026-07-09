@@ -66,6 +66,10 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../utils/peerlyBillingError.util'
+import {
+  getPeerlyCvRejectionDetail,
+  isPeerlyCvRejection,
+} from '../utils/peerlyCvRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
@@ -634,6 +638,26 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
             'issue). Holding retries until Peerly billing is resolved.',
           { cause: error },
         )
+      }
+      // A CV data rejection (nested 400, e.g. "FEC filing URLs are not
+      // allowed.") re-fails deterministically: surfaced as the generic 502 it
+      // made the compliance agent retry in-run and its recovery loop
+      // re-dispatch until the resume cap, re-alerting Slack each attempt.
+      // Throw 400 instead so agent callers classify it as a non-retryable
+      // rejection, and carry CV's reason (the generic handler reads only the
+      // top-level Error field and drops it) so the failure is actionable.
+      if (isPeerlyCvRejection(error)) {
+        const detail = getPeerlyCvRejectionDetail(error)
+        await this.handleApiError(error, {
+          campaign,
+          ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
+          httpExceptionClass: BadRequestException,
+          customMessage:
+            'Campaign Verify rejected the submission' +
+            (detail ? `: ${detail}` : '') +
+            ' — the saved filing details must be corrected before ' +
+            'resubmitting; retrying with the same data will fail again.',
+        })
       }
       await this.handleApiError(error, {
         campaign,

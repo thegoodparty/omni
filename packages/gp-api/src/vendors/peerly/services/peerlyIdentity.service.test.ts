@@ -1,5 +1,6 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { AxiosError, AxiosHeaders } from 'axios'
 import {
   Campaign,
   CommitteeType,
@@ -12,7 +13,10 @@ import { AreaCodeFromZipService } from '../../../ai/util/areaCodeFromZip.util'
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
 import { CampaignsService } from '../../../campaigns/services/campaigns.service'
 import { GooglePlacesService } from '../../google/services/google-places.service'
-import { PeerlyCvVerificationType } from '../peerly.types'
+import {
+  PeerlyApiErrorContext,
+  PeerlyCvVerificationType,
+} from '../peerly.types'
 import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyIdentityService } from './peerlyIdentity.service'
@@ -527,6 +531,86 @@ describe('PeerlyIdentityService', () => {
       // The generic per-identity error path is bypassed, so the billing outage
       // is not double-alerted as ordinary error noise.
       expect(errorHandling.handleApiError).not.toHaveBeenCalled()
+    })
+
+    it('classifies a Campaign Verify data rejection (nested 400) as a 400 carrying the CV reason', async () => {
+      const httpService = module.get(PeerlyHttpService)
+      const usersService = module.get(UsersService)
+      const slackService = module.get(SlackService)
+      const errorHandling = module.get(PeerlyErrorHandlingService)
+      usersService.findByCampaign = vi.fn().mockResolvedValue(baseUser)
+      const requestConfig = {
+        url: '/v2/tdlc/peerly-cv-400/submit_cv',
+        method: 'POST',
+        headers: new AxiosHeaders(),
+      }
+      httpService.post = vi.fn().mockRejectedValue(
+        new AxiosError(
+          'Request failed with status code 400',
+          'ERR_BAD_REQUEST',
+          requestConfig as AxiosError['config'],
+          {},
+          {
+            data: {
+              Error: 'Campaign Verify API request failed.',
+              status_code: 400,
+              details:
+                '{"error":"FEC filing URLs are not allowed.",' +
+                '"errors":["FEC filing URLs are not allowed."]}',
+            },
+            status: 400,
+            statusText: 'Bad Request',
+            headers: {},
+            config: requestConfig,
+          } as AxiosError['response'],
+        ),
+      )
+      // Mirror the real handler's contract: it throws the context's exception
+      // class with the custom message, so this asserts what agent callers
+      // actually receive (a no-op mock would let the method resolve to null).
+      errorHandling.handleApiError = vi
+        .fn()
+        .mockImplementation((info: { context?: PeerlyApiErrorContext }) => {
+          const ExceptionClass =
+            info.context?.httpExceptionClass ?? BadGatewayException
+          throw new ExceptionClass(
+            info.context?.customMessage ?? 'Peerly API ERROR',
+          )
+        })
+
+      const submission = service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-cv-400',
+          filingUrl: 'https://docquery.fec.gov/cgi-bin/forms/C1/1/',
+          officeLevel: OfficeLevel.state,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+        },
+        baseUser,
+        createMockCampaign(),
+        baseDomainName,
+      )
+      await expect(submission).rejects.toBeInstanceOf(BadRequestException)
+      await expect(submission).rejects.toThrow(
+        'FEC filing URLs are not allowed.',
+      )
+
+      expect(errorHandling.handleApiError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          context: expect.objectContaining({
+            httpExceptionClass: BadRequestException,
+          }),
+        }),
+      )
+      // The rejection is still alerted to the 10DLC channel (once per
+      // submission attempt — the 400 stops agent retries).
+      expect(slackService.message).toHaveBeenCalledWith(
+        expect.objectContaining({ blocks: expect.any(Array) }),
+        SlackChannel.bot10DlcCompliance,
+      )
     })
 
     it('routes a transient 500 through handleApiError (still retryable)', async () => {

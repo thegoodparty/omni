@@ -164,3 +164,49 @@ describe('tcrComplianceSuperRefine — filingUrl host', () => {
     expect(schema().safeParse(localBase).success).toBe(true)
   })
 })
+
+describe('tcrComplianceSuperRefine — non-federal FEC filing URL', () => {
+  const expectFilingUrlRejected = (filingUrl: string) => {
+    const result = schema().safeParse({ ...localBase, filingUrl })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.error.issues.some((i) => i.path[0] === 'filingUrl')).toBe(
+        true,
+      )
+    }
+  }
+
+  it('rejects an fec.gov filing URL for local office (CampaignVerify: "FEC filing URLs are not allowed")', () => {
+    expectFilingUrlRejected('https://www.fec.gov/data/committee/C00950105/')
+  })
+
+  it('rejects a docquery.fec.gov filing URL for local office', () => {
+    expectFilingUrlRejected(
+      'https://docquery.fec.gov/cgi-bin/forms/C00950105/1973838/',
+    )
+  })
+
+  it('rejects an fec.gov filing URL for state office', () => {
+    const result = schema().safeParse({
+      officeLevel: OfficeLevel.state,
+      filingUrl: 'https://www.fec.gov/data/committee/C00950105/',
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('does not reject a lookalike host that merely ends in fec.gov', () => {
+    const result = schema().safeParse({
+      ...localBase,
+      filingUrl: 'https://notfec.gov/candidates/jane-doe',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('still accepts (and requires) an fec.gov filing URL for federal office', () => {
+    const result = schema().safeParse({
+      ...federalBase,
+      fecCommitteeId: 'C00936328',
+    })
+    expect(result.success).toBe(true)
+  })
+})
