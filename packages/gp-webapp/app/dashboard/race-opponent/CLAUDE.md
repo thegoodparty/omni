@@ -2,8 +2,9 @@
 
 The candidate-facing opposition-research surface. Backed by the gp-api `raceOpponent`
 module (`packages/gp-api/src/raceOpponent/CLAUDE.md` — read it for the two-engine
-split, gating, and the experiments). Flag-gated (`win-know-your-opponent`) and
-Pro-gated. Built across four epics (P0 ENG-10525 → P4 ENG-10604).
+split, gating, and the experiments). Pro-gated (the `win-know-your-opponent` flag
+was removed after full rollout). Built across four epics (P0 ENG-10525 → P4
+ENG-10604).
 
 ## Routes
 
@@ -13,8 +14,7 @@ Pro-gated. Built across four epics (P0 ENG-10525 → P4 ENG-10604).
 | `/dashboard/race-opponent/opponents`     | `opponents/page.tsx`     | Strict-engine opponent research (`OpponentResearch`); routes back to self-research if not done |
 | `/dashboard/race-opponent/self-research` | `self-research/page.tsx` | The candidate's own self-research pass (`SelfResearch`) — the front door to the strict engine  |
 
-All three are Server Components that resolve gating server-side (see below) and then
-render their client component inside `<FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>`.
+All three are Server Components that resolve gating server-side (see below).
 
 ## Gating (the precedence ladder)
 
@@ -22,9 +22,8 @@ Resolved in `page.tsx` + `RaceOpponentList`. Get the order right or a just-upgra
 user flickers into the wrong state on first paint:
 
 ```
-flag off                          → no nav item, no page (FeatureFlagGuard hides/bounces)
-flag on, !isPro                   → <OpponentProLockedView/> (in-page upgrade pitch, NOT a redirect)
-flag on, isPro:
+!isPro                            → <OpponentProLockedView/> (in-page upgrade pitch, NOT a redirect)
+isPro:
   running/discovering, idle-mid-  → <OpponentResearchProgress/>   (4-step cosmetic screen)
     run, or never-ran auto-start
   completed, opponents > 0        → the report (list + threat tiers + issue contrasts)
@@ -38,12 +37,8 @@ There is **no "Collect now" / "Refresh" control** and no idle "start" prompt: a 
 user who lands with the agent never having run auto-starts the flow (see below). The
 only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysis").
 
-- **The flag gates the ENTIRE surface, the locked view included.** Flag-off must show
-  nothing (per ENG-10608 AC) — the non-Pro `OpponentProLockedView` stays _inside_
-  `FeatureFlagGuard`. Do NOT render it unconditionally; that would expose a gated,
-  unreleased feature to every non-Pro candidate.
-- The nav item (`DashboardMenu.tsx`) shows for flag-on users regardless of Pro; Pro is
-  gated at the route **content**, not the nav entry.
+- The nav item (`DashboardMenu.tsx`) shows for every Win campaign regardless of Pro;
+  Pro is gated at the route **content**, not the nav entry.
 
 ## Components (by epic / role)
 
@@ -54,10 +49,7 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `border-border`) and `contentClassName` (`mx-auto max-w-[608px]` so the
   title aligns with the content column below; ENG-10638) — this
   replaced the old feature-local `OpponentPageHeader` (deleted) and the
-  `DashboardLayout` `navHeader` prop for this route. The bar lives INSIDE
-  `FeatureFlagGuard` on both branches: the flag gates the entire surface, so
-  flag-off must ship no trace of the feature — the heading included — in the
-  SSR HTML. The bar is desktop-only
+  `DashboardLayout` `navHeader` prop for this route. The bar is desktop-only
   (`max-lg:hidden`), like the `DashboardNavHeader` it replaced: on mobile the
   title lives in `MobileMenuTrigger`'s top bar via this route's
   `MOBILE_PAGE_TITLES` entry in `DashboardLayout` — keep that entry, or mobile

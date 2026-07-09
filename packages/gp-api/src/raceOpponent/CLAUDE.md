@@ -2,14 +2,15 @@
 
 Opposition research for Win candidates: collect public, **sourced** facts on the
 opponents in a race, turn them into candidate-facing analysis, and pair them with
-the candidate's own positions as ready-to-send **contrasts**. Flag-gated
-(`win-know-your-opponent`) and Pro-gated. Built across four epics (P0 ENG-10525 →
-P4 ENG-10604); the tech design lives at ClickUp doc `2ky4jq2q-91513`.
+the candidate's own positions as ready-to-send **contrasts**. Pro-gated (the
+`win-know-your-opponent` flag was removed after full rollout). Built across four
+epics (P0 ENG-10525 → P4 ENG-10604); the tech design lives at ClickUp doc
+`2ky4jq2q-91513`.
 
 ## The one thing to understand first: two engines coexist here
 
-This module contains **two distinct pipelines** that share a controller, a flag, and
-the `assertAccess` gate but otherwise do not interact. Conflating them is the most
+This module contains **two distinct pipelines** that share a controller and the
+`assertAccess` gate but otherwise do not interact. Conflating them is the most
 common mistake.
 
 | | **Relaxed path** (P2/P3/P4) | **Strict engine** (P1) |
@@ -30,8 +31,8 @@ change "opponent research", be explicit about which one.
 | File | Role |
 |------|------|
 | `raceOpponent.controller.ts` | All routes (`campaigns/mine/race-opponent`). HTTP only; gating + service dispatch. Heavily commented — the routes are the spec. |
-| `raceOpponent.constants.ts` | Flag key, experiment-type strings, `MAX_*_ATTEMPTS` caps, `CONTRAST_ALLOWED_CATEGORIES`, `CONTRAST_INFLATION_TERMS`, `DATASET_SOURCE_SCHEMES` |
-| `services/raceOpponent.service.ts` | **Relaxed path** + the module's `assertAccess` (Pro + flag). `collect` / `collectManual` / `get`; dispatches `race_opponent_collection`, reads the summary |
+| `raceOpponent.constants.ts` | Experiment-type strings, `MAX_*_ATTEMPTS` caps, `CONTRAST_ALLOWED_CATEGORIES`, `CONTRAST_INFLATION_TERMS`, `DATASET_SOURCE_SCHEMES` |
+| `services/raceOpponent.service.ts` | **Relaxed path** + the module's `assertAccess` (Pro). `collect` / `collectManual` / `get`; dispatches `race_opponent_collection`, reads the summary |
 | `services/opponentResearch.service.ts` | **Strict engine** dispatch: `identify` / `start` / `profile`; builds `candidate_platform` from `Website.content.about` (NOT CampaignStory — see ENG-10607) |
 | `services/selfResearch.service.ts` | Strict engine front door: `start` / `status` / `report` of the candidate's own pass |
 | `services/selfResearchGate.service.ts` | The hard 403 gate (PRD Requirement B). `assertSelfResearchComplete` |
@@ -46,8 +47,8 @@ change "opponent research", be explicit about which one.
 
 ## Routes + gating
 
-Every route is owner-scoped (`@UseCampaign`) and gated by **`assertAccess`** (Pro +
-`win-know-your-opponent`). On top of that:
+Every route is owner-scoped (`@UseCampaign`) and gated by **`assertAccess`**
+(Pro). On top of that:
 
 - `collect`, `opponents/identify·research·profile·activity`,
   `contrasts/generate·route·edit` also call

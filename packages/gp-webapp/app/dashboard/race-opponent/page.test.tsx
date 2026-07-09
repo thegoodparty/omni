@@ -10,13 +10,11 @@ const {
   mockFetchUserCampaign,
   mockServerRequest,
   mockRedirect,
-  mockFlag,
 } = vi.hoisted(() => ({
   mockCandidateAccess: vi.fn(),
   mockFetchUserCampaign: vi.fn(),
   mockServerRequest: vi.fn(),
   mockRedirect: vi.fn(),
-  mockFlag: { on: true },
 }))
 
 vi.mock('next/navigation', () => ({
@@ -41,15 +39,6 @@ vi.mock('../shared/DashboardLayout', () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
 
-// The flag guard is a client component that gates on remote flag state; stub
-// it with a switchable gate (mockFlag.on, default on) so flag-on tests render
-// its children while the flag-off test can assert the page ships NOTHING —
-// heading included — which fails if any feature UI moves outside the guard.
-vi.mock('@shared/experiments/FeatureFlagGuard', () => ({
-  default: ({ children }: { children: ReactNode }) =>
-    mockFlag.on ? <div>{children}</div> : null,
-}))
-
 // RaceOpponentList is exercised by its own suite; stub it so this test isolates
 // the page's shell composition and the empty-data fallback.
 vi.mock('./components/RaceOpponentList', () => ({
@@ -72,7 +61,6 @@ const okRaceOpponent: RaceOpponentResponse = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockFlag.on = true
   mockCandidateAccess.mockResolvedValue(undefined)
   mockFetchUserCampaign.mockResolvedValue({
     isPro: true,
@@ -114,31 +102,6 @@ describe('dashboard/race-opponent page', () => {
       const pageHeader = document.querySelector('[data-slot="page-header"]')
       expect(pageHeader).not.toBeNull()
       expect(pageHeader).toHaveClass('max-lg:hidden')
-    },
-  )
-
-  it.each([
-    ['Pro', true],
-    ['non-Pro', false],
-  ])(
-    'ships no PageHeader or feature UI on the %s branch when the flag is off',
-    async (_label, isPro) => {
-      mockFlag.on = false
-      mockFetchUserCampaign.mockResolvedValue({ isPro, details: {} })
-
-      render(await Page())
-
-      // The flag gates the ENTIRE surface (ENG-10608 AC): flag-off must leave
-      // no trace of the feature in the rendered HTML — the "Know Your Opponent"
-      // heading included. This fails if the PageHeader moves outside the guard.
-      expect(
-        screen.queryByRole('heading', { name: 'Know Your Opponent' }),
-      ).not.toBeInTheDocument()
-      expect(document.querySelector('[data-slot="page-header"]')).toBeNull()
-      expect(screen.queryByTestId('opponent-list')).not.toBeInTheDocument()
-      expect(
-        screen.queryByTestId('opponent-locked-view'),
-      ).not.toBeInTheDocument()
     },
   )
 
