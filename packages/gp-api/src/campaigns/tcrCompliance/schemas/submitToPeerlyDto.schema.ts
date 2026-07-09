@@ -28,6 +28,13 @@ export const submitToPeerlyFilingSchema = z
 
     if (data.officeLevel !== OfficeLevel.federal) {
       addNonFederalFecFilingUrlIssue(data.filingUrl, ctx)
+    } else if (!/fec\.gov/i.test(data.filingUrl)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Election Filing Link must be from FEC.gov for federal office level',
+        path: ['filingUrl'],
+      })
     }
 
     // The candidate's own campaign website is not an official filing record,

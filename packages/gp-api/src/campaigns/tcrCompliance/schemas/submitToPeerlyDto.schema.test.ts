@@ -67,4 +67,11 @@ describe('submitToPeerlyFilingSchema — persisted filing URL guards', () => {
     })
     expect(result.success).toBe(true)
   })
+
+  it('rejects a non-fec.gov filing URL for a federal record (CampaignVerify requires an FEC filing)', () => {
+    expectFilingUrlRejected({
+      filingUrl: 'https://sos.example.gov/candidates/jane',
+      officeLevel: OfficeLevel.federal,
+    })
+  })
 })
