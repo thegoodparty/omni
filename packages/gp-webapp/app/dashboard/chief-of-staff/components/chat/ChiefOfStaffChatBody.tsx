@@ -249,6 +249,10 @@ export default function ChiefOfStaffChatBody({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const revealedRef = useRef(0)
   const liveTextTotalRef = useRef(0)
+  // Set while a finished reply's reveal is still draining; invoking it commits
+  // the reply to history immediately (a mid-drain send flushes it first so the
+  // transcript stays ordered).
+  const pendingCommitRef = useRef<(() => void) | null>(null)
   const playbackRef = useRef<{ items: ChatItem[]; progress: number } | null>(
     null,
   )
@@ -648,26 +652,43 @@ export default function ChiefOfStaffChatBody({
             setStreaming(null)
           }
         } else {
+          // Network phase is over — release the send lock so the user can
+          // compose while the reveal drains.
+          sendingRef.current = false
+          setSending(false)
+          const assistantItem: ChatItem = {
+            kind: 'assistant',
+            id: assistantId ?? `local_assistant_${clientMessageId}`,
+            content: assembled,
+            ...(committedSegs.some((s) => s.kind === 'tool')
+              ? { segments: committedSegs }
+              : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
+          }
+          let committed = false
+          const commit = (): void => {
+            if (committed) return
+            committed = true
+            pendingCommitRef.current = null
+            setHistory((prev) => [...prev, assistantItem])
+            setStreaming(null)
+            setSegments([])
+          }
+          pendingCommitRef.current = commit
           // Let the smooth reveal finish before committing, so the tail of
           // the reply types out instead of snapping in with the history swap.
           while (
+            !committed &&
             !controller.signal.aborted &&
             revealedRef.current < liveTextTotalRef.current
           ) {
             await new Promise((resolve) => setTimeout(resolve, 40))
           }
-          setHistory((prev) => [
-            ...prev,
-            {
-              kind: 'assistant',
-              id: assistantId ?? `local_assistant_${clientMessageId}`,
-              content: assembled,
-              ...(committedSegs.some((s) => s.kind === 'tool')
-                ? { segments: committedSegs }
-                : turnTools.length > 0 && { toolsUsed: [...turnTools] }),
-            },
-          ])
-          setStreaming(null)
+          // A close-abort mid-drain skips the local commit — the server has
+          // already persisted the message, so it replays on reload.
+          if (!controller.signal.aborted) commit()
+          if (pendingCommitRef.current === commit) {
+            pendingCommitRef.current = null
+          }
         }
       } catch (err) {
         reportErrorToSentry(err, {
@@ -684,10 +705,14 @@ export default function ChiefOfStaffChatBody({
         })
         setStreaming(null)
       } finally {
-        sendingRef.current = false
-        setSending(false)
-        setSegments([])
-        abortRef.current = null
+        // Guard on our own controller: a mid-drain send may have started the
+        // next turn, whose state this turn's cleanup must not clobber.
+        if (abortRef.current === controller) {
+          sendingRef.current = false
+          setSending(false)
+          setSegments([])
+          abortRef.current = null
+        }
       }
     },
     [],
@@ -726,6 +751,9 @@ export default function ChiefOfStaffChatBody({
       if (sendingRef.current || creatingRef.current) return false
       sendingRef.current = true
       const clientMessageId = newClientMessageId()
+      // A send during a reveal drain commits the previous assistant message
+      // first so the transcript stays ordered.
+      pendingCommitRef.current?.()
       // Sending mid-playback flushes the rest of the greeting instantly so
       // the transcript stays ordered ahead of the user's message.
       const pending = playbackRef.current
@@ -769,6 +797,7 @@ export default function ChiefOfStaffChatBody({
     (opener !== undefined || isFirstChat) &&
     history.length === 0 &&
     !streaming &&
+    !playback &&
     !error
 
   return (

@@ -194,6 +194,8 @@ describe('<ChiefOfStaffChatBody>', () => {
     // The reply starts appearing before the whole chunk is revealed...
     await waitFor(() => expect(screen.getByText(/^word/)).toBeInTheDocument())
     expect(screen.queryByText(long)).not.toBeInTheDocument()
+    // The network phase is over, so the composer unlocks during the drain.
+    expect(screen.getByLabelText(/ask a question/i)).toBeEnabled()
     // ...and finishes revealing shortly after.
     await waitFor(() => expect(screen.getByText(long)).toBeInTheDocument(), {
       timeout: 6000,
