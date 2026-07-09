@@ -18,6 +18,11 @@ const distanceFromNow = (s: BriefingSummary): number =>
 const compareScheduledAt = (a: BriefingSummary, b: BriefingSummary): number =>
   new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
 
+const compareScheduledAtDesc = (
+  a: BriefingSummary,
+  b: BriefingSummary,
+): number => compareScheduledAt(b, a)
+
 const isFeaturedEligible = (s: BriefingSummary): boolean => {
   const t = new Date(s.scheduledAt).getTime()
   const now = Date.now()
@@ -58,6 +63,13 @@ export default function BriefingsLanding({
     .sort(compareScheduledAt)
     .slice(0, MAX_UPCOMING)
 
+  const past = summaries
+    .filter(
+      (s) =>
+        s.id !== featured?.id && new Date(s.scheduledAt).getTime() < Date.now(),
+    )
+    .sort(compareScheduledAtDesc)
+
   return (
     <div className="flex min-h-screen flex-col bg-muted">
       <div className="flex w-full flex-col items-start gap-4 border-b border-border bg-background px-6 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-8">
@@ -79,6 +91,7 @@ export default function BriefingsLanding({
           <>
             <UpcomingCountdownCard summary={featured} />
             <BriefingListSection title="Upcoming" summaries={upcoming} />
+            <BriefingListSection title="Past" summaries={past} />
           </>
         ) : (
           <EmptyState />
