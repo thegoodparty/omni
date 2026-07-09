@@ -138,9 +138,9 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
   // Full lists render at /all and /trending.
   await page.getByRole('link', { name: 'View all issues' }).click()
   await page.waitForURL('**/dashboard/community-issues/all')
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Top community issues',
-  )
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Top community issues' }),
+  ).toBeVisible()
   await expect(
     page.getByRole('link', { name: /Housing affordability/ }),
   ).toBeVisible()
@@ -152,9 +152,9 @@ test('Community Issues: lists, prioritize, AI chat, next steps', async ({
     waitUntil: 'domcontentloaded',
   })
   await WaitHelper.waitForPageReady(page)
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(
-    'Trending community issues',
-  )
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Trending community issues' }),
+  ).toBeVisible()
   await expect(
     page.getByRole('link', { name: /Park cleanup at Riverside/ }),
   ).toBeVisible()
