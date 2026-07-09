@@ -178,6 +178,14 @@ export type APIEndpoints = {
     Response: User
   }
 
+  // Submits the HubSpot registration form with the visitor's hubspotutk so
+  // the contact gets web/paid original-source attribution instead of the
+  // "offline sources" Segment's server-side destination would assign.
+  'POST /v1/users/me/crm-registration': {
+    Request: { hutk?: string }
+    Response: {}
+  }
+
   // Used to refresh the outreach list after payment finalizes a draft
   // (draft-first purchase flow). Server hides pending_payment rows.
   'GET /v1/outreach': {
