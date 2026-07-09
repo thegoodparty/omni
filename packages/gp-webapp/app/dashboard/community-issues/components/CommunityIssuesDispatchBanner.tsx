@@ -29,7 +29,7 @@ export default function CommunityIssuesDispatchBanner({
     let cancelled = false
     void clientRequest('POST /v1/community-issues/dispatch-if-needed', {})
       .then(({ data }) => {
-        if (!cancelled && data.dispatched > 0) {
+        if (!cancelled && (data.dispatched > 0 || data.skipped > 0)) {
           setPolling(true)
         }
       })
