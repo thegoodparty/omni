@@ -10,13 +10,17 @@ import { CommunityIssueUpsertService } from './communityIssueUpsert.service'
 // the real (slow, non-deterministic, credit-spending) agent run. It is a write
 // seam into customer-shaped data, so it must never be reachable on the prod or
 // qa deploys. OTEL_SERVICE_ENVIRONMENT is the only signal that reliably names
-// the deploy (NODE_ENV is pinned to 'production' in every Docker image), so gate
-// on it: enabled on local/test/preview/dev, disabled on qa/prod. Read live so a
-// test can stub the env per-case.
-const SEED_DISABLED_ENVIRONMENTS = new Set(['qa', 'prod'])
+// the deploy (NODE_ENV is pinned to 'production' in every Docker image), so
+// gate on an allow-list: any unknown or new deploy environment fails closed.
+// Every deployed task definition sets the variable unconditionally
+// (deploy/index.ts), so unset can only mean a non-deployed context (local dev,
+// vitest) and stays enabled. Read live so a test can stub the env per-case.
+const SEED_ENABLED_ENVIRONMENTS = new Set(['local', 'test', 'preview', 'dev'])
 
-const isSeedEnabled = () =>
-  !SEED_DISABLED_ENVIRONMENTS.has(process.env.OTEL_SERVICE_ENVIRONMENT ?? '')
+const isSeedEnabled = () => {
+  const env = process.env.OTEL_SERVICE_ENVIRONMENT
+  return env === undefined || SEED_ENABLED_ENVIRONMENTS.has(env)
+}
 
 const EXPERIMENT_TYPE_FOR_LIST: Record<'top_community' | 'trending', string> = {
   top_community: 'top_community_issues',

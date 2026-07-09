@@ -636,6 +636,39 @@ describe('POST /v1/community-issues/seed', () => {
       else process.env.OTEL_SERVICE_ENVIRONMENT = prev
     }
   })
+
+  it('returns 403 when OTEL_SERVICE_ENVIRONMENT is unknown (fails closed)', async () => {
+    const prev = process.env.OTEL_SERVICE_ENVIRONMENT
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'staging'
+    try {
+      const res = await service.client.post(
+        `${BASE}/seed`,
+        seedBody(),
+        eoHeaders(),
+      )
+      expect(res.status).toBe(HttpStatus.FORBIDDEN)
+    } finally {
+      if (prev === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+      else process.env.OTEL_SERVICE_ENVIRONMENT = prev
+    }
+  })
+
+  it('rejects more than 10 issues for one list', async () => {
+    const base = seedBody().issues[0]!
+    const res = await service.client.post(
+      `${BASE}/seed`,
+      {
+        issues: Array.from({ length: 11 }, (_, i) => ({
+          ...base,
+          relatedBriefing: undefined,
+          title: `Issue ${i + 1}`,
+          rank: i + 1,
+        })),
+      },
+      eoHeaders(),
+    )
+    expect(res.status).toBe(HttpStatus.BAD_REQUEST)
+  })
 })
 
 describe('POST /v1/community-issues/:id/prioritize — cross-org security', () => {

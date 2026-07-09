@@ -90,8 +90,23 @@ const SeedIssueSchema = z.object({
   relatedBriefing: SeedRelatedBriefingSchema.optional(),
 })
 
+// Mirrors the real pipeline's envelope cap: an artifact carries at most 10
+// issues per list, so seeded data can never exceed what production produces.
 export const SeedRequestSchema = z.object({
-  issues: z.array(SeedIssueSchema).min(1).max(50),
+  issues: z
+    .array(SeedIssueSchema)
+    .min(1)
+    .max(20)
+    .superRefine((issues, ctx) => {
+      for (const list of ['top_community', 'trending'] as const) {
+        if (issues.filter((i) => i.list === list).length > 10) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: `no more than 10 issues per list (${list})`,
+          })
+        }
+      }
+    }),
 })
 
 export class SeedRequestDto extends createZodDto(SeedRequestSchema) {}
