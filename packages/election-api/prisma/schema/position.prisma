@@ -11,6 +11,12 @@ model Position {
     isWinIcp   Boolean? @map("is_win_icp")
     isServeIcp Boolean? @map("is_serve_icp")
 
+    // Office compensation (BallotReady api_position.salary; position-scoped). Powers
+    // the profile "About Office" salary row, incl. for sitting EOs with no active
+    // candidacy (Race.salary is only reachable via a Candidacy). Free-text: BR
+    // values include ranges/notes, so this mirrors Candidacy.salary as text.
+    salary String? @map("salary")
+
     // Relations
     district   District? @relation(fields: [districtId], references: [id])
     districtId String?   @map("district_id") @db.Uuid()

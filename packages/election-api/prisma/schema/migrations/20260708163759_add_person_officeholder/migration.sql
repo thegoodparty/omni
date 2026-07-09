@@ -7,6 +7,9 @@
 -- AlterTable
 ALTER TABLE "Candidacy" ADD COLUMN     "person_id" UUID;
 
+-- AlterTable
+ALTER TABLE "Position" ADD COLUMN     "salary" TEXT;
+
 -- CreateTable
 CREATE TABLE "OfficeHolder" (
     "id" UUID NOT NULL,
@@ -24,6 +27,7 @@ CREATE TABLE "OfficeHolder" (
     "is_appointed" BOOLEAN,
     "is_vacant" BOOLEAN,
     "number_of_seats" INTEGER,
+    "next_election_date" DATE,
     "mailing_address_line_1" TEXT,
     "mailing_address_line_2" TEXT,
     "mailing_city" TEXT,
@@ -35,6 +39,7 @@ CREATE TABLE "OfficeHolder" (
     "linkedin_url" TEXT,
     "facebook_url" TEXT,
     "twitter_url" TEXT,
+    "instagram_url" TEXT,
     "sub_area_name" TEXT,
     "sub_area_value" TEXT,
     "state" TEXT,
@@ -65,6 +70,7 @@ CREATE TABLE "Person" (
     "linkedin_url" TEXT,
     "facebook_url" TEXT,
     "twitter_url" TEXT,
+    "instagram_url" TEXT,
     "email" TEXT,
     "phone" TEXT,
     "degrees" JSONB,

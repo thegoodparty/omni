@@ -24,11 +24,12 @@ model Person {
   bioText     String? @map("bio_text") // default About Me; overlay bioOverride wins
   headshotUrl String? @map("headshot_url") // primary of BallotReady images[]
 
-  // Public links (BallotReady urls[], typed)
-  websiteUrl  String? @map("website_url")
-  linkedinUrl String? @map("linkedin_url")
-  facebookUrl String? @map("facebook_url")
-  twitterUrl  String? @map("twitter_url")
+  // Public links (BallotReady urls[], typed by `type`)
+  websiteUrl   String? @map("website_url")
+  linkedinUrl  String? @map("linkedin_url")
+  facebookUrl  String? @map("facebook_url")
+  twitterUrl   String? @map("twitter_url")
+  instagramUrl String? @map("instagram_url") // BR urls[] type='instagram'
 
   // Personal contact PII — omitted from default responses (see persons.service).
   email String?

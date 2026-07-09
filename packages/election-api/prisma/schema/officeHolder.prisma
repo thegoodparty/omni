@@ -23,6 +23,9 @@ model OfficeHolder {
   isAppointed         Boolean?  @map("is_appointed")
   isVacant            Boolean?  @map("is_vacant")
   numberOfSeats       Int?      @map("number_of_seats")
+  // Next election for this seat (derived by ETL from the office's Race election
+  // date + term frequency). Powers "Next election" in the profile's About Office.
+  nextElectionDate DateTime? @map("next_election_date") @db.Date
 
   // Mailing address (BallotReady office_holder_mailing_*)
   mailingAddressLine1 String? @map("mailing_address_line_1")
@@ -32,12 +35,13 @@ model OfficeHolder {
   mailingZip          String? @map("mailing_zip")
 
   // Office contact + links
-  officePhone String? @map("office_phone")
-  officeEmail String? @map("office_email")
-  websiteUrl  String? @map("website_url")
-  linkedinUrl String? @map("linkedin_url")
-  facebookUrl String? @map("facebook_url")
-  twitterUrl  String? @map("twitter_url")
+  officePhone  String? @map("office_phone")
+  officeEmail  String? @map("office_email")
+  websiteUrl   String? @map("website_url")
+  linkedinUrl  String? @map("linkedin_url")
+  facebookUrl  String? @map("facebook_url")
+  twitterUrl   String? @map("twitter_url")
+  instagramUrl String? @map("instagram_url") // BR office_holders_v3 urls[] type='instagram'
 
   // Geography / district
   subAreaName  String? @map("sub_area_name")
