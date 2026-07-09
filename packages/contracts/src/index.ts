@@ -533,6 +533,8 @@ export {
 export {
   ChatAnchorSnapshotSchema,
   type ChatAnchorSnapshot,
+  CommunityIssueChatAnchorSchema,
+  OrdinanceChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,

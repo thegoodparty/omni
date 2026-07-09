@@ -9,6 +9,8 @@ import { ChiefOfStaffModule } from './chief-of-staff/chief-of-staff.module'
 import { ChiefOfStaffHandler } from './chief-of-staff/chiefOfStaff.handler'
 import { CampaignManagerModule } from './campaign-manager/campaign-manager.module'
 import { CampaignManagerHandler } from './campaign-manager/campaignManager.handler'
+import { OrdinanceFlowModule } from './ordinance-flow/ordinance-flow.module'
+import { OrdinanceFlowHandler } from './ordinance-flow/ordinanceFlow.handler'
 import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
 
 // Scope-generic chat backend. New scopes register a handler here (collected
@@ -21,6 +23,7 @@ import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
     OrganizationsModule,
     ChiefOfStaffModule,
     CampaignManagerModule,
+    OrdinanceFlowModule,
   ],
   controllers: [GeneralChatsController],
   providers: [
@@ -32,8 +35,13 @@ import { CHAT_SCOPE_HANDLERS } from './types/chatScopeHandler'
       useFactory: (
         chiefOfStaff: ChiefOfStaffHandler,
         campaignManager: CampaignManagerHandler,
-      ) => [chiefOfStaff, campaignManager],
-      inject: [ChiefOfStaffHandler, CampaignManagerHandler],
+        ordinanceFlow: OrdinanceFlowHandler,
+      ) => [chiefOfStaff, campaignManager, ordinanceFlow],
+      inject: [
+        ChiefOfStaffHandler,
+        CampaignManagerHandler,
+        OrdinanceFlowHandler,
+      ],
     },
   ],
   exports: [GeneralChatsService],

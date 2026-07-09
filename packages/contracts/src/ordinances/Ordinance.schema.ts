@@ -101,6 +101,30 @@ export const OrdinanceScratchpadNoteSchema = z.object({
 })
 export const OrdinanceScratchpadSchema = z.array(OrdinanceScratchpadNoteSchema)
 
+// Steps of the guided flow. Each (ordinance, step) gets its own chat
+// conversation (the ordinance_flow scope). Not a Prisma enum: the persisted
+// lastViewedStep column is a free String, and the anchor carries this value
+// only to key the conversation, so a hand-written enum here is fine.
+export const ORDINANCE_FLOW_STEP_VALUES = [
+  'intro',
+  'clarify',
+  'authority',
+  'current_law',
+  'comparables',
+  'draft',
+] as const
+export const OrdinanceFlowStepSchema = z.enum(ORDINANCE_FLOW_STEP_VALUES)
+export type OrdinanceFlowStep = z.infer<typeof OrdinanceFlowStepSchema>
+
+// Artifact types reused by the ordinance_flow chat context/prompt. The schemas
+// above stay the source of truth; these just name their inferred types.
+export type OrdinanceClarifyAnswers = z.infer<
+  typeof OrdinanceClarifyAnswersSchema
+>
+export type OrdinanceAuthority = z.infer<typeof OrdinanceAuthoritySchema>
+export type OrdinanceComparables = z.infer<typeof OrdinanceComparablesSchema>
+export type OrdinanceScratchpad = z.infer<typeof OrdinanceScratchpadSchema>
+
 export const OrdinanceSchema = z.object({
   id: z.string(),
   slug: z.string(),
