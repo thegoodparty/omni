@@ -93,7 +93,6 @@ describe('OpponentResearchService.buildParams', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
     )
     Object.assign(raceOpponent, {
       _prisma: {

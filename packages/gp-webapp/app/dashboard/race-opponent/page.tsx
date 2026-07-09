@@ -5,8 +5,6 @@ import { PageHeader } from '@styleguide'
 import { SwordsIcon } from '@styleguide/components/ui/icons'
 import candidateAccess from '../shared/candidateAccess'
 import DashboardLayout from '../shared/DashboardLayout'
-import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
-import { KNOW_YOUR_OPPONENT_FLAG_KEY } from '@shared/experiments/knowYourOpponentFlag'
 import RaceOpponentList from './components/RaceOpponentList'
 import OpponentProLockedView from './components/OpponentProLockedView'
 import type { RaceOpponentResponse } from 'gpApi/api-endpoints'
@@ -62,12 +60,7 @@ export default async function Page(): Promise<React.JSX.Element> {
 
   const campaign = await fetchUserCampaign()
   // Non-Pro candidates land on an in-context upgrade pitch instead of being
-  // redirected to /dashboard/pro-upgrade. The KNOW_YOUR_OPPONENT flag still
-  // gates the ENTIRE surface, this locked view included: when the flag is off
-  // the feature does not exist for the user, so FeatureFlagGuard intentionally
-  // hides/bounces here too. Per ENG-10608 AC ("flag-off users see no nav item
-  // and no page"). Do NOT render the locked view outside FeatureFlagGuard —
-  // that would expose a gated, unreleased feature to every non-Pro user.
+  // redirected to /dashboard/pro-upgrade.
   if (!campaign?.isPro) {
     return (
       <DashboardLayout
@@ -75,29 +68,26 @@ export default async function Page(): Promise<React.JSX.Element> {
         showAlert={false}
         wrapperClassName="flex flex-col !p-0"
       >
-        <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
-          {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile
-              the title lives in MobileMenuTrigger's top bar (MOBILE_PAGE_TITLES
-              in DashboardLayout), so rendering this below lg would stack two
-              title bars with duplicate h1s. Inside the guard: flag-off must
-              ship NO trace of the feature, heading included. */}
-          <PageHeader
-            className="max-lg:hidden"
-            barClassName="h-14 border-border bg-background px-0"
-            contentClassName="mx-auto max-w-[608px] gap-2"
-            heading={
-              <span className="text-sm font-semibold text-foreground">
-                Know Your Opponent
-              </span>
-            }
-            leading={
-              <SwordsIcon className="size-5 text-foreground" aria-hidden />
-            }
-          />
-          <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
-            <OpponentProLockedView />
-          </div>
-        </FeatureFlagGuard>
+        {/* Desktop-only, like the DashboardNavHeader it replaced: on mobile
+            the title lives in MobileMenuTrigger's top bar (MOBILE_PAGE_TITLES
+            in DashboardLayout), so rendering this below lg would stack two
+            title bars with duplicate h1s. */}
+        <PageHeader
+          className="max-lg:hidden"
+          barClassName="h-14 border-border bg-background px-0"
+          contentClassName="mx-auto max-w-[608px] gap-2"
+          heading={
+            <span className="text-sm font-semibold text-foreground">
+              Know Your Opponent
+            </span>
+          }
+          leading={
+            <SwordsIcon className="size-5 text-foreground" aria-hidden />
+          }
+        />
+        <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
+          <OpponentProLockedView />
+        </div>
       </DashboardLayout>
     )
   }
@@ -130,29 +120,25 @@ export default async function Page(): Promise<React.JSX.Element> {
       showAlert={false}
       wrapperClassName="flex flex-col !p-0"
     >
-      <FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>
-        {/* Desktop-only, and inside the guard — see the non-Pro branch's note. */}
-        <PageHeader
-          className="max-lg:hidden"
-          barClassName="h-14 border-border bg-background px-0"
-          contentClassName="mx-auto max-w-[608px] gap-2"
-          heading={
-            <span className="text-sm font-semibold text-foreground">
-              Know Your Opponent
-            </span>
-          }
-          leading={
-            <SwordsIcon className="size-5 text-foreground" aria-hidden />
-          }
+      {/* Desktop-only — see the non-Pro branch's note. */}
+      <PageHeader
+        className="max-lg:hidden"
+        barClassName="h-14 border-border bg-background px-0"
+        contentClassName="mx-auto max-w-[608px] gap-2"
+        heading={
+          <span className="text-sm font-semibold text-foreground">
+            Know Your Opponent
+          </span>
+        }
+        leading={<SwordsIcon className="size-5 text-foreground" aria-hidden />}
+      />
+      <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
+        <RaceOpponentList
+          initialData={initialData}
+          raceContext={raceContext}
+          racePlace={racePlace}
         />
-        <div className="flex-1 bg-muted px-4 py-6 lg:px-8">
-          <RaceOpponentList
-            initialData={initialData}
-            raceContext={raceContext}
-            racePlace={racePlace}
-          />
-        </div>
-      </FeatureFlagGuard>
+      </div>
     </DashboardLayout>
   )
 }

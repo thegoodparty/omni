@@ -1,5 +1,4 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentPersistService } from '@/raceOpponent/services/raceOpponentPersist.service'
 import { RaceOpponentService } from '@/raceOpponent/services/raceOpponent.service'
@@ -67,11 +66,6 @@ const stubDiscoveryDispatch = () => {
   ).mockResolvedValue({} as never)
 }
 
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
-
 describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
   it('dispatches race_opponent_collection seeded from campaign plan opponents', async () => {
     const campaign = await seedCampaign({
@@ -80,7 +74,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE, 'John Foe'])
-    flagOn()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'run-123' } as never)
@@ -124,7 +117,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
         status: ExperimentRunStatus.QUEUED,
       },
     })
-    flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -148,7 +140,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
       raceId: RACE_HASH,
     })
-    flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
@@ -195,7 +186,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
         oppositionRunId: 'opp-inflight',
       },
     })
-    flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
@@ -222,7 +212,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       ownerId: service.user.id,
       isPro: true,
     })
-    flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -254,7 +243,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
         oppositionPersistedAt: new Date(),
       },
     })
-    flagOn()
     stubDiscoveryDispatch()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
@@ -282,7 +270,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE])
-    flagOn()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'run-no-self' } as never)
@@ -300,32 +287,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     )
   })
 
-  it('403s when know-your-opponent is off', async () => {
-    const campaign = await seedCampaign({
-      slug: SLUG,
-      ownerId: service.user.id,
-      isPro: true,
-    })
-    await seedOpponents(campaign.id, [JANE])
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
-    const dispatchRun = vi.spyOn(
-      service.app.get(ExperimentRunsService),
-      'dispatchRun',
-    )
-
-    const result = await service.client.post(
-      COLLECT_PATH,
-      {},
-      { headers: { [ORG_SLUG_HEADER]: SLUG } },
-    )
-
-    expect(result.status).toBe(403)
-    expect(dispatchRun).not.toHaveBeenCalled()
-  })
-
   it('403s when the campaign is not Pro', async () => {
     const campaign = await seedCampaign({
       slug: SLUG,
@@ -333,7 +294,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: false,
     })
     await seedOpponents(campaign.id, [JANE])
-    const isFeatureEnabled = flagOn()
 
     const result = await service.client.post(
       COLLECT_PATH,
@@ -342,8 +302,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     )
 
     expect(result.status).toBe(403)
-    // The Pro gate runs before the flag is read.
-    expect(isFeatureEnabled).not.toHaveBeenCalled()
   })
 
   it('404s for a user who does not own the organization', async () => {
@@ -356,7 +314,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
       isPro: true,
     })
     await seedOpponents(campaign.id, [JANE])
-    const isFeatureEnabled = flagOn()
 
     const result = await service.client.post(
       COLLECT_PATH,
@@ -365,7 +322,6 @@ describe('POST /v1/campaigns/mine/race-opponent/collect', () => {
     )
 
     expect(result.status).toBe(404)
-    expect(isFeatureEnabled).not.toHaveBeenCalled()
   })
 })
 
@@ -426,7 +382,6 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
         },
       ],
     })
-    flagOn()
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -481,7 +436,6 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
         },
       ],
     })
-    flagOn()
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -502,7 +456,6 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
 
   it('returns a clean empty response when nothing has been collected', async () => {
     await seedCampaign({ slug: SLUG, ownerId: service.user.id, isPro: true })
-    flagOn()
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -539,7 +492,6 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
         oppositionRunId: 'opp-running',
       },
     })
-    flagOn()
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -568,7 +520,6 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
     await service.prisma.campaignStrategy.create({
       data: { campaignId: campaign.id, raceId: RACE_HASH },
     })
-    flagOn()
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -599,7 +550,6 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
         oppositionRunId: 'opp-failed',
       },
     })
-    flagOn()
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -640,7 +590,6 @@ describe('GET /v1/campaigns/mine/race-opponent', () => {
         oppositionRunId: 'opp-running-2',
       },
     })
-    flagOn()
 
     const result = await service.client.get(GET_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -918,7 +867,6 @@ describe('race_opponent_summary dispatch / persist / read', () => {
       isPro: true,
     })
     campaignId = campaign.id
-    flagOn()
   })
 
   const loadCampaign = () =>
@@ -2343,7 +2291,6 @@ describe('race_opponent_actions persist / read', () => {
       isPro: true,
     })
     campaignId = campaign.id
-    flagOn()
   })
 
   const seedActionsRun = (

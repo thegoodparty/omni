@@ -1,5 +1,4 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ExperimentRunStatus } from '@/generated/prisma'
 import { describe, expect, it, vi } from 'vitest'
@@ -26,11 +25,6 @@ const seedCampaign = (opts: { isPro: boolean }) =>
       }),
     )
 
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
-
 const post = (body: unknown) =>
   service.client.post(MANUAL_PATH, body, {
     headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -39,7 +33,6 @@ const post = (body: unknown) =>
 describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
   it('dispatches race_opponent_collection with names + URL hints in params', async () => {
     await seedCampaign({ isPro: true })
-    flagOn()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'run-manual' } as never)
@@ -79,7 +72,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
 
   it('persists manual opponents so a later read resolves the same roster', async () => {
     const campaign = await seedCampaign({ isPro: true })
-    flagOn()
     vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -118,7 +110,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
 
   it('round-trips persisted URL hints into a later collect() re-dispatch', async () => {
     await seedCampaign({ isPro: true })
-    flagOn()
     const dispatchRun = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue({ runId: 'run-manual' } as never)
@@ -173,7 +164,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
         partyAffiliation: 'Democratic',
       },
     })
-    flagOn()
     vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -200,7 +190,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
         status: ExperimentRunStatus.RUNNING,
       },
     })
-    flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -215,26 +204,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
 
   it('403s when the campaign is not Pro', async () => {
     await seedCampaign({ isPro: false })
-    const isFeatureEnabled = flagOn()
-    const dispatchRun = vi.spyOn(
-      service.app.get(ExperimentRunsService),
-      'dispatchRun',
-    )
-
-    const result = await post({ opponents: [{ name: JANE }] })
-
-    expect(result.status).toBe(403)
-    // The Pro gate runs before the flag is read.
-    expect(isFeatureEnabled).not.toHaveBeenCalled()
-    expect(dispatchRun).not.toHaveBeenCalled()
-  })
-
-  it('403s when know-your-opponent is off', async () => {
-    await seedCampaign({ isPro: true })
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -248,7 +217,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
 
   it('400s an empty opponents list', async () => {
     await seedCampaign({ isPro: true })
-    flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -262,7 +230,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
 
   it('400s a blank name', async () => {
     await seedCampaign({ isPro: true })
-    flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',
@@ -276,7 +243,6 @@ describe('POST /v1/campaigns/mine/race-opponent/opponents/manual', () => {
 
   it('400s a non-https URL', async () => {
     await seedCampaign({ isPro: true })
-    flagOn()
     const dispatchRun = vi.spyOn(
       service.app.get(ExperimentRunsService),
       'dispatchRun',

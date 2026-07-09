@@ -95,7 +95,7 @@ export class RaceOpponentController {
   // collect drives the relaxed race_opponent_collection -> race_opponent_summary
   // path the live /opponent page renders. That path sources the candidate's own
   // platform from Website.content.about (buildCandidatePlatform), not the strict
-  // self_research engine, so it is gated on Pro+flag only (assertAccess inside
+  // self_research engine, so it is gated on Pro only (assertAccess inside
   // collect) — NOT on a completed RaceOpponentResearch(kind=self) row, which the
   // relaxed page never produces. The strict engine's own endpoints
   // (opponents/research, contrasts/*) keep the self-research gate.
@@ -112,7 +112,7 @@ export class RaceOpponentController {
   // opponents by hand (Lovable add-opponents screen) and runs collection on
   // them. Reconciles the names into the same store collect() reads, then
   // dispatches race_opponent_collection through the shared dispatch path. Gated
-  // on Pro+flag inside collectManual (same assertAccess as the rest of the
+  // on Pro inside collectManual (same assertAccess as the rest of the
   // module); unlike collect it does NOT require a completed self-research pass,
   // since manual entry is the candidate's own confirmed input.
   @Post('opponents/manual')
@@ -178,7 +178,7 @@ export class RaceOpponentController {
 
   // Dispatch requires candidate confirmation of the match: opponentName must be
   // supplied in the body. The service never auto-dispatches on an unconfirmed
-  // namesake. Gated on Pro+flag AND a completed self-research pass.
+  // namesake. Gated on Pro AND a completed self-research pass.
   @Post('opponents/research')
   @ResponseSchema(StartOpponentResearchResponseSchema)
   @UseCampaign({ include: { user: true } })
@@ -214,7 +214,7 @@ export class RaceOpponentController {
   }
 
   // Pair opponent findings with the candidate's matching positions into
-  // contrasts. Same Pro+flag+self-research gate as the rest of the module: the
+  // contrasts. Same Pro+self-research gate as the rest of the module: the
   // contrast engine only runs once the candidate's own pass is done.
   @Post('contrasts/generate')
   @ResponseSchema(GenerateContrastsResponseSchema)
@@ -242,7 +242,7 @@ export class RaceOpponentController {
 
   // Route an approved contrast into Campaign Story or a draft texting Outreach.
   // DRAFT only — the route never sends; the candidate's own later action does.
-  // Same Pro+flag+self-research gate and owner scope as the rest of the module.
+  // Same Pro+self-research gate and owner scope as the rest of the module.
   @Post('contrasts/:id/route')
   @ResponseSchema(RouteContrastResponseSchema)
   @UseCampaign({ include: { user: true } })
@@ -258,7 +258,7 @@ export class RaceOpponentController {
   }
 
   // Candidate edits a contrast's text before routing it. Owner-scoped and gated
-  // identically to the route path (Pro+flag+self-research). Only cleared or
+  // identically to the route path (Pro+self-research). Only cleared or
   // approved contrasts are editable; the service increments editCount and fires
   // Win - Contrast Edited. Nothing sends — this only updates draft text.
   @Patch('contrasts/:id')
