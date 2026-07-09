@@ -25,12 +25,22 @@ export interface BriefingItemConstituentSentiment {
   detail?: string | null
 }
 
+export interface BriefingItemTalkingPoint {
+  text: string
+  why: string
+}
+
 export interface BriefingItemDisplay {
   summary: string
   budget_impact?: BriefingItemBudgetImpact | null
   constituent_sentiment?: BriefingItemConstituentSentiment | null
   recent_news?: BriefingItemNews[] | null
-  talking_points?: string[] | null
+  /**
+   * Legacy artifacts carry a bare string; all new generations carry the
+   * structured `{text, why}` shape. The renderer draws `text` only — the
+   * PDF has no room for the secondary rationale line gp-webapp shows.
+   */
+  talking_points?: (string | BriefingItemTalkingPoint)[] | null
 }
 
 export interface BriefingItem {

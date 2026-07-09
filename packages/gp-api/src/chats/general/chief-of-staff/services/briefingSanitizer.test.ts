@@ -143,4 +143,34 @@ describe('sanitizeBriefingArtifact', () => {
       url: 'https://example.gov/agenda',
     })
   })
+
+  it('folds {text, why} talking points into a single string instead of dropping them', () => {
+    // All new generations emit talking_points as {text, why} objects. The
+    // sanitizer must fold both fields into the string[] the chat context
+    // expects — filtering on typeof === 'string' would silently erase every
+    // talking point on any briefing generated after the shape shipped.
+    const withStructuredPoints = {
+      ...fullArtifact,
+      items: [
+        {
+          ...fullArtifact.items[0],
+          display: {
+            ...fullArtifact.items[0]?.display,
+            talking_points: [
+              {
+                text: 'Ask staff to confirm the fee tier.',
+                why: 'Avoids an ambiguous vote record.',
+              },
+              'A legacy bare-string point.',
+            ],
+          },
+        },
+      ],
+    }
+    const out = sanitizeBriefingArtifact(withStructuredPoints)
+    expect(out?.items[0]?.talkingPoints).toEqual([
+      'Ask staff to confirm the fee tier. (Why: Avoids an ambiguous vote record.)',
+      'A legacy bare-string point.',
+    ])
+  })
 })

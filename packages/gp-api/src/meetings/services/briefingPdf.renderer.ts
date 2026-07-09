@@ -622,7 +622,7 @@ function drawItemBody(
   if (d.talking_points && d.talking_points.length > 0) {
     drawH2(doc, 'Talking points')
     for (const point of d.talking_points) {
-      drawBullet(doc, point)
+      drawBullet(doc, typeof point === 'string' ? point : point.text)
     }
   }
 }

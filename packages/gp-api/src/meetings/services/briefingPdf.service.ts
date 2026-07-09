@@ -57,7 +57,15 @@ const briefingItemDisplaySchema = z.object({
     .nullable()
     .optional(),
   recent_news: z.array(briefingItemNewsSchema).nullable().optional(),
-  talking_points: z.array(z.string()).nullable().optional(),
+  // Legacy artifacts carry a bare string; all new generations carry the
+  // structured {text, why} shape — accept both so old S3 artifacts keep
+  // validating unchanged.
+  talking_points: z
+    .array(
+      z.union([z.string(), z.object({ text: z.string(), why: z.string() })]),
+    )
+    .nullable()
+    .optional(),
 })
 
 const briefingItemSchema = z.object({

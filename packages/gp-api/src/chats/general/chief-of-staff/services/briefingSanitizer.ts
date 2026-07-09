@@ -78,9 +78,23 @@ const sanitizeNews = (raw: Json): SanitizedBriefingNews | null => {
   }
 }
 
+// Legacy artifacts carry a bare string; all new generations carry the
+// structured {text, why} shape. Fold both into a single string here so the
+// return type (and every downstream consumer) stays `string[]` — dropping
+// object entries instead would silently erase every talking point on any
+// briefing generated after the {text, why} shape shipped.
+const sanitizeTalkingPoint = (raw: Json): string | null => {
+  if (typeof raw === 'string') return raw
+  if (!isRecord(raw)) return null
+  const text = str(raw['text'])
+  const why = str(raw['why'])
+  if (!text) return null
+  return why ? `${text} (Why: ${why})` : text
+}
+
 const sanitizeTalkingPoints = (raw: Json | undefined): string[] => {
   if (!Array.isArray(raw)) return []
-  return raw.filter((p): p is string => typeof p === 'string')
+  return raw.map(sanitizeTalkingPoint).filter((p): p is string => p !== null)
 }
 
 const sanitizeDisplay = (
