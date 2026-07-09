@@ -16,6 +16,7 @@ export type PersistedSegment = {
   kind: ChatMessageSegmentKind
   text?: string | null
   toolName?: string | null
+  payload?: Prisma.InputJsonValue | null
 }
 
 export type ChatMessageWithSegments = ChatMessage & {
@@ -127,6 +128,7 @@ const appendMessageIdempotent = async (
                   kind: s.kind,
                   text: s.text ?? null,
                   toolName: s.toolName ?? null,
+                  ...(s.payload != null && { payload: s.payload }),
                 })),
               },
             }

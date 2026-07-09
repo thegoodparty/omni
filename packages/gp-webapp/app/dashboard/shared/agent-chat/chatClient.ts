@@ -30,6 +30,7 @@ export type ChatScope =
   | 'briefing_annotation'
   | 'chief_of_staff'
   | 'campaign_assistant'
+  | 'ordinance_flow'
 
 export type ChatMessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -39,6 +40,9 @@ export interface ChatMessageSegment {
   kind: ChatMessageSegmentKind
   text?: string | null
   toolName?: string | null
+  // Structured tool-call args for widget tool calls (e.g. ask_clarify_question),
+  // so the widget replays from the transcript on reload.
+  payload?: unknown
 }
 
 export interface ChatMessageDto {

@@ -10,6 +10,7 @@ const baseCtx = (
 ): OrdinanceFlowContext => ({
   conversationId: 'conv-1',
   ordinanceId: 'ord-1',
+  electedOfficeId: 'office-1',
   step: 'clarify',
   organizationSlug: 'org-1',
   officeTitle: 'City Council Member',
