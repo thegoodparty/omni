@@ -35,7 +35,10 @@ import { dirname, join, relative } from 'node:path'
 // account info, term-date editor, etc.) are interactive — they use React state,
 // event handlers, and hooks — so they can't be server components. Net +3 after
 // deleting the retired inline-edit sections.
-const BASELINE = 527
+// 2026-07-08: 527 -> 528 for useOutreachComposeFlow — the in-place outreach
+// launcher (tracker/manager task cards) must be a client component: it holds
+// the open-flow modal state and mounts the interactive TaskFlow wizard.
+const BASELINE = 528
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

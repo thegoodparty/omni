@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { formatTaskDate } from './CampaignStrategyTaskRow'
+import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, screen } from '@testing-library/react'
+import { render } from 'helpers/test-utils/render'
+import CampaignStrategyTaskRow, {
+  formatTaskDate,
+} from './CampaignStrategyTaskRow'
 
 describe('formatTaskDate', () => {
   // The catalog fallback passes date-only strings; the tracker passes the API's
@@ -15,5 +19,72 @@ describe('formatTaskDate', () => {
 
   it('returns null when there is no date', () => {
     expect(formatTaskDate(null)).toBeNull()
+  })
+})
+
+describe('start outreach CTA', () => {
+  const task = {
+    id: 't1',
+    title: 'Send a text blast',
+    description: 'Reach voters by text',
+    channel: 'text',
+    date: '2026-02-03T00:00:00.000Z',
+    param: null,
+    href: null,
+    hrefLabel: null,
+    priorityTier: 'P2',
+    proRequired: false,
+    status: 'live',
+    unlocksAfter: null,
+    isNext: false,
+    completed: false,
+  } as const
+
+  it('opens the outreach flow in place with the channel and due date', () => {
+    const onStartOutreach = vi.fn()
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={task}
+          index={1}
+          onStartOutreach={onStartOutreach}
+        />
+      </ul>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /start outreach/i }))
+    expect(onStartOutreach).toHaveBeenCalledWith(
+      'text',
+      '2026-02-03T00:00:00.000Z',
+    )
+  })
+
+  it('renders no outreach CTA for a completed task', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{ ...task, completed: true }}
+          index={1}
+          onStartOutreach={vi.fn()}
+        />
+      </ul>,
+    )
+    expect(
+      screen.queryByRole('button', { name: /start outreach/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders no outreach CTA for non-compose channels', () => {
+    render(
+      <ul>
+        <CampaignStrategyTaskRow
+          task={{ ...task, channel: 'doorKnocking' }}
+          index={1}
+          onStartOutreach={vi.fn()}
+        />
+      </ul>,
+    )
+    expect(
+      screen.queryByRole('button', { name: /start outreach/i }),
+    ).not.toBeInTheDocument()
   })
 })
