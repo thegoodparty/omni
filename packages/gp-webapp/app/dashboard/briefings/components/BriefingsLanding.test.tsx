@@ -59,4 +59,18 @@ describe('BriefingsLanding', () => {
     expect(screen.getByText('Past')).toBeInTheDocument()
     expect(screen.getByText('Old Planning Meeting')).toBeInTheDocument()
   })
+
+  it('renders AwaitingAgendaRow for a past meeting with awaiting_agenda status', () => {
+    const past = summary({
+      id: 'past-awaiting',
+      meetingName: 'Old Awaiting Meeting',
+      scheduledAt: daysFromNow(-5),
+      status: 'awaiting_agenda',
+    })
+
+    render(<BriefingsLanding summaries={[past]} />)
+
+    expect(screen.getByText('Past')).toBeInTheDocument()
+    expect(screen.getByText('Old Awaiting Meeting')).toBeInTheDocument()
+  })
 })
