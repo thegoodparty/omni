@@ -44,7 +44,10 @@ cards the candidate checks off. Feature overview + backend:
   the tracker, story-off gets the legacy plan content (incl. community events)
   with no tracker. There is no client-catalog fallback. When the fetch settles
   with no rows the section shows a "setting up your tracker" state (bootstrap in
-  flight), since a rendered story-cohort campaign always bootstraps.
+  flight). This section only renders once the story is complete: `CampaignPlanRouter`
+  gates the plan/tracker on `useCampaignStoryComplete`, so an incomplete-story
+  campaign is routed to the story gate rather than here — a rendered tracker means
+  the story is complete and the bootstrap will fire (or has).
 
 ## Gotchas
 
@@ -59,11 +62,12 @@ cards the candidate checks off. Feature overview + backend:
   both shapes and anchored to local midnight.
 - `useTrackerTasks` can't tell "generation failed/never-dispatched" from "still
   generating" (no backend signal yet); the fast-poll budget caps the cost, but
-  the "setting up" spinner can persist indefinitely for a campaign that never
-  populates — most commonly a story-cohort campaign (flag on) whose
-  `campaign_story` row was never written, so the story-gated bootstrap + static
-  materialization never run. A backend generation-status signal (+ a UI timeout)
-  is the real fix and remains a follow-up.
+  the "setting up" spinner can still persist for a campaign that has a complete
+  story yet whose dispatch genuinely no-ops (e.g. missing raceId/clerkId/name).
+  The common flag-on-but-no-story case is now handled upstream — `CampaignPlanRouter`
+  gates on `useCampaignStoryComplete`, so an incomplete-story campaign never
+  reaches this section. A backend generation-status signal (+ a UI timeout) for
+  the residual case is the real fix and remains a follow-up.
 - **There is no `loading.tsx` in the `campaign-plan/` route segment** (removed on
   purpose). It rendered a bare full-screen `RouteLoading` with no dashboard
   shell, so every tab click flashed the whole page — including the sidebar — into

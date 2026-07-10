@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { User } from 'helpers/types'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
+import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import DashboardLayout from '../../shared/DashboardLayout'
 import CampaignPlanPage from './CampaignPlanPage'
 import CampaignPlanStoryGate from './CampaignPlanStoryGate'
@@ -33,11 +34,14 @@ const Spinner = (): React.JSX.Element => (
   </DashboardLayout>
 )
 
-// Decides what the Campaign Plan tab shows. A generated plan always wins (the
-// campaign-story flag is irrelevant once a plan exists). Otherwise, for
-// campaign-story users we gate on story completion; everyone else keeps the
-// legacy "no plan -> back to dashboard" behavior. Flag is read client-side
-// (Amplitude is browser-only), matching the FeatureFlagGuard pattern.
+// Decides what the Campaign Plan tab shows. For the campaign-story cohort the
+// plan/tracker shows only once the story is complete (it feeds both plan and
+// tracker/event generation); an incomplete story — even one that already
+// generated a plan before the flag was turned on — is routed to the story gate
+// rather than a tracker that can never populate. Non-story cohorts keep the
+// legacy behavior: a generated plan wins, otherwise "no plan -> back to
+// dashboard". Flag is read client-side (Amplitude is browser-only), matching
+// the FeatureFlagGuard pattern.
 const CampaignPlanRouter = ({
   initialUser,
   planExists,
@@ -55,6 +59,10 @@ const CampaignPlanRouter = ({
   const { ready: strategyReady, enabled: strategyEnabled } =
     useCampaignStrategyFlag()
   const ready = storyReady && strategyReady
+  // The plan/tracker is only meaningful for the story cohort once the story is
+  // complete; gate on it (fetched only for that cohort via `enabled`).
+  const { isComplete: storyComplete, isLoading: storyLoading } =
+    useCampaignStoryComplete(storyEnabled)
   // Initialized false (not from sessionStorage) so the client's first render
   // matches the server's — then rehydrated from sessionStorage in an effect to
   // avoid a hydration mismatch.
@@ -85,15 +93,16 @@ const CampaignPlanRouter = ({
     setGenerateRequested(true)
   }
 
-  // Show the plan when it already exists, when a story-flow user has asked to
-  // generate it, or for the strategy-only cohort (whose plan generates on the
-  // page, as the retired success page did). The generate request only counts
-  // for story users — it's set by the story gate — so a stale sessionStorage
-  // flag can't let a flag-off user bypass the redirect below.
-  const showPlan =
-    planExists ||
-    (storyEnabled && generateRequested) ||
-    (strategyEnabled && !storyEnabled)
+  // Story cohort: show the plan/tracker only once the story is complete — then
+  // either an existing plan or a fresh generate request lands them on it, and an
+  // incomplete story falls through to the gate below. Non-story cohorts are
+  // unchanged: a generated plan wins, and the strategy-only cohort generates on
+  // the page (as the retired success page did). The generate request only counts
+  // for story users (it's set by the gate), so a stale sessionStorage flag can't
+  // let a flag-off user bypass the redirect below.
+  const showPlan = storyEnabled
+    ? storyComplete && (planExists || generateRequested)
+    : planExists || (strategyEnabled && !storyEnabled)
 
   // Only bounce when no flow applies: no plan, no story flow, no strategy flow.
   const redirectToDashboard = ready && !showPlan && !storyEnabled
@@ -114,6 +123,11 @@ const CampaignPlanRouter = ({
   }
 
   if (!ready) return <Spinner />
+
+  // Story cohort: wait until the story/website the completeness check needs have
+  // resolved before choosing gate vs plan, so a complete-story user with a plan
+  // doesn't briefly flash the gate before the plan renders.
+  if (storyEnabled && storyLoading) return <Spinner />
 
   return (
     <DashboardLayout>
