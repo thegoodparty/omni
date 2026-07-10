@@ -40,14 +40,46 @@ function deriveDomain(url: string): string {
   }
 }
 
-function FaviconImg({ domain }: { domain: string }): React.JSX.Element {
+function sourceInitial(organization: string): string {
+  return (organization.trim().charAt(0) || '?').toUpperCase()
+}
+
+// Letter fallback shown when there's no website favicon: an internal/no-URL
+// source, or a favicon that fails to load. Mirrors the source-pill badge used
+// elsewhere (Community Issues, Know Your Opponent).
+function SourceInitialBadge({
+  initial,
+}: {
+  initial: string
+}): React.JSX.Element {
+  return (
+    <span
+      aria-hidden="true"
+      className="flex size-full items-center justify-center rounded-sm bg-primary/15 text-[0.625rem] font-bold leading-none text-primary"
+    >
+      {initial}
+    </span>
+  )
+}
+
+function FaviconImg({
+  domain,
+  initial,
+}: {
+  domain: string
+  initial: string
+}): React.JSX.Element {
   // Google's public favicon service — reliable size + format for any domain.
+  // Falls back to the letter badge if the request fails (network/CSP/no icon).
+  const [failed, setFailed] = React.useState(false)
+  if (failed) return <SourceInitialBadge initial={initial} />
   return (
     <img
       src={`https://www.google.com/s2/favicons?domain=${domain}&sz=64`}
       alt=""
       aria-hidden="true"
       className="size-full object-contain"
+      onError={() => setFailed(true)}
     />
   )
 }
@@ -76,7 +108,12 @@ function resolveSource({
     resolvedChipLabel:
       chipLabel ?? (isExternal ? domain : `${organization} internal data`),
     resolvedLogo:
-      organizationLogo ?? (isExternal ? <FaviconImg domain={domain} /> : null),
+      organizationLogo ??
+      (isExternal ? (
+        <FaviconImg domain={domain} initial={sourceInitial(organization)} />
+      ) : (
+        <SourceInitialBadge initial={sourceInitial(organization)} />
+      )),
   }
 }
 
