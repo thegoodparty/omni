@@ -319,7 +319,16 @@ export default function OrdinanceFlowChat({
             })),
           )
         } catch {
-          // Swallow: optimistic + transcript keep the flow working.
+          // Persist failed. Optimistic `answers` already holds the highlight
+          // for the rest of this session, and the answer still rides the
+          // transcript for the agent; mirror it into recordedAnswers so the
+          // in-session state stays internally consistent. The DB was not
+          // written, so a reload will lose the highlight (nothing to restore).
+          setRecordedAnswers((prev) =>
+            prev.some((a) => a.questionId === questionId)
+              ? prev
+              : [...prev, { questionId, question, answer }],
+          )
         }
         await send(answer, { hidden: true })
       })()

@@ -73,6 +73,7 @@ export class OrdinanceFlowController {
 
   @Post(':slug/clarify-answers')
   @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
   @ResponseSchema(OrdinanceSchema)
   async saveClarifyAnswer(
     @ReqElectedOffice() electedOffice: ElectedOffice,
