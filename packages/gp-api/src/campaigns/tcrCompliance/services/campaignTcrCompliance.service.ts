@@ -306,13 +306,21 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // claims (scoped to this tick's exact timestamp so a concurrent claim
     // isn't disturbed) so the next tick retries instead of skipping a day.
     if (posted === undefined) {
-      await this.model.updateMany({
-        where: {
-          id: { in: claimed.map((record) => record.id) },
-          stuckSubmissionAlertedAt: now,
-        },
-        data: { stuckSubmissionAlertedAt: null },
-      })
+      try {
+        await this.model.updateMany({
+          where: {
+            id: { in: claimed.map((record) => record.id) },
+            stuckSubmissionAlertedAt: now,
+          },
+          data: { stuckSubmissionAlertedAt: null },
+        })
+      } catch (rollbackErr) {
+        this.logger.error(
+          { rollbackErr },
+          '[TCR Compliance] Failed to release stuck-submission claims; ' +
+            'records may skip a re-nag cycle',
+        )
+      }
     }
   }
 
