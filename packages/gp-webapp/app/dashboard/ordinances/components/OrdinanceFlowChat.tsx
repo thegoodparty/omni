@@ -32,6 +32,13 @@ import {
 } from '../data/steps'
 import ClarifyQuestionWidget from './ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
+import {
+  StepWidgetBlocks,
+  isStepWidgetTool,
+  parseStepWidget,
+  parseStepWidgets,
+  type StepWidgetInstance,
+} from './stepWidgets'
 
 const CLARIFY_TOOL = 'ask_clarify_question'
 const OFFER_TOOL = 'offer_next_step'
@@ -128,6 +135,7 @@ export default function OrdinanceFlowChat({
   const [liveOffer, setLiveOffer] = useState<OrdinanceNextStepOffer | null>(
     null,
   )
+  const [liveWidgets, setLiveWidgets] = useState<StepWidgetInstance[]>([])
   const [composer, setComposer] = useState('')
   const [sending, setSending] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
@@ -160,6 +168,7 @@ export default function OrdinanceFlowChat({
       setLiveSegments([])
       setLiveClarify(null)
       setLiveOffer(null)
+      setLiveWidgets([])
       if (!opts?.hidden) {
         setComposer('')
         const optimistic: ChatMessageDto = {
@@ -202,6 +211,9 @@ export default function OrdinanceFlowChat({
               if (parsed) setLiveClarify(parsed)
             } else if (event.toolName === OFFER_TOOL) {
               setLiveOffer(parseOffer(event.args) ?? {})
+            } else if (isStepWidgetTool(event.toolName)) {
+              const widget = parseStepWidget(event.toolName, event.args)
+              if (widget) setLiveWidgets((prev) => [...prev, widget])
             } else if (TOOL_LABELS[event.toolName]) {
               segments.push({ kind: 'tool', toolName: event.toolName })
               setLiveSegments([...segments])
@@ -228,6 +240,7 @@ export default function OrdinanceFlowChat({
         setLiveSegments([])
         setLiveClarify(null)
         setLiveOffer(null)
+        setLiveWidgets([])
         setSending(false)
       }
     },
@@ -361,10 +374,15 @@ export default function OrdinanceFlowChat({
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
+  const showWidgets = liveWidgets.length > 0 && revealDone
   // Thinking shimmer only for the initial compose gap, before any text or
   // widget has appeared for this turn.
   const working =
-    sending && visibleSegments.length === 0 && !liveClarify && !liveOffer
+    sending &&
+    visibleSegments.length === 0 &&
+    !liveClarify &&
+    !liveOffer &&
+    liveWidgets.length === 0
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -408,7 +426,10 @@ export default function OrdinanceFlowChat({
             ),
           )}
 
-          {(visibleSegments.length > 0 || showClarify || working) && (
+          {(visibleSegments.length > 0 ||
+            showClarify ||
+            showWidgets ||
+            working) && (
             <AssistantRow>
               {visibleSegments.length > 0 ? (
                 <InlineSegments
@@ -417,6 +438,7 @@ export default function OrdinanceFlowChat({
                   running
                 />
               ) : null}
+              {showWidgets ? <StepWidgetBlocks widgets={liveWidgets} /> : null}
               {showClarify && liveClarify ? (
                 <ClarifyQuestionWidget
                   question={liveClarify}
@@ -517,6 +539,7 @@ function AssistantMessage({
 }): React.JSX.Element {
   const segments = message.segments ?? []
   const clarify = clarifyFromSegments(segments)
+  const stepWidgets = parseStepWidgets(segments)
   // Same interleaved model as the live turn: text and tool pills in stream
   // order, so a reloaded turn reads identically to how it streamed.
   const rendered: LiveSegment[] =
@@ -541,6 +564,7 @@ function AssistantMessage({
           segments={rendered}
           toolLabel={(name) => TOOL_LABELS[name] ?? null}
         />
+        <StepWidgetBlocks widgets={stepWidgets} />
         {clarify ? (
           <ClarifyQuestionWidget
             question={clarify}

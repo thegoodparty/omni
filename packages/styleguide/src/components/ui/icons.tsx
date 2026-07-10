@@ -101,4 +101,6 @@ export {
   RotateCw as RefreshIcon,
   TrendingUp as TrendingUpIcon,
   OctagonAlert as OctagonAlertIcon,
+  ShieldCheck as ShieldCheckIcon,
+  History as HistoryIcon,
 } from 'lucide-react'
