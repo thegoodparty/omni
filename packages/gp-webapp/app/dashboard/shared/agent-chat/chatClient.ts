@@ -87,6 +87,9 @@ export type ChatErrorCode =
  */
 export type ChatStreamEvent =
   | { type: 'text'; delta: string }
+  // The model has started writing a tool call's arguments (before tool_call).
+  // Transient — lets the UI show a per-tool "generating" indicator.
+  | { type: 'tool_input_start'; toolName: string }
   | { type: 'tool_call'; toolName: string; args?: unknown }
   | { type: 'tool_result'; toolName: string; result?: unknown }
   | { type: 'done'; assistantMessageId?: string }
@@ -143,6 +146,7 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
   const type = (value as { type?: unknown }).type
   return (
     type === 'text' ||
+    type === 'tool_input_start' ||
     type === 'tool_call' ||
     type === 'tool_result' ||
     type === 'done' ||

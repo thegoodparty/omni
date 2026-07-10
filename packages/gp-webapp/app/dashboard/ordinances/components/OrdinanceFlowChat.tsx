@@ -52,6 +52,14 @@ const TOOL_LABELS: Record<string, string> = {
   get_current_code: 'Checking the current code',
 }
 
+// While the model is still writing a tool call's arguments (the tool_input_start
+// signal, before the call completes), show what it is working on instead of a
+// generic "Thinking...". Covers the wait while the clarify question generates.
+const GENERATING_LABELS: Record<string, string> = {
+  [CLARIFY_TOOL]: 'Writing your question...',
+  [OFFER_TOOL]: 'Preparing next steps...',
+}
+
 // Hidden opener sent once for a brand-new conversation so the agent takes the
 // first turn and asks its opening clarifying question without the user having to
 // type. Filtered out of the transcript on both live send and reload.
@@ -128,6 +136,9 @@ export default function OrdinanceFlowChat({
   const [liveOffer, setLiveOffer] = useState<OrdinanceNextStepOffer | null>(
     null,
   )
+  // The tool whose arguments the model is currently writing, if any, so the
+  // working shimmer can name it (e.g. "Writing your question...").
+  const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [sending, setSending] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
@@ -160,6 +171,7 @@ export default function OrdinanceFlowChat({
       setLiveSegments([])
       setLiveClarify(null)
       setLiveOffer(null)
+      setGeneratingTool(null)
       if (!opts?.hidden) {
         setComposer('')
         const optimistic: ChatMessageDto = {
@@ -196,7 +208,10 @@ export default function OrdinanceFlowChat({
         })) {
           if (event.type === 'text') {
             pushText(event.delta)
+          } else if (event.type === 'tool_input_start') {
+            setGeneratingTool(event.toolName)
           } else if (event.type === 'tool_call') {
+            setGeneratingTool(null)
             if (event.toolName === CLARIFY_TOOL) {
               const parsed = parseClarify(event.args)
               if (parsed) setLiveClarify(parsed)
@@ -228,6 +243,7 @@ export default function OrdinanceFlowChat({
         setLiveSegments([])
         setLiveClarify(null)
         setLiveOffer(null)
+        setGeneratingTool(null)
         setSending(false)
       }
     },
@@ -368,6 +384,10 @@ export default function OrdinanceFlowChat({
   // reveal-done show* flags so it hands off exactly when the widget/button
   // actually renders, not the instant the tool event arrives.
   const working = sending && !showClarify && !showOffer
+  // Name what the model is doing when we know (a tool's args are streaming in);
+  // otherwise the generic wait label.
+  const workingLabel =
+    (generatingTool && GENERATING_LABELS[generatingTool]) || 'Thinking...'
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -429,7 +449,7 @@ export default function OrdinanceFlowChat({
               ) : null}
               {working ? (
                 <div className="w-fit self-start rounded-2xl bg-muted px-3 py-2 text-sm">
-                  <span className="text-shimmer-muted">Thinking...</span>
+                  <span className="text-shimmer-muted">{workingLabel}</span>
                 </div>
               ) : null}
             </AssistantRow>
