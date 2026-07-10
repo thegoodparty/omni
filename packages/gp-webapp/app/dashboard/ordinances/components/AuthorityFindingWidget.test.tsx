@@ -72,6 +72,9 @@ describe('AuthorityFindingWidget', () => {
   it('omits the confirmation line when the payload has none', () => {
     const { confirmation: _dropped, ...withoutConfirmation } = passFinding
     render(<AuthorityFindingWidget finding={withoutConfirmation} />)
+    expect(
+      screen.getByText('Pass. The council has authority to act.'),
+    ).toBeVisible()
     expect(screen.queryByText(/Green light/)).not.toBeInTheDocument()
   })
 })

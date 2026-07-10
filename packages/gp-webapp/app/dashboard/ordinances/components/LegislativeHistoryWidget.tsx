@@ -50,7 +50,7 @@ export default function LegislativeHistoryWidget({
                 {entry.summary}
               </p>
               {entry.minutesExcerpt ? (
-                <blockquote className="rounded-md border-l-2 border-border bg-muted/40 px-3 py-2 text-sm italic leading-6 text-foreground">
+                <blockquote className="break-words rounded-md border-l-2 border-border bg-muted/40 px-3 py-2 text-sm italic leading-6 text-foreground">
                   &ldquo;{entry.minutesExcerpt}&rdquo;
                   {entry.speaker ? (
                     <footer className="mt-1 text-xs not-italic text-muted-foreground">

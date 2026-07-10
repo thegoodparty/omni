@@ -16,8 +16,8 @@ const PointsCard = ({
       {title}
     </p>
     <ul className="mt-3 flex flex-col gap-3">
-      {points.map((point) => (
-        <li key={point.title} className="flex items-start gap-3">
+      {points.map((point, i) => (
+        <li key={`${point.title}-${i}`} className="flex items-start gap-3">
           <span className="mt-2.5 h-1.5 w-1.5 rounded-full bg-foreground/50" />
           <div className="flex min-w-0 flex-col">
             <p className="text-sm font-semibold text-card-foreground">

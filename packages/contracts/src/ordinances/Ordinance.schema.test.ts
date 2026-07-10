@@ -60,6 +60,13 @@ describe('OrdinanceAuthorityFindingSchema', () => {
       OrdinanceAuthorityFindingSchema.safeParse(withoutSource).success,
     ).toBe(false)
   })
+
+  it('rejects a finding without a headline', () => {
+    const { headline: _dropped, ...withoutHeadline } = finding
+    expect(
+      OrdinanceAuthorityFindingSchema.safeParse(withoutHeadline).success,
+    ).toBe(false)
+  })
 })
 
 describe('OrdinanceCurrentLawSummarySchema', () => {

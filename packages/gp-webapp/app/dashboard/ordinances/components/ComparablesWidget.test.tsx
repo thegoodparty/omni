@@ -151,6 +151,21 @@ describe('ComparablesWidget', () => {
     expect(screen.queryByText('Outcome.')).not.toBeInTheDocument()
   })
 
+  it('renders the year in the meta line when population is absent', () => {
+    const [first] = presentation.comparables
+    if (!first) throw new Error('fixture requires a comparable')
+    const { population: _dropped, ...withoutPopulation } = first
+    render(
+      <ComparablesWidget
+        presentation={{
+          comparables: [{ ...withoutPopulation, year: 2019 }],
+        }}
+      />,
+    )
+    expect(screen.getByText(/· 2019/)).toBeVisible()
+    expect(screen.queryByText(/pop /)).not.toBeInTheDocument()
+  })
+
   it('renders nothing when there are no comparables and no prose', () => {
     const { container } = render(
       <ComparablesWidget presentation={{ comparables: [] }} />,

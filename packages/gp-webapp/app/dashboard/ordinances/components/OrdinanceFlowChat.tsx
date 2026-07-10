@@ -135,7 +135,12 @@ export default function OrdinanceFlowChat({
   const [liveOffer, setLiveOffer] = useState<OrdinanceNextStepOffer | null>(
     null,
   )
-  const [liveWidgets, setLiveWidgets] = useState<StepWidgetInstance[]>([])
+  // Each live widget records how much turn text preceded its tool call, so it
+  // appears only after that text has typed out — and, unlike a turn-global
+  // revealDone gate, never unmounts when later text in the same turn streams.
+  const [liveWidgets, setLiveWidgets] = useState<
+    Array<{ instance: StepWidgetInstance; appearAfter: number }>
+  >([])
   const [composer, setComposer] = useState('')
   const [sending, setSending] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
@@ -213,7 +218,13 @@ export default function OrdinanceFlowChat({
               setLiveOffer(parseOffer(event.args) ?? {})
             } else if (isStepWidgetTool(event.toolName)) {
               const widget = parseStepWidget(event.toolName, event.args)
-              if (widget) setLiveWidgets((prev) => [...prev, widget])
+              if (widget) {
+                const appearAfter = segmentsTextLength(segments)
+                setLiveWidgets((prev) => [
+                  ...prev,
+                  { instance: widget, appearAfter },
+                ])
+              }
             } else if (TOOL_LABELS[event.toolName]) {
               segments.push({ kind: 'tool', toolName: event.toolName })
               setLiveSegments([...segments])
@@ -374,7 +385,11 @@ export default function OrdinanceFlowChat({
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
-  const showWidgets = liveWidgets.length > 0 && revealDone
+  const revealedTextLength = segmentsTextLength(visibleSegments)
+  const shownWidgets = liveWidgets
+    .filter((w) => revealedTextLength >= w.appearAfter)
+    .map((w) => w.instance)
+  const showWidgets = shownWidgets.length > 0
   // Thinking shimmer only for the initial compose gap, before any text or
   // widget has appeared for this turn.
   const working =
@@ -438,7 +453,7 @@ export default function OrdinanceFlowChat({
                   running
                 />
               ) : null}
-              {showWidgets ? <StepWidgetBlocks widgets={liveWidgets} /> : null}
+              {showWidgets ? <StepWidgetBlocks widgets={shownWidgets} /> : null}
               {showClarify && liveClarify ? (
                 <ClarifyQuestionWidget
                   question={liveClarify}

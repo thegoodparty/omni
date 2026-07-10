@@ -29,11 +29,17 @@ export type StepWidgetInstance =
   | { tool: typeof HISTORY_TOOL; data: OrdinanceLegislativeHistory }
   | { tool: typeof COMPARABLES_TOOL; data: OrdinancePresentComparables }
 
+// Record keyed by the union so tsc forces this map to stay exhaustive when a
+// new widget variant is added.
+const STEP_WIDGET_TOOLS: Record<StepWidgetInstance['tool'], true> = {
+  [AUTHORITY_TOOL]: true,
+  [CURRENT_LAW_TOOL]: true,
+  [HISTORY_TOOL]: true,
+  [COMPARABLES_TOOL]: true,
+}
+
 export const isStepWidgetTool = (toolName: string): boolean =>
-  toolName === AUTHORITY_TOOL ||
-  toolName === CURRENT_LAW_TOOL ||
-  toolName === HISTORY_TOOL ||
-  toolName === COMPARABLES_TOOL
+  toolName in STEP_WIDGET_TOOLS
 
 export const parseStepWidget = (
   toolName: string,
@@ -51,12 +57,18 @@ export const parseStepWidget = (
         : null
     }
     case HISTORY_TOOL: {
+      // Valid but content-less payloads drop like parse failures so they never
+      // occupy an assistant row or suppress the working shimmer.
       const parsed = OrdinanceLegislativeHistorySchema.safeParse(value)
-      return parsed.success ? { tool: HISTORY_TOOL, data: parsed.data } : null
+      return parsed.success && parsed.data.entries.length > 0
+        ? { tool: HISTORY_TOOL, data: parsed.data }
+        : null
     }
     case COMPARABLES_TOOL: {
       const parsed = OrdinancePresentComparablesSchema.safeParse(value)
-      return parsed.success
+      if (!parsed.success) return null
+      const { intro, comparables, takeaway } = parsed.data
+      return comparables.length > 0 || intro || takeaway
         ? { tool: COMPARABLES_TOOL, data: parsed.data }
         : null
     }
