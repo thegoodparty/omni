@@ -111,6 +111,16 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     const parsed = OrdinanceClarifyAnswersSchema.safeParse(
       existing.clarifyAnswers,
     )
+    // A fresh record is null (safeParse fails, [] is the right start). But a
+    // non-null blob that fails to parse is malformed stored data; overwriting
+    // it would silently destroy prior answers, so refuse instead.
+    if (!parsed.success && existing.clarifyAnswers !== null) {
+      this.logger.error(
+        { ordinanceId: existing.id, error: parsed.error },
+        'clarifyAnswers failed schema parse; refusing to overwrite',
+      )
+      throw new Error('clarifyAnswers is malformed; cannot safely append')
+    }
     const answers = parsed.success ? parsed.data : []
     const next = [
       ...answers.filter((a) => a.questionId !== answer.questionId),

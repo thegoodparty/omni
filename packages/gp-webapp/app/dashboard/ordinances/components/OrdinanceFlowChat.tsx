@@ -302,35 +302,37 @@ export default function OrdinanceFlowChat({
       setAnswers((prev) => ({ ...prev, [questionId]: answer }))
       void (async () => {
         // Persist the answer verbatim as the source of truth (keyed by the
-        // widget's own questionId), independent of the agent. Non-fatal on
-        // failure: the answer still rides the transcript for the agent, and
-        // optimistic state shows it this session.
-        try {
-          const updated = await saveClarifyAnswer(slug, {
-            questionId,
-            question,
-            answer,
+        // widget's own questionId), independent of the agent. This and the
+        // agent turn have no data dependency (the agent reads the answer off
+        // the transcript, not the persist result), so fire them together;
+        // persist latency never delays the interactive turn.
+        const persist = saveClarifyAnswer(slug, {
+          questionId,
+          question,
+          answer,
+        })
+          .then((updated) => {
+            setRecordedAnswers(
+              (updated.clarifyAnswers ?? []).map((a) => ({
+                questionId: a.questionId,
+                question: a.question,
+                answer: a.answer,
+              })),
+            )
           })
-          setRecordedAnswers(
-            (updated.clarifyAnswers ?? []).map((a) => ({
-              questionId: a.questionId,
-              question: a.question,
-              answer: a.answer,
-            })),
-          )
-        } catch {
-          // Persist failed. Optimistic `answers` already holds the highlight
-          // for the rest of this session, and the answer still rides the
-          // transcript for the agent; mirror it into recordedAnswers so the
-          // in-session state stays internally consistent. The DB was not
-          // written, so a reload will lose the highlight (nothing to restore).
-          setRecordedAnswers((prev) =>
-            prev.some((a) => a.questionId === questionId)
-              ? prev
-              : [...prev, { questionId, question, answer }],
-          )
-        }
-        await send(answer, { hidden: true })
+          .catch(() => {
+            // Persist failed. Optimistic `answers` already holds the highlight
+            // for the rest of this session, and the answer still rides the
+            // transcript for the agent; mirror it into recordedAnswers so the
+            // in-session state stays internally consistent. The DB was not
+            // written, so a reload will lose the highlight (nothing to restore).
+            setRecordedAnswers((prev) =>
+              prev.some((a) => a.questionId === questionId)
+                ? prev
+                : [...prev, { questionId, question, answer }],
+            )
+          })
+        await Promise.all([send(answer, { hidden: true }), persist])
       })()
     },
     [slug, send],
