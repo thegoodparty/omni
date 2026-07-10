@@ -30,6 +30,8 @@ export interface ChatScopeHandler<
   isSensitive: boolean
   // Claude-only model chain for this scope, in fallback order.
   models: string[]
+  // Raises the tool-loop step budget for research-heavy scopes.
+  readonly maxSteps?: number
   resolveConversation: (
     params: ResolveConversationParams,
     userId: number,

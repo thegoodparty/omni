@@ -194,6 +194,7 @@ export class GeneralChatsService {
         tools,
         userMessage: args.userMessage,
         models: handler.models,
+        ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
       })

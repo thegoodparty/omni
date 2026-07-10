@@ -15,6 +15,7 @@ import {
   OrdinanceFlowContextService,
 } from './services/ordinanceFlowContext.service'
 import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
+import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -52,6 +53,7 @@ describe('OrdinanceFlowHandler', () => {
   let store: GeneralChatStoreService
   let context: OrdinanceFlowContextService
   let tools: OrdinanceFlowToolsService
+  let fetchService: OrdinanceFlowFetchService
   let features: { isFeatureEnabled: ReturnType<typeof vi.fn> }
 
   const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
@@ -70,6 +72,7 @@ describe('OrdinanceFlowHandler', () => {
       assertOrdinanceOwnership: vi.fn(() => Promise.resolve()),
     } as unknown as OrdinanceFlowContextService
     tools = {} as unknown as OrdinanceFlowToolsService
+    fetchService = {} as unknown as OrdinanceFlowFetchService
     features = { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) }
   })
 
@@ -80,6 +83,7 @@ describe('OrdinanceFlowHandler', () => {
       store,
       context,
       tools,
+      fetchService,
       features as never,
       districtResolver as never,
     )
@@ -193,12 +197,28 @@ describe('OrdinanceFlowHandler', () => {
     const names = Object.keys(handler.buildTools(baseCtx())).sort()
     expect(names).toEqual([
       'ask_clarify_question',
-      'get_current_code',
+      'get_code_source',
       'offer_next_step',
       'read_ordinance',
       'save_answer',
       'save_note',
       'save_synthesis',
+      'web_search',
+    ])
+  })
+
+  it('builds the research tool set on the current_law step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'current_law' }),
+    ).sort()
+    expect(names).toEqual([
+      'fetch_url',
+      'get_code_source',
+      'offer_next_step',
+      'read_ordinance',
+      'save_existing_law',
+      'save_note',
       'web_search',
     ])
   })
@@ -210,6 +230,8 @@ describe('OrdinanceFlowHandler', () => {
     )
     expect(names).not.toContain('ask_clarify_question')
     expect(names).not.toContain('save_answer')
+    expect(names).not.toContain('fetch_url')
+    expect(names).not.toContain('save_existing_law')
     expect(names).toContain('read_ordinance')
     expect(names).toContain('offer_next_step')
   })
@@ -220,6 +242,10 @@ describe('OrdinanceFlowHandler', () => {
       handler.buildTools({ ...baseCtx(), step: 'draft' }),
     )
     expect(names).not.toContain('offer_next_step')
+  })
+
+  it('raises maxSteps above the default so a research turn can finish', () => {
+    expect(build().maxSteps).toBe(8)
   })
 
   it('builds a system prompt grounded in the ordinance context', async () => {

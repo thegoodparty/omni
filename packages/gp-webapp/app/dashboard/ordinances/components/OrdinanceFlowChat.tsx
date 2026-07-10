@@ -49,7 +49,8 @@ const REVEAL_DRAIN_MAX_TICKS = 250
 const TOOL_LABELS: Record<string, string> = {
   web_search: 'Searching the web',
   read_ordinance: 'Reviewing your ordinance',
-  get_current_code: 'Checking the current code',
+  get_code_source: 'Checking the current code',
+  fetch_url: 'Reading the municipal code',
 }
 
 // While the model is still writing a tool call's arguments (the tool_input_start

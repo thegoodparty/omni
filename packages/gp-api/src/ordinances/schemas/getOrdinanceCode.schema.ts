@@ -53,3 +53,5 @@ export const OrdinanceCodeResponseSchema = z.object({
   state: z.string(),
   verifiedAt: zDate(),
 })
+
+export type OrdinanceCodeResponse = z.infer<typeof OrdinanceCodeResponseSchema>
