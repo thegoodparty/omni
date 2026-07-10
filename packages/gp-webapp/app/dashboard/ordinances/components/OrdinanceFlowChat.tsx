@@ -378,16 +378,16 @@ export default function OrdinanceFlowChat({
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
   // Show the wait shimmer only when the assistant is working but nothing is
-  // actively typing: the initial compose gap (no text yet), or while a tool's
-  // arguments generate (generatingTool, e.g. the clarify question). Gated on
-  // revealDone so it never overlaps streaming text, and it stays silent in the
-  // brief commit window after a plain answer (text shown, nothing more coming).
+  // visible on screen yet, or while a tool's arguments generate. Keying
+  // "nothing visible" on the revealed segments (not on the arrival of the first
+  // network delta) keeps the shimmer up until the first character actually
+  // paints, so there is no empty flash between "Thinking..." and the first
+  // word. The tool-generating case is gated on revealDone so the shimmer never
+  // overlaps text that is still typing out.
+  const nothingVisible = visibleSegments.length === 0
+  const toolGenerating = generatingTool !== null && revealDone
   const working =
-    sending &&
-    revealDone &&
-    !showClarify &&
-    !showOffer &&
-    (visibleSegments.length === 0 || generatingTool !== null)
+    sending && !showClarify && !showOffer && (nothingVisible || toolGenerating)
   // Name what the model is doing when we know (a tool's args are streaming in);
   // otherwise the generic wait label.
   const workingLabel =
