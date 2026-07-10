@@ -3,6 +3,7 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
@@ -68,6 +69,15 @@ const RETRYABLE: Record<ChatStreamErrorCode, boolean> = {
   rate_limited: true,
   aborted: false,
   internal: false,
+}
+
+// Tool args arrive typed as `unknown` from the AI SDK, but they are JSON by
+// construction (the model produced them against the tool's JSON schema), so
+// persisting them as the segment payload is safe.
+const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
+  if (value === null || value === undefined) return null
+
+  return value as Prisma.InputJsonValue
 }
 
 const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
@@ -389,6 +399,7 @@ export class ChatStreamService {
           segments.push({
             kind: ChatMessageSegmentKind.tool,
             toolName: chunk.toolName,
+            payload: toJsonPayload(chunk.args),
           })
         }
         yield chunk

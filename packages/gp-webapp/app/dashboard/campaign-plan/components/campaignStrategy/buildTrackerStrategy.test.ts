@@ -134,6 +134,93 @@ describe('buildTrackerStrategy', () => {
     expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe('done')
   })
 
+  it('leaves text/robocall rows without an href (the row opens the flow in place)', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 't',
+          phase: 'launch',
+          flowType: 'text',
+          date: '2026-02-03T00:00:00.000Z',
+        }),
+        row({ id: 'r', phase: 'launch', flowType: 'robocall' }),
+      ],
+      { electionDate: null, today },
+    )
+    const tasks = data.phases.flatMap((p) => p.groups).flatMap((g) => g.tasks)
+    const byId = new Map(tasks.map((t) => [t.id, t]))
+    expect(byId.get('t')?.href).toBeNull()
+    expect(byId.get('t')?.channel).toBe('text')
+    expect(byId.get('r')?.channel).toBe('robocall')
+  })
+
+  it('advances Launch to active when every pre-launch task is done', () => {
+    // preLaunch is the calendar-current phase (future date) but fully checked
+    // off; Launch must become the current phase instead of stranding at
+    // 'upcoming' (bug-bash finding: "pre-launch Done, launch stays Coming Up").
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'a',
+          phase: 'preLaunch',
+          date: '2026-02-01',
+          completed: true,
+        }),
+        row({ id: 'b', phase: 'launch', date: '2026-03-01' }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'preLaunch')?.status).toBe('done')
+    expect(data.phases.find((p) => p.key === 'launch')?.status).toBe('active')
+  })
+
+  it('advances past an empty intermediate phase when the prior phase is done', () => {
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'a',
+          phase: 'preLaunch',
+          date: '2026-02-01',
+          completed: true,
+        }),
+        row({ id: 'b', phase: 'active', date: '2026-04-01' }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe(
+      'active',
+    )
+    expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
+  })
+
+  it('does not advance into GOTV while a prior-generation Active task is open', () => {
+    // Active's latest generation (week 6) is fully done, but week 5 still has
+    // an open, navigator-reachable task. The completion advance must treat
+    // Active as open — not walk into GOTV.
+    const data = buildTrackerStrategy(
+      [
+        row({
+          id: 'pre',
+          phase: 'preLaunch',
+          date: '2026-01-02',
+          completed: true,
+        }),
+        row({ id: 'g5', phase: 'active', week: 5, date: '2026-01-06' }),
+        row({
+          id: 'g6',
+          phase: 'active',
+          week: 6,
+          date: '2026-01-13',
+          completed: true,
+        }),
+        row({ id: 'gotv', phase: 'gotv', date: '2026-03-01' }),
+      ],
+      { electionDate: null, today },
+    )
+    expect(data.phases.find((p) => p.key === 'active')?.status).toBe('active')
+    expect(data.phases.find((p) => p.key === 'gotv')?.status).toBe('upcoming')
+  })
+
   it('keeps "happening now" date-based: a date-past phase with open tasks is not upcoming', () => {
     // today is 2026-01-15; preLaunch dated in the past, launch in the future.
     const data = buildTrackerStrategy(

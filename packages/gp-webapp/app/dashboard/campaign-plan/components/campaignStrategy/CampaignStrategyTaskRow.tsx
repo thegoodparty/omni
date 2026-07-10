@@ -25,6 +25,9 @@ interface CampaignStrategyTaskRowProps {
   task: CampaignStrategyTask
   index: number
   onToggleComplete?: (id: string, completed: boolean) => void
+  // In-place launcher for text/robocall tasks (legacy-task behavior): opens
+  // the outreach flow with the task's due date instead of navigating.
+  onStartOutreach?: (channel: 'text' | 'robocall', date: string | null) => void
 }
 
 const CHANNEL_ICONS: Record<
@@ -50,13 +53,20 @@ export const formatTaskDate = (date: string | null): string | null =>
 
 // One task row: status marker, date chip, type icon, title, optional Pro and
 // "Do this next" badges, description, parameter, prerequisite hint, link.
+const isComposeChannel = (
+  channel: TaskChannel,
+): channel is 'text' | 'robocall' =>
+  channel === 'text' || channel === 'robocall'
+
 const CampaignStrategyTaskRow = ({
   task,
   index,
   onToggleComplete,
+  onStartOutreach,
 }: CampaignStrategyTaskRowProps): React.JSX.Element => {
   const formattedDate = formatTaskDate(task.date)
   const Icon = CHANNEL_ICONS[task.channel]
+  const composeChannel = isComposeChannel(task.channel) ? task.channel : null
 
   const markerClassName = cn(
     'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold tabular-nums',
@@ -139,6 +149,17 @@ const CampaignStrategyTaskRow = ({
             Unlocks after {task.unlocksAfter}
           </p>
         )}
+        {!task.href && !task.completed && onStartOutreach && composeChannel && (
+          <Button
+            type="button"
+            variant="link"
+            size="small"
+            className="text-primary h-auto p-0"
+            onClick={() => onStartOutreach(composeChannel, task.date)}
+          >
+            Start outreach
+          </Button>
+        )}
         {task.href && (
           <Button
             asChild
@@ -146,10 +167,17 @@ const CampaignStrategyTaskRow = ({
             size="small"
             className="text-primary h-auto p-0"
           >
-            <a href={task.href} target="_blank" rel="noreferrer">
-              {task.hrefLabel ?? 'Open'}
-              <ExternalLinkIcon className="size-3" />
-            </a>
+            {task.href.startsWith('/') ? (
+              <a href={task.href}>
+                {task.hrefLabel ?? 'Open'}
+                <ExternalLinkIcon className="size-3" />
+              </a>
+            ) : (
+              <a href={task.href} target="_blank" rel="noreferrer">
+                {task.hrefLabel ?? 'Open'}
+                <ExternalLinkIcon className="size-3" />
+              </a>
+            )}
           </Button>
         )}
       </div>

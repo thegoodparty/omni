@@ -71,7 +71,7 @@ export default function ElectionFiling(): React.JSX.Element {
         queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY }),
         queryClient.invalidateQueries({ queryKey: TCR_COMPLIANCE_QUERY_KEY }),
       ])
-      router.push('/dashboard/profile')
+      router.push('/dashboard/account')
     } catch {
       setHasSubmissionError(true)
       trackEvent(EVENTS.Outreach.DlcCompliance.RegistrationSubmitError, {
@@ -87,7 +87,7 @@ export default function ElectionFiling(): React.JSX.Element {
     <div className="min-h-screen bg-white pt-2 md:pt-4">
       <div className="mx-auto w-full max-w-2xl p-4">
         <div className="flex items-center justify-between">
-          <Link href="/dashboard/profile" aria-label="Back to profile">
+          <Link href="/dashboard/account" aria-label="Back to account">
             <ChevronLeft className="h-6 w-6" />
           </Link>
           <div className="font-medium md:text-xl">Election filing</div>

@@ -17,6 +17,10 @@ interface RichEditorProps {
   // readable/editable by surfaces that keep the toolbar (e.g. the website /
   // Pro-upgrade policy editor).
   hideToolbar?: boolean
+  // Hard cap on typed text length. Enforced only for user edits (source
+  // 'user'), so pre-existing longer content loaded into the editor is never
+  // silently truncated — it just can't grow.
+  maxLength?: number
 }
 
 const RichEditor = ({
@@ -25,6 +29,7 @@ const RichEditor = ({
   onTextLengthChange,
   error = false,
   hideToolbar = false,
+  maxLength,
 }: RichEditorProps): React.JSX.Element => {
   const { quill, quillRef } = useQuill({
     theme: 'bubble',
@@ -40,7 +45,19 @@ const RichEditor = ({
 
   useEffect(() => {
     if (quill) {
-      const textChangeHandler = () => {
+      const textChangeHandler = (
+        _delta: unknown,
+        _oldDelta: unknown,
+        source?: string,
+      ) => {
+        // Quill's length includes a trailing newline, hence the +1.
+        if (
+          maxLength &&
+          source === 'user' &&
+          quill.getLength() > maxLength + 1
+        ) {
+          quill.deleteText(maxLength, quill.getLength())
+        }
         const value = quill.root.innerHTML
         if (value) {
           onChangeCallback(value)
@@ -65,7 +82,7 @@ const RichEditor = ({
       }
     }
     return undefined
-  }, [quill, onChangeCallback, onTextLengthChange])
+  }, [quill, onChangeCallback, onTextLengthChange, maxLength])
 
   return (
     <div

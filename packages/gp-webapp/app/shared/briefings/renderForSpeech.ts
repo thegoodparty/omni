@@ -111,7 +111,9 @@ const renderItem = (item: Item): string => {
     if (talkingPoints.length > 0) {
       parts.push('Talking points.')
       for (const point of talkingPoints) {
-        parts.push(point)
+        // Legacy artifacts carry a bare string; new ones carry {text, why} —
+        // read the bullet only, the rationale is a secondary on-page line.
+        parts.push(typeof point === 'string' ? point : point.text)
       }
     }
   }

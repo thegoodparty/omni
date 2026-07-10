@@ -85,6 +85,40 @@ describe('renderBriefingPdf', () => {
     expect(text).toContain('Agenda item 2')
   })
 
+  it('renders the `text` of {text, why} talking points, dropping `why`', async () => {
+    // New generations emit talking_points as {text, why} objects; legacy
+    // artifacts emit bare strings (ITEM_BASE above). Both must render — the
+    // PDF has no room for the secondary rationale line gp-webapp shows.
+    const artifact = makeArtifact({
+      items: [
+        {
+          ...makeItem(1, 'featured'),
+          display: {
+            ...ITEM_BASE.display,
+            talking_points: [
+              {
+                text: 'Ask staff to confirm the fee tier.',
+                why: 'Avoids an ambiguous vote record.',
+              },
+              {
+                text: 'Pull this before the vote if cost questions arise.',
+                why: 'The consent agenda leaves no other path.',
+              },
+              {
+                text: 'Lead with the bond-funded framing.',
+                why: 'Pre-empts the likely cost objection.',
+              },
+            ],
+          },
+        },
+      ],
+    })
+    const buf = await renderBriefingPdf(artifact)
+    const { text } = await extractText(buf)
+    expect(text).toContain('Ask staff to confirm the fee tier.')
+    expect(text).not.toContain('Avoids an ambiguous vote record.')
+  })
+
   it('TOC page numbers match the actual page where each item starts', async () => {
     // Three featured items with substantial bodies; we then look at the TOC
     // page and assert each item's reference matches its real page index.

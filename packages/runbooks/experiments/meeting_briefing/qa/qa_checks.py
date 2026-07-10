@@ -1,7 +1,7 @@
 """meeting_briefing deep QA check library — schema + deterministic checks the runner's shim can't express.
 
 This is the SINGLE SOURCE OF TRUTH for the meeting_briefing checks, and a pure
-CHECK LIBRARY: it exposes `validate_schema`, the ten `check_*` functions, the
+CHECK LIBRARY: it exposes `validate_schema`, the twelve `check_*` functions, the
 `CHECKS` list, and the `Finding`/`Report` dataclasses. It has no entrypoint and
 runs nothing on import. `qa/main.py` (the sole deterministic QA-gate entrypoint)
 imports this module and drives it; the agent does NOT run these checks itself.
@@ -25,6 +25,7 @@ Two phases (orchestrated by main.py):
        - required_data_points coverage (every required: true point produced a value)
        - tier_reason / display consistency (budget_threshold → budget_impact non-null, etc.)
        - briefing_status / content consistency (awaiting_agenda → claims empty, etc.)
+       - recent_news recency (publication_date present and within 60 days of meeting_date)
        - source_extract presence-in-source (substring check, not LLM)
        - awaiting_agenda / no_meeting_found: all 4 discovery channels attempted (channel_<N>_ prefixes)
 
@@ -36,6 +37,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 try:
@@ -307,6 +309,55 @@ def check_required_data_points_coverage(artifact: dict, findings: list[Finding])
                     "error",
                     f"Item {iid} (tier={item.get('tier')}) is in scope for required data point "
                     f"'{name}' but the value is missing or null.",
+                ))
+
+
+def check_recent_news_recency(artifact: dict, findings: list[Finding]) -> None:
+    """Every recent_news entry must carry a publication_date within 60 days of meeting_date.
+
+    The schema already requires publication_date to be present and non-null (Problem
+    Statement 2); this check adds the temporal bound the schema's format:"date" cannot
+    express on its own. Pure date arithmetic on data already in the artifact — no network
+    calls, consistent with the QA gate's side-effect-free convention.
+    """
+    meeting_date_str = artifact.get("meeting_date")
+    if not meeting_date_str:
+        return
+    try:
+        meeting_date = date.fromisoformat(meeting_date_str)
+    except ValueError:
+        return  # malformed meeting_date is a schema/consistency problem, not ours to report
+
+    for item in artifact.get("items", []):
+        iid = item.get("id")
+        display = item.get("display") or {}
+        for entry in display.get("recent_news") or []:
+            headline = (entry.get("headline") or "")[:80]
+            pub_date_str = entry.get("publication_date")
+            if not pub_date_str:
+                findings.append(Finding(
+                    "recent_news.missing_publication_date",
+                    "error",
+                    f"Item {iid} recent_news entry {headline!r} has no publication_date.",
+                ))
+                continue
+            try:
+                pub_date = date.fromisoformat(pub_date_str)
+            except ValueError:
+                findings.append(Finding(
+                    "recent_news.invalid_publication_date",
+                    "error",
+                    f"Item {iid} recent_news entry {headline!r} has an unparseable "
+                    f"publication_date: {pub_date_str!r}.",
+                ))
+                continue
+            age_days = (meeting_date - pub_date).days
+            if age_days > 60:
+                findings.append(Finding(
+                    "recent_news.stale",
+                    "error",
+                    f"Item {iid} recent_news entry {headline!r} is dated {pub_date_str}, "
+                    f"{age_days} days before meeting_date {meeting_date_str} (limit 60).",
                 ))
 
 
@@ -605,7 +656,12 @@ def check_no_data_internals_in_candidate_text(artifact: dict, findings: list[Fin
             for k in ("summary", "detail", "score_direction", "district_note"):
                 scan(f"items[{iid}].display.constituent_sentiment.{k}", cs.get(k) or "", True)
         for j, tp in enumerate(d.get("talking_points") or []):
-            scan(f"items[{iid}].display.talking_points[{j}]", tp or "", False)
+            # talking_points is oneOf legacy array<string> / new array<{text, why}> — scan whichever shape.
+            if isinstance(tp, dict):
+                scan(f"items[{iid}].display.talking_points[{j}].text", tp.get("text") or "", False)
+                scan(f"items[{iid}].display.talking_points[{j}].why", tp.get("why") or "", False)
+            else:
+                scan(f"items[{iid}].display.talking_points[{j}]", tp or "", False)
         bi = d.get("budget_impact")
         if isinstance(bi, dict):
             scan(f"items[{iid}].display.budget_impact.summary", bi.get("summary") or "", False)
@@ -640,6 +696,7 @@ CHECKS = [
     check_tier_reason_consistency,
     check_featured_item_completeness,
     check_required_data_points_coverage,
+    check_recent_news_recency,
     check_source_extracts_in_source,
     check_disclosure_present,
     check_run_decisions_meaningful,

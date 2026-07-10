@@ -239,7 +239,8 @@
             "body": {
               "type": "string",
               "minLength": 1,
-              "description": "At most 3 sentences: the opponent's stance or silence, the district Haystaq percentages when coverage exists (stating voters care about or lean on the issue), and the candidate's own commitment. Carries no statistic when coverage is missing."
+              "maxLength": 399,
+              "description": "2 short sentences (3 max), under 400 characters: lead with what the district's voters believe or lean on the issue (at most one Haystaq number, only when coverage exists), then the concrete contrast move against the opponent. Carries no statistic when coverage is missing."
             },
             "sms_message": {
               "type": "string",

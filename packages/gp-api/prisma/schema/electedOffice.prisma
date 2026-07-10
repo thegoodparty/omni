@@ -48,6 +48,7 @@ model ElectedOffice {
   priorities               Priority[]
   dashboardCards           DashboardCard[]
   onboardingCardDismissals OnboardingCardDismissal[]
+  ordinances               Ordinance[]
 
   @@index([userId])
   @@index([campaignId])

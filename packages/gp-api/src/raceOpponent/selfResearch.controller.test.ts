@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
 import { SelfResearchService } from '@/raceOpponent/services/selfResearch.service'
@@ -68,11 +67,6 @@ const seedRun = (runId: string, status: ExperimentRunStatus) =>
     },
   })
 
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
-
 const stubArtifact = (
   findings: unknown[],
   generatedAt = '2026-06-27T00:00:00.000Z',
@@ -127,7 +121,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
   describe('the server-side opponent gate', () => {
     it('403s opponent identify when no self-research pass is completed', async () => {
       await seedCampaign({ isPro: true })
-      flagOn()
 
       const result = await service.client.post(
         IDENTIFY_PATH,
@@ -145,7 +138,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         RaceOpponentResearchStatus.queued,
         'run-q',
       )
-      flagOn()
 
       const result = await service.client.post(
         IDENTIFY_PATH,
@@ -163,7 +155,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         RaceOpponentResearchStatus.completed,
         'run-done',
       )
-      flagOn()
 
       const result = await service.client.post(
         IDENTIFY_PATH,
@@ -182,28 +173,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         RaceOpponentResearchStatus.completed,
         'run-done',
       )
-      flagOn()
-
-      const result = await service.client.post(
-        IDENTIFY_PATH,
-        {},
-        { headers: { [ORG_SLUG_HEADER]: SLUG } },
-      )
-
-      expect(result.status).toBe(403)
-    })
-
-    it('403s opponent identify when the flag is off even with a completed self pass', async () => {
-      const campaign = await seedCampaign({ isPro: true })
-      await seedSelfResearch(
-        campaign.id,
-        RaceOpponentResearchStatus.completed,
-        'run-done',
-      )
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
 
       const result = await service.client.post(
         IDENTIFY_PATH,
@@ -218,7 +187,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
   describe('POST /self-research (start)', () => {
     it('dispatches self_research and claims a queued research row', async () => {
       await seedCampaign({ isPro: true })
-      flagOn()
       const dispatchRun = vi
         .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
         .mockResolvedValue({ runId: 'run-1' } as never)
@@ -249,7 +217,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         RaceOpponentResearchStatus.running,
         'run-inflight',
       )
-      flagOn()
       const dispatchRun = vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -273,7 +240,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         RaceOpponentResearchStatus.completed,
         'run-complete',
       )
-      flagOn()
       const dispatchRun = vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -299,7 +265,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
 
     it('rolls the claim back to failed when dispatch throws (no orphan run)', async () => {
       await seedCampaign({ isPro: true })
-      flagOn()
       vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -321,7 +286,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
 
     it('rolls the row to failed when the runId-bind update throws', async () => {
       await seedCampaign({ isPro: true })
-      flagOn()
       vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -355,7 +319,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
 
     it('403s when the campaign is not Pro', async () => {
       await seedCampaign({ isPro: false })
-      flagOn()
 
       const result = await service.client.post(
         START_PATH,
@@ -370,7 +333,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
   describe('GET /self-research/status', () => {
     it('reports not_started when no pass exists', async () => {
       await seedCampaign({ isPro: true })
-      flagOn()
 
       const result = await service.client.get(STATUS_PATH, {
         headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -387,7 +349,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
         RaceOpponentResearchStatus.completed,
         'run-c',
       )
-      flagOn()
 
       const result = await service.client.get(STATUS_PATH, {
         headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -588,7 +549,6 @@ describe('Self-research dispatch + persist + opponent gate', () => {
       await service.app
         .get(RaceOpponentResearchPersistService)
         .onExperimentRunCompleted(run)
-      flagOn()
 
       const result = await service.client.get(REPORT_PATH, {
         headers: { [ORG_SLUG_HEADER]: SLUG },

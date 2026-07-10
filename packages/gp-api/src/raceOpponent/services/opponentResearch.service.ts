@@ -119,7 +119,7 @@ export class OpponentResearchService extends createPrismaBase(
     super()
   }
 
-  // Pro + flag gate (RaceOpponentService.assertAccess) AND the self-research
+  // Pro gate (RaceOpponentService.assertAccess) AND the self-research
   // hard gate (PRD Requirement B): both must pass before any opponent path runs.
   private async assertGates(campaign: CampaignWith<'user'>): Promise<void> {
     await this.raceOpponent.assertAccess(campaign)

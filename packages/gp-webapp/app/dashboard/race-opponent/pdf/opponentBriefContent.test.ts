@@ -1,11 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import type {
-  RaceOpponentFieldAnalysis,
   RaceOpponentResponse,
   RaceOpponentSummary,
 } from 'gpApi/api-endpoints'
 import {
-  buildFieldAnalysisBrief,
   buildOpponentBrief,
   opponentsWithBrief,
   type OpponentBriefSection,
@@ -261,60 +259,5 @@ describe('opponentsWithBrief', () => {
     const withSummary = opponent()
     const rawOnly = opponent({ opponentName: 'Raw Only', summary: null })
     expect(opponentsWithBrief([withSummary, rawOnly])).toEqual([withSummary])
-  })
-})
-
-describe('buildFieldAnalysisBrief', () => {
-  const fieldAnalysis = (
-    overrides: Partial<RaceOpponentFieldAnalysis> = {},
-  ): RaceOpponentFieldAnalysis => ({
-    strengths: ['Strong name ID'],
-    weaknesses: ['Thin ground game'],
-    opportunities: [],
-    threats: [],
-    sources: [],
-    generatedAt: null,
-    ...overrides,
-  })
-
-  it('returns null for a null/undefined fieldAnalysis', () => {
-    expect(buildFieldAnalysisBrief(null)).toBeNull()
-    expect(buildFieldAnalysisBrief(undefined)).toBeNull()
-  })
-
-  it('omits empty quadrants and keeps populated ones with their labels', () => {
-    const brief = buildFieldAnalysisBrief(fieldAnalysis())
-    expect(brief).toEqual({
-      quadrants: [
-        { label: 'Strengths', items: ['Strong name ID'] },
-        { label: 'Weaknesses', items: ['Thin ground game'] },
-      ],
-    })
-  })
-
-  it('omits the whole block when fewer than 2 quadrants have content', () => {
-    expect(
-      buildFieldAnalysisBrief(
-        fieldAnalysis({ weaknesses: [], strengths: ['Strong name ID'] }),
-      ),
-    ).toBeNull()
-    expect(
-      buildFieldAnalysisBrief(fieldAnalysis({ strengths: [], weaknesses: [] })),
-    ).toBeNull()
-  })
-
-  it('includes all four quadrants when every one has content', () => {
-    const brief = buildFieldAnalysisBrief(
-      fieldAnalysis({
-        opportunities: ['Open primary'],
-        threats: ['A well-funded challenger'],
-      }),
-    )
-    expect(brief?.quadrants.map((q) => q.label)).toEqual([
-      'Strengths',
-      'Weaknesses',
-      'Opportunities',
-      'Threats',
-    ])
   })
 })

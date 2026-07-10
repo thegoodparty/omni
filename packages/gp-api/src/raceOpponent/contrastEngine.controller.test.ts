@@ -1,5 +1,4 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   ArtifactReviewResourceType,
   ArtifactReviewVerdict,
@@ -8,7 +7,7 @@ import {
   RaceOpponentResearchStatus,
   UserRole,
 } from '@/generated/prisma'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
@@ -21,11 +20,6 @@ const ISSUE = 'Housing'
 const CLEAN_CLAIM = 'voted against the Housing affordability bill in 2023'
 const INFLATED_CLAIM = 'has a corrupt, reckless Housing record'
 const CANDIDATE_STANCE = 'support more affordable Housing'
-
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
 
 const seedCampaign = async (opts: { isPro: boolean }) => {
   await service.prisma.organization.create({
@@ -130,7 +124,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: CLEAN_CLAIM },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
 
     const result = await generate()
 
@@ -160,7 +153,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       },
     ])
     await seedCandidatePosition(campaign.id, 'AI', 'support AI safeguards')
-    flagOn()
 
     const result = await generate()
 
@@ -179,7 +171,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: `voted against the ${ISSUE} bill.` },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, `${CANDIDATE_STANCE}.`)
-    flagOn()
 
     const result = await generate()
 
@@ -202,7 +193,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: CLEAN_CLAIM },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
 
     const first = await generate()
     expect(first.data.contrasts).toHaveLength(1)
@@ -228,7 +218,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: INFLATED_CLAIM },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
 
     const result = await generate()
 
@@ -282,7 +271,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: INFLATED_CLAIM },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
 
     await generate()
     const pending = await service.prisma.raceOpponentContrast.findFirstOrThrow({
@@ -319,7 +307,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: INFLATED_CLAIM },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
 
     await generate()
     const pending = await service.prisma.raceOpponentContrast.findFirstOrThrow({
@@ -363,7 +350,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
 
     const result = await generate()
 
@@ -384,7 +370,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
     ])
     // Candidate has a position on a DIFFERENT issue — no half-contrast.
     await seedCandidatePosition(campaign.id, 'Education', 'fund schools')
-    flagOn()
 
     const result = await generate()
 
@@ -402,7 +387,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: CLEAN_CLAIM },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
 
     const result = await generate()
 
@@ -416,24 +400,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
       { category: 'voting_record', claim: CLEAN_CLAIM },
     ])
     await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    flagOn()
-
-    const result = await generate()
-
-    expect(result.status).toBe(403)
-  })
-
-  it('403s generate when know-your-opponent is off', async () => {
-    const campaign = await seedCampaign({ isPro: true })
-    await seedCompletedSelfPass(campaign.id)
-    await seedOpponentFindings(campaign.id, [
-      { category: 'voting_record', claim: CLEAN_CLAIM },
-    ])
-    await seedCandidatePosition(campaign.id, ISSUE, CANDIDATE_STANCE)
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
 
     const result = await generate()
 
@@ -444,19 +410,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/generate', () => {
 describe('GET /v1/campaigns/mine/race-opponent/contrasts', () => {
   it('403s list when the campaign is not Pro', async () => {
     await seedCampaign({ isPro: false })
-    flagOn()
-
-    const result = await list()
-
-    expect(result.status).toBe(403)
-  })
-
-  it('403s list when know-your-opponent is off', async () => {
-    await seedCampaign({ isPro: true })
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
 
     const result = await list()
 

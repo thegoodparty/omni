@@ -20,6 +20,7 @@ import { AnnotationsModule } from 'src/annotations/annotations.module'
 import { CampaignStrategyModule } from 'src/campaignStrategy/campaignStrategy.module'
 import { RaceOpponentModule } from 'src/raceOpponent/raceOpponent.module'
 import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.module'
+import { OrdinancesModule } from 'src/ordinances/ordinances.module'
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { CommunityIssuesModule } from 'src/communityIssues/communityIssues.modul
     CampaignStrategyModule,
     RaceOpponentModule,
     CommunityIssuesModule,
+    OrdinancesModule,
   ],
   providers: [QueueConsumerService],
 })

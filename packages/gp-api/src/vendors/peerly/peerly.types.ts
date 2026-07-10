@@ -260,6 +260,27 @@ export type PeerlyCreateCVTokenResponse = {
 export type PeerlyRetrieveCampaignVerifyStatusResponseBody = {
   verification_status: PeerlyCvVerificationStatus
 }
+
+// The `verification_data` block Peerly's retrieve_cv returns once the PIN has
+// been sent. `verification_method` is the delivery channel; the destination is
+// `filing_email` for email or `filing_phone_number` for text/phone/call (mail
+// uses the filing address). All optional — the block is absent before the PIN
+// is sent, and Peerly's field set is not a hardened contract.
+export interface PeerlyCvVerificationData {
+  verification_method?: string
+  filing_email?: string
+  filing_phone_number?: string
+  filing_address_line1?: string
+  filing_address_line2?: string
+  filing_city?: string
+  filing_state?: string
+  filing_zip?: string
+}
+
+export interface PeerlyRetrieveCvResponseBody {
+  verification_status: PeerlyCvVerificationStatus
+  verification_data?: PeerlyCvVerificationData
+}
 export enum PeerlyCommitteeType {
   House = 'H',
   Senate = 'S',

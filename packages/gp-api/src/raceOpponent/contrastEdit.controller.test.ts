@@ -1,11 +1,10 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   RaceOpponentContrastStatus,
   RaceOpponentFindingKind,
   RaceOpponentResearchStatus,
 } from '@/generated/prisma'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
@@ -17,11 +16,6 @@ const CONTRAST_SENTENCE =
   'On Housing, my opponent voted against the bill — I support more housing.'
 const NEW_SENTENCE =
   'On Housing, my opponent blocked the bill — I will build more homes.'
-
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
 
 const seedCampaign = async (slug: string, isPro = true) => {
   await service.prisma.organization.create({
@@ -77,7 +71,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await edit(contrast.id, {
       contrastSentence: NEW_SENTENCE,
@@ -106,7 +99,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.approved,
     )
-    flagOn()
 
     await edit(contrast.id, { contrastSentence: NEW_SENTENCE })
     const second = await edit(contrast.id, {
@@ -125,7 +117,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.approved,
     )
-    flagOn()
 
     const result = await edit(contrast.id, { contrastSentence: NEW_SENTENCE })
 
@@ -140,7 +131,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.used,
     )
-    flagOn()
 
     const result = await edit(contrast.id, { contrastSentence: NEW_SENTENCE })
 
@@ -159,7 +149,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.pending_review,
     )
-    flagOn()
 
     const result = await edit(contrast.id, { contrastSentence: NEW_SENTENCE })
 
@@ -179,7 +168,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       other.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await edit(
       theirContrast.id,
@@ -201,7 +189,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await edit(contrast.id, { contrastSentence: NEW_SENTENCE })
 
@@ -220,24 +207,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
-
-    const result = await edit(contrast.id, { contrastSentence: NEW_SENTENCE })
-
-    expect(result.status).toBe(403)
-  })
-
-  it('403s edit when the feature flag is off', async () => {
-    const campaign = await seedCampaign(SLUG)
-    await seedCompletedSelfPass(campaign.id)
-    const contrast = await seedContrast(
-      campaign.id,
-      RaceOpponentContrastStatus.cleared,
-    )
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
 
     const result = await edit(contrast.id, { contrastSentence: NEW_SENTENCE })
 
@@ -251,7 +220,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await edit(contrast.id, { contrastSentence: '' })
 
@@ -270,7 +238,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await edit(contrast.id, {})
 
@@ -290,7 +257,6 @@ describe('PATCH /v1/campaigns/mine/race-opponent/contrasts/:id', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     // opponentFact is sourced and immutable. Sending it alongside a real edit
     // must not change opponentFact (the schema strips it; the service never

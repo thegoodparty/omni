@@ -8,7 +8,8 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
-import { isAfter, isValid, parseISO, subMinutes } from 'date-fns'
+import { formatISO, isAfter, isValid, parseISO, subMinutes } from 'date-fns'
+import { setTimeout as sleep } from 'timers/promises'
 import {
   Campaign,
   ExperimentRun,
@@ -54,6 +55,7 @@ import {
   MIN_BIO_LENGTH,
   SubmitToPeerlyOutput,
 } from '@goodparty_org/contracts'
+import { DerivedPinDelivery } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
 import { isGenericComplianceContent } from '../../../websites/util/genericContent.util'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { EVENTS } from 'src/vendors/segment/segment.types'
@@ -78,6 +80,14 @@ const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
 
 const UNSUBMITTED_USECASE_SWEEP_INTERVAL =
   parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
+
+const PIN_DELIVERY_DETECTION_SWEEP_INTERVAL =
+  parseInt(process.env.PIN_DELIVERY_DETECTION_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
+
+// Spacing between per-identity retrieve_cv calls in the PIN-delivery sweep.
+// Peerly throttles bulk CV retrieval (429/400), so space the reads out rather
+// than firing the whole awaiting-PIN set at once on a sweep tick.
+const PEERLY_CV_READ_SPACING_MS = 350
 
 // Pre-Peerly claim TTL: a claim older than this is treated as stale (failed
 // without rollback) and re-claimable. Bounds the Peerly call's normal duration
@@ -321,6 +331,143 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     await this.model.update({
       where: { id: tcrCompliance.id },
       data: { status: TcrComplianceStatus.pending },
+    })
+  }
+
+  // Detect that Peerly has sent the candidate's CampaignVerify PIN, record the
+  // channel + destination, and fire the "PIN Sent" Segment event once so
+  // HubSpot can stamp the company and nudge the candidate. The
+  // `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected, so
+  // this is not a growing bulk loop hammering Peerly. The status set is every
+  // state that implies the PIN was already sent: `submitted` (awaiting entry),
+  // `pending` (entered, in review), and `approved` (completed). The candidate
+  // can race past `submitted` before this hourly sweep runs (in-app PIN entry
+  // or the VERIFIED usecase sweep advance to `pending`, then to `approved`), and
+  // pre-existing records were already `approved`/`pending` when this shipped —
+  // without the wider set their channel + the event would be dropped forever.
+  // These statuses always mean the PIN went out, so this never fires for a
+  // record whose PIN never did (`rejected`/`error` are failure states, excluded).
+  @Interval(PIN_DELIVERY_DETECTION_SWEEP_INTERVAL * 1000)
+  async sweepPinDeliveryDetection() {
+    const candidates = await this.model.findMany({
+      where: {
+        status: {
+          in: [
+            TcrComplianceStatus.submitted,
+            TcrComplianceStatus.pending,
+            TcrComplianceStatus.approved,
+          ],
+        },
+        peerlyIdentityId: { not: null },
+        pinDeliveryMethod: null,
+      },
+    })
+
+    for (const record of candidates) {
+      try {
+        await this.detectAndRecordPinDelivery(record)
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[TCR Compliance] PIN-delivery detection failed for record',
+        )
+      }
+      await sleep(PEERLY_CV_READ_SPACING_MS)
+    }
+  }
+
+  private async detectAndRecordPinDelivery(tcrCompliance: TcrCompliance) {
+    const { peerlyIdentityId } = tcrCompliance
+    if (!peerlyIdentityId) {
+      return
+    }
+
+    const campaign = await this.campaignsService.findUnique({
+      where: { id: tcrCompliance.campaignId },
+      include: { user: true },
+    })
+    if (!campaign?.user) {
+      return
+    }
+
+    const { pinDelivery } =
+      await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
+        peerlyIdentityId,
+        campaign,
+      )
+    // No method yet = PIN not sent (or an unrecognized channel we don't
+    // surface) — leave the record for a later sweep.
+    if (!pinDelivery) {
+      return
+    }
+
+    // Once-only claim: only the caller that flips pinSentDetectedAt from null
+    // persists and fires the event, so a re-run or a concurrent sweep can't
+    // double-record or double-fire.
+    const claimTimestamp = new Date()
+    const claim = await this.model.updateMany({
+      where: { id: tcrCompliance.id, pinSentDetectedAt: null },
+      data: {
+        pinDeliveryMethod: pinDelivery.method,
+        pinDeliveryDestination: pinDelivery.destination,
+        pinSentDetectedAt: claimTimestamp,
+      },
+    })
+    if (claim.count === 0) {
+      return
+    }
+
+    try {
+      await this.firePinSentEvent(campaign.user.id, campaign, pinDelivery, {
+        peerlyIdentityId,
+        pinSentAt: claimTimestamp,
+      })
+    } catch (err) {
+      // The event is the whole point of the detection — if it fails, roll back
+      // our claim (scoped to the exact timestamp we wrote, so a concurrent
+      // re-claimant's live claim isn't disturbed) so the next sweep retries
+      // rather than silently dropping the nudge. Guard the rollback itself: if
+      // it throws, its error must not mask the original (nor leave the record
+      // claimed-but-never-fired and thus permanently excluded by the sweep's
+      // `pinDeliveryMethod IS NULL` filter) — mirrors submitToPeerlyForAgent.
+      try {
+        await this.model.updateMany({
+          where: { id: tcrCompliance.id, pinSentDetectedAt: claimTimestamp },
+          data: {
+            pinDeliveryMethod: null,
+            pinDeliveryDestination: null,
+            pinSentDetectedAt: null,
+          },
+        })
+      } catch (rollbackErr) {
+        this.logger.error(
+          { rollbackErr, tcrComplianceId: tcrCompliance.id },
+          '[TCR Compliance] Failed to roll back PIN-delivery claim; ' +
+            'record may be stuck with no PIN Sent event fired',
+        )
+      }
+      throw err
+    }
+  }
+
+  private async firePinSentEvent(
+    userId: number,
+    campaign: Campaign,
+    pinDelivery: DerivedPinDelivery,
+    context: { peerlyIdentityId: string; pinSentAt: Date },
+  ) {
+    // Only the channel is sent to Segment (→ analytics warehouse + HubSpot),
+    // never the destination. HubSpot needs the method to pick the nudge; the
+    // destination is the candidate's raw filing email/phone/address and stays
+    // in our own DB (persisted on the record, like the existing email/phone
+    // columns) rather than syncing to the warehouse.
+    await this.analytics.track(userId, EVENTS.Outreach.CompliancePinSent, {
+      peerly_identity_id: context.peerlyIdentityId,
+      pin_delivery_method: pinDelivery.method,
+      pin_sent_at: formatISO(context.pinSentAt),
+      ...(campaign.data.hubspotId
+        ? { company_hubspot_id: campaign.data.hubspotId }
+        : {}),
     })
   }
 
@@ -708,11 +855,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // the agent request is not trusted (the compliance_setup instruction
     // already promises gp-api reads the candidate's saved details itself).
     // Re-apply PR #643's filing-URL guards to the persisted value: a record
-    // saved before that guard shipped can still carry a goodparty.org page or
-    // the candidate's own campaign site, which CampaignVerify can't match a
-    // candidate against.
+    // saved before that guard shipped can still carry a goodparty.org page,
+    // the candidate's own campaign site, or (non-federal) an FEC filing URL,
+    // all of which CampaignVerify deterministically rejects.
     const filingCheck = submitToPeerlyFilingSchema.safeParse({
       filingUrl: existing.filingUrl,
+      officeLevel: existing.officeLevel,
       websiteHost: hostname,
     })
     if (!filingCheck.success) {

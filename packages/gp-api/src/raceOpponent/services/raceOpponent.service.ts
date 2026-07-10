@@ -25,14 +25,12 @@ import {
   RaceOpponentSourceType,
 } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
-import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { CampaignStrategyService } from '@/campaignStrategy/services/campaignStrategy.service'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
-  KNOW_YOUR_OPPONENT_FEATURE,
   RACE_OPPONENT_ACTIONS,
   RACE_OPPONENT_COLLECTION,
   RACE_OPPONENT_SUMMARY,
@@ -77,7 +75,6 @@ const THREAT_TIER_RANK: Record<RaceOpponentThreatTier | 'none', number> = {
 @Injectable()
 export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   constructor(
-    private readonly features: FeaturesService,
     private readonly experimentRuns: ExperimentRunsService,
     private readonly electionApi: ElectionApiService,
     private readonly campaignStrategy: CampaignStrategyService,
@@ -87,10 +84,10 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
   }
 
   // The ownership guard (@UseCampaign) already scopes the campaign to the
-  // current user, so reaching here means the caller owns it. Pro + flag are
-  // the remaining gates; both 4xx so the webapp can branch cleanly. Public so
-  // the controller can apply the same Pro+flag gate to opponent routes that
-  // don't go through collect() (e.g. opponents/identify).
+  // current user, so reaching here means the caller owns it. Pro is the
+  // remaining gate; 4xx so the webapp can branch cleanly. Public so the
+  // controller can apply the same Pro gate to opponent routes that don't go
+  // through collect() (e.g. opponents/identify).
   async assertAccess(campaign: CampaignWith<'user'>): Promise<void> {
     if (!campaign.isPro) {
       throw new ForbiddenException('Race opponent collection requires Pro.')
@@ -100,34 +97,21 @@ export class RaceOpponentService extends createPrismaBase(MODELS.RaceOpponent) {
         'Campaign has no associated user — check @UseCampaign include.',
       )
     }
-    const enabled = await this.features.isFeatureEnabled({
-      user: campaign.user,
-      feature: KNOW_YOUR_OPPONENT_FEATURE,
-    })
-    if (!enabled) {
-      throw new ForbiddenException('know-your-opponent is not enabled.')
-    }
   }
 
   // Server-side auto-trigger for a fresh Pro upgrade (no request user context):
   // get research in flight before the candidate first opens /opponent. Loads the
-  // campaign + user itself, then silently no-ops when the flag is off, the user
-  // is gone, or the campaign isn't Pro — an automated path must not 4xx the way
-  // the user-facing assertAccess does. Delegates to collect(), so the same
-  // in-flight dedup that guards the "Collect now" button keeps this from
-  // double-dispatching a duplicate paid RACE_OPPONENT_COLLECTION run.
+  // campaign + user itself, then silently no-ops when the user is gone or the
+  // campaign isn't Pro — an automated path must not 4xx the way the user-facing
+  // assertAccess does. Delegates to collect(), so the same in-flight dedup that
+  // guards the "Collect now" button keeps this from double-dispatching a
+  // duplicate paid RACE_OPPONENT_COLLECTION run.
   async autoCollectOnProUpgrade(campaignId: number): Promise<void> {
     const campaign = await this.client.campaign.findUnique({
       where: { id: campaignId },
       include: { user: true },
     })
     if (!campaign?.isPro || !campaign.user) return
-
-    const enabled = await this.features.isFeatureEnabled({
-      user: campaign.user,
-      feature: KNOW_YOUR_OPPONENT_FEATURE,
-    })
-    if (!enabled) return
 
     await this.collect(campaign)
   }

@@ -57,5 +57,15 @@ model TcrCompliance {
   agenticRunId                  String?   @unique @map("agentic_run_id")
   agenticDispatchAttemptedAt    DateTime? @map("agentic_dispatch_attempted_at")
 
+  // The channel + destination Peerly used to deliver the CampaignVerify PIN,
+  // read from the enriched retrieve_cv payload once the PIN is sent. Persisted
+  // for HubSpot (Campaign Success visibility + nudge). `pinSentDetectedAt`
+  // doubles as the once-only fire guard for the "PIN Sent" Segment event: the
+  // detection sweep claims it with `updateMany WHERE pinSentDetectedAt IS NULL`
+  // so a re-run can't re-fire the event.
+  pinDeliveryMethod             String?   @map("pin_delivery_method")
+  pinDeliveryDestination        String?   @map("pin_delivery_destination")
+  pinSentDetectedAt             DateTime? @map("pin_sent_detected_at")
+
   @@map("tcr_compliance")
 }

@@ -163,7 +163,7 @@ const CampaignPlanView = ({
         showConfetti={false}
         rootClassName="bg-transparent"
         contentClassName="max-w-3xl px-4"
-        bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 md:left-[var(--sidebar-width,16rem)]"
+        bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
         navStuckClassName="sticky top-0 z-30 border-b border-base-border bg-base-surface"
       />
     )
@@ -224,7 +224,7 @@ const CampaignPlanView = ({
         showConfetti={false}
         rootClassName="bg-transparent"
         contentClassName="max-w-3xl px-4"
-        bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 md:left-[var(--sidebar-width,16rem)]"
+        bottomBarClassName="fixed bottom-0 left-0 right-0 z-40 lg:left-[var(--sidebar-width,16rem)]"
         navStuckClassName="sticky top-0 z-30 border-b border-base-border bg-base-surface"
       />
     </>

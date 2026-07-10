@@ -29,6 +29,7 @@ import { UserOwnerOrAdminGuard } from './guards/UserOwnerOrAdmin.guard'
 import { GenerateSignedUploadUrlArgsDto } from './schemas/GenerateSignedUploadUrlArgs.schema'
 import { createZodDto, ZodValidationPipe } from 'nestjs-zod'
 import { UpdateMetadataSchema } from './schemas/UpdateMetadata.schema'
+import { SubmitCrmRegistrationSchema } from './schemas/SubmitCrmRegistration.schema'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { FileUpload } from 'src/files/files.types'
 import { ReqFile } from 'src/files/decorators/ReqFiles.decorator'
@@ -95,6 +96,15 @@ export class UsersController {
     @Body() { meta }: UpdateMetadataSchema,
   ) {
     return this.usersService.patchUserMetaData(user.id, meta)
+  }
+
+  @Post('me/crm-registration')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async submitCrmRegistration(
+    @ReqUser() user: User,
+    @Body() { hutk }: SubmitCrmRegistrationSchema,
+  ) {
+    await this.usersService.submitRegistrationCrmForm(user, hutk)
   }
 
   @Post('me/upload-image')

@@ -3,7 +3,7 @@ import { firstOrThrow } from '@/shared/test-utils/arrays.util'
 import { ExperimentRunStatus } from '../../generated/prisma'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { addDays, getDay, parseISO } from 'date-fns'
+import { addDays, getDay, parseISO, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
@@ -377,6 +377,78 @@ describe('GET /v1/meetings', () => {
         hasBriefing: true,
       }),
     ])
+  })
+
+  it('includes a MeetingBriefing row 30-45 days in the past', async () => {
+    const orgSlug = 'eo-past-briefing-in-window'
+    const eo = await seedElectedOffice(orgSlug)
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    const pastDate = formatInTimeZone(
+      subDays(new Date(), 35),
+      'UTC',
+      'yyyy-MM-dd',
+    )
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: parseIsoDateAsUTC(pastDate),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: briefingRun.runId,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing-key.json',
+      },
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.meetings).toEqual([
+      expect.objectContaining({ meetingDate: pastDate, hasBriefing: true }),
+    ])
+  })
+
+  it('excludes a MeetingBriefing row more than 60 days in the past', async () => {
+    const orgSlug = 'eo-past-briefing-outside-window'
+    const eo = await seedElectedOffice(orgSlug)
+    const briefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    const pastDate = formatInTimeZone(
+      subDays(new Date(), 65),
+      'UTC',
+      'yyyy-MM-dd',
+    )
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eo.id,
+        meetingDate: parseIsoDateAsUTC(pastDate),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: briefingRun.runId,
+        artifactBucket: 'briefing-bucket',
+        artifactKey: 'briefing-key.json',
+      },
+    })
+
+    const result = await service.client.get('/v1/meetings', {
+      headers: { 'x-organization-slug': orgSlug },
+    })
+
+    expect(result.status).toBe(200)
+    expect(result.data.meetings).toEqual([])
   })
 
   it('uses artifact meeting_name and location when present', async () => {

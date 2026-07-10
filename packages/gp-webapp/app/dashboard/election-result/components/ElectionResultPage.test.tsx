@@ -7,19 +7,30 @@ import { router } from 'helpers/test-utils/router-mocking'
 import ElectionResultPage from './ElectionResultPage'
 import { updateCampaign } from 'app/onboarding/shared/ajaxActions'
 
-const { mockErrorSnackbar, mockIsImpersonating, mockDismissElectionResult } =
-  vi.hoisted(() => ({
-    mockErrorSnackbar: vi.fn(),
-    mockIsImpersonating: vi.fn(() => false),
-    mockDismissElectionResult: vi.fn(),
-  }))
+const {
+  mockErrorSnackbar,
+  mockIsImpersonating,
+  mockDismissElectionResult,
+  mockCampaign,
+} = vi.hoisted(() => ({
+  mockErrorSnackbar: vi.fn(),
+  mockIsImpersonating: vi.fn(() => false),
+  mockDismissElectionResult: vi.fn(),
+  mockCampaign: {
+    current: { id: 1, details: { electionDate: '2025-05-20' } } as {
+      id: number
+      isPro?: boolean
+      details: { electionDate: string; subscriptionId?: string }
+    },
+  },
+}))
 
 vi.mock('app/onboarding/shared/ajaxActions', () => ({
   updateCampaign: vi.fn(),
 }))
 
 vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ id: 1, details: { electionDate: '2025-05-20' } }],
+  useCampaign: () => [mockCampaign.current],
 }))
 
 vi.mock('@shared/hooks/usePositionName', () => ({
@@ -130,9 +141,55 @@ describe('ElectionResultPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsImpersonating.mockReturnValue(false)
+    mockCampaign.current = { id: 1, details: { electionDate: '2025-05-20' } }
     // The "I won" step loads the user's other offices to disable overlapping
     // ranges; default to none so a fresh winner can pick any dates.
     api.mock('GET /v1/elected-office/mine', { status: 200, data: [] })
+  })
+
+  it('surfaces the billing portal for a Pro campaign with an active subscription', () => {
+    mockCampaign.current = {
+      id: 1,
+      isPro: true,
+      details: { electionDate: '2025-05-20', subscriptionId: 'sub_123' },
+    }
+
+    render(<ElectionResultPage />)
+
+    // The gate blocks every other dashboard route, so this is the only place a
+    // post-election Pro user can reach their billing portal.
+    expect(
+      screen.getByText(/Pro subscription is still active/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Manage subscription' }),
+    ).toBeInTheDocument()
+  })
+
+  it('shows no subscription alert for a non-Pro campaign', () => {
+    render(<ElectionResultPage />)
+
+    expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
+  })
+
+  it('hides the subscription alert on the term-dates step after declaring a win', async () => {
+    mockCampaign.current = {
+      id: 1,
+      isPro: true,
+      details: { electionDate: '2025-05-20', subscriptionId: 'sub_123' },
+    }
+
+    render(<ElectionResultPage />)
+    expect(
+      screen.getByText(/Pro subscription is still active/i),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'I won my race' }))
+
+    // A cancellation nudge alongside "Congratulations!" would be confusing —
+    // the alert belongs on the result-choice view only.
+    expect(await screen.findByText('Congratulations!')).toBeInTheDocument()
+    expect(screen.queryByText(/Pro subscription is still active/i)).toBeNull()
   })
 
   it('lets an impersonating admin dismiss the gate without saving a result', () => {

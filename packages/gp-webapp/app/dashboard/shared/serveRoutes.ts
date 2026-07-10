@@ -8,6 +8,7 @@ export const SERVE_ROUTE_PREFIXES = [
   '/dashboard/chief-of-staff',
   '/dashboard/briefings',
   '/dashboard/polls',
+  '/dashboard/ordinances',
   // Staff briefing review (impersonation) — scoped to the same elected-office
   // org, and reached via a deep link from gp-admin that must survive the
   // post-auth org switch.

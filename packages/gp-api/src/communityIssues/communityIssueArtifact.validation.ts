@@ -35,7 +35,7 @@ const SectionWithSourceIds = z.object({
   summary: z.string(),
 })
 
-const DetailSchema = z
+export const DetailSchema = z
   .object({
     sources: z.array(SourceSchema),
     overview: SectionWithSourceIds,

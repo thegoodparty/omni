@@ -38,13 +38,6 @@ vi.mock('../../shared/DashboardLayout', () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
 
-// The flag guard is a client component that gates on remote flag state; the
-// page-composition branch under test is independent of it, so render its
-// children directly.
-vi.mock('@shared/experiments/FeatureFlagGuard', () => ({
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
-
 // Exercised by its own suite; stub it so this test isolates the page's isPro
 // branch.
 vi.mock('../components/SelfResearch', () => ({
@@ -73,7 +66,7 @@ describe('dashboard/race-opponent/self-research page', () => {
     expect(mockServerRequest).not.toHaveBeenCalled()
   })
 
-  it('renders the research surface (past the guard) for a Pro user', async () => {
+  it('renders the research surface for a Pro user', async () => {
     mockFetchUserCampaign.mockResolvedValue({
       isPro: true,
       firstName: 'Ada',

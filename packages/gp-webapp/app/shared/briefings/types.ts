@@ -38,6 +38,14 @@ export type ConstituentSentiment = NonNullable<
 >
 export type RecentNewsEntry = NonNullable<ItemDisplay['recent_news']>[number]
 export type BudgetImpact = NonNullable<ItemDisplay['budget_impact']>
+
+/**
+ * A single talking_points entry — either a legacy bare string (artifacts
+ * generated before the {text, why} shape shipped) or the new structured
+ * `{text, why}` object every new run emits. See TalkingPointsList for the
+ * render-time type guard.
+ */
+export type TalkingPoint = NonNullable<ItemDisplay['talking_points']>[number]
 export type BudgetImpactFigure = BudgetImpact['figures'][number]
 
 export type Source = MeetingBriefingFull['sources'][number]

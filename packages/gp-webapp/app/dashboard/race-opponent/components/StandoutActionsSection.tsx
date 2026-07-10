@@ -12,12 +12,12 @@ type Props = {
   standoutActions: RaceOpponentStandoutAction[] | null | undefined
 }
 
-// The "N ways to stand out" action cards below the field SWOT (ENG-10650).
+// The "N ways to stand out" action cards below the roster (ENG-10650).
 // Each card carries an agent-drafted SMS; the CTA deep-links into the outreach
 // text composer with that message preset (`compose=text&message=...`), which
 // applies the same Pro/compliance gates as the manual path. Renders nothing
 // while the actions run is still in flight or after it failed (empty/absent
-// standoutActions) — the brief simply ends at the SWOT.
+// standoutActions) — the brief simply ends at the roster.
 const StandoutActionsSection = ({
   standoutActions,
 }: Props): React.JSX.Element | null => {

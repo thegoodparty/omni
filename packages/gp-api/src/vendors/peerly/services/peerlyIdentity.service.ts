@@ -11,7 +11,14 @@ import { parsePhoneNumberWithError } from 'libphonenumber-js'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { resolveJobGeographyFromAddress } from 'src/outreach/util/campaignGeography.util'
 import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
-import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
+import {
+  BallotReadyPositionLevel,
+  PeerlyCvVerificationStatus,
+} from '@goodparty_org/contracts'
+import {
+  derivePinDelivery,
+  DerivedPinDelivery,
+} from '../utils/peerlyPinDelivery.util'
 import { CampaignsService } from '../../../campaigns/services/campaigns.service'
 import { CreateTcrCompliancePayload } from '../../../campaigns/tcrCompliance/campaignTcrCompliance.types'
 import { DateFormats, formatDate } from '../../../shared/util/date.util'
@@ -36,6 +43,7 @@ import {
   PeerlyIdentityProfileResponseBody,
   PeerlyIdentityUseCaseResponseBody,
   PeerlyRetrieveCampaignVerifyStatusResponseBody,
+  PeerlyRetrieveCvResponseBody,
   PeerlySubmitCVResponseBody,
   PeerlyVerifyCVPinResponse,
 } from '../peerly.types'
@@ -58,6 +66,10 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../utils/peerlyBillingError.util'
+import {
+  getPeerlyCvRejectionDetail,
+  isPeerlyCvRejection,
+} from '../utils/peerlyCvRejection.util'
 import { PinoLogger } from 'nestjs-pino'
 
 @Injectable()
@@ -627,6 +639,26 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
           { cause: error },
         )
       }
+      // A CV data rejection (nested 400, e.g. "FEC filing URLs are not
+      // allowed.") re-fails deterministically: surfaced as the generic 502 it
+      // made the compliance agent retry in-run and its recovery loop
+      // re-dispatch until the resume cap, re-alerting Slack each attempt.
+      // Throw 400 instead so agent callers classify it as a non-retryable
+      // rejection, and carry CV's reason (the generic handler reads only the
+      // top-level Error field and drops it) so the failure is actionable.
+      if (isPeerlyCvRejection(error)) {
+        const detail = getPeerlyCvRejectionDetail(error)
+        return await this.handleApiError(error, {
+          campaign,
+          ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
+          httpExceptionClass: BadRequestException,
+          customMessage:
+            'Campaign Verify rejected the submission' +
+            (detail ? `: ${detail}` : '') +
+            ' — the saved filing details must be corrected before ' +
+            'resubmitting; retrying with the same data will fail again.',
+        })
+      }
       await this.handleApiError(error, {
         campaign,
         ...(peerlyIdentityId ? { peerlyIdentityId } : {}),
@@ -703,6 +735,40 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
             `No Campaign Verify request found for identityId: ${peerlyIdentityId}`,
           )
           return null
+        }
+      }
+      return await this.handleApiError(e, { campaign, peerlyIdentityId })
+    }
+  }
+
+  // Like retrieveCampaignVerifyStatus, but also parses the enriched retrieve_cv
+  // payload into the PIN delivery channel + destination Peerly used (present
+  // only once the PIN is sent). One Peerly call serves both the live FE display
+  // and the detection sweep. Same 404-as-null handling as the status read.
+  async retrieveCampaignVerifyDetails(
+    peerlyIdentityId: string,
+    campaign: Campaign,
+  ): Promise<{
+    status: PeerlyCvVerificationStatus | null
+    pinDelivery: DerivedPinDelivery | null
+  }> {
+    try {
+      const response =
+        await this.peerlyHttpService.get<PeerlyRetrieveCvResponseBody>(
+          `/v2/tdlc/${peerlyIdentityId}/retrieve_cv`,
+        )
+      const { data } = response
+      return {
+        status: data.verification_status ?? null,
+        pinDelivery: derivePinDelivery(data.verification_data),
+      }
+    } catch (e) {
+      if (isAxiosError<{ status_code?: number }>(e)) {
+        const is404 =
+          e.status === 404 ||
+          (e.status === 400 && e.response?.data?.status_code === 404)
+        if (is404) {
+          return { status: null, pinDelivery: null }
         }
       }
       return await this.handleApiError(e, { campaign, peerlyIdentityId })

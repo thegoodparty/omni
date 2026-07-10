@@ -657,7 +657,7 @@ describe('ChatStreamService', () => {
 
       expect(store.lastAppendedSegments).toEqual([
         { kind: 'text', text: 'before ' },
-        { kind: 'tool', toolName: 'web_search' },
+        { kind: 'tool', toolName: 'web_search', payload: { q: 'goodparty' } },
         { kind: 'text', text: 'after' },
       ])
     })

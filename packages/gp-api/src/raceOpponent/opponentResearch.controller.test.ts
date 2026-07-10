@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/raceOpponentResearchPersist.service'
@@ -94,11 +93,6 @@ const seedSelfRunning = (campaignId: number, runId: string) =>
       runId,
     },
   })
-
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
 
 const stubRaceContext = (candidates: string[]) =>
   vi
@@ -194,7 +188,6 @@ describe('Opponent research dispatch + persist', () => {
   describe('the self-research + access gates on start', () => {
     it('403s opponent research when no self-research pass is completed', async () => {
       await seedCampaign({ isPro: true })
-      flagOn()
 
       const result = await service.client.post(
         RESEARCH_PATH,
@@ -208,24 +201,6 @@ describe('Opponent research dispatch + persist', () => {
     it('403s opponent research for a non-Pro campaign with a completed self pass', async () => {
       const campaign = await seedCampaign({ isPro: false })
       await seedSelfComplete(campaign.id)
-      flagOn()
-
-      const result = await service.client.post(
-        RESEARCH_PATH,
-        { opponentName: OPPONENT },
-        { headers: { [ORG_SLUG_HEADER]: SLUG } },
-      )
-
-      expect(result.status).toBe(403)
-    })
-
-    it('403s opponent research when the flag is off with a completed self pass', async () => {
-      const campaign = await seedCampaign({ isPro: true })
-      await seedSelfComplete(campaign.id)
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
 
       const result = await service.client.post(
         RESEARCH_PATH,
@@ -239,7 +214,6 @@ describe('Opponent research dispatch + persist', () => {
     it('400s opponent research without a confirmed opponentName', async () => {
       const campaign = await seedCampaign({ isPro: true })
       await seedSelfComplete(campaign.id)
-      flagOn()
       const dispatchRun = vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -260,7 +234,6 @@ describe('Opponent research dispatch + persist', () => {
     it('dispatches opponent_research and claims a queued row', async () => {
       const campaign = await seedCampaign({ isPro: true })
       await seedSelfComplete(campaign.id)
-      flagOn()
       const dispatchRun = vi
         .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
         .mockResolvedValue({ runId: 'opp-1' } as never)
@@ -295,7 +268,6 @@ describe('Opponent research dispatch + persist', () => {
         RaceOpponentResearchStatus.running,
         'opp-inflight',
       )
-      flagOn()
       const dispatchRun = vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -315,7 +287,6 @@ describe('Opponent research dispatch + persist', () => {
     it('rolls the claim back to failed when dispatch throws (no orphan run)', async () => {
       const campaign = await seedCampaign({ isPro: true })
       await seedSelfComplete(campaign.id)
-      flagOn()
       vi.spyOn(
         service.app.get(ExperimentRunsService),
         'dispatchRun',
@@ -338,7 +309,6 @@ describe('Opponent research dispatch + persist', () => {
     it('returns the existing in-flight row on a concurrent P2002 claim', async () => {
       const campaign = await seedCampaign({ isPro: true })
       await seedSelfComplete(campaign.id)
-      flagOn()
       const winner = await seedOpponentResearch(
         campaign.id,
         RaceOpponentResearchStatus.queued,
@@ -381,7 +351,6 @@ describe('Opponent research dispatch + persist', () => {
   describe('the self-research + access gates on GET /opponents/profile', () => {
     it('403s profile when no self-research pass is completed', async () => {
       await seedCampaign({ isPro: true })
-      flagOn()
 
       const result = await service.client.get(PROFILE_PATH, {
         headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -394,23 +363,6 @@ describe('Opponent research dispatch + persist', () => {
     it('403s profile for a non-Pro campaign with a completed self pass', async () => {
       const campaign = await seedCampaign({ isPro: false })
       await seedSelfComplete(campaign.id)
-      flagOn()
-
-      const result = await service.client.get(PROFILE_PATH, {
-        headers: { [ORG_SLUG_HEADER]: SLUG },
-        params: { opponentName: OPPONENT },
-      })
-
-      expect(result.status).toBe(403)
-    })
-
-    it('403s profile when the flag is off with a completed self pass', async () => {
-      const campaign = await seedCampaign({ isPro: true })
-      await seedSelfComplete(campaign.id)
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
 
       const result = await service.client.get(PROFILE_PATH, {
         headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -425,7 +377,6 @@ describe('Opponent research dispatch + persist', () => {
     it('defaults opponent names from the roster, excluding the candidate', async () => {
       const campaign = await seedCampaign({ isPro: true })
       await seedSelfComplete(campaign.id)
-      flagOn()
       await service.prisma.campaign.update({
         where: { id: campaign.id },
         data: { details: { raceId: 'br-1' } },
@@ -666,7 +617,6 @@ describe('Opponent research dispatch + persist', () => {
       await service.app
         .get(RaceOpponentResearchPersistService)
         .onExperimentRunCompleted(run)
-      flagOn()
 
       const result = await service.client.get(PROFILE_PATH, {
         headers: { [ORG_SLUG_HEADER]: SLUG },

@@ -66,6 +66,7 @@ describe('<AgendaItemCard>', () => {
             article_type: 'reporting',
             headline: 'Council weighs camera expansion',
             publication: 'Burnsville Sentinel',
+            publication_date: '2026-05-01',
             url: 'https://example.com/news',
           },
         ],

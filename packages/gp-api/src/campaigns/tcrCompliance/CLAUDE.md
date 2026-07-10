@@ -87,6 +87,7 @@ kickoff path must not race it.
 |-------|---------------|
 | `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. |
 | `sweepUnsubmittedUsecases` | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
+| `sweepPinDeliveryDetection` (ENG-10658) | Records `submitted`/`pending`/`approved` + Peerly identity + no `pinDeliveryMethod` yet — reads the enriched `retrieve_cv`, records the channel + destination Peerly sent the PIN to on the record, and fires the `CompliancePinSent` Segment event **once** so HubSpot can stamp the company + nudge. The event carries the **method only** (`pin_delivery_method`), never the destination — the raw filing email/phone/address stays in our DB and is not synced to the analytics warehouse / HubSpot. The `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected (not a growing bulk loop). Once-only via an atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim is rolled back (scoped to its timestamp, and the rollback is itself try/caught so its failure can't mask the original error) so the next sweep retries. **Includes `pending` + `approved`** (not just `submitted`) because the in-app PIN entry / VERIFIED usecase sweep advance a record to `pending` then `approved` the moment the candidate acts — which can beat the hourly sweep — and pre-existing records were already `pending`/`approved` when this shipped; all three states imply the PIN went out, so this never fires for a never-sent record (`rejected`/`error` are failure states, excluded). |
 | `bootstrapTcrComplianceCheck` | Re-queues `pending` records for status checking. |
 
 ## `submitToPeerlyForAgent` notes
@@ -125,6 +126,19 @@ kickoff path must not race it.
   deterministically-failing submission. After the cooldown it probes again (re-alerting
   if still failing); a successful submit clears the block. Only this billing signal is
   matched — normal transient 5xx still flow through `handleApiError` and retry.
+- **CampaignVerify data rejections surface as 400, not 502.** Peerly proxies CV on
+  `submit_cv`: a CV rejection comes back as HTTP 400 with
+  `Error: "Campaign Verify API request failed."` and CV's own status echoed in the
+  nested `status_code`. A nested 400 (e.g. `"FEC filing URLs are not allowed."`) is a
+  deterministic data rejection — `isPeerlyCvRejection`
+  (`utils/peerlyCvRejection.util.ts`) detects it and `submitCampaignVerifyRequest`
+  throws `BadRequestException` carrying CV's parsed `details` reason. Before this, the
+  generic handler wrapped it as a 502, which the compliance agent treats as transient:
+  3 in-run retries (one Slack alert each) plus recovery-loop re-dispatch to the
+  5-resume cap, then a FAILED run whose blocker said `peerly_transient` with no reason
+  (campaign-325772 / campaign-75502, Jul 2026). A nested 5xx (CV itself down) still
+  flows through the generic 502/transient path. The Slack alert still fires once per
+  attempt; the 400 is what stops the retries.
 - Strips leading `www.` from `Domain.name` so Peerly's brand `website`/`email` use the
   apex domain, matching the legacy `create()` path.
 - **`filing_url` must be an official election filing.** CampaignVerify verifies the
@@ -134,10 +148,15 @@ kickoff path must not race it.
   the agent was resolving `filing_url` to `goodparty.org/candidate/...` pages). The
   guard lives in two layers. `tcrComplianceSuperRefine` (`tcrComplianceBase.schema.ts`,
   via the exported `addFilingUrlIssues`) rejects any `goodparty.org` host / credentialed
-  URL for the **create** callers (wizard, agentic-create) at write time. The **submit**
+  URL for the **create** callers (wizard, agentic-create) at write time, and (via
+  `addNonFederalFecFilingUrlIssue`) any `fec.gov`-hosted URL for **non-federal**
+  records — CampaignVerify rejects those outright with
+  `"FEC filing URLs are not allowed."` (federal is the opposite: the create schema
+  *requires* an FEC.gov link). The **submit**
   path no longer has a request DTO, so it re-applies those same guards to the *persisted*
   `filingUrl` at submit time via `submitToPeerlyFilingSchema`
-  (`submitToPeerlyDto.schema.ts`), plus an own-site check against the registered domain
+  (`submitToPeerlyDto.schema.ts`) — which takes the persisted `officeLevel` for the
+  non-federal FEC check — plus an own-site check against the registered domain
   host — a record saved before the guard shipped (or via a path without it) can still
   carry a bad value, and it must 400 rather than reach Peerly (existing bad rows are a
   data-repair follow-up). All return 400 so the candidate's saved filing details must be
@@ -203,11 +222,23 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
   extra Peerly `retrieve_cv` read stays off the other stages the agent polls). The FE
   (`ProUpgrade3Compliance.tsx`) shows the PIN-entry box only when `peerlyCvStatus` is
   `APPROVED`/`VERIFIED`; for `REQUESTED`/`IN_REVIEW`/`null` (Peerly hasn't issued a PIN
-  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvStatus`
+  yet) it shows a "verification in progress" state instead. `resolvePeerlyCvState`
   short-circuits to `APPROVED` in non-prod (Peerly is stubbed there, mirroring
   `retrieveCampaignVerifyToken`'s bypass) so testers still reach the PIN screen, and
   parses Peerly's status defensively so an unrecognized value degrades to the
   in-progress state rather than 500ing the read.
+- **PIN delivery channel is surfaced live + to HubSpot (ENG-10658):**
+  `resolvePeerlyCvState` uses one `retrieveCampaignVerifyDetails` call (enriched
+  `retrieve_cv`) to return both `peerlyCvStatus` and `ComplianceStateOutput.pinDelivery`
+  (`{ method, displayString } | null`) at `awaiting_pin`. `displayString` is
+  **masked server-side** (`maskPinDeliveryDestination`) — the raw filing
+  email/phone is redacted and the postal address dropped, so the unredacted
+  destination never crosses the wire (the raw value stays on the DB record). The
+  FE PIN screen composes the "we sent your PIN…" copy from it; `null` (method
+  absent or unrecognized, or non-prod) falls back to the generic copy. Persisting the channel +
+  firing the `CompliancePinSent` event is the background `sweepPinDeliveryDetection`'s
+  job (see the sweeps table), **not** this read — the read only displays, so a candidate
+  who never opens the app is still detected + nudged.
 - **`createAgentic` retries:** an existing record in `error`/`rejected` is retryable
   (deleted + recreated in one serializable tx); any other existing status returns the
   current record with `created: false`.

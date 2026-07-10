@@ -25,7 +25,6 @@ import {
   Send,
   Settings,
   Sparkles,
-  UserCog,
   UserRound,
   UsersRound,
   type LucideIcon,
@@ -70,7 +69,6 @@ import {
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
-import { useKnowYourOpponentFlag } from '@shared/experiments/knowYourOpponentFlag'
 
 interface MenuItem {
   id: string
@@ -123,7 +121,7 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     icon: <MdAccountCircle />,
     v2Icon: Circle,
     v2Category: null,
-    link: '/dashboard/campaign-details',
+    link: '/dashboard/profile',
     id: 'campaign-details-dashboard',
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
   },
@@ -263,7 +261,7 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
 
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
-  label: 'Know your opponent',
+  label: 'Know Your Opponent',
   link: '/dashboard/race-opponent',
   icon: <MdFactCheck />,
   v2Icon: FlagIcon,
@@ -289,7 +287,6 @@ export const getDashboardMenuItems = (
   winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
-  knowYourOpponentEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
@@ -366,13 +363,9 @@ export const getDashboardMenuItems = (
     })
   }
 
-  // Internal, read-only race-opponent page. Flag-gated so it can ramp to staff
-  // independently. Visible to flag-on non-Pro users too: the page renders a
-  // locked upgrade view rather than the feature, so the nav entry is gated on
-  // the flag only — the content is gated on isPro at the route.
-  if (knowYourOpponentEnabled) {
-    menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
-  }
+  // Visible to non-Pro users too: the page renders a locked upgrade view
+  // rather than the feature — the content is gated on isPro at the route.
+  menuItems.push(KNOW_YOUR_OPPONENT_MENU_ITEM)
 
   return menuItems
 }
@@ -398,9 +391,6 @@ export default function DashboardMenu({
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
   const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
-  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
-  // track exposure here.
-  const { enabled: knowYourOpponentEnabled } = useKnowYourOpponentFlag(false)
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -414,7 +404,6 @@ export default function DashboardMenu({
       winVoterDataEnabled,
       campaignStoryEnabled,
       communityIssuesEnabled,
-      knowYourOpponentEnabled,
     )
 
     if (ecanvasser) {
@@ -433,7 +422,6 @@ export default function DashboardMenu({
     winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
-    knowYourOpponentEnabled,
   ])
 
   useEffect(() => {
@@ -482,18 +470,12 @@ const NewNavMenu = ({
       label: 'Profile',
       icon: CircleUserRound,
       id: 'nav-dash-profile',
-      href: '/dashboard/campaign-details',
+      href: '/dashboard/profile',
       onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickMyProfile),
     },
-    settings: {
-      label: 'Settings',
-      icon: Settings,
-      id: 'nav-dash-settings',
-      href: '/dashboard/profile',
-    },
     account: {
-      label: 'Account',
-      icon: UserCog,
+      label: 'Account Settings',
+      icon: Settings,
       id: 'nav-dash-account',
       href: '/dashboard/account',
     },
@@ -607,7 +589,6 @@ const NewNavMenu = ({
                   {sidebarItem(accountManagementMenuItems.community)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.profile)}
-                  {sidebarItem(accountManagementMenuItems.settings)}
                   {sidebarItem(accountManagementMenuItems.account)}
                   <SidebarSeparator />
                   {sidebarItem(accountManagementMenuItems.logout)}
@@ -649,7 +630,6 @@ const NewNavMenu = ({
                   sideOffset={4}
                 >
                   {dropDownItem(accountManagementMenuItems.profile)}
-                  {dropDownItem(accountManagementMenuItems.settings)}
                   {dropDownItem(accountManagementMenuItems.account)}
                   <DropdownMenuSeparator />
                   {dropDownItem(accountManagementMenuItems.community)}

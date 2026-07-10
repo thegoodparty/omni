@@ -30,7 +30,8 @@ interface Props {
  * The manager runs as a single ongoing conversation: opening it resumes the
  * candidate's existing thread (or creates one on first open), so it always
  * continues where they left off. The server seeds the resume-aware greeting as
- * the conversation's first message, so there is no client-side opener to play.
+ * the conversation's first message; until the candidate replies, the chat body
+ * types that seeded greeting in on open (no separate client opener).
  */
 export default function CampaignManagerHome({
   firstName,

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunStatus } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
 import { RACE_OPPONENT_COLLECTION } from '../raceOpponent.constants'
@@ -8,7 +7,6 @@ import { RaceOpponentService } from './raceOpponent.service'
 
 describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
   let service: RaceOpponentService
-  const features = { isFeatureEnabled: vi.fn() }
   const findUnique = vi.fn()
 
   const proCampaignWithUser = {
@@ -20,7 +18,6 @@ describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     service = new RaceOpponentService(
-      features as unknown as FeaturesService,
       {} as never,
       {} as never,
       {} as never,
@@ -41,33 +38,19 @@ describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
       .fn()
       .mockResolvedValue({ runId: 'r1', status: 'running' })
     findUnique.mockResolvedValue(proCampaignWithUser)
-    features.isFeatureEnabled.mockResolvedValue(true)
   })
 
-  it('collects when the campaign is Pro, has a user, and the flag is on', async () => {
+  it('collects when the campaign is Pro and has a user', async () => {
     await service.autoCollectOnProUpgrade(42)
 
-    expect(features.isFeatureEnabled).toHaveBeenCalledWith({
-      user: proCampaignWithUser.user,
-      feature: 'win-know-your-opponent',
-    })
     expect(service.collect).toHaveBeenCalledExactlyOnceWith(proCampaignWithUser)
   })
 
-  it('skips silently when the flag is off — no collect, no flag-off throw', async () => {
-    features.isFeatureEnabled.mockResolvedValue(false)
-
-    await expect(service.autoCollectOnProUpgrade(42)).resolves.toBeUndefined()
-
-    expect(service.collect).not.toHaveBeenCalled()
-  })
-
-  it('skips when the campaign is not Pro, without evaluating the flag', async () => {
+  it('skips when the campaign is not Pro', async () => {
     findUnique.mockResolvedValue({ ...proCampaignWithUser, isPro: false })
 
     await service.autoCollectOnProUpgrade(42)
 
-    expect(features.isFeatureEnabled).not.toHaveBeenCalled()
     expect(service.collect).not.toHaveBeenCalled()
   })
 
@@ -76,7 +59,6 @@ describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
 
     await service.autoCollectOnProUpgrade(42)
 
-    expect(features.isFeatureEnabled).not.toHaveBeenCalled()
     expect(service.collect).not.toHaveBeenCalled()
   })
 })
@@ -86,7 +68,6 @@ describe('RaceOpponentService.autoCollectOnProUpgrade', () => {
 // (which drops the page off the processing screen and flashes the raw collected
 // rows) while the chained summary is still in flight (ENG-10614).
 describe('RaceOpponentService.get collectionStatus (collection → summary)', () => {
-  const features = { isFeatureEnabled: vi.fn() }
   const COLLECTED_AT = new Date('2026-06-30T10:00:00.000Z')
   const SUMMARY_AFTER = new Date('2026-06-30T10:05:00.000Z')
   const SUMMARY_STALE = new Date('2026-06-30T09:55:00.000Z')
@@ -127,7 +108,6 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
     rows?: (typeof collectedRow)[]
   }): RaceOpponentService => {
     const service = new RaceOpponentService(
-      features as unknown as FeaturesService,
       {} as never,
       {} as never,
       {} as never,
@@ -178,7 +158,6 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
 
   beforeEach(() => {
     vi.clearAllMocks()
-    features.isFeatureEnabled.mockResolvedValue(true)
   })
 
   it("reports 'running' while the chained summary run is still in flight", async () => {
@@ -338,7 +317,6 @@ describe('RaceOpponentService.get collectionStatus (collection → summary)', ()
 // in-flight dedup skipped them), or collectionStatus would trap on 'running'
 // forever (ENG-10614).
 describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
-  const features = { isFeatureEnabled: vi.fn() }
   const SUMMARY_RUN_AT = new Date('2026-06-30T10:00:00.000Z')
   const COLLECTION_NEWER = new Date('2026-06-30T10:03:00.000Z')
   const COLLECTION_OLDER = new Date('2026-06-30T09:57:00.000Z')
@@ -354,7 +332,6 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
     latestCompletedCollection: { createdAt: Date } | null,
   ): RaceOpponentService => {
     const service = new RaceOpponentService(
-      features as unknown as FeaturesService,
       {} as never,
       {} as never,
       {} as never,
@@ -409,7 +386,6 @@ describe('RaceOpponentService.rechainSummaryForNewerCollection', () => {
 // must re-chain when a summary newer than it completed while it was in flight
 // (dispatchActions' in-flight dedup skipped that summary's chained dispatch).
 describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
-  const features = { isFeatureEnabled: vi.fn() }
   const ACTIONS_RUN_AT = new Date('2026-07-01T10:00:00.000Z')
   const SUMMARY_NEWER = new Date('2026-07-01T10:03:00.000Z')
   const SUMMARY_OLDER = new Date('2026-07-01T09:57:00.000Z')
@@ -425,7 +401,6 @@ describe('RaceOpponentService.rechainActionsForNewerSummary', () => {
     latestCompletedSummary: { createdAt: Date } | null,
   ): RaceOpponentService => {
     const service = new RaceOpponentService(
-      features as unknown as FeaturesService,
       {} as never,
       {} as never,
       {} as never,

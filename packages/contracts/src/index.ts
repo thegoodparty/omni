@@ -47,6 +47,12 @@ export {
   type ArtifactReviewVerdict,
   ARTIFACT_REVIEW_VERDICT_VALUES,
   ArtifactReviewVerdictSchema,
+  type OrdinanceStatus,
+  ORDINANCE_STATUS_VALUES,
+  OrdinanceStatusSchema,
+  type OrdinanceSeedType,
+  ORDINANCE_SEED_TYPE_VALUES,
+  OrdinanceSeedTypeSchema,
 } from './generated/enums'
 
 export {
@@ -145,6 +151,9 @@ export {
   PEERLY_CV_VERIFICATION_STATUS_VALUES,
   PeerlyCvVerificationStatus,
   PeerlyCvVerificationStatusSchema,
+  PIN_DELIVERY_METHOD_VALUES,
+  PinDeliveryMethod,
+  PinDeliveryMethodSchema,
   ORGANIZATION_STATUS_VALUES,
   OrganizationStatus,
   OrganizationStatusSchema,
@@ -288,6 +297,8 @@ export {
 export {
   ComplianceStateDomainSchema,
   type ComplianceStateDomain,
+  PinDeliverySchema,
+  type PinDelivery,
   ComplianceStateOutputSchema,
   type ComplianceStateOutput,
 } from './campaigns/ComplianceStateOutput.schema'
@@ -522,6 +533,8 @@ export {
 export {
   ChatAnchorSnapshotSchema,
   type ChatAnchorSnapshot,
+  CommunityIssueChatAnchorSchema,
+  OrdinanceChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,
@@ -567,3 +580,5 @@ export {
   CommunityIssuesDispatchResultSchema,
   type CommunityIssuesDispatchResult,
 } from './communityIssues/CommunityIssueDispatch.schema'
+
+export * from './ordinances/Ordinance.schema'

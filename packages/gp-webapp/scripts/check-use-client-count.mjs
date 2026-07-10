@@ -30,7 +30,22 @@ import { dirname, join, relative } from 'node:path'
 // ratchet merged, so every PR failed regardless of its changes. No new client
 // components were added by this change; the ratchet holds the line from the
 // real number.
-const BASELINE = 524
+// 2026-07-08: 524 -> 527 for the profile/account consolidation. The new
+// profile/account cards and dialogs (office details, your details, personal &
+// account info, term-date editor, etc.) are interactive — they use React state,
+// event handlers, and hooks — so they can't be server components. Net +3 after
+// deleting the retired inline-edit sections.
+// 2026-07-08: 527 -> 528 for useOutreachComposeFlow — the in-place outreach
+// launcher (tracker/manager task cards) must be a client component: it holds
+// the open-flow modal state and mounts the interactive TaskFlow wizard.
+// 2026-07-09: 528 -> 533 for the Serve Ordinances flow UI (slice 3): the
+// per-step chat surface, the interactive clarify-question widget, the intake
+// form, the stepper, and the shared agent-chat presentation are all stateful
+// (hooks, event handlers, streaming) and can't be server components.
+// 2026-07-10: 533 -> 534 for useCampaignStoryComplete — a React Query hook
+// (useQuery + useCampaignStory) that gates the campaign-plan router on story
+// completeness, so it must run on the client.
+const BASELINE = 534
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

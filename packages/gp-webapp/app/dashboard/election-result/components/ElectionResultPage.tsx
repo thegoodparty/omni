@@ -36,6 +36,7 @@ import {
   type DisabledRange,
 } from 'app/serve/onboarding/termDates.shared'
 import { dismissElectionResult } from '../dismissal'
+import { ActiveProSubscriptionAlert } from './ActiveProSubscriptionAlert'
 
 const RESULT_WON = 'won'
 const RESULT_LOST = 'lost'
@@ -280,6 +281,9 @@ export default function ElectionResultPage(): React.JSX.Element {
                 </Button>
               </AlertAction>
             </Alert>
+          )}
+          {view !== 'term-dates' && (
+            <ActiveProSubscriptionAlert className="mb-8" />
           )}
           <div className="flex flex-col items-center md:justify-center">
             {isLoading ? (

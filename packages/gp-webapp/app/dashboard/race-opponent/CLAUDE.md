@@ -2,8 +2,9 @@
 
 The candidate-facing opposition-research surface. Backed by the gp-api `raceOpponent`
 module (`packages/gp-api/src/raceOpponent/CLAUDE.md` — read it for the two-engine
-split, gating, and the experiments). Flag-gated (`win-know-your-opponent`) and
-Pro-gated. Built across four epics (P0 ENG-10525 → P4 ENG-10604).
+split, gating, and the experiments). Pro-gated (the `win-know-your-opponent` flag
+was removed after full rollout). Built across four epics (P0 ENG-10525 → P4
+ENG-10604).
 
 ## Routes
 
@@ -13,8 +14,7 @@ Pro-gated. Built across four epics (P0 ENG-10525 → P4 ENG-10604).
 | `/dashboard/race-opponent/opponents`     | `opponents/page.tsx`     | Strict-engine opponent research (`OpponentResearch`); routes back to self-research if not done |
 | `/dashboard/race-opponent/self-research` | `self-research/page.tsx` | The candidate's own self-research pass (`SelfResearch`) — the front door to the strict engine  |
 
-All three are Server Components that resolve gating server-side (see below) and then
-render their client component inside `<FeatureFlagGuard flagKey={KNOW_YOUR_OPPONENT_FLAG_KEY}>`.
+All three are Server Components that resolve gating server-side (see below).
 
 ## Gating (the precedence ladder)
 
@@ -22,9 +22,8 @@ Resolved in `page.tsx` + `RaceOpponentList`. Get the order right or a just-upgra
 user flickers into the wrong state on first paint:
 
 ```
-flag off                          → no nav item, no page (FeatureFlagGuard hides/bounces)
-flag on, !isPro                   → <OpponentProLockedView/> (in-page upgrade pitch, NOT a redirect)
-flag on, isPro:
+!isPro                            → <OpponentProLockedView/> (in-page upgrade pitch, NOT a redirect)
+isPro:
   running/discovering, idle-mid-  → <OpponentResearchProgress/>   (4-step cosmetic screen)
     run, or never-ran auto-start
   completed, opponents > 0        → the report (list + threat tiers + issue contrasts)
@@ -38,12 +37,8 @@ There is **no "Collect now" / "Refresh" control** and no idle "start" prompt: a 
 user who lands with the agent never having run auto-starts the flow (see below). The
 only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysis").
 
-- **The flag gates the ENTIRE surface, the locked view included.** Flag-off must show
-  nothing (per ENG-10608 AC) — the non-Pro `OpponentProLockedView` stays _inside_
-  `FeatureFlagGuard`. Do NOT render it unconditionally; that would expose a gated,
-  unreleased feature to every non-Pro candidate.
-- The nav item (`DashboardMenu.tsx`) shows for flag-on users regardless of Pro; Pro is
-  gated at the route **content**, not the nav entry.
+- The nav item (`DashboardMenu.tsx`) shows for every Win campaign regardless of Pro;
+  Pro is gated at the route **content**, not the nav entry.
 
 ## Components (by epic / role)
 
@@ -54,10 +49,7 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   `border-border`) and `contentClassName` (`mx-auto max-w-[608px]` so the
   title aligns with the content column below; ENG-10638) — this
   replaced the old feature-local `OpponentPageHeader` (deleted) and the
-  `DashboardLayout` `navHeader` prop for this route. The bar lives INSIDE
-  `FeatureFlagGuard` on both branches: the flag gates the entire surface, so
-  flag-off must ship no trace of the feature — the heading included — in the
-  SSR HTML. The bar is desktop-only
+  `DashboardLayout` `navHeader` prop for this route. The bar is desktop-only
   (`max-lg:hidden`), like the `DashboardNavHeader` it replaced: on mobile the
   title lives in `MobileMenuTrigger`'s top bar via this route's
   `MOBILE_PAGE_TITLES` entry in `DashboardLayout` — keep that entry, or mobile
@@ -103,14 +95,12 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   only callers were the retired sections). `OpponentHandbook` (P3, unrelated
   strict-engine surface) is untouched.
 - **PDF export (P4/P5, ENG-10637)**: `pdf/` — the field header's "Export brief"
-  button downloads one PDF holding a brief per opponent that has a summary,
-  plus a document-level SWOT block after the opponent briefs.
+  button downloads one PDF holding a brief per opponent that has a summary.
   `opponentBriefContent.ts` is the pure page→PDF mapping (mirrors
   `OpponentSummaryView`'s section conditionals 1:1 — overview |
   whyTheyreRunning | background | issuesThatMatter, in that order; a legacy
   summary with only the pre-v2 fields falls back to overview + background,
-  same as the page — and `FieldAnalysisSection`'s omission rules for the SWOT
-  block via `buildFieldAnalysisBrief`). Reuses `descriptorFor` +
+  same as the page). Reuses `descriptorFor` +
   `threatTierLabel` for the snapshot line. It renders **only what the page
   shows** — no finance, no issue `salience` label, no recommended actions
   (those are Lovable-sample extras our page never renders), and none of the
@@ -139,8 +129,9 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   Radix HoverCard ignores touch pointerenter and iOS Safari doesn't focus
   buttons on tap, so the mobile affordance is an ENG-10635/QA concern.
   `SourceChip` also accepts a `nonLinkedSource` — a leading entry with no URL
-  (e.g. the field-SWOT's "Good Party internal data" citation) that renders in
-  the chip and carousel without an anchor. It intentionally does NOT converge
+  that renders in the chip and carousel without an anchor (added for the
+  removed field SWOT's "Good Party internal data" citation; no production
+  caller today, kept for the next sourced-but-unlinked section). It intentionally does NOT converge
   with `app/shared/citations/SectionSourcePills.tsx` (the briefings pill +
   single-source popover): the HoverCard + carousel design is pinned by the
   Phase 5 Lovable design, so keep the components separate — they do share the
@@ -154,24 +145,16 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   renderer — but stays in the tree (its own test still exercises it)
   following the same "kept for a future pass" precedent as
   `ContrastList`/`RegenerateContrasts` above.
-- **Field SWOT (P5, ENG-10636)**: `FieldAnalysisSection` renders campaign-level
-  SWOT ("How your campaign stacks up against the field") below the roster in
-  `RaceOpponentList`, reading `data.fieldAnalysis`
-  (`RaceOpponentFieldAnalysis` in `gpApi/api-endpoints.ts`, mirroring
-  `RaceOpponentFieldAnalysisSchema` in contracts). A pure, server-compatible
-  component (no `'use client'`) — its only stateful child is `SourceRow`.
-  Renders nothing for a null/undefined `fieldAnalysis`; omits an empty
-  quadrant; omits the whole section when fewer than 2 of the 4 quadrants
-  (strengths/weaknesses/opportunities/threats) have content. The source row
-  prepends the static non-linked `{ publisher: 'Good Party internal data' }`
-  entry (the SWOT has no real per-item source refs — it's derived from
-  `candidate_platform`) ahead of `fieldAnalysis.sources`. Quadrant tint tokens:
-  strengths `success`, weaknesses `warning`, opportunities `info`, threats
-  `destructive` — added `TrendingUpIcon`/`OctagonAlertIcon` to
-  `packages/styleguide/src/components/ui/icons.tsx` for this (weaknesses reuses
-  the existing `TriangleAlertIcon`, opportunities the existing `SparklesIcon`).
+- **Field SWOT (P5 ENG-10636, removed P6 ENG-10661)**: the campaign-level SWOT
+  ("How your campaign stacks up against the field") no longer renders anywhere
+  — `FieldAnalysisSection` (+ its test) and the PDF's `buildFieldAnalysisBrief`
+  block were deleted. UI-only removal: gp-api still produces and serves
+  `fieldAnalysis`, so the `RaceOpponentFieldAnalysis` mirror type and the
+  `fieldAnalysis` response field stay in `gpApi/api-endpoints.ts` (nothing
+  reads them). `TrendingUpIcon`/`OctagonAlertIcon` stay in
+  `packages/styleguide/src/components/ui/icons.tsx` (curated catalog).
 - **Stand-out actions (P6, ENG-10650)**: `StandoutActionsSection` renders the
-  "N ways to stand out" action cards below the field SWOT in
+  "N ways to stand out" action cards below the roster in
   `RaceOpponentList`, reading `data.standoutActions`
   (`RaceOpponentStandoutAction` in `gpApi/api-endpoints.ts`, mirroring
   `RaceOpponentStandoutActionSchema` in contracts; the contract defaults the
@@ -184,7 +167,7 @@ only manual paid trigger left is the `AddOpponentsForm` submit ("Run the analysi
   Pro/compliance gates as the manual path (the Lovable sample's sidebar
   interaction is wrong per the PO; the CTA navigates). Renders nothing for an
   absent/empty `standoutActions` (actions run in flight or failed — the brief
-  ends at the SWOT). Fires the two ENG-10651 events (see Analytics below):
+  ends at the roster). Fires the two ENG-10651 events (see Analytics below):
   viewed once per mount when cards render (ref-guarded against the 5s poll),
   clicked on each CTA press before the `router.push`.
 

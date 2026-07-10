@@ -1,5 +1,7 @@
 import type {
+  CreateOrdinanceRequest,
   ExperimentVariantsResponse,
+  Ordinance,
   Priority,
   ChatAnchor,
   RaceOpponentSourceType,
@@ -176,6 +178,14 @@ export type APIEndpoints = {
   'GET /v1/users/me': {
     Request: {}
     Response: User
+  }
+
+  // Submits the HubSpot registration form with the visitor's hubspotutk so
+  // the contact gets web/paid original-source attribution instead of the
+  // "offline sources" Segment's server-side destination would assign.
+  'POST /v1/users/me/crm-registration': {
+    Request: { hutk?: string }
+    Response: {}
   }
 
   // Used to refresh the outreach list after payment finalizes a draft
@@ -444,6 +454,16 @@ export type APIEndpoints = {
   'DELETE /v1/chats/:id': {
     Request: { scope: ChatScope }
     Response: void
+  }
+
+  'POST /v1/ordinances': {
+    Request: CreateOrdinanceRequest
+    Response: Ordinance
+  }
+
+  'GET /v1/ordinances/:slug': {
+    Request: {}
+    Response: Ordinance
   }
 
   'GET /v1/contacts/stats': {
@@ -762,6 +782,35 @@ export type APIEndpoints = {
   'POST /v1/community-issues/self-dispatch': {
     Request: { type: 'top_community_issues' | 'trending_issues' }
     Response: { dispatched: number; skipped: number }
+  }
+
+  // Preview/dev-only deterministic test seeding (gp-api disables it on qa/prod).
+  // Used by the Community Issues e2e suite; not called from product code.
+  'POST /v1/community-issues/seed': {
+    Request: {
+      issues: Array<{
+        list: 'top_community' | 'trending'
+        category: string
+        priority: 'low' | 'medium' | 'high'
+        title: string
+        summary: string
+        rank: number
+        detail: CommunityIssueContent
+        relatedBriefing?: {
+          meetingDate: string
+          briefingItemId: string
+          content: string
+        }
+      }>
+    }
+    Response: {
+      issues: Array<{
+        id: string
+        list: string
+        rank: number | null
+        title: string
+      }>
+    }
   }
 
   'GET /v1/campaigns/mine/race-opponent': {

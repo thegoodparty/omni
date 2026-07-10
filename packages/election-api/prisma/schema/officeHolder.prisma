@@ -51,7 +51,10 @@ model OfficeHolder {
   mtfcc        String?
 
   // Relations
-  Person     Person    @relation(fields: [personId], references: [id])
+  // OfficeHolder is a dependent child of Person: person_id is required and a row
+  // is meaningless without one, so it cascades when ETL deletes/re-mints a Person
+  // (vs. Candidacy, which is independent + nullable, so it uses SET NULL).
+  Person     Person    @relation(fields: [personId], references: [id], onDelete: Cascade)
   personId   String    @map("person_id") @db.Uuid
   Position   Position? @relation(fields: [positionId], references: [id])
   positionId String?   @map("position_id") @db.Uuid
