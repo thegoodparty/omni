@@ -16,8 +16,10 @@ import type {
 } from '@goodparty_org/contracts'
 
 // "source:" label + the styleguide source chip / hover popover (full org /
-// description / link). Its default hover is the loud green accent, overridden to
-// a muted tone to match the prototype's understated chip.
+// description / link). The styleguide chip defaults to a bordered surface with a
+// loud accent hover; override it to the understated subtle-gray pill (bg-muted /
+// muted text, no border) that matches the Lovable prototype and the briefings
+// source pills. twMerge collapses these onto the base chip classes.
 function OptionSource({
   source,
 }: {
@@ -31,7 +33,7 @@ function OptionSource({
         title={source.title}
         description={source.excerpt ?? source.title}
         chipLabel={source.title}
-        className="hover:bg-muted"
+        className="border-transparent bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"
         {...(source.url ? { url: source.url } : {})}
       />
     </div>

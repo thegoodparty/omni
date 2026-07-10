@@ -7,7 +7,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 // after the reached segment.
 export type LiveSegment =
   | { kind: 'text'; text: string }
-  | { kind: 'tool'; toolName: string }
+  // `running` shimmers the pill while the tool is in flight (set on tool_call,
+  // cleared on tool_result). Absent on persisted history, so reloaded pills are
+  // always static.
+  | { kind: 'tool'; toolName: string; running?: boolean }
 
 // Revealed-able characters in a turn (text only; pills reveal with the text
 // before them).
