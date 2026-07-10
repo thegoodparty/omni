@@ -10,7 +10,11 @@ model Person {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
   brPersonId   Int?     @map("br_person_id") // BallotReady Person databaseId; null for GP-native persons
-  slug         String   @unique // slugify(firstName-lastName); cosmetic prefix of the URL
+  // slugify(firstName-lastName); a cosmetic, human-readable prefix of the URL.
+  // NOT unique: the canonical /people/<slug>-<personId> URL disambiguates on the
+  // trailing UUID (lookups resolve by `id`), and full-name collisions are routine
+  // in US politics, so a unique slug would break ETL inserts of the second person.
+  slug         String
 
   // Name parts (BallotReady Person)
   firstName  String? @map("first_name")
@@ -44,4 +48,6 @@ model Person {
   // Relations
   Candidacies   Candidacy[]
   OfficeHolders OfficeHolder[]
+
+  @@index([slug])
 }

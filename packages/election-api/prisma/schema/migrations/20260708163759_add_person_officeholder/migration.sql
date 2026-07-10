@@ -87,7 +87,7 @@ CREATE INDEX "OfficeHolder_person_id_idx" ON "OfficeHolder"("person_id");
 CREATE INDEX "OfficeHolder_position_id_idx" ON "OfficeHolder"("position_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Person_slug_key" ON "Person"("slug");
+CREATE INDEX "Person_slug_idx" ON "Person"("slug");
 
 -- CreateIndex
 CREATE INDEX "Candidacy_person_id_idx" ON "Candidacy"("person_id");
