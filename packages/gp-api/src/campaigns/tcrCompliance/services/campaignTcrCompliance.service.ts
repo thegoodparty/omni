@@ -88,8 +88,11 @@ const AGENTIC_KICKOFF_SWEEP_INTERVAL =
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
 
+// Ticks hourly but posts at most daily: @Interval resets on process boot and
+// gp-api prod redeploys most weekdays, so a 24h interval would never elapse.
+// The per-record `stuckSubmissionAlertedAt` claim enforces the daily cadence.
 const STUCK_SUBMISSION_DIGEST_INTERVAL =
-  parseInt(process.env.STUCK_SUBMISSION_DIGEST_INTERVAL ?? '') || 24 * 60 * 60 // daily
+  parseInt(process.env.STUCK_SUBMISSION_DIGEST_INTERVAL ?? '') || 60 * 60
 
 // A Pro record still `submitted` with no Peerly identity this long after its
 // agent kickoff is stuck: every automated path (in-run retries, resume sweep
@@ -100,10 +103,10 @@ const STUCK_SUBMISSION_DIGEST_INTERVAL =
 // record is repaired or submits.
 const STUCK_SUBMISSION_MIN_AGE_HOURS = 24
 
-// Slightly under the daily interval so a tick that lands early (interval
-// phase drifts across deploys/replicas) still re-nags, while a second
-// replica's tick within the same day can't double-post.
-const STUCK_SUBMISSION_RENAG_HOURS = 20
+// Slightly under 24h so the hourly tick that lands nearest the same time
+// each day re-nags, while every other tick (and other replicas') within the
+// window can't double-post.
+const STUCK_SUBMISSION_RENAG_HOURS = 23
 
 const UNSUBMITTED_USECASE_SWEEP_INTERVAL =
   parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
@@ -239,8 +242,8 @@ export class CampaignTcrComplianceService extends createPrismaBase(
   // review. The per-run max-resume alert fires exactly once at failure time
   // and is easy to lose in an incident; this digest keeps naming the stuck
   // records daily until a human repairs them. `stuckSubmissionAlertedAt` is
-  // the atomic claim so multi-replica ticks post at most one digest per
-  // record per re-nag window.
+  // the atomic claim so the hourly multi-replica ticks post at most one
+  // digest per record per re-nag window.
   @Interval(STUCK_SUBMISSION_DIGEST_INTERVAL * 1000)
   async sweepStuckPeerlySubmissions() {
     const now = new Date()
