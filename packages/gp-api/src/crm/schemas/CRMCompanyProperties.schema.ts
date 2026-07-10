@@ -45,6 +45,11 @@ export const CRMCompanyPropertiesSchema = z
     [HS_PROPS.pro_upgrade_date]: timestampSchema,
     [HS_PROPS.running]: yesNoSchema,
 
+    // 10DLC compliance filing details
+    [HS_PROPS.n10_dlc_filing_email]: z.string(),
+    [HS_PROPS.n10_dlc_filing_phone]: z.string(),
+    [HS_PROPS.n10_dlc_filing_url]: z.string(),
+
     // election details
     [HS_PROPS.br_position_id]: z.string(),
     [HS_PROPS.br_race_id]: z.string(),
