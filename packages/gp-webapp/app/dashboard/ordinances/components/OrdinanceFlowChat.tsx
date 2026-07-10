@@ -377,13 +377,17 @@ export default function OrdinanceFlowChat({
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
-  // "Thinking..." covers the whole in-flight turn until the next thing the user
-  // acts on appears: the clarify question card or the next-step button. That is
-  // what fills the gap while the agent composes the question after streaming its
-  // lead-in text (there is no stream event during that compose). Gate on the
-  // reveal-done show* flags so it hands off exactly when the widget/button
-  // actually renders, not the instant the tool event arrives.
-  const working = sending && !showClarify && !showOffer
+  // Show the wait shimmer only when the assistant is working but nothing is
+  // actively typing: the initial compose gap (no text yet), or while a tool's
+  // arguments generate (generatingTool, e.g. the clarify question). Gated on
+  // revealDone so it never overlaps streaming text, and it stays silent in the
+  // brief commit window after a plain answer (text shown, nothing more coming).
+  const working =
+    sending &&
+    revealDone &&
+    !showClarify &&
+    !showOffer &&
+    (visibleSegments.length === 0 || generatingTool !== null)
   // Name what the model is doing when we know (a tool's args are streaming in);
   // otherwise the generic wait label.
   const workingLabel =
