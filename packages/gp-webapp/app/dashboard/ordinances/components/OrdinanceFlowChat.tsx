@@ -32,6 +32,13 @@ import {
 } from '../data/steps'
 import ClarifyQuestionWidget from './ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
+import {
+  StepWidgetBlocks,
+  isStepWidgetTool,
+  parseStepWidget,
+  parseStepWidgets,
+  type StepWidgetInstance,
+} from './stepWidgets'
 
 const CLARIFY_TOOL = 'ask_clarify_question'
 const OFFER_TOOL = 'offer_next_step'
@@ -137,6 +144,12 @@ export default function OrdinanceFlowChat({
   const [liveOffer, setLiveOffer] = useState<OrdinanceNextStepOffer | null>(
     null,
   )
+  // Each live widget records how much turn text preceded its tool call, so it
+  // appears only after that text has typed out — and, unlike a turn-global
+  // revealDone gate, never unmounts when later text in the same turn streams.
+  const [liveWidgets, setLiveWidgets] = useState<
+    Array<{ instance: StepWidgetInstance; appearAfter: number }>
+  >([])
   // The tool whose arguments the model is currently writing, if any, so the
   // working shimmer can name it (e.g. "Writing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
@@ -172,6 +185,7 @@ export default function OrdinanceFlowChat({
       setLiveSegments([])
       setLiveClarify(null)
       setLiveOffer(null)
+      setLiveWidgets([])
       setGeneratingTool(null)
       if (!opts?.hidden) {
         setComposer('')
@@ -218,6 +232,15 @@ export default function OrdinanceFlowChat({
               if (parsed) setLiveClarify(parsed)
             } else if (event.toolName === OFFER_TOOL) {
               setLiveOffer(parseOffer(event.args) ?? {})
+            } else if (isStepWidgetTool(event.toolName)) {
+              const widget = parseStepWidget(event.toolName, event.args)
+              if (widget) {
+                const appearAfter = segmentsTextLength(segments)
+                setLiveWidgets((prev) => [
+                  ...prev,
+                  { instance: widget, appearAfter },
+                ])
+              }
             } else if (TOOL_LABELS[event.toolName]) {
               segments.push({
                 kind: 'tool',
@@ -264,6 +287,7 @@ export default function OrdinanceFlowChat({
         setLiveSegments([])
         setLiveClarify(null)
         setLiveOffer(null)
+        setLiveWidgets([])
         setGeneratingTool(null)
         setSending(false)
       }
@@ -398,6 +422,11 @@ export default function OrdinanceFlowChat({
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
+  const revealedTextLength = segmentsTextLength(visibleSegments)
+  const shownWidgets = liveWidgets
+    .filter((w) => revealedTextLength >= w.appearAfter)
+    .map((w) => w.instance)
+  const showWidgets = shownWidgets.length > 0
   // Show the wait shimmer only when the assistant is working but nothing is
   // visible on screen yet, or while a tool's arguments generate. Keying
   // "nothing visible" on the revealed segments (not on the arrival of the first
@@ -405,7 +434,7 @@ export default function OrdinanceFlowChat({
   // paints, so there is no empty flash between "Thinking..." and the first
   // word. The tool-generating case is gated on revealDone so the shimmer never
   // overlaps text that is still typing out.
-  const nothingVisible = visibleSegments.length === 0
+  const nothingVisible = visibleSegments.length === 0 && !showWidgets
   const toolGenerating = generatingTool !== null && revealDone
   const working =
     sending && !showClarify && !showOffer && (nothingVisible || toolGenerating)
@@ -456,7 +485,10 @@ export default function OrdinanceFlowChat({
             ),
           )}
 
-          {(visibleSegments.length > 0 || showClarify || working) && (
+          {(visibleSegments.length > 0 ||
+            showClarify ||
+            showWidgets ||
+            working) && (
             <AssistantRow>
               {visibleSegments.length > 0 ? (
                 <InlineSegments
@@ -464,6 +496,7 @@ export default function OrdinanceFlowChat({
                   toolLabel={(name) => TOOL_LABELS[name] ?? null}
                 />
               ) : null}
+              {showWidgets ? <StepWidgetBlocks widgets={shownWidgets} /> : null}
               {showClarify && liveClarify ? (
                 <ClarifyQuestionWidget
                   question={liveClarify}
@@ -564,6 +597,7 @@ function AssistantMessage({
 }): React.JSX.Element {
   const segments = message.segments ?? []
   const clarify = clarifyFromSegments(segments)
+  const stepWidgets = parseStepWidgets(segments)
   // Same interleaved model as the live turn: text and tool pills in stream
   // order, so a reloaded turn reads identically to how it streamed.
   const rendered: LiveSegment[] =
@@ -588,6 +622,7 @@ function AssistantMessage({
           segments={rendered}
           toolLabel={(name) => TOOL_LABELS[name] ?? null}
         />
+        <StepWidgetBlocks widgets={stepWidgets} />
         {clarify ? (
           <ClarifyQuestionWidget
             question={clarify}
