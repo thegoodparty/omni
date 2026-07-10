@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -119,7 +120,9 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         { ordinanceId: existing.id, error: parsed.error },
         'clarifyAnswers failed schema parse; refusing to overwrite',
       )
-      throw new Error('clarifyAnswers is malformed; cannot safely append')
+      throw new InternalServerErrorException(
+        'clarifyAnswers is malformed; cannot safely append',
+      )
     }
     const answers = parsed.success ? parsed.data : []
     const next = [

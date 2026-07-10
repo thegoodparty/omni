@@ -157,6 +157,10 @@ export default function OrdinanceFlowChat({
   const [sending, setSending] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // Synchronous double-submit guard for answerClarify: setSending/setAnswers
+  // are async, so a fast double-tap could otherwise fire two persists and two
+  // streams before the first re-render locks the widget.
+  const answeringRef = useRef(false)
   const router = useRouter()
 
   // Smooth type-out for the in-flight turn: the reveal trails the arrived text
@@ -297,6 +301,8 @@ export default function OrdinanceFlowChat({
 
   const answerClarify = useCallback(
     (questionId: string, question: string, answer: string): void => {
+      if (answeringRef.current) return
+      answeringRef.current = true
       // Optimistic: highlight the pick immediately. The turn is sent hidden (no
       // echoed text bubble) so only the highlighted option represents the answer.
       setAnswers((prev) => ({ ...prev, [questionId]: answer }))
@@ -331,6 +337,9 @@ export default function OrdinanceFlowChat({
                 ? prev
                 : [...prev, { questionId, question, answer }],
             )
+          })
+          .finally(() => {
+            answeringRef.current = false
           })
         await Promise.all([send(answer, { hidden: true }), persist])
       })()
