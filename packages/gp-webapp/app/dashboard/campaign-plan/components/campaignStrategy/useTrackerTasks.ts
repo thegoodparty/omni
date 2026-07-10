@@ -37,12 +37,16 @@ const POLL_INTERVAL_MS = 20 * 1000
 // it), so without this a page left open across the weekly cron would show last
 // week's tasks until the next mount/focus.
 const BACKGROUND_POLL_MS = 5 * 60 * 1000
-// ~15 min of fast polling. If the tasks never land — dynamic dispatch no-ops
-// (missing raceId/clerkId/name), or the tracker never bootstraps because the
-// campaign story was never completed — stop hammering and fall back to the
-// background interval rather than polling every 20s forever for every open
-// session.
-const MAX_FAST_POLLS = 45
+// Fast-poll for ~15 min of wall-clock while the tracker is settling, then back
+// off. Wall-clock rather than a fetch count: dataUpdateCount increments on the
+// mount + focus refetches enabled below too, so a count budget would be burned
+// by ordinary tab-switching during onboarding before any interval poll fires.
+// This caps the cost when tasks never land (dispatch no-ops, or the tracker
+// never bootstraps because the campaign story was never completed).
+const FAST_POLL_DURATION_MS = 15 * 60 * 1000
+// Module scope: trackerTasksQueryOptions is re-invoked on every render, so
+// closure state would reset each time. Reset to null when settling ends.
+let fastPollStartedAt: number | null = null
 
 const trackerTasksQueryOptions = () =>
   queryOptions({
@@ -59,12 +63,18 @@ const trackerTasksQueryOptions = () =>
     refetchIntervalInBackground: true,
     // Poll fast while the tracker is still settling (no rows yet, or static-only
     // with dynamic still generating) so tasks appear without a manual refresh;
-    // once dynamic lands (or after the fast-poll budget) drop to a slow
-    // background poll so a later weekly regen still gets picked up.
+    // once dynamic lands (or after the fast-poll window) drop to a slow
+    // background poll so a later weekly regen still gets picked up. `undefined`
+    // data (before the first fetch resolves) counts as settling, so the fast
+    // interval is live from mount rather than falling back to the slow one.
     refetchInterval: (query) => {
       const data = query.state.data
-      if (!data || !isTrackerSettling(data)) return BACKGROUND_POLL_MS
-      return query.state.dataUpdateCount < MAX_FAST_POLLS
+      if (data !== undefined && !isTrackerSettling(data)) {
+        fastPollStartedAt = null
+        return BACKGROUND_POLL_MS
+      }
+      if (fastPollStartedAt === null) fastPollStartedAt = Date.now()
+      return Date.now() - fastPollStartedAt < FAST_POLL_DURATION_MS
         ? POLL_INTERVAL_MS
         : BACKGROUND_POLL_MS
     },
