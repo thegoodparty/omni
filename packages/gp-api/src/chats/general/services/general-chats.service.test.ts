@@ -212,6 +212,42 @@ describe('GeneralChatsService', () => {
     },
   )
 
+  it('passes handler.maxSteps through to the chat stream', async () => {
+    handler = buildHandler({ maxSteps: 8 })
+    store = buildStore({
+      findOwnedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'c1', title: 'existing' }),
+      ) as never,
+    })
+    const streamArgs: { value?: unknown } = {}
+    const chatStream = {
+      stream: vi.fn((args: unknown) => {
+        streamArgs.value = args
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            yield { type: 'done' } as ChatStreamChunk
+          },
+        }
+      }),
+    }
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      {} as never,
+      chatStream as never,
+    )
+    await collect(
+      service.sendMessage({
+        conversationId: 'c1',
+        scope: SCOPE,
+        userId: USER_ID,
+        organizationSlug: ORG,
+        userMessage: 'hi',
+      }),
+    )
+    expect(streamArgs.value).toMatchObject({ maxSteps: 8 })
+  })
+
   it('yields conversation_not_found when streaming a missing conversation', async () => {
     store = buildStore({
       findOwnedConversation: vi.fn(() => Promise.resolve(null)) as never,

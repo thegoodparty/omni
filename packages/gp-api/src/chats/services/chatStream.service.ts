@@ -43,6 +43,7 @@ export interface StreamArgs {
   signal?: AbortSignal
   clientMessageId?: string
   models?: string[]
+  maxSteps?: number
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -290,6 +291,7 @@ export class ChatStreamService {
         messages,
         tools: args.tools,
         ...(args.models && { models: args.models }),
+        ...(args.maxSteps && { maxSteps: args.maxSteps }),
         ...(args.signal && { abortSignal: args.signal }),
         onToolCallStart: ({ name, input }) => {
           toolCallCount += 1

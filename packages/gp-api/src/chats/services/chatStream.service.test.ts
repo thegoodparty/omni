@@ -324,6 +324,7 @@ const baseStreamArgs = (
     tools: Record<string, LlmStreamTool>
     signal: AbortSignal
     clientMessageId: string
+    maxSteps: number
   }> = {},
 ) => ({
   conversationId: overrides.conversationId ?? CONVERSATION_ID,
@@ -335,6 +336,7 @@ const baseStreamArgs = (
   ...(overrides.clientMessageId !== undefined && {
     clientMessageId: overrides.clientMessageId,
   }),
+  ...(overrides.maxSteps !== undefined && { maxSteps: overrides.maxSteps }),
 })
 
 const expectErrorChunk = (chunks: ChatStreamChunk[]) => {
@@ -1023,6 +1025,24 @@ describe('ChatStreamService', () => {
       await collect(service.stream(baseStreamArgs({ tools })))
 
       expect(llm.calls[0]?.options.tools).toBe(tools)
+    })
+
+    it('forwards maxSteps to llm when set', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(service.stream(baseStreamArgs({ maxSteps: 8 })))
+
+      expect(firstOrThrow(llm.calls).options.maxSteps).toBe(8)
+    })
+
+    it('omits maxSteps from the llm call when not set', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(service.stream(baseStreamArgs()))
+
+      expect(firstOrThrow(llm.calls).options).not.toHaveProperty('maxSteps')
     })
 
     it('forwards systemPrompt verbatim as first system message', async () => {
