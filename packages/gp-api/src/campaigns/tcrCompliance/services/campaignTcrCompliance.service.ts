@@ -8,7 +8,15 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule'
-import { formatISO, isAfter, isValid, parseISO, subMinutes } from 'date-fns'
+import {
+  differenceInCalendarDays,
+  formatISO,
+  isAfter,
+  isValid,
+  parseISO,
+  subHours,
+  subMinutes,
+} from 'date-fns'
 import { setTimeout as sleep } from 'timers/promises'
 import {
   Campaign,
@@ -66,6 +74,8 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { SlackService } from '../../../vendors/slack/services/slack.service'
+import { SlackChannel } from '../../../vendors/slack/slackService.types'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -77,6 +87,26 @@ const AGENTIC_KICKOFF_SWEEP_INTERVAL =
   parseInt(process.env.AGENTIC_KICKOFF_SWEEP_INTERVAL ?? '') || 10 * 60
 
 const AGENTIC_KICKOFF_STALENESS_MINUTES = 10
+
+// Ticks hourly but posts at most daily: @Interval resets on process boot and
+// gp-api prod redeploys most weekdays, so a 24h interval would never elapse.
+// The per-record `stuckSubmissionAlertedAt` claim enforces the daily cadence.
+const STUCK_SUBMISSION_DIGEST_INTERVAL =
+  parseInt(process.env.STUCK_SUBMISSION_DIGEST_INTERVAL ?? '') || 60 * 60
+
+// A Pro record still `submitted` with no Peerly identity this long after its
+// agent kickoff is stuck: every automated path (in-run retries, resume sweep
+// to the 5-attempt cap) has long since finished, and nothing else retries a
+// terminally FAILED run. Peter Erickson (campaign 304314) sat in this state
+// for 8 days — the one-shot max-resume alert fired during an unrelated
+// incident storm and was missed — so the digest re-alerts daily until the
+// record is repaired or submits.
+const STUCK_SUBMISSION_MIN_AGE_HOURS = 24
+
+// Slightly under 24h so the hourly tick that lands nearest the same time
+// each day re-nags, while every other tick (and other replicas') within the
+// window can't double-post.
+const STUCK_SUBMISSION_RENAG_HOURS = 23
 
 const UNSUBMITTED_USECASE_SWEEP_INTERVAL =
   parseInt(process.env.UNSUBMITTED_USECASE_SWEEP_INTERVAL ?? '') || 60 * 60 // hourly
@@ -132,6 +162,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     private queueService: QueueProducerService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly analytics: AnalyticsService,
+    private readonly slack: SlackService,
   ) {
     super()
   }
@@ -199,6 +230,95 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         this.logger.error(
           { err, tcrComplianceId: record.id },
           '[TCR Compliance] Failed to re-enqueue stranded agentic kickoff',
+        )
+      }
+    }
+  }
+
+  // Recurring visibility for paying candidates whose registration never
+  // reached Peerly: kickoff went out, the agent's retry budget is exhausted
+  // (or it dead-ended on a stage gate), and the record sits `submitted`
+  // forever while the dashboard/HubSpot tell the candidate everything is in
+  // review. The per-run max-resume alert fires exactly once at failure time
+  // and is easy to lose in an incident; this digest keeps naming the stuck
+  // records daily until a human repairs them. `stuckSubmissionAlertedAt` is
+  // the atomic claim so the hourly multi-replica ticks post at most one
+  // digest per record per re-nag window.
+  @Interval(STUCK_SUBMISSION_DIGEST_INTERVAL * 1000)
+  async sweepStuckPeerlySubmissions() {
+    const now = new Date()
+    const stuckSince = subHours(now, STUCK_SUBMISSION_MIN_AGE_HOURS)
+    const renagCutoff = subHours(now, STUCK_SUBMISSION_RENAG_HOURS)
+    const renagFilter = [
+      { stuckSubmissionAlertedAt: null },
+      { stuckSubmissionAlertedAt: { lt: renagCutoff } },
+    ]
+
+    const stuck = await this.model.findMany({
+      where: {
+        status: TcrComplianceStatus.submitted,
+        peerlyIdentityId: null,
+        kickoffSentAt: { lt: stuckSince },
+        campaign: { isPro: true },
+        OR: renagFilter,
+      },
+      include: { campaign: true },
+      orderBy: { kickoffSentAt: Prisma.SortOrder.asc },
+    })
+    if (!stuck.length) {
+      return
+    }
+
+    const claimed: typeof stuck = []
+    for (const record of stuck) {
+      const claim = await this.model.updateMany({
+        where: { id: record.id, OR: renagFilter },
+        data: { stuckSubmissionAlertedAt: now },
+      })
+      if (claim.count > 0) {
+        claimed.push(record)
+      }
+    }
+    if (!claimed.length) {
+      return
+    }
+
+    const lines = claimed.map((record) => {
+      const kickedOffAt = record.kickoffSentAt ?? record.createdAt
+      const daysStuck = differenceInCalendarDays(now, kickedOffAt)
+      return (
+        `• ${record.campaign.slug} (campaign ${record.campaignId}) — ` +
+        `kicked off ${daysStuck}d ago, run ${record.agenticRunId ?? 'none'}`
+      )
+    })
+    const posted = await this.slack.errorMessage(
+      {
+        message:
+          `${claimed.length} Pro campaign(s) stuck before Peerly ` +
+          `submission (status "submitted", no identity, kickoff > ` +
+          `${STUCK_SUBMISSION_MIN_AGE_HOURS}h ago). Nothing retries these ` +
+          `automatically — each needs manual repair. This digest repeats ` +
+          `daily until resolved.\n${lines.join('\n')}`,
+      },
+      SlackChannel.bot10DlcCompliance,
+    )
+    // SlackService swallows post failures and returns undefined; release the
+    // claims (scoped to this tick's exact timestamp so a concurrent claim
+    // isn't disturbed) so the next tick retries instead of skipping a day.
+    if (posted === undefined) {
+      try {
+        await this.model.updateMany({
+          where: {
+            id: { in: claimed.map((record) => record.id) },
+            stuckSubmissionAlertedAt: now,
+          },
+          data: { stuckSubmissionAlertedAt: null },
+        })
+      } catch (rollbackErr) {
+        this.logger.error(
+          { rollbackErr },
+          '[TCR Compliance] Failed to release stuck-submission claims; ' +
+            'records may skip a re-nag cycle',
         )
       }
     }

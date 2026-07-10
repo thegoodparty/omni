@@ -27,6 +27,8 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
+import { SlackChannel } from '@/vendors/slack/slackService.types'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
@@ -136,6 +138,10 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -706,6 +712,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1248,6 +1258,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: AnalyticsService, useValue: mockAnalytics },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1819,6 +1833,10 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1902,6 +1920,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -2137,6 +2159,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -2317,5 +2343,115 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
       where: { id: 'tcr-b' },
       data: { status: TcrComplianceStatus.pending },
     })
+  })
+})
+
+describe('CampaignTcrComplianceService - sweepStuckPeerlySubmissions', () => {
+  let service: CampaignTcrComplianceService
+  let mockSlack: { errorMessage: ReturnType<typeof vi.fn> }
+  let mockModel: {
+    findMany: ReturnType<typeof vi.fn>
+    updateMany: ReturnType<typeof vi.fn>
+  }
+
+  const stuckRecord = (id: string, slug: string, campaignId: number) => ({
+    id,
+    campaignId,
+    status: TcrComplianceStatus.submitted,
+    peerlyIdentityId: null,
+    kickoffSentAt: subMinutes(new Date(), 60 * 24 * 8),
+    createdAt: subMinutes(new Date(), 60 * 24 * 8),
+    agenticRunId: `run-${id}`,
+    stuckSubmissionAlertedAt: null,
+    campaign: { id: campaignId, slug, isPro: true },
+  })
+
+  beforeEach(async () => {
+    mockSlack = { errorMessage: vi.fn().mockResolvedValue('ok') }
+    mockModel = {
+      findMany: vi.fn().mockResolvedValue([]),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
+        { provide: PeerlyIdentityService, useValue: {} },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        { provide: AnalyticsService, useValue: {} },
+        { provide: SlackService, useValue: mockSlack },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('claims each stuck record and posts one digest naming them all', async () => {
+    mockModel.findMany.mockResolvedValueOnce([
+      stuckRecord('tcr-1', 'peter-erickson', 304314),
+      stuckRecord('tcr-2', 'jane-doe', 111111),
+    ])
+
+    await service.sweepStuckPeerlySubmissions()
+
+    expect(mockModel.updateMany).toHaveBeenCalledTimes(2)
+    expect(mockModel.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'tcr-1' }),
+        data: { stuckSubmissionAlertedAt: expect.any(Date) },
+      }),
+    )
+    expect(mockSlack.errorMessage).toHaveBeenCalledTimes(1)
+    const [{ message }, channel] = firstOrThrow(
+      mockSlack.errorMessage.mock.calls,
+    ) as [{ message: string }, string]
+    expect(message).toContain('peter-erickson (campaign 304314)')
+    expect(message).toContain('jane-doe (campaign 111111)')
+    expect(message).toContain('run run-tcr-1')
+    expect(channel).toBe(SlackChannel.bot10DlcCompliance)
+  })
+
+  it('does not post when every record was already claimed by another replica', async () => {
+    mockModel.findMany.mockResolvedValueOnce([
+      stuckRecord('tcr-1', 'peter-erickson', 304314),
+    ])
+    mockModel.updateMany.mockResolvedValueOnce({ count: 0 })
+
+    await service.sweepStuckPeerlySubmissions()
+
+    expect(mockSlack.errorMessage).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when no stuck records exist', async () => {
+    await service.sweepStuckPeerlySubmissions()
+
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockSlack.errorMessage).not.toHaveBeenCalled()
+  })
+
+  it('releases its claims when the Slack post fails so the next tick retries', async () => {
+    // SlackService.message swallows delivery errors and resolves undefined
+    // rather than throwing — the sweep must detect that, not a rejection.
+    mockModel.findMany.mockResolvedValueOnce([
+      stuckRecord('tcr-1', 'peter-erickson', 304314),
+    ])
+    mockSlack.errorMessage.mockResolvedValueOnce(undefined)
+
+    await service.sweepStuckPeerlySubmissions()
+
+    const release = mockModel.updateMany.mock.calls.at(-1)?.[0] as {
+      where: { id: { in: string[] }; stuckSubmissionAlertedAt: Date }
+      data: { stuckSubmissionAlertedAt: null }
+    }
+    expect(release.where.id).toEqual({ in: ['tcr-1'] })
+    expect(release.where.stuckSubmissionAlertedAt).toBeInstanceOf(Date)
+    expect(release.data).toEqual({ stuckSubmissionAlertedAt: null })
   })
 })

@@ -11,6 +11,7 @@ import {
   ComplianceStage,
   PeerlyCvVerificationStatus,
 } from '@goodparty_org/contracts'
+import { parseISO } from 'date-fns'
 import { Test, TestingModule } from '@nestjs/testing'
 import { BadGatewayException } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -35,10 +36,13 @@ const mockWebsite = (
 ): Pick<Website, 'status'> => ({ status })
 
 const mockDomain = (
-  overrides?: Partial<Pick<Domain, 'status' | 'registrantVerifiedAt'>>,
-): Pick<Domain, 'status' | 'registrantVerifiedAt'> => ({
+  overrides?: Partial<
+    Pick<Domain, 'status' | 'registrantVerifiedAt' | 'createdAt'>
+  >,
+): Pick<Domain, 'status' | 'registrantVerifiedAt' | 'createdAt'> => ({
   status: DomainStatus.registered,
   registrantVerifiedAt: new Date(),
+  createdAt: parseISO('2026-06-15T00:00:00Z'),
   ...overrides,
 })
 
@@ -105,6 +109,49 @@ describe('deriveComplianceStage', () => {
         mockCampaign(),
         mockWebsite(),
         mockDomain({ registrantVerifiedAt: null }),
+        mockTcr(),
+      ),
+    ).toBe(ComplianceStage.pending_website_live)
+  })
+
+  it('returns awaiting_pin for a legacy pre-2026-06 domain with no registrant stamp', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain({
+          status: DomainStatus.submitted,
+          registrantVerifiedAt: null,
+          createdAt: parseISO('2026-05-08T11:14:36Z'),
+        }),
+        mockTcr(),
+      ),
+    ).toBe(ComplianceStage.awaiting_pin)
+  })
+
+  it('still requires the registrant stamp for a domain created after the cutoff', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(),
+        mockDomain({
+          registrantVerifiedAt: null,
+          createdAt: parseISO('2026-06-01T00:00:00Z'),
+        }),
+        mockTcr(),
+      ),
+    ).toBe(ComplianceStage.pending_website_live)
+  })
+
+  it('does not let a legacy domain bypass the published-website requirement', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        mockWebsite(WebsiteStatus.unpublished),
+        mockDomain({
+          registrantVerifiedAt: null,
+          createdAt: parseISO('2026-05-08T11:14:36Z'),
+        }),
         mockTcr(),
       ),
     ).toBe(ComplianceStage.pending_website_live)
