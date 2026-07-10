@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { SearchIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import type { LiveSegment } from './streaming'
 
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
 // flow, ...). One source of truth for the assistant bubble, markdown rendering,
@@ -100,4 +101,51 @@ export function ToolPillRow({
       ))}
     </div>
   )
+}
+
+// Render a turn's segments in stream order: text as markdown bubbles, tool
+// calls as inline pills, so a search/read pill sits between the sentences it
+// interrupted instead of stacked in a row above the whole reply. `toolLabel`
+// maps a tool name to its pill label (return null to hide a tool, e.g. a
+// bookkeeping tool or one rendered as its own widget). Consecutive tool
+// segments coalesce into one pill row. Shared by the live turn (revealed
+// segments, `running`) and reloaded history (persisted segments).
+export function InlineSegments({
+  segments,
+  toolLabel,
+  running = false,
+}: {
+  segments: LiveSegment[]
+  toolLabel: (toolName: string) => string | null
+  running?: boolean
+}): React.JSX.Element {
+  const blocks: ReactNode[] = []
+  let pendingPills: string[] = []
+  const flushPills = (key: string): void => {
+    if (pendingPills.length > 0) {
+      blocks.push(
+        <ToolPillRow
+          key={`pills-${key}`}
+          labels={pendingPills}
+          running={running}
+        />,
+      )
+      pendingPills = []
+    }
+  }
+  segments.forEach((seg, i) => {
+    if (seg.kind === 'tool') {
+      const label = toolLabel(seg.toolName)
+      if (label) pendingPills.push(label)
+      return
+    }
+    flushPills(String(i))
+    if (seg.text) {
+      blocks.push(
+        <AssistantMarkdown key={`text-${i}`}>{seg.text}</AssistantMarkdown>,
+      )
+    }
+  })
+  flushPills('end')
+  return <>{blocks}</>
 }
