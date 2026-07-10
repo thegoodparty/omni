@@ -88,6 +88,7 @@ kickoff path must not race it.
 | `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. |
 | `sweepUnsubmittedUsecases` | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
 | `sweepPinDeliveryDetection` (ENG-10658) | Records `submitted`/`pending`/`approved` + Peerly identity + no `pinDeliveryMethod` yet — reads the enriched `retrieve_cv`, records the channel + destination Peerly sent the PIN to on the record, and fires the `CompliancePinSent` Segment event **once** so HubSpot can stamp the company + nudge. The event carries the **method only** (`pin_delivery_method`), never the destination — the raw filing email/phone/address stays in our DB and is not synced to the analytics warehouse / HubSpot. The `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected (not a growing bulk loop). Once-only via an atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim is rolled back (scoped to its timestamp, and the rollback is itself try/caught so its failure can't mask the original error) so the next sweep retries. **Includes `pending` + `approved`** (not just `submitted`) because the in-app PIN entry / VERIFIED usecase sweep advance a record to `pending` then `approved` the moment the candidate acts — which can beat the hourly sweep — and pre-existing records were already `pending`/`approved` when this shipped; all three states imply the PIN went out, so this never fires for a never-sent record (`rejected`/`error` are failure states, excluded). |
+| `sweepStuckPeerlySubmissions` | Daily digest to `bot-10dlc-compliance` naming every Pro record still `submitted` with no Peerly identity >24h after kickoff — nothing retries those automatically (the agent's resume budget is spent), and the one-shot max-resume alert is easy to lose in an incident (campaign 304314 sat unnoticed 8 days). Claims `stuckSubmissionAlertedAt` atomically per record (re-nag window 20h) so multi-replica ticks can't double-post; a swallowed Slack failure (SlackService resolves `undefined`) releases the claims so the next tick retries. |
 | `bootstrapTcrComplianceCheck` | Re-queues `pending` records for status checking. |
 
 ## `submitToPeerlyForAgent` notes
@@ -206,6 +207,15 @@ Verify recovery worked by reading back `getProfile().profile.campaign_verify_tok
 
 ## Gotchas
 
+- **Legacy domains (bought before 2026-06-01) never got `registrantVerifiedAt`.**
+  Purchase-time stamping only became universal then; the interim email-verification
+  flow that would have stamped older rows was removed 2026-05-29, so ~300 registered
+  prod domains carry a NULL stamp forever. `deriveComplianceStage` treats a domain
+  created before that cutoff as registrant-verified (the registrant contact has
+  always been the constant, ICANN-verified GoodParty identity) — without this, a
+  legacy-domain candidate's Pro upgrade strands the agent at `pending_website_live`
+  until the resume cap (campaign 304314, Jul 2026). Post-cutoff rows still require
+  the stamp: for them NULL genuinely means the registrar purchase never completed.
 - **PIN retry self-recovery:** `verify_pin` consumes the PIN once — it rejects an
   already-`VERIFIED` CV as an invalid PIN. So if a first PIN attempt verified the CV
   but a downstream Peerly step threw (stranding the record at `submitted`), a naive
