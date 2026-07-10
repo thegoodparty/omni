@@ -73,7 +73,12 @@ const trackerTasksQueryOptions = () =>
         fastPollStartedAt = null
         return BACKGROUND_POLL_MS
       }
-      if (fastPollStartedAt === null) fastPollStartedAt = Date.now()
+      // `data === undefined` means a fresh subscription (first mount, or the
+      // cache was GC'd while the candidate was away): restart the window so a
+      // returning candidate gets a full fast-poll window rather than inheriting
+      // an already-expired module-level timestamp.
+      if (data === undefined || fastPollStartedAt === null)
+        fastPollStartedAt = Date.now()
       return Date.now() - fastPollStartedAt < FAST_POLL_DURATION_MS
         ? POLL_INTERVAL_MS
         : BACKGROUND_POLL_MS
