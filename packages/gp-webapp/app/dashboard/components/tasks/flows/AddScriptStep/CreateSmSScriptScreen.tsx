@@ -5,8 +5,9 @@ import TextField from '@shared/inputs/TextField'
 import { ModalFooter } from '@shared/ModalFooter'
 import { trackEvent, EVENTS } from 'helpers/analyticsHelper'
 import { noop } from '@shared/utils/noop'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 
-export const MAX_SMS_CHAR_COUNT = 1600
+export const MAX_SMS_CHAR_COUNT = P2P_SCRIPT_MAX_LENGTH
 
 interface CreateSmSScriptScreenProps {
   onNext?: (scriptText: string) => void

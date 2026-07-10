@@ -7,7 +7,6 @@ import { getCampaign, updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { useSnackbar } from 'helpers/useSnackbar'
 import dynamic from 'next/dynamic'
 import sanitizeHtml from 'sanitize-html'
-import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { AiContentData, CampaignAiContent } from 'helpers/types'
 import { noop } from '@shared/utils/noop'
 
@@ -22,6 +21,9 @@ type GenerateReviewScreenProps = {
   aiScriptKey?: string | null
   onBack?: () => void
   onNext?: (scriptKey: string | null, scriptContent: string) => void
+  // Omitted for flows without a vendor-imposed script cap (robocall, door
+  // knocking, etc.); texting flows pass Peerly's MMS limit (ENG-10665).
+  maxScriptLength?: number
 }
 
 const isAiContentData = (
@@ -32,6 +34,7 @@ export const GenerateReviewScreen = ({
   aiScriptKey = '',
   onBack = noop,
   onNext = noop,
+  maxScriptLength,
 }: GenerateReviewScreenProps): React.JSX.Element => {
   const { errorSnackbar } = useSnackbar()
   const [aiContent, setAiContent] = useState<AiContentData | null>(null)
@@ -48,7 +51,8 @@ export const GenerateReviewScreen = ({
         .length,
     [scriptContent],
   )
-  const overLimit = scriptLength > P2P_SCRIPT_MAX_LENGTH
+  const overLimit =
+    maxScriptLength !== undefined && scriptLength > maxScriptLength
 
   useEffect(() => {
     const fetchAiContent = async () => {
@@ -104,11 +108,13 @@ export const GenerateReviewScreen = ({
           useOnChange
           error={overLimit}
         />
-        <div className="text-right mt-2">
-          <Body1 className={overLimit ? 'text-error' : ''}>
-            {scriptLength} / {P2P_SCRIPT_MAX_LENGTH}
-          </Body1>
-        </div>
+        {maxScriptLength !== undefined && (
+          <div className="text-right mt-2">
+            <Body1 className={overLimit ? 'text-error' : ''}>
+              {scriptLength} / {maxScriptLength}
+            </Body1>
+          </div>
+        )}
       </section>
       <ModalFooter
         onBack={onBack}

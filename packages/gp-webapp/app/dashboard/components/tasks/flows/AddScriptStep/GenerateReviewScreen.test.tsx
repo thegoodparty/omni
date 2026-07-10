@@ -39,7 +39,12 @@ describe('GenerateReviewScreen', () => {
 
   it('shows the character count and enables Save under the limit', async () => {
     mockCampaignWithScript('Hello voters')
-    render(<GenerateReviewScreen aiScriptKey="smsScript" />)
+    render(
+      <GenerateReviewScreen
+        aiScriptKey="smsScript"
+        maxScriptLength={P2P_SCRIPT_MAX_LENGTH}
+      />,
+    )
 
     expect(
       await screen.findByText(`12 / ${P2P_SCRIPT_MAX_LENGTH}`),
@@ -49,7 +54,12 @@ describe('GenerateReviewScreen', () => {
 
   it('counts the sanitized plain text, not the raw HTML', async () => {
     mockCampaignWithScript('<p>Hello voters</p>')
-    render(<GenerateReviewScreen aiScriptKey="smsScript" />)
+    render(
+      <GenerateReviewScreen
+        aiScriptKey="smsScript"
+        maxScriptLength={P2P_SCRIPT_MAX_LENGTH}
+      />,
+    )
 
     expect(
       await screen.findByText(`12 / ${P2P_SCRIPT_MAX_LENGTH}`),
@@ -58,7 +68,12 @@ describe('GenerateReviewScreen', () => {
 
   it('disables Save when the script exceeds the limit', async () => {
     mockCampaignWithScript('x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1))
-    render(<GenerateReviewScreen aiScriptKey="smsScript" />)
+    render(
+      <GenerateReviewScreen
+        aiScriptKey="smsScript"
+        maxScriptLength={P2P_SCRIPT_MAX_LENGTH}
+      />,
+    )
 
     expect(
       await screen.findByText(
@@ -70,5 +85,17 @@ describe('GenerateReviewScreen', () => {
       'data-error',
       'true',
     )
+  })
+
+  it('applies no limit when maxScriptLength is omitted (non-texting flows)', async () => {
+    mockCampaignWithScript('x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1))
+    render(<GenerateReviewScreen aiScriptKey="smsScript" />)
+
+    expect(await screen.findByTestId('rich-editor')).toHaveAttribute(
+      'data-error',
+      'false',
+    )
+    expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
+    expect(screen.queryByText(/\/ \d+$/)).not.toBeInTheDocument()
   })
 })

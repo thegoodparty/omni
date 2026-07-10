@@ -13,6 +13,20 @@ import { GenerateLoadingScreen } from './GenerateLoadingScreen'
 import { GenerateReviewScreen } from './GenerateReviewScreen'
 import { Campaign } from 'helpers/types'
 import { noop } from '@shared/utils/noop'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+import {
+  LEGACY_TASK_TYPES,
+  TASK_TYPES,
+} from 'app/dashboard/shared/constants/tasks.const'
+
+// Only texting flows send the script to Peerly, whose MMS templates cap at
+// P2P_SCRIPT_MAX_LENGTH; other flows (robocall, door knocking, ...) have no
+// vendor limit (ENG-10665).
+const TEXTING_SCRIPT_TYPES: string[] = [
+  TASK_TYPES.text,
+  TASK_TYPES.p2pDisabledText,
+  LEGACY_TASK_TYPES.sms,
+]
 
 type ContentCategoryList = Awaited<ReturnType<typeof fetchAiContentCategories>>
 
@@ -124,6 +138,11 @@ const AddScriptStep = ({
         aiScriptKey={aiScriptKey}
         onBack={() => onBack(ADD_SCRIPT_FLOW.CHOOSE_FLOW)}
         onNext={onComplete}
+        maxScriptLength={
+          type && TEXTING_SCRIPT_TYPES.includes(type)
+            ? P2P_SCRIPT_MAX_LENGTH
+            : undefined
+        }
       />
     ),
     [ADD_SCRIPT_FLOW.CREATE_SMS]: (
