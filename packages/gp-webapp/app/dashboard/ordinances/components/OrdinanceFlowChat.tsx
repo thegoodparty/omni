@@ -218,8 +218,28 @@ export default function OrdinanceFlowChat({
             } else if (event.toolName === OFFER_TOOL) {
               setLiveOffer(parseOffer(event.args) ?? {})
             } else if (TOOL_LABELS[event.toolName]) {
-              segments.push({ kind: 'tool', toolName: event.toolName })
+              segments.push({
+                kind: 'tool',
+                toolName: event.toolName,
+                running: true,
+              })
               setLiveSegments([...segments])
+            }
+          } else if (event.type === 'tool_result') {
+            // The tool finished; stop its pill shimmering. Clear the most recent
+            // still-running segment for this tool (tools run one at a time).
+            for (let i = segments.length - 1; i >= 0; i--) {
+              const seg = segments[i]
+              if (
+                seg &&
+                seg.kind === 'tool' &&
+                seg.toolName === event.toolName &&
+                seg.running
+              ) {
+                segments[i] = { ...seg, running: false }
+                setLiveSegments([...segments])
+                break
+              }
             }
           } else if (event.type === 'error') {
             setStreamError(event.message)
@@ -441,7 +461,6 @@ export default function OrdinanceFlowChat({
                 <InlineSegments
                   segments={visibleSegments}
                   toolLabel={(name) => TOOL_LABELS[name] ?? null}
-                  running
                 />
               ) : null}
               {showClarify && liveClarify ? (
