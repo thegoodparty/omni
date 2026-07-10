@@ -22,12 +22,15 @@ import {
   OrdinanceFlowContextService,
 } from './services/ordinanceFlowContext.service'
 import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
+import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 import {
   buildAskClarifyQuestionTool,
-  buildGetCurrentCodeTool,
+  buildFetchUrlTool,
+  buildGetCodeSourceTool,
   buildOfferNextStepTool,
   buildReadOrdinanceTool,
   buildSaveAnswerTool,
+  buildSaveExistingLawTool,
   buildSaveNoteTool,
   buildSaveSynthesisTool,
   type OrdinanceToolDeps,
@@ -49,11 +52,16 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   readonly scope = ChatScope.ordinance_flow
   readonly isSensitive = true
   readonly models = [...ORDINANCE_FLOW_MODELS]
+  // A current_law research turn chains get_code_source + several fetch_url
+  // calls + save_existing_law; the stream loop's default 5 steps cuts it off
+  // mid-research.
+  readonly maxSteps = 8
 
   constructor(
     private readonly store: GeneralChatStoreService,
     private readonly contextService: OrdinanceFlowContextService,
     private readonly tools: OrdinanceFlowToolsService,
+    private readonly fetch: OrdinanceFlowFetchService,
     private readonly features: FeaturesService,
     private readonly districtResolver?: DistrictResolverService,
   ) {}
@@ -158,13 +166,15 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   private assembleTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
     const deps: OrdinanceToolDeps = {
       service: this.tools,
+      fetch: this.fetch,
       ordinanceId: ctx.ordinanceId,
       electedOfficeId: ctx.electedOfficeId,
+      organizationSlug: ctx.organizationSlug,
       step: ctx.step,
     }
     const tools: Record<string, LlmTool> = {
       read_ordinance: buildReadOrdinanceTool(deps),
-      get_current_code: buildGetCurrentCodeTool(deps),
+      get_code_source: buildGetCodeSourceTool(deps),
       save_note: buildSaveNoteTool(deps),
     }
 
@@ -181,6 +191,12 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       tools.ask_clarify_question = buildAskClarifyQuestionTool()
       tools.save_answer = buildSaveAnswerTool(deps)
       tools.save_synthesis = buildSaveSynthesisTool(deps)
+    }
+
+    // Current-law research reads the live code and persists its findings.
+    if (ctx.step === 'current_law') {
+      tools.fetch_url = buildFetchUrlTool(deps)
+      tools.save_existing_law = buildSaveExistingLawTool(deps)
     }
 
     // Every step except the last can offer a button to advance the flow.

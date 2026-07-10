@@ -24,6 +24,9 @@ export type ChatStreamErrorCode =
 
 export type ChatStreamChunk =
   | { type: 'text'; delta: string }
+  // The model has begun writing a tool call's arguments (before tool_call).
+  // Transient signal for a per-tool "generating" indicator; not persisted.
+  | { type: 'tool_input_start'; toolName: string }
   | { type: 'tool_call'; toolName: string; args: unknown }
   | { type: 'tool_result'; toolName: string; result: unknown }
   | { type: 'done'; assistantMessageId?: string }
@@ -43,6 +46,7 @@ export interface StreamArgs {
   signal?: AbortSignal
   clientMessageId?: string
   models?: string[]
+  maxSteps?: number
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -290,7 +294,11 @@ export class ChatStreamService {
         messages,
         tools: args.tools,
         ...(args.models && { models: args.models }),
+        ...(args.maxSteps && { maxSteps: args.maxSteps }),
         ...(args.signal && { abortSignal: args.signal }),
+        onToolInputStart: ({ toolName }) => {
+          void queue.push({ type: 'tool_input_start', toolName })
+        },
         onToolCallStart: ({ name, input }) => {
           toolCallCount += 1
           void queue.push({

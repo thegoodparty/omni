@@ -56,7 +56,16 @@ const REVEAL_DRAIN_MAX_TICKS = 250
 const TOOL_LABELS: Record<string, string> = {
   web_search: 'Searching the web',
   read_ordinance: 'Reviewing your ordinance',
-  get_current_code: 'Checking the current code',
+  get_code_source: 'Checking the current code',
+  fetch_url: 'Reading the municipal code',
+}
+
+// While the model is still writing a tool call's arguments (the tool_input_start
+// signal, before the call completes), show what it is working on instead of a
+// generic "Thinking...". Covers the wait while the clarify question generates.
+const GENERATING_LABELS: Record<string, string> = {
+  [CLARIFY_TOOL]: 'Writing your question...',
+  [OFFER_TOOL]: 'Preparing next steps...',
 }
 
 // Hidden opener sent once for a brand-new conversation so the agent takes the
@@ -141,6 +150,9 @@ export default function OrdinanceFlowChat({
   const [liveWidgets, setLiveWidgets] = useState<
     Array<{ instance: StepWidgetInstance; appearAfter: number }>
   >([])
+  // The tool whose arguments the model is currently writing, if any, so the
+  // working shimmer can name it (e.g. "Writing your question...").
+  const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [sending, setSending] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
@@ -174,6 +186,7 @@ export default function OrdinanceFlowChat({
       setLiveClarify(null)
       setLiveOffer(null)
       setLiveWidgets([])
+      setGeneratingTool(null)
       if (!opts?.hidden) {
         setComposer('')
         const optimistic: ChatMessageDto = {
@@ -210,7 +223,10 @@ export default function OrdinanceFlowChat({
         })) {
           if (event.type === 'text') {
             pushText(event.delta)
+          } else if (event.type === 'tool_input_start') {
+            setGeneratingTool(event.toolName)
           } else if (event.type === 'tool_call') {
+            setGeneratingTool(null)
             if (event.toolName === CLARIFY_TOOL) {
               const parsed = parseClarify(event.args)
               if (parsed) setLiveClarify(parsed)
@@ -226,8 +242,28 @@ export default function OrdinanceFlowChat({
                 ])
               }
             } else if (TOOL_LABELS[event.toolName]) {
-              segments.push({ kind: 'tool', toolName: event.toolName })
+              segments.push({
+                kind: 'tool',
+                toolName: event.toolName,
+                running: true,
+              })
               setLiveSegments([...segments])
+            }
+          } else if (event.type === 'tool_result') {
+            // The tool finished; stop its pill shimmering. Clear the most recent
+            // still-running segment for this tool (tools run one at a time).
+            for (let i = segments.length - 1; i >= 0; i--) {
+              const seg = segments[i]
+              if (
+                seg &&
+                seg.kind === 'tool' &&
+                seg.toolName === event.toolName &&
+                seg.running
+              ) {
+                segments[i] = { ...seg, running: false }
+                setLiveSegments([...segments])
+                break
+              }
             }
           } else if (event.type === 'error') {
             setStreamError(event.message)
@@ -252,6 +288,7 @@ export default function OrdinanceFlowChat({
         setLiveClarify(null)
         setLiveOffer(null)
         setLiveWidgets([])
+        setGeneratingTool(null)
         setSending(false)
       }
     },
@@ -390,14 +427,21 @@ export default function OrdinanceFlowChat({
     .filter((w) => revealedTextLength >= w.appearAfter)
     .map((w) => w.instance)
   const showWidgets = shownWidgets.length > 0
-  // Thinking shimmer only for the initial compose gap, before any text or
-  // widget has appeared for this turn.
+  // Show the wait shimmer only when the assistant is working but nothing is
+  // visible on screen yet, or while a tool's arguments generate. Keying
+  // "nothing visible" on the revealed segments (not on the arrival of the first
+  // network delta) keeps the shimmer up until the first character actually
+  // paints, so there is no empty flash between "Thinking..." and the first
+  // word. The tool-generating case is gated on revealDone so the shimmer never
+  // overlaps text that is still typing out.
+  const nothingVisible = visibleSegments.length === 0 && !showWidgets
+  const toolGenerating = generatingTool !== null && revealDone
   const working =
-    sending &&
-    visibleSegments.length === 0 &&
-    !liveClarify &&
-    !liveOffer &&
-    liveWidgets.length === 0
+    sending && !showClarify && !showOffer && (nothingVisible || toolGenerating)
+  // Name what the model is doing when we know (a tool's args are streaming in);
+  // otherwise the generic wait label.
+  const workingLabel =
+    (generatingTool && GENERATING_LABELS[generatingTool]) || 'Thinking...'
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -450,7 +494,6 @@ export default function OrdinanceFlowChat({
                 <InlineSegments
                   segments={visibleSegments}
                   toolLabel={(name) => TOOL_LABELS[name] ?? null}
-                  running
                 />
               ) : null}
               {showWidgets ? <StepWidgetBlocks widgets={shownWidgets} /> : null}
@@ -463,7 +506,7 @@ export default function OrdinanceFlowChat({
               ) : null}
               {working ? (
                 <div className="w-fit self-start rounded-2xl bg-muted px-3 py-2 text-sm">
-                  <span className="text-shimmer-muted">Thinking...</span>
+                  <span className="text-shimmer-muted">{workingLabel}</span>
                 </div>
               ) : null}
             </AssistantRow>

@@ -108,35 +108,39 @@ export function ToolPillRow({
 // interrupted instead of stacked in a row above the whole reply. `toolLabel`
 // maps a tool name to its pill label (return null to hide a tool, e.g. a
 // bookkeeping tool or one rendered as its own widget). Consecutive tool
-// segments coalesce into one pill row. Shared by the live turn (revealed
-// segments, `running`) and reloaded history (persisted segments).
+// segments coalesce into one pill row, which shimmers while any tool in it is
+// still `running`. Shared by the live turn (running set/cleared as tools fly)
+// and reloaded history (persisted segments, never running).
 export function InlineSegments({
   segments,
   toolLabel,
-  running = false,
 }: {
   segments: LiveSegment[]
   toolLabel: (toolName: string) => string | null
-  running?: boolean
 }): React.JSX.Element {
   const blocks: ReactNode[] = []
   let pendingPills: string[] = []
+  let pendingRunning = false
   const flushPills = (key: string): void => {
     if (pendingPills.length > 0) {
       blocks.push(
         <ToolPillRow
           key={`pills-${key}`}
           labels={pendingPills}
-          running={running}
+          running={pendingRunning}
         />,
       )
       pendingPills = []
+      pendingRunning = false
     }
   }
   segments.forEach((seg, i) => {
     if (seg.kind === 'tool') {
       const label = toolLabel(seg.toolName)
-      if (label) pendingPills.push(label)
+      if (label) {
+        pendingPills.push(label)
+        if (seg.running) pendingRunning = true
+      }
       return
     }
     flushPills(String(i))

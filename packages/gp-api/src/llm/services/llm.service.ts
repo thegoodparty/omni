@@ -113,6 +113,10 @@ export interface LlmStreamOptions {
     input: unknown
     output: unknown
   }) => void
+  // Fires when the model starts writing a tool call's arguments, before the
+  // call is complete. Lets the client show a per-tool "generating" indicator
+  // during the gap the tool_call event used to leave blank.
+  onToolInputStart?: (event: { toolName: string }) => void
 }
 
 export interface LlmStreamUsage {
@@ -365,6 +369,7 @@ export class LlmService {
       abortSignal,
       onToolCallStart,
       onToolCallEnd,
+      onToolInputStart,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -391,32 +396,40 @@ export class LlmService {
             ...(topP !== undefined && { topP }),
             ...(maxOutputTokens !== undefined && { maxOutputTokens }),
             ...(userId && { headers: { 'X-User-Id': userId } }),
-            // Provider-run tools (Anthropic web search) have no execute hook, so
-            // surface their call/result from the stream to drive the same
-            // onToolCallStart/End the client-tool execute wrapper fires.
-            ...(providerToolNames &&
-              providerToolNames.size > 0 && {
-                onChunk: ({ chunk }) => {
-                  if (
-                    chunk.type === 'tool-call' &&
-                    providerToolNames.has(chunk.toolName)
-                  ) {
-                    onToolCallStart?.({
-                      name: chunk.toolName,
-                      input: chunk.input,
-                    })
-                  } else if (
-                    chunk.type === 'tool-result' &&
-                    providerToolNames.has(chunk.toolName)
-                  ) {
-                    onToolCallEnd?.({
-                      name: chunk.toolName,
-                      input: chunk.input,
-                      output: chunk.output,
-                    })
-                  }
-                },
-              }),
+            // The model streams a tool call's arguments before the call is
+            // complete; surface that start so the client can show a per-tool
+            // "generating" indicator. Provider-run tools (Anthropic web search)
+            // have no execute hook, so also surface their call/result from the
+            // stream to drive the same onToolCallStart/End the client-tool
+            // execute wrapper fires.
+            ...((onToolInputStart ||
+              (providerToolNames && providerToolNames.size > 0)) && {
+              onChunk: ({ chunk }) => {
+                if (chunk.type === 'tool-input-start') {
+                  onToolInputStart?.({ toolName: chunk.toolName })
+                  return
+                }
+                if (!providerToolNames || providerToolNames.size === 0) return
+                if (
+                  chunk.type === 'tool-call' &&
+                  providerToolNames.has(chunk.toolName)
+                ) {
+                  onToolCallStart?.({
+                    name: chunk.toolName,
+                    input: chunk.input,
+                  })
+                } else if (
+                  chunk.type === 'tool-result' &&
+                  providerToolNames.has(chunk.toolName)
+                ) {
+                  onToolCallEnd?.({
+                    name: chunk.toolName,
+                    input: chunk.input,
+                    output: chunk.output,
+                  })
+                }
+              },
+            }),
           }),
         ),
     )
