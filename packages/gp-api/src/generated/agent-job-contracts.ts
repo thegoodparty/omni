@@ -2878,7 +2878,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -2896,7 +2899,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -2912,7 +2918,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -2930,7 +2939,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -2946,7 +2958,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -2962,7 +2977,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -2976,6 +2994,132 @@ export interface MeetingBriefingFull {
           | [string, string, string]
           | [string, string, string, string]
           | [string, string, string, string, string]
+          | [
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+            ]
+          | [
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+            ]
+          | [
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+            ]
       }
       id: string
       /**
@@ -3122,7 +3266,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -3140,7 +3287,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -3156,7 +3306,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -3174,7 +3327,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -3190,7 +3346,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -3206,7 +3365,10 @@ export interface MeetingBriefingFull {
                   | 'government_communication'
                 headline: string
                 publication: string
-                publication_date?: string | null
+                /**
+                 * Required, non-nullable. Must be within 60 days of PARAMS.meetingDate (see instruction.md Step 11) — the qa/ gate rejects entries older than that or missing this field.
+                 */
+                publication_date: string
                 /**
                  * Optional cross-reference to a sources[] entry id; populate when the article also appears in sources[].
                  */
@@ -3220,6 +3382,132 @@ export interface MeetingBriefingFull {
           | [string, string, string]
           | [string, string, string, string]
           | [string, string, string, string, string]
+          | [
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+            ]
+          | [
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+            ]
+          | [
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+              {
+                /**
+                 * The bullet itself — the ask, question, or framing to bring into the room.
+                 */
+                text: string
+                /**
+                 * Rationale for the talking point: why it matters strategically, whether raising it risks making the official look uninformed, and how to handle the likely response.
+                 */
+                why: string
+              },
+            ]
       }
       id: string
       /**

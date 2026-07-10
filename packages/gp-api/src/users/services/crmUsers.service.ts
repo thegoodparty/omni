@@ -235,6 +235,7 @@ export class CrmUsersService {
     fields: Record<string, string>[],
     pageName: string,
     pageUri: string,
+    hutk?: string,
   ) {
     if (!this.hubspot.client.config.accessToken) {
       this.logger.debug(
@@ -251,6 +252,7 @@ export class CrmUsersService {
             context: {
               pageName,
               pageUri,
+              ...(hutk ? { hutk } : {}),
             },
           },
           {

@@ -12,8 +12,9 @@ import {
 } from './useTrackerTasks'
 import CampaignStrategyPhase from './CampaignStrategyPhase'
 import CountModal from '../../../components/tasks/CountModal'
+import { useOutreachComposeFlow } from 'app/dashboard/outreach/hooks/useOutreachComposeFlow'
 
-// The "Campaign strategy" section on the campaign plan page: the persisted
+// The "Campaign Tracker" section on the campaign plan page: the persisted
 // campaign-tracker rows (campaign_tracker_tasks) rendered as a four-phase,
 // dated, prioritized list of cards. The tracker only exists once a campaign
 // has gone through campaign story, so this section is rendered only for the
@@ -23,6 +24,8 @@ const CampaignStrategySection = (): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const toggleComplete = useToggleTrackerTaskComplete()
+  const { open: openOutreachFlow, flowNode: outreachFlowNode } =
+    useOutreachComposeFlow('campaign_tracker')
   // An outreach task pending its voter-contact count in the modal.
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
 
@@ -83,7 +86,7 @@ const CampaignStrategySection = (): React.JSX.Element => {
     <section>
       <div className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold">Campaign strategy</h2>
+          <h2 className="text-xl font-semibold">Campaign Tracker</h2>
           <p className="text-muted-foreground mt-1 text-sm">
             Everything you need to do, in order. We tell you what to do and
             when, so you always know your next move.
@@ -136,11 +139,14 @@ const CampaignStrategySection = (): React.JSX.Element => {
                 key={phase.key}
                 phase={phase}
                 onToggleComplete={onToggleComplete}
+                onStartOutreach={openOutreachFlow}
               />
             ))}
           </Accordion>
         </>
       )}
+
+      {outreachFlowNode}
 
       {countTask && (
         <CountModal

@@ -27,23 +27,24 @@ The compliance flow tracks user progress through these stages:
 
 ## Event → HubSpot Workflow Mappings
 
-| Event Name | HubSpot Workflow | Sets Status To | Fired From |
-|-----------|------------------|----------------|------------|
-| `Candidate Website - Published` | Ops - Set 10 DLC Compliance Status to Website Published | Website Created | `WebsitesController.updateWebsite()` |
-| `Candidate Website - Purchased domain` | Ops - Set 10 DLC Compliance Status to Purchase domain | Domain Purchased | `DomainsService.processDomainRegistration()` |
-| `Voter Outreach - 10DLC Compliance Form Submitted` | Ops - Set 10 DLC Compliance Status to Compliance form Submitted | Registration Submitted | `CampaignTcrComplianceController.createTcrCompliance()` |
-| `Voter Outreach - 10DLC Compliance PIN Submitted` | Ops - Set 10 DLC Compliance Status to Compliance PIN Submitted | Compliance Pending | `CampaignTcrComplianceController.submitCampaignVerifyPIN()` |
-| `Voter Outreach - 10DLC Compliance Completed` | Ops - Set 10 DLC Compliance Status to 10 DLC Compliance Complete | Compliant | `QueueConsumerService.handleTcrComplianceCheckMessage()` |
+| Event Name                                         | HubSpot Workflow                                                 | Sets Status To         | Fired From                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------- | ---------------------- | ----------------------------------------------------------- |
+| `Candidate Website - Published`                    | Ops - Set 10 DLC Compliance Status to Website Published          | Website Created        | `WebsitesController.updateWebsite()`                        |
+| `Candidate Website - Purchased domain`             | Ops - Set 10 DLC Compliance Status to Purchase domain            | Domain Purchased       | `DomainsService.processDomainRegistration()`                |
+| `Voter Outreach - 10DLC Compliance Form Submitted` | Ops - Set 10 DLC Compliance Status to Compliance form Submitted  | Registration Submitted | `CampaignTcrComplianceController.createTcrCompliance()`     |
+| `Voter Outreach - 10DLC Compliance PIN Submitted`  | Ops - Set 10 DLC Compliance Status to Compliance PIN Submitted   | Compliance Pending     | `CampaignTcrComplianceController.submitCampaignVerifyPIN()` |
+| `Voter Outreach - 10DLC Compliance Completed`      | Ops - Set 10 DLC Compliance Status to 10 DLC Compliance Complete | Compliant              | `QueueConsumerService.handleTcrComplianceCheckMessage()`    |
 
 ## Peerly Identity ID → Company
 
 When a candidate's Peerly identity is created during 10DLC/TCR submission, gp-api fires `Peerly Identity ID Created` carrying the Peerly identity id. The goal is to store it on the HubSpot **company** record as `peerly_identity_id`, so Campaign Success can match Peerly's 10DLC Slack notifications (which reference only this id) to the right company record in Zapier.
 
-| Event Name | HubSpot Target | Properties | Fired From |
-|-----------|----------------|-----------|------------|
+| Event Name                   | HubSpot Target                      | Properties                                                                    | Fired From                                      |
+| ---------------------------- | ----------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------- |
 | `Peerly Identity ID Created` | `peerly_identity_id` on the company | `peerly_identity_id`, `company_hubspot_id` (omitted until the company exists) | `CampaignTcrComplianceService.submitToPeerly()` |
 
 Notes:
+
 - Fires once, only when the identity is **first created** — not on idempotent retries or existing-identity reuse.
 - Unlike the compliance-status events above (which land on the contact by email and rely on a workflow to copy to the company), this event also sends `company_hubspot_id` (`campaign.data.hubspotId`) so the mapping can target the company directly. The contact id still rides along in `context.traits.hubspotId`.
 - Property keys are snake_case to match the HubSpot property names; `peerly_identity_id` maps 1:1 to the company property.
@@ -54,11 +55,12 @@ A cron job (`WeeklyTasksDigestService`) fires every Sunday at 11 PM Central Time
 
 The event populates the `win_campaign_plan` fields on the HubSpot contact, which a HubSpot workflow uses to send weekly digest emails.
 
-| Event Name | HubSpot Contact Fields | Fired From |
-|-----------|----------------------|------------|
+| Event Name                            | HubSpot Contact Fields                                                                                                                                      | Fired From                                        |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | `Campaign Plan - Weekly Tasks Digest` | `plan_tasks_completed`, `plan_total_tasks`, `task_name_1`-`5`, `task_description_1`-`5`, `task_type_1`-`5`, `task_due_date_1`-`5`, `task_week_number_1`-`5` | `WeeklyTasksDigestHandlerService` (via SQS queue) |
 
 Rules:
+
 - Campaigns with a past election date are skipped
 - Campaigns with fewer than 3 incomplete tasks are skipped (stale data prevents HubSpot from sending the email)
 - Outreach tasks (`text`, `robocall`, `doorKnocking`, `phoneBanking`) are prioritized
@@ -76,6 +78,7 @@ The cron enqueues the window in the SQS message itself, so manual triggering jus
    - (Example for the week of April 20, 2026: `2026-04-20T00:00:00.000Z` → `2026-04-27T00:00:00.000Z`)
 
 2. Send this message body to the gp-api FIFO SQS queue (via AWS Console or CLI):
+
    ```json
    {
      "type": "weeklyTasksDigest",
@@ -95,25 +98,42 @@ The cron enqueues the window in the SQS message itself, so manual triggering jus
 File: `src/vendors/segment/segment.types.ts`
 
 ```typescript
-EVENTS.CandidateWebsite.Published           // 'Candidate Website - Published'
-EVENTS.CandidateWebsite.PurchasedDomain     // 'Candidate Website - Purchased domain'
-EVENTS.Outreach.ComplianceFormSubmitted      // 'Voter Outreach - 10DLC Compliance Form Submitted'
-EVENTS.Outreach.CompliancePinSubmitted       // 'Voter Outreach - 10DLC Compliance PIN Submitted'
-EVENTS.Outreach.ComplianceCompleted          // 'Voter Outreach - 10DLC Compliance Completed'
-EVENTS.Outreach.PeerlyIdentityIdCreated      // 'Peerly Identity ID Created'
-EVENTS.CampaignPlan.WeeklyTasksDigest       // 'Campaign Plan - Weekly Tasks Digest'
+EVENTS.CandidateWebsite.Published // 'Candidate Website - Published'
+EVENTS.CandidateWebsite.PurchasedDomain // 'Candidate Website - Purchased domain'
+EVENTS.Outreach.ComplianceFormSubmitted // 'Voter Outreach - 10DLC Compliance Form Submitted'
+EVENTS.Outreach.CompliancePinSubmitted // 'Voter Outreach - 10DLC Compliance PIN Submitted'
+EVENTS.Outreach.ComplianceCompleted // 'Voter Outreach - 10DLC Compliance Completed'
+EVENTS.Outreach.PeerlyIdentityIdCreated // 'Peerly Identity ID Created'
+EVENTS.CampaignPlan.WeeklyTasksDigest // 'Campaign Plan - Weekly Tasks Digest'
 ```
 
 ## Segment Configuration
 
 ### Sources
+
 - **API** - All events from gp-api
 
 ### Destination: HubSpot Cloud Mode (Actions)
 
 Key mappings:
+
 - **Firehose Event V2** - Sends all Track events as `pe21589597_segment___all_track` custom events
 - The `Name` property contains the event name that workflows match against
+
+## Signup Attribution: Forms API with hutk
+
+Contacts created by the Segment cloud-mode destination are attributed to
+**offline sources** in HubSpot, and original source is immutable after contact
+creation — so paid/web attribution is lost if Segment creates the contact.
+
+To preserve attribution, the webapp posts the visitor's `hubspotutk` cookie to
+`POST /v1/users/me/crm-registration` on a fresh signup
+(`app/post-auth-redirect/page.tsx`), and gp-api submits the HubSpot
+registration form (`UsersService.submitRegistrationCrmForm`) with
+`context.hutk` — a Forms API submission carrying `hutk` is the only
+server-side path HubSpot credits to the visitor's web session. This runs
+before the first Segment identify for the user so the form submission, not
+the Segment destination, creates the contact.
 
 ## HubSpot Data Flow: Contact → Company
 
@@ -124,11 +144,13 @@ A company can have multiple contacts, but the expectation is a 1:1 relationship 
 ## HubSpot Workflow Configuration
 
 Workflows trigger on:
+
 ```
 pe21589597_segment___all_track has been completed any number of times
 AND Name is equal to any of: [event name]
 ```
 
 Actions:
+
 1. Set `10 DLC Compliance Status` on the contact
 2. Copy `10 DLC Compliance Status` to the associated company

@@ -110,7 +110,7 @@ The **Voice and register** and **Tone** rules above govern every section of the 
 
 **Always in force, including for override sections:** the **Source discipline** and **Verbosity** rules below, and the rule against speculation beyond source materials.
 
-The posture override is INTERNAL authorization for how you write the section — it is NOT content. **Never emit a `## Posture override` block, a rules declaration, or any meta/preamble into the artifact.** The `talking_points` array contains ONLY the actual talking-point bullets the official reads; its first element must be a real talking point, never a statement about voice, rules, or which posture applies.
+The posture override is INTERNAL authorization for how you write the section — it is NOT content. **Never emit a `## Posture override` block, a rules declaration, or any meta/preamble into the artifact.** The `talking_points` array contains ONLY the actual `{text, why}` talking-point entries the official reads; its first element must be a real talking point, never a statement about voice, rules, or which posture applies.
 
 ### Constituent-data framing (never expose data internals)
 
@@ -159,6 +159,10 @@ Concise. Priority items get full depth across all sections. Non-priority items g
 ### Web (URL discovery + retrieval) rules
 
 - **Use `WebSearch` for URL discovery.** The Claude SDK built-in `WebSearch` works (returns search results with URLs and snippets). Do NOT use `WebFetch` — the runner is in a quarantined network and `WebFetch` returns "Unable to verify if domain X is safe to fetch" because claude.ai's domain-safety check can't reach it.
+- **Web-access escalation ladder for every news/government-website citation — use the cheapest rung that answers the question, in this order. Do NOT jump straight to `http.get`:**
+  1. `WebSearch` (discovery) — free, fast; often the snippet alone tells you enough to keep looking or move on.
+  2. `pmf_runtime.http.head(url)` — verify the URL is live before you commit to citing it. Returns `{"status": int, "final_url": str}`; drop the URL if status is not `200`, and cite `final_url` (not the original) if it redirected.
+  3. `pmf_runtime.http.get(url)` — LAST RESORT, only on a `403`/`405` from `head`, or when you need the body text to confirm the article's date/topic or extract a claim. Never skip straight to this rung as a substitute for `head`.
 - **Use `pmf_runtime.http.get(url)` for page retrieval** (broker-proxied). The response is a **plain dict** (`{"status": int, "headers": dict, "body": str}`) — not a `requests.Response`. Calling `r.status_code` or `r.text` raises `AttributeError`. Verbatim:
   ```python
   from pmf_runtime import http
@@ -168,6 +172,7 @@ Concise. Priority items get full depth across all sections. Non-priority items g
   ```
 - **Use `pmf_runtime.pdf.download(url)` for PDFs** — returns raw bytes; `pdftotext -layout file.pdf -` extracts text.
 - The broker enforces an SSRF guard and URL allowlist on `http.get` / `pdf.download`. Private IPs and internal hostnames are blocked.
+- **A dead, redirected-to-homepage, or off-topic URL is never citable.** This applies to every `news` and `government_website` source captured in Step 14, not just `recent_news` (Step 11) — verify liveness with `head` and confirm topicality in the fetched body before recording the source, not after.
 
 ### Output rules
 
@@ -748,7 +753,17 @@ For **queued items**: talking points are optional. If the item does not warrant 
 
 #### Format
 
-Up to five bullet points. Each bullet is one or two sentences. Address the official directly. Each array element is a single talking point and nothing else — do NOT prepend a `## Posture override` block, a rules/voice declaration, or any header/preamble. The first element must be a real talking point.
+Every new run emits `display.talking_points` as an array of `{text, why}` objects — never bare strings. (Bare-string arrays remain schema-valid only because older artifacts already in S3 used that shape; do not emit that shape yourself.) Up to five entries. Each array element is a single `{text, why}` object and nothing else — do NOT prepend a `## Posture override` block, a rules/voice declaration, or any header/preamble. The first element must be a real talking point.
+
+- `text` — the bullet itself: one or two sentences, addressed to the official directly. Same voice and content rules as before (see "What a useful talking point does" / "What to avoid" below) — this is what changes, not the writing standard for it.
+- `why` — one to three sentences of rationale, written for the official, covering:
+  - **Strategic intent** — why this matters enough to raise in the room, not just that it's true
+  - **Risk framing** — whether raising it carries a downside (does asking make the official look uninformed, or expose a position they may not want on the record) or whether staying silent is the risk
+  - **Handling the response** — what a likely staff/colleague response looks like and how the official should handle it
+
+`why` must be substantive and specific to this item — never a restatement of `text` in different words, and never a generic "this is important because it affects constituents." If you can't write a `why` that adds new information beyond the bullet, the talking point itself is probably not sharp enough; sharpen `text` first.
+
+**`why` must not presuppose how the official will vote or where they will land.** Explain the rationale, the risk, and how to handle the likely response — never narrate an assumed position as already decided. Banned constructions: "while supporting/opposing...", "while not opposing...", "since you'll likely vote yes/no...", or any phrase that treats a vote or stance as settled. Bad: "acknowledges the constituent lean while not opposing the policy." Good: "acknowledges the constituent lean without committing you to a position — useful regardless of how you vote."
 
 #### What a useful talking point does
 
@@ -763,18 +778,24 @@ Up to five bullet points. Each bullet is one or two sentences. Address the offic
 - Summarizing what the item does — the overview already covers that
 - Hedged non-actions ("it may be worth noting," "council may want to consider")
 - Context, names, prior votes, or political dynamics not present in source materials
+- A `why` that just repeats `text` ("why: this is a good question to ask") — every `why` must add strategic context the bullet itself doesn't state
+- A `why` that presupposes the official's vote or position ("while supporting...", "since you'll oppose...") — see the banned-construction list above
 
 #### Examples
 
 These illustrate tone and approach. They are not templates.
 
-- "Constituent data shows modeled infrastructure spending support below 50 in this jurisdiction. This is bond-funded with no general fund impact — lead with that if cost questions arise."
+- `text`: "Constituent data shows modeled infrastructure spending support below 50 in this jurisdiction. This is bond-funded with no general fund impact — lead with that if cost questions arise."
+  `why`: "Framing this as bond-funded up front pre-empts the cost objection the sentiment data suggests is likely, without you having to look defensive if a colleague raises it first."
 
-- "This item is on the consent agenda and will pass without separate discussion unless pulled. If you have questions about the sole-bid process, pull it before the vote begins."
+- `text`: "This item is on the consent agenda and will pass without separate discussion unless pulled. If you have questions about the sole-bid process, pull it before the vote begins."
+  `why`: "Once the consent agenda passes as a block, there's no procedural path to revisit the sole-bid question — pulling it is the only point of leverage, and it costs you nothing if the answer turns out to be routine."
 
-- "The packet references two DFR tiers ($125K/year and $275K/year) without specifying which this application covers. Ask staff to confirm which tier before the vote so the record reflects what the council is authorizing."
+- `text`: "The packet references two DFR tiers ($125K/year and $275K/year) without specifying which this application covers. Ask staff to confirm which tier before the vote so the record reflects what the council is authorizing."
+  `why`: "Voting on an ambiguous figure creates a record problem later if the wrong tier gets billed; asking costs one sentence and staff should have the answer ready, so there's minimal downside to asking."
 
-- "Data governance for the ALPR cameras is not addressed in the packet. Asking staff what retention and access policies are in place signals careful review and protects against questions after the grant is awarded."
+- `text`: "Data governance for the ALPR cameras is not addressed in the packet. Asking staff what retention and access policies are in place signals careful review and protects against questions after the grant is awarded."
+  `why`: "ALPR grants draw privacy scrutiny after the fact; asking now, before the vote, puts the governance question on the record as something the council raised proactively rather than something a constituent had to force later."
 
 ### Step 11 — Recent news (featured and queued items)
 
@@ -790,9 +811,32 @@ Up to 3 recent headlines per priority item from local news sources. Each should 
 
 At most 2 `WebSearch` queries per priority item. Construct each query as `"<jurisdiction>" <item topic keywords> news 2026` or similar; don't run open-ended exploratory searches. If 2 queries don't produce relevant local coverage, set `display.recent_news: null`.
 
-#### Freshness
+#### Freshness — hard requirement, not a preference
 
-Articles should be from the last 60 days.
+`publication_date` is a **required, non-nullable** field on every `recent_news` entry — the schema rejects a missing value, and the QA gate independently rejects any entry more than 60 days before `PARAMS.meetingDate`. Capture the real publication date from the article (byline date, dateline, or `<meta>` publish date) when you fetch it — never leave it blank and never guess.
+
+An article you cannot date, or can date but is more than 60 days before `PARAMS.meetingDate`, does not qualify. If no article within that window can be found and verified, **omit `recent_news` entirely** (`display.recent_news: null`) rather than shipping a stale one padded in to hit the "up to 3" target. A `null` recent_news section is a correct, expected outcome; a stale one is a QA failure.
+
+#### Link liveness — verify before citing
+
+Use the same escalation ladder as URL retrieval elsewhere in this instruction, applied specifically to every candidate article before it goes in `display.recent_news` or `sources[]`:
+
+1. `WebSearch` (discovery) — find the candidate article and its snippet.
+2. `pmf_runtime.http.head(url)` — verify the URL is live. Returns `{"status": int, "final_url": str}`; drop the article if status is not `200`, and cite `final_url` if it redirected.
+3. `pmf_runtime.http.get(url)` — LAST RESORT, only when `head` returns `403`/`405` or you need the body to confirm the article's date and topic (which you do, for every article — see below).
+
+```python
+from pmf_runtime import http
+r = http.head(url)
+if r["status"] == 200:
+    body = http.get(url)   # confirm date + topic in the same pass
+elif r["status"] in (403, 405):
+    body = http.get(url)   # head blocked; get is the only option
+else:
+    body = None            # drop the article — not live
+```
+
+After confirming liveness, confirm the fetched content actually discusses the claimed topic before citing it — a live URL that redirected to a homepage, a paywall wall, or an unrelated story is not a usable source even though it returned `200`. Drop it rather than cite an off-topic or content-less page.
 
 #### Source credibility
 
@@ -804,7 +848,7 @@ Flag if coverage is predominantly from a single outlet or ideological direction 
 
 - Headline text — _Publication Name_
 
-Up to 3 bullets per priority item; set `display.recent_news` to `null` if no fresh local coverage is found. URLs go in Sources, not in the rendered briefing.
+Up to 3 bullets per priority item; set `display.recent_news` to `null` if no fresh, live, on-topic local coverage is found. URLs go in Sources, not in the rendered briefing.
 
 ### Step 12 — Budget impact (featured and queued items)
 
@@ -873,6 +917,12 @@ If information cannot be found in an authoritative source, record its absence �
 
 Capture each source at the moment you fetch it, not at assembly time. `retrieved_at` and `retrieved_text_or_snapshot` must be set when you call `http.get()` or query Databricks — not when you write the artifact.
 
+#### Link liveness + topicality (mandatory for `news` and `government_website` sources)
+
+Before adding a `news` or `government_website` entry to `sources[]`, run it through the escalation ladder in the "Web (URL discovery + retrieval) rules" section above: `head` to confirm the URL is live (drop on non-`200`, cite `final_url` on redirect), then `get` only when forced (a `403`/`405`, or to read the body). This is not optional and not limited to `recent_news` — every citable news or government-website URL in the briefing goes through this check, because `sources[]` backs claims the QA gate treats as authoritative.
+
+After liveness, confirm the fetched body actually discusses the claimed topic. A `200` that resolves to a homepage, a paywall/consent wall with no article body, or a page about something else is not a usable source — drop it and either find another source or route the claim per the Step 13 routing table (`omit_claim` for news-sourced claims). Never cite a URL you have not both verified live and read for topical relevance.
+
 #### Sub-documents inside the agenda packet
 
 The bundled agenda PDF is not a single document — it contains many sub-documents (staff reports / Agenda Commentary, resolutions, ordinances, engineer recommendations, bid tabulations, interlocal agreements). Cite each one as its own `sources[]` entry with a descriptive `name` and a `section_heading` that identifies the sub-document, not just `"Agenda packet, p. N"`. Examples:
@@ -886,7 +936,7 @@ The `url` for each remains `agendaPacketUrl` from PARAMS when present (the perma
 #### `retrieved_text_or_snapshot` requirements
 
 - **Agenda packet**: the verbatim extracted text of the relevant section(s), not the full document. Include enough surrounding context for a QA reader to verify the claim without re-fetching.
-- **News articles**: the article body text captured via `http.get()`. If the page is paywalled or returns no usable body, note that and do not cite the article.
+- **News articles**: the article body text captured via `http.get()`, after `http.head()` confirmed the URL is live per the liveness rule above. If the page is paywalled or returns no usable body, note that and do not cite the article.
 - **Government websites**: the relevant paragraph(s) from the page body.
 - **GoodParty.org constituent data** (the modeled-sentiment source): set `source_type` to **`"haystaq"`** (the enum value for GoodParty.org modeled constituent data — the QA gate keys the strict framing check on this type). Set the source `name` to **`GoodParty.org modeled constituent sentiment — <topic> (<jurisdiction>)`** — never "Haystaq", "L2", "Databricks", or the `hs_*` column in the name (it renders as a citation pill the official sees). The `retrieved_text_or_snapshot` is a plain-English structured summary — the modeled position/topic, the mean score (0–100), the geographic scope (district or state), and the voter count in the denominator — attributed to GoodParty.org's data. Do not put the raw `hs_*` column name, the table name, or SQL in it.
 - **Campaign**: the verbatim passage from the campaign site.
@@ -1168,7 +1218,8 @@ Validator-passing JSON can still be garbage. Before declaring success, walk this
 - **`district_note` is always `null`** — deprecated since city scope was removed.
 - **When `l2DistrictType` is set, `voter_count` should reflect the district, not the whole state** → if it looks state-sized, the L2 district WHERE clause matched zero rows and you silently fell back to state scope. Fix: re-confirm `l2DistrictType` and `l2DistrictName` came verbatim from PARAMS_JSON and were discovered via the L2 value-format check; set `haystaq_status: "no_match"` if the value genuinely doesn't resolve.
 - **All sentiment percentages <5%** → you used `= 1` instead of treating `hs_*` as 0-100 scores. Re-do the distribution check.
-- **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; `pmf_runtime.http.get(url)` the page and confirm before citing it.
+- **News URL doesn't load or doesn't mention the issue** → don't trust search snippets blindly; this is a required step, not a spot-check afterthought — every `news`/`government_website` source must clear the `http.head` liveness check plus a topicality read of the fetched body (Step 14) before it is cited anywhere.
+- **`recent_news` entry missing `publication_date` or older than 60 days before `meetingDate`** → the schema requires the field and the QA gate rejects stale entries; drop the entry and set `display.recent_news: null` if nothing else qualifies (Step 11).
 - **`run_metadata.discovered_agenda_location` is the parent page, not a deep link.** If it points at one specific packet PDF or one MetaViewer link, swap it for the platform calendar, the city's meetings index, or whatever page LISTS this body's meetings. A future run can drill into the parent page; it cannot navigate up from a deep link.
 
 ## Failure modes

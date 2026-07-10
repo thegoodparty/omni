@@ -16,7 +16,7 @@ import { ElectedOfficeSupportApiService } from './services/electedOfficeSupportA
 @Module({
   imports: [
     CommunityIssuesModule,
-    OrdinancesModule,
+    forwardRef(() => OrdinancesModule),
     OrganizationsModule,
     forwardRef(() => MeetingsModule),
     forwardRef(() => PrioritiesModule),

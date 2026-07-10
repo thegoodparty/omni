@@ -20,13 +20,11 @@ import {
   RaceOpponentFinding as RaceOpponentFindingRow,
 } from '@/generated/prisma'
 import { CampaignWith } from '@/campaigns/campaigns.types'
-import { FeaturesService } from '@/features/services/features.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
 import { AgentJobContracts } from '@/generated/agent-job-contracts'
 import { ElectionApiService } from '@/campaignStrategy/services/electionApi.service'
 import { getUserFullName } from '@/users/util/users.util'
 import {
-  KNOW_YOUR_OPPONENT_FEATURE,
   MAX_SELF_RESEARCH_ATTEMPTS,
   SELF_RESEARCH,
 } from '../raceOpponent.constants'
@@ -52,7 +50,6 @@ export class SelfResearchService extends createPrismaBase(
   MODELS.RaceOpponentResearch,
 ) {
   constructor(
-    private readonly features: FeaturesService,
     private readonly experimentRuns: ExperimentRunsService,
     private readonly electionApi: ElectionApiService,
   ) {
@@ -60,9 +57,9 @@ export class SelfResearchService extends createPrismaBase(
   }
 
   // The ownership guard (@UseCampaign) already scopes the campaign to the
-  // current user, so reaching here means the caller owns it. Pro + flag are the
-  // remaining gates; both 4xx so the webapp can branch cleanly.
-  private async assertAccess(campaign: CampaignWith<'user'>): Promise<void> {
+  // current user, so reaching here means the caller owns it. Pro is the
+  // remaining gate; 4xx so the webapp can branch cleanly.
+  private assertAccess(campaign: CampaignWith<'user'>): void {
     if (!campaign.isPro) {
       throw new ForbiddenException('Self-research requires Pro.')
     }
@@ -70,13 +67,6 @@ export class SelfResearchService extends createPrismaBase(
       throw new BadRequestException(
         'Campaign has no associated user — check @UseCampaign include.',
       )
-    }
-    const enabled = await this.features.isFeatureEnabled({
-      user: campaign.user,
-      feature: KNOW_YOUR_OPPONENT_FEATURE,
-    })
-    if (!enabled) {
-      throw new ForbiddenException('know-your-opponent is not enabled.')
     }
   }
 
@@ -93,7 +83,7 @@ export class SelfResearchService extends createPrismaBase(
   async start(
     campaign: CampaignWith<'user'>,
   ): Promise<StartSelfResearchResponse> {
-    await this.assertAccess(campaign)
+    this.assertAccess(campaign)
 
     const clerkUserId = campaign.user?.clerkId
     if (!clerkUserId) {
@@ -230,7 +220,7 @@ export class SelfResearchService extends createPrismaBase(
   async status(
     campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentResearchStatusResponse> {
-    await this.assertAccess(campaign)
+    this.assertAccess(campaign)
 
     const row = await this.selfRow(campaign.id)
 
@@ -243,7 +233,7 @@ export class SelfResearchService extends createPrismaBase(
   async report(
     campaign: CampaignWith<'user'>,
   ): Promise<RaceOpponentReportResponse> {
-    await this.assertAccess(campaign)
+    this.assertAccess(campaign)
 
     const row = await this.model.findFirst({
       where: { campaignId: campaign.id, kind: RaceOpponentFindingKind.self },

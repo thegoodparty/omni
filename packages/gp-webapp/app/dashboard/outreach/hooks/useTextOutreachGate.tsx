@@ -11,7 +11,10 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useP2pUxEnabled } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import type { TcrCompliance } from 'helpers/types'
 
-export const useTextOutreachGate = (tcrCompliance?: TcrCompliance) => {
+export const useTextOutreachGate = (
+  tcrCompliance?: TcrCompliance,
+  source = 'outreach_page',
+) => {
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [campaign] = useCampaign()
   const { isPro, hasFreeTextsOffer } = campaign || {}
@@ -28,7 +31,7 @@ export const useTextOutreachGate = (tcrCompliance?: TcrCompliance) => {
     }
     if (p2pUxEnabled && !isTextCompliant) {
       trackEvent(EVENTS.Outreach.P2PCompliance.ComplianceModalViewed, {
-        source: 'outreach_page',
+        source,
       })
       setShowComplianceModal(true)
       return false

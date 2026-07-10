@@ -19,6 +19,10 @@ import {
   useTrackerTasks,
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import {
+  type ComposeFlowType,
+  useOutreachComposeFlow,
+} from 'app/dashboard/outreach/hooks/useOutreachComposeFlow'
 import CountModal from '../components/tasks/CountModal'
 import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
@@ -36,30 +40,28 @@ const TRACKER_HREF = '/dashboard/campaign-plan'
 const taskLink = (task: { link: string | null }): string | null =>
   task.link?.trim() ? task.link : null
 
-// Text/robocall tasks open the outreach compose flow with the due date bound
+// Text/robocall tasks open the outreach flow in place with the due date bound
 // (mirrors the tracker rows); everything else falls back to the tracker page.
-const OUTREACH_COMPOSE_FLOW_TYPES = new Set(['text', 'robocall'])
-
-const opensComposeFlow = (task: {
+const composeFlowType = (task: {
   link: string | null
   flowType: string | null
-}): boolean =>
-  !taskLink(task) &&
-  !!task.flowType &&
-  OUTREACH_COMPOSE_FLOW_TYPES.has(task.flowType)
+}): ComposeFlowType | null => {
+  if (taskLink(task)) return null
+  return task.flowType === 'text' || task.flowType === 'robocall'
+    ? task.flowType
+    : null
+}
 
 // Each card links to the task's own action, falling back to the tracker page.
+// Compose (text/robocall) tasks return undefined: their CTA opens the outreach
+// flow in place via onCta instead of navigating.
 const taskHref = (task: {
   link: string | null
   flowType: string | null
-  date: string
-}): string => {
+}): string | undefined => {
   const own = taskLink(task)
   if (own) return own
-  if (opensComposeFlow(task)) {
-    return `/dashboard/outreach?compose=${task.flowType}&due=${task.date.slice(0, 10)}`
-  }
-  return TRACKER_HREF
+  return composeFlowType(task) ? undefined : TRACKER_HREF
 }
 
 // Eyebrow label + icon per tracker flowType (same set buildTrackerStrategy maps
@@ -94,6 +96,8 @@ export default function CampaignManagerTasks({
   const top = selectTopDynamicTasks(tasks)
 
   const toggleComplete = useToggleTrackerTaskComplete()
+  const { open: openOutreachFlow, flowNode: outreachFlowNode } =
+    useOutreachComposeFlow('campaign_manager')
   // A count-flowType task pending its voter-contact count in the modal.
   const [countTask, setCountTask] = useState<CampaignTrackerTask | null>(null)
 
@@ -168,6 +172,7 @@ export default function CampaignManagerTasks({
           <div className="flex flex-col gap-4">
             {top.map((task, index) => {
               const { label, Icon } = taskMeta(task.flowType)
+              const composeType = composeFlowType(task)
               return (
                 <TaskCard
                   key={task.id}
@@ -183,11 +188,16 @@ export default function CampaignManagerTasks({
                     task.cta?.trim() ||
                     (taskLink(task)
                       ? 'Open'
-                      : opensComposeFlow(task)
+                      : composeType
                         ? 'Start outreach'
                         : 'See details')
                   }
                   ctaHref={taskHref(task)}
+                  onCta={
+                    composeType
+                      ? () => openOutreachFlow(composeType, task.date)
+                      : undefined
+                  }
                   onComplete={() => onComplete(task)}
                   completeDisabled={toggleComplete.isPending}
                   // Only the top priority card gets the subtle gradient.
@@ -198,6 +208,8 @@ export default function CampaignManagerTasks({
           </div>
         )}
       </div>
+
+      {outreachFlowNode}
 
       {countTask && (
         <CountModal
