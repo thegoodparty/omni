@@ -28,6 +28,7 @@ export type OrdinanceExistingLaw = z.infer<typeof OrdinanceExistingLawSchema>
 // Step artifacts below are written by later slices (3-6); their shapes live here
 // so the record response is fully typed. They are null until those slices run.
 export const OrdinanceClarifySchema = z.object({ synthesis: z.string() })
+export type OrdinanceClarify = z.infer<typeof OrdinanceClarifySchema>
 
 export const OrdinanceClarifyAnswerSchema = z.object({
   questionId: z.string(),
@@ -35,9 +36,46 @@ export const OrdinanceClarifyAnswerSchema = z.object({
   answer: z.string(),
   source: OrdinanceSourceSchema.optional(),
 })
+export type OrdinanceClarifyAnswer = z.infer<
+  typeof OrdinanceClarifyAnswerSchema
+>
 export const OrdinanceClarifyAnswersSchema = z.array(
   OrdinanceClarifyAnswerSchema,
 )
+
+// One suggested answer to a clarify question. A factual option cites a source;
+// a pure-judgment option may omit one. The UI always adds an "Or write your
+// own..." freeform option on top of these.
+export const OrdinanceClarifyOptionSchema = z.object({
+  label: z.string(),
+  rationale: z.string().optional(),
+  source: OrdinanceSourceSchema.optional(),
+})
+export type OrdinanceClarifyOption = z.infer<
+  typeof OrdinanceClarifyOptionSchema
+>
+
+// The ask_clarify_question tool payload: one question shown as a widget in the
+// chat transcript. Persisted as the tool segment's payload so it replays on
+// reload.
+export const OrdinanceClarifyQuestionSchema = z.object({
+  questionId: z.string(),
+  question: z.string(),
+  options: z.array(OrdinanceClarifyOptionSchema),
+})
+export type OrdinanceClarifyQuestion = z.infer<
+  typeof OrdinanceClarifyQuestionSchema
+>
+
+// The offer_next_step tool payload: when the agent has finished a step it calls
+// this to render a "continue" button in the transcript. `label` is the button
+// text; the destination step is derived client-side from the flow order.
+export const OrdinanceNextStepOfferSchema = z.object({
+  label: z.string().optional(),
+})
+export type OrdinanceNextStepOffer = z.infer<
+  typeof OrdinanceNextStepOfferSchema
+>
 
 export const OrdinanceAuthoritySchema = z.object({
   status: z.enum(['pass', 'flag', 'attention']),
@@ -93,6 +131,7 @@ export const OrdinanceResearchSchema = z
     web: z.array(OrdinanceSourceSchema.extend({ snippet: z.string() })),
   })
   .partial()
+export type OrdinanceResearch = z.infer<typeof OrdinanceResearchSchema>
 
 export const OrdinanceScratchpadNoteSchema = z.object({
   step: z.string(),

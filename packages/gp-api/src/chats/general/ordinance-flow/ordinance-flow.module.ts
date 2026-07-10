@@ -12,6 +12,7 @@ import {
   OrdinanceFlowHandler,
 } from './ordinanceFlow.handler'
 import { OrdinanceFlowContextService } from './services/ordinanceFlowContext.service'
+import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
 
 export { ORDINANCE_FLOW_MODELS }
 
@@ -26,6 +27,7 @@ export { ORDINANCE_FLOW_MODELS }
   providers: [
     OrdinanceFlowHandler,
     OrdinanceFlowContextService,
+    OrdinanceFlowToolsService,
     GeneralChatStoreService,
     DistrictResolverService,
   ],
