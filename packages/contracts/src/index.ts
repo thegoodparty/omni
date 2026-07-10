@@ -47,6 +47,12 @@ export {
   type ArtifactReviewVerdict,
   ARTIFACT_REVIEW_VERDICT_VALUES,
   ArtifactReviewVerdictSchema,
+  type OrdinanceStatus,
+  ORDINANCE_STATUS_VALUES,
+  OrdinanceStatusSchema,
+  type OrdinanceSeedType,
+  ORDINANCE_SEED_TYPE_VALUES,
+  OrdinanceSeedTypeSchema,
 } from './generated/enums'
 
 export {
@@ -527,6 +533,8 @@ export {
 export {
   ChatAnchorSnapshotSchema,
   type ChatAnchorSnapshot,
+  CommunityIssueChatAnchorSchema,
+  OrdinanceChatAnchorSchema,
   ChatAnchorSchema,
   type ChatAnchor,
   CreateChatRequestSchema,
@@ -572,3 +580,5 @@ export {
   CommunityIssuesDispatchResultSchema,
   type CommunityIssuesDispatchResult,
 } from './communityIssues/CommunityIssueDispatch.schema'
+
+export * from './ordinances/Ordinance.schema'

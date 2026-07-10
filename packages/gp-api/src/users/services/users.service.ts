@@ -36,6 +36,7 @@ import {
   SIGN_UP_MODE,
 } from '../schemas/CreateUserInput.schema'
 import { hashPassword } from '../util/passwords.util'
+import { APP_ROOT } from 'src/shared/util/appEnvironment.util'
 import { CrmUsersService } from './crmUsers.service'
 import { clerkThrottle } from '@/vendors/clerk/util/clerkThrottle.util'
 
@@ -216,6 +217,32 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     await this.crm.trackUserUpdate(user.id)
 
     return user
+  }
+
+  // Ties the Clerk-provisioned signup to the visitor's HubSpot web session:
+  // a Forms API submission carrying context.hutk is the only way HubSpot
+  // grants web/paid original-source attribution to a contact that Segment
+  // would otherwise create as "offline sources".
+  async submitRegistrationCrmForm(user: User, hutk?: string) {
+    const { firstName, lastName, email, phone } = user
+    return this.crm.submitCrmForm(
+      REGISTER_USER_CRM_FORM_ID,
+      [
+        ...(firstName
+          ? [{ name: 'firstName', value: firstName, objectTypeId: '0-1' }]
+          : []),
+        ...(lastName
+          ? [{ name: 'lastName', value: lastName, objectTypeId: '0-1' }]
+          : []),
+        { name: 'email', value: email, objectTypeId: '0-1' },
+        ...(phone
+          ? [{ name: 'phone', value: phone, objectTypeId: '0-1' }]
+          : []),
+      ],
+      'registerPage',
+      `${APP_ROOT}/sign-up`,
+      hutk,
+    )
   }
 
   async findOrProvisionByClerk(data: {

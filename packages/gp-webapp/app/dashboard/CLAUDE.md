@@ -30,7 +30,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 
 ## Related
 
-- Feature dirs each have their own `CLAUDE.md` — start there if you're working in `outreach/`, `polls/`, `website/`, `race-opponent/` (Know Your Opponent — flag + Pro gated), etc.
+- Feature dirs each have their own `CLAUDE.md` — start there if you're working in `outreach/`, `polls/`, `website/`, `race-opponent/` (Know Your Opponent — Pro gated), etc.
 - **Pro upgrade / 10DLC compliance** — `pro-upgrade/CLAUDE.md` (the pre-payment wizard) + its gp-api counterpart `packages/gp-api/src/campaigns/tcrCompliance/CLAUDE.md` (the agentic `compliance_setup` flow).
 - `app/shared/user/UserProvider.tsx` — auth state the layout reads.
 - `app/shared/hooks/CampaignProvider.tsx` — current campaign context.

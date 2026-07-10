@@ -1,6 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import {
   ExperimentRunStatus,
   RaceOpponentFindingKind,
@@ -73,11 +72,6 @@ const seedFinding = (
     },
   })
 
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
-
 describe('GET /opponents/activity', () => {
   it('returns findings in occurredAt order, undated last', async () => {
     const campaign = await seedCampaign({ isPro: true })
@@ -92,7 +86,6 @@ describe('GET /opponents/activity', () => {
       occurredAt: new Date('2020-01-01'),
     })
     await seedFinding(research.id, { claim: 'undated', occurredAt: null })
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -121,7 +114,6 @@ describe('GET /opponents/activity', () => {
       occurredAt: new Date('2019-02-01'),
       createdAt: new Date('2024-06-01T00:00:00Z'),
     })
-    flagOn()
 
     const first = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -167,7 +159,6 @@ describe('GET /opponents/activity', () => {
       occurredAt: new Date('2021-01-01'),
       createdAt: new Date('2023-07-01T00:00:00Z'),
     })
-    flagOn()
 
     const first = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -218,7 +209,6 @@ describe('GET /opponents/activity', () => {
       occurredAt: new Date('2019-02-01'),
       createdAt: new Date('2024-06-01T00:00:00Z'),
     })
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -254,7 +244,6 @@ describe('GET /opponents/activity', () => {
       occurredAt: new Date('2099-01-01'),
       createdAt: new Date('2023-06-01T00:00:00Z'),
     })
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -281,7 +270,6 @@ describe('GET /opponents/activity', () => {
         artifactKey: 'opp-run-complete.json',
       },
     })
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -298,7 +286,6 @@ describe('GET /opponents/activity', () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedSelfComplete(campaign.id)
     await seedOpponentResearch(campaign.id)
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -323,7 +310,6 @@ describe('GET /opponents/activity', () => {
         status: ExperimentRunStatus.RUNNING,
       },
     })
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -348,7 +334,6 @@ describe('GET /opponents/activity', () => {
         status: ExperimentRunStatus.FAILED,
       },
     })
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -392,7 +377,6 @@ describe('GET /opponents/activity', () => {
         updatedAt: new Date('2026-02-01T00:00:00Z'),
       },
     })
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -406,7 +390,6 @@ describe('GET /opponents/activity', () => {
   it('reports researchStatus not_started when no opponent row exists', async () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedSelfComplete(campaign.id)
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -430,7 +413,6 @@ describe('GET /opponents/activity', () => {
       'opp-running',
       RaceOpponentResearchStatus.running,
     )
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -450,7 +432,6 @@ describe('GET /opponents/activity', () => {
       'opp-failed',
       RaceOpponentResearchStatus.failed,
     )
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -480,7 +461,6 @@ describe('GET /opponents/activity', () => {
       'opp-new-failed',
       RaceOpponentResearchStatus.failed,
     )
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -493,7 +473,6 @@ describe('GET /opponents/activity', () => {
   it('403s without a completed self-research pass', async () => {
     const campaign = await seedCampaign({ isPro: true })
     await seedOpponentResearch(campaign.id)
-    flagOn()
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },
@@ -505,22 +484,6 @@ describe('GET /opponents/activity', () => {
   it('403s for a non-Pro campaign', async () => {
     const campaign = await seedCampaign({ isPro: false })
     await seedSelfComplete(campaign.id)
-    flagOn()
-
-    const result = await service.client.get(ACTIVITY_PATH, {
-      headers: { [ORG_SLUG_HEADER]: SLUG },
-    })
-
-    expect(result.status).toBe(403)
-  })
-
-  it('403s when the flag is off', async () => {
-    const campaign = await seedCampaign({ isPro: true })
-    await seedSelfComplete(campaign.id)
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
 
     const result = await service.client.get(ACTIVITY_PATH, {
       headers: { [ORG_SLUG_HEADER]: SLUG },

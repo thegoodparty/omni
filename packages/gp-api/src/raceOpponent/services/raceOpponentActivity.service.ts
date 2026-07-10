@@ -42,7 +42,7 @@ export class RaceOpponentActivityService extends createPrismaBase(
 
   // The "what's new" stream: opponent findings ordered by when they occurred,
   // each flagged for whether it landed since the candidate last looked. Gated
-  // identically to the other opponent paths (Pro + flag + a completed
+  // identically to the other opponent paths (Pro + a completed
   // self-research pass) so a finding can't leak before research is unlocked.
   // Viewing the stream advances lastViewedAt to now (advanceLastViewedAt) so a
   // subsequent read stops reporting the same items as new — research is NOT

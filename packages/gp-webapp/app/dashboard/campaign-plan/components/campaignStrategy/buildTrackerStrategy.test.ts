@@ -134,7 +134,7 @@ describe('buildTrackerStrategy', () => {
     expect(data.phases.find((p) => p.key === 'launch')?.status).not.toBe('done')
   })
 
-  it('links text/robocall rows to the outreach compose flow with the due date', () => {
+  it('leaves text/robocall rows without an href (the row opens the flow in place)', () => {
     const data = buildTrackerStrategy(
       [
         row({
@@ -144,20 +144,14 @@ describe('buildTrackerStrategy', () => {
           date: '2026-02-03T00:00:00.000Z',
         }),
         row({ id: 'r', phase: 'launch', flowType: 'robocall' }),
-        row({ id: 'd', phase: 'launch', flowType: 'doorKnocking' }),
       ],
       { electionDate: null, today },
     )
     const tasks = data.phases.flatMap((p) => p.groups).flatMap((g) => g.tasks)
     const byId = new Map(tasks.map((t) => [t.id, t]))
-    expect(byId.get('t')?.href).toBe(
-      '/dashboard/outreach?compose=text&due=2026-02-03',
-    )
-    expect(byId.get('t')?.hrefLabel).toBe('Start outreach')
-    expect(byId.get('r')?.href).toBe(
-      '/dashboard/outreach?compose=robocall&due=2026-02-01',
-    )
-    expect(byId.get('d')?.href).toBeNull()
+    expect(byId.get('t')?.href).toBeNull()
+    expect(byId.get('t')?.channel).toBe('text')
+    expect(byId.get('r')?.channel).toBe('robocall')
   })
 
   it('advances Launch to active when every pre-launch task is done', () => {

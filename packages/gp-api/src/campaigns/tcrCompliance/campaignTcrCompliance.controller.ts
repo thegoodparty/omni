@@ -97,10 +97,13 @@ export class CampaignTcrComplianceController {
       'office level, election filing details, contact email and phone, ' +
       "and website host from the candidate's saved compliance record — " +
       'just call it for the current campaign. gp-api re-validates the ' +
-      'saved filing URL and returns 400 if it is a goodparty.org page or ' +
-      "the candidate's own campaign website (CampaignVerify cannot match " +
-      'a candidate against those); the candidate must correct their ' +
-      'saved filing details before this can succeed. ' +
+      'saved filing URL and returns 400 if it is a goodparty.org page, ' +
+      "the candidate's own campaign website, or (for non-federal " +
+      'candidates) an FEC filing URL (CampaignVerify rejects all of ' +
+      'those); the candidate must correct their saved filing details ' +
+      'before this can succeed. A 400 from this tool — including a ' +
+      'CampaignVerify rejection of the submitted data — is never ' +
+      'transient: do not retry it; record it as a rejection blocker. ' +
       'Creates the Peerly Identity, Identity Profile, ' +
       '10DLC Brand, and Campaign Verify Request; Peerly then sends a ' +
       'PIN to the candidate via the contact channels supplied. ' +

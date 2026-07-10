@@ -855,11 +855,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     // the agent request is not trusted (the compliance_setup instruction
     // already promises gp-api reads the candidate's saved details itself).
     // Re-apply PR #643's filing-URL guards to the persisted value: a record
-    // saved before that guard shipped can still carry a goodparty.org page or
-    // the candidate's own campaign site, which CampaignVerify can't match a
-    // candidate against.
+    // saved before that guard shipped can still carry a goodparty.org page,
+    // the candidate's own campaign site, or (non-federal) an FEC filing URL,
+    // all of which CampaignVerify deterministically rejects.
     const filingCheck = submitToPeerlyFilingSchema.safeParse({
       filingUrl: existing.filingUrl,
+      officeLevel: existing.officeLevel,
       websiteHost: hostname,
     })
     if (!filingCheck.success) {

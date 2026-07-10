@@ -92,6 +92,29 @@ export const addFilingUrlIssues = (filingUrl: string, ctx: z.RefinementCtx) => {
   }
 }
 
+// CampaignVerify rejects FEC-hosted filing URLs outright for state/local
+// verifications ("FEC filing URLs are not allowed.") — a state or local
+// candidate's filing lives with their state or local election authority, so
+// an FEC URL is deterministically unsubmittable. Shared by the create-side
+// superRefine and the submit-time re-check so both layers stay in lockstep
+// (federal is the opposite: the create schema *requires* an FEC.gov link).
+export const addNonFederalFecFilingUrlIssue = (
+  filingUrl: string,
+  ctx: z.RefinementCtx,
+) => {
+  const filingHost = getUrlHostname(filingUrl)
+  if (filingHost === 'fec.gov' || filingHost.endsWith('.fec.gov')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'Election Filing Link must be from the state or local election ' +
+        'authority for non-federal office level, not FEC.gov — Campaign ' +
+        'Verify rejects FEC filing URLs for state and local candidates',
+      path: ['filingUrl'],
+    })
+  }
+}
+
 export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
   data: T,
   ctx: z.RefinementCtx,
@@ -170,6 +193,7 @@ export const tcrComplianceSuperRefine = <T extends TcrComplianceBaseData>(
         path: ['committeeType'],
       })
     }
+    addNonFederalFecFilingUrlIssue(data.filingUrl, ctx)
   }
 }
 

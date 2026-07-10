@@ -23,6 +23,16 @@ vi.mock(
   }),
 )
 
+// Spy on the in-place outreach launcher so the text/robocall CTA wiring can
+// be asserted without mounting the real gates/TaskFlow.
+const mockOpenOutreach = vi.fn()
+vi.mock('app/dashboard/outreach/hooks/useOutreachComposeFlow', () => ({
+  useOutreachComposeFlow: () => ({
+    open: mockOpenOutreach,
+    flowNode: <div data-testid="outreach-flow-node" />,
+  }),
+}))
+
 // The first-run "meet" card gates on whether the candidate has ever opened the
 // manager (a conversation exists). Control that here; default to none.
 const mockHistory = vi.fn<() => { data: unknown[] | undefined }>()
@@ -55,6 +65,7 @@ const meetButton = () =>
 beforeEach(() => {
   mockHistory.mockReturnValue({ data: [] })
   mockToggle.mockClear()
+  mockOpenOutreach.mockClear()
 })
 
 const task = (over: Partial<CampaignTrackerTask>): CampaignTrackerTask => ({
@@ -286,5 +297,68 @@ describe('CampaignManagerTasks', () => {
     render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
 
     expect(screen.getByText(/preparing/i)).toBeInTheDocument()
+  })
+})
+
+describe('text/robocall cards open the outreach flow in place', () => {
+  it('renders Start outreach as a button and opens the flow with the date', async () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'Send a text blast',
+          flowType: 'text',
+          link: null,
+          date: '2026-07-14T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(<CampaignManagerTasks onMeetManager={() => undefined} />)
+
+    const cta = screen.getByRole('button', { name: /start outreach/i })
+    expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
+    await userEvent.click(cta)
+    expect(mockOpenOutreach).toHaveBeenCalledWith(
+      'text',
+      '2026-07-14T00:00:00.000Z',
+    )
+  })
+
+  it('opens the robocall flow for robocall tasks', async () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({
+          title: 'Record a robocall',
+          flowType: 'robocall',
+          link: null,
+          date: '2026-07-15T00:00:00.000Z',
+        }),
+      ]),
+    )
+    render(<CampaignManagerTasks onMeetManager={() => undefined} />)
+
+    await userEvent.click(
+      screen.getByRole('button', { name: /start outreach/i }),
+    )
+    expect(mockOpenOutreach).toHaveBeenCalledWith(
+      'robocall',
+      '2026-07-15T00:00:00.000Z',
+    )
+  })
+
+  it('keeps the tracker link for non-compose tasks and a task-owned link when present', () => {
+    mockResult.mockReturnValue(
+      settled([
+        task({ title: 'Knock doors', flowType: 'doorKnocking', link: null }),
+        task({
+          title: 'Texts with a link',
+          flowType: 'text',
+          link: 'https://example.com/action',
+        }),
+      ]),
+    )
+    render(<CampaignManagerTasks onMeetManager={() => undefined} />)
+
+    expect(screen.queryByRole('button', { name: /start outreach/i })).toBeNull()
+    expect(mockOpenOutreach).not.toHaveBeenCalled()
   })
 })

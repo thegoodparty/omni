@@ -33,11 +33,14 @@ import {
   DispatchRequestDto,
   DispatchResponseSchema,
   IssueIdParamDto,
+  SeedRequestDto,
+  SeedResponseSchema,
   SelfDispatchRequestDto,
 } from '../schemas/communityIssues.schema'
 import { CommunityIssueDispatchService } from '../services/communityIssueDispatch.service'
 import { CommunityIssuePrioritizeService } from '../services/communityIssuePrioritize.service'
 import { CommunityIssueReadService } from '../services/communityIssueRead.service'
+import { CommunityIssueSeedService } from '../services/communityIssueSeed.service'
 
 const toApi = (record: Priority): PriorityDto => ({
   id: record.id,
@@ -59,7 +62,21 @@ export class CommunityIssuesController {
     private readonly read: CommunityIssueReadService,
     private readonly prioritize: CommunityIssuePrioritizeService,
     private readonly dispatch: CommunityIssueDispatchService,
+    private readonly seedService: CommunityIssueSeedService,
   ) {}
+
+  // Preview/dev-only deterministic seeding for e2e tests; the service rejects
+  // the call on qa/prod. Scoped to the caller's own elected-office org.
+  @Post('seed')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(SeedResponseSchema)
+  async seed(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Body() body: SeedRequestDto,
+  ) {
+    return this.seedService.seed(electedOffice, body)
+  }
 
   @Post('dispatch')
   @UseGuards(AdminOrM2MGuard)

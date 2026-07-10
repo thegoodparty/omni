@@ -1,0 +1,54 @@
+model Ordinance {
+  id              String        @id @default(uuid(7))
+  slug            String        @unique @default(uuid(7))
+  electedOfficeId String        @map("elected_office_id")
+  electedOffice   ElectedOffice @relation(fields: [electedOfficeId], references: [id], onDelete: Cascade)
+
+  status   OrdinanceStatus   @default(in_progress)
+  seedType OrdinanceSeedType @map("seed_type")
+
+  issueSlug  String? @map("issue_slug")
+  sourceLink String? @map("source_link")
+  goalText   String? @map("goal_text") @db.Text
+
+  // AI-generated / gathered step artifacts. JsonB, validated by the matching
+  // @goodparty_org/contracts schema at write time and never queried by shape
+  // (same justification as MeetingBriefing.artifact, rules.mdc Rule 25). If a
+  // future requirement needs to query across these, split the piece into columns
+  // or a relation (Source is the first candidate — see the TDD).
+  existingLaw    Json? @map("existing_law") @db.JsonB
+  clarify        Json? @db.JsonB
+  clarifyAnswers Json? @map("clarify_answers") @db.JsonB
+  authority      Json? @db.JsonB
+  comparables    Json? @db.JsonB
+  draftSources   Json? @map("draft_sources") @db.JsonB
+  qualityReport  Json? @map("quality_report") @db.JsonB
+  research       Json? @db.JsonB
+  scratchpad     Json? @db.JsonB
+
+  draftTitle String? @map("draft_title")
+  draftBody  String? @map("draft_body") @db.Text
+
+  lastViewedStep String? @map("last_viewed_step")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@index([electedOfficeId, deletedAt, updatedAt])
+  @@map("ordinance")
+}
+
+enum OrdinanceStatus {
+  in_progress
+  draft
+  in_review
+  proposed
+  passed
+  repealed
+}
+
+enum OrdinanceSeedType {
+  issue
+  new
+}

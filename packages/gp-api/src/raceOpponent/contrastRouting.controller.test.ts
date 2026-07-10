@@ -1,5 +1,4 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
 import { PrismaService } from '@/prisma/prisma.service'
 import {
   OutreachStatus,
@@ -34,11 +33,6 @@ const ORG_SLUG_HEADER = 'X-Organization-Slug'
 
 const CONTRAST_SENTENCE =
   'On Housing, my opponent voted against the bill — I support more housing.'
-
-const flagOn = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
 
 const seedCampaign = async (slug: string, isPro = true) => {
   await service.prisma.organization.create({
@@ -96,7 +90,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'story')
 
@@ -145,7 +138,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'story')
 
@@ -170,7 +162,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     // Reproduce the production race: the first attempt reads no website and
     // takes the create branch, but a sibling route creates the row first, so
@@ -230,7 +221,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     // A P2002 on website's OTHER unique column (vanity_path) means a different
     // campaign already holds this slug — retrying can never clear it. The route
@@ -267,7 +257,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     // First attempt aborts with P2034; retryIf must run a real second
     // transaction that appends cleanly onto the existing row.
@@ -310,7 +299,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'texting')
 
@@ -349,7 +337,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.pending_review,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'story')
 
@@ -373,7 +360,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.blocked,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'texting')
 
@@ -391,7 +377,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.used,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'story')
 
@@ -406,7 +391,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       other.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     // Routed through MY org slug, targeting THEIR contrast id.
     const result = await route(theirContrast.id, 'story', SLUG)
@@ -427,7 +411,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'story')
 
@@ -447,7 +430,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.approved,
     )
-    flagOn()
 
     const result = await route(contrast.id, 'story')
 
@@ -469,29 +451,6 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       campaign.id,
       RaceOpponentContrastStatus.cleared,
     )
-    flagOn()
-
-    const result = await route(contrast.id, 'story')
-
-    expect(result.status).toBe(403)
-    const row = await service.prisma.raceOpponentContrast.findUniqueOrThrow({
-      where: { id: contrast.id },
-    })
-    expect(row.status).toBe(RaceOpponentContrastStatus.cleared)
-    expect(row.routedWebsiteId).toBeNull()
-  })
-
-  it('403s route when the feature flag is off', async () => {
-    const campaign = await seedCampaign(SLUG)
-    await seedCompletedSelfPass(campaign.id)
-    const contrast = await seedContrast(
-      campaign.id,
-      RaceOpponentContrastStatus.cleared,
-    )
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(false)
 
     const result = await route(contrast.id, 'story')
 
