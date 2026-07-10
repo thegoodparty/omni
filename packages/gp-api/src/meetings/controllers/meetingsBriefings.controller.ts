@@ -75,7 +75,7 @@ export class MeetingsBriefingsController {
 
     const now = new Date()
     const windowFrom = parseIsoDateAsUTC(
-      formatInTimeZone(subDays(now, 4), 'UTC', 'yyyy-MM-dd'),
+      formatInTimeZone(subDays(now, 60), 'UTC', 'yyyy-MM-dd'),
     )
     const windowTo = addMonths(now, 3)
     const today = formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')
