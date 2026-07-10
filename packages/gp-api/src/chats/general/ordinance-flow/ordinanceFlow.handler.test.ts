@@ -216,11 +216,55 @@ describe('OrdinanceFlowHandler', () => {
       'fetch_url',
       'get_code_source',
       'offer_next_step',
+      'present_current_law_summary',
+      'present_legislative_history',
       'read_ordinance',
       'save_existing_law',
       'save_note',
       'web_search',
     ])
+  })
+
+  it('offers the authority finding tool on the authority step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'authority' }),
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'offer_next_step',
+      'present_authority_finding',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+  })
+
+  it('offers the comparables tool on the comparables step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'comparables' }),
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'offer_next_step',
+      'present_comparables',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+  })
+
+  it('gates present_* tools to their own step', () => {
+    const handler = build()
+    const clarify = Object.keys(handler.buildTools(baseCtx()))
+    expect(clarify).not.toContain('present_authority_finding')
+    expect(clarify).not.toContain('present_comparables')
+    const authority = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'authority' }),
+    )
+    expect(authority).not.toContain('present_comparables')
+    expect(authority).not.toContain('present_current_law_summary')
   })
 
   it('omits the clarify tools on non-clarify steps but keeps offer_next_step', () => {

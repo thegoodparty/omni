@@ -16,8 +16,10 @@ import {
   OrdinanceExistingLawSchema,
   OrdinanceResearchSchema,
   OrdinanceScratchpadSchema,
+  type OrdinanceAuthority,
   type OrdinanceClarify,
   type OrdinanceClarifyAnswer,
+  type OrdinanceComparables,
 } from '@goodparty_org/contracts'
 
 export const ORDINANCE_READ_SECTIONS = [
@@ -142,6 +144,26 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
     await this.model.update({ where: { id: o.id }, data: { clarify } })
+    return { saved: true }
+  }
+
+  async saveAuthority(
+    ordinanceId: string,
+    electedOfficeId: string,
+    authority: OrdinanceAuthority,
+  ): Promise<{ saved: true }> {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.model.update({ where: { id: o.id }, data: { authority } })
+    return { saved: true }
+  }
+
+  async saveComparables(
+    ordinanceId: string,
+    electedOfficeId: string,
+    comparables: OrdinanceComparables,
+  ): Promise<{ saved: true }> {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.model.update({ where: { id: o.id }, data: { comparables } })
     return { saved: true }
   }
 

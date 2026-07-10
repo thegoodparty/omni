@@ -174,4 +174,41 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     })
     expect(prompt).not.toContain('get_current_code')
   })
+
+  it('includes authority rules only when present_authority_finding is offered', () => {
+    const withTool = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'authority' }),
+      toolNames: ['present_authority_finding', 'offer_next_step'],
+    })
+    expect(withTool).toContain('AUTHORITY RULES')
+    expect(withTool).toContain('present_authority_finding')
+    const without = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'offer_next_step'],
+    })
+    expect(without).not.toContain('AUTHORITY RULES')
+  })
+
+  it('includes comparables rules only when present_comparables is offered', () => {
+    const withTool = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'offer_next_step'],
+    })
+    expect(withTool).toContain('COMPARABLES RULES')
+    expect(withTool).toContain('intro and closing takeaway')
+    const without = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'authority' }),
+      toolNames: ['present_authority_finding', 'offer_next_step'],
+    })
+    expect(without).not.toContain('COMPARABLES RULES')
+  })
+
+  it('advertises the present_* tools that render the current_law widgets', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'current_law' }),
+      toolNames: ['present_current_law_summary', 'present_legislative_history'],
+    })
+    expect(prompt).toContain('present_current_law_summary:')
+    expect(prompt).toContain('present_legislative_history:')
+  })
 })

@@ -1,8 +1,12 @@
 import { z } from 'zod'
 import type { LlmStreamTool } from '@/llm/services/llm.service'
 import {
+  OrdinanceAuthorityFindingSchema,
   OrdinanceClarifyQuestionSchema,
+  OrdinanceCurrentLawSummarySchema,
+  OrdinanceLegislativeHistorySchema,
   OrdinanceNextStepOfferSchema,
+  OrdinancePresentComparablesSchema,
   OrdinanceSourceSchema,
 } from '@goodparty_org/contracts'
 import {
@@ -130,6 +134,73 @@ export const buildSaveNoteTool = (
       deps.electedOfficeId,
       deps.step,
       text,
+    ),
+})
+
+// The present_* tools render a step's finding as a structured widget in the
+// transcript. The model passes the full display payload as the tool args (which
+// persist as the tool segment the webapp widget replays from); execute persists
+// the artifact subset for steps that own a column, then acks.
+
+export const buildPresentAuthorityFindingTool = (
+  deps: OrdinanceToolDeps,
+): LlmStreamTool<typeof OrdinanceAuthorityFindingSchema> => ({
+  description:
+    'Show the legal-authority verdict as a card. Pass the verdict headline, ' +
+    'the status (pass/flag/attention), a statute-citing explanation with a ' +
+    'source, and an optional "what this means for you" confirmation. Call it ' +
+    'once the authority question is settled, before offer_next_step.',
+  inputSchema: OrdinanceAuthorityFindingSchema,
+  execute: ({ status, explanation, source }) =>
+    deps.service.saveAuthority(deps.ordinanceId, deps.electedOfficeId, {
+      status,
+      explanation,
+      source,
+    }),
+})
+
+// Display-only: no artifact column matches the does/gaps summary, so it renders
+// via the persisted tool args alone (like offer_next_step). The underlying
+// research is already persisted by save_existing_law.
+export const buildPresentCurrentLawSummaryTool = (): LlmStreamTool<
+  typeof OrdinanceCurrentLawSummarySchema
+> => ({
+  description:
+    'Show a summary of the current municipal code: what it does today ' +
+    '(`does`) and where it falls short for this ordinance (`gaps`), with the ' +
+    'chapter label and a source. Ground it in what get_code_source and ' +
+    'fetch_url returned; do not invent provisions.',
+  inputSchema: OrdinanceCurrentLawSummarySchema,
+  execute: () => ({ presented: true }),
+})
+
+export const buildPresentLegislativeHistoryTool = (): LlmStreamTool<
+  typeof OrdinanceLegislativeHistorySchema
+> => ({
+  description:
+    'Show a timeline of how the current chapter was adopted and amended. ' +
+    'Each entry needs a year, a short label, and a summary; include a ' +
+    'council-minutes excerpt with its speaker and source when you found one. ' +
+    'Only call it when you have real entries — never with an empty timeline.',
+  inputSchema: OrdinanceLegislativeHistorySchema,
+  execute: () => ({ presented: true }),
+})
+
+export const buildPresentComparablesTool = (
+  deps: OrdinanceToolDeps,
+): LlmStreamTool<typeof OrdinancePresentComparablesSchema> => ({
+  description:
+    'Show how comparable cities handled this, as cards. Put the framing intro ' +
+    'and closing takeaway in this payload (not as separate chat text) so the ' +
+    'cards and their framing render as one block. Each comparable needs a ' +
+    'city, state, status (passed/repealed/unknown), a quote, and a source; ' +
+    'add failureReason for a repealed one.',
+  inputSchema: OrdinancePresentComparablesSchema,
+  execute: ({ comparables }) =>
+    deps.service.saveComparables(
+      deps.ordinanceId,
+      deps.electedOfficeId,
+      comparables,
     ),
 })
 
