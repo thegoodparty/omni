@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { CampaignTrackerTask } from 'gpApi/api-endpoints'
-import { isTrackerGenerating, isVoterContactFlowType } from './useTrackerTasks'
+import {
+  isTrackerGenerating,
+  isTrackerSettling,
+  isVoterContactFlowType,
+} from './useTrackerTasks'
 
 const row = (isDefaultTask: boolean): CampaignTrackerTask => ({
   id: 'x',
@@ -28,6 +32,20 @@ describe('isTrackerGenerating', () => {
 
   it('is false once any dynamic row has landed', () => {
     expect(isTrackerGenerating([row(true), row(false)])).toBe(false)
+  })
+})
+
+describe('isTrackerSettling', () => {
+  it('is true with no rows yet (bootstrap/static still pending)', () => {
+    expect(isTrackerSettling([])).toBe(true)
+  })
+
+  it('is true when only static rows exist (dynamic still generating)', () => {
+    expect(isTrackerSettling([row(true), row(true)])).toBe(true)
+  })
+
+  it('is false once any dynamic row has landed', () => {
+    expect(isTrackerSettling([row(true), row(false)])).toBe(false)
   })
 })
 
