@@ -1,11 +1,13 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import H1 from '@shared/typography/H1'
 import Body1 from '@shared/typography/Body1'
 import { ModalFooter } from '@shared/ModalFooter'
 import { getCampaign, updateCampaign } from 'app/onboarding/shared/ajaxActions'
 import { useSnackbar } from 'helpers/useSnackbar'
 import dynamic from 'next/dynamic'
+import sanitizeHtml from 'sanitize-html'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { AiContentData, CampaignAiContent } from 'helpers/types'
 import { noop } from '@shared/utils/noop'
 
@@ -36,6 +38,17 @@ export const GenerateReviewScreen = ({
   const [scriptContent, setScriptContent] = useState('')
   const [saving, setSaving] = useState(false)
   const aiScriptKeyValue = String(aiScriptKey)
+
+  // Peerly's MMS limit applies to the sanitized plain text the server sends
+  // (same transform as TaskFlow's handleAddScriptOnComplete), not the Quill
+  // HTML, so count that rather than the editor's own text length.
+  const scriptLength = useMemo(
+    () =>
+      sanitizeHtml(scriptContent, { allowedTags: [], allowedAttributes: {} })
+        .length,
+    [scriptContent],
+  )
+  const overLimit = scriptLength > P2P_SCRIPT_MAX_LENGTH
 
   useEffect(() => {
     const fetchAiContent = async () => {
@@ -89,12 +102,18 @@ export const GenerateReviewScreen = ({
             setScriptContent(content)
           }}
           useOnChange
+          error={overLimit}
         />
+        <div className="text-right mt-2">
+          <Body1 className={overLimit ? 'text-error' : ''}>
+            {scriptLength} / {P2P_SCRIPT_MAX_LENGTH}
+          </Body1>
+        </div>
       </section>
       <ModalFooter
         onBack={onBack}
         onNext={handleOnNext}
-        disabled={!scriptContent || saving}
+        disabled={!scriptContent || overLimit || saving}
         nextText="Save"
         nextButtonProps={{
           loading: saving,

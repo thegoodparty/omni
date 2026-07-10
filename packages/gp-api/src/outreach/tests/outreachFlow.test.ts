@@ -26,6 +26,7 @@ import { S3Service } from '@/vendors/aws/services/s3.service'
 import { Campaign, OutreachStatus, OutreachType } from '../../generated/prisma'
 import { OutreachService } from '../services/outreach.service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 
 // Mirror the production env gate. Tests don't set OTEL_SERVICE_ENVIRONMENT so
@@ -348,6 +349,53 @@ describe('Outreach submission flow — single API call contract', () => {
         expectedFailureStepLabel: 'peerlyJobCreation',
         expectNoOutreachRow: true,
       })
+    })
+
+    it('p2p script over the MMS limit → 400, no Peerly call, no DB row', async () => {
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1),
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(400)
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
+    })
+
+    it('p2p aiContent key resolving over the MMS limit → 400, no Peerly call, no DB row', async () => {
+      // The DTO passes schema validation (the script field is a short key);
+      // the oversized text only exists after aiContent resolution.
+      await service.prisma.campaign.update({
+        where: { id: campaign.id },
+        data: {
+          aiContent: {
+            smsScript: {
+              name: 'SMS Script',
+              content: `<p>${'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1)}</p>`,
+              updatedAt: Date.now(),
+            },
+          },
+        },
+      })
+
+      const res = await submitOutreach({
+        outreachType: OutreachType.p2p,
+        script: 'smsScript',
+        phoneListId: 3180213,
+        date: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      })
+
+      expect(res.status).toBe(400)
+      expect(peerlyCreatePeerlyP2pJob).not.toHaveBeenCalled()
+      const outreachRows = await service.prisma.outreach.findMany({
+        where: { campaignId: campaign.id },
+      })
+      expect(outreachRows.length).toBe(0)
     })
 
     it('TCR compliance lookup fails → FAILURE Slack with step=tcrLookup', async () => {

@@ -1,8 +1,9 @@
-import { BadGatewayException } from '@nestjs/common'
+import { BadGatewayException, BadRequestException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { createMockLogger } from 'src/shared/test-utils/mockLogger.util'
 import { PinoLogger } from 'nestjs-pino'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { P2P_JOB_DEFAULTS } from '../constants/p2pJob.constants'
 import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyP2pJobService } from './peerlyP2pJob.service'
@@ -234,6 +235,19 @@ describe('PeerlyP2pJobService', () => {
           end_date: '2025-03-15',
         }),
       )
+    })
+
+    it('rejects script text over the MMS limit before any Peerly calls', async () => {
+      await expect(
+        service.createPeerlyP2pJob({
+          ...baseJobParams,
+          scriptText: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1),
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockMediaService.createMedia).not.toHaveBeenCalled()
+      expect(mockScheduleService.createSchedule).not.toHaveBeenCalled()
+      expect(mockHttpService.post).not.toHaveBeenCalled()
     })
 
     it('throws BadGatewayException when media creation fails', async () => {

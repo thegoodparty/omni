@@ -13,6 +13,7 @@ import {
   User,
 } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import { firstOrThrow } from 'src/shared/test-utils/arrays.util'
 import { AreaCodeFromZipService } from 'src/ai/util/areaCodeFromZip.util'
 import { CampaignTcrComplianceService } from 'src/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
@@ -378,6 +379,33 @@ describe('OutreachService', () => {
         created,
       )
       expect(result).toEqual(created)
+    })
+
+    it('throws BadRequest when the resolved P2P script exceeds the MMS limit', async () => {
+      mockTcrFindFirstOrThrow.mockResolvedValue({
+        peerlyIdentityId: 'identity-123',
+      })
+      // The DTO script is a short aiContent key; the oversized text only
+      // appears after resolution, so schema validation alone can't catch it.
+      const campaignWithLongScript = {
+        ...mockCampaign,
+        aiContent: {
+          smsKey: { content: 'x'.repeat(P2P_SCRIPT_MAX_LENGTH + 1) },
+        },
+      } as unknown as Campaign
+
+      await expect(
+        service.create(
+          mockUser,
+          campaignWithLongScript,
+          p2pCreateDto,
+          'https://cdn.example.com/p2p.png',
+          p2pImage,
+        ),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(mockPeerlyCreateJob).not.toHaveBeenCalled()
+      expect(mockOutreachCreate).not.toHaveBeenCalled()
     })
 
     it('throws BadRequest when P2P flow has no peerlyIdentityId', async () => {
