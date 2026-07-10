@@ -5,6 +5,7 @@ import {
   ProfileIssueInput,
   UpsertPersonProfileInput,
 } from '../schemas/personProfile.schema'
+import { CreateProfileClaimRequestInput } from '../schemas/public/ProfileClaimRequest.schema'
 
 const withIssues = {
   issues: {
@@ -102,6 +103,7 @@ export class PersonProfilesService extends createPrismaBase(
           personProfileId,
           issueId: issue.issueId,
           visible: issue.visible ?? true,
+          status: issue.status ?? null,
           transparency: issue.transparency ?? null,
           sortOrder: issue.sortOrder ?? null,
         })),
@@ -110,6 +112,19 @@ export class PersonProfilesService extends createPrismaBase(
     return this.model.findUnique({
       where: { id: personProfileId },
       include: withIssues,
+    })
+  }
+
+  // Persists an inbound "claim this profile" lead from the public modal. There
+  // is no dedupe/rate-limit here by design — it is raw lead data the growth
+  // team follows up on; `personId` is a civics reference, not a FK.
+  createClaimRequest(input: CreateProfileClaimRequestInput) {
+    return this.client.profileClaimRequest.create({
+      data: {
+        personId: input.personId,
+        requesterEmail: input.requesterEmail,
+        requesterName: input.requesterName ?? null,
+      },
     })
   }
 }

@@ -2,10 +2,14 @@ import { PublicAccess } from '@/authentication/decorators/PublicAccess.decorator
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import {
+  Body,
   Controller,
   Get,
   GoneException,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
+  Post,
   Query,
   UseInterceptors,
   UsePipes,
@@ -18,6 +22,11 @@ import {
   PublishedPersonProfileList,
   PublishedPersonProfileListSchema,
 } from '../schemas/public/PublicPersonProfileResponse.schema'
+import {
+  CreateProfileClaimRequestDto,
+  ProfileClaimRequestResponse,
+  ProfileClaimRequestResponseSchema,
+} from '../schemas/public/ProfileClaimRequest.schema'
 import { PersonProfilesService } from '../services/person-profiles.service'
 import {
   PublicProfileResult,
@@ -74,6 +83,13 @@ export class PublicPersonProfilesController {
     }
 
     gate('live')
+    // NOTE ON STATUS PILLS: the per-issue `status` below drives the progress
+    // pills on the profile's priorities section (IN PROGRESS / PRIORITIZED /
+    // ONGOING / RESOLVED). Accomplishments (`profile.accomplishments`, spread
+    // via `...profile`) are a separate JSON list and render a CONSTANT
+    // "RESOLVED" tag in the design — that tag is a fixed UI label, not stored
+    // per accomplishment, so there is intentionally no status column on the
+    // accomplishments JSON. See personProfile.jsonTypes.d.ts.
     return {
       ...profile,
       issues: profile.issues
@@ -83,9 +99,23 @@ export class PublicPersonProfilesController {
           title: issue.priority?.title ?? null,
           description: issue.priority?.description ?? null,
           visible: issue.visible,
+          status: issue.status,
           transparency: issue.transparency,
           sortOrder: issue.sortOrder,
         })),
     }
+  }
+
+  // Inbound lead capture from the unclaimed-profile modal. Public + unauth by
+  // design: a visitor volunteers an email (and optional name) so we can nudge
+  // the person to claim their profile. We just store it — no dedupe, no PII
+  // gymnastics beyond validation.
+  @Post('claim-request')
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(ProfileClaimRequestResponseSchema)
+  async createClaimRequest(
+    @Body() dto: CreateProfileClaimRequestDto,
+  ): Promise<ProfileClaimRequestResponse> {
+    return this.personProfilesService.createClaimRequest(dto)
   }
 }

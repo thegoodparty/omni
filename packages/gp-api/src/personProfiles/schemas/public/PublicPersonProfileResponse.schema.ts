@@ -1,6 +1,7 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 import { zDate } from '@goodparty_org/contracts'
+import { PersonProfileIssueStatus } from '../../../generated/prisma'
 
 const AccomplishmentSchema = z.object({
   title: z.string(),
@@ -13,6 +14,8 @@ const PublicProfileIssueSchema = z.object({
   title: z.string().nullable(),
   description: z.string().nullable(),
   visible: z.boolean(),
+  // Progress pill the profile owner set for this issue; null renders no pill.
+  status: z.nativeEnum(PersonProfileIssueStatus).nullable(),
   transparency: z.string().nullable(),
   sortOrder: z.number().nullable(),
 })

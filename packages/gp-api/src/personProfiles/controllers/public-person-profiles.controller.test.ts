@@ -1,5 +1,8 @@
 import { useTestService } from '@/test-service'
-import { PrioritySource } from '../../generated/prisma'
+import {
+  PersonProfileIssueStatus,
+  PrioritySource,
+} from '../../generated/prisma'
 import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
@@ -106,6 +109,7 @@ describe('GET /v1/public-person-profiles', () => {
           personProfileId: profile.id,
           issueId: visible.id,
           visible: true,
+          status: PersonProfileIssueStatus.IN_PROGRESS,
           sortOrder: 1,
         },
         {
@@ -124,5 +128,85 @@ describe('GET /v1/public-person-profiles', () => {
     expect(res.data.issues[0].issueId).toBe(visible.id)
     // The published issue's title flows through from the Serve Priority.
     expect(res.data.issues[0].title).toBe('roads')
+    // The owner-set progress pill is exposed on the public payload.
+    expect(res.data.issues[0].status).toBe(PersonProfileIssueStatus.IN_PROGRESS)
+  })
+
+  it('exposes a null status when the owner set none', async () => {
+    const profile = await seedProfile()
+    const priority = await seedPriority('budget')
+    await service.prisma.personProfileIssue.create({
+      data: {
+        personProfileId: profile.id,
+        issueId: priority.id,
+        visible: true,
+        sortOrder: 1,
+      },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.issues[0].status).toBeNull()
+  })
+})
+
+describe('POST /v1/public-person-profiles/claim-request', () => {
+  const EMAIL = 'voter@example.com'
+  const claim = (body: Record<string, unknown>) =>
+    service.client.post('/v1/public-person-profiles/claim-request', body)
+
+  it('persists a claim request with name + email', async () => {
+    const res = await claim({
+      personId: PERSON_ID,
+      requesterEmail: EMAIL,
+      requesterName: 'Curious Voter',
+    })
+
+    expect(res.status).toBe(201)
+    expect(res.data.personId).toBe(PERSON_ID)
+    expect(res.data.id).toBeTruthy()
+    // Lead PII (email/name) is stored but never echoed back on the public path.
+    expect(res.data.requesterEmail).toBeUndefined()
+    expect(res.data.requesterName).toBeUndefined()
+
+    const stored = await service.prisma.profileClaimRequest.findFirst({
+      where: { personId: PERSON_ID },
+    })
+    expect(stored?.requesterEmail).toBe(EMAIL)
+    expect(stored?.requesterName).toBe('Curious Voter')
+  })
+
+  it('persists a claim request with just an email (name optional)', async () => {
+    const res = await claim({
+      personId: PERSON_ID,
+      requesterEmail: EMAIL,
+    })
+    expect(res.status).toBe(201)
+
+    const stored = await service.prisma.profileClaimRequest.findFirst({
+      where: { personId: PERSON_ID },
+    })
+    expect(stored?.requesterName).toBeNull()
+  })
+
+  it('400s on a missing email', async () => {
+    const res = await claim({ personId: PERSON_ID })
+    expect(res.status).toBe(400)
+  })
+
+  it('400s on a non-email requesterEmail', async () => {
+    const res = await claim({
+      personId: PERSON_ID,
+      requesterEmail: 'not-an-email',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('400s on a non-uuid personId', async () => {
+    const res = await claim({
+      personId: 'nope',
+      requesterEmail: EMAIL,
+    })
+    expect(res.status).toBe(400)
   })
 })

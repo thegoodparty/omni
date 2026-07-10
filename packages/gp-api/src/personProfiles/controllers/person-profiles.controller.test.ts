@@ -1,5 +1,8 @@
 import { useTestService } from '@/test-service'
-import { PrioritySource } from '../../generated/prisma'
+import {
+  PersonProfileIssueStatus,
+  PrioritySource,
+} from '../../generated/prisma'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 const service = useTestService()
@@ -117,12 +120,21 @@ describe('owner profile lifecycle', () => {
     })
 
     const res = await service.client.put('/v1/person-profiles/mine/issues', {
-      issues: [{ issueId: priority.id, visible: true, sortOrder: 1 }],
+      issues: [
+        {
+          issueId: priority.id,
+          visible: true,
+          status: PersonProfileIssueStatus.PRIORITIZED,
+          sortOrder: 1,
+        },
+      ],
     })
 
     expect(res.status).toBe(200)
     expect(res.data.issues).toHaveLength(1)
     expect(res.data.issues[0].issueId).toBe(priority.id)
+    // The owner-set progress status round-trips through the atomic replace.
+    expect(res.data.issues[0].status).toBe(PersonProfileIssueStatus.PRIORITIZED)
   })
 })
 

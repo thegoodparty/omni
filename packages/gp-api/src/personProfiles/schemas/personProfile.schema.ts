@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import { PersonProfileIssueStatus } from '../../generated/prisma'
 
 const AccomplishmentSchema = z.object({
   title: z.string().min(1),
@@ -34,6 +35,9 @@ const UpsertPersonProfileSchema = z
 const ProfileIssueInputSchema = z.object({
   issueId: z.string().min(1),
   visible: z.boolean().optional().default(true),
+  // Owner-set progress pill for this issue (IN_PROGRESS/PRIORITIZED/ONGOING on
+  // priorities, RESOLVED when done). Null clears it.
+  status: z.nativeEnum(PersonProfileIssueStatus).nullable().optional(),
   transparency: z.string().max(100).nullable().optional(),
   sortOrder: z.number().int().nullable().optional(),
 })

@@ -1,7 +1,19 @@
+// Owner-set progress status for a published issue. Rendered as a pill on the
+// public profile — "IN PROGRESS"/"PRIORITIZED"/"ONGOING" on the priorities
+// section and "RESOLVED" for issues the owner marks done. Distinct from
+// `transparency` (a Serve publication level the public design does not render).
+enum PersonProfileIssueStatus {
+  IN_PROGRESS
+  PRIORITIZED
+  ONGOING
+  RESOLVED
+}
+
 // Per-issue publication overlay for a PersonProfile. The underlying issue data
 // lives on Priority (the Serve issue/priority the office holder authored); this
 // row only records the owner's publication decisions for the public profile:
-// whether to show it, its transparency level, and its display order.
+// whether to show it, its progress status, its transparency level, and its
+// display order.
 model PersonProfileIssue {
   id              String        @id @default(uuid(7))
   personProfileId String        @map("person_profile_id")
@@ -10,9 +22,10 @@ model PersonProfileIssue {
   issueId  String   @map("issue_id")
   priority Priority @relation(fields: [issueId], references: [id], onDelete: Cascade)
 
-  visible      Boolean @default(true)
+  visible      Boolean                   @default(true)
+  status       PersonProfileIssueStatus?
   transparency String?
-  sortOrder    Int?    @map("sort_order")
+  sortOrder    Int?                      @map("sort_order")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
