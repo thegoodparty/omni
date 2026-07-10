@@ -17,7 +17,6 @@ import {
   OrdinanceResearchSchema,
   OrdinanceScratchpadSchema,
   type OrdinanceClarify,
-  type OrdinanceClarifyAnswer,
 } from '@goodparty_org/contracts'
 
 export const ORDINANCE_READ_SECTIONS = [
@@ -112,26 +111,6 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     const scratchpad = parse(OrdinanceScratchpadSchema, o.scratchpad) ?? []
     scratchpad.push({ step, text, createdAt: formatISO(new Date()) })
     await this.model.update({ where: { id: o.id }, data: { scratchpad } })
-    return { saved: true }
-  }
-
-  async appendAnswer(
-    ordinanceId: string,
-    electedOfficeId: string,
-    answer: OrdinanceClarifyAnswer,
-  ): Promise<{ saved: true }> {
-    const o = await this.findOwned(ordinanceId, electedOfficeId)
-    const answers = parse(OrdinanceClarifyAnswersSchema, o.clarifyAnswers) ?? []
-    // Replace an existing answer to the same question (a re-answer) rather than
-    // appending a duplicate.
-    const next = [
-      ...answers.filter((a) => a.questionId !== answer.questionId),
-      answer,
-    ]
-    await this.model.update({
-      where: { id: o.id },
-      data: { clarifyAnswers: next },
-    })
     return { saved: true }
   }
 

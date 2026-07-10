@@ -84,39 +84,6 @@ describe('OrdinanceFlowToolsService', () => {
     ))
   })
 
-  it('records and re-records clarify answers (replace, not duplicate)', async () => {
-    await tools.appendAnswer(ordinanceId, electedOfficeId, {
-      questionId: 'q1',
-      question: 'What hours?',
-      answer: '10pm to 7am',
-    })
-    await tools.appendAnswer(ordinanceId, electedOfficeId, {
-      questionId: 'q2',
-      question: 'Any exemptions?',
-      answer: 'Emergencies',
-    })
-    // Re-answering q1 replaces it rather than appending a duplicate.
-    await tools.appendAnswer(ordinanceId, electedOfficeId, {
-      questionId: 'q1',
-      question: 'What hours?',
-      answer: '11pm to 6am',
-    })
-
-    const read = await tools.readSection(
-      ordinanceId,
-      electedOfficeId,
-      'clarify_answers',
-    )
-    const answers = read.clarifyAnswers as Array<{
-      questionId: string
-      answer: string
-    }>
-    expect(answers).toHaveLength(2)
-    expect(answers.find((a) => a.questionId === 'q1')?.answer).toBe(
-      '11pm to 6am',
-    )
-  })
-
   it('appends scratchpad notes tagged with the step', async () => {
     await tools.appendNote(
       ordinanceId,

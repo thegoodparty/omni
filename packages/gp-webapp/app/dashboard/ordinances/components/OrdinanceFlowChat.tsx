@@ -24,7 +24,7 @@ import {
   type LiveSegment,
 } from '../../shared/agent-chat/streaming'
 import { ordinanceFlowChatApi } from '../data/chat-api'
-import { fetchOrdinanceBySlug } from '../data/ordinances-api'
+import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
 import {
   ORDINANCE_STEP_LABELS,
   isOrdinanceStep,
@@ -50,7 +50,7 @@ const REVEAL_DRAIN_POLL_MS = 40
 const REVEAL_DRAIN_MAX_TICKS = 250
 
 // User-meaningful "working" actions shown as shimmer pills. Bookkeeping tools
-// (ask_clarify_question renders as the widget; save_answer/save_note are
+// (ask_clarify_question renders as the widget; save_note/save_synthesis are
 // internal) are intentionally absent, so they never show a pill — while the
 // agent works toward the next question the "Thinking..." shimmer covers it.
 const TOOL_LABELS: Record<string, string> = {
@@ -135,7 +135,7 @@ export default function OrdinanceFlowChat({
   const [ordinanceTitle, setOrdinanceTitle] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [recordedAnswers, setRecordedAnswers] = useState<
-    Array<{ question: string; answer: string }>
+    Array<{ questionId: string; question: string; answer: string }>
   >([])
   const [messages, setMessages] = useState<ChatMessageDto[]>([])
   const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([])
@@ -296,13 +296,35 @@ export default function OrdinanceFlowChat({
   )
 
   const answerClarify = useCallback(
-    (questionId: string, answer: string): void => {
+    (questionId: string, question: string, answer: string): void => {
       // Optimistic: highlight the pick immediately. The turn is sent hidden (no
       // echoed text bubble) so only the highlighted option represents the answer.
       setAnswers((prev) => ({ ...prev, [questionId]: answer }))
-      void send(answer, { hidden: true })
+      void (async () => {
+        // Persist the answer verbatim as the source of truth (keyed by the
+        // widget's own questionId), independent of the agent. Non-fatal on
+        // failure: the answer still rides the transcript for the agent, and
+        // optimistic state shows it this session.
+        try {
+          const updated = await saveClarifyAnswer(slug, {
+            questionId,
+            question,
+            answer,
+          })
+          setRecordedAnswers(
+            (updated.clarifyAnswers ?? []).map((a) => ({
+              questionId: a.questionId,
+              question: a.question,
+              answer: a.answer,
+            })),
+          )
+        } catch {
+          // Swallow: optimistic + transcript keep the flow working.
+        }
+        await send(answer, { hidden: true })
+      })()
     },
-    [send],
+    [slug, send],
   )
 
   // Keep a stable handle to the latest `send` so the init effect can trigger the
@@ -330,6 +352,7 @@ export default function OrdinanceFlowChat({
         )
         setRecordedAnswers(
           (ordinance.clarifyAnswers ?? []).map((a) => ({
+            questionId: a.questionId,
             question: a.question,
             answer: a.answer,
           })),
@@ -372,20 +395,20 @@ export default function OrdinanceFlowChat({
       m.role === 'assistant' &&
       (m.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL),
   )
-  // Persisted answers keyed by question text — stable across re-answers (which
-  // reorder the stored list) and independent of the agent's save_answer
-  // questionId (which doesn't match the widget's), unlike ordinal pairing.
-  const recordedByQuestion = new Map(
-    recordedAnswers.map((a) => [a.question, a.answer]),
+  // Persisted answers keyed by questionId. The client now writes answers under
+  // the widget's own questionId (see saveClarifyAnswer), so this is an exact
+  // match, no fragile question-text pairing.
+  const recordedByQuestionId = new Map(
+    recordedAnswers.map((a) => [a.questionId, a.answer]),
   )
-  // Resolve each clarify turn's answer: the optimistic session pick first
-  // (exact, keyed by the question's own id), else the persisted answer for the
-  // same question text.
+  // Resolve each clarify turn's answer: the optimistic session pick first, else
+  // the persisted answer for the same questionId.
   const answerByMessageId: Record<string, string> = {}
   for (const m of clarifyMessages) {
     const q = clarifyFromSegments(m.segments ?? [])
     if (!q) continue
-    const resolved = answers[q.questionId] ?? recordedByQuestion.get(q.question)
+    const resolved =
+      answers[q.questionId] ?? recordedByQuestionId.get(q.questionId)
     if (resolved != null) answerByMessageId[m.id] = resolved
   }
 
@@ -591,7 +614,11 @@ function AssistantMessage({
   message: ChatMessageDto
   answer?: string
   interactive: boolean
-  onAnswerClarify: (questionId: string, answer: string) => void
+  onAnswerClarify: (
+    questionId: string,
+    question: string,
+    answer: string,
+  ) => void
   onAdvance?: () => void
   nextLabel?: string
 }): React.JSX.Element {
@@ -628,7 +655,9 @@ function AssistantMessage({
             question={clarify}
             disabled={!interactive}
             {...(answer !== undefined ? { answer } : {})}
-            onAnswer={(a) => onAnswerClarify(clarify.questionId, a)}
+            onAnswer={(a) =>
+              onAnswerClarify(clarify.questionId, clarify.question, a)
+            }
           />
         ) : null}
       </AssistantRow>

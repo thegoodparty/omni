@@ -3,7 +3,6 @@ import type { LlmStreamTool } from '@/llm/services/llm.service'
 import {
   OrdinanceClarifyQuestionSchema,
   OrdinanceNextStepOfferSchema,
-  OrdinanceSourceSchema,
 } from '@goodparty_org/contracts'
 import {
   ORDINANCE_READ_SECTIONS,
@@ -153,33 +152,9 @@ export const buildAskClarifyQuestionTool = (): LlmStreamTool<
     'options; a factual option should cite a source, a pure-judgment option ' +
     'need not. The UI always adds an "Or write your own..." freeform option, ' +
     'so never add one yourself. Do not ask the next question until this one is ' +
-    'answered. Call save_answer once the user responds.',
+    'answered.',
   inputSchema: OrdinanceClarifyQuestionSchema,
   execute: ({ questionId }) => ({ asked: true, questionId }),
-})
-
-const saveAnswerInput = z.object({
-  questionId: z.string(),
-  question: z.string(),
-  answer: z.string(),
-  source: OrdinanceSourceSchema.optional(),
-})
-
-export const buildSaveAnswerTool = (
-  deps: OrdinanceToolDeps,
-): LlmStreamTool<typeof saveAnswerInput> => ({
-  description:
-    "Record the user's answer to a clarify question. Call this after the user " +
-    'responds (via a suggested option, a written-in option, or a typed reply), ' +
-    'then ask the next question or conclude.',
-  inputSchema: saveAnswerInput,
-  execute: (input) =>
-    deps.service.appendAnswer(deps.ordinanceId, deps.electedOfficeId, {
-      questionId: input.questionId,
-      question: input.question,
-      answer: input.answer,
-      ...(input.source && { source: input.source }),
-    }),
 })
 
 const saveSynthesisInput = z.object({
