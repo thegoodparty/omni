@@ -17,11 +17,12 @@ import type {
   ChatMessageDto,
   ChatMessageSegment,
 } from '../../shared/agent-chat/chatClient'
+import { AssistantRow, InlineSegments } from '../../shared/agent-chat/chatUI'
 import {
-  AssistantMarkdown,
-  AssistantRow,
-  ToolPill,
-} from '../../shared/agent-chat/chatUI'
+  segmentsTextLength,
+  useSmoothReveal,
+  type LiveSegment,
+} from '../../shared/agent-chat/streaming'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug } from '../data/ordinances-api'
 import {
@@ -34,6 +35,12 @@ import OrdinanceStepper from './OrdinanceStepper'
 
 const CLARIFY_TOOL = 'ask_clarify_question'
 const OFFER_TOOL = 'offer_next_step'
+
+// How often send polls the smooth-reveal counter while draining the tail after
+// the network stream ends, plus a backstop tick cap so an unmount mid-drain can
+// never wedge the loop (250 * 40ms = 10s ceiling).
+const REVEAL_DRAIN_POLL_MS = 40
+const REVEAL_DRAIN_MAX_TICKS = 250
 
 // User-meaningful "working" actions shown as shimmer pills. Bookkeeping tools
 // (ask_clarify_question renders as the widget; save_answer/save_note are
@@ -83,13 +90,6 @@ const offerLabelFromSegments = (
   return segment ? (parseOffer(segment.payload)?.label ?? undefined) : undefined
 }
 
-const toolPills = (segments: ChatMessageSegment[]): string[] =>
-  segments.flatMap((s) => {
-    const label =
-      s.kind === 'tool' && s.toolName ? TOOL_LABELS[s.toolName] : undefined
-    return label ? [label] : []
-  })
-
 const buildAnchor = (
   ordinance: Ordinance,
   slug: string,
@@ -122,8 +122,7 @@ export default function OrdinanceFlowChat({
     Array<{ question: string; answer: string }>
   >([])
   const [messages, setMessages] = useState<ChatMessageDto[]>([])
-  const [liveText, setLiveText] = useState('')
-  const [liveTools, setLiveTools] = useState<string[]>([])
+  const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([])
   const [liveClarify, setLiveClarify] =
     useState<OrdinanceClarifyQuestion | null>(null)
   const [liveOffer, setLiveOffer] = useState<OrdinanceNextStepOffer | null>(
@@ -134,6 +133,14 @@ export default function OrdinanceFlowChat({
   const [streamError, setStreamError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
+
+  // Smooth type-out for the in-flight turn: the reveal trails the arrived text
+  // and drains after the stream ends (useSmoothReveal). `revealedRef` lets send
+  // hold the history swap until the tail has typed out.
+  const { visibleSegments, revealedRef } = useSmoothReveal(
+    liveSegments,
+    sending,
+  )
 
   const nextStep = stepValue ? nextOrdinanceStep(stepValue) : null
   const goToNextStep = useCallback(() => {
@@ -150,8 +157,7 @@ export default function OrdinanceFlowChat({
       if (!id || !trimmed || sending) return
       setSending(true)
       setStreamError(null)
-      setLiveText('')
-      setLiveTools([])
+      setLiveSegments([])
       setLiveClarify(null)
       setLiveOffer(null)
       if (!opts?.hidden) {
@@ -166,6 +172,22 @@ export default function OrdinanceFlowChat({
         setMessages((prev) => [...prev, optimistic])
       }
 
+      // Build the turn as interleaved text + tool segments so pills render
+      // inline in stream order; consecutive text deltas coalesce into one block.
+      const segments: LiveSegment[] = []
+      const pushText = (delta: string): void => {
+        const last = segments[segments.length - 1]
+        if (last && last.kind === 'text') {
+          segments[segments.length - 1] = {
+            kind: 'text',
+            text: last.text + delta,
+          }
+        } else {
+          segments.push({ kind: 'text', text: delta })
+        }
+        setLiveSegments([...segments])
+      }
+
       try {
         for await (const event of ordinanceFlowChatApi.streamMessage({
           conversationId: id,
@@ -173,28 +195,37 @@ export default function OrdinanceFlowChat({
           clientMessageId: crypto.randomUUID(),
         })) {
           if (event.type === 'text') {
-            setLiveText((prev) => prev + event.delta)
+            pushText(event.delta)
           } else if (event.type === 'tool_call') {
             if (event.toolName === CLARIFY_TOOL) {
               const parsed = parseClarify(event.args)
               if (parsed) setLiveClarify(parsed)
             } else if (event.toolName === OFFER_TOOL) {
               setLiveOffer(parseOffer(event.args) ?? {})
-            } else {
-              const label = TOOL_LABELS[event.toolName]
-              if (label) setLiveTools((prev) => [...prev, label])
+            } else if (TOOL_LABELS[event.toolName]) {
+              segments.push({ kind: 'tool', toolName: event.toolName })
+              setLiveSegments([...segments])
             }
           } else if (event.type === 'error') {
             setStreamError(event.message)
           }
+        }
+        // Hold the swap to persisted history until the smooth reveal has typed
+        // out the tail, so the last words don't snap in on the handoff.
+        const total = segmentsTextLength(segments)
+        let ticks = 0
+        while (revealedRef.current < total && ticks < REVEAL_DRAIN_MAX_TICKS) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
+          )
+          ticks += 1
         }
         const history = await ordinanceFlowChatApi.listMessages(id)
         setMessages(history)
       } catch {
         setStreamError('Something went wrong. Please try again.')
       } finally {
-        setLiveText('')
-        setLiveTools([])
+        setLiveSegments([])
         setLiveClarify(null)
         setLiveOffer(null)
         setSending(false)
@@ -260,7 +291,7 @@ export default function OrdinanceFlowChat({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, liveText, liveClarify])
+  }, [messages, visibleSegments, liveClarify])
 
   if (phase === 'loading') {
     return <div className="p-6 text-tertiary">Loading your ordinance...</div>
@@ -323,10 +354,17 @@ export default function OrdinanceFlowChat({
   // read-only in place.
   const activeClarifyId =
     clarifyMessages[clarifyMessages.length - 1]?.id ?? null
-  // Show a working shimmer for the whole in-flight turn until a widget/button
-  // appears — this covers the gap where the model composes the tool call after
-  // streaming its lead-in (there is no tool event during it).
-  const working = sending && !liveClarify && !liveOffer
+  // The reveal has caught up to everything that has arrived. Gate the clarify
+  // widget and the next-step button on this so they appear after the lead-in
+  // text has typed out, not before.
+  const revealDone =
+    segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
+  const showClarify = Boolean(liveClarify) && revealDone
+  const showOffer = Boolean(liveOffer) && revealDone
+  // Thinking shimmer only for the initial compose gap, before any text or
+  // widget has appeared for this turn.
+  const working =
+    sending && visibleSegments.length === 0 && !liveClarify && !liveOffer
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -370,19 +408,16 @@ export default function OrdinanceFlowChat({
             ),
           )}
 
-          {(liveText || liveTools.length > 0 || liveClarify || working) && (
+          {(visibleSegments.length > 0 || showClarify || working) && (
             <AssistantRow>
-              {liveTools.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {liveTools.map((label, i) => (
-                    <ToolPill key={`live-tool-${i}`} label={label} running />
-                  ))}
-                </div>
+              {visibleSegments.length > 0 ? (
+                <InlineSegments
+                  segments={visibleSegments}
+                  toolLabel={(name) => TOOL_LABELS[name] ?? null}
+                  running
+                />
               ) : null}
-              {liveText ? (
-                <AssistantMarkdown>{liveText}</AssistantMarkdown>
-              ) : null}
-              {liveClarify ? (
+              {showClarify && liveClarify ? (
                 <ClarifyQuestionWidget
                   question={liveClarify}
                   disabled
@@ -397,7 +432,7 @@ export default function OrdinanceFlowChat({
             </AssistantRow>
           )}
 
-          {liveOffer && nextStep ? (
+          {showOffer && liveOffer && nextStep ? (
             <NextStepButton
               label={liveOffer.label}
               nextLabel={ORDINANCE_STEP_LABELS[nextStep]}
@@ -481,24 +516,31 @@ function AssistantMessage({
   nextLabel?: string
 }): React.JSX.Element {
   const segments = message.segments ?? []
-  const pills = toolPills(segments)
   const clarify = clarifyFromSegments(segments)
-  const textBlocks = segments
-    .filter((s) => s.kind === 'text' && s.text)
-    .map((s) => s.text ?? '')
-  const body = textBlocks.length > 0 ? textBlocks.join('\n\n') : message.content
+  // Same interleaved model as the live turn: text and tool pills in stream
+  // order, so a reloaded turn reads identically to how it streamed.
+  const rendered: LiveSegment[] =
+    segments.length > 0
+      ? segments.flatMap((s) =>
+          s.kind === 'text'
+            ? s.text
+              ? [{ kind: 'text', text: s.text } as LiveSegment]
+              : []
+            : s.toolName
+              ? [{ kind: 'tool', toolName: s.toolName } as LiveSegment]
+              : [],
+        )
+      : message.content
+        ? [{ kind: 'text', text: message.content }]
+        : []
 
   return (
     <>
       <AssistantRow>
-        {pills.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {pills.map((label, i) => (
-              <ToolPill key={`tool-${i}`} label={label} />
-            ))}
-          </div>
-        ) : null}
-        {body ? <AssistantMarkdown>{body}</AssistantMarkdown> : null}
+        <InlineSegments
+          segments={rendered}
+          toolLabel={(name) => TOOL_LABELS[name] ?? null}
+        />
         {clarify ? (
           <ClarifyQuestionWidget
             question={clarify}
