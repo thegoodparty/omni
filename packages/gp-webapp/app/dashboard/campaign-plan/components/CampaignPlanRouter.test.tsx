@@ -143,6 +143,22 @@ describe('CampaignPlanRouter', () => {
     expect(planPage()).not.toBeInTheDocument()
   })
 
+  // The core invariant: a generate request (set by the gate, persisted in
+  // sessionStorage) must not bypass the story-completeness requirement. Drop the
+  // `storyComplete &&` guard and this is the test that fails — render() flushes
+  // the sessionStorage effect, so a broken guard would already show the plan.
+  it('does not let a generate request bypass the incomplete-story gate', () => {
+    setFlag(true, true)
+    setStoryComplete(false)
+    sessionStorage.setItem(
+      'campaignPlanGenerateRequestedAt',
+      String(Date.now()),
+    )
+    render(<CampaignPlanRouter initialUser={null} planExists={false} />)
+    expect(generateButton()).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
+  })
+
   it('shows the plan for a flagged user with a plan and a complete story', () => {
     setFlag(true, true)
     setStoryComplete(true)
