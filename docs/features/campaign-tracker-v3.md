@@ -89,6 +89,16 @@ Two gate signals:
   tracker can't materialize for a campaign that never wrote a story regardless
   of flag state.
 
+Because those two signals can disagree — an account flagged on but with no (or
+an incomplete) story, e.g. one that generated a plan **before** the flag was
+turned on — the **campaign-plan router also gates the UI on story completeness**,
+not just the flag. `CampaignPlanRouter` reads `useCampaignStoryComplete` (bio +
+`background` + at least one issue) and, for the story cohort, shows the
+plan/tracker only once the story is complete; an incomplete story is routed to
+the existing "finish your Campaign Story" gate (`CampaignPlanStoryGate`) instead
+of a tracker stuck on "setting up" forever. This keeps the frontend gate aligned
+with the bootstrap's data gate.
+
 ## Data model
 
 One table, `campaign_tracker_tasks` (`prisma/schema/campaignTrackerTask.prisma`),

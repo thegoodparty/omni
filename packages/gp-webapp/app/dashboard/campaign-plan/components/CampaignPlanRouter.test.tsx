@@ -6,6 +6,7 @@ import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
+import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import CampaignPlanRouter from './CampaignPlanRouter'
 
 vi.mock('@shared/experiments/campaignStoryFlag', () => ({
@@ -13,6 +14,9 @@ vi.mock('@shared/experiments/campaignStoryFlag', () => ({
 }))
 vi.mock('@shared/experiments/campaignStrategyFlag', () => ({
   useCampaignStrategyFlag: vi.fn(),
+}))
+vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
+  useCampaignStoryComplete: vi.fn(),
 }))
 vi.mock('./CampaignPlanPage', () => ({
   default: () => <div data-testid="plan-page" />,
@@ -36,6 +40,10 @@ const setFlag = (ready: boolean, enabled: boolean): void => {
 const setStrategyFlag = (ready: boolean, enabled: boolean): void => {
   mockStrategyFlag.mockReturnValue({ ready, enabled })
 }
+const mockStoryComplete = vi.mocked(useCampaignStoryComplete)
+const setStoryComplete = (isComplete: boolean, isLoading = false): void => {
+  mockStoryComplete.mockReturnValue({ isComplete, isLoading, isError: false })
+}
 
 const planPage = () => screen.queryByTestId('plan-page')
 const generateButton = () => screen.queryByRole('button', { name: 'generate' })
@@ -46,6 +54,7 @@ describe('CampaignPlanRouter', () => {
     sessionStorage.clear()
     setFlag(true, true)
     setStrategyFlag(true, false)
+    setStoryComplete(true)
   })
 
   it('renders the plan immediately when one exists, ignoring the flag', () => {
@@ -124,5 +133,29 @@ describe('CampaignPlanRouter', () => {
     render(<CampaignPlanRouter initialUser={null} planExists={false} />)
     expect(generateButton()).toBeInTheDocument()
     expect(planPage()).not.toBeInTheDocument()
+  })
+
+  it('routes a flagged user with a plan but an incomplete story to the gate', () => {
+    setFlag(true, true)
+    setStoryComplete(false)
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(generateButton()).toBeInTheDocument()
+    expect(planPage()).not.toBeInTheDocument()
+  })
+
+  it('shows the plan for a flagged user with a plan and a complete story', () => {
+    setFlag(true, true)
+    setStoryComplete(true)
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(planPage()).toBeInTheDocument()
+    expect(generateButton()).not.toBeInTheDocument()
+  })
+
+  it('shows a spinner (not the gate) while the story is still loading', () => {
+    setFlag(true, true)
+    setStoryComplete(false, true)
+    render(<CampaignPlanRouter initialUser={null} planExists />)
+    expect(planPage()).not.toBeInTheDocument()
+    expect(generateButton()).not.toBeInTheDocument()
   })
 })
