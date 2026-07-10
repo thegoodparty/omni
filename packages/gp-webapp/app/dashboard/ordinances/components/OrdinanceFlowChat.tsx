@@ -361,10 +361,13 @@ export default function OrdinanceFlowChat({
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
-  // Thinking shimmer only for the initial compose gap, before any text or
-  // widget has appeared for this turn.
-  const working =
-    sending && visibleSegments.length === 0 && !liveClarify && !liveOffer
+  // "Thinking..." covers the whole in-flight turn until the next thing the user
+  // acts on appears: the clarify question card or the next-step button. That is
+  // what fills the gap while the agent composes the question after streaming its
+  // lead-in text (there is no stream event during that compose). Gate on the
+  // reveal-done show* flags so it hands off exactly when the widget/button
+  // actually renders, not the instant the tool event arrives.
+  const working = sending && !showClarify && !showOffer
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
