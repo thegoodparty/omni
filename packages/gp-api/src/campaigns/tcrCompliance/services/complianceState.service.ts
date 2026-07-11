@@ -33,7 +33,9 @@ const DOMAIN_REGISTERED_STATUSES: DomainStatus[] = [
 // already-ICANN-verified GoodParty identity, so treat pre-cutoff rows as
 // verified; requiring the stamp stranded legacy-domain Pro upgrades at
 // pending_website_live until the agent's resume cap (campaign 304314).
-const REGISTRANT_STAMPING_UNIVERSAL_FROM = parseISO('2026-06-01T00:00:00Z')
+export const REGISTRANT_STAMPING_UNIVERSAL_FROM = parseISO(
+  '2026-06-01T00:00:00Z',
+)
 
 @Injectable()
 export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
