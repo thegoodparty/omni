@@ -415,11 +415,18 @@ export class ChatStreamService {
 
       const metrics = await streamDone
 
+      // A clean finish that only emitted widget tool calls (no trailing text)
+      // still persists so the widget replays on reload. On an interrupt (abort
+      // signal or mid-stream error) the finally block writes the sentinel
+      // instead — persisting partial tool calls there would orphan pills.
+      const cleanFinish = !args.signal?.aborted && !metrics.errorCode
+
       try {
         const row = await this.persistAssistantText(
           args.conversationId,
           textBuffer.join(''),
           segments,
+          cleanFinish,
         )
         if (row) {
           persistedId = row.id
@@ -476,14 +483,18 @@ export class ChatStreamService {
     conversationId: string,
     text: string,
     segments?: PersistedSegment[],
+    allowToolOnly = false,
   ): Promise<ChatMessage | null> {
-    if (text.length === 0) return null
     // Only persist the structure when the turn actually used a tool — a
     // pure-text turn renders identically from `content`, so storing a single
     // text segment would be wasted rows.
     const usedTool = segments?.some(
       (s) => s.kind === ChatMessageSegmentKind.tool,
     )
+    // A widget-only turn (tool calls, no text) still persists on a clean finish
+    // so the widget replays; without `allowToolOnly` a zero-text turn is
+    // dropped (the caller writes the interrupted sentinel instead).
+    if (text.length === 0 && !(allowToolOnly && usedTool)) return null
     return this.store.appendMessage({
       conversationId,
       role: ChatMessageRole.assistant,

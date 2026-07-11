@@ -684,6 +684,41 @@ describe('ChatStreamService', () => {
       ])
     })
 
+    it('persists a clean widget-only turn (tool call, no text) so it replays', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'present_comparables',
+          input: { comparables: [{ city: 'Riverton', state: 'WA' }] },
+          output: { saved: true },
+        },
+      ])
+
+      await collect(
+        service.stream(
+          baseStreamArgs({ tools: { present_comparables: fakeTool } }),
+        ),
+      )
+
+      const assistantRows = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .filter((m) => m.role === ChatMessageRole.assistant)
+      expect(assistantRows).toHaveLength(1)
+      // Not the interrupted sentinel — this was a clean finish, and the tool
+      // segment must persist so the widget replays on reload.
+      expect(assistantRows[0]?.content).not.toBe(
+        CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
+      )
+      expect(store.lastAppendedSegments).toEqual([
+        {
+          kind: 'tool',
+          toolName: 'present_comparables',
+          payload: { comparables: [{ city: 'Riverton', state: 'WA' }] },
+        },
+      ])
+    })
+
     it('assembles ordered text/tool segments and persists them', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([
@@ -1105,8 +1140,14 @@ describe('ChatStreamService', () => {
   })
 
   describe('empty-buffer sentinel (tool-only response)', () => {
-    it('persists CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER when no text deltas are emitted', async () => {
+    it('persists CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER when a turn is interrupted before any text', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      const abortErr = Object.assign(new Error('The operation was aborted'), {
+        name: 'AbortError',
+      })
+      // A tool call, then an interrupt before any text is emitted: this is NOT
+      // a clean widget-only turn, so it gets the sentinel (retry affordance)
+      // with no orphaned tool segments — not the persisted widget.
       llm.setScript([
         {
           kind: 'toolCall',
@@ -1114,6 +1155,7 @@ describe('ChatStreamService', () => {
           input: { q: 'x' },
           output: { results: [] },
         },
+        { kind: 'error', error: abortErr },
       ])
 
       await collect(
@@ -1128,6 +1170,7 @@ describe('ChatStreamService', () => {
       expect(assistantRows[0]?.content).toBe(
         CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
       )
+      expect(assistantRows[0]?.segments ?? []).toEqual([])
     })
   })
 
