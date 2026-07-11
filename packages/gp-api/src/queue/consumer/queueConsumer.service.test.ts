@@ -15,6 +15,7 @@ import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.ser
 import { CampaignTasksService } from '@/campaigns/tasks/services/campaignTasks.service'
 import { CampaignTrackerTasksService } from '@/campaigns/campaignTracker/services/campaignTrackerTasks.service'
 import { WeeklyTasksDigestHandlerService } from '@/campaigns/tasks/services/weeklyTasksDigestHandler.service'
+import { Nightly10DlcReportService } from '@/campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { CampaignTcrComplianceService } from '@/campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { ElectedOfficeService } from '@/electedOffice/services/electedOffice.service'
@@ -231,6 +232,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -929,6 +931,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1120,6 +1123,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1248,6 +1252,10 @@ describe('QueueConsumerService - message type routing', () => {
         {
           provide: WeeklyTasksDigestHandlerService,
           useValue: { handleWeeklyTasksDigest: vi.fn() },
+        },
+        {
+          provide: Nightly10DlcReportService,
+          useValue: { handleNightlyReport: vi.fn().mockResolvedValue(true) },
         },
         { provide: ExperimentRunsService, useValue: {} },
         {
@@ -1387,6 +1395,64 @@ describe('QueueConsumerService - message type routing', () => {
         data: {
           windowStart: 'not-a-date',
         },
+      }),
+    }
+
+    // withLegacyErrorSwallowing catches the Zod parse failure and returns true
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).not.toHaveBeenCalled()
+  })
+
+  it('routes nightly10DlcReport messages and returns the handler boolean', async () => {
+    const report = module.get(Nightly10DlcReportService)
+    const handleSpy = vi
+      .spyOn(report, 'handleNightlyReport')
+      .mockResolvedValue(true)
+
+    const message: Message = {
+      MessageId: 'msg-nightly-ok',
+      Body: JSON.stringify({
+        type: QueueType.NIGHTLY_10DLC_REPORT,
+        data: { reportDate: '2026-07-10' },
+      }),
+    }
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    expect(handleSpy).toHaveBeenCalledExactlyOnceWith({
+      reportDate: '2026-07-10',
+    })
+  })
+
+  it('requeues nightly10DlcReport when the handler reports a failed post', async () => {
+    const report = module.get(Nightly10DlcReportService)
+    vi.spyOn(report, 'handleNightlyReport').mockResolvedValue(false)
+
+    const message: Message = {
+      MessageId: 'msg-nightly-slack-fail',
+      Body: JSON.stringify({
+        type: QueueType.NIGHTLY_10DLC_REPORT,
+        data: { reportDate: '2026-07-10' },
+      }),
+    }
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(false)
+  })
+
+  it('discards nightly10DlcReport with invalid payload and does not call handler', async () => {
+    const report = module.get(Nightly10DlcReportService)
+    const handleSpy = vi.spyOn(report, 'handleNightlyReport')
+
+    const message: Message = {
+      MessageId: 'msg-nightly-invalid',
+      Body: JSON.stringify({
+        type: QueueType.NIGHTLY_10DLC_REPORT,
+        data: { reportDate: 'not-a-date' },
       }),
     }
 
@@ -1559,6 +1625,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         { provide: UsersService, useValue: {} },
         { provide: AnalyticsService, useValue: {} },
         { provide: WeeklyTasksDigestHandlerService, useValue: {} },
+        { provide: Nightly10DlcReportService, useValue: {} },
         { provide: ExperimentRunsService, useValue: mockExperimentRuns },
         {
           provide: MeetingBriefingsService,

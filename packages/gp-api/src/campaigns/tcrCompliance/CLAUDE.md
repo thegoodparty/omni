@@ -88,8 +88,35 @@ kickoff path must not race it.
 | `sweepStrandedAgenticKickoffs` | Records `submitted` + no Peerly identity + `kickoffSentAt` null past staleness — re-enqueues the kickoff. **Only sweeps `campaign.isPro` records** so the agent never runs before payment. |
 | `sweepUnsubmittedUsecases` | Records whose Peerly Campaign Verify is `VERIFIED` but whose POLITICAL usecase was never submitted (the in-app approve threw) — submits the usecase so the identity doesn't strand "loading". **Acts only on `VERIFIED`, never `APPROVED`** — `APPROVED` can precede the candidate's PIN entry, so advancing it would skip them past the PIN screen. |
 | `sweepPinDeliveryDetection` (ENG-10658) | Records `submitted`/`pending`/`approved` + Peerly identity + no `pinDeliveryMethod` yet — reads the enriched `retrieve_cv`, records the channel + destination Peerly sent the PIN to on the record, and fires the `CompliancePinSent` Segment event **once** so HubSpot can stamp the company + nudge. The event carries the **method only** (`pin_delivery_method`), never the destination — the raw filing email/phone/address stays in our DB and is not synced to the analytics warehouse / HubSpot. The `pinDeliveryMethod IS NULL` filter shrinks the set as PINs are detected (not a growing bulk loop). Once-only via an atomic `pinSentDetectedAt IS NULL` claim; if the event fire fails the claim is rolled back (scoped to its timestamp, and the rollback is itself try/caught so its failure can't mask the original error) so the next sweep retries. **Includes `pending` + `approved`** (not just `submitted`) because the in-app PIN entry / VERIFIED usecase sweep advance a record to `pending` then `approved` the moment the candidate acts — which can beat the hourly sweep — and pre-existing records were already `pending`/`approved` when this shipped; all three states imply the PIN went out, so this never fires for a never-sent record (`rejected`/`error` are failure states, excluded). |
-| `sweepStuckPeerlySubmissions` | Daily digest to `bot-10dlc-compliance` naming every Pro record still `submitted` with no Peerly identity >24h after kickoff — nothing retries those automatically (the agent's resume budget is spent), and the one-shot max-resume alert is easy to lose in an incident (campaign 304314 sat unnoticed 8 days). Ticks hourly (a 24h `@Interval` would reset on every weekday prod deploy and never fire) but posts at most daily: claims `stuckSubmissionAlertedAt` atomically per record (re-nag window 23h) so neither the hourly ticks nor other replicas double-post; a swallowed Slack failure (SlackService resolves `undefined`) releases the claims so the next tick retries. |
 | `bootstrapTcrComplianceCheck` | Re-queues `pending` records for status checking. |
+
+## Nightly 10DLC health report (ENG-10667)
+
+`Nightly10DlcReportService` posts a comprehensive stuck-campaign report to
+`bot-10dlc-compliance` every **midnight ET** — it replaced the older
+single-class `sweepStuckPeerlySubmissions` hourly digest (and its
+`stuckSubmissionAlertedAt` claim column). Mechanics:
+
+- **Schedule:** `@Cron('0 0 * * *', { timeZone: EASTERN_TIMEZONE })` — a
+  daily `@Interval` would reset on every weekday prod deploy and never fire.
+- **Prod-only:** the cron handler returns immediately unless
+  `OTEL_SERVICE_ENVIRONMENT === 'prod'`, so dev/qa never enqueue or post.
+- **Exactly-once across replicas:** every replica's cron enqueues, but the
+  SQS FIFO `deduplicationId` is keyed to the ET report date
+  (`nightly10DlcReport-<yyyy-MM-dd>`), so the consumer handles one message
+  (`weeklyTasksDigest` pattern). The handler returns `false` when the Slack
+  post fails (SlackService swallows errors and resolves `undefined`), so SQS
+  redelivers rather than silently skipping a night.
+- **Always posts** — a zero-stuck night gets an explicit ✅ all-clear with
+  in-flight pipeline counts, so a *missing* report is itself a signal.
+- **Six sections**, all scoped to `campaign.isPro` (pre-payment records
+  intentionally sit idle): submission never completed (>24h after kickoff,
+  with agentic run status), kickoff `error`, Peerly/CV `rejected`, active
+  billing block (within `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES`), domain
+  purchase never completed (post-cutoff `registrantVerifiedAt` NULL — see
+  the legacy-domain gotcha below), and an awaiting-PIN >7d nudge section
+  that is reported but not counted as stuck. Sections cap at 25 rows with
+  an explicit `…and N more`.
 
 ## `submitToPeerlyForAgent` notes
 
