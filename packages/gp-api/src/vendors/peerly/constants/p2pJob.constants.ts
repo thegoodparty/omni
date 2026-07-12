@@ -1,3 +1,5 @@
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
+
 export const P2P_JOB_DEFAULTS = {
   CAMPAIGN_NAME: 'P2P SMS Campaign',
   DID_STATE: 'USA',
@@ -6,6 +8,9 @@ export const P2P_JOB_DEFAULTS = {
 
 export const P2P_ERROR_MESSAGES = {
   IMAGE_REQUIRED: 'Image file is required for P2P job creation',
+  SCRIPT_TOO_LONG:
+    'Script text exceeds the Peerly MMS template limit of ' +
+    `${P2P_SCRIPT_MAX_LENGTH} characters`,
   INVALID_IMAGE_PROPERTIES: 'Invalid image file: missing required properties',
   JOB_CREATION_FAILED: 'Failed to create P2P job',
   LIST_ASSIGNMENT_FAILED:

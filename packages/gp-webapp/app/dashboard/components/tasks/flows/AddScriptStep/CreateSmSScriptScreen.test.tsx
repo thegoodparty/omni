@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
-import { CreateSmSScriptScreen } from './CreateSmSScriptScreen'
+import {
+  CreateSmSScriptScreen,
+  MAX_SMS_CHAR_COUNT,
+} from './CreateSmSScriptScreen'
 
 describe('CreateSmSScriptScreen', () => {
   it('starts with an empty script when no initialScriptText is given', () => {
@@ -15,7 +18,7 @@ describe('CreateSmSScriptScreen', () => {
     render(<CreateSmSScriptScreen initialScriptText="Hello voters" />)
 
     expect(screen.getByRole('textbox')).toHaveValue('Hello voters')
-    expect(screen.getByText('12 / 1600')).toBeInTheDocument()
+    expect(screen.getByText(`12 / ${MAX_SMS_CHAR_COUNT}`)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
   })
 
@@ -36,11 +39,11 @@ describe('CreateSmSScriptScreen', () => {
     expect(onNext).toHaveBeenCalledWith('Hello voters, vote Tuesday!')
   })
 
-  it('disables Next when the seeded text is edited past the 1600 limit', () => {
+  it('disables Next when the seeded text is edited past the limit', () => {
     render(<CreateSmSScriptScreen initialScriptText="Hi" />)
 
     fireEvent.change(screen.getByRole('textbox'), {
-      target: { value: 'x'.repeat(1601) },
+      target: { value: 'x'.repeat(MAX_SMS_CHAR_COUNT + 1) },
     })
 
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()

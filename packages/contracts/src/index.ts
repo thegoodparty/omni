@@ -582,3 +582,5 @@ export {
 } from './communityIssues/CommunityIssueDispatch.schema'
 
 export * from './ordinances/Ordinance.schema'
+
+export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
