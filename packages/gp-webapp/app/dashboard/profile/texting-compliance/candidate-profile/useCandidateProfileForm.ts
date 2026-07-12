@@ -23,6 +23,9 @@ export interface CandidateProfileForm {
   setBioPlainLength: (length: number) => void
   issues: WebsiteIssue[]
   setIssues: (issues: WebsiteIssue[]) => void
+  // Change handler for the policy-priorities editor: updates state AND persists
+  // to the website immediately (setIssues alone is local-only).
+  handleIssuesChange: (issues: WebsiteIssue[]) => void
   // `null` until the website query has settled — the bio editor must defer
   // mounting until then (see the seeding effect for why).
   initialBio: string | null
@@ -80,6 +83,11 @@ export const useCandidateProfileForm = ({
   // mounting the editor until we have the real value.
   const [initialBio, setInitialBio] = useState<string | null>(null)
   const seededRef = useRef(false)
+  // The last policy-priorities list confirmed persisted on the server — the
+  // revert target on a failed autosave. Tracks confirmed state (not an
+  // optimistic value) so two overlapping failed saves can't settle the UI on an
+  // unpersisted edit. Seeded from the website, advanced only on a good save.
+  const confirmedIssuesRef = useRef<WebsiteIssue[]>([])
 
   useEffect(() => {
     // Seed once the website query has settled, not only when `website` is
@@ -95,7 +103,9 @@ export const useCandidateProfileForm = ({
     // before the dynamically-imported editor emits its first onTextLengthChange.
     setBioPlainLength(getBioPlainLength(initialBioValue))
     setInitialBio(initialBioValue)
-    setIssues(normalizeIssues(website?.content?.about?.issues))
+    const seededIssues = normalizeIssues(website?.content?.about?.issues)
+    setIssues(seededIssues)
+    confirmedIssuesRef.current = seededIssues
     seededRef.current = true
   }, [isSuccess, website])
 
@@ -110,6 +120,26 @@ export const useCandidateProfileForm = ({
 
   const bioError = getBioError(bioPlainLength, bio)
   const prioritiesError = getPolicyPrioritiesError(issues)
+
+  // Persist policy priorities on every change so a priority added or edited in
+  // its modal is saved immediately — independent of the bio-gated Submit, which
+  // a candidate without a valid bio yet can't reach, so without this a priority
+  // is only local state and is lost on refresh. On failure, revert to the last
+  // server-confirmed list. Mirrors the Campaign Story issues editor.
+  const handleIssuesChange = (next: WebsiteIssue[]): void => {
+    setIssues(next)
+    void saveAboutFields({ issues: next }).then((ok) => {
+      if (!ok) {
+        setIssues(confirmedIssuesRef.current)
+        errorSnackbar(
+          'Could not save your policy priorities. Please try again.',
+        )
+        return
+      }
+      confirmedIssuesRef.current = next
+      void queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    })
+  }
 
   const handleSubmit = async (): Promise<void> => {
     if (submitting) return
@@ -142,6 +172,7 @@ export const useCandidateProfileForm = ({
     setBioPlainLength,
     issues,
     setIssues,
+    handleIssuesChange,
     initialBio,
     submitting,
     attemptedSubmit,

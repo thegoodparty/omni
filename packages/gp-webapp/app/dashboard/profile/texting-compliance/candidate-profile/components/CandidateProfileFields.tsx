@@ -32,7 +32,7 @@ export default function CandidateProfileFields({
     setBio,
     setBioPlainLength,
     issues,
-    setIssues,
+    handleIssuesChange,
     initialBio,
     submitting,
     attemptedSubmit,
@@ -80,7 +80,7 @@ export default function CandidateProfileFields({
         </div>
         <PolicyPriorities
           issues={issues}
-          onChange={setIssues}
+          onChange={handleIssuesChange}
           disabled={submitting}
         />
       </div>

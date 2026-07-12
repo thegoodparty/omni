@@ -1,11 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
 import type { Website } from 'helpers/types'
 import { EVENTS } from 'helpers/analyticsHelper'
-import { MIN_BIO_LENGTH } from '../candidateProfile.utils'
+import {
+  MIN_BIO_LENGTH,
+  MIN_POLICY_FOCUS_LENGTH,
+} from '../candidateProfile.utils'
 import CandidateProfile from './CandidateProfile'
 
 const mockTrackEvent = vi.fn()
@@ -22,9 +25,10 @@ vi.mock('app/shared/utils/RichEditor', async () => ({
   default: (await import('helpers/test-utils/RichEditorMock')).RichEditorMock,
 }))
 
-const { getUserWebsite, saveAboutFields } = vi.hoisted(() => ({
+const { getUserWebsite, saveAboutFields, errorSnackbar } = vi.hoisted(() => ({
   getUserWebsite: vi.fn(),
   saveAboutFields: vi.fn(),
+  errorSnackbar: vi.fn(),
 }))
 
 vi.mock('app/dashboard/website/util/website.util', () => ({
@@ -34,7 +38,7 @@ vi.mock('app/dashboard/website/util/website.util', () => ({
 }))
 
 vi.mock('helpers/useSnackbar', () => ({
-  useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
+  useSnackbar: () => ({ errorSnackbar, successSnackbar: vi.fn() }),
 }))
 
 const websiteWith = (bio: string, issueCount: number): Website =>
@@ -140,12 +144,10 @@ describe('CandidateProfile — bio editor mounts with no website yet (ENG-10283)
   })
 })
 
-describe('CandidateProfile — deleting a policy priority persists (ENG-10270)', () => {
-  it('submits the reduced issues array after deleting a priority', async () => {
+describe('CandidateProfile — policy priorities persist on change (ENG-10619, ENG-10270)', () => {
+  it('persists the reduced issues array as soon as a priority is deleted', async () => {
     const user = userEvent.setup()
     const validBio = 'a'.repeat(MIN_BIO_LENGTH)
-    // Start with two priorities so the post-delete list still satisfies the
-    // "at least one priority" requirement and Submit isn't blocked.
     getUserWebsite.mockResolvedValue(websiteWith(validBio, 2))
     saveAboutFields.mockResolvedValue(true)
     render(<CandidateProfile />)
@@ -166,21 +168,78 @@ describe('CandidateProfile — deleting a policy priority persists (ENG-10270)',
     ).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: /^delete$/i }))
 
-    await user.click(screen.getByRole('button', { name: /submit/i }))
-
-    await waitFor(() => expect(saveAboutFields).toHaveBeenCalledTimes(1))
-    // The deletion must persist: the saved array is the exact reduced list —
-    // a single element that is Priority 1 only, with the removed Priority 2
-    // gone. This is the regression guard for the reported "deleted priority
-    // reappears" bug.
-    expect(saveAboutFields).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bio: validBio,
+    // The deletion persists on its own — no Submit. The saved slice is the
+    // reduced issues array (Priority 2 gone): the regression guard for the
+    // reported "deleted priority reappears on refresh" bug.
+    await waitFor(() =>
+      expect(saveAboutFields).toHaveBeenCalledWith({
         issues: [expect.objectContaining({ title: 'Priority 1' })],
       }),
     )
+  })
+
+  it('persists a newly added priority without requiring Submit', async () => {
+    const user = userEvent.setup()
+    // No bio and no priorities yet: adding a priority must still persist even
+    // though the bio-gated Submit is blocked — the ENG-10619 bug where a new
+    // priority was local-only and lost on refresh.
+    getUserWebsite.mockResolvedValue(websiteWith('', 0))
+    saveAboutFields.mockResolvedValue(true)
+    render(<CandidateProfile />)
+    await screen.findByTestId('rich-editor')
+
+    await user.click(
+      screen.getByRole('button', { name: /add a policy priority/i }),
+    )
+    await user.type(screen.getByLabelText('Policy title'), 'Housing')
+    // The modal's Policy focus editor is the last rich-editor (the first is the
+    // bio); give it enough text to clear the focus minimum so Save is accepted.
+    const editors = screen.getAllByTestId('rich-editor')
+    const focusEditor = editors.at(-1)
+    if (!focusEditor) throw new Error('policy focus editor did not mount')
+    fireEvent.change(focusEditor, {
+      target: { value: 'x'.repeat(MIN_POLICY_FOCUS_LENGTH) },
+    })
+    await user.click(screen.getByRole('button', { name: /^save$/i }))
+
     await waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/account'),
+      expect(saveAboutFields).toHaveBeenCalledWith({
+        issues: [expect.objectContaining({ title: 'Housing' })],
+      }),
+    )
+    // Persisted without the page-level Submit.
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('reverts the optimistic change and warns when the save fails', async () => {
+    const user = userEvent.setup()
+    const validBio = 'a'.repeat(MIN_BIO_LENGTH)
+    getUserWebsite.mockResolvedValue(websiteWith(validBio, 2))
+    // The autosave rejects: the optimistic delete must roll back so a priority
+    // doesn't silently vanish, and the failure must be surfaced.
+    saveAboutFields.mockResolvedValue(false)
+    render(<CandidateProfile />)
+
+    await waitFor(() => expect(getUserWebsite).toHaveBeenCalled())
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Edit Priority 2' }),
+    )
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }))
+    await screen.findByText(
+      'Are you sure you want to delete this policy priority?',
+    )
+    await user.click(await screen.findByRole('button', { name: /^delete$/i }))
+
+    // Priority 2 comes back (revert to the last confirmed list) and the failure
+    // is surfaced — the regression guard for a silent stale-state bug.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Edit Priority 2' }),
+      ).toBeInTheDocument(),
+    )
+    expect(errorSnackbar).toHaveBeenCalledWith(
+      'Could not save your policy priorities. Please try again.',
     )
   })
 })
