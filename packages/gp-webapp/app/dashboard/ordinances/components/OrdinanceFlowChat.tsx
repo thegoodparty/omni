@@ -643,7 +643,7 @@ function NextStepButton({
       type="button"
       variant="outline"
       onClick={onAdvance}
-      className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
+      className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
     >
       <span>{label ?? `Continue to ${nextLabel}`}</span>
       <ChevronRightIcon
