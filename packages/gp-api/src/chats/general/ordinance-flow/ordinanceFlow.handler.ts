@@ -28,6 +28,10 @@ import {
   buildFetchUrlTool,
   buildGetCodeSourceTool,
   buildOfferNextStepTool,
+  buildPresentAuthorityFindingTool,
+  buildPresentComparablesTool,
+  buildPresentCurrentLawSummaryTool,
+  buildPresentLegislativeHistoryTool,
   buildReadOrdinanceTool,
   buildSaveExistingLawTool,
   buildSaveNoteTool,
@@ -191,10 +195,22 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       tools.save_synthesis = buildSaveSynthesisTool(deps)
     }
 
-    // Current-law research reads the live code and persists its findings.
+    // Each step gets only the present_* display tools its page renders.
+    if (ctx.step === 'authority') {
+      tools.present_authority_finding = buildPresentAuthorityFindingTool(deps)
+    }
+
+    // Current-law research reads the live code and persists its findings, then
+    // presents the summary and legislative-history widgets.
     if (ctx.step === 'current_law') {
       tools.fetch_url = buildFetchUrlTool(deps)
       tools.save_existing_law = buildSaveExistingLawTool(deps)
+      tools.present_current_law_summary = buildPresentCurrentLawSummaryTool()
+      tools.present_legislative_history = buildPresentLegislativeHistoryTool()
+    }
+
+    if (ctx.step === 'comparables') {
+      tools.present_comparables = buildPresentComparablesTool(deps)
     }
 
     // Every step except the last can offer a button to advance the flow.

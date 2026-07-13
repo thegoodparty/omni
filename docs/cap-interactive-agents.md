@@ -66,7 +66,7 @@ then retry; 4xx errors `bail()` immediately.
 | **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | `claude-sonnet-4-6` default chain                                 | none                                                                                                                                              |
 | **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
 | **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
-| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8)                      | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (`get_code_source`, `fetch_url`, `save_existing_law`, clarify widgets, `web_search`)            |
+| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8)                      | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (research tools + `present_*` display tools, clarify widgets, `web_search`)                     |
 
 Other non-chat **generation** surfaces (not interactive chat) live elsewhere and
 split across two providers. Some go through `LlmService` (Anthropic) non-streaming
@@ -133,6 +133,16 @@ markdown) / `save_existing_law` on the current_law step. Its handler raises
 `maxSteps` to 8 — a current_law turn chains `get_code_source` + several
 `fetch_url` calls + `save_existing_law`, and the default 5 cuts research off
 mid-chain.
+
+Each step also gets the `present_*` display tools its page renders: the model
+passes the finding as the tool's args (which persist as the tool segment the
+webapp widget replays from), and `execute` persists the artifact subset where a
+column exists. `present_authority_finding` (authority step, persists
+`authority`); `present_current_law_summary` + `present_legislative_history`
+(current_law step, display-only); `present_comparables` (comparables step,
+persists `comparables`). Payload shapes are the `Ordinance*Schema` /
+`OrdinancePresentComparablesSchema` contracts consumed by `stepWidgets.tsx` in
+gp-webapp. The draft step has no `present_*` tool yet.
 
 COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 (`list_briefings`/`get_briefing`, `read_community_issues`). Tool-calling chat is
