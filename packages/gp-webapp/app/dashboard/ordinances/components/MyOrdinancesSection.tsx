@@ -52,7 +52,7 @@ export default function MyOrdinancesSection({
             Ordinances you&apos;re working on.
           </p>
         </div>
-        <Button asChild size="small" className="rounded-full">
+        <Button asChild className="rounded-full text-sm">
           <Link href="/dashboard/ordinances/new">New ordinance</Link>
         </Button>
       </div>
