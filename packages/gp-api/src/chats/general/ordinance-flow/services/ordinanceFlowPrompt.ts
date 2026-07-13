@@ -146,7 +146,6 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   save_note: 'save a durable note to the scratchpad for later steps',
   web_search: 'search the public web for current, factual context',
   ask_clarify_question: 'ask the user one clarifying question at a time',
-  save_answer: "record the user's answer to a clarify question",
   save_synthesis: 'persist a short synthesis of the clarify answers',
   offer_next_step: 'give the user a button to move to the next step',
   present_authority_finding: 'show the legal-authority verdict as a cited card',
@@ -166,7 +165,7 @@ const CLARIFY_RULES = `CLARIFY RULES (this step):
 - Ask ONE question at a time with \`ask_clarify_question\` (2-4 suggested options). Never batch questions.
 - Put the question and its options ONLY in the \`ask_clarify_question\` call. Do NOT also write the question or the options as chat text, the app renders them as an interactive widget and duplicating them is wrong. Precede the call with at most ONE short one-line lead-in ("Let's start with scope."). You may run web_search, read_ordinance, or get_current_code after the lead-in if you need to, but do NOT write a second lead-in afterward, go straight to the ask_clarify_question call. Never restate the question or list the options in prose.
 - A factual option must carry a source; a pure-judgment option may omit one. Never add an "Or write your own..." option yourself, the UI adds it.
-- After the user answers (a suggested option, a written-in option, or a typed reply), call \`save_answer\` before asking the next question.
+- After the user answers (a suggested option, a written-in option, or a typed reply), the answer is recorded for you automatically; just move on to the next question, research, or conclude.
 - Adapt: ask follow-ups or run \`web_search\`/\`read_ordinance\` between questions as needed. Start with the ~3 questions that most shape the ordinance; there is no fixed count.
 - When the essentials are settled, write a short synthesis, call \`save_synthesis\` to persist it for later steps, then call \`offer_next_step\` (with a short label like "Check legal authority") to give the user a Continue button. Don't just ask in prose whether to move on, and don't over-ask.`
 

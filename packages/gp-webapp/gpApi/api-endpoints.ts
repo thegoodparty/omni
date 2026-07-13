@@ -2,6 +2,7 @@ import type {
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
   Ordinance,
+  SaveOrdinanceClarifyAnswerRequest,
   Priority,
   ChatAnchor,
   RaceOpponentSourceType,
@@ -463,6 +464,11 @@ export type APIEndpoints = {
 
   'GET /v1/ordinances/:slug': {
     Request: {}
+    Response: Ordinance
+  }
+
+  'POST /v1/ordinances/:slug/clarify-answers': {
+    Request: SaveOrdinanceClarifyAnswerRequest
     Response: Ordinance
   }
 

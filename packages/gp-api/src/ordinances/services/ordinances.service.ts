@@ -1,6 +1,7 @@
 import {
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -8,9 +9,11 @@ import { FeaturesService } from 'src/features/services/features.service'
 import {
   type CreateOrdinanceRequest,
   type Ordinance as OrdinanceResponse,
+  type OrdinanceClarifyAnswer,
   type OrdinanceListResponse,
   type OrdinanceStatusCounts,
   type UpdateOrdinanceRequest,
+  OrdinanceClarifyAnswersSchema,
   OrdinanceListResponseSchema,
   OrdinanceSchema,
   OrdinanceSummarySchema,
@@ -91,6 +94,44 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         draftBody: dto.draftBody,
         lastViewedStep: dto.lastViewedStep,
       },
+    })
+    return this.toResponse(record)
+  }
+
+  // Persist one clarify answer straight from the UI, keyed by the widget's own
+  // questionId. Re-answering the same question replaces it rather than
+  // duplicating. This is the source of truth for clarify answers; the agent no
+  // longer records them.
+  async appendClarifyAnswer(
+    electedOffice: ElectedOffice,
+    slug: string,
+    answer: OrdinanceClarifyAnswer,
+  ): Promise<OrdinanceResponse> {
+    await this.assertEnabled(electedOffice.userId)
+    const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    const parsed = OrdinanceClarifyAnswersSchema.safeParse(
+      existing.clarifyAnswers,
+    )
+    // A fresh record is null (safeParse fails, [] is the right start). But a
+    // non-null blob that fails to parse is malformed stored data; overwriting
+    // it would silently destroy prior answers, so refuse instead.
+    if (!parsed.success && existing.clarifyAnswers !== null) {
+      this.logger.error(
+        { ordinanceId: existing.id, error: parsed.error },
+        'clarifyAnswers failed schema parse; refusing to overwrite',
+      )
+      throw new InternalServerErrorException(
+        'clarifyAnswers is malformed; cannot safely append',
+      )
+    }
+    const answers = parsed.success ? parsed.data : []
+    const next = [
+      ...answers.filter((a) => a.questionId !== answer.questionId),
+      answer,
+    ]
+    const record = await this.model.update({
+      where: { id: existing.id },
+      data: { clarifyAnswers: next },
     })
     return this.toResponse(record)
   }

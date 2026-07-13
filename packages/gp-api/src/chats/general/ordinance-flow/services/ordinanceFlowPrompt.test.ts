@@ -159,7 +159,6 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
         'save_note',
         'web_search',
         'ask_clarify_question',
-        'save_answer',
         'save_synthesis',
         'offer_next_step',
       ],

@@ -5,6 +5,7 @@ import { CampaignContext } from '@shared/hooks/CampaignProvider'
 import { P2pUxEnabledContext } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { OutreachComposeDeepLink } from './OutreachComposeDeepLink'
+import { MAX_SMS_CHAR_COUNT } from 'app/dashboard/components/tasks/flows/AddScriptStep/CreateSmSScriptScreen'
 import type { Campaign, TcrCompliance } from 'helpers/types'
 
 let mockSearchParams = new URLSearchParams()
@@ -108,12 +109,14 @@ describe('OutreachComposeDeepLink', () => {
 
   it('clamps the message to the sms script limit', async () => {
     mockSearchParams = new URLSearchParams(
-      `compose=text&message=${'a'.repeat(2000)}`,
+      `compose=text&message=${'a'.repeat(MAX_SMS_CHAR_COUNT + 400)}`,
     )
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 
     const taskFlow = await screen.findByTestId('task-flow')
-    expect(taskFlow.getAttribute('data-initial-script')).toHaveLength(1600)
+    expect(taskFlow.getAttribute('data-initial-script')).toHaveLength(
+      MAX_SMS_CHAR_COUNT,
+    )
   })
 
   it('passes a valid due param through as the campaign-plan due date', async () => {

@@ -200,7 +200,6 @@ describe('OrdinanceFlowHandler', () => {
       'get_code_source',
       'offer_next_step',
       'read_ordinance',
-      'save_answer',
       'save_note',
       'save_synthesis',
       'web_search',

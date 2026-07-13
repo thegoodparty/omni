@@ -33,7 +33,6 @@ import {
   buildPresentCurrentLawSummaryTool,
   buildPresentLegislativeHistoryTool,
   buildReadOrdinanceTool,
-  buildSaveAnswerTool,
   buildSaveExistingLawTool,
   buildSaveNoteTool,
   buildSaveSynthesisTool,
@@ -193,7 +192,6 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     // (authority, comparables, draft) get their own tools in later slices.
     if (ctx.step === 'clarify') {
       tools.ask_clarify_question = buildAskClarifyQuestionTool()
-      tools.save_answer = buildSaveAnswerTool(deps)
       tools.save_synthesis = buildSaveSynthesisTool(deps)
     }
 

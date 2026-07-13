@@ -26,6 +26,7 @@ import { OrdinancesService } from '../services/ordinances.service'
 import {
   CreateOrdinanceDto,
   OrdinanceSlugParamDto,
+  SaveClarifyAnswerDto,
   UpdateOrdinanceDto,
 } from '../schemas/ordinances.schema'
 
@@ -68,6 +69,18 @@ export class OrdinanceFlowController {
     @Param() { slug }: OrdinanceSlugParamDto,
   ) {
     return this.ordinances.getBySlug(electedOffice, slug)
+  }
+
+  @Post(':slug/clarify-answers')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(OrdinanceSchema)
+  async saveClarifyAnswer(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+    @Body() body: SaveClarifyAnswerDto,
+  ) {
+    return this.ordinances.appendClarifyAnswer(electedOffice, slug, body)
   }
 
   @Patch(':slug')
