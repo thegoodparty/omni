@@ -10,28 +10,6 @@ import { ElectionCode } from '../generated/prisma'
 export class ProjectedTurnoutService extends createPrismaBase(
   MODELS.ProjectedTurnout,
 ) {
-  private static readonly CONSOLIDATED_2YR_STATES = new Set([
-    'LA',
-    'MS',
-    'NJ',
-    'VA',
-  ] as const)
-  private static readonly CONSOLIDATED_4YR_STATES = new Set(['KS'] as const)
-
-  private static makeStateGuard<Code extends string>(set: ReadonlySet<Code>) {
-    return (s: string): s is Code => set.has(s as Code)
-  }
-
-  private static readonly isTwoYearState =
-    ProjectedTurnoutService.makeStateGuard(
-      ProjectedTurnoutService.CONSOLIDATED_2YR_STATES,
-    )
-
-  private static readonly isFourYearState =
-    ProjectedTurnoutService.makeStateGuard(
-      ProjectedTurnoutService.CONSOLIDATED_4YR_STATES,
-    )
-
   constructor() {
     super()
   }
@@ -57,7 +35,8 @@ export class ProjectedTurnoutService extends createPrismaBase(
     }
 
     const electionCode =
-      rawElectionCode ?? this.determineElectionCode(electionDate, state!)
+      rawElectionCode ??
+      (await this.determineElectionCode(electionDate, state!))
     return this.model.findFirst({
       where: {
         electionCode,
@@ -85,7 +64,7 @@ export class ProjectedTurnoutService extends createPrismaBase(
 
     const electionCode =
       rawElectionCode ??
-      this.determineElectionCode(electionDate, district.state)
+      (await this.determineElectionCode(electionDate, district.state))
     return this.model.findFirst({
       where: {
         districtId,
@@ -128,40 +107,34 @@ export class ProjectedTurnoutService extends createPrismaBase(
         })
   }
 
-  private isTuesdayAfterFirstMondayInNov(date: Date): boolean {
-    const day = date.getDate()
-    return date.getMonth() === 10 && date.getDay() === 2 && day > 1 && day <= 8
-  }
-
-  determineElectionCode(electionDate: string, state: string): ElectionCode {
-    // Converted from Nigel's Python, you probably shouldn't touch this
+  /**
+   * What type of election `electionDate` is for `state`: a lookup against
+   * Election_Calendar (General computed from the fixed November rule /
+   * Primary from each state's L2 vote history -- see gp-data-platform
+   * DATA-2015, PR #595), not something this service computes itself. No
+   * match means LocalOrMunicipal -- any date that isn't a known November
+   * general or state primary is a local race.
+   *
+   * This used to also special-case LA/MS/NJ/VA (2-year cycle) and KS (4-year
+   * cycle) as ConsolidatedGeneral on their odd-year November election day.
+   * That was a placeholder from an older model version, pending a dedicated
+   * odd-year model for those states that was never built -- in the meantime
+   * it just repeated an identical projection year over year. Removed rather
+   * than carried forward: Election_Calendar has no way to reproduce it, so
+   * those 5 states' odd-year November election day now resolves to
+   * LocalOrMunicipal like everywhere else. Projected_Turnout may still have
+   * legacy rows keyed on ConsolidatedGeneral for those states/years from the
+   * static feed that used to populate it -- this lookup will no longer find
+   * them (tracked in the linked ticket, not silently patched over here).
+   */
+  async determineElectionCode(
+    electionDate: string,
+    state: string,
+  ): Promise<ElectionCode> {
     const date = new Date(`${electionDate}T00:00:00`)
-    const year = date.getFullYear()
-
-    if (!this.isTuesdayAfterFirstMondayInNov(date)) {
-      return ElectionCode.LocalOrMunicipal
-    }
-
-    if (year % 2 === 0) {
-      return ElectionCode.General
-    }
-
-    if (
-      ProjectedTurnoutService.isTwoYearState(state) &&
-      ProjectedTurnoutService.CONSOLIDATED_2YR_STATES.has(state)
-    ) {
-      return ElectionCode.ConsolidatedGeneral
-    }
-
-    const isFourthYear = (year - 2003) % 4 === 0
-    if (
-      ProjectedTurnoutService.isFourYearState(state) &&
-      ProjectedTurnoutService.CONSOLIDATED_4YR_STATES.has(state) &&
-      isFourthYear
-    ) {
-      return ElectionCode.ConsolidatedGeneral
-    }
-
-    return ElectionCode.LocalOrMunicipal
+    const match = await this.client.electionCalendar.findUnique({
+      where: { state_electionDate: { state, electionDate: date } },
+    })
+    return match?.electionCode ?? ElectionCode.LocalOrMunicipal
   }
 }

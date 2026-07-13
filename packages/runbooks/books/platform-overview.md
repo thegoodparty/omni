@@ -224,7 +224,7 @@ District (state + L2 type/name, unique constraint)
   └── Position (BallotReady position ID → district link — key for gold flow)
 ```
 
-**Election code logic**: `determineElectionCode(date, state)` classifies election dates — General (even year, first Tues after first Mon in Nov), ConsolidatedGeneral (LA/MS/NJ/VA odd years, KS 4-year cycle), everything else LocalOrMunicipal.
+**Election code logic**: `determineElectionCode(date, state)` (async, DATA-2015) looks up `(state, date)` against the `Election_Calendar` table — `General` and `Primary` rows are populated there (gp-data-platform seed + `sync_election_api` DAG, PR #595); anything with no match is `LocalOrMunicipal`. Previously computed the November-general rule inline plus a `ConsolidatedGeneral` special case for LA/MS/NJ/VA (2yr cycle) and KS (4yr cycle) — a placeholder for an odd-year model that was never built, removed rather than carried forward. `Projected_Turnout` may still have legacy rows keyed on `ConsolidatedGeneral` for those states/years from the static feed that used to populate it; `determineElectionCode` no longer finds them (known follow-up, not yet resolved).
 
 **Deploy**: Docker → ECR → Pulumi → ECS Fargate (`packages/election-api/deploy/`). Local port 3001. Aurora Serverless v2. Not part of the full-stack PR-preview pairing — gp-webapp doesn't call it directly (election data is proxied through gp-api), and there is no per-PR election-api stack; PR previews use the shared dev election-api.
 

@@ -1,0 +1,21 @@
+// Backs determineElectionCode (projectedTurnout.service.ts): a per (state,
+// electionDate) lookup for what type of election that date is. Delivered by
+// gp-data-platform's sync_election_api Airflow DAG via an atomic table swap
+// (see gp-data-platform PR #595) -- same delivery mechanism as
+// ProjectedTurnout, not the upsert-by-id writer, since a state's primary date
+// is legislated and does get corrected between cycles.
+//
+// Only General and Primary rows exist here. Any (state, electionDate) with no
+// match is LocalOrMunicipal by definition -- there's no need for an explicit
+// row for every non-election-day date a candidate might file for.
+model ElectionCalendar {
+  id           String       @id @map("id") @db.Uuid
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  state        String       @map("state")
+  electionDate DateTime     @map("election_date") @db.Date
+  electionCode ElectionCode @map("election_code")
+
+  @@unique([state, electionDate])
+  @@map("Election_Calendar")
+}

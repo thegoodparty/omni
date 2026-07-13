@@ -121,7 +121,7 @@ describe('CampaignStrategyContextService', () => {
     projectedTurnoutService = {
       determineElectionCode: vi
         .fn()
-        .mockReturnValue(ElectionCode.LocalOrMunicipal),
+        .mockResolvedValue(ElectionCode.LocalOrMunicipal),
     }
     service = new CampaignStrategyContextService(
       projectedTurnoutService as ProjectedTurnoutService,

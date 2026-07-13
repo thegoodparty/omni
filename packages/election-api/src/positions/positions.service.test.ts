@@ -163,7 +163,7 @@ describe('PositionsService', () => {
   })
 
   it('returns filtered projected turnout when includeTurnout is true', async () => {
-    vi.mocked(projectedTurnoutService.determineElectionCode).mockReturnValue(
+    vi.mocked(projectedTurnoutService.determineElectionCode).mockResolvedValue(
       ElectionCode.General,
     )
     findUnique.mockResolvedValue({
@@ -220,7 +220,7 @@ describe('PositionsService', () => {
   })
 
   it('returns null projected turnout when no turnout matches election year and code', async () => {
-    vi.mocked(projectedTurnoutService.determineElectionCode).mockReturnValue(
+    vi.mocked(projectedTurnoutService.determineElectionCode).mockResolvedValue(
       ElectionCode.General,
     )
     findUnique.mockResolvedValue({
@@ -254,7 +254,7 @@ describe('PositionsService', () => {
   })
 
   it('throws when duplicate projected turnouts match election year and code', async () => {
-    vi.mocked(projectedTurnoutService.determineElectionCode).mockReturnValue(
+    vi.mocked(projectedTurnoutService.determineElectionCode).mockResolvedValue(
       ElectionCode.General,
     )
     findUnique.mockResolvedValue({
@@ -603,7 +603,7 @@ describe('PositionsService', () => {
     })
 
     it('attaches filing fee fields to the includeTurnout response shape', async () => {
-      vi.mocked(projectedTurnoutService.determineElectionCode).mockReturnValue(
+      vi.mocked(projectedTurnoutService.determineElectionCode).mockResolvedValue(
         ElectionCode.General,
       )
       findUnique.mockResolvedValue({

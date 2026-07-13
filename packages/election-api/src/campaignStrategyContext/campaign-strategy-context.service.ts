@@ -83,7 +83,7 @@ export class CampaignStrategyContextService extends createPrismaBase(
       race.id,
     )
 
-    const projectedTurnout = this.resolveProjectedTurnout(
+    const projectedTurnout = await this.resolveProjectedTurnout(
       race.Position?.district ?? null,
       race.electionDate,
       race.state,
@@ -225,7 +225,15 @@ export class CampaignStrategyContextService extends createPrismaBase(
     return result
   }
 
-  private resolveProjectedTurnout(
+  // Feeds win_number_estimate (via computeWinNumberEstimate), unlike
+  // resolveGeneralProjectedTurnout below which feeds projected_voter_turnout
+  // and has its own independent ConsolidatedGeneral fallback. This one does
+  // not: determineElectionCode no longer returns ConsolidatedGeneral (DATA-2015),
+  // so for LA/MS/NJ/VA/KS races that fall on their odd-year ConsolidatedGeneral
+  // date, this now resolves LocalOrMunicipal and finds no match -- returning
+  // null (win_number_estimate null) where it previously resolved a real
+  // number. Tracked as a known follow-up, not silently patched over here.
+  private async resolveProjectedTurnout(
     district:
       | {
           ProjectedTurnouts: Array<{
@@ -238,13 +246,13 @@ export class CampaignStrategyContextService extends createPrismaBase(
       | undefined,
     electionDate: Date,
     state: string,
-  ): number | null {
+  ): Promise<number | null> {
     if (!district?.ProjectedTurnouts?.length) {
       return null
     }
     const isoDate = electionDate.toISOString().slice(0, 10)
     const electionYear = electionDate.getUTCFullYear()
-    const electionCode = this.projectedTurnoutService.determineElectionCode(
+    const electionCode = await this.projectedTurnoutService.determineElectionCode(
       isoDate,
       state,
     )
