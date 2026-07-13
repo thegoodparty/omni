@@ -5,7 +5,8 @@ from the Govern description), code presence (the committed git-provenance CSV th
 beside this script in ``instrumentation_data/``), and firing volume (the event catalog plus
 a trailing weekly aggregate of the raw stream) — classifies each against the
 analytics-event-change SOP status model, detects firing-volume anomalies, and renders a
-severity-ranked digest section appended to ``instrumentation_data/analytics-event-health-log.md``.
+severity-ranked digest section prepended (newest first, below the header) to
+``instrumentation_data/analytics-event-health-log.md``.
 
 Hybrid scope: every catalog event gets an SOP status; a curated watchlist
 (``monitored_events.yaml``) drives severity elevation and the self-healing proposal queue
@@ -707,11 +708,15 @@ def _json_default(obj: Any) -> str:
     raise TypeError(f"not serializable: {type(obj)}")
 
 
-def append_log(log_path: Path, section: str) -> None:
-    """Append one dated digest section to the growing longitudinal log."""
+def prepend_log(log_path: Path, section: str) -> None:
+    """Insert the dated digest section above prior runs (newest first), below the header."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(log_path, "a") as fh:
-        fh.write("\n" + section if log_path.exists() and log_path.stat().st_size else section)
+    existing = log_path.read_text() if log_path.exists() else ""
+    match = re.search(r"^## \d{4}-\d{2}-\d{2}$", existing, re.MULTILINE)
+    if match:
+        log_path.write_text(existing[: match.start()] + section + "\n" + existing[match.start() :])
+    else:
+        log_path.write_text(existing + ("\n" if existing else "") + section)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -719,8 +724,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--csv", type=Path, default=CODE_CSV, help="provenance CSV (code axis)")
     parser.add_argument("--watchlist", type=Path, default=WATCHLIST, help="curated watchlist YAML")
     parser.add_argument("--json", type=Path, help="also write the full result JSON here")
-    parser.add_argument("--log", type=Path, default=DEFAULT_LOG, help="longitudinal log to append to")
-    parser.add_argument("--no-log", action="store_true", help="do not append to the log")
+    parser.add_argument("--log", type=Path, default=DEFAULT_LOG, help="longitudinal log to write to")
+    parser.add_argument("--no-log", action="store_true", help="do not write to the log")
     parser.add_argument(
         "--state",
         type=Path,
@@ -758,7 +763,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sys.stdout.write(section)
 
     if not args.no_log:
-        append_log(args.log, section)
+        prepend_log(args.log, section)
     if args.json:
         args.json.write_text(json.dumps(result, indent=2, default=_json_default) + "\n")
 

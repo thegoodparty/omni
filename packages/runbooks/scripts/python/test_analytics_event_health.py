@@ -488,6 +488,35 @@ def test_load_prior_anomalous_reads_valid_list(tmp_path):
     assert eh.load_prior_anomalous(p) == {"B", "C"}
 
 
+# --- prepend_log -------------------------------------------------------------
+
+HEADER = "# Analytics event-health log\n\nPreamble.\n\n## Status legend\n\n| a | b |\n"
+
+
+def test_prepend_log_inserts_below_header_above_prior_runs(tmp_path):
+    p = tmp_path / "log.md"
+    p.write_text(HEADER + "\n## 2026-06-26\n\nolder digest\n")
+    eh.prepend_log(p, "## 2026-07-13\n\nnewer digest\n")
+    text = p.read_text()
+    assert text.startswith(HEADER)
+    assert text.index("## 2026-07-13") < text.index("## 2026-06-26")
+    # one blank line between the new section and the prior newest
+    assert "newer digest\n\n## 2026-06-26" in text
+
+
+def test_prepend_log_appends_when_no_dated_section(tmp_path):
+    p = tmp_path / "log.md"
+    p.write_text(HEADER)
+    eh.prepend_log(p, "## 2026-07-13\n\nfirst digest\n")
+    assert p.read_text() == HEADER + "\n## 2026-07-13\n\nfirst digest\n"
+
+
+def test_prepend_log_creates_missing_file(tmp_path):
+    p = tmp_path / "log.md"
+    eh.prepend_log(p, "## 2026-07-13\n\nfirst digest\n")
+    assert p.read_text() == "## 2026-07-13\n\nfirst digest\n"
+
+
 # --- metadata coverage -------------------------------------------------------
 
 
