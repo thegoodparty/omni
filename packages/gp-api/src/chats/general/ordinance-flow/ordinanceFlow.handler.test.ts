@@ -316,7 +316,7 @@ describe('OrdinanceFlowHandler', () => {
   })
 
   it('raises maxSteps above the default so a research turn can finish', () => {
-    expect(build().maxSteps).toBe(16)
+    expect(build().maxSteps).toBe(30)
   })
 
   it('builds a system prompt grounded in the ordinance context', async () => {
