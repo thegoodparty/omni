@@ -266,6 +266,11 @@ export class CrmCampaignsService {
       ? HubSpot.ProSubStatus.ACTIVE
       : HubSpot.ProSubStatus.INACTIVE
 
+    const tcrCompliance = await this.campaigns.client.tcrCompliance.findUnique({
+      where: { campaignId },
+      select: { email: true, phone: true, filingUrl: true },
+    })
+
     const ecanvasser = await this.ecanvasser.findByCampaignId(campaignId)
     let ecanvasserCount = 0
     let ecanvasserHousesCount = 0
@@ -317,6 +322,11 @@ export class CrmCampaignsService {
       pro_subscription_status: proSubscriptionStatus,
       pro_upgrade_date: isProUpdatedAtMs,
       running: runForOffice ? HubSpot.Running.YES : HubSpot.Running.NO,
+
+      // 10DLC compliance filing details
+      n10_dlc_filing_email: tcrCompliance?.email,
+      n10_dlc_filing_phone: tcrCompliance?.phone,
+      n10_dlc_filing_url: tcrCompliance?.filingUrl,
 
       // election details
       br_position_id: ballotReadyPositionId ?? undefined,

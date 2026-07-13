@@ -13,6 +13,11 @@ model ChatMessageSegment {
   text     String? @db.Text
   toolName String? @map("tool_name")
 
+  /// Structured tool-call arguments, so widget-rendering tool calls (e.g.
+  /// ask_clarify_question) can replay from the transcript on reload. Null for
+  /// text segments and tool calls with no displayable payload.
+  payload Json? @db.JsonB
+
   @@index([chatMessageId, ordinal])
   @@map("chat_message_segment")
 }

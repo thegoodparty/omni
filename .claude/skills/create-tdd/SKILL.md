@@ -59,6 +59,9 @@ Follow the existing template (don't restructure it). What belongs in each:
   dependency design).
 - **Scope / Not in this doc**: what this covers and what's deferred or owned
   elsewhere. If a separate scope doc exists, link it and note only the deltas.
+  If the source PRD or scope doc phases delivery (MVP, Phase 1/2, dated
+  checkpoints), carry those milestones through here so they survive into epic
+  creation; if it specifies none, don't invent any.
 - **Proposed Solution**: the bulk of the doc. **Decompose into the 2-5 real
   subproblems and give each its own subsection.** Organize by subproblem, _never_
   by repo/stack. Per subproblem, include the load-bearing detail and nothing past
@@ -72,11 +75,37 @@ consumers | MCP-enabled?`. Cheap to write, and it makes the access patterns legi
   at a glance. Mark which endpoints are exposed as MCP tools for agents.
 - **Key Takeaways**: bulleted. The load-bearing decisions a reviewer must leave
   with. **Decisions live here, not in the Summary.**
-- **Alternatives Considered**: approaches you rejected and why, a short paragraph
-  each. This is where reviewers challenge the thinking, so make the rejected paths
-  and their reasons explicit.
+- **Alternatives Considered**: work from 2-3 genuinely distinct approaches before
+  settling, not just a record of what you rejected. Distinct means a real fork
+  (sync in the request path vs queued async; extend an existing table vs a new
+  one), not bikeshedding (library X vs Y). A short paragraph each: what it is and
+  why it lost. The recommendation needs reasoning a reviewer can argue with, not
+  just a vote. If there is only one reasonable approach, say so explicitly in one
+  line; manufactured options waste the reviewer's time and dilute trust.
 - **Open Questions**: genuine unknowns, and things deliberately deferred to
   implementation. Reviewers add to this during the call.
+
+## Cross-cutting prompts (answer each, even if N/A)
+
+Reviewers consistently ask about these four. Answer each in whichever section
+fits, as prose, not mandatory tables. "N/A because <reason>" is a valid answer;
+silence is not.
+
+- **Inputs and outputs**: what flows in (requests, queue messages, user actions)
+  and out (responses, events emitted, persisted state, side effects). Name which
+  inputs are user-controlled.
+- **DB changes**: the Prisma models rule covers the change case; when there is no
+  DB change, say so and why.
+- **Failure and recovery**: what failure looks like, its blast radius, and how we
+  recover (bad deploy, external API outage, queue backlog). A stateless read-only
+  feature can say exactly that in one sentence.
+- **Data flow**: the diagram plus one prose paragraph of the flow. For a simple
+  flow a mermaid block in the doc is enough; for anything bigger, author
+  `scratch/<feature>/<feature>-data-flow.drawio.xml` (plain XML, renders in
+  diagrams.net or the VS Code Draw.io extension) as the editable source of truth
+  and attach an export to the ClickUp page. One canonical diagram: services, data
+  stores, queues, external APIs, and the user, with every edge labeled by what
+  flows. No internal classes.
 
 ## Two tiers: the TDD and the Implementation Notes subpage
 
@@ -92,6 +121,12 @@ delete.**
   "Optional" material (metrics, alerts, "should never happen," cost estimates, abuse
   prevention, example test sets), and detailed prompt designs. This is also where
   reviewers "drop into" when a question goes deeper than the TDD.
+  Also include a **Codebase context** section carrying what you learned during
+  recon, so the planning agent doesn't re-derive it: the existing patterns to
+  extend and the seam where new code lands, each with a short (5-15 line) excerpt
+  of the real code (a file path alone doesn't transfer the pattern), plus where
+  similar tests live and any pain points to avoid (deprecated dirs, in-progress
+  migrations). Excerpts come from the actual repo scan, never from memory.
 - **Omit (or subpage) unless genuinely novel:** UI layout and component detail.
   Specify a UI interaction only when the _interaction model itself_ is the hard part.
   Never restate what the code already shows. Never write implementation that
@@ -140,7 +175,13 @@ an update so you can surface any human edits instead of clobbering them.
 - Proposed Solution is decomposed by subproblem.
 - Prisma models, contract shapes, a diagram (if flow is non-trivial), and the API
   surface table are present.
+- Alternatives are genuinely distinct with a reasoned recommendation, or
+  explicitly collapsed to one.
+- The four cross-cutting prompts (inputs/outputs, DB changes, failure/recovery,
+  data flow) are each answered or explicitly N/A with a reason.
+- Milestones from the source PRD/scope doc carried through; none invented.
 - Reuse-vs-new is visible; any new infra is justified (Orange).
-- Deep detail was **moved to Implementation Notes**, not deleted.
+- Deep detail was **moved to Implementation Notes**, not deleted; Implementation
+  Notes carries Codebase context with real code excerpts.
 - Main TDD is ~15 minutes / ~2,500 prose words or fewer; no em dashes.
 - Posted to the TDD folder; Implementation Notes subpage created and cross-linked.

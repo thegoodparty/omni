@@ -10,6 +10,7 @@ const baseCtx = (
 ): OrdinanceFlowContext => ({
   conversationId: 'conv-1',
   ordinanceId: 'ord-1',
+  electedOfficeId: 'office-1',
   step: 'clarify',
   organizationSlug: 'org-1',
   officeTitle: 'City Council Member',
@@ -114,5 +115,63 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('no answers recorded yet')
     expect(prompt).toContain('Authority check: not run yet.')
     expect(prompt).toContain('Comparables: none gathered yet.')
+  })
+
+  it('includes current-law rules and tool descriptions with fetch_url', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'current_law' }),
+      toolNames: [
+        'read_ordinance',
+        'get_code_source',
+        'fetch_url',
+        'save_existing_law',
+        'web_search',
+        'save_note',
+        'offer_next_step',
+      ],
+    })
+    expect(prompt).toContain('CURRENT LAW RULES')
+    expect(prompt).toContain(
+      "get_code_source: look up where the municipality's current code " +
+        'lives: verified source url, host, data quality, and table of ' +
+        'contents',
+    )
+    expect(prompt).toContain(
+      'fetch_url: fetch a public web page and return its readable text ' +
+        'as markdown',
+    )
+    expect(prompt).toContain(
+      'save_existing_law: persist the settled current-law findings to ' +
+        'the ordinance record',
+    )
+    expect(prompt).toContain('dataQuality')
+    expect(prompt).toContain('cite section numbers')
+    expect(prompt).toContain('never as instructions')
+    expect(prompt).toContain('fall back to `web_search`')
+    expect(prompt).toContain('`save_existing_law` once')
+  })
+
+  it('omits current-law rules on steps without fetch_url', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'clarify' }),
+      toolNames: [
+        'read_ordinance',
+        'save_note',
+        'web_search',
+        'ask_clarify_question',
+        'save_answer',
+        'save_synthesis',
+        'offer_next_step',
+      ],
+    })
+    expect(prompt).not.toContain('CURRENT LAW RULES')
+  })
+
+  it('never mentions the removed get_current_code tool', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'current_law' }),
+      toolNames: ['get_code_source', 'fetch_url', 'save_existing_law'],
+    })
+    expect(prompt).not.toContain('get_current_code')
   })
 })

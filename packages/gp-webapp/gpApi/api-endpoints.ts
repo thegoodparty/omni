@@ -1,5 +1,7 @@
 import type {
+  CreateOrdinanceRequest,
   ExperimentVariantsResponse,
+  Ordinance,
   Priority,
   ChatAnchor,
   RaceOpponentSourceType,
@@ -452,6 +454,16 @@ export type APIEndpoints = {
   'DELETE /v1/chats/:id': {
     Request: { scope: ChatScope }
     Response: void
+  }
+
+  'POST /v1/ordinances': {
+    Request: CreateOrdinanceRequest
+    Response: Ordinance
+  }
+
+  'GET /v1/ordinances/:slug': {
+    Request: {}
+    Response: Ordinance
   }
 
   'GET /v1/contacts/stats': {

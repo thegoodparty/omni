@@ -52,10 +52,10 @@ model TcrCompliance {
   // billing/account error ("No payment method available"). Retrying can't fix a
   // Peerly-side billing outage, so the agent/kickoff re-dispatch paths hold off
   // re-submitting while this is within the cooldown window — one alert, no storm.
-  peerlyBillingBlockedAt        DateTime? @map("peerly_billing_blocked_at")
+  peerlyBillingBlockedAt DateTime? @map("peerly_billing_blocked_at")
 
-  agenticRunId                  String?   @unique @map("agentic_run_id")
-  agenticDispatchAttemptedAt    DateTime? @map("agentic_dispatch_attempted_at")
+  agenticRunId               String?   @unique @map("agentic_run_id")
+  agenticDispatchAttemptedAt DateTime? @map("agentic_dispatch_attempted_at")
 
   // The channel + destination Peerly used to deliver the CampaignVerify PIN,
   // read from the enriched retrieve_cv payload once the PIN is sent. Persisted
@@ -63,9 +63,9 @@ model TcrCompliance {
   // doubles as the once-only fire guard for the "PIN Sent" Segment event: the
   // detection sweep claims it with `updateMany WHERE pinSentDetectedAt IS NULL`
   // so a re-run can't re-fire the event.
-  pinDeliveryMethod             String?   @map("pin_delivery_method")
-  pinDeliveryDestination        String?   @map("pin_delivery_destination")
-  pinSentDetectedAt             DateTime? @map("pin_sent_detected_at")
+  pinDeliveryMethod      String?   @map("pin_delivery_method")
+  pinDeliveryDestination String?   @map("pin_delivery_destination")
+  pinSentDetectedAt      DateTime? @map("pin_sent_detected_at")
 
   @@map("tcr_compliance")
 }

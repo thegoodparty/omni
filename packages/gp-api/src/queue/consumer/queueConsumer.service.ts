@@ -58,6 +58,7 @@ import {
   CampaignPlanCompleteMessageSchema,
   AgentExperimentResultSchema,
   DomainEmailForwardingMessage,
+  Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
   PollAnalysisCompleteEvent,
@@ -77,6 +78,7 @@ import { ExperimentRunsService } from '@/agentExperiments/services/experimentRun
 import { NON_RESUMABLE_EXPERIMENT_TYPES } from '@/agentExperiments/experimentTypes'
 import { PollIndividualMessageService } from '@/polls/services/pollIndividualMessage.service'
 import { WeeklyTasksDigestHandlerService } from '../../campaigns/tasks/services/weeklyTasksDigestHandler.service'
+import { Nightly10DlcReportService } from '../../campaigns/tcrCompliance/services/nightly10DlcReport.service'
 import { v5 as uuidv5 } from 'uuid'
 import { PinoLogger } from 'nestjs-pino'
 import { OrgDistrict } from '@/organizations/organizations.types'
@@ -137,6 +139,7 @@ export class QueueConsumerService {
     private readonly usersService: UsersService,
     private readonly organizationsService: OrganizationsService,
     private readonly weeklyTasksDigestHandler: WeeklyTasksDigestHandlerService,
+    private readonly nightly10DlcReport: Nightly10DlcReportService,
     private readonly experimentRunsService: ExperimentRunsService,
     private readonly meetingBriefings: MeetingBriefingsService,
     private readonly communityIssue: CommunityIssueService,
@@ -384,6 +387,14 @@ export class QueueConsumerService {
             digestData,
           )
           return true
+        })
+      case QueueType.NIGHTLY_10DLC_REPORT:
+        this.logger.info('received nightly10DlcReport message')
+        return await this.withLegacyErrorSwallowing(message, async () => {
+          const reportData = Nightly10DlcReportMessageSchema.parse(
+            queueMessage.data,
+          )
+          return await this.nightly10DlcReport.handleNightlyReport(reportData)
         })
       case QueueType.AGENT_EXPERIMENT_RESULT:
         return await this.handleAgentExperimentResult(

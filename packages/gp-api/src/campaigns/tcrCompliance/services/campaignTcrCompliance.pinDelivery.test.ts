@@ -18,6 +18,7 @@ import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
+import { SlackService } from '../../../vendors/slack/services/slack.service'
 
 describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   const user = createMockUser({ id: 55 })
@@ -62,6 +63,10 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
         { provide: QueueProducerService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
         { provide: AnalyticsService, useValue: { track: mockTrack } },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         { provide: PinoLogger, useValue: createMockLogger() },
         CampaignTcrComplianceService,
       ],

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common'
 import { ChatConversation, ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import {
@@ -11,11 +15,26 @@ import {
   ResolveConversationResult,
 } from '../types/chatScopeHandler'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
+import { FeaturesService } from 'src/features/services/features.service'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import {
   OrdinanceFlowContext,
   OrdinanceFlowContextService,
 } from './services/ordinanceFlowContext.service'
+import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
+import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
+import {
+  buildAskClarifyQuestionTool,
+  buildFetchUrlTool,
+  buildGetCodeSourceTool,
+  buildOfferNextStepTool,
+  buildReadOrdinanceTool,
+  buildSaveAnswerTool,
+  buildSaveExistingLawTool,
+  buildSaveNoteTool,
+  buildSaveSynthesisTool,
+  type OrdinanceToolDeps,
+} from './tools/ordinanceFlowTools'
 import { buildOrdinanceFlowSystemPrompt } from './services/ordinanceFlowPrompt'
 
 // Sensitive scope: the ordinance record and its research (constituent-derived
@@ -26,17 +45,40 @@ export const ORDINANCE_FLOW_MODELS = [
   'claude-opus-4-7',
 ] as const
 
+const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
+
 @Injectable()
 export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowContext> {
   readonly scope = ChatScope.ordinance_flow
   readonly isSensitive = true
   readonly models = [...ORDINANCE_FLOW_MODELS]
+  // A current_law research turn chains get_code_source + several fetch_url
+  // calls + save_existing_law; the stream loop's default 5 steps cuts it off
+  // mid-research.
+  readonly maxSteps = 8
 
   constructor(
     private readonly store: GeneralChatStoreService,
     private readonly contextService: OrdinanceFlowContextService,
+    private readonly tools: OrdinanceFlowToolsService,
+    private readonly fetch: OrdinanceFlowFetchService,
+    private readonly features: FeaturesService,
     private readonly districtResolver?: DistrictResolverService,
   ) {}
+
+  // Gate the whole scope on the serve-ordinances flag, the same way every
+  // OrdinancesService REST method does — otherwise a flag-off user could open
+  // or message an ordinance_flow chat via POST /chats, bypassing the gate the
+  // rest of the feature enforces.
+  private async assertEnabled(userId: number): Promise<void> {
+    const enabled = await this.features.isFeatureEnabled({
+      user: userId,
+      feature: SERVE_ORDINANCES_FLAG,
+    })
+    if (!enabled) {
+      throw new ForbiddenException('Ordinances is not enabled')
+    }
+  }
 
   // One conversation per (ordinance, step): reopening a step resumes its own
   // thread rather than starting fresh. We filter the small per-ordinance
@@ -56,6 +98,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
         'ordinance_flow requires an ordinance anchor',
       )
     }
+    await this.assertEnabled(userId)
 
     const candidates = await this.store.findByAnchorResource({
       ownerUserId: userId,
@@ -94,6 +137,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     conversationId: string,
     userId: number,
   ): Promise<OrdinanceFlowContext> {
+    await this.assertEnabled(userId)
     const ctx = await this.contextService.load(conversationId, userId)
     // Resolve by the conversation's org slug, not the user: an official with
     // offices in multiple orgs would otherwise get whichever ElectedOffice row
@@ -109,14 +153,58 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   }
 
   buildSystemPrompt(ctx: OrdinanceFlowContext): string {
-    return buildOrdinanceFlowSystemPrompt({ ctx, toolNames: [] })
+    return buildOrdinanceFlowSystemPrompt({
+      ctx,
+      toolNames: Object.keys(this.assembleTools(ctx)),
+    })
   }
 
-  // The flow's write/read tools (save_step_content, ask_clarify_question,
-  // read_ordinance, web_search, ...) land in slice 3. The scope still streams
-  // plain chat until then.
-  buildTools(): Record<string, LlmTool> {
-    return {}
+  buildTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
+    return this.assembleTools(ctx)
+  }
+
+  private assembleTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
+    const deps: OrdinanceToolDeps = {
+      service: this.tools,
+      fetch: this.fetch,
+      ordinanceId: ctx.ordinanceId,
+      electedOfficeId: ctx.electedOfficeId,
+      organizationSlug: ctx.organizationSlug,
+      step: ctx.step,
+    }
+    const tools: Record<string, LlmTool> = {
+      read_ordinance: buildReadOrdinanceTool(deps),
+      get_code_source: buildGetCodeSourceTool(deps),
+      save_note: buildSaveNoteTool(deps),
+    }
+
+    // Web search runs through Anthropic's native tool (the scope is Claude-only)
+    // so queries stay within the enterprise agreement. Gated on the key here so
+    // the system prompt never advertises a tool that was not registered.
+    if (process.env.ANTHROPIC_API_KEY) {
+      tools.web_search = { kind: 'native_web_search', maxUses: 5 }
+    }
+
+    // The adaptive Clarify Q&A only belongs on the clarify step; other steps
+    // (authority, comparables, draft) get their own tools in later slices.
+    if (ctx.step === 'clarify') {
+      tools.ask_clarify_question = buildAskClarifyQuestionTool()
+      tools.save_answer = buildSaveAnswerTool(deps)
+      tools.save_synthesis = buildSaveSynthesisTool(deps)
+    }
+
+    // Current-law research reads the live code and persists its findings.
+    if (ctx.step === 'current_law') {
+      tools.fetch_url = buildFetchUrlTool(deps)
+      tools.save_existing_law = buildSaveExistingLawTool(deps)
+    }
+
+    // Every step except the last can offer a button to advance the flow.
+    if (ctx.step !== 'draft') {
+      tools.offer_next_step = buildOfferNextStepTool()
+    }
+
+    return tools
   }
 
   private anchorStep(
