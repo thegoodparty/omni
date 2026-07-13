@@ -179,11 +179,11 @@ export class PositionsService extends createPrismaBase(MODELS.Position) {
     return this.shapePositionResponse(position, electionDate, filingFee)
   }
 
-  private shapePositionResponse(
+  private async shapePositionResponse(
     position: PositionWithOptionalDistrictAndTurnouts,
     electionDate?: string,
     filingFee?: FilingFeeResult,
-  ): PositionWithOptionalDistrict {
+  ): Promise<PositionWithOptionalDistrict> {
     const {
       id,
       brPositionId,
