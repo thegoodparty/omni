@@ -83,25 +83,14 @@ export const EVENTS = {
     paymentCompleted: 'Payment - Completed',
   },
 
-  SignUp: {
-    ClickLogin: 'Sign Up: Click Login',
-  },
+  SignUp: {},
   SignIn: {
-    ClickCreateAccount: 'Sign In: Click Create Account',
-    ClickForgotPassword: 'Sign In: Click Forgot Password',
     LoginCompleted: 'Sign In: Login Completed',
   },
-  Password: {
-    PasswordResetRequested: 'Account - Password Reset Requested',
-    PasswordResetCompleted: 'Account - Password Reset Completed',
-    PasswordSetCompleted: 'Account - Password Set Completed',
-  },
-  SetPassword: {
-    ClickSetPassword: 'Set Password: Click Set Password',
-  },
+  Password: {},
+  SetPassword: {},
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
-    ClickFinishLater: 'Onboarding: Click Finish Later',
     // Top of the magic-link funnel. The recipient landed on the redemption
     // page (client-side, fired once on landing) — `/serve/welcome` for the
     // elected-official flow and `/win/welcome` for the candidate flow. Both
@@ -120,27 +109,11 @@ export const EVENTS = {
       OfficeSearched: 'Onboarding - Candidate Office Searched',
       OfficeCompleted: 'Onboarding - Candidate Office Completed',
     },
-    PartyStep: {
-      ClickSubmit: 'Onboarding - Party Step: Click Submit',
-      Completed: 'Onboarding - Candidate Affiliation Completed',
-    },
+    PartyStep: {},
     PledgeStep: {
-      ClickAskQuestion: 'Onboarding - Pledge Step: Click Ask a Question',
       ClickSubmit: 'Onboarding - Pledge Step: Click Submit',
-      Completed: 'Onboarding - Candidate Pledge Completed',
     },
-    CompleteStep: {
-      ClickGoToDashboard: 'Onboarding - Complete Step: Click Go to Dashboard',
-    },
-    WelcomeCompleted: 'Onboarding - Welcome Completed',
-    BallotStatusCompleted: 'Onboarding - Ballot Status Completed',
-    KnowYourVotersCompleted: 'Onboarding - Know Your Voters Completed',
-    PartySelectionCompleted: 'Onboarding - Party Selection Completed',
-    OfficeSelectionCompleted: 'Onboarding - Office Selection Completed',
-    PathToVictoryUpdated: 'Onboarding - Path To Victory Updated',
-    PathToVictoryErrored: 'Onboarding - Path To Victory Errored',
-    PathToVictoryCompleted: 'Onboarding - Path To Victory Completed',
-    PledgeCompleted: 'Onboarding - Pledge Completed',
+    CompleteStep: {},
   },
   ServeOnboarding: {
     GettingStartedViewed: 'Serve Onboarding - Getting Started Viewed',
@@ -196,7 +169,6 @@ export const EVENTS = {
       ClickAIAssistant: 'Navigation - Dashboard: Click AI Assistant',
       ClickVoterData: 'Navigation - Dashboard: Click Voter Data',
       ClickDoorKnocking: 'Navigation - Dashboard: Click Door Knocking',
-      ClickIssues: 'Navigation - Dashboard: Click Issues',
       ClickContentBuilder: 'Navigation - Dashboard: Click Content Builder',
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
@@ -220,7 +192,6 @@ export const EVENTS = {
   },
 
   Dashboard: {
-    Viewed: 'Dashboard - Candidate Dashboard Viewed',
     CampaignPlan: {
       GenerationCompleted: 'Dashboard - Campaign Plan Generation Completed',
       Viewed: 'Dashboard - Campaign Plan Viewed',
@@ -293,7 +264,6 @@ export const EVENTS = {
           Exit: 'Schedule Text Campaign: Exit',
           Next: 'Schedule Text Campaign: Next',
           Back: 'Schedule Text Campaign: Back',
-          Submit: 'Schedule Text Campaign: Submit',
           Complete: {
             ReturnToDashboard:
               'Schedule Text Campaign: Complete - Return to Dashboard',
@@ -405,8 +375,6 @@ export const EVENTS = {
       ClickNext: 'Pro Upgrade - Committee Check Page: Click next',
       HoverNameHelp:
         'Pro Upgrade - Committee Check Page: Hover "Name of Campaign Committee" help',
-      ToggleRequired:
-        'Pro Upgrade - Committee Check Page: Toggle EIN requirement',
       HoverEinHelp:
         'Pro Upgrade - Committee Check Page: Hover "EIN number" help',
       ClickUpload: 'Pro Upgrade - Committee Check Page: Click Upload ',
@@ -414,7 +382,6 @@ export const EVENTS = {
         'Pro Upgrade - Committee Check Page: Hover "Upload" help',
     },
     ServiceAgreement: {
-      ClickBack: 'Pro Upgrade - Service Agreement Page: Click back',
       ClickFinish: 'Pro Upgrade - Service Agreement Page: Click finish',
     },
     ClickGoToStripe: 'Pro Upgrade: Click Go to Stripe',
@@ -464,7 +431,6 @@ export const EVENTS = {
     SegmentDeleted: 'Contacts - Segment Deleted',
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
-    ColumnEdited: 'Contacts - Column Edited',
     OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
   },
   VoterData: {
@@ -565,9 +531,6 @@ export const EVENTS = {
       ClickEdit: 'Profile - Top Issues: Click Edit',
       SubmitEdit: 'Profile - Top Issues: Submit Edit',
       CancelEdit: 'Profile - Top Issues: Cancel Edit',
-      ClickDelete: 'Profile - Top Issues: Click Delete',
-      SubmitDelete: 'Profile - Top Issues: Submit Delete',
-      CancelDelete: 'Profile - Top Issues: Cancel Delete',
     },
     PolicyPriorities: {
       ClickAdd: 'Profile - Policy Priorities: Click Add',
@@ -601,14 +564,8 @@ export const EVENTS = {
     Notifications: {
       ToggleEmail: 'Settings - Notifications: Toggle Email',
     },
-    Password: {
-      ClickSave: 'Settings - Password: Click Save',
-    },
-    DeleteAccount: {
-      ClickDelete: 'Settings - Delete Account: Click Delete',
-      SubmitDelete: 'Settings - Delete Account: Submit Delete',
-      CancelDelete: 'Settings - Delete Account: Cancel Delete',
-    },
+    Password: {},
+    DeleteAccount: {},
   },
   Outreach: {
     P2PCompliance: {
@@ -679,9 +636,6 @@ export const EVENTS = {
     // Follow-on "new campaign context" screen (the multi-org re-election vs
     // new-office choice). Only office-holders see it; candidates skip straight
     // to welcome. The chosen path is carried as the `intent` property.
-    NewCampaignContextViewed: 'Onboarding V2 - New Campaign Context Viewed',
-    NewCampaignContextCompleted:
-      'Onboarding V2 - New Campaign Context Completed',
     WelcomeViewed: 'Onboarding V2 - Welcome Viewed',
     WelcomeCompleted: 'Onboarding V2 - Welcome Completed',
     BallotStatusViewed: 'Onboarding V2 - Ballot Status Viewed',
