@@ -17,40 +17,41 @@ interface StatusMeta {
 export const ORDINANCE_STATUS_META: Record<OrdinanceStatus, StatusMeta> = {
   in_progress: {
     label: 'In progress',
-    pillClass: 'bg-muted text-muted-foreground',
-    filterClass: 'border-transparent bg-muted text-muted-foreground',
+    pillClass: 'border-border bg-muted text-muted-foreground',
+    filterClass: 'border-border bg-muted text-muted-foreground',
     filterActiveClass: 'border-foreground/40 bg-muted text-foreground',
   },
   draft: {
     label: 'Draft',
-    pillClass: 'bg-success-light text-success-dark',
-    filterClass: 'border-transparent bg-success-light text-success-dark',
+    pillClass: 'border-success/40 bg-success-light text-success-dark',
+    filterClass: 'border-success/50 bg-success-light text-success-dark',
     filterActiveClass: 'border-success bg-success-light text-success-dark',
   },
   in_review: {
     label: 'In review',
-    pillClass: 'bg-warning-light text-warning-dark',
-    filterClass: 'border-transparent bg-warning-light text-warning-dark',
+    pillClass: 'border-warning/40 bg-warning-light text-warning-dark',
+    filterClass: 'border-warning/50 bg-warning-light text-warning-dark',
     filterActiveClass: 'border-warning bg-warning-light text-warning-dark',
   },
   proposed: {
     label: 'Proposed',
-    pillClass: 'bg-destructive-light text-destructive-dark',
+    pillClass:
+      'border-destructive/40 bg-destructive-light text-destructive-dark',
     filterClass:
-      'border-transparent bg-destructive-light text-destructive-dark',
+      'border-destructive/50 bg-destructive-light text-destructive-dark',
     filterActiveClass:
       'border-destructive bg-destructive-light text-destructive-dark',
   },
   passed: {
     label: 'Passed',
-    pillClass: 'bg-info-light text-info-dark',
-    filterClass: 'border-transparent bg-info-light text-info-dark',
+    pillClass: 'border-info/40 bg-info-light text-info-dark',
+    filterClass: 'border-info/50 bg-info-light text-info-dark',
     filterActiveClass: 'border-info bg-info-light text-info-dark',
   },
   repealed: {
     label: 'Repealed',
-    pillClass: 'bg-muted text-muted-foreground',
-    filterClass: 'border-transparent bg-muted text-muted-foreground',
+    pillClass: 'border-border bg-muted text-muted-foreground',
+    filterClass: 'border-border bg-muted text-muted-foreground',
     filterActiveClass: 'border-foreground/40 bg-muted text-foreground',
   },
 }
