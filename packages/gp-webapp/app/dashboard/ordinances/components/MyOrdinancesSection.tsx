@@ -96,7 +96,7 @@ export default function MyOrdinancesSection({
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">
-                    {o.draftTitle ?? 'Untitled ordinance'}
+                    {o.draftTitle ?? o.goalText ?? 'Untitled ordinance'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {rowTimestamp(o.updatedAt)}

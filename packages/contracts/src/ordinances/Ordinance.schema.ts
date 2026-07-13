@@ -275,6 +275,7 @@ export const OrdinanceSummarySchema = OrdinanceSchema.pick({
   status: true,
   seedType: true,
   draftTitle: true,
+  goalText: true,
   lastViewedStep: true,
   createdAt: true,
   updatedAt: true,
