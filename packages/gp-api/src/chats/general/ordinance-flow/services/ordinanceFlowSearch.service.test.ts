@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  MAX_DESCRIPTION_CHARS,
   MAX_SEARCH_RESULTS,
   OrdinanceSearchHttp,
   OrdinanceSearchHttpResult,
@@ -142,5 +144,117 @@ describe('OrdinanceFlowSearchService', () => {
       'k',
     ).search('q')
     expect(result).toMatchObject({ ok: false, reason: 'search_failed' })
+  })
+
+  it('requests count=8 by default and clamps oversized counts', async () => {
+    const capDefault: { url?: string } = {}
+    await service(okResponse(braveBody([])), 'k', capDefault).search('q')
+    expect(capDefault.url).toContain('count=8')
+    expect(capDefault.url).toContain('extra_snippets=true')
+
+    const capClamped: { url?: string } = {}
+    await service(okResponse(braveBody([])), 'k', capClamped).search('q', 50)
+    expect(capClamped.url).toContain('count=8')
+
+    const capSmall: { url?: string } = {}
+    await service(okResponse(braveBody([])), 'k', capSmall).search('q', 3)
+    expect(capSmall.url).toContain('count=3')
+  })
+
+  it('caps each result description to MAX_DESCRIPTION_CHARS', async () => {
+    const body = braveBody([
+      {
+        title: 'Long',
+        url: 'https://example.org/long',
+        description: 'x'.repeat(800),
+      },
+    ])
+    const result = await service(okResponse(body)).search('q')
+    if (!result.ok) throw new Error(EXPECTED_OK)
+    expect(result.results[0]?.description).toHaveLength(MAX_DESCRIPTION_CHARS)
+  })
+
+  it('omits extraSnippets and age when Brave did not supply them', async () => {
+    const minimal = await service(
+      okResponse(
+        braveBody([
+          { title: 't', url: 'https://example.org/a', description: 'd' },
+        ]),
+      ),
+    ).search('q')
+    if (!minimal.ok) throw new Error(EXPECTED_OK)
+    expect(minimal.results[0]).toStrictEqual({
+      title: 't',
+      url: 'https://example.org/a',
+      description: 'd',
+    })
+
+    const emptySnippets = await service(
+      okResponse(
+        braveBody([
+          {
+            title: 't',
+            url: 'https://example.org/a',
+            description: 'd',
+            extra_snippets: [],
+          },
+        ]),
+      ),
+    ).search('q')
+    if (!emptySnippets.ok) throw new Error(EXPECTED_OK)
+    expect(emptySnippets.results[0]).toStrictEqual({
+      title: 't',
+      url: 'https://example.org/a',
+      description: 'd',
+    })
+  })
+
+  it('slices the parsed results down to the requested count', async () => {
+    const body = braveBody(
+      Array.from({ length: 10 }, (_v, i) => ({
+        title: `r${i}`,
+        url: `https://example.org/${i}`,
+        description: 'd',
+      })),
+    )
+    const result = await service(okResponse(body)).search('q', 3)
+    if (!result.ok) throw new Error(EXPECTED_OK)
+    expect(result.results.length).toBe(3)
+  })
+
+  it('warns (with status and query) when Brave rate-limits', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn')
+    await service({ kind: 'ok', status: 429, body: 'slow down' }).search('q')
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 429, query: 'q' }),
+      expect.stringContaining('rate-limited'),
+    )
+  })
+
+  it('warns with an auth-specific message on 401/403', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn')
+    await service({ kind: 'ok', status: 401, body: 'nope' }).search('q')
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 401, query: 'q' }),
+      expect.stringContaining('BRAVE_API_KEY'),
+    )
+  })
+
+  it('warns when the Brave body is unparseable', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn')
+    await service(okResponse('not json')).search('q')
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ query: 'q' }),
+      expect.stringContaining('unparseable'),
+    )
+  })
+
+  it('warns on a transport failure from the http port', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn')
+    await service({ kind: 'error', reason: 'network' }).search('q')
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'network', query: 'q' }),
+      expect.stringContaining('transport failure'),
+    )
   })
 })

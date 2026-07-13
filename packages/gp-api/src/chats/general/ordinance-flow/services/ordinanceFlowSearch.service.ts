@@ -1,10 +1,10 @@
-import { Inject, Injectable, Optional } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import axios from 'axios'
 import { z } from 'zod'
 
 export const MAX_SEARCH_RESULTS = 8
 const SEARCH_TIMEOUT_MS = 10_000
-const MAX_DESCRIPTION_CHARS = 600
+export const MAX_DESCRIPTION_CHARS = 600
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search'
 
 export type OrdinanceSearchHttpResult =
@@ -44,6 +44,8 @@ export const defaultOrdinanceSearchHttp: OrdinanceSearchHttp = {
         responseType: 'text',
         transformResponse: [(data: string) => data],
         validateStatus: () => true,
+        maxContentLength: 5 * 1024 * 1024,
+        maxBodyLength: 5 * 1024 * 1024,
         headers,
       })
       return {
@@ -78,12 +80,21 @@ const BraveResponseSchema = z.object({
     .optional(),
 })
 
+const braveHttpErrorMsg = (status: number): string =>
+  status === 401 || status === 403
+    ? 'Brave search auth failed — check BRAVE_API_KEY'
+    : status === 429
+      ? 'Brave search rate-limited/quota exhausted'
+      : 'Brave search returned non-2xx'
+
 // Brave Web Search for the ordinance-flow agent: turns a query into ranked,
 // fetchable result URLs (unlike Anthropic's native web_search, which hides the
 // URLs). Expected failures return error-shaped results instead of throwing — a
 // thrown tool error kills the whole chat stream.
 @Injectable()
 export class OrdinanceFlowSearchService {
+  private readonly logger = new Logger(OrdinanceFlowSearchService.name)
+
   constructor(
     @Optional()
     @Inject(ORDINANCE_SEARCH_HTTP)
@@ -114,21 +125,36 @@ export class OrdinanceFlowSearchService {
       return { ok: false, reason: 'search_failed' }
     }
     if (res.kind === 'error') {
+      this.logger.warn(
+        { reason: res.reason, query },
+        'Brave search transport failure',
+      )
       return {
         ok: false,
         reason: res.reason === 'timeout' ? 'timeout' : 'search_failed',
       }
     }
     if (res.status < 200 || res.status >= 300) {
+      this.logger.warn(
+        { status: res.status, query },
+        braveHttpErrorMsg(res.status),
+      )
       return { ok: false, reason: 'http_error', status: res.status }
     }
 
     let parsed: z.infer<typeof BraveResponseSchema>
     try {
       const result = BraveResponseSchema.safeParse(JSON.parse(res.body))
-      if (!result.success) return { ok: false, reason: 'search_failed' }
+      if (!result.success) {
+        this.logger.warn(
+          { err: result.error, query },
+          'Brave search response failed schema parse',
+        )
+        return { ok: false, reason: 'search_failed' }
+      }
       parsed = result.data
-    } catch {
+    } catch (err) {
+      this.logger.warn({ err, query }, 'Brave search returned unparseable body')
       return { ok: false, reason: 'search_failed' }
     }
 
