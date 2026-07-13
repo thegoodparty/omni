@@ -338,10 +338,13 @@ export default function OrdinanceFlowChat({
                 : [...prev, { questionId, question, answer }],
             )
           })
-          .finally(() => {
-            answeringRef.current = false
-          })
-        await Promise.all([send(answer, { hidden: true }), persist])
+        // Release the guard only once BOTH the persist and the agent stream
+        // settle, so a tap during the (longer) stream can't open a second one.
+        try {
+          await Promise.all([send(answer, { hidden: true }), persist])
+        } finally {
+          answeringRef.current = false
+        }
       })()
     },
     [slug, send],
