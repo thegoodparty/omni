@@ -57,10 +57,12 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
   readonly scope = ChatScope.ordinance_flow
   readonly isSensitive = true
   readonly models = [...ORDINANCE_FLOW_MODELS]
-  // A current_law research turn chains get_code_source + several fetch_url
-  // calls + save_existing_law; the stream loop's default 5 steps cuts it off
-  // mid-research.
-  readonly maxSteps = 8
+  // A current_law research turn chains get_code_source + repeated
+  // brave_search/fetch_url rounds (chasing a server-rendered copy when Municode
+  // renders blank) + save_existing_law + two present_* widgets. At 8 steps a
+  // search-heavy turn exhausts the budget mid-research and never presents, so
+  // give it enough headroom to reach the presentation phase.
+  readonly maxSteps = 16
 
   constructor(
     private readonly store: GeneralChatStoreService,
