@@ -86,6 +86,7 @@
     "@pulumi/pulumi": "^3.218.0",
     "@swc/cli": "^0.6.0",
     "@swc/core": "^1.15.11",
+    "@testcontainers/postgresql": "^11.7.1",
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.6",
     "@types/lodash": "^4.17.16",

@@ -56,6 +56,27 @@ export class DownloadPeopleDTO extends createZodDto(downloadPeopleSchema) {}
 
 export class StatsDTO extends createZodDto(withDistrictInput({})) {}
 
+// Default H3 resolution served when the caller does not pin one. Kept in sync
+// with the data-team handoff (docs/voter-density-heatmap-handoff.md §6): res 8
+// is the "city / county" default. Callers (gp-api) may override per office
+// level once the adaptive policy lands.
+export const DEFAULT_VOTER_DENSITY_RESOLUTION = 8
+
+export const voterDensitySchema = withDistrictInput({
+  // H3 resolution to return. The density table holds several resolutions per
+  // district; we serve exactly one so cells never overlap. Bounded to the H3
+  // range the pipeline emits.
+  resolution: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(15)
+    .optional()
+    .default(DEFAULT_VOTER_DENSITY_RESOLUTION),
+})
+
+export class VoterDensityDTO extends createZodDto(voterDensitySchema) {}
+
 export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),

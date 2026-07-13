@@ -1,0 +1,46 @@
+// Precomputed voter-density heat-map cells, one row per H3 cell per district
+// per resolution. Populated by the data team (dbt on Databricks; see
+// docs/voter-density-heatmap-handoff.md), NOT by the application — people-api
+// reads it and gp-api proxies it to public /people profiles.
+//
+// Privacy contract: every row is an aggregated, k-anonymized cell
+// (voter_count >= min_cell_count) whose (lat, lng) is the DETERMINISTIC H3 cell
+// centroid, never a voter location. No PII columns. There is no H3 math in
+// Postgres — the centroid is precomputed upstream, so the endpoint is a plain
+// indexed read.
+model DistrictVoterDensity {
+  districtId String   @map("district_id") @db.Uuid // == District.id (shared salted uuid)
+  resolution Int
+  h3Index    String   @map("h3_index") // h3_h3tostring(h3); opaque to the app
+  lat        Float // H3 cell centroid latitude
+  lng        Float // H3 cell centroid longitude
+  voterCount Int      @map("voter_count") // count in cell; always >= min_cell_count
+  state      USState  @map("State")
+  updatedAt  DateTime @map("updated_at")
+
+  // Only ever queried by (districtId, resolution); the PK's leading columns
+  // already serve that lookup, and the explicit index keeps it cheap as the
+  // table grows to every district x resolution.
+  @@id([districtId, resolution, h3Index])
+  @@index([districtId, resolution])
+  @@schema("green")
+}
+
+// Per-district-per-resolution coverage bookkeeping, keyed the same way as the
+// cells. The app reads `coverage` to decide whether to render the map at all
+// (low coverage -> hide) and `minCellCount` (the K used) for the legend.
+model DistrictVoterDensityMeta {
+  districtId      String   @map("district_id") @db.Uuid
+  resolution      Int
+  coverage        Float // rendered_voters / total_voters, in [0, 1]
+  minCellCount    Int      @map("min_cell_count") // the K-anonymity threshold used
+  totalVoters     Int      @map("total_voters")
+  geocodedVoters  Int      @map("geocoded_voters")
+  renderedVoters  Int      @map("rendered_voters")
+  suppressedCells Int      @map("suppressed_cells")
+  state           USState  @map("State")
+  updatedAt       DateTime @map("updated_at")
+
+  @@id([districtId, resolution])
+  @@schema("green")
+}

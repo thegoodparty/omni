@@ -6,10 +6,12 @@ import {
   ListPeopleDTO,
   SamplePeopleDTO,
   StatsDTO,
+  VoterDensityDTO,
 } from './people.schema'
 import { PeopleService } from './services/people.service'
 import { PeopleDownloadService } from './services/peopleDownload.service'
 import { StatsService } from './services/stats.service'
+import { VoterDensityService } from './services/voterDensity.service'
 import { FastifyReply } from 'fastify'
 
 @Controller('people')
@@ -18,6 +20,7 @@ export class PeopleController {
     private readonly peopleService: PeopleService,
     private readonly peopleDownloadService: PeopleDownloadService,
     private readonly statsService: StatsService,
+    private readonly voterDensityService: VoterDensityService,
   ) {}
 
   @Post()
@@ -41,6 +44,13 @@ export class PeopleController {
   @Get('stats')
   getStats(@Query() dto: StatsDTO) {
     return this.statsService.getStats(dto)
+  }
+
+  // Precomputed voter-density heat-map cells for a district. Static path is
+  // declared before the `:id` catch-all below so it is not swallowed by it.
+  @Get('voter-density')
+  getVoterDensity(@Query() dto: VoterDensityDTO) {
+    return this.voterDensityService.getVoterDensity(dto)
   }
 
   // keep for backwards compatibility
