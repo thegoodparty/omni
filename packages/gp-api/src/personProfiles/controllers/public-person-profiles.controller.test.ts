@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest'
 const service = useTestService()
 
 const PERSON_ID = '11111111-1111-1111-1111-111111111111'
+const SECOND_PERSON_ID = '22222222-2222-2222-2222-222222222222'
 
 type ProfileOverrides = {
   publishedAt?: Date | null
@@ -147,6 +148,109 @@ describe('GET /v1/public-person-profiles', () => {
     const res = await get()
     expect(res.status).toBe(200)
     expect(res.data.issues[0].status).toBeNull()
+  })
+})
+
+describe('public profile render-gate scenarios (local DB)', () => {
+  // DB SAFETY: the harness points Prisma at a throwaway testcontainer. Fail
+  // loudly if anything ever repoints it at a non-local host.
+  it('runs against a localhost database only', () => {
+    const host = new URL(process.env.DATABASE_URL!).hostname
+    expect(['localhost', '127.0.0.1']).toContain(host)
+  })
+
+  it('exposes the public contact surface but never owner-only fields', async () => {
+    await service.prisma.personProfile.create({
+      data: {
+        personId: PERSON_ID,
+        userId: service.user.id,
+        displayName: 'Jane Rivera',
+        publicEmail: 'press@janerivera.gov',
+        publicPhone: '555-0100',
+        accomplishments: [{ title: 'Passed the budget', date: '2024' }],
+        publishedAt: new Date(),
+      },
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    // Public-by-design contact overrides are surfaced.
+    expect(res.data.publicEmail).toBe('press@janerivera.gov')
+    expect(res.data.publicPhone).toBe('555-0100')
+    // Accomplishments JSON round-trips as a typed array.
+    expect(res.data.accomplishments).toEqual([
+      { title: 'Passed the budget', date: '2024' },
+    ])
+    // Owner-only / gate internals must never leak.
+    expect(res.data.userId).toBeUndefined()
+    expect(res.data.deletedAt).toBeUndefined()
+    expect(res.data.id).toBeUndefined()
+  })
+
+  it('treats a deleted draft as gone (410 takes precedence over unpublished)', async () => {
+    await seedProfile({ publishedAt: null, deletedAt: new Date() })
+    const res = await get()
+    expect(res.status).toBe(410)
+  })
+
+  it('returns visible issues ordered by sortOrder ascending', async () => {
+    const profile = await seedProfile()
+    const first = await seedPriority('roads')
+    const second = await seedPriority('parks')
+    const third = await seedPriority('budget')
+    await service.prisma.personProfileIssue.createMany({
+      data: [
+        {
+          personProfileId: profile.id,
+          issueId: second.id,
+          visible: true,
+          sortOrder: 2,
+        },
+        {
+          personProfileId: profile.id,
+          issueId: third.id,
+          visible: true,
+          sortOrder: 3,
+        },
+        {
+          personProfileId: profile.id,
+          issueId: first.id,
+          visible: true,
+          sortOrder: 1,
+        },
+      ],
+    })
+
+    const res = await get()
+    expect(res.status).toBe(200)
+    expect(res.data.issues.map((i: { title: string }) => i.title)).toEqual([
+      'roads',
+      'parks',
+      'budget',
+    ])
+  })
+
+  it('lists multiple live profiles newest-first at /published', async () => {
+    // Oldest first so we can assert the endpoint re-orders by updatedAt desc.
+    const older = await service.prisma.user.create({
+      data: { clerkId: 'user_older', email: 'older@goodparty.org' },
+    })
+    await service.prisma.personProfile.create({
+      data: {
+        personId: SECOND_PERSON_ID,
+        userId: older.id,
+        publishedAt: new Date(),
+      },
+    })
+    await seedProfile() // service.user, created after `older`
+
+    const res = await service.client.get('/v1/public-person-profiles/published')
+    expect(res.status).toBe(200)
+    expect(res.data).toHaveLength(2)
+    expect(res.data[0].personId).toBe(PERSON_ID)
+    expect(res.data[1].personId).toBe(SECOND_PERSON_ID)
+    // Freshness feed carries identity + updatedAt only.
+    expect(Object.keys(res.data[0]).sort()).toEqual(['personId', 'updatedAt'])
   })
 })
 
