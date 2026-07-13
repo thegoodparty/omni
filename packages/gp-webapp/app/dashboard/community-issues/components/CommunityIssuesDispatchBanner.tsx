@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 
@@ -24,6 +25,7 @@ export default function CommunityIssuesDispatchBanner({
 }: Props): React.JSX.Element | null {
   const [polling, setPolling] = useState(initiallyRunning)
   const [pollAttempts, setPollAttempts] = useState(0)
+  const router = useRouter()
 
   useEffect(() => {
     let cancelled = false
@@ -67,10 +69,11 @@ export default function CommunityIssuesDispatchBanner({
     ) {
       setPolling(false)
       setPollAttempts(0)
+      router.refresh()
     } else {
       setPollAttempts(nextAttempts)
     }
-  }, [statuses, pollAttempts])
+  }, [statuses, pollAttempts, router])
 
   if (!polling) return null
 

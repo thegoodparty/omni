@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 
 const POLL_INTERVAL_MS = 5000
@@ -19,6 +19,7 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
     null,
   )
   const [pollAttempts, setPollAttempts] = useState(0)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     let cancelled = false
@@ -52,12 +53,17 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
     )
     const nextAttempts = pollAttempts + 1
     if (meeting?.hasBriefing || nextAttempts >= MAX_POLL_ATTEMPTS) {
+      if (meeting?.hasBriefing) {
+        void queryClient.invalidateQueries({
+          queryKey: ['chief-of-staff', 'cards'],
+        })
+      }
       setPendingMeetingDate(null)
       setPollAttempts(0)
     } else {
       setPollAttempts(nextAttempts)
     }
-  }, [meetings, pendingMeetingDate, pollAttempts])
+  }, [meetings, pendingMeetingDate, pollAttempts, queryClient])
 
   if (!pendingMeetingDate) return null
 
