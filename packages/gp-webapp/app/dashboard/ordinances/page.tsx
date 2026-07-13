@@ -32,7 +32,7 @@ export default async function Page(): Promise<React.JSX.Element> {
       wrapperClassName="!p-0"
       navHeader={{ icon: 'scroll', label: 'Ordinances' }}
     >
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-10 px-4 py-6 md:px-6 md:py-8">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 px-4 py-6 md:px-6 md:py-8">
         <MyOrdinancesSection
           items={ordinances.data.items}
           counts={ordinances.data.counts}

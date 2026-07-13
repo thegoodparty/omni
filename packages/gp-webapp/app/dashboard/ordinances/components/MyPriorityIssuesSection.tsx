@@ -38,7 +38,7 @@ export default function MyPriorityIssuesSection({
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h2 className="text-xl font-semibold text-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           My priority issues
         </h2>
         <p className="text-sm text-muted-foreground">
@@ -61,7 +61,7 @@ export default function MyPriorityIssuesSection({
               className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4"
             >
               <div className="flex flex-col gap-1">
-                <h3 className="text-sm font-semibold text-foreground">
+                <h3 className="text-sm font-medium text-foreground">
                   {priority.title}
                 </h3>
                 <p className="line-clamp-3 text-sm text-muted-foreground">
