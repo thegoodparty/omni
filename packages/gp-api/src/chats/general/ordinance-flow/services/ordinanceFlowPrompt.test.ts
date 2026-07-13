@@ -211,4 +211,17 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('present_current_law_summary:')
     expect(prompt).toContain('present_legislative_history:')
   })
+
+  it('directs the current_law step to actively research and present the history timeline', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'current_law' }),
+      toolNames: ['fetch_url', 'present_legislative_history'],
+    })
+    // History is a first-class deliverable, not an afterthought: research it,
+    // present the adoption/amendment record, and never fabricate quotes.
+    expect(prompt).toContain('Intent and history')
+    expect(prompt).toContain('Actively research')
+    expect(prompt).toContain('never invent quotes')
+    expect(prompt).toContain('adoption/amendment record')
+  })
 })
