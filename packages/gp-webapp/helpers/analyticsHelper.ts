@@ -83,12 +83,9 @@ export const EVENTS = {
     paymentCompleted: 'Payment - Completed',
   },
 
-  SignUp: {},
   SignIn: {
     LoginCompleted: 'Sign In: Login Completed',
   },
-  Password: {},
-  SetPassword: {},
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
     // Top of the magic-link funnel. The recipient landed on the redemption
@@ -109,11 +106,6 @@ export const EVENTS = {
       OfficeSearched: 'Onboarding - Candidate Office Searched',
       OfficeCompleted: 'Onboarding - Candidate Office Completed',
     },
-    PartyStep: {},
-    PledgeStep: {
-      ClickSubmit: 'Onboarding - Pledge Step: Click Submit',
-    },
-    CompleteStep: {},
   },
   ServeOnboarding: {
     GettingStartedViewed: 'Serve Onboarding - Getting Started Viewed',
@@ -160,7 +152,6 @@ export const EVENTS = {
       AvatarDropdown: {
         CloseDropdown: 'Navigation - Top - Avatar Dropdown: Close Dropdown',
         ClickProfile: 'Navigation Top - Avatar Dropdown: Click Profile',
-        ClickSettings: 'Navigation Top - Avatar Dropdown: Click Settings',
         ClickLogout: 'Navigation Top - Avatar Dropdown: Click Logout',
       },
     },
@@ -173,7 +164,6 @@ export const EVENTS = {
       ClickMyProfile: 'Navigation - Dashboard: Click My Profile',
       ClickCampaignTeam: 'Navigation - Dashboard: Click Campaign Team',
       ClickCommunity: 'Navigation - Dashboard: Click Community',
-      ClickWebsite: 'Navigation - Dashboard: Click Website',
       ClickVoterOutreach: 'Navigation - Dashboard: Click Voter Outreach',
       ClickContacts: 'Navigation - Dashboard: Click Contacts',
       ClickPolls: 'Navigation - Dashboard: Click Polls',
@@ -204,14 +194,8 @@ export const EVENTS = {
       MediaRequested: 'Dashboard - Campaign Plan: Media Requested',
       StrategicLandscapeRequested:
         'Dashboard - Campaign Plan: Strategic Landscape Requested',
-      CommunityEventsRequested:
-        'Dashboard - Campaign Plan: Community Events Requested',
       MediaResultsReceived: 'Dashboard - Campaign Plan: Media Results Received',
       MediaDisplayed: 'Dashboard - Campaign Plan: Media Displayed',
-      CommunityEventsResultsReceived:
-        'Dashboard - Campaign Plan: Community Events Results Received',
-      CommunityEventsDisplayed:
-        'Dashboard - Campaign Plan: Community Events Displayed',
       StrategicLandscapeResultsReceived:
         'Dashboard - Campaign Plan: Strategic Landscape Results Received',
       StrategicLandscapeDisplayed:
@@ -333,9 +317,6 @@ export const EVENTS = {
       ClickDelete: 'Dashboard - Campaign Action History: Click Delete',
     },
   },
-  Account: {
-    ProSubscriptionCanceled: 'Account - Pro Subscription Canceled',
-  },
   AIAssistant: {
     ClickNewChat: 'AI Assistant: Click new chat',
     ClickViewChatHistory: 'AI Assistant: Click view chat history',
@@ -353,10 +334,6 @@ export const EVENTS = {
   },
   ProUpgrade: {
     ClickExit: 'Pro Upgrade: Click exit top nav',
-    EditOffice: 'Pro Upgrade: Edit office',
-    SubmitEditOffice: 'Pro Upgrade: Submit edit office',
-    ConfirmOffice: 'Pro Upgrade: Confirm office',
-    ExitEditOffice: 'Pro Upgrade: Exit edit office',
     Banner: {
       ClickUpgrade:
         'Pro Upgrade - Level Up Your Campaign Banner: Click upgrade',
@@ -366,25 +343,11 @@ export const EVENTS = {
       Exit: 'Pro Upgrade - Modal: Exit',
       ClickButton: 'Pro Upgrade - Modal: Click Button',
     },
-    SplashPage: {
-      ClickUpgrade: 'Pro Upgrade - Splash Page: Click upgrade',
-      Exit: 'Pro Upgrade - Splash Page: Exit',
-    },
     CommitteeCheck: {
-      ClickBack: 'Pro Upgrade - Committee Check Page: Click back',
-      ClickNext: 'Pro Upgrade - Committee Check Page: Click next',
-      HoverNameHelp:
-        'Pro Upgrade - Committee Check Page: Hover "Name of Campaign Committee" help',
       HoverEinHelp:
         'Pro Upgrade - Committee Check Page: Hover "EIN number" help',
       ClickUpload: 'Pro Upgrade - Committee Check Page: Click Upload ',
-      HoverUploadHelp:
-        'Pro Upgrade - Committee Check Page: Hover "Upload" help',
     },
-    ServiceAgreement: {
-      ClickFinish: 'Pro Upgrade - Service Agreement Page: Click finish',
-    },
-    ClickGoToStripe: 'Pro Upgrade: Click Go to Stripe',
     // Agentic Pro Upgrade → 10DLC compliance funnel (ENG-10294). Kept separate
     // from the legacy Modal / SplashPage / CommitteeCheck events above, which
     // belong to the older upgrade UX. The funnel's submit/checkout-start signals
@@ -517,19 +480,7 @@ export const EVENTS = {
       ClickDelete: 'Profile - Running Against: Click Delete',
       ClickSave: 'Profile - Running Against: Click Save',
     },
-    Why: {
-      ClickSave: 'Profile - Why Section: Click Save',
-    },
-    WhyRunning: {
-      ClickSave: 'Profile - Why Running: Click Save',
-    },
-    FunFact: {
-      ClickSave: 'Profile - Fun Fact: Click Save',
-    },
     TopIssues: {
-      ClickFinish: 'Profile - Top Issues: Click Finish Entering Issues',
-      ClickEdit: 'Profile - Top Issues: Click Edit',
-      SubmitEdit: 'Profile - Top Issues: Submit Edit',
       CancelEdit: 'Profile - Top Issues: Cancel Edit',
     },
     PolicyPriorities: {
@@ -542,7 +493,6 @@ export const EVENTS = {
       ClickDelete: 'Profile - Policy Priorities: Click Delete',
       SubmitDelete: 'Profile - Policy Priorities: Submit Delete',
       CancelDelete: 'Profile - Policy Priorities: Cancel Delete',
-      ClickSave: 'Profile - Policy Priorities: Click Save',
     },
     CandidateProfile: {
       ClickSubmit: 'Profile - Candidate Profile: Click Submit',
@@ -553,19 +503,15 @@ export const EVENTS = {
   Settings: {
     PersonalInfo: {
       ClickUpload: 'Settings - Personal Info: Click Upload',
-      ClickSave: 'Settings - Personal Info: Click Save',
     },
     Account: {
       ClickUpgrade: 'Settings - Account Settings: Click Upgrade',
-      ClickSendEmail: 'Settings - Account Settings: Click Send Email',
       ClickManageSubscription:
         'Settings - Account Settings: Click Manage Pro Subscription',
     },
     Notifications: {
       ToggleEmail: 'Settings - Notifications: Toggle Email',
     },
-    Password: {},
-    DeleteAccount: {},
   },
   Outreach: {
     P2PCompliance: {
@@ -649,8 +595,6 @@ export const EVENTS = {
     VotesNeededCompleted: 'Onboarding V2 - Votes Needed Completed',
     VoterInsightsViewed: 'Onboarding V2 - Voter Insights Viewed',
     VoterInsightsCompleted: 'Onboarding V2 - Voter Insights Completed',
-    ResourcesViewed: 'Onboarding V2 - Resources Viewed',
-    ResourcesCompleted: 'Onboarding V2 - Resources Completed',
     PledgeViewed: 'Onboarding V2 - Pledge Viewed',
     PledgeCompleted: 'Onboarding V2 - Pledge Completed',
     PlanShared: 'Onboarding V2 - Plan Shared',
