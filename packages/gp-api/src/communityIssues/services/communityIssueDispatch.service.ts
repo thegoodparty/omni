@@ -9,7 +9,10 @@ import { Cron } from '@nestjs/schedule'
 import { differenceInCalendarDays } from 'date-fns'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { bucketForSlug } from '../communityIssueBucketing'
+import {
+  bucketForSlug,
+  topIssuesBucketForDate,
+} from '../communityIssueBucketing'
 
 const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
@@ -378,7 +381,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     const claimed = await this.cronLock.tryClaimDailyRun(TOP_CRON_JOB, now)
     if (!claimed) return
 
-    const todayBucket = Math.min(now.getUTCDate(), 28) - 1
+    const todayBucket = topIssuesBucketForDate(now)
 
     await this.dispatchSlice(
       'top_community_issues',
