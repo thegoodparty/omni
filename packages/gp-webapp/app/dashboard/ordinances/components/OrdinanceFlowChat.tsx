@@ -65,7 +65,7 @@ const TOOL_LABELS: Record<string, string> = {
 // signal, before the call completes), show what it is working on instead of a
 // generic "Thinking...". Covers the wait while the clarify question generates.
 const GENERATING_LABELS: Record<string, string> = {
-  [CLARIFY_TOOL]: 'Writing your question...',
+  [CLARIFY_TOOL]: 'Preparing your question...',
   [OFFER_TOOL]: 'Preparing next steps...',
 }
 
@@ -162,7 +162,7 @@ export default function OrdinanceFlowChat({
     Array<{ instance: StepWidgetInstance; appearAfter: number }>
   >([])
   // The tool whose arguments the model is currently writing, if any, so the
-  // working shimmer can name it (e.g. "Writing your question...").
+  // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [sending, setSending] = useState(false)
