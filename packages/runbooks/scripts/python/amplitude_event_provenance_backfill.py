@@ -223,24 +223,69 @@ def parse_events_map(ts_text: str, root: str = "EVENTS") -> dict[str, str]:
     return out
 
 
-def count_call_sites(grep_text: str, key_paths: Sequence[str]) -> dict[str, int]:
-    """Count occurrences of each ``EVENTS.X.Y`` key-path in a grep dump.
+# DATA-2106: a namespace alias (``const planEvents = EVENTS.Dashboard.CampaignPlan``) hides
+# the full key-path from any literal match. The declaration-keyword anchor keeps a mere
+# comparison (``x === EVENTS.A.B``) from registering as an alias, and the trailing lookaheads
+# stop the prefix short of a longer identifier or a deeper (possibly wrapped) segment.
+# Single-level only: an alias of an alias would stay invisible, but that shape does not exist
+# in the codebase and text matching has to stop somewhere.
+_ALIAS_ASSIGN_RE = re.compile(
+    r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(EVENTS(?:\s*\.\s*[A-Za-z_$][\w$]*)+)(?![\w$])(?!\s*\.)"
+)
 
-    A match must not be part of a longer identifier or a deeper property access: the
-    negative lookbehind rejects a key-path embedded in a longer path, and the lookahead
-    ``(?![\\w$.])`` rejects both a longer name (``ViewedTwice``) and a deeper access
-    (``.foo``) — the leaf key-path is always passed as a call argument, never dotted further.
+
+def _ws_dotted(dotted: str) -> str:
+    """``A.B.C`` -> regex source matching it with whitespace/newlines around each dot.
+
+    Prettier wraps long key-paths across lines (``EVENTS.A.B\\n  .C``), so a single-line
+    literal match misses them -- the DATA-2106 wrap blind spot.
     """
-    out: dict[str, int] = {}
-    for path in key_paths:
-        pat = re.compile(r"(?<![\w$.])" + re.escape(path) + r"(?![\w$.])")
-        out[path] = len(pat.findall(grep_text))
+    return r"\s*\.\s*".join(re.escape(part) for part in dotted.split("."))
+
+
+def _reference_pattern(dotted: str) -> re.Pattern[str]:
+    """Leaf-reference pattern: not embedded in a longer path, name, or deeper access.
+
+    The lookbehind rejects a key-path embedded in a longer path; ``(?![\\w$])`` rejects a
+    longer name (``ViewedTwice``); ``(?!\\s*\\.)`` rejects a deeper access even when the dot
+    is wrapped onto the next line -- the leaf key-path is always passed as a call argument,
+    never dotted further.
+    """
+    return re.compile(r"(?<![\w$.])" + _ws_dotted(dotted) + r"(?![\w$])(?!\s*\.)")
+
+
+def _count_call_sites_in_file(text: str, key_paths: Sequence[str]) -> dict[str, int]:
+    counts = {path: len(_reference_pattern(path).findall(text)) for path in key_paths}
+    for m in _ALIAS_ASSIGN_RE.finditer(text):
+        alias, prefix = m.group(1), re.sub(r"\s*\.\s*", ".", m.group(2))
+        for path in key_paths:
+            if path.startswith(prefix + "."):
+                counts[path] += len(
+                    _reference_pattern(f"{alias}.{path[len(prefix) + 1:]}").findall(text)
+                )
+    return counts
+
+
+def count_call_sites(file_texts: Sequence[str], key_paths: Sequence[str]) -> dict[str, int]:
+    """Count references to each ``EVENTS.X.Y`` key-path across per-file source texts.
+
+    Takes full per-file contents, not a grep line dump: whitespace-tolerant matching needs
+    the lines around a wrapped key-path, and alias resolution must be scoped to the defining
+    file -- a module-local alias name colliding across files would otherwise fabricate call
+    sites. Aliased references count toward their resolved key-path; the alias assignment
+    itself names a prefix, not a leaf, so it never counts (a leaf alias spells out the full
+    key-path and is caught by the direct match).
+    """
+    out: dict[str, int] = {path: 0 for path in key_paths}
+    for text in file_texts:
+        for path, n in _count_call_sites_in_file(text, key_paths).items():
+            out[path] += n
     return out
 
 
 def compute_call_site_fields(
     events_map: Mapping[str, str],
-    grep_text: str,
+    file_texts: Sequence[str],
     retired_lookup: Callable[[str], str | None],
 ) -> dict[str, dict]:
     """Per-event call-site fields: count at the ref, plus a retirement date for dead ones.
@@ -249,7 +294,7 @@ def compute_call_site_fields(
     worth a targeted ``git log -S`` to attribute when the last call site was removed). Live
     events get a null retired date with no git work.
     """
-    counts = count_call_sites(grep_text, list(events_map.values()))
+    counts = count_call_sites(file_texts, list(events_map.values()))
     out: dict[str, dict] = {}
     for name, path in events_map.items():
         count = counts.get(path, 0)
@@ -685,22 +730,22 @@ def git_show_file(root: str, ref: str, rel_path: str) -> str:
     ).stdout
 
 
-def git_grep_call_sites_text(root: str, key_paths: Sequence[str], paths: Sequence[str], ref: str = "HEAD") -> str:
-    """Dump of ``ref`` lines containing any ``EVENTS.X.Y`` key-path (fixed-string git grep).
+def git_call_site_file_texts(root: str, paths: Sequence[str], ref: str = "HEAD") -> list[str]:
+    """Full contents at ``ref`` of every file mentioning ``EVENTS`` (DATA-2106).
 
-    Mirrors ``git_grep_present_text``: ``-F`` literal, ``-h`` drops filenames, exit 1 (no
-    matches) is fine, exit 2+ raises so a corrupt grep is never read as 'no call sites'.
+    ``git grep -l`` lists candidate files, then each is fetched whole via ``git show``:
+    counting needs full files, not a line dump, because Prettier-wrapped key-paths span
+    lines and namespace aliases are only resolvable within their defining file. Grepping
+    the bare ``EVENTS`` token (not the full key-paths) keeps aliased files in the
+    candidate set. Exit 1 (no matches) is an empty list; exit 2+ raises so a corrupt grep
+    is never read as 'no call sites'.
     """
-    if not key_paths:
-        return ""
-    patterns: list[str] = []
-    for p in key_paths:
-        patterns += ["-e", p]
-    argv = ["git", "-C", root, "grep", "-F", "-h", "--no-color", *patterns, ref, "--", *paths]
+    argv = ["git", "-C", root, "grep", "-F", "-l", "--no-color", "-e", "EVENTS", ref, "--", *paths]
     proc = subprocess.run(argv, capture_output=True, text=True)
     if proc.returncode not in (0, 1):
         raise subprocess.CalledProcessError(proc.returncode, argv, stderr=proc.stderr)
-    return proc.stdout
+    rel_paths = [line.split(":", 1)[1] for line in proc.stdout.splitlines() if ":" in line]
+    return [git_show_file(root, ref, rel) for rel in rel_paths]
 
 
 def make_call_site_retired_lookup(
@@ -737,9 +782,11 @@ def augment_call_site_columns(
 ) -> None:
     """Populate ``call_site_count`` / ``call_site_retired_date`` on each row, in place.
 
-    Resolves the EVENTS map at ``ref``, counts call sites at ``ref`` in one grep, and looks
-    up the retirement date only for zero-count events. Events with no resolvable key-path
-    (backend/dynamic) get None for both -- null, never zero, so they are never flagged.
+    Resolves the EVENTS map at ``ref``, counts call sites at ``ref`` over the full contents
+    of every EVENTS-mentioning file (wrap- and alias-tolerant, see ``count_call_sites``),
+    and looks up the retirement date only for zero-count events. Events with no resolvable
+    key-path (backend/dynamic) get None for both -- null, never zero, so they are never
+    flagged.
 
     If ``analyticsHelper.ts`` is absent at ``ref`` (renamed/moved, or a ``--ref`` at an old
     commit), return early and leave the rows' call-site columns untouched rather than aborting
@@ -764,9 +811,9 @@ def augment_call_site_columns(
             file=sys.stderr,
         )
         return
-    grep_text = git_grep_call_sites_text(root, list(events_map.values()), paths, ref)
+    file_texts = git_call_site_file_texts(root, paths, ref)
     lookup = make_call_site_retired_lookup(root, ref, paths)
-    fields = compute_call_site_fields(events_map, grep_text, lookup)
+    fields = compute_call_site_fields(events_map, file_texts, lookup)
     for row in rows:
         f = fields.get(row["event_type"])
         row["call_site_count"] = f["call_site_count"] if f else None

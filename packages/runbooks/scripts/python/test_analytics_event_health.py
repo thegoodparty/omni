@@ -198,6 +198,7 @@ def test_rank_record_priority():
         base.update(kw)
         return base
 
+    assert eh.rank_record(rec(status="active", call_site_count=0)) == 0
     assert eh.rank_record(rec(status="orphaned_firing")) == 1
     # NEW: declared in code, zero call sites, not firing -> high-severity flag
     assert eh.rank_record(rec(status="dormant", call_site_count=0)) == 2
@@ -222,11 +223,33 @@ def test_rank_record_null_call_sites_does_not_flag():
     assert eh.rank_record(rec) == 8
 
 
-def test_rank_record_zero_calls_still_firing_no_anomaly_not_flagged():
-    # Zero callers but data still arriving and no drop yet is out of scope for this flag.
+def test_rank_record_zero_calls_firing_normally_is_counter_blind_spot():
+    # DATA-2106 canary: a client event cannot fire normally with zero call sites -- the data
+    # axis contradicts the code axis, so the counter is blind (aliased/wrapped reference),
+    # not the event dead. Rank 0 tooling alert, NOT the rank-2 retirement path. (Before
+    # DATA-2106 this exact record fell through to 99 and the false zero sat silent in the CSV.)
     rec = {"status": "active", "elevated": False, "anomaly": None,
            "divergence": None, "call_site_count": 0, "event_count_30d": 50}
+    assert eh.rank_record(rec) == 0
+
+
+def test_rank_record_zero_calls_active_with_anomaly_stays_rank_2():
+    # An anomaly drop alongside the zero is the signature of a GENUINE recent removal (count
+    # falling as old clients drain) -- that stays on the rank-2 retirement path, not the canary.
+    rec = {"status": "active", "elevated": False, "anomaly": {"current": 1, "baseline": 9},
+           "divergence": None, "call_site_count": 0, "event_count_30d": 50}
+    assert eh.rank_record(rec) == 2
+
+
+def test_rank_record_null_call_sites_never_canary():
+    # Backend / dynamic events (no resolvable key-path) have None, not zero: no canary.
+    rec = {"status": "active", "elevated": False, "anomaly": None,
+           "divergence": None, "call_site_count": None, "event_count_30d": 50}
     assert eh.rank_record(rec) == 99
+
+
+def test_rank_label_covers_counter_blind_spot():
+    assert eh._RANK_LABEL[0]
 
 
 # --- weekly_series -----------------------------------------------------------
