@@ -129,10 +129,13 @@ per-step tool sets: `read_ordinance`, `get_code_source` (verified code-source
 lookup), `save_note`, and native `web_search` on every step; `offer_next_step`
 on all steps except `draft`; `ask_clarify_question` / `save_answer` /
 `save_synthesis` on the clarify step; `fetch_url` (SSRF-guarded page fetch →
-markdown) / `save_existing_law` on the current_law step. Its handler raises
-`maxSteps` to 8 — a current_law turn chains `get_code_source` + several
-`fetch_url` calls + `save_existing_law`, and the default 5 cuts research off
-mid-chain.
+markdown) / `save_existing_law` / `brave_search` on the current_law step.
+`brave_search` (Brave Web Search, gated on `BRAVE_API_KEY`) returns fetchable
+result URLs so the model can find a server-rendered copy of a chapter when
+`fetch_url` comes back blank — Municode and other browser-rendered code sites
+do this. Its handler raises `maxSteps` to 8 — a current_law turn chains
+`get_code_source` + several `fetch_url` calls + `save_existing_law`, and the
+default 5 cuts research off mid-chain.
 
 Each step also gets the `present_*` display tools its page renders: the model
 passes the finding as the tool's args (which persist as the tool segment the
