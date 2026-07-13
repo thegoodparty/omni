@@ -6,15 +6,19 @@ description: Open a PR following GoodParty conventions and drive the delegate-re
 # Ship a PR and converge with delegate
 
 Three gates in one run: open the PR (Phase 1), drive `delegate-reviewer[bot]`
-to `Approved.` (Phase 2), and confirm the **E2E** check is green (Phase 3). Fully
-autonomous — only stop to surface a pre-flight failure you must rule on, a finding
-you've verified is wrong or too high-blast-radius to auto-apply, or an e2e failure
-that is flaky/pre-existing/infra rather than caused by your diff.
+to `Approved.` (Phase 2), and confirm every GitHub check on the PR is green
+(Phase 3). Fully autonomous — only stop to surface a pre-flight failure you must
+rule on, a finding you've verified is wrong or too high-blast-radius to auto-apply,
+or a check failure that is flaky/pre-existing/infra rather than caused by your
+diff.
 
 **A PR is only mergeable when, at the same HEAD SHA, delegate is `Approved.` AND
-the E2E check is green.** As of 2026-06-15 the gp-webapp Playwright e2e suite is a
-**hard merge gate**, not advisory — delegate approval alone is not enough. So
-"done" means both gates pass on the same commit.
+every non-skipped GitHub check is green.** As of 2026-06-15 the gp-webapp
+Playwright **`E2E`** check is a **hard merge gate**, not advisory — but it's not
+the only one: any package touched by the diff can add its own required check (a
+`Validate`/typecheck job, a lint job, etc.), and those are just as blocking.
+Delegate approval alone is not enough for any of them. So "done" means delegate
+approved and the full set of checks green, all on the same commit.
 
 Repo conventions this skill enforces (from the root `CLAUDE.md`): PR bodies explain
 **why**, not what; **no** "test plan" section; **no** `Co-Authored-By: Claude` and
@@ -88,7 +92,7 @@ repos/thegoodparty/omni/pulls/<n>/reviews`) and compare its `commit_id` to the
 
 2. **Verdict.**
    - `APPROVED` (`Approved.`) → delegate gate passed. Go to **Phase 3** to confirm
-     e2e before declaring done — do not exit yet.
+     the full check set before declaring done — do not exit yet.
    - Otherwise parse the blockers: review body + inline comments
      (`gh api .../pulls/<n>/comments`), keyed by `delegate-finding-id`.
 
@@ -114,66 +118,83 @@ repos/thegoodparty/omni/pulls/<n>/reviews`) and compare its `commit_id` to the
 5. **Round cap.** Stop after **3 rounds** even if not approved. Hand back a summary:
    resolved, still-outstanding, and escalated findings.
 
-## Phase 3 — confirm the E2E gate is green (autonomous)
+## Phase 3 — confirm every GitHub check is green (autonomous)
 
-The E2E job (`gp-webapp.yml`, job name **`E2E`**) runs Playwright against this PR's
-freshly deployed full-stack preview. It runs on every PR that deploys the gp-webapp
-preview, and **re-runs on every push** — so a fix in Phase 2 also re-triggers it.
-It is slow: it waits on gp-api's (slow) deploy of this commit before the ~15-min
-suite runs, with a 45-min job timeout. Anchor on HEAD, the same as delegate.
+GitHub reports one row per CI job on the PR. Any package touched by the diff can
+contribute its own required check (a `Validate`/typecheck job, a lint job, a build,
+etc.), and gp-webapp additionally runs Playwright as the **`E2E`** check whenever
+the PR deploys a full-stack preview. **The gate is the whole set, not just `E2E`**
+— a failing `Validate` job is exactly as blocking as a failing `E2E` run and gets
+the same triage. All checks **re-run on every push**, so a fix in Phase 2 also
+re-triggers them. Anchor on HEAD, the same as delegate.
 
-1. **Does e2e apply to this PR?** If the PR has no `E2E` check at all (e.g. a
-   backend-only PR that doesn't deploy a gp-webapp preview), there is nothing to
-   gate on — Phase 3 is satisfied. Confirm via `gh pr checks <n>` (no `E2E` row) and
-   move on.
+1. **Enumerate the checks for this PR.** `gh pr checks <n> --json name,bucket,link`
+   (or equivalent). A check whose `bucket` is `skipping`/`skipped` isn't required —
+   ignore it. If the remaining set is empty (e.g. a docs-only PR with no package CI
+   configured), Phase 3 is satisfied immediately; move on.
 
-2. **Find the E2E result for the current HEAD.** Use `gh pr checks <n>` for the
-   `E2E` check's conclusion, and read the upserted results comment (stable marker
-   `<!-- gp-webapp-e2e-results -->`) for the ✅/❌ status, passed/failed/total counts,
-   the failed-test names, and the HTML-report link.
-   - **In progress / not started for HEAD** → poll every ~60–90s. Budget **~45 min**
-     (it waits on the gp-api deploy first). If it never resolves, stop and report.
-   - **Green** (`E2E` success, 0 failed) → **done**. Combined with delegate
-     `Approved.` at this HEAD, report success and exit.
-   - **Failing** → go to step 3.
+2. **Wait for every `pending`/`in_progress` check to resolve.** Poll every
+   ~60–90s. `E2E`, when present, is the slow one — it waits on gp-api's (slow)
+   deploy of this commit before its ~15-min suite runs, with a 45-min job timeout —
+   so budget **~45 min** for the full set. If any required check never resolves in
+   that window, stop and report.
 
-3. **Triage failures — fix what your diff broke, escalate the rest.** Pull the
-   failed-test names from the results comment and open the HTML report / workflow
-   logs (`gh run view <run-id> --log-failed`) to see the actual failure, not just
-   the name. Then:
-   - **A real regression your diff caused** (the flow you changed now fails its
-     spec) → fix it. Reproduce locally where feasible:
-     `npm run test:e2e -w packages/gp-webapp` (needs a configured `BASE_URL` + Clerk
-     test stack against a real API — see `packages/gp-webapp/e2e-tests/CLAUDE.md`).
-   - **Flaky, pre-existing, or infra** (gp-api deploy failed, Clerk/auth stack down,
-     a failure unrelated to your diff and present on `develop`) → **escalate**, don't
-     churn. Hand back the failing specs with your evidence; a single re-run for a
-     suspected flake is fine, blind re-pushing is not.
+3. **All resolved — read the verdict.**
+   - **Every required check green** → **done**. Combined with delegate `Approved.`
+     at this HEAD, report success and exit.
+   - **One or more failing** → go to step 4, one at a time.
 
-4. **Apply, then re-converge.** Make the verified-valid e2e fixes (re-run pre-flight
-   on affected packages first — never push failing lint/types/unit tests). Commit and
-   push. The push re-triggers **both** delegate and e2e for the new HEAD, so loop
-   back to **Phase 2 step 1** (comment `delegate review`) and re-confirm both gates at
-   the new HEAD. Done requires both green on the *same* commit.
+4. **Pull the actual failure, then triage — fix what your diff broke, escalate the
+   rest.**
+   - **`E2E` failing**: read the upserted results comment (stable marker
+     `<!-- gp-webapp-e2e-results -->`) for the ✅/❌ status, passed/failed/total
+     counts, the failed-test names, and the HTML-report link, then open the HTML
+     report / workflow logs (`gh run view <run-id> --log-failed`) for the actual
+     failure, not just the name.
+   - **Any other check failing** (e.g. a package's `Validate`/typecheck job): pull
+     its log the same way — `gh run view --job <job-id> --log` (job id from the
+     check's `link`) — for the actual failure, not just the check name.
+   - Either way:
+     - **A real regression your diff caused** (e.g. a contract change that broke
+       another package's fixtures/types, or the flow you changed now fails its
+       e2e spec) → fix it. Re-run pre-flight on the newly-implicated package (see
+       "Pre-flight checks" above) before pushing. For `E2E` specifically, reproduce
+       locally where feasible: `npm run test:e2e -w packages/gp-webapp` (needs a
+       configured `BASE_URL` + Clerk test stack against a real API — see
+       `packages/gp-webapp/e2e-tests/CLAUDE.md`).
+     - **Flaky, pre-existing, or infra** (a failure unrelated to your diff and
+       present on `develop`, a deploy failure, an auth stack outage) → **escalate**,
+       don't churn. Hand back the failing check with your evidence; a single re-run
+       for a suspected flake is fine, blind re-pushing is not.
 
-5. **Round cap.** Stop after **2 e2e-fix rounds**. Beyond that, hand back the
-   still-failing specs (with report links and your read) rather than churning on
-   suspected flakes.
+5. **Apply, then re-converge.** Make the verified-valid fixes (re-run pre-flight on
+   affected packages first — never push failing lint/types/unit tests). Commit and
+   push. The push re-triggers **both** delegate and the full check set for the new
+   HEAD, so loop back to **Phase 2 step 1** (comment `delegate review`) and
+   re-confirm both gates at the new HEAD. Done requires delegate approved and every
+   check green on the _same_ commit.
+
+6. **Round cap.** Stop after **2 check-fix rounds** (total across all checks, not
+   per check). Beyond that, hand back the still-failing checks (with report links
+   / logs and your read) rather than churning on suspected flakes.
 
 ## Stop conditions (always report, never loop past these)
 
-- Delegate `Approved.` **and** the `E2E` check green at the same HEAD → success.
-- 3 delegate rounds, or 2 e2e-fix rounds, reached → summary handback.
-- ~10 min poll with no new review, or ~45 min with no e2e result → timeout handback.
-- A pre-flight failure (any phase), an escalated finding, or an e2e failure that is
-  flaky/pre-existing/infra → wait for the user.
+- Delegate `Approved.` **and** every required GitHub check green at the same HEAD
+  → success.
+- 3 delegate rounds, or 2 check-fix rounds, reached → summary handback.
+- ~10 min poll with no new review, or ~45 min with checks still unresolved →
+  timeout handback.
+- A pre-flight failure (any phase), an escalated finding, or a check failure that
+  is flaky/pre-existing/infra → wait for the user.
 
 ## Notes
 
 - All findings escalated to the user need: the file/line, delegate's claim, and
-  _your_ verified take (agree / disagree, with evidence). For an escalated **e2e**
-  failure: the failing spec name(s), the HTML-report / workflow-run link, and your
-  read (your diff vs. flake/pre-existing/infra, with evidence).
+  _your_ verified take (agree / disagree, with evidence). For an escalated
+  **check failure**: the check name, the failing spec/job name(s), the
+  HTML-report / log link, and your read (your diff vs. flake/pre-existing/infra,
+  with evidence).
 - Keep docs current: if a fix you apply changes behavior, architecture, or a
   convention, update the nearest `CLAUDE.md`/`docs/` in the same commit (root
   `CLAUDE.md` rule).
