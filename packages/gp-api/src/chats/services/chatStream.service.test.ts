@@ -433,6 +433,33 @@ describe('ChatStreamService', () => {
       expect(messages.some((m) => m.role === 'assistant')).toBe(false)
     })
 
+    it('drops a persisted widget-only turn (empty content) from replayed history', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.user,
+        content: 'what do peer cities do?',
+      })
+      // A prior turn that only presented a widget persists with empty content
+      // (tool segments aren't replayed). Sending it as `{content: ''}` makes
+      // Anthropic 400 ("text content blocks must be non-empty"), so it must be
+      // omitted from the history handed to the model.
+      store.seedMessage({
+        conversationId: CONVERSATION_ID,
+        role: ChatMessageRole.assistant,
+        content: '',
+      })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(service.stream(baseStreamArgs({ userMessage: 'and now?' })))
+
+      const { messages } = firstOrThrow(llm.calls).options
+      const emptyAssistant = messages.filter(
+        (m) => m.role === 'assistant' && m.content === '',
+      )
+      expect(emptyAssistant).toHaveLength(0)
+    })
+
     it('records appendMessage:user before streamChatCompletion', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([{ kind: 'text', delta: 'hi' }])
@@ -1170,7 +1197,56 @@ describe('ChatStreamService', () => {
       expect(assistantRows[0]?.content).toBe(
         CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
       )
-      expect(assistantRows[0]?.segments ?? []).toEqual([])
+      // The fake never populates a `segments` field on the row, so asserting
+      // on `row.segments` is vacuous. Assert on the args the store received:
+      // the sentinel append must pass no segments (no orphaned widget pill).
+      expect(store.lastAppendedSegments).toBeUndefined()
+    })
+
+    it('writes the sentinel (no widget) when the user aborts after a tool call, before any text', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      const controller = new AbortController()
+      let release: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      // A real user-cancel (signal.aborted) mid-tool-call with no text is NOT a
+      // clean widget-only turn: the widget must be dropped and the sentinel
+      // written, so `cleanFinish` must stay false via the `!signal.aborted`
+      // clause even though no error is thrown.
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'present_comparables',
+          input: { comparables: [{ city: 'Riverton', state: 'WA' }] },
+          output: { saved: true },
+        },
+        { kind: 'gate', gate },
+        { kind: 'text', delta: 'unreached' },
+      ])
+
+      const iter = service.stream(
+        baseStreamArgs({
+          signal: controller.signal,
+          tools: { present_comparables: fakeTool },
+        }),
+      )
+      const reader = iter[Symbol.asyncIterator]()
+      await reader.next()
+      controller.abort()
+      release()
+      while (!(await reader.next()).done) {
+        // drain
+      }
+
+      const assistantRows = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .filter((m) => m.role === ChatMessageRole.assistant)
+      expect(assistantRows).toHaveLength(1)
+      expect(assistantRows[0]?.content).toBe(
+        CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
+      )
+      expect(store.lastAppendedSegments).toBeUndefined()
     })
   })
 

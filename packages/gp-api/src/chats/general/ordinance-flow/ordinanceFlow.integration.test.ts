@@ -208,4 +208,53 @@ describe('ordinance_flow chat (integration)', () => {
       .find((s) => s.toolName === 'ask_clarify_question')
     expect(withWidget?.payload?.questionId).toBe('q1')
   })
+
+  it('round-trips a widget-only turn (empty content, tool segment) via replay', async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: SCOPE, anchor: anchorFor(ordinanceId, 'comparables') },
+      headers,
+    )
+    const conversationId = created.data.conversationId as string
+
+    // Mirrors exactly what ChatStreamService persists on a clean widget-only
+    // finish: zero text, a single present_* tool segment. This must survive the
+    // real DB write AND the GET response schema (ChatConversationSchema allows
+    // empty content) so the widget replays on reload — a fake store can't prove
+    // either, and a future `content.min(1)` would silently break it.
+    const comparables = { comparables: [{ city: 'Riverton', state: 'WA' }] }
+    await chatStore.appendMessage({
+      conversationId,
+      role: ChatMessageRole.assistant,
+      content: '',
+      segments: [
+        {
+          kind: ChatMessageSegmentKind.tool,
+          toolName: 'present_comparables',
+          payload: comparables,
+        },
+      ],
+    })
+
+    const replay = await service.client.get(
+      `/v1/chats/${conversationId}?scope=${SCOPE}`,
+      headers,
+    )
+    expect(replay.status).toBe(HttpStatus.OK)
+    const assistant = (
+      replay.data.messages as Array<{
+        role: ChatMessageRole
+        content: string
+        segments?: Array<{
+          toolName?: string
+          payload?: { comparables?: Array<{ city?: string }> }
+        }>
+      }>
+    ).find((m) => m.role === ChatMessageRole.assistant)
+    expect(assistant?.content).toBe('')
+    const widget = (assistant?.segments ?? []).find(
+      (s) => s.toolName === 'present_comparables',
+    )
+    expect(widget?.payload?.comparables?.[0]?.city).toBe('Riverton')
+  })
 })

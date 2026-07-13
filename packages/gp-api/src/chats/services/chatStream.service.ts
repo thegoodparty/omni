@@ -161,6 +161,11 @@ const toLlmMessages = (
       continue
     }
     if (role === 'assistant') {
+      // A widget-only turn persists with empty content (its tool segments
+      // aren't replayed to the model). Sending `{content: ''}` makes Anthropic
+      // reject the turn ("text content blocks must be non-empty"), so drop
+      // empty-content assistant turns from the replayed history.
+      if (m.content.length === 0) continue
       out.push({ role: 'assistant', content: m.content })
       continue
     }
