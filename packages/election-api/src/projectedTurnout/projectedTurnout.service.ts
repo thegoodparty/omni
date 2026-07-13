@@ -115,17 +115,8 @@ export class ProjectedTurnoutService extends createPrismaBase(
    * match means LocalOrMunicipal -- any date that isn't a known November
    * general or state primary is a local race.
    *
-   * This used to also special-case LA/MS/NJ/VA (2-year cycle) and KS (4-year
-   * cycle) as ConsolidatedGeneral on their odd-year November election day.
-   * That was a placeholder from an older model version, pending a dedicated
-   * odd-year model for those states that was never built -- in the meantime
-   * it just repeated an identical projection year over year. Removed rather
-   * than carried forward: Election_Calendar has no way to reproduce it, so
-   * those 5 states' odd-year November election day now resolves to
-   * LocalOrMunicipal like everywhere else. Projected_Turnout may still have
-   * legacy rows keyed on ConsolidatedGeneral for those states/years from the
-   * static feed that used to populate it -- this lookup will no longer find
-   * them (tracked in the linked ticket, not silently patched over here).
+   * No longer returns ConsolidatedGeneral -- see platform-overview.md for
+   * what that code used to cover and why it was removed.
    */
   async determineElectionCode(
     electionDate: string,

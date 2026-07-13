@@ -226,13 +226,10 @@ export class CampaignStrategyContextService extends createPrismaBase(
   }
 
   // Feeds win_number_estimate (via computeWinNumberEstimate), unlike
-  // resolveGeneralProjectedTurnout below which feeds projected_voter_turnout
-  // and has its own independent ConsolidatedGeneral fallback. This one does
-  // not: determineElectionCode no longer returns ConsolidatedGeneral (DATA-2015),
-  // so for LA/MS/NJ/VA/KS races that fall on their odd-year ConsolidatedGeneral
-  // date, this now resolves LocalOrMunicipal and finds no match -- returning
-  // null (win_number_estimate null) where it previously resolved a real
-  // number. Tracked as a known follow-up, not silently patched over here.
+  // resolveGeneralProjectedTurnout below, which feeds projected_voter_turnout
+  // and has its own independent ConsolidatedGeneral fallback. This one
+  // instead defers entirely to determineElectionCode's Election_Calendar
+  // lookup and matches on whatever code it returns.
   private async resolveProjectedTurnout(
     district:
       | {
