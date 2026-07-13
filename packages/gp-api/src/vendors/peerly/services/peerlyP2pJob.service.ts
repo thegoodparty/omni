@@ -1,8 +1,13 @@
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+} from '@nestjs/common'
 import { formatISO } from 'date-fns'
 import { Headers } from 'http-constants-ts'
 import { Readable } from 'stream'
 import { PinoLogger } from 'nestjs-pino'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   P2P_ERROR_MESSAGES,
   P2P_JOB_DEFAULTS,
@@ -56,6 +61,12 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
     didNpaSubset = [],
     scheduledDate,
   }: CreateP2pJobParams): Promise<string> {
+    // Peerly returns a 400 for oversized MMS template text; reject before
+    // creating media and a schedule that would be orphaned by that failure.
+    if (scriptText.length > P2P_SCRIPT_MAX_LENGTH) {
+      throw new BadRequestException(P2P_ERROR_MESSAGES.SCRIPT_TOO_LONG)
+    }
+
     let jobId: string | undefined
     let scheduleId: number | undefined
 

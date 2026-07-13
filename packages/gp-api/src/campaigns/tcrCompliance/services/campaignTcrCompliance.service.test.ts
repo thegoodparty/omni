@@ -27,6 +27,7 @@ import { CrmCampaignsService } from '../../services/crmCampaigns.service'
 import { QueueProducerService } from '../../../queue/producer/queueProducer.service'
 import { ExperimentRunsService } from '../../../agentExperiments/services/experimentRuns.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { SlackService } from '@/vendors/slack/services/slack.service'
 import { EVENTS } from '@/vendors/segment/segment.types'
 import { PrismaService } from '@/prisma/prisma.service'
 import { MessageGroup, QueueType } from '../../../queue/queue.types'
@@ -136,6 +137,10 @@ describe('CampaignTcrComplianceService - createAgentic', () => {
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -706,6 +711,10 @@ describe('CampaignTcrComplianceService - handleAgenticKickoff', () => {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1248,6 +1257,10 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
         },
         { provide: PinoLogger, useValue: createMockLogger() },
         { provide: AnalyticsService, useValue: mockAnalytics },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1819,6 +1832,10 @@ describe('CampaignTcrComplianceService - create (legacy) placeId guard', () => {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
         CampaignTcrComplianceService,
       ],
     }).compile()
@@ -1902,6 +1919,10 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],
@@ -2136,6 +2157,10 @@ describe('CampaignTcrComplianceService - sweepUnsubmittedUsecases', () => {
         {
           provide: AnalyticsService,
           useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
         },
         CampaignTcrComplianceService,
       ],

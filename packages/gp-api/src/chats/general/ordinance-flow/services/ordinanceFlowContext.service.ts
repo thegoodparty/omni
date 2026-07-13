@@ -19,6 +19,7 @@ import {
 export interface OrdinanceFlowContext {
   conversationId: string
   ordinanceId: string
+  electedOfficeId: string
   step: OrdinanceFlowStep
   organizationSlug: string
   officeTitle: string | null
@@ -76,6 +77,7 @@ export class OrdinanceFlowContextService extends createPrismaBase(
     return {
       conversationId,
       ordinanceId: ordinance.id,
+      electedOfficeId: electedOffice.id,
       step: anchor.step,
       organizationSlug: electedOffice.organizationSlug,
       officeTitle: electedOffice.organization.customPositionName,

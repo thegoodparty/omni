@@ -254,6 +254,7 @@ export class GeneralChatsController {
             kind: s.kind,
             text: s.text,
             toolName: s.toolName,
+            ...(s.payload != null && { payload: s.payload }),
           })),
         }),
       })),

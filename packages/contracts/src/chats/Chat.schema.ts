@@ -85,6 +85,9 @@ export const ChatMessageSegmentSchema = z.object({
   kind: ChatMessageSegmentKindSchema,
   text: z.string().nullable().optional(),
   toolName: z.string().nullable().optional(),
+  // Structured tool-call arguments for widget-rendering tools (e.g.
+  // ask_clarify_question), so the client can replay the widget on reload.
+  payload: z.unknown().nullable().optional(),
 })
 export type ChatMessageSegment = z.infer<typeof ChatMessageSegmentSchema>
 

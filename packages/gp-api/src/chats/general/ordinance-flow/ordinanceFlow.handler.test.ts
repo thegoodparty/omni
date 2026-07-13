@@ -1,5 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common'
 import { ChatScope } from '../../../generated/prisma'
 import {
   ORDINANCE_FLOW_MODELS,
@@ -10,6 +14,8 @@ import {
   OrdinanceFlowContext,
   OrdinanceFlowContextService,
 } from './services/ordinanceFlowContext.service'
+import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
+import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -27,6 +33,7 @@ const anchorFor = (step: string) => ({ ...ANCHOR, step })
 const baseCtx = (): OrdinanceFlowContext => ({
   conversationId: 'c1',
   ordinanceId: 'ord-1',
+  electedOfficeId: 'office-1',
   step: 'clarify',
   organizationSlug: ORG,
   officeTitle: 'City Council Member',
@@ -45,8 +52,17 @@ const baseCtx = (): OrdinanceFlowContext => ({
 describe('OrdinanceFlowHandler', () => {
   let store: GeneralChatStoreService
   let context: OrdinanceFlowContextService
+  let tools: OrdinanceFlowToolsService
+  let fetchService: OrdinanceFlowFetchService
+  let features: { isFeatureEnabled: ReturnType<typeof vi.fn> }
+
+  const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
+  afterAll(() => {
+    process.env.ANTHROPIC_API_KEY = originalAnthropicKey
+  })
 
   beforeEach(() => {
+    process.env.ANTHROPIC_API_KEY = 'test-key'
     store = {
       findByAnchorResource: vi.fn(() => Promise.resolve([])),
       createScopedConversation: vi.fn(() => Promise.resolve({ id: 'fresh' })),
@@ -55,11 +71,22 @@ describe('OrdinanceFlowHandler', () => {
       load: vi.fn(() => Promise.resolve(baseCtx())),
       assertOrdinanceOwnership: vi.fn(() => Promise.resolve()),
     } as unknown as OrdinanceFlowContextService
+    tools = {} as unknown as OrdinanceFlowToolsService
+    fetchService = {} as unknown as OrdinanceFlowFetchService
+    features = { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) }
   })
 
   const build = (districtResolver?: {
     resolveByOrgSlug: ReturnType<typeof vi.fn>
-  }) => new OrdinanceFlowHandler(store, context, districtResolver as never)
+  }) =>
+    new OrdinanceFlowHandler(
+      store,
+      context,
+      tools,
+      fetchService,
+      features as never,
+      districtResolver as never,
+    )
 
   it('is a sensitive, Anthropic-only scope', () => {
     const handler = build()
@@ -107,6 +134,21 @@ describe('OrdinanceFlowHandler', () => {
     expect(store.createScopedConversation).not.toHaveBeenCalled()
   })
 
+  it('rejects the scope when the serve-ordinances flag is off', async () => {
+    features.isFeatureEnabled = vi.fn(() => Promise.resolve(false))
+    await expect(
+      build().resolveConversation(
+        {
+          scope: ChatScope.ordinance_flow,
+          organizationSlug: ORG,
+          anchor: ANCHOR,
+        },
+        USER_ID,
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException)
+    expect(store.findByAnchorResource).not.toHaveBeenCalled()
+  })
+
   it('resumes the existing conversation for the same step', async () => {
     store.findByAnchorResource = vi.fn(() =>
       Promise.resolve([{ id: 'existing', anchor: anchorFor('clarify') }]),
@@ -150,8 +192,60 @@ describe('OrdinanceFlowHandler', () => {
     ).rejects.toBeInstanceOf(BadRequestException)
   })
 
-  it('has no tools yet (they land in slice 3)', () => {
-    expect(build().buildTools()).toEqual({})
+  it('builds the clarify tool set on the clarify step', () => {
+    const handler = build()
+    const names = Object.keys(handler.buildTools(baseCtx())).sort()
+    expect(names).toEqual([
+      'ask_clarify_question',
+      'get_code_source',
+      'offer_next_step',
+      'read_ordinance',
+      'save_answer',
+      'save_note',
+      'save_synthesis',
+      'web_search',
+    ])
+  })
+
+  it('builds the research tool set on the current_law step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'current_law' }),
+    ).sort()
+    expect(names).toEqual([
+      'fetch_url',
+      'get_code_source',
+      'offer_next_step',
+      'read_ordinance',
+      'save_existing_law',
+      'save_note',
+      'web_search',
+    ])
+  })
+
+  it('omits the clarify tools on non-clarify steps but keeps offer_next_step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'authority' }),
+    )
+    expect(names).not.toContain('ask_clarify_question')
+    expect(names).not.toContain('save_answer')
+    expect(names).not.toContain('fetch_url')
+    expect(names).not.toContain('save_existing_law')
+    expect(names).toContain('read_ordinance')
+    expect(names).toContain('offer_next_step')
+  })
+
+  it('offers no next step on the final (draft) step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'draft' }),
+    )
+    expect(names).not.toContain('offer_next_step')
+  })
+
+  it('raises maxSteps above the default so a research turn can finish', () => {
+    expect(build().maxSteps).toBe(8)
   })
 
   it('builds a system prompt grounded in the ordinance context', async () => {

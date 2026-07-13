@@ -18,37 +18,68 @@ const EMPTY_TASKS: CampaignTrackerTask[] = []
 
 // Only the static launch/pre-launch rows exist right after bootstrap; the
 // dynamic tasks + events land minutes later when the CAP run completes. Treat
-// "rows present but none dynamic yet" as still-generating.
+// "rows present but none dynamic yet" as still-generating. This drives the
+// "personalizing…" banner, so it stays narrow: it must not fire before any
+// row exists (that is the "setting up" state, handled by isTrackerSettling).
 export const isTrackerGenerating = (tasks: CampaignTrackerTask[]): boolean =>
   tasks.length > 0 && !tasks.some((t) => !t.isDefaultTask)
 
+// The tracker is still filling in while it has no rows yet (bootstrap + static
+// materialization pending) OR only static rows so far (dynamic generating). In
+// both states we poll fast so freshly materialized tasks surface on their own,
+// without a manual page refresh.
+export const isTrackerSettling = (tasks: CampaignTrackerTask[]): boolean =>
+  tasks.length === 0 || isTrackerGenerating(tasks)
+
 const POLL_INTERVAL_MS = 20 * 1000
-// Once initial generation settles, keep a slow background poll. Weekly regen
-// appends a new generation (rows are never deleted, so isTrackerGenerating
-// can't detect it), and refetchOnWindowFocus is off — without this a page left
-// open across the Sunday cron would show last week's tasks indefinitely.
+// Once dynamic tasks land, keep a slow background poll. Weekly regen appends a
+// new generation (rows are never deleted, so isTrackerSettling can't detect
+// it), so without this a page left open across the weekly cron would show last
+// week's tasks until the next mount/focus.
 const BACKGROUND_POLL_MS = 5 * 60 * 1000
-// ~15 min of fast polling. If the dynamic tasks never land (e.g. dispatch
-// silently no-ops because the campaign is missing raceId/clerkId/name), stop
-// hammering and fall back to the background interval rather than polling every
-// 20s forever for every open session.
-const MAX_FAST_POLLS = 45
+// Fast-poll for ~15 min of wall-clock while the tracker is settling, then back
+// off. Wall-clock rather than a fetch count: dataUpdateCount increments on the
+// mount + focus refetches enabled below too, so a count budget would be burned
+// by ordinary tab-switching during onboarding before any interval poll fires.
+// This caps the cost when tasks never land (dispatch no-ops, or the tracker
+// never bootstraps because the campaign story was never completed).
+const FAST_POLL_DURATION_MS = 15 * 60 * 1000
+// Module scope: trackerTasksQueryOptions is re-invoked on every render, so
+// closure state would reset each time. Reset to null when settling ends.
+let fastPollStartedAt: number | null = null
 
 const trackerTasksQueryOptions = () =>
   queryOptions({
     queryKey: TRACKER_TASKS_QUERY_KEY,
     queryFn: () => clientRequest(TRACKER_TASKS_ROUTE, {}).then((r) => r.data),
     staleTime: 60 * 1000,
-    refetchOnWindowFocus: false,
-    // Poll fast while the dynamic tasks/events are still generating so they
-    // appear without a manual refresh; once they land (or after the
-    // fast-poll budget), drop to a slow background poll so a later weekly
-    // regen still gets picked up.
+    // Entering the tab (a mount) and refocusing it always refetch, so the
+    // static rows that materialized after the first "setting up" fetch show on
+    // navigation instead of serving a stale cached empty result until refresh.
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
+    // Keep polling while backgrounded so tasks that land while the candidate is
+    // away (static, then dynamic minutes later) are picked up when they return.
+    refetchIntervalInBackground: true,
+    // Poll fast while the tracker is still settling (no rows yet, or static-only
+    // with dynamic still generating) so tasks appear without a manual refresh;
+    // once dynamic lands (or after the fast-poll window) drop to a slow
+    // background poll so a later weekly regen still gets picked up. `undefined`
+    // data (before the first fetch resolves) counts as settling, so the fast
+    // interval is live from mount rather than falling back to the slow one.
     refetchInterval: (query) => {
-      const generating =
-        query.state.data && isTrackerGenerating(query.state.data)
-      if (!generating) return BACKGROUND_POLL_MS
-      return query.state.dataUpdateCount < MAX_FAST_POLLS
+      const data = query.state.data
+      if (data !== undefined && !isTrackerSettling(data)) {
+        fastPollStartedAt = null
+        return BACKGROUND_POLL_MS
+      }
+      // `data === undefined` means a fresh subscription (first mount, or the
+      // cache was GC'd while the candidate was away): restart the window so a
+      // returning candidate gets a full fast-poll window rather than inheriting
+      // an already-expired module-level timestamp.
+      if (data === undefined || fastPollStartedAt === null)
+        fastPollStartedAt = Date.now()
+      return Date.now() - fastPollStartedAt < FAST_POLL_DURATION_MS
         ? POLL_INTERVAL_MS
         : BACKGROUND_POLL_MS
     },

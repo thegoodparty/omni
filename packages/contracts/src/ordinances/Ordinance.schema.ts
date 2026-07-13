@@ -28,6 +28,7 @@ export type OrdinanceExistingLaw = z.infer<typeof OrdinanceExistingLawSchema>
 // Step artifacts below are written by later slices (3-6); their shapes live here
 // so the record response is fully typed. They are null until those slices run.
 export const OrdinanceClarifySchema = z.object({ synthesis: z.string() })
+export type OrdinanceClarify = z.infer<typeof OrdinanceClarifySchema>
 
 export const OrdinanceClarifyAnswerSchema = z.object({
   questionId: z.string(),
@@ -35,9 +36,46 @@ export const OrdinanceClarifyAnswerSchema = z.object({
   answer: z.string(),
   source: OrdinanceSourceSchema.optional(),
 })
+export type OrdinanceClarifyAnswer = z.infer<
+  typeof OrdinanceClarifyAnswerSchema
+>
 export const OrdinanceClarifyAnswersSchema = z.array(
   OrdinanceClarifyAnswerSchema,
 )
+
+// One suggested answer to a clarify question. A factual option cites a source;
+// a pure-judgment option may omit one. The UI always adds an "Or write your
+// own..." freeform option on top of these.
+export const OrdinanceClarifyOptionSchema = z.object({
+  label: z.string(),
+  rationale: z.string().optional(),
+  source: OrdinanceSourceSchema.optional(),
+})
+export type OrdinanceClarifyOption = z.infer<
+  typeof OrdinanceClarifyOptionSchema
+>
+
+// The ask_clarify_question tool payload: one question shown as a widget in the
+// chat transcript. Persisted as the tool segment's payload so it replays on
+// reload.
+export const OrdinanceClarifyQuestionSchema = z.object({
+  questionId: z.string(),
+  question: z.string(),
+  options: z.array(OrdinanceClarifyOptionSchema),
+})
+export type OrdinanceClarifyQuestion = z.infer<
+  typeof OrdinanceClarifyQuestionSchema
+>
+
+// The offer_next_step tool payload: when the agent has finished a step it calls
+// this to render a "continue" button in the transcript. `label` is the button
+// text; the destination step is derived client-side from the flow order.
+export const OrdinanceNextStepOfferSchema = z.object({
+  label: z.string().optional(),
+})
+export type OrdinanceNextStepOffer = z.infer<
+  typeof OrdinanceNextStepOfferSchema
+>
 
 export const OrdinanceAuthoritySchema = z.object({
   status: z.enum(['pass', 'flag', 'attention']),
@@ -55,9 +93,79 @@ export const OrdinanceComparableSchema = z.object({
   quote: z.string(),
   outcome: z.string().optional(),
   status: z.enum(['passed', 'repealed', 'unknown']),
+  failureReason: z.string().optional(),
   source: OrdinanceSourceSchema,
 })
 export const OrdinanceComparablesSchema = z.array(OrdinanceComparableSchema)
+
+// --- Step-widget tool payloads ---------------------------------------------
+// Args for the present_* tools the ordinance-flow agent calls to render a
+// step's finding as a structured widget in the chat transcript. Persisted as
+// the tool segment's payload (same replay mechanics as ask_clarify_question).
+// Each payload is self-contained: the widget renders from it alone.
+
+// present_authority_finding: the authority artifact plus the presentation
+// fields the verdict card renders. `headline` is the card's verdict line;
+// `explanation` (inherited) is the detail paragraph citing the statute;
+// `confirmation` is the "what this means for you" close, when the agent has
+// one.
+export const OrdinanceAuthorityFindingSchema = OrdinanceAuthoritySchema.extend({
+  headline: z.string(),
+  confirmation: z.string().optional(),
+})
+export type OrdinanceAuthorityFinding = z.infer<
+  typeof OrdinanceAuthorityFindingSchema
+>
+
+export const OrdinanceLawPointSchema = z.object({
+  title: z.string(),
+  subtitle: z.string().optional(),
+})
+export type OrdinanceLawPoint = z.infer<typeof OrdinanceLawPointSchema>
+
+// present_current_law_summary: what the law on the books does today (`does`)
+// and where it falls short for the user's goal (`gaps`).
+export const OrdinanceCurrentLawSummarySchema = z.object({
+  chapterLabel: z.string(),
+  source: OrdinanceSourceSchema.optional(),
+  does: z.array(OrdinanceLawPointSchema),
+  gaps: z.array(OrdinanceLawPointSchema),
+})
+export type OrdinanceCurrentLawSummary = z.infer<
+  typeof OrdinanceCurrentLawSummarySchema
+>
+
+export const OrdinanceHistoryEntrySchema = z.object({
+  year: z.number().int(),
+  label: z.string(),
+  summary: z.string(),
+  minutesExcerpt: z.string().optional(),
+  speaker: z.string().optional(),
+  source: OrdinanceSourceSchema.optional(),
+})
+export type OrdinanceHistoryEntry = z.infer<typeof OrdinanceHistoryEntrySchema>
+
+// present_legislative_history: why the current chapter reads the way it does —
+// a timeline of adoptions/amendments with council-minutes excerpts when found.
+export const OrdinanceLegislativeHistorySchema = z.object({
+  chapterLabel: z.string().optional(),
+  entries: z.array(OrdinanceHistoryEntrySchema),
+})
+export type OrdinanceLegislativeHistory = z.infer<
+  typeof OrdinanceLegislativeHistorySchema
+>
+
+// present_comparables: the comparables artifact plus the framing prose. Intro
+// and takeaway live in the payload (not as separate assistant text) so the
+// cards and their framing always render as one atomic block in stream order.
+export const OrdinancePresentComparablesSchema = z.object({
+  intro: z.string().optional(),
+  comparables: OrdinanceComparablesSchema,
+  takeaway: z.string().optional(),
+})
+export type OrdinancePresentComparables = z.infer<
+  typeof OrdinancePresentComparablesSchema
+>
 
 export const OrdinanceQualityCheckSchema = z.object({
   id: z.string(),
@@ -93,6 +201,7 @@ export const OrdinanceResearchSchema = z
     web: z.array(OrdinanceSourceSchema.extend({ snippet: z.string() })),
   })
   .partial()
+export type OrdinanceResearch = z.infer<typeof OrdinanceResearchSchema>
 
 export const OrdinanceScratchpadNoteSchema = z.object({
   step: z.string(),

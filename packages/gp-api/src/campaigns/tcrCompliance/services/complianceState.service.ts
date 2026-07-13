@@ -14,7 +14,7 @@ import {
   PeerlyCvVerificationStatusSchema,
   type ComplianceStateOutput,
 } from '@goodparty_org/contracts'
-import { formatISO } from 'date-fns'
+import { formatISO, isBefore, parseISO } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { maskPinDeliveryDestination } from '../../../vendors/peerly/utils/peerlyPinDelivery.util'
@@ -24,6 +24,18 @@ const DOMAIN_REGISTERED_STATUSES: DomainStatus[] = [
   DomainStatus.registered,
   DomainStatus.active,
 ]
+
+// Purchase-time registrantVerifiedAt stamping only became universal on
+// 2026-06-01 (prod data: zero registered-status domains created after
+// 2026-05-31 lack the stamp; ~300 created before it have it NULL forever —
+// the interim email-verification flow that would have stamped them was
+// removed 2026-05-29). The registrant contact has always been the constant,
+// already-ICANN-verified GoodParty identity, so treat pre-cutoff rows as
+// verified; requiring the stamp stranded legacy-domain Pro upgrades at
+// pending_website_live until the agent's resume cap (campaign 304314).
+export const REGISTRANT_STAMPING_UNIVERSAL_FROM = parseISO(
+  '2026-06-01T00:00:00Z',
+)
 
 @Injectable()
 export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
@@ -167,7 +179,7 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
 export const deriveComplianceStage = (
   campaign: Pick<Campaign, 'formattedAddress'>,
   website: Pick<Website, 'status'> | null,
-  domain: Pick<Domain, 'status' | 'registrantVerifiedAt'> | null,
+  domain: Pick<Domain, 'status' | 'registrantVerifiedAt' | 'createdAt'> | null,
   tcrCompliance: Pick<TcrCompliance, 'status'> | null,
 ): ComplianceStage => {
   if (!tcrCompliance) {
@@ -197,9 +209,12 @@ export const deriveComplianceStage = (
     return ComplianceStage.pending_domain_purchase
   }
 
+  const registrantVerified = domain
+    ? Boolean(domain.registrantVerifiedAt) ||
+      isBefore(domain.createdAt, REGISTRANT_STAMPING_UNIVERSAL_FROM)
+    : false
   const websiteLive =
-    website?.status === WebsiteStatus.published &&
-    Boolean(domain?.registrantVerifiedAt)
+    website?.status === WebsiteStatus.published && registrantVerified
   if (!websiteLive) {
     return ComplianceStage.pending_website_live
   }

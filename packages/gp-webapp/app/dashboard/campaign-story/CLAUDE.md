@@ -90,6 +90,15 @@ site, and vice versa.
   (`useCampaignStory.ts`) requires `hasWhy` + non-empty `background` + `hasIssues`.
   Callers source `hasWhy` from the website bio (`content.about.bio`) and
   `hasIssues` from the website issues (`content.about.issues`), not the story.
+  `useCampaignStoryComplete(enabled)` (`useCampaignStoryComplete.ts`) packages
+  this up — it fetches the story + website (only when `enabled`, so the non-story
+  cohort never triggers the fetches) and returns `{ isComplete, isLoading,
+  isError }` with the same fail-open (website error) / fail-closed (story error)
+  semantics `CampaignPlanStoryGate` uses. `CampaignPlanRouter` reads it to gate
+  the plan/tracker: a story-cohort user only reaches the plan once the story is
+  complete, so a flag-on account that generated a plan before completing its
+  story (e.g. pre-flag) is routed to the story gate instead of a tracker that can
+  never populate.
 - **Shared why copy.** The "why" instruction is a single constant,
   `WHY_RUNNING_PROMPT` (candidate-profile `candidateProfile.utils.ts`), reused by
   the why card here, the Pro-upgrade `CandidateProfileFields`, and the

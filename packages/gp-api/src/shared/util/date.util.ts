@@ -14,9 +14,11 @@ import {
 } from 'date-fns'
 import { toZonedTime } from 'date-fns-tz'
 
-const ISO_DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
+export const ISO_DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export const CENTRAL_TIMEZONE = 'America/Chicago'
+
+export const EASTERN_TIMEZONE = 'America/New_York'
 
 // The upcoming calendar Monday at UTC midnight, picked in `timeZone` so the
 // "which Monday" choice follows local intent — e.g. Sunday 11pm Central is

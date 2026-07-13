@@ -3,6 +3,7 @@ import {
   ChatMessage,
   ChatMessageRole,
   ChatMessageSegmentKind,
+  Prisma,
 } from '../../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
@@ -23,6 +24,9 @@ export type ChatStreamErrorCode =
 
 export type ChatStreamChunk =
   | { type: 'text'; delta: string }
+  // The model has begun writing a tool call's arguments (before tool_call).
+  // Transient signal for a per-tool "generating" indicator; not persisted.
+  | { type: 'tool_input_start'; toolName: string }
   | { type: 'tool_call'; toolName: string; args: unknown }
   | { type: 'tool_result'; toolName: string; result: unknown }
   | { type: 'done'; assistantMessageId?: string }
@@ -42,6 +46,7 @@ export interface StreamArgs {
   signal?: AbortSignal
   clientMessageId?: string
   models?: string[]
+  maxSteps?: number
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -68,6 +73,15 @@ const RETRYABLE: Record<ChatStreamErrorCode, boolean> = {
   rate_limited: true,
   aborted: false,
   internal: false,
+}
+
+// Tool args arrive typed as `unknown` from the AI SDK, but they are JSON by
+// construction (the model produced them against the tool's JSON schema), so
+// persisting them as the segment payload is safe.
+const toJsonPayload = (value: unknown): Prisma.InputJsonValue | null => {
+  if (value === null || value === undefined) return null
+
+  return value as Prisma.InputJsonValue
 }
 
 const isAbortError = (err: unknown, signal?: AbortSignal): boolean => {
@@ -280,7 +294,11 @@ export class ChatStreamService {
         messages,
         tools: args.tools,
         ...(args.models && { models: args.models }),
+        ...(args.maxSteps && { maxSteps: args.maxSteps }),
         ...(args.signal && { abortSignal: args.signal }),
+        onToolInputStart: ({ toolName }) => {
+          void queue.push({ type: 'tool_input_start', toolName })
+        },
         onToolCallStart: ({ name, input }) => {
           toolCallCount += 1
           void queue.push({
@@ -389,6 +407,7 @@ export class ChatStreamService {
           segments.push({
             kind: ChatMessageSegmentKind.tool,
             toolName: chunk.toolName,
+            payload: toJsonPayload(chunk.args),
           })
         }
         yield chunk

@@ -184,6 +184,7 @@ class FakeChatStore {
 
 type StreamScriptItem =
   | { kind: 'text'; delta: string }
+  | { kind: 'toolInputStart'; toolName: string }
   | {
       kind: 'toolCall'
       name: string
@@ -215,6 +216,10 @@ const consumeScriptItem = async (
   if (item.kind === 'text') {
     textChunks.push(item.delta)
     return { done: false, yieldText: item.delta }
+  }
+  if (item.kind === 'toolInputStart') {
+    options.onToolInputStart?.({ toolName: item.toolName })
+    return { done: false }
   }
   if (item.kind === 'toolCall') {
     const id = `call-${toolCallIds.length + 1}`
@@ -324,6 +329,7 @@ const baseStreamArgs = (
     tools: Record<string, LlmStreamTool>
     signal: AbortSignal
     clientMessageId: string
+    maxSteps: number
   }> = {},
 ) => ({
   conversationId: overrides.conversationId ?? CONVERSATION_ID,
@@ -335,6 +341,7 @@ const baseStreamArgs = (
   ...(overrides.clientMessageId !== undefined && {
     clientMessageId: overrides.clientMessageId,
   }),
+  ...(overrides.maxSteps !== undefined && { maxSteps: overrides.maxSteps }),
 })
 
 const expectErrorChunk = (chunks: ChatStreamChunk[]) => {
@@ -638,6 +645,45 @@ describe('ChatStreamService', () => {
       ])
     })
 
+    it('forwards tool_input_start before tool_call, and does not persist it', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        { kind: 'toolInputStart', toolName: 'web_search' },
+        {
+          kind: 'toolCall',
+          name: 'web_search',
+          input: { q: 'goodparty' },
+          output: { results: ['r1'] },
+        },
+        { kind: 'text', delta: 'done' },
+      ])
+
+      const chunks = await collect(
+        service.stream(baseStreamArgs({ tools: { web_search: fakeTool } })),
+      )
+
+      const meaningful = chunks.filter((c) => c.type !== 'done')
+      expect(meaningful).toEqual([
+        { type: 'tool_input_start', toolName: 'web_search' },
+        {
+          type: 'tool_call',
+          toolName: 'web_search',
+          args: { q: 'goodparty' },
+        },
+        {
+          type: 'tool_result',
+          toolName: 'web_search',
+          result: { results: ['r1'] },
+        },
+        { type: 'text', delta: 'done' },
+      ])
+      // tool_input_start is transient: it is never persisted as a segment.
+      expect(store.lastAppendedSegments).toEqual([
+        { kind: 'tool', toolName: 'web_search', payload: { q: 'goodparty' } },
+        { kind: 'text', text: 'done' },
+      ])
+    })
+
     it('assembles ordered text/tool segments and persists them', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([
@@ -657,7 +703,7 @@ describe('ChatStreamService', () => {
 
       expect(store.lastAppendedSegments).toEqual([
         { kind: 'text', text: 'before ' },
-        { kind: 'tool', toolName: 'web_search' },
+        { kind: 'tool', toolName: 'web_search', payload: { q: 'goodparty' } },
         { kind: 'text', text: 'after' },
       ])
     })
@@ -1023,6 +1069,24 @@ describe('ChatStreamService', () => {
       await collect(service.stream(baseStreamArgs({ tools })))
 
       expect(llm.calls[0]?.options.tools).toBe(tools)
+    })
+
+    it('forwards maxSteps to llm when set', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(service.stream(baseStreamArgs({ maxSteps: 8 })))
+
+      expect(firstOrThrow(llm.calls).options.maxSteps).toBe(8)
+    })
+
+    it('omits maxSteps from the llm call when not set', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'ok' }])
+
+      await collect(service.stream(baseStreamArgs()))
+
+      expect(firstOrThrow(llm.calls).options).not.toHaveProperty('maxSteps')
     })
 
     it('forwards systemPrompt verbatim as first system message', async () => {

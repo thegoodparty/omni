@@ -44,3 +44,88 @@ describe('CrmCampaignsService.trackCampaign', () => {
     expect(findUniqueOrThrow).toHaveBeenCalledWith({ where: { id: 123 } })
   })
 })
+
+describe('CrmCampaignsService 10DLC filing properties', () => {
+  const campaign = {
+    id: 5,
+    userId: 1,
+    isActive: true,
+    isPro: true,
+    organizationSlug: null,
+    data: { hubspotId: 'hs-1' },
+    details: {},
+    aiContent: null,
+  }
+  const user = {
+    id: 1,
+    firstName: 'Jane',
+    lastName: 'Doe',
+    email: 'jane@example.com',
+    metaData: {},
+  }
+
+  const findUniqueOrThrow = vi.fn().mockResolvedValue(campaign)
+  const tcrFindUnique = vi.fn()
+  const companyUpdate = vi.fn().mockResolvedValue({ id: 'hs-1' })
+
+  const buildService = () =>
+    new CrmCampaignsService(
+      {
+        findUniqueOrThrow,
+        fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
+        client: { tcrCompliance: { findUnique: tcrFindUnique } },
+      } as unknown as CampaignsService,
+      { findByCampaign: vi.fn().mockResolvedValue(user) } as never,
+      {
+        isConfigured: true,
+        client: { crm: { companies: { basicApi: { update: companyUpdate } } } },
+      } as unknown as HubspotService,
+      {} as never,
+      {} as never,
+      { count: vi.fn().mockResolvedValue(0) } as never,
+      { canDownload: vi.fn().mockReturnValue(false) } as never,
+      { errorMessage: vi.fn() } as unknown as SlackService,
+      { findByCampaignId: vi.fn().mockResolvedValue(null) } as never,
+      createMockLogger(),
+    )
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    findUniqueOrThrow.mockResolvedValue(campaign)
+    companyUpdate.mockResolvedValue({ id: 'hs-1' })
+  })
+
+  it('syncs TCR filing email, phone, and url to the HubSpot company', async () => {
+    tcrFindUnique.mockResolvedValue({
+      email: 'filing@example.com',
+      phone: '5555551234',
+      filingUrl: 'https://sos.example.gov/filing/jane',
+    })
+
+    await buildService().trackCampaign(5)
+
+    expect(tcrFindUnique).toHaveBeenCalledWith({
+      where: { campaignId: 5 },
+      select: { email: true, phone: true, filingUrl: true },
+    })
+    expect(companyUpdate).toHaveBeenCalledWith('hs-1', {
+      properties: expect.objectContaining({
+        n10_dlc_filing_email: 'filing@example.com',
+        n10_dlc_filing_phone: '5555551234',
+        n10_dlc_filing_url: 'https://sos.example.gov/filing/jane',
+      }),
+    })
+  })
+
+  it('omits the filing properties when no TCR record exists', async () => {
+    tcrFindUnique.mockResolvedValue(null)
+
+    await buildService().trackCampaign(5)
+
+    expect(companyUpdate).toHaveBeenCalledTimes(1)
+    const properties = companyUpdate.mock.calls.at(0)?.[1].properties
+    expect(properties).not.toHaveProperty('n10_dlc_filing_email')
+    expect(properties).not.toHaveProperty('n10_dlc_filing_phone')
+    expect(properties).not.toHaveProperty('n10_dlc_filing_url')
+  })
+})

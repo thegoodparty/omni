@@ -32,11 +32,13 @@ interface UseCampaignStoryResult {
 
 export const useCampaignStory = (
   initialData?: CampaignStory,
+  enabled = true,
 ): UseCampaignStoryResult => {
   const query = useQuery({
     queryKey: ['campaign-story', 'mine'],
     queryFn: () => clientRequest(STORY_ROUTE, {}).then((res) => res.data),
     initialData,
+    enabled,
     // Always refetch on mount: a user who just finished their story on the
     // story page then opens the plan tab must see the completed state, and
     // autosave writes don't touch this query's cache.

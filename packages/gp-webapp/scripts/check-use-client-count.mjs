@@ -38,7 +38,14 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-08: 527 -> 528 for useOutreachComposeFlow — the in-place outreach
 // launcher (tracker/manager task cards) must be a client component: it holds
 // the open-flow modal state and mounts the interactive TaskFlow wizard.
-const BASELINE = 528
+// 2026-07-09: 528 -> 533 for the Serve Ordinances flow UI (slice 3): the
+// per-step chat surface, the interactive clarify-question widget, the intake
+// form, the stepper, and the shared agent-chat presentation are all stateful
+// (hooks, event handlers, streaming) and can't be server components.
+// 2026-07-10: 533 -> 534 for useCampaignStoryComplete — a React Query hook
+// (useQuery + useCampaignStory) that gates the campaign-plan router on story
+// completeness, so it must run on the client.
+const BASELINE = 534
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

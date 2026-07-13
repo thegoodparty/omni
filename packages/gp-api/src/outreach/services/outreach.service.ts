@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { P2P_SCRIPT_MAX_LENGTH } from '@goodparty_org/contracts'
 import {
   Campaign,
   OutreachStatus,
@@ -89,6 +90,16 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
     const { aiContent = {} } = campaign
     const resolvedScriptText = resolveScriptContent(script, aiContent)
+
+    // The schema only sees the raw script field, which may be an aiContent
+    // key; the resolved text is what Peerly enforces its limit on, and it
+    // must be rejected here, before payment (ENG-10665).
+    if (resolvedScriptText.length > P2P_SCRIPT_MAX_LENGTH) {
+      throw new BadRequestException(
+        `Script cannot exceed ${P2P_SCRIPT_MAX_LENGTH} characters for ` +
+          `P2P outreach (got ${resolvedScriptText.length})`,
+      )
+    }
 
     let resolvedGeography: P2pJobGeographyResult
     try {

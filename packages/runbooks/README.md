@@ -54,7 +54,6 @@ The `commands/` directory holds procedures that double as Claude Code slash comm
 
 | Slash command          | File                              | What it does                                                                           |
 | ---------------------- | --------------------------------- | -------------------------------------------------------------------------------------- |
-| `/prd-to-tech-design`  | `commands/prd-to-tech-design.md`  | PRD → blessed tech design doc + drawio data flow + ClickUp page under the PRD          |
 | `/clickup-epic-create` | `commands/clickup-epic-create.md` | Tech design + repo → ClickUp Epic with agent-ready subtasks                            |
 | `/clickup-epic-edit`   | `commands/clickup-epic-edit.md`   | Snapshot / diff / apply edits to an existing Epic; default-archive on removals         |
 | `/work-on-clickup`     | `commands/work-on-clickup.md`     | Pick up a task, scope-confirm, implement against AC, verify, optionally update ClickUp |

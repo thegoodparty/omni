@@ -106,7 +106,7 @@ const AGENTIC_DISPATCH_CLAIM_TTL_MINUTES = 5
 // short-circuit instead of re-hitting Peerly — one alert, no retry storm. After
 // it elapses the next attempt probes again (and re-alerts if still failing), so
 // registrations resume automatically once billing clears.
-const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
+export const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
 
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 

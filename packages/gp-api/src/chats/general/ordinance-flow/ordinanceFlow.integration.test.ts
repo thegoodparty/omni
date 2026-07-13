@@ -1,6 +1,10 @@
 import { HttpStatus } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
+import {
+  ChatMessageRole,
+  ChatMessageSegmentKind,
+  ChatScope,
+} from '../../../generated/prisma'
 import {
   ChatStreamChunk,
   ChatStreamService,
@@ -158,5 +162,50 @@ describe('ordinance_flow chat (integration)', () => {
       where: { scope: SCOPE },
     })
     expect(conversations).toHaveLength(0)
+  })
+
+  it('replays a clarify-question widget from the persisted segment payload', async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: SCOPE, anchor: anchorFor(ordinanceId, 'clarify') },
+      headers,
+    )
+    const conversationId = created.data.conversationId as string
+
+    const question = {
+      questionId: 'q1',
+      question: 'What hours should the limit cover?',
+      options: [{ label: '10pm to 7am' }, { label: '11pm to 6am' }],
+    }
+    await chatStore.appendMessage({
+      conversationId,
+      role: ChatMessageRole.assistant,
+      content: "Let's start with the hours.",
+      segments: [
+        { kind: ChatMessageSegmentKind.text, text: "Let's start." },
+        {
+          kind: ChatMessageSegmentKind.tool,
+          toolName: 'ask_clarify_question',
+          payload: question,
+        },
+      ],
+    })
+
+    const replay = await service.client.get(
+      `/v1/chats/${conversationId}?scope=${SCOPE}`,
+      headers,
+    )
+    expect(replay.status).toBe(HttpStatus.OK)
+    const withWidget = (
+      replay.data.messages as Array<{
+        segments?: Array<{
+          toolName?: string
+          payload?: { questionId?: string }
+        }>
+      }>
+    )
+      .flatMap((m) => m.segments ?? [])
+      .find((s) => s.toolName === 'ask_clarify_question')
+    expect(withWidget?.payload?.questionId).toBe('q1')
   })
 })

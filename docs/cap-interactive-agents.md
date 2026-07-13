@@ -66,6 +66,7 @@ then retry; 4xx errors `bail()` immediately.
 | **Campaign content generation**             | `src/campaigns/ai/content/aiContent.controller.ts` — `POST /campaigns/ai`, rename, delete                                      | `chatCompletion` (runs async in the SQS consumer, `QueueType.GENERATE_AI_CONTENT`) | `claude-sonnet-4-6` default chain                                 | none                                                                                                                                              |
 | **Briefing chat** (elected officials)       | `src/chats/briefing-chats/controllers/briefing-chats.controller.ts` — `POST /briefing-chats`, `…/:annotationId/messages` (SSE) | `streamChatCompletion` via `ChatStreamService`                                     | `BRIEFING_CHAT_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']`  | `get_artifacts`, `web_search`, `district_insights`, `list_district_topics`, `get_my_notes`                                                        |
 | **Chief of Staff chat** (elected officials) | `src/chats/general/controllers/general-chats.controller.ts` — `POST /v1/chats`, `…/:conversationId/messages` (SSE)             | `streamChatCompletion` via `ChatStreamService`                                     | `CHIEF_OF_STAFF_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | `crud_priorities`, `list_briefings`, `get_briefing`, `web_search`, `query_constituent_data`, `describe_constituent_data`, `read_community_issues` |
+| **Ordinance flow chat** (elected officials) | same general-chats controller, `scope=ordinance_flow` — one conversation per (ordinance, step)                                 | `streamChatCompletion` via `ChatStreamService` (`maxSteps` 8)                      | `ORDINANCE_FLOW_MODELS = ['claude-sonnet-4-6','claude-opus-4-7']` | per step — see the ordinance flow paragraph below (`get_code_source`, `fetch_url`, `save_existing_law`, clarify widgets, `web_search`)            |
 
 Other non-chat **generation** surfaces (not interactive chat) live elsewhere and
 split across two providers. Some go through `LlmService` (Anthropic) non-streaming
@@ -93,14 +94,17 @@ frames with a 300s timeout and an `AbortController` on client disconnect. Error 
 register through the `CHAT_SCOPE_HANDLERS` DI token — adding a scope needs no
 controller/service change. `ChatScopeRegistry` **fails closed**: any `isSensitive`
 scope must use only `claude`-routed models, so tool outputs never leave Anthropic.
-Today **only `chief_of_staff` is registered**; `briefing_annotation` and
-`campaign_assistant` exist as `ChatScope` enum values but briefing chat still runs
-through its own dedicated controller/service.
+Today **`chief_of_staff` and `ordinance_flow` are registered**;
+`briefing_annotation` and `campaign_assistant` exist as `ChatScope` enum values
+but briefing chat still runs through its own dedicated controller/service.
+Handlers may also declare an optional `maxSteps` to raise the tool-loop step
+budget (ordinance flow uses 8).
 
 ## Tools / function calling
 
-The briefing and Chief of Staff surfaces register tools; campaign chat registers
-none. All tools are the `LlmStreamTool` shape defined in `src/llm/tools/`:
+The briefing, Chief of Staff, and ordinance flow surfaces register tools; campaign
+chat registers none. All tools are the `LlmStreamTool` shape defined in
+`src/llm/tools/`:
 
 - **`query_constituent_data` / `describe_constituent_data`** — aggregate,
   district-scoped constituent opinion + demographics from the `serve_agent_voters`
@@ -119,6 +123,16 @@ none. All tools are the `LlmStreamTool` shape defined in `src/llm/tools/`:
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
+
+The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
+per-step tool sets: `read_ordinance`, `get_code_source` (verified code-source
+lookup), `save_note`, and native `web_search` on every step; `offer_next_step`
+on all steps except `draft`; `ask_clarify_question` / `save_answer` /
+`save_synthesis` on the clarify step; `fetch_url` (SSRF-guarded page fetch →
+markdown) / `save_existing_law` on the current_law step. Its handler raises
+`maxSteps` to 8 — a current_law turn chains `get_code_source` + several
+`fetch_url` calls + `save_existing_law`, and the default 5 cuts research off
+mid-chain.
 
 COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 (`list_briefings`/`get_briefing`, `read_community_issues`). Tool-calling chat is
