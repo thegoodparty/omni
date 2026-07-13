@@ -23,30 +23,29 @@ export const ORDINANCE_STATUS_META: Record<OrdinanceStatus, StatusMeta> = {
   },
   draft: {
     label: 'Draft',
-    pillClass: 'border-success/40 bg-success-light text-success-dark',
-    filterClass: 'border-success/50 bg-success-light text-success-dark',
-    filterActiveClass: 'border-success bg-success-light text-success-dark',
+    pillClass: 'border-success/40 bg-success/10 text-success-dark',
+    filterClass: 'border-success/50 bg-success/10 text-success-dark',
+    filterActiveClass: 'border-success bg-success/20 text-success-dark',
   },
   in_review: {
     label: 'In review',
-    pillClass: 'border-warning/40 bg-warning-light text-warning-dark',
-    filterClass: 'border-warning/50 bg-warning-light text-warning-dark',
-    filterActiveClass: 'border-warning bg-warning-light text-warning-dark',
+    pillClass: 'border-warning/40 bg-warning/10 text-warning-dark',
+    filterClass: 'border-warning/50 bg-warning/10 text-warning-dark',
+    filterActiveClass: 'border-warning bg-warning/20 text-warning-dark',
   },
   proposed: {
     label: 'Proposed',
-    pillClass:
-      'border-destructive/40 bg-destructive-light text-destructive-dark',
+    pillClass: 'border-destructive/40 bg-destructive/10 text-destructive-dark',
     filterClass:
-      'border-destructive/50 bg-destructive-light text-destructive-dark',
+      'border-destructive/50 bg-destructive/10 text-destructive-dark',
     filterActiveClass:
-      'border-destructive bg-destructive-light text-destructive-dark',
+      'border-destructive bg-destructive/20 text-destructive-dark',
   },
   passed: {
     label: 'Passed',
-    pillClass: 'border-info/40 bg-info-light text-info-dark',
-    filterClass: 'border-info/50 bg-info-light text-info-dark',
-    filterActiveClass: 'border-info bg-info-light text-info-dark',
+    pillClass: 'border-info/40 bg-info/10 text-info-dark',
+    filterClass: 'border-info/50 bg-info/10 text-info-dark',
+    filterActiveClass: 'border-info bg-info/20 text-info-dark',
   },
   repealed: {
     label: 'Repealed',
