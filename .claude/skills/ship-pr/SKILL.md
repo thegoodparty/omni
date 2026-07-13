@@ -130,8 +130,12 @@ re-triggers them. Anchor on HEAD, the same as delegate.
 
 1. **Enumerate the checks for this PR.** `gh pr checks <n> --json name,bucket,link`
    (or equivalent). A check whose `bucket` is `skipping`/`skipped` isn't required —
-   ignore it. If the remaining set is empty (e.g. a docs-only PR with no package CI
-   configured), Phase 3 is satisfied immediately; move on.
+   ignore it. **An empty remaining set is not automatically "done"** — in this repo
+   essentially every PR triggers a full check matrix (Validate/build/deploy jobs
+   across every package, even for a docs-only diff), so an empty result right after
+   opening or pushing almost always means checks haven't registered yet, not that
+   none apply. Re-enumerate after a short wait (~30s, a couple of tries); only
+   treat the set as genuinely empty if it stays empty across those retries.
 
 2. **Wait for every `pending`/`in_progress` check to resolve.** Poll every
    ~60–90s. `E2E`, when present, is the slow one — it waits on gp-api's (slow)
@@ -169,10 +173,10 @@ re-triggers them. Anchor on HEAD, the same as delegate.
 
 5. **Apply, then re-converge.** Make the verified-valid fixes (re-run pre-flight on
    affected packages first — never push failing lint/types/unit tests). Commit and
-   push. The push re-triggers **both** delegate and the full check set for the new
-   HEAD, so loop back to **Phase 2 step 1** (comment `delegate review`) and
-   re-confirm both gates at the new HEAD. Done requires delegate approved and every
-   check green on the _same_ commit.
+   push. The push re-triggers delegate and the full check set for the new HEAD, so
+   loop back to **Phase 2 step 1** (comment `delegate review`) and re-confirm all
+   gates at the new HEAD. Done requires delegate approved and every check green on
+   the _same_ commit.
 
 6. **Round cap.** Stop after **2 check-fix rounds** (total across all checks, not
    per check). Beyond that, hand back the still-failing checks (with report links
