@@ -6,6 +6,7 @@ import { PhoneSchema } from '../shared/Phone.schema'
 import { RolesSchema } from '../shared/Roles.schema'
 import { ZipSchema } from '../shared/Zip.schema'
 import { makeOptional } from '../shared/zod.util'
+import { zCoerceDate } from '../shared/Date.schema'
 
 export const ReadUserOutputSchema = CreateUserInputSchema.omit({
   password: true,
@@ -21,6 +22,7 @@ export const ReadUserOutputSchema = CreateUserInputSchema.omit({
   hasPassword: z.boolean(),
   roles: RolesSchema,
   metaData: UserMetaDataSchema,
+  createdAt: zCoerceDate(),
 })
 
 export type ReadUserOutput = z.infer<typeof ReadUserOutputSchema>
