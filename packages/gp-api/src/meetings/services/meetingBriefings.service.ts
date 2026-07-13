@@ -797,14 +797,14 @@ export class MeetingBriefingsService extends createPrismaBase(
     })
     if (!eo) return
 
-    await this.dispatchBriefingIfNeeded(eo, new Date()).catch(
-      (err: unknown) => {
-        this.logger.error(
-          { err, electedOfficeId, scheduleRunId: run.runId },
-          'dispatchBriefingIfNeeded failed after schedule completion',
-        )
-      },
-    )
+    await this.dispatchBriefingIfNeeded(eo, new Date(), {
+      skipActivityGate: true,
+    }).catch((err: unknown) => {
+      this.logger.error(
+        { err, electedOfficeId, scheduleRunId: run.runId },
+        'dispatchBriefingIfNeeded failed after schedule completion',
+      )
+    })
   }
 
   @Cron('0 7 * * *')

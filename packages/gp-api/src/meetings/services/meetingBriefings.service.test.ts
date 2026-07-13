@@ -356,6 +356,54 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
     )
   })
 
+  it('chains a briefing even when the office user has never visited (activity gate skipped)', async () => {
+    // This hook exists to guarantee a newly onboarded office gets its first
+    // briefing. A sales-provisioned office's user may have no lastVisited at
+    // all yet -- that must not be treated as "inactive" and silently drop
+    // the very first briefing (see dispatchBriefingIfDue's identical
+    // skipActivityGate reasoning: reaching this point already proves the
+    // office is real and eligible, independent of the user's own activity).
+    const orgSlug = `eo-chain-never-visited-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, {
+      positionId: 'br-pos-chain-never-visited',
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: {} },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const artifactKey = await seedScheduleForOrg(orgSlug) // FREQ=DAILY → always inside window
+    const scheduleRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey,
+        params: { elected_office_id: eo.id },
+      },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(scheduleRun)
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
+    )
+  })
+
   it('does not chain a briefing when schedule completion shows no meeting inside the 3-day window', async () => {
     // Pin the clock to mid-year so Jan 1 (the next YEARLY occurrence) is
     // far outside the 3-day window. Without this, runs between roughly
