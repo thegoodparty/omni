@@ -23,8 +23,10 @@ import {
 } from './services/ordinanceFlowContext.service'
 import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
 import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
+import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
 import {
   buildAskClarifyQuestionTool,
+  buildBraveSearchTool,
   buildFetchUrlTool,
   buildGetCodeSourceTool,
   buildOfferNextStepTool,
@@ -65,6 +67,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     private readonly contextService: OrdinanceFlowContextService,
     private readonly tools: OrdinanceFlowToolsService,
     private readonly fetch: OrdinanceFlowFetchService,
+    private readonly search: OrdinanceFlowSearchService,
     private readonly features: FeaturesService,
     private readonly districtResolver?: DistrictResolverService,
   ) {}
@@ -170,6 +173,7 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     const deps: OrdinanceToolDeps = {
       service: this.tools,
       fetch: this.fetch,
+      search: this.search,
       ordinanceId: ctx.ordinanceId,
       electedOfficeId: ctx.electedOfficeId,
       organizationSlug: ctx.organizationSlug,
@@ -207,6 +211,13 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       tools.save_existing_law = buildSaveExistingLawTool(deps)
       tools.present_current_law_summary = buildPresentCurrentLawSummaryTool()
       tools.present_legislative_history = buildPresentLegislativeHistoryTool()
+      // Brave returns fetchable result URLs (Anthropic's native web_search
+      // hides them), so the model can find a server-rendered copy when
+      // fetch_url hits a browser-only page like Municode. Gated on the key so
+      // the system prompt never advertises a tool that was not registered.
+      if (process.env.BRAVE_API_KEY) {
+        tools.brave_search = buildBraveSearchTool(deps)
+      }
     }
 
     if (ctx.step === 'comparables') {

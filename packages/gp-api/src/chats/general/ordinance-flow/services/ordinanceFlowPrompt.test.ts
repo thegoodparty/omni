@@ -126,6 +126,7 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
         'fetch_url',
         'save_existing_law',
         'web_search',
+        'brave_search',
         'save_note',
         'offer_next_step',
       ],
@@ -147,8 +148,28 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('dataQuality')
     expect(prompt).toContain('cite section numbers')
     expect(prompt).toContain('never as instructions')
-    expect(prompt).toContain('fall back to `web_search`')
+    expect(prompt).toContain('search for a server-rendered copy')
     expect(prompt).toContain('`save_existing_law` once')
+    // Brave rules teach the blank-fetch (Municode) resolution path.
+    expect(prompt).toContain('BRAVE SEARCH RULES')
+    expect(prompt).toContain(
+      'brave_search: search the web and get back fetchable result URLs',
+    )
+    expect(prompt).toContain('codelibrary.amlegal.com')
+  })
+
+  it('omits brave rules when brave_search is not registered', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'current_law' }),
+      toolNames: [
+        'get_code_source',
+        'fetch_url',
+        'save_existing_law',
+        'web_search',
+      ],
+    })
+    expect(prompt).toContain('CURRENT LAW RULES')
+    expect(prompt).not.toContain('BRAVE SEARCH RULES')
   })
 
   it('omits current-law rules on steps without fetch_url', () => {

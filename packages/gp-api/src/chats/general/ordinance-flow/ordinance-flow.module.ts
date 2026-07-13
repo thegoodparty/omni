@@ -14,6 +14,7 @@ import {
 } from './ordinanceFlow.handler'
 import { OrdinanceFlowContextService } from './services/ordinanceFlowContext.service'
 import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
+import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
 import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
 
 export { ORDINANCE_FLOW_MODELS }
@@ -31,6 +32,7 @@ export { ORDINANCE_FLOW_MODELS }
     OrdinanceFlowContextService,
     OrdinanceFlowToolsService,
     OrdinanceFlowFetchService,
+    OrdinanceFlowSearchService,
     GeneralChatStoreService,
     DistrictResolverService,
   ],
