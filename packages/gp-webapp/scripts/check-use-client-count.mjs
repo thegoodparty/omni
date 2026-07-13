@@ -45,7 +45,12 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-10: 533 -> 534 for useCampaignStoryComplete — a React Query hook
 // (useQuery + useCampaignStory) that gates the campaign-plan router on story
 // completeness, so it must run on the client.
-const BASELINE = 534
+// 2026-07-13: 534 -> 536 for the Ordinances list page's two sections
+// (MyOrdinancesSection, MyPriorityIssuesSection): both are interactive —
+// client-side status filtering, and the "Work on this" seed action with
+// useRouter — so they can't be server components. The page.tsx shell stays a
+// server component.
+const BASELINE = 536
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

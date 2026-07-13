@@ -2,6 +2,7 @@ import type {
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
   Ordinance,
+  OrdinanceListResponse,
   SaveOrdinanceClarifyAnswerRequest,
   Priority,
   ChatAnchor,
@@ -457,9 +458,19 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'GET /v1/ordinances': {
+    Request: {}
+    Response: OrdinanceListResponse
+  }
+
   'POST /v1/ordinances': {
     Request: CreateOrdinanceRequest
     Response: Ordinance
+  }
+
+  'GET /v1/priorities': {
+    Request: {}
+    Response: Priority[]
   }
 
   'GET /v1/ordinances/:slug': {

@@ -15,6 +15,7 @@ const links = (
     winVoterDataEnabled = false,
     campaignStoryEnabled = false,
     communityIssuesEnabled = true,
+    ordinancesEnabled = false,
   }: {
     serveAccessEnabled?: boolean
     isElectedOffice?: boolean
@@ -23,6 +24,7 @@ const links = (
     winVoterDataEnabled?: boolean
     campaignStoryEnabled?: boolean
     communityIssuesEnabled?: boolean
+    ordinancesEnabled?: boolean
   } = {},
 ) =>
   getDashboardMenuItems(
@@ -35,6 +37,7 @@ const links = (
     winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
+    ordinancesEnabled,
   )
 
 describe('getDashboardMenuItems — Win Contacts gating', () => {
@@ -145,6 +148,7 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
       false, // winVoterDataEnabled
       true, // campaignStoryEnabled
       false, // communityIssuesEnabled
+      false, // ordinancesEnabled
     )
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
     const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
@@ -175,6 +179,7 @@ describe('getDashboardMenuItems — Campaign Plan tab label', () => {
       false, // winVoterDataEnabled
       false, // campaignStoryEnabled
       false, // communityIssuesEnabled
+      false, // ordinancesEnabled
     )
     const planItem = items.find((i) => i.id === 'campaign-plan-dashboard')
     expect(planItem?.label).toBe('Campaign Plan')
@@ -288,5 +293,31 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     expect(planIdx).toBeGreaterThanOrEqual(0)
     expect(storyIdx).toBeGreaterThanOrEqual(0)
     expect(planIdx).toBeLessThan(storyIdx)
+  })
+})
+
+describe('getDashboardMenuItems — Ordinances tab gating', () => {
+  it('shows the Ordinances item for an elected office when the flag is on', () => {
+    const items = links(proCampaign, {
+      isElectedOffice: true,
+      ordinancesEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(true)
+  })
+
+  it('hides the Ordinances item when the flag is off', () => {
+    const items = links(proCampaign, {
+      isElectedOffice: true,
+      ordinancesEnabled: false,
+    })
+    expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
+  })
+
+  it('hides the Ordinances item for a non-elected office even with the flag on', () => {
+    const items = links(proCampaign, {
+      isElectedOffice: false,
+      ordinancesEnabled: true,
+    })
+    expect(items.some((i) => i.id === 'ordinances-dashboard')).toBe(false)
   })
 })
