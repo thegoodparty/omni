@@ -61,8 +61,8 @@ describe('Ordinances endpoints', () => {
     expect(gone.status).toBe(404)
   })
 
-  it('persists a clarify answer by questionId (replace on re-answer)', async () => {
-    const orgSlug = 'eo-ordinances-clarify'
+  it('persists a clarify answer by questionId', async () => {
+    const orgSlug = 'eo-ordinances-clarify-save'
     await seedElectedOffice(orgSlug)
     const header = orgHeader(orgSlug)
     const created = await service.client.post(
@@ -81,8 +81,24 @@ describe('Ordinances endpoints', () => {
     expect(saved.data.clarifyAnswers).toEqual([
       { questionId: 'q1', question: 'What hours?', answer: '10pm-6am' },
     ])
+  })
 
-    // Re-answering the same questionId replaces rather than duplicating.
+  it('replaces an existing answer when the same questionId is re-answered', async () => {
+    const orgSlug = 'eo-ordinances-clarify-replace'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Noise' },
+      header,
+    )
+    const { slug } = created.data
+
+    await service.client.post(
+      `/v1/ordinances/${slug}/clarify-answers`,
+      { questionId: 'q1', question: 'What hours?', answer: '10pm-6am' },
+      header,
+    )
     const reanswered = await service.client.post(
       `/v1/ordinances/${slug}/clarify-answers`,
       { questionId: 'q1', question: 'What hours?', answer: '11pm-5am' },

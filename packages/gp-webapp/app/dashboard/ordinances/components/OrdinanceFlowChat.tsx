@@ -9,6 +9,7 @@ import {
   OrdinanceNextStepOfferSchema,
   type ChatAnchor,
   type Ordinance,
+  type OrdinanceClarifyAnswer,
   type OrdinanceClarifyQuestion,
   type OrdinanceFlowStep,
   type OrdinanceNextStepOffer,
@@ -80,6 +81,16 @@ const parseClarify = (value: unknown): OrdinanceClarifyQuestion | null => {
   const parsed = OrdinanceClarifyQuestionSchema.safeParse(value)
   return parsed.success ? parsed.data : null
 }
+
+// Project a persisted clarify answer into the local recordedAnswers shape
+// (drops the optional source, which reconciliation does not use).
+const toRecordedAnswer = (
+  a: OrdinanceClarifyAnswer,
+): { questionId: string; question: string; answer: string } => ({
+  questionId: a.questionId,
+  question: a.question,
+  answer: a.answer,
+})
 
 // The clarify question a persisted assistant turn asked (from its tool segment
 // payload), so the widget renders inline in that turn on reload.
@@ -319,11 +330,7 @@ export default function OrdinanceFlowChat({
         })
           .then((updated) => {
             setRecordedAnswers(
-              (updated.clarifyAnswers ?? []).map((a) => ({
-                questionId: a.questionId,
-                question: a.question,
-                answer: a.answer,
-              })),
+              (updated.clarifyAnswers ?? []).map(toRecordedAnswer),
             )
           })
           .catch(() => {
@@ -374,11 +381,7 @@ export default function OrdinanceFlowChat({
           ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance',
         )
         setRecordedAnswers(
-          (ordinance.clarifyAnswers ?? []).map((a) => ({
-            questionId: a.questionId,
-            question: a.question,
-            answer: a.answer,
-          })),
+          (ordinance.clarifyAnswers ?? []).map(toRecordedAnswer),
         )
         setMessages(history)
         setPhase('ready')
