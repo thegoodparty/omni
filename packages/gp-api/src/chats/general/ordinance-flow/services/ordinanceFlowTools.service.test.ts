@@ -4,6 +4,7 @@ import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OrdinanceFlowToolsService } from './ordinanceFlowTools.service'
 import { OrdinanceFlowFetchService } from './ordinanceFlowFetch.service'
+import { OrdinanceFlowSearchService } from './ordinanceFlowSearch.service'
 import {
   buildPresentAuthorityFindingTool,
   buildPresentComparablesTool,
@@ -354,6 +355,7 @@ describe('ordinance-flow present_* tool builders', () => {
     deps = {
       service: tools,
       fetch: service.app.get(OrdinanceFlowFetchService),
+      search: service.app.get(OrdinanceFlowSearchService),
       ordinanceId,
       electedOfficeId,
       organizationSlug: 'org-unused',
