@@ -56,7 +56,7 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
 - `POST /dispatch-if-needed` — any authenticated user; self-serve landing
   catch-up (`dispatchIfNeeded`). Dispatches both experiment types for the
   caller's own org if ICP-eligible and not already in flight, skipping only
-  the 90-day-inactivity gate (landing already proves activity). Distinct from
+  the 30-day-inactivity gate (landing already proves activity). Distinct from
   `self-dispatch`, which is staff-only and single-type.
 
 ## Activity gate
@@ -66,10 +66,13 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
 defaulting to `true` so `dispatchForCohort`/`dispatchSelfServe` keep their
 existing unconditional-dispatch behavior. The cron (`dispatchSlice`) is the
 only caller that passes `skipActivityGate: false` — if the user hasn't
-opened the product in `INACTIVITY_THRESHOLD_DAYS` (90), it fires
+opened the product in `INACTIVITY_THRESHOLD_DAYS` (30), it fires
 `Community Issues - Dispatch Skipped` (feeds a HubSpot re-engagement email)
 instead of dispatching. `dispatchIfNeeded` passes `skipActivityGate: true`
-explicitly.
+explicitly. The gate itself (`isInactiveUser`, `INACTIVITY_THRESHOLD_DAYS`)
+lives in `src/shared/util/userActivity.util.ts`, shared with
+`meetingBriefings.service.ts` — the two domains use the same threshold and
+comparison, just wired through different dispatch flows.
 
 ## Test command
 

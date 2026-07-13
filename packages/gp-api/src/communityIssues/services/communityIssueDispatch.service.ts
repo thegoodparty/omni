@@ -9,6 +9,7 @@ import { Cron } from '@nestjs/schedule'
 import { differenceInCalendarDays } from 'date-fns'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
+import { isInactiveUser } from '@/shared/util/userActivity.util'
 import {
   bucketForSlug,
   topIssuesBucketForDate,
@@ -27,18 +28,6 @@ const isAutomationEnabled = () =>
 
 const TRENDING_CRON_JOB = 'trending_issues'
 const TOP_CRON_JOB = 'top_community_issues'
-
-// Don't spend generation budget on a user who hasn't opened the product in
-// this many days — fire a re-engagement signal instead. The on-demand
-// landing-catch-up path skips this gate, since landing already proves
-// activity. Independent constant from meetingBriefings.service's — see "Why
-// fully WET" in the design: the two domains intentionally don't share code.
-const INACTIVITY_THRESHOLD_DAYS = 90
-
-const isInactiveUser = (lastVisitedMs: number | undefined): boolean =>
-  !lastVisitedMs ||
-  differenceInCalendarDays(new Date(), new Date(lastVisitedMs)) >
-    INACTIVITY_THRESHOLD_DAYS
 
 type DispatchSummary = { dispatched: number; skipped: number }
 
@@ -234,7 +223,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 
   /**
    * Self-serve landing catch-up: dispatch both experiment types for the
-   * caller's own org, skipping the 90-day-inactivity gate (landing on the
+   * caller's own org, skipping the 30-day-inactivity gate (landing on the
    * dashboard already proves activity). ICP eligibility and the in-flight
    * check still apply, same as every other dispatch path. Distinct from
    * `dispatchSelfServe` (staff-only, single type, manual refresh button).
@@ -296,7 +285,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     // signal instead. Admin/staff dispatch paths (dispatchForCohort,
     // dispatchSelfServe) never set skipActivityGate, so they keep their
     // existing unconditional-dispatch behavior.
-    if (!skipActivityGate && isInactiveUser(ctx.lastVisitedMs)) {
+    if (!skipActivityGate && isInactiveUser(ctx.lastVisitedMs, new Date())) {
       await this.trackDispatchSkippedInactive(orgSlug, experimentType, ctx)
       return false
     }

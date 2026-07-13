@@ -9,6 +9,7 @@ import {
 import { LlmService } from '@/llm/services/llm.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { isInactiveUser } from '@/shared/util/userActivity.util'
 import { getUserFullName } from '@/users/util/users.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { BraintrustService } from '@/vendors/braintrust/braintrust.service'
@@ -148,20 +149,6 @@ const IMMINENCE_WINDOW_DAYS = 3
 // Ungated manual dispatches ("brief now" / admin override) project this far
 // out instead, so an operator can pre-brief any office.
 const MANUAL_DISPATCH_WINDOW_DAYS = 60
-
-// Don't spend generation budget on a user who hasn't opened the product in
-// this many days — fire a re-engagement signal instead. The on-demand path
-// (landing on the dashboard) skips this gate, since landing already proves
-// activity.
-const INACTIVITY_THRESHOLD_DAYS = 90
-
-const isInactiveUser = (
-  lastVisitedMs: number | undefined,
-  now: Date,
-): boolean =>
-  !lastVisitedMs ||
-  differenceInCalendarDays(now, new Date(lastVisitedMs)) >
-    INACTIVITY_THRESHOLD_DAYS
 
 type TargetMeeting = {
   meetingDate: string // YYYY-MM-DD
