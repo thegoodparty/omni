@@ -61,6 +61,54 @@ describe('Ordinances endpoints', () => {
     expect(gone.status).toBe(404)
   })
 
+  it('persists a clarify answer by questionId', async () => {
+    const orgSlug = 'eo-ordinances-clarify-save'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Noise' },
+      header,
+    )
+    const { slug } = created.data
+
+    const saved = await service.client.post(
+      `/v1/ordinances/${slug}/clarify-answers`,
+      { questionId: 'q1', question: 'What hours?', answer: '10pm-6am' },
+      header,
+    )
+    expect(saved.status).toBe(201)
+    expect(saved.data.clarifyAnswers).toEqual([
+      { questionId: 'q1', question: 'What hours?', answer: '10pm-6am' },
+    ])
+  })
+
+  it('replaces an existing answer when the same questionId is re-answered', async () => {
+    const orgSlug = 'eo-ordinances-clarify-replace'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Noise' },
+      header,
+    )
+    const { slug } = created.data
+
+    await service.client.post(
+      `/v1/ordinances/${slug}/clarify-answers`,
+      { questionId: 'q1', question: 'What hours?', answer: '10pm-6am' },
+      header,
+    )
+    const reanswered = await service.client.post(
+      `/v1/ordinances/${slug}/clarify-answers`,
+      { questionId: 'q1', question: 'What hours?', answer: '11pm-5am' },
+      header,
+    )
+    expect(reanswered.data.clarifyAnswers).toEqual([
+      { questionId: 'q1', question: 'What hours?', answer: '11pm-5am' },
+    ])
+  })
+
   it('requires issueSlug when the seed type is issue', async () => {
     const orgSlug = 'eo-ordinances-validate'
     await seedElectedOffice(orgSlug)
