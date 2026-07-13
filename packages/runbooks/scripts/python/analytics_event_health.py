@@ -136,8 +136,9 @@ def to_date(value: Any) -> date | None:
 def parse_gpmeta(description: str | None) -> dict | None:
     """Parse the ``<!-- gp-meta -->`` block from a Govern description.
 
-    Returns ``{"intent": "in_use"|"not_in_use"|None, "supersession": str|None, "purpose": str|None}`` or
-    ``None`` when no block is present. Sparse today; the logic is ready for when the
+    Returns ``{"intent": "in_use"|"not_in_use"|None, "intent_date": str|None,
+    "supersession": str|None, "purpose": str|None}`` (``intent_date`` is the YYYY-MM-DD on
+    the in-use / not-in-use status line) or ``None`` when no block is present. Sparse today; the logic is ready for when the
     instrument-analytics-event / event-metadata skills start writing it.
     """
     if not description:
@@ -147,10 +148,17 @@ def parse_gpmeta(description: str | None) -> dict | None:
         return None
     block = match.group(1)
     intent = None
-    if re.search(r"^\s*not in use", block, re.IGNORECASE | re.MULTILINE):
+    status_line = re.search(r"^\s*not in use[^\n]*", block, re.IGNORECASE | re.MULTILINE)
+    if status_line:
         intent = "not_in_use"
-    elif re.search(r"^\s*in use", block, re.IGNORECASE | re.MULTILINE):
-        intent = "in_use"
+    else:
+        status_line = re.search(r"^\s*in use[^\n]*", block, re.IGNORECASE | re.MULTILINE)
+        if status_line:
+            intent = "in_use"
+    intent_date = None
+    if status_line:
+        d = re.search(r"\d{4}-\d{2}-\d{2}", status_line.group(0))
+        intent_date = d.group(0) if d else None
     sup = re.search(r"supersession:\s*(.+)", block, re.IGNORECASE)
     # Purpose: the first content line that is neither a known field nor an in/out-of-use
     # status line. Trailing " |" (the gp-meta line separator) is stripped.
@@ -165,6 +173,7 @@ def parse_gpmeta(description: str | None) -> dict | None:
         break
     return {
         "intent": intent,
+        "intent_date": intent_date,
         "supersession": sup.group(1).rstrip().removesuffix("|").rstrip() if sup else None,
         "purpose": purpose,
     }

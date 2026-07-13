@@ -55,6 +55,17 @@ def test_parse_gpmeta_in_use():
     assert eh.parse_gpmeta(desc)["intent"] == "in_use"
 
 
+def test_parse_gpmeta_extracts_intent_date():
+    not_in_use = "<!-- gp-meta -->\npurpose\nnot in use: 2026-05-05 (retired, #1790)\n<!-- /gp-meta -->"
+    assert eh.parse_gpmeta(not_in_use)["intent_date"] == "2026-05-05"
+    in_use = "<!-- gp-meta -->\npurpose\nin use: 2026-06-18 (#1)\n<!-- /gp-meta -->"
+    assert eh.parse_gpmeta(in_use)["intent_date"] == "2026-06-18"
+    dateless = "<!-- gp-meta -->\npurpose\nin use\n<!-- /gp-meta -->"
+    meta = eh.parse_gpmeta(dateless)
+    assert meta["intent"] == "in_use"
+    assert meta["intent_date"] is None
+
+
 def test_parse_gpmeta_extracts_purpose():
     desc = (
         "<!-- gp-meta -->\n"

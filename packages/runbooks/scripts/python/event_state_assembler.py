@@ -23,10 +23,12 @@ select event_type, govern_display_name, family, first_seen_date, last_seen_date,
 from {CATALOG_TABLE}
 """
 
-# 16 columns, render order. See the design doc for the rationale behind the set.
+# 18 columns, render order. See the design doc for the rationale behind the set.
 COLUMNS = [
     "event",
     "status",
+    "declared_intent",
+    "intent_date",
     "supersession",
     "family",
     "first_seen_date",
@@ -92,6 +94,10 @@ def build_rows(
             {
                 "event": cat.get("govern_display_name") or event_type,
                 "status": rec["status"],
+                "declared_intent": {"in_use": "in use", "not_in_use": "not in use"}.get(
+                    gpmeta.get("intent"), ""
+                ),
+                "intent_date": _blank(gpmeta.get("intent_date")),
                 "supersession": supersession,
                 "family": _blank(rec.get("family") or cat.get("family")),
                 "first_seen_date": _blank(cat.get("first_seen_date")),
@@ -168,7 +174,7 @@ def assemble(
     overrides: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict:
     """Load the catalog + provenance, derive status via the shared reconcile(), and project
-    into the 16-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
+    into the 18-column table. weekly_rows=[] skips the monitor's anomaly query — irrelevant
     to this surface — while still yielding the authoritative status for every event.
     ``overrides`` maps event_type -> {govern_*} to overlay Amplitude-direct metadata onto
     (or inject rows into) the Databricks catalog (DATA-2053)."""
