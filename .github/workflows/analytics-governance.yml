@@ -55,6 +55,9 @@ jobs:
       GP_EVENT_STATE_SHEET_ID: ${{ vars.GP_EVENT_STATE_SHEET_ID }}
     steps:
       - name: Preflight required config
+        env:
+          AUTOMATION_APP_ID: ${{ vars.AUTOMATION_APP_ID }}
+          AUTOMATION_APP_PRIVATE_KEY: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           missing=""
@@ -62,6 +65,8 @@ jobs:
           [ -n "$DATABRICKS_HTTP_PATH" ] || missing="$missing vars.DATABRICKS_HTTP_PATH"
           [ -n "$DATABRICKS_CLIENT_ID" ] || missing="$missing secrets.DATABRICKS_CLIENT_ID"
           [ -n "$DATABRICKS_CLIENT_SECRET" ] || missing="$missing secrets.DATABRICKS_CLIENT_SECRET"
+          [ -n "$AUTOMATION_APP_ID" ] || missing="$missing vars.AUTOMATION_APP_ID"
+          [ -n "$AUTOMATION_APP_PRIVATE_KEY" ] || missing="$missing secrets.AUTOMATION_APP_PRIVATE_KEY"
           if [ -n "$missing" ]; then
             echo "::error::Missing required config:$missing (see DATA-2069 for the Databricks service principal)"
             exit 1
