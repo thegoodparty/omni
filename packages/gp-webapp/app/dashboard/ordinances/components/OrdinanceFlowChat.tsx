@@ -22,12 +22,11 @@ import { AssistantRow, InlineSegments } from '../../shared/agent-chat/chatUI'
 import {
   segmentsTextLength,
   segmentsToLive,
-  useSmoothReveal,
-  type LiveSegment,
 } from '../../shared/agent-chat/streaming'
+import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
-import { ORDINANCE_TOOL_LABELS, ordinanceToolLabel } from '../data/toolLabels'
+import { ordinanceToolLabel } from '../data/toolLabels'
 import {
   ORDINANCE_STEP_LABELS,
   isOrdinanceStep,
@@ -45,12 +44,6 @@ import {
 
 const CLARIFY_TOOL = 'ask_clarify_question'
 const OFFER_TOOL = 'offer_next_step'
-
-// How often send polls the smooth-reveal counter while draining the tail after
-// the network stream ends, plus a backstop tick cap so an unmount mid-drain can
-// never wedge the loop (250 * 40ms = 10s ceiling).
-const REVEAL_DRAIN_POLL_MS = 40
-const REVEAL_DRAIN_MAX_TICKS = 250
 
 // User-meaningful "working" actions shown as shimmer pills. Bookkeeping tools
 // (ask_clarify_question renders as the widget; save_note/save_synthesis are
@@ -145,8 +138,6 @@ export default function OrdinanceFlowChat({
   const [recordedAnswers, setRecordedAnswers] = useState<
     Array<{ questionId: string; question: string; answer: string }>
   >([])
-  const [messages, setMessages] = useState<ChatMessageDto[]>([])
-  const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([])
   const [liveClarify, setLiveClarify] =
     useState<OrdinanceClarifyQuestion | null>(null)
   const [liveOffer, setLiveOffer] = useState<OrdinanceNextStepOffer | null>(
@@ -162,7 +153,6 @@ export default function OrdinanceFlowChat({
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
-  const [sending, setSending] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
@@ -171,141 +161,83 @@ export default function OrdinanceFlowChat({
   const answeringRef = useRef(false)
   const router = useRouter()
 
-  // Smooth type-out for the in-flight turn: the reveal trails the arrived text
-  // and drains after the stream ends (useSmoothReveal). `revealedRef` lets send
-  // hold the history swap until the tail has typed out.
-  const { visibleSegments, revealedRef } = useSmoothReveal(
+  // The shared streaming-turn driver owns the mechanical turn: optimistic push,
+  // interleaved text/pill assembly, the stream loop, and the reveal-drain handoff
+  // to persisted history. This step's structured output — clarify/offer/step
+  // widgets and the "generating" label — layers on through the handler seams.
+  const {
+    messages,
+    setMessages,
     liveSegments,
+    visibleSegments,
     sending,
+    send: sendTurn,
+  } = useStreamingTurn(ordinanceFlowChatApi, {
+    toolLabel: ordinanceToolLabel,
+    onTurnStart: () => {
+      setStreamError(null)
+      setLiveClarify(null)
+      setLiveOffer(null)
+      setLiveWidgets([])
+      setGeneratingTool(null)
+    },
+    onTurnSettle: () => {
+      setLiveClarify(null)
+      setLiveOffer(null)
+      setLiveWidgets([])
+      setGeneratingTool(null)
+    },
+    onError: (message) => setStreamError(message),
+    onEvent: (event, { textLength }) => {
+      if (event.type === 'tool_input_start') {
+        setGeneratingTool(event.toolName)
+        return true
+      }
+      if (event.type === 'tool_call') {
+        setGeneratingTool(null)
+        if (event.toolName === CLARIFY_TOOL) {
+          const parsed = parseClarify(event.args)
+          if (parsed) setLiveClarify(parsed)
+          return true
+        }
+        if (event.toolName === OFFER_TOOL) {
+          setLiveOffer(parseOffer(event.args) ?? {})
+          return true
+        }
+        if (isStepWidgetTool(event.toolName)) {
+          const widget = parseStepWidget(event.toolName, event.args)
+          if (widget) {
+            setLiveWidgets((prev) => [
+              ...prev,
+              { instance: widget, appearAfter: textLength() },
+            ])
+          }
+          return true
+        }
+      }
+      return false
+    },
+  })
+
+  // Thin wrapper preserving this component's call sites: resolve the target
+  // conversation (idOverride lets the kickoff fire before state settles) and let
+  // the shared driver run the turn.
+  const send = useCallback(
+    (
+      content: string,
+      opts?: { hidden?: boolean; idOverride?: string },
+    ): Promise<void> => {
+      const id = opts?.idOverride ?? conversationId
+      if (!id) return Promise.resolve()
+      return sendTurn(id, content, { hidden: opts?.hidden })
+    },
+    [conversationId, sendTurn],
   )
 
   const nextStep = stepValue ? nextOrdinanceStep(stepValue) : null
   const goToNextStep = useCallback(() => {
     if (nextStep) router.push(`/dashboard/ordinances/solve/${slug}/${nextStep}`)
   }, [router, slug, nextStep])
-
-  const send = useCallback(
-    async (
-      content: string,
-      opts?: { hidden?: boolean; idOverride?: string },
-    ): Promise<void> => {
-      const id = opts?.idOverride ?? conversationId
-      const trimmed = content.trim()
-      if (!id || !trimmed || sending) return
-      setSending(true)
-      setStreamError(null)
-      setLiveSegments([])
-      setLiveClarify(null)
-      setLiveOffer(null)
-      setLiveWidgets([])
-      setGeneratingTool(null)
-      if (!opts?.hidden) {
-        setComposer('')
-        const optimistic: ChatMessageDto = {
-          id: `pending-${crypto.randomUUID()}`,
-          conversationId: id,
-          role: 'user',
-          content: trimmed,
-          createdAt: new Date().toISOString(),
-        }
-        setMessages((prev) => [...prev, optimistic])
-      }
-
-      // Build the turn as interleaved text + tool segments so pills render
-      // inline in stream order; consecutive text deltas coalesce into one block.
-      const segments: LiveSegment[] = []
-      const pushText = (delta: string): void => {
-        const last = segments[segments.length - 1]
-        if (last && last.kind === 'text') {
-          segments[segments.length - 1] = {
-            kind: 'text',
-            text: last.text + delta,
-          }
-        } else {
-          segments.push({ kind: 'text', text: delta })
-        }
-        setLiveSegments([...segments])
-      }
-
-      try {
-        for await (const event of ordinanceFlowChatApi.streamMessage({
-          conversationId: id,
-          content: trimmed,
-          clientMessageId: crypto.randomUUID(),
-        })) {
-          if (event.type === 'text') {
-            pushText(event.delta)
-          } else if (event.type === 'tool_input_start') {
-            setGeneratingTool(event.toolName)
-          } else if (event.type === 'tool_call') {
-            setGeneratingTool(null)
-            if (event.toolName === CLARIFY_TOOL) {
-              const parsed = parseClarify(event.args)
-              if (parsed) setLiveClarify(parsed)
-            } else if (event.toolName === OFFER_TOOL) {
-              setLiveOffer(parseOffer(event.args) ?? {})
-            } else if (isStepWidgetTool(event.toolName)) {
-              const widget = parseStepWidget(event.toolName, event.args)
-              if (widget) {
-                const appearAfter = segmentsTextLength(segments)
-                setLiveWidgets((prev) => [
-                  ...prev,
-                  { instance: widget, appearAfter },
-                ])
-              }
-            } else if (ORDINANCE_TOOL_LABELS[event.toolName]) {
-              segments.push({
-                kind: 'tool',
-                toolName: event.toolName,
-                running: true,
-              })
-              setLiveSegments([...segments])
-            }
-          } else if (event.type === 'tool_result') {
-            // The tool finished; stop its pill shimmering. Clear the most recent
-            // still-running segment for this tool (tools run one at a time).
-            for (let i = segments.length - 1; i >= 0; i--) {
-              const seg = segments[i]
-              if (
-                seg &&
-                seg.kind === 'tool' &&
-                seg.toolName === event.toolName &&
-                seg.running
-              ) {
-                segments[i] = { ...seg, running: false }
-                setLiveSegments([...segments])
-                break
-              }
-            }
-          } else if (event.type === 'error') {
-            setStreamError(event.message)
-          }
-        }
-        // Hold the swap to persisted history until the smooth reveal has typed
-        // out the tail, so the last words don't snap in on the handoff.
-        const total = segmentsTextLength(segments)
-        let ticks = 0
-        while (revealedRef.current < total && ticks < REVEAL_DRAIN_MAX_TICKS) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
-          )
-          ticks += 1
-        }
-        const history = await ordinanceFlowChatApi.listMessages(id)
-        setMessages(history)
-      } catch {
-        setStreamError('Something went wrong. Please try again.')
-      } finally {
-        setLiveSegments([])
-        setLiveClarify(null)
-        setLiveOffer(null)
-        setLiveWidgets([])
-        setGeneratingTool(null)
-        setSending(false)
-      }
-    },
-    [conversationId, sending],
-  )
 
   const answerClarify = useCallback(
     (questionId: string, question: string, answer: string): void => {
@@ -602,7 +534,9 @@ export default function OrdinanceFlowChat({
           className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pl-4 pr-1"
           onSubmit={(e) => {
             e.preventDefault()
-            void send(composer)
+            const text = composer
+            setComposer('')
+            void send(text)
           }}
         >
           <Input

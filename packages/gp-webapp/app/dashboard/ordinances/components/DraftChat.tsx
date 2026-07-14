@@ -2,7 +2,6 @@
 
 import {
   forwardRef,
-  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -12,39 +11,28 @@ import {
 import { IconButton, Input } from '@styleguide'
 import { SendIcon } from '@styleguide/components/ui/icons'
 import type { ChatAnchor, Ordinance } from '@goodparty_org/contracts'
-import type { ChatMessageDto } from '../../shared/agent-chat/chatClient'
 import { AssistantRow, InlineSegments } from '../../shared/agent-chat/chatUI'
-import {
-  segmentsTextLength,
-  segmentsToLive,
-  useSmoothReveal,
-  type LiveSegment,
-} from '../../shared/agent-chat/streaming'
+import { segmentsToLive } from '../../shared/agent-chat/streaming'
+import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { ordinanceFlowChatApi } from '../data/chat-api'
-import { ORDINANCE_TOOL_LABELS, ordinanceToolLabel } from '../data/toolLabels'
-
-const REVEAL_DRAIN_POLL_MS = 40
-const REVEAL_DRAIN_MAX_TICKS = 250
+import { ordinanceToolLabel } from '../data/toolLabels'
 
 export type DraftChatHandle = { seed: (composerText: string) => void }
 
 // A slim chat about the draft: the ordinance_flow conversation anchored to the
-// draft step, orchestrating the shared streaming/reveal primitives. Exposes
-// seed(text) so the draft editor's highlight toolbar can prefill the composer
-// with a question about a selected passage.
+// draft step. Streaming, reveal, and the turn loop come from the shared
+// useStreamingTurn driver; this component only adds the composer, the seed()
+// handle, and history rendering. Exposes seed(text) so the draft editor's
+// highlight toolbar can prefill the composer with a question about a passage.
 const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
   function DraftChat({ ordinance }, ref): React.JSX.Element {
     const [conversationId, setConversationId] = useState<string | null>(null)
-    const [messages, setMessages] = useState<ChatMessageDto[]>([])
-    const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([])
     const [composer, setComposer] = useState('')
-    const [sending, setSending] = useState(false)
     const bottomRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
-    const { visibleSegments, revealedRef } = useSmoothReveal(
-      liveSegments,
-      sending,
-    )
+
+    const { messages, setMessages, visibleSegments, sending, send } =
+      useStreamingTurn(ordinanceFlowChatApi, { toolLabel: ordinanceToolLabel })
 
     useEffect(() => {
       let cancelled = false
@@ -77,97 +65,13 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
       return () => {
         cancelled = true
       }
-    }, [ordinance.id, ordinance.slug, ordinance.draftTitle, ordinance.goalText])
-
-    const send = useCallback(
-      async (content: string): Promise<void> => {
-        const id = conversationId
-        const trimmed = content.trim()
-        if (!id || !trimmed || sending) return
-        setSending(true)
-        setLiveSegments([])
-        setComposer('')
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `pending-${crypto.randomUUID()}`,
-            conversationId: id,
-            role: 'user',
-            content: trimmed,
-            createdAt: new Date().toISOString(),
-          },
-        ])
-
-        const segments: LiveSegment[] = []
-        const pushText = (delta: string): void => {
-          const last = segments[segments.length - 1]
-          if (last && last.kind === 'text') {
-            segments[segments.length - 1] = {
-              kind: 'text',
-              text: last.text + delta,
-            }
-          } else {
-            segments.push({ kind: 'text', text: delta })
-          }
-          setLiveSegments([...segments])
-        }
-
-        try {
-          for await (const event of ordinanceFlowChatApi.streamMessage({
-            conversationId: id,
-            content: trimmed,
-            clientMessageId: crypto.randomUUID(),
-          })) {
-            if (event.type === 'text') {
-              pushText(event.delta)
-            } else if (
-              event.type === 'tool_call' &&
-              ORDINANCE_TOOL_LABELS[event.toolName]
-            ) {
-              segments.push({
-                kind: 'tool',
-                toolName: event.toolName,
-                running: true,
-              })
-              setLiveSegments([...segments])
-            } else if (event.type === 'tool_result') {
-              for (let i = segments.length - 1; i >= 0; i--) {
-                const s = segments[i]
-                if (
-                  s &&
-                  s.kind === 'tool' &&
-                  s.toolName === event.toolName &&
-                  s.running
-                ) {
-                  segments[i] = { ...s, running: false }
-                  setLiveSegments([...segments])
-                  break
-                }
-              }
-            }
-          }
-          const total = segmentsTextLength(segments)
-          let ticks = 0
-          while (
-            revealedRef.current < total &&
-            ticks < REVEAL_DRAIN_MAX_TICKS
-          ) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
-            )
-            ticks += 1
-          }
-          const history = await ordinanceFlowChatApi.listMessages(id)
-          setMessages(history)
-        } catch {
-          // Swallow; the user can retry.
-        } finally {
-          setLiveSegments([])
-          setSending(false)
-        }
-      },
-      [conversationId, sending, revealedRef],
-    )
+    }, [
+      ordinance.id,
+      ordinance.slug,
+      ordinance.draftTitle,
+      ordinance.goalText,
+      setMessages,
+    ])
 
     useImperativeHandle(
       ref,
@@ -246,7 +150,10 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
           className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
           onSubmit={(e) => {
             e.preventDefault()
-            void send(composer)
+            if (!conversationId) return
+            const text = composer
+            setComposer('')
+            void send(conversationId, text)
           }}
         >
           <Input
