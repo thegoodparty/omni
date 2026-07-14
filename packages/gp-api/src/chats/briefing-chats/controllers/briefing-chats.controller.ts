@@ -17,6 +17,7 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from '@/authentication/decorators/ReqUser.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
+import { waitForDrain } from '@/chats/services/streamDrain.util'
 import { BriefingChatCreateService } from '../services/briefingChatCreate.service'
 import { BriefingChatsService } from '../services/briefing-chats.service'
 import {
@@ -38,6 +39,12 @@ const SSE_HEADERS: Record<string, string> = {
 }
 
 const STREAM_TIMEOUT_MS = 300_000
+
+// After this long backpressured on a single write with no drain, treat the
+// client as stalled and stop awaiting drain (write through the rest). Bounds a
+// connected-but-non-draining client so it can't wedge the stream for the full
+// STREAM_TIMEOUT_MS.
+const DRAIN_STALL_TIMEOUT_MS = 15_000
 
 const TIMEOUT_ERROR_CHUNK = `data: ${JSON.stringify({
   type: 'error',
@@ -62,44 +69,6 @@ const sanitizeChunk = (chunk: ChatStreamChunk): ChatStreamChunk => {
 
 const formatChunk = (chunk: ChatStreamChunk): string =>
   `data: ${JSON.stringify(sanitizeChunk(chunk))}\n\n`
-
-interface DrainableStream {
-  once?: (event: string, cb: () => void) => void
-  off?: (event: string, cb: () => void) => void
-}
-
-const waitForDrain = (
-  stream: DrainableStream,
-  signal: AbortSignal,
-): Promise<void> =>
-  new Promise<void>((resolve) => {
-    if (typeof stream.once !== 'function') {
-      resolve()
-      return
-    }
-    const cleanup = () => {
-      stream.off?.('drain', onDrain)
-      stream.off?.('close', onTerminal)
-      stream.off?.('error', onTerminal)
-      signal.removeEventListener('abort', onTerminal)
-    }
-    const onDrain = () => {
-      cleanup()
-      resolve()
-    }
-    const onTerminal = () => {
-      cleanup()
-      resolve()
-    }
-    stream.once('drain', onDrain)
-    stream.once('close', onTerminal)
-    stream.once('error', onTerminal)
-    if (signal.aborted) {
-      onTerminal()
-      return
-    }
-    signal.addEventListener('abort', onTerminal, { once: true })
-  })
 
 @Controller('briefing-chats')
 export class BriefingChatsController {
@@ -154,12 +123,18 @@ export class BriefingChatsController {
     })
 
     let errored = false
+    let stalled = false
     try {
       for await (const chunk of iterable) {
         if (abortController.signal.aborted) break
         const flushed: boolean = reply.raw.write(formatChunk(chunk))
-        if (!flushed) {
-          await waitForDrain(reply.raw, abortController.signal)
+        if (!flushed && !stalled) {
+          const outcome = await waitForDrain(
+            reply.raw,
+            abortController.signal,
+            DRAIN_STALL_TIMEOUT_MS,
+          )
+          if (outcome === 'stalled') stalled = true
         }
       }
     } catch (err) {

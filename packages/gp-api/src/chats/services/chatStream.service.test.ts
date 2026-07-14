@@ -313,6 +313,19 @@ const collect = async (
   return out
 }
 
+const waitForCondition = async (
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> => {
+  const start = Date.now()
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('waitForCondition timed out')
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 5))
+  }
+}
+
 const fakeTool: LlmStreamTool = {
   description: 'fake tool',
   inputSchema: {
@@ -966,6 +979,106 @@ describe('ChatStreamService', () => {
       )
       expect(assistantRow).toBeDefined()
       expect(assistantRow?.content).toBe('hello ')
+    })
+
+    it('persists the finished turn even when the consumer stops reading mid-stream (SSE backpressure)', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([
+        { kind: 'text', delta: 'Peer cities: ' },
+        {
+          kind: 'toolCall',
+          name: 'present_comparables',
+          input: { comparables: [{ city: 'Yellow Springs', state: 'OH' }] },
+          output: { saved: true },
+        },
+      ])
+
+      const iter = service.stream(
+        baseStreamArgs({ tools: { present_comparables: fakeTool } }),
+      )
+      const reader = iter[Symbol.asyncIterator]()
+
+      // Pull only the first chunk, then stop pulling entirely — no further
+      // next(), no return(). Models an SSE client parked on write backpressure
+      // (reply.raw.write() returned false, the 'drain' event never fires). The
+      // model stream still finishes server-side, so the assistant turn MUST
+      // persist regardless of whether the client keeps draining.
+      const first = await reader.next()
+      expect(first.done).toBe(false)
+
+      await waitForCondition(() =>
+        store
+          .getPersistedMessages(CONVERSATION_ID)
+          .some((m) => m.role === ChatMessageRole.assistant),
+      )
+
+      const assistantRows = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .filter((m) => m.role === ChatMessageRole.assistant)
+      expect(assistantRows).toHaveLength(1)
+      expect(assistantRows[0]?.content).toBe('Peer cities: ')
+      expect(store.lastAppendedSegments).toEqual([
+        { kind: 'text', text: 'Peer cities: ' },
+        {
+          kind: 'tool',
+          toolName: 'present_comparables',
+          payload: { comparables: [{ city: 'Yellow Springs', state: 'OH' }] },
+        },
+      ])
+
+      reader.return?.()
+    })
+
+    it('writes the interrupted sentinel when aborted before any text even if the client stops reading', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      const controller = new AbortController()
+      let releaseGate: () => void = () => undefined
+      const gate = new Promise<void>((resolve) => {
+        releaseGate = resolve
+      })
+      llm.setScript([
+        {
+          kind: 'toolCall',
+          name: 'present_comparables',
+          input: { comparables: [{ city: 'Riverton', state: 'WA' }] },
+          output: { saved: true },
+        },
+        { kind: 'gate', gate },
+        { kind: 'text', delta: 'unreached' },
+      ])
+
+      const iter = service.stream(
+        baseStreamArgs({
+          signal: controller.signal,
+          tools: { present_comparables: fakeTool },
+        }),
+      )
+      const reader = iter[Symbol.asyncIterator]()
+      // Pull the tool_call + tool_result, then the client disconnects (abort)
+      // WITHOUT draining to done and WITHOUT return()ing the iterator — models
+      // an SSE consumer that stops reading mid-tool-call. The generator parks at
+      // yield so the `finally` never runs; only driveStream's decoupled persist
+      // fires. It must leave exactly one sentinel row, never zero (regression:
+      // a finally/driveStream race could drop the sentinel entirely).
+      await reader.next()
+      await reader.next()
+      controller.abort()
+      releaseGate()
+
+      await waitForCondition(() =>
+        store
+          .getPersistedMessages(CONVERSATION_ID)
+          .some((m) => m.role === ChatMessageRole.assistant),
+      )
+      const rows = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .filter((m) => m.role === ChatMessageRole.assistant)
+      expect(rows).toHaveLength(1)
+      expect(rows[0]?.content).toBe(CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER)
+      // The sentinel carries no tool segments (no orphaned widget pill).
+      expect(store.lastAppendedSegments).toBeUndefined()
+
+      reader.return?.()
     })
 
     it('does not double-persist when the stream completes normally', async () => {

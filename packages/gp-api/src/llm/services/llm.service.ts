@@ -391,6 +391,15 @@ export class LlmService {
             messages: modelMessages,
             ...(toolSet && { tools: toolSet }),
             stopWhen: stepCountIs(maxSteps),
+            // streamText swallows errors by default (they surface only on the
+            // stream) — log them so a mid-generation provider failure is not
+            // silently lost.
+            onError: (event) => {
+              this.logger.error(
+                { err: event.error, userId, model: currentModel },
+                'streamText error during generation',
+              )
+            },
             ...(abortSignal && { abortSignal }),
             ...(temperature !== undefined && { temperature }),
             ...(topP !== undefined && { topP }),

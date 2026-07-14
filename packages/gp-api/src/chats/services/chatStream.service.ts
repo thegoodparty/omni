@@ -293,6 +293,67 @@ export class ChatStreamService {
     const textBuffer: string[] = []
     let toolCallCount = 0
 
+    // Ordered display structure of the turn (text runs and tool calls
+    // interleaved), built at PRODUCTION time as the model streams — not as the
+    // client drains — so it is complete regardless of how far the SSE consumer
+    // reads. Persisted only if the turn used a tool (see persistAssistantText).
+    const segments: PersistedSegment[] = []
+    const pushTextDelta = (delta: string): void => {
+      // Skip empty deltas (the OpenAI SDK can terminate a stream with delta:'')
+      // so we never open a blank text segment that renders as a phantom bubble.
+      if (!delta) return
+      const last = segments[segments.length - 1]
+      if (last && last.kind === ChatMessageSegmentKind.text) {
+        last.text = (last.text ?? '') + delta
+      } else {
+        segments.push({ kind: ChatMessageSegmentKind.text, text: delta })
+      }
+    }
+
+    let persistedId: string | undefined
+    let persisted = false
+    // Set synchronously before the persist await so a second caller (the finally
+    // fallback racing driveStream) can't double-write the assistant row.
+    let persisting = false
+    // Persists the turn exactly once. Writes real content (text and/or a
+    // widget-only tool turn on a clean finish); if there is nothing to persist
+    // as content, falls back to the interrupted sentinel so the turn is never a
+    // zero-row hole — the retry affordance must survive a client disconnect
+    // mid-tool-call. Guarded so the driveStream call and the finally fallback
+    // can never both write. Note the deliberate trade-off: if a turn is
+    // interrupted after a tool already committed to its own record (e.g. an
+    // ordinance-flow present_* write), the transcript shows the sentinel while
+    // that record keeps the write — the record is the source of truth and Retry
+    // re-runs the tool, so the transient mismatch is acceptable.
+    const persistOnce = async (cleanFinish: boolean): Promise<void> => {
+      if (persisted || persisting) return
+      persisting = true
+      try {
+        const row =
+          (await this.persistAssistantText(
+            args.conversationId,
+            textBuffer.join(''),
+            segments,
+            cleanFinish,
+          )) ??
+          (await this.persistAssistantText(
+            args.conversationId,
+            CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
+          ))
+        if (row) {
+          persistedId = row.id
+          persisted = true
+        }
+      } catch (persistErr) {
+        this.logger.error(
+          { err: persistErr, conversationId: args.conversationId },
+          'failed to persist assistant message',
+        )
+      } finally {
+        persisting = false
+      }
+    }
+
     let result: LlmStreamResult
     try {
       result = await this.llm.streamChatCompletion({
@@ -306,6 +367,11 @@ export class ChatStreamService {
         },
         onToolCallStart: ({ name, input }) => {
           toolCallCount += 1
+          segments.push({
+            kind: ChatMessageSegmentKind.tool,
+            toolName: name,
+            payload: toJsonPayload(input),
+          })
           void queue.push({
             type: 'tool_call',
             toolName: name,
@@ -334,6 +400,7 @@ export class ChatStreamService {
         for await (const delta of result.textStream) {
           if (args.signal?.aborted) break
           textBuffer.push(delta)
+          pushTextDelta(delta)
           await queue.push({ type: 'text', delta })
         }
         return {}
@@ -365,6 +432,13 @@ export class ChatStreamService {
       if (error) {
         tracedMetrics.errorCode = classifyError(error, args.signal)
       }
+      // Persist the moment generation finishes, decoupled from client draining:
+      // an SSE client parked on write backpressure (or a slow/backgrounded tab)
+      // must never cost us the turn. A clean tool-only finish still persists so
+      // the widget replays on reload; an interrupt leaves it unpersisted here
+      // and the finally writes the sentinel instead.
+      const cleanFinish = !args.signal?.aborted && !tracedMetrics.errorCode
+      await persistOnce(cleanFinish)
       return tracedMetrics
     }
 
@@ -382,67 +456,16 @@ export class ChatStreamService {
         })
       : driveStream()
 
-    let persistedId: string | undefined
-    let persisted = false
-
-    // Ordered display structure of the turn, built from the same chunks the
-    // client sees (in queue order): text runs and tool calls interleaved.
-    // Persisted only if the turn used a tool (see persistAssistantText).
-    const segments: PersistedSegment[] = []
-    const pushTextDelta = (delta: string): void => {
-      // Skip empty deltas (the OpenAI SDK can terminate a stream with delta:'')
-      // so we never open a blank text segment that renders as a phantom bubble.
-      if (!delta) return
-      const last = segments[segments.length - 1]
-      if (last && last.kind === ChatMessageSegmentKind.text) {
-        last.text = (last.text ?? '') + delta
-      } else {
-        segments.push({ kind: ChatMessageSegmentKind.text, text: delta })
-      }
-    }
-
     try {
+      // The yield loop is now purely client delivery — segments and persistence
+      // are handled in driveStream, so a parked consumer can't block either.
       while (true) {
         const next = await queue.next()
         if (!next) break
-        const chunk = next.chunk
-        if (chunk.type === 'text') {
-          pushTextDelta(chunk.delta)
-        } else if (chunk.type === 'tool_call') {
-          segments.push({
-            kind: ChatMessageSegmentKind.tool,
-            toolName: chunk.toolName,
-            payload: toJsonPayload(chunk.args),
-          })
-        }
-        yield chunk
+        yield next.chunk
       }
 
       const metrics = await streamDone
-
-      // A clean finish that only emitted widget tool calls (no trailing text)
-      // still persists so the widget replays on reload. On an interrupt (abort
-      // signal or mid-stream error) the finally block writes the sentinel
-      // instead — persisting partial tool calls there would orphan pills.
-      const cleanFinish = !args.signal?.aborted && !metrics.errorCode
-
-      try {
-        const row = await this.persistAssistantText(
-          args.conversationId,
-          textBuffer.join(''),
-          segments,
-          cleanFinish,
-        )
-        if (row) {
-          persistedId = row.id
-          persisted = true
-        }
-      } catch (persistErr) {
-        this.logger.error(
-          { err: persistErr, conversationId: args.conversationId },
-          'failed to persist assistant message',
-        )
-      }
 
       if (metrics.errorCode) {
         this.logger.error(
@@ -458,29 +481,10 @@ export class ChatStreamService {
         ...(persistedId !== undefined && { assistantMessageId: persistedId }),
       }
     } finally {
-      if (!persisted) {
-        const hasText = textBuffer.length > 0
-        const fallbackText = hasText
-          ? textBuffer.join('')
-          : CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER
-        try {
-          // Carry the segments when there's real partial text — the turn may
-          // have emitted tool calls before the primary persist failed. But with
-          // the interrupted sentinel (no text), pass none: tool-only segments
-          // would make the reload render orphaned pills and hide the sentinel's
-          // retry affordance.
-          await this.persistAssistantText(
-            args.conversationId,
-            fallbackText,
-            hasText ? segments : undefined,
-          )
-        } catch (err) {
-          this.logger.error(
-            { err, conversationId: args.conversationId },
-            'failed to persist partial/sentinel assistant text on premature return',
-          )
-        }
-      }
+      // Fallback for a premature return (client returned the iterator before
+      // driveStream reached its persist): persist the turn as interrupted. The
+      // internal guard makes this a no-op if driveStream already wrote the row.
+      await persistOnce(false)
     }
   }
 
