@@ -22,13 +22,13 @@ export function segmentsToLive(
   content: string,
 ): LiveSegment[] {
   return segments.length > 0
-    ? segments.flatMap((s) =>
+    ? segments.flatMap((s): LiveSegment[] =>
         s.kind === 'text'
           ? s.text
-            ? [{ kind: 'text', text: s.text } as LiveSegment]
+            ? [{ kind: 'text', text: s.text }]
             : []
           : s.toolName
-            ? [{ kind: 'tool', toolName: s.toolName } as LiveSegment]
+            ? [{ kind: 'tool', toolName: s.toolName }]
             : [],
       )
     : content

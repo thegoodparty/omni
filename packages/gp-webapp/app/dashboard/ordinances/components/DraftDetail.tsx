@@ -1,6 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import Link from 'next/link'
 import { Badge, Button, cn } from '@styleguide'
 import {
@@ -14,6 +20,13 @@ import { ORDINANCE_STATUS_META } from '../data/statuses'
 import DraftChat, { type DraftChatHandle } from './DraftChat'
 
 const AUTOSAVE_DELAY_MS = 800
+
+// useLayoutEffect on the client, useEffect on the server (avoids the SSR
+// "useLayoutEffect does nothing on the server" warning). We need the layout
+// variant so the unmount cleanup runs during React's commit phase, while the
+// editor node is still in the DOM.
+const useIsomorphicLayoutEffect =
+  typeof window === 'undefined' ? useEffect : useLayoutEffect
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -35,7 +48,6 @@ export default function DraftDetail({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
   const queuedRef = useRef<string | null>(null)
-  const latestBodyRef = useRef<string | null>(null)
   const chatRef = useRef<DraftChatHandle>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -58,7 +70,6 @@ export default function DraftDetail({
   // text.
   const save = useCallback(
     (body: string): void => {
-      latestBodyRef.current = body
       if (savingRef.current) {
         queuedRef.current = body
         return
@@ -88,26 +99,18 @@ export default function DraftDetail({
     }, AUTOSAVE_DELAY_MS)
   }, [save])
 
-  // Flush a pending edit while the editor is still on screen (e.g. clicking the
-  // Back link, which is a client-side navigation that unmounts this component).
-  const flush = useCallback((): void => {
-    if (!timerRef.current) return
-    clearTimeout(timerRef.current)
-    timerRef.current = null
-    save(bodyRef.current?.innerText ?? '')
-  }, [save])
-
-  // Backstop for other exits (sidebar nav, browser back): flush on unmount. If
-  // the editor node is still connected read its live text; otherwise fall back
-  // to the last text we observed so we never overwrite the saved draft with ''.
-  useEffect(() => {
+  // Flush a pending debounced edit on unmount so leaving the screen (the Back
+  // link, sidebar nav, or browser back) never drops the last change. The layout
+  // cleanup runs during React's commit while the editor node is still mounted,
+  // so we can read its live text; a passive-effect (useEffect) cleanup would run
+  // after the node is detached, when innerText reads empty.
+  useIsomorphicLayoutEffect(() => {
     const node = bodyRef.current
     return () => {
-      if (!timerRef.current) return
+      if (!timerRef.current || !node) return
       clearTimeout(timerRef.current)
       timerRef.current = null
-      const body = node?.isConnected ? node.innerText : latestBodyRef.current
-      if (body !== null) save(body)
+      save(node.innerText)
     }
   }, [save])
 
@@ -146,7 +149,6 @@ export default function DraftDetail({
         <Link
           href="/dashboard/ordinances"
           aria-label="Back to ordinances"
-          onClick={flush}
           className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
         >
           <ArrowLeftIcon className="size-4" aria-hidden />

@@ -8,10 +8,14 @@ import {
   useRef,
   useState,
 } from 'react'
-import { IconButton, Input } from '@styleguide'
-import { SendIcon } from '@styleguide/components/ui/icons'
 import type { ChatAnchor, Ordinance } from '@goodparty_org/contracts'
-import { AssistantRow, InlineSegments } from '../../shared/agent-chat/chatUI'
+import {
+  AssistantRow,
+  ChatComposer,
+  InlineSegments,
+  ThinkingRow,
+  UserBubble,
+} from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
 import { ordinanceFlowChatApi } from '../data/chat-api'
@@ -112,12 +116,7 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           {history.map((m) =>
             m.live === null ? (
-              <div
-                key={m.id}
-                className="self-end rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground"
-              >
-                {m.content}
-              </div>
+              <UserBubble key={m.id}>{m.content}</UserBubble>
             ) : (
               <AssistantRow key={m.id}>
                 <InlineSegments
@@ -137,42 +136,23 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
             </AssistantRow>
           ) : null}
 
-          {working ? (
-            <div className="w-fit self-start rounded-2xl bg-muted px-3 py-2 text-sm">
-              <span className="text-shimmer-muted">Thinking...</span>
-            </div>
-          ) : null}
+          {working ? <ThinkingRow /> : null}
 
           <div ref={bottomRef} />
         </div>
 
-        <form
-          className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
-          onSubmit={(e) => {
-            e.preventDefault()
+        <ChatComposer
+          value={composer}
+          onChange={setComposer}
+          onSubmit={() => {
             if (!conversationId) return
             const text = composer
             setComposer('')
             void send(conversationId, text)
           }}
-        >
-          <Input
-            ref={inputRef}
-            value={composer}
-            onChange={(e) => setComposer(e.target.value)}
-            placeholder="Ask me any questions about this..."
-            disabled={sending || !conversationId}
-            className="border-0 bg-transparent shadow-none focus-visible:ring-0"
-          />
-          <IconButton
-            type="submit"
-            className="rounded-full"
-            disabled={sending || composer.trim().length === 0}
-            aria-label="Send"
-          >
-            <SendIcon className="size-4" aria-hidden />
-          </IconButton>
-        </form>
+          disabled={sending || !conversationId}
+          inputRef={inputRef}
+        />
       </div>
     )
   },

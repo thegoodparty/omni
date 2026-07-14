@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, IconButton, Input, Skeleton } from '@styleguide'
-import { ChevronRightIcon, SendIcon } from '@styleguide/components/ui/icons'
+import { Button, Skeleton } from '@styleguide'
+import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import {
   OrdinanceClarifyQuestionSchema,
   OrdinanceNextStepOfferSchema,
@@ -18,7 +18,13 @@ import type {
   ChatMessageDto,
   ChatMessageSegment,
 } from '../../shared/agent-chat/chatClient'
-import { AssistantRow, InlineSegments } from '../../shared/agent-chat/chatUI'
+import {
+  AssistantRow,
+  ChatComposer,
+  InlineSegments,
+  ThinkingRow,
+  UserBubble,
+} from '../../shared/agent-chat/chatUI'
 import {
   segmentsTextLength,
   segmentsToLive,
@@ -461,12 +467,7 @@ export default function OrdinanceFlowChat({
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
           {visibleMessages.map((message) =>
             message.role === 'user' ? (
-              <div
-                key={message.id}
-                className="self-end rounded-2xl bg-primary px-3 py-2 text-sm text-primary-foreground"
-              >
-                {message.content}
-              </div>
+              <UserBubble key={message.id}>{message.content}</UserBubble>
             ) : (
               <AssistantMessage
                 key={message.id}
@@ -507,11 +508,7 @@ export default function OrdinanceFlowChat({
                   onAnswer={() => undefined}
                 />
               ) : null}
-              {working ? (
-                <div className="w-fit self-start rounded-2xl bg-muted px-3 py-2 text-sm">
-                  <span className="text-shimmer-muted">{workingLabel}</span>
-                </div>
-              ) : null}
+              {working ? <ThinkingRow label={workingLabel} /> : null}
             </AssistantRow>
           )}
 
@@ -530,31 +527,16 @@ export default function OrdinanceFlowChat({
           <div ref={bottomRef} />
         </div>
 
-        <form
-          className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pl-4 pr-1"
-          onSubmit={(e) => {
-            e.preventDefault()
+        <ChatComposer
+          value={composer}
+          onChange={setComposer}
+          onSubmit={() => {
             const text = composer
             setComposer('')
             void send(text)
           }}
-        >
-          <Input
-            value={composer}
-            onChange={(e) => setComposer(e.target.value)}
-            placeholder="Ask me any questions about this..."
-            disabled={sending}
-            className="border-0 bg-transparent shadow-none focus-visible:ring-0"
-          />
-          <IconButton
-            type="submit"
-            className="rounded-full"
-            disabled={sending || composer.trim().length === 0}
-            aria-label="Send"
-          >
-            <SendIcon className="size-4" aria-hidden />
-          </IconButton>
-        </form>
+          disabled={sending}
+        />
       </div>
     </div>
   )
