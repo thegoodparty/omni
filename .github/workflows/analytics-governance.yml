@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           state_dir=packages/runbooks/scripts/python/instrumentation_data
-          if git diff --quiet -- "$state_dir"; then
+          if [ -z "$(git status --porcelain -- "$state_dir")" ]; then
             echo "No state changes this run."
             exit 0
           fi
@@ -136,8 +136,10 @@ jobs:
           Auto-merges once delegate approves and checks pass. If a newer run fires before this merges, it force-updates this same branch, so the PR always carries the latest state.
           EOF
           )"
-          fi
+          # Only on creation: auto-merge persists across force-pushes, and
+          # re-enabling it on an existing PR makes gh exit non-zero.
           gh pr merge "$branch" --auto --squash
+          fi
 
       # Interim path until DATA-2072 (Google service account): the personal
       # OAuth token pickle, injected as a base64 secret. Skips cleanly when
