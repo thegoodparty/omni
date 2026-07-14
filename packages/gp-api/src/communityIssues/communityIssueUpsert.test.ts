@@ -549,9 +549,7 @@ describe('CommunityIssueService analytics events', () => {
     expect(
       callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
     ).toHaveLength(0)
-    expect(
-      callsFor(EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated),
-    ).toHaveLength(0)
+    expect(callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)).toHaveLength(0)
 
     await generate('trending_issues', 'trending', [makeIssue(1)])
     const initial = callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated)
@@ -566,9 +564,12 @@ describe('CommunityIssueService analytics events', () => {
       trendingIssue1Title: 'Issue 1',
       trendingIssue1Priority: 'high',
     })
+    expect(
+      callsFor(EVENTS.CommunityIssues.TrendingIssuesRefreshed),
+    ).toHaveLength(0)
   })
 
-  it('does not refire Initial Issues Generated on later refreshes', async () => {
+  it('fires Top Issues Refreshed (not Initial Issues Generated) on a later top refresh', async () => {
     await generate('top_community_issues', 'top_community', [makeIssue(1)])
     await generate('trending_issues', 'trending', [makeIssue(1)])
     trackSpy.mockClear()
@@ -577,6 +578,35 @@ describe('CommunityIssueService analytics events', () => {
     expect(
       callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
     ).toHaveLength(0)
+    const refreshed = callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)
+    expect(refreshed).toHaveLength(1)
+    expect(refreshed[0]?.[2]).toMatchObject({
+      topIssueCount: 1,
+      trendingIssueCount: 1,
+      topIssue1Title: 'Issue 2',
+      topIssue1Priority: 'high',
+    })
+    expect(
+      callsFor(EVENTS.CommunityIssues.TrendingIssuesRefreshed),
+    ).toHaveLength(0)
+  })
+
+  it('fires Trending Issues Refreshed (not Top Issues Refreshed) on a later trending refresh', async () => {
+    await generate('top_community_issues', 'top_community', [makeIssue(1)])
+    await generate('trending_issues', 'trending', [makeIssue(1)])
+    trackSpy.mockClear()
+
+    await generate('trending_issues', 'trending', [
+      makeIssue(2, { title: 'New Trending Issue' }),
+    ])
+    const refreshed = callsFor(EVENTS.CommunityIssues.TrendingIssuesRefreshed)
+    expect(refreshed).toHaveLength(1)
+    expect(refreshed[0]?.[2]).toMatchObject({
+      topIssueCount: 1,
+      trendingIssueCount: 1,
+      trendingIssue1Title: 'New Trending Issue',
+    })
+    expect(callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)).toHaveLength(0)
   })
 
   it('does not fire Initial Issues Generated when the other list has no live issues', async () => {
@@ -592,26 +622,7 @@ describe('CommunityIssueService analytics events', () => {
     ).toHaveLength(0)
   })
 
-  it('fires High Priority Trending only for new high issues on a refresh', async () => {
-    await generate('trending_issues', 'trending', [
-      makeIssue(1, { priority: 'high' }),
-    ])
-    expect(
-      callsFor(EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated),
-    ).toHaveLength(0)
-
-    trackSpy.mockClear()
-    await generate('trending_issues', 'trending', [
-      makeIssue(2, { priority: 'high', title: 'New High Issue' }),
-    ])
-    const high = callsFor(
-      EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
-    )
-    expect(high).toHaveLength(1)
-    expect(high[0]?.[2]).toMatchObject({ title: 'New High Issue' })
-  })
-
-  it('fires Top Issue Priority Changed when a main-list issue changes priority', async () => {
+  it('fires Top Issues Refreshed with the current top-list snapshot regardless of priority movement', async () => {
     const existing = await service.prisma.communityIssue.create({
       data: {
         organizationSlug: ORG,
@@ -623,6 +634,8 @@ describe('CommunityIssueService analytics events', () => {
         rank: 1,
       },
     })
+    await generate('trending_issues', 'trending', [makeIssue(1)])
+    trackSpy.mockClear()
 
     await generate('top_community_issues', 'top_community', [
       makeIssue(1, {
@@ -633,34 +646,13 @@ describe('CommunityIssueService analytics events', () => {
       }),
     ])
 
-    const changes = callsFor(EVENTS.CommunityIssues.TopIssuePriorityChanged)
-    expect(changes).toHaveLength(1)
-    expect(changes[0]?.[2]).toMatchObject({
-      issueId: existing.id,
-      previousPriority: 'low',
-      priority: 'high',
+    const refreshed = callsFor(EVENTS.CommunityIssues.TopIssuesRefreshed)
+    expect(refreshed).toHaveLength(1)
+    expect(refreshed[0]?.[2]).toMatchObject({
+      topIssueCount: 1,
+      trendingIssueCount: 1,
+      topIssue1Title: 'Pothole backlog',
+      topIssue1Priority: 'high',
     })
-  })
-
-  it('does not fire Top Issue Priority Changed for the trending list', async () => {
-    const existing = await service.prisma.communityIssue.create({
-      data: {
-        organizationSlug: ORG,
-        list: CommunityIssueList.trending,
-        category: CommunityIssueCategory.public_safety,
-        priority: CommunityIssuePriority.low,
-        title: 'Parking fee proposal',
-        summary: 'Pushback on a meter rate hike.',
-        rank: 1,
-      },
-    })
-
-    await generate('trending_issues', 'trending', [
-      makeIssue(1, { existing_issue_id: existing.id, priority: 'high' }),
-    ])
-
-    expect(
-      callsFor(EVENTS.CommunityIssues.TopIssuePriorityChanged),
-    ).toHaveLength(0)
   })
 })

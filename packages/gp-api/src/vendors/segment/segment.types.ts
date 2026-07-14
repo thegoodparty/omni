@@ -124,14 +124,17 @@ export const EVENTS = {
   // issue headline + summary so a downstream email (HubSpot) can render them.
   CommunityIssues: {
     InitialIssuesGenerated: 'Community Issues - Initial Issues Generated',
-    HighPriorityTrendingIssueCreated:
-      'Community Issues - High Priority Trending Issue Created',
-    TopIssuePriorityChanged: 'Community Issues - Top Issue Priority Changed',
+    // Fire on every refresh after the first generation — a snapshot of the
+    // list's current state, not a diff against what changed.
+    TopIssuesRefreshed: 'Community Issues - Top Issues Refreshed',
+    TrendingIssuesRefreshed: 'Community Issues - Trending Issues Refreshed',
     // Fires when the daily cron skips an otherwise-eligible org because its
     // user has been inactive beyond the activity-gate threshold — feeds a
     // HubSpot re-engagement email. The on-demand landing check skips this
     // gate (see communityIssueDispatch.service).
-    DispatchSkipped: 'Community Issues - Dispatch Skipped',
+    TopIssuesDispatchSkipped: 'Community Issues - Top Issues Dispatch Skipped',
+    TrendingIssuesDispatchSkipped:
+      'Community Issues - Trending Issues Dispatch Skipped',
   },
 }
 
