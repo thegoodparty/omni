@@ -264,9 +264,17 @@ def divergence(gpmeta: dict | None, status: str, firing_recent: bool) -> str | N
 
 
 def rank_record(record: Mapping[str, Any]) -> int:
-    """Digest severity rank (1 = highest). 99 = not flagged."""
+    """Digest severity rank (0 = highest). 99 = not flagged."""
     status, elevated, anomaly = record["status"], record["elevated"], record["anomaly"]
     div = record["divergence"] or ""
+    # DATA-2106 canary: a client event firing normally (active, no anomaly) with zero counted
+    # call sites is a contradiction -- the data axis says alive, the code axis says gone. The
+    # counter is blind (an aliased or Prettier-wrapped reference it cannot see), not the
+    # event dead: a tooling alert, never the rank-2 retirement path. An anomaly drop
+    # alongside the zero is instead the signature of a genuine recent removal (counts
+    # draining after the call site went away) and falls through to rank 2 below.
+    if record.get("call_site_count") == 0 and status == "active" and not anomaly:
+        return 0
     if status == "orphaned_firing" or div.endswith("still firing"):
         return 1
     # DATA-2046: the name literal is still declared (status active/dormant) but the call site
@@ -495,6 +503,7 @@ def diff_flagged(
 # --- rendering ----------------------------------------------------------------
 
 _RANK_LABEL = {
+    0: "counter blind spot: 0 call sites but firing normally (fix the counter, not the event)",
     1: "orphaned-firing / not-in-use still firing",
     2: "call site removed, name constant remains",
     3: "anomaly drop, active (elevated)",
