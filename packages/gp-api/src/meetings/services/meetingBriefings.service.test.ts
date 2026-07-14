@@ -1343,6 +1343,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       expect.objectContaining({
         electedOfficeId: expect.any(String) as string,
         meetingDate: expect.any(Number) as number,
+        meetingName: 'City Council',
         daysUntilMeeting: expect.any(Number) as number,
         lastVisitedAt: staleLastVisited,
         daysSinceLastVisit: expect.any(Number) as number,

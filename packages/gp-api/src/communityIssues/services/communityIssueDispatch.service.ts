@@ -304,23 +304,21 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     experimentType: CommunityIssueExperimentType,
     ctx: ResolvedDispatchContext,
   ): Promise<void> {
+    const event =
+      experimentType === 'trending_issues'
+        ? EVENTS.CommunityIssues.TrendingIssuesDispatchSkipped
+        : EVENTS.CommunityIssues.TopIssuesDispatchSkipped
     try {
-      await this.analytics.track(
-        ctx.userId,
-        EVENTS.CommunityIssues.DispatchSkipped,
-        {
-          organizationSlug: orgSlug,
-          experimentType,
-          lastVisitedAt: ctx.lastVisitedMs ?? null,
-          daysSinceLastVisit: ctx.lastVisitedMs
-            ? differenceInCalendarDays(new Date(), new Date(ctx.lastVisitedMs))
-            : null,
-        },
-      )
+      await this.analytics.track(ctx.userId, event, {
+        lastVisitedAt: ctx.lastVisitedMs ?? null,
+        daysSinceLastVisit: ctx.lastVisitedMs
+          ? differenceInCalendarDays(new Date(), new Date(ctx.lastVisitedMs))
+          : null,
+      })
     } catch (err) {
       this.logger.error(
         { err, orgSlug, experimentType },
-        '[SEGMENT] Failed to track Community Issues - Dispatch Skipped',
+        `[SEGMENT] Failed to track ${event}`,
       )
     }
   }

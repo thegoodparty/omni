@@ -553,10 +553,8 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       expect(trendingCalls).toHaveLength(0)
       expect(trackSpy).toHaveBeenCalledWith(
         service.user.id,
-        'Community Issues - Dispatch Skipped',
+        'Community Issues - Trending Issues Dispatch Skipped',
         {
-          organizationSlug: CRON_BUCKET0_SLUG,
-          experimentType: 'trending_issues',
           lastVisitedAt: staleLastVisited,
           daysSinceLastVisit: expect.any(Number) as number,
         },
