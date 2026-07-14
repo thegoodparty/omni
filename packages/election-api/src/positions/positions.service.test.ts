@@ -163,9 +163,9 @@ describe('PositionsService', () => {
   })
 
   it('returns filtered projected turnout when includeTurnout is true', async () => {
-    vi.mocked(
-      projectedTurnoutService.determineElectionCode,
-    ).mockResolvedValue(ElectionCode.General)
+    vi.mocked(projectedTurnoutService.determineElectionCode).mockResolvedValue(
+      ElectionCode.General,
+    )
     findUnique.mockResolvedValue({
       id: 'pos-1',
       brPositionId: 'br-pos-1',
@@ -220,9 +220,9 @@ describe('PositionsService', () => {
   })
 
   it('returns null projected turnout when no turnout matches election year and code', async () => {
-    vi.mocked(
-      projectedTurnoutService.determineElectionCode,
-    ).mockResolvedValue(ElectionCode.General)
+    vi.mocked(projectedTurnoutService.determineElectionCode).mockResolvedValue(
+      ElectionCode.General,
+    )
     findUnique.mockResolvedValue({
       id: 'pos-1',
       brPositionId: 'br-pos-1',
@@ -254,9 +254,9 @@ describe('PositionsService', () => {
   })
 
   it('throws when duplicate projected turnouts match election year and code', async () => {
-    vi.mocked(
-      projectedTurnoutService.determineElectionCode,
-    ).mockResolvedValue(ElectionCode.General)
+    vi.mocked(projectedTurnoutService.determineElectionCode).mockResolvedValue(
+      ElectionCode.General,
+    )
     findUnique.mockResolvedValue({
       id: 'pos-1',
       brPositionId: 'br-pos-1',
