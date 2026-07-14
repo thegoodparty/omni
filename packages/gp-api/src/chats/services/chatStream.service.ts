@@ -336,10 +336,15 @@ export class ChatStreamService {
             segments,
             cleanFinish,
           )) ??
-          (await this.persistAssistantText(
-            args.conversationId,
-            CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
-          ))
+          // Only an interrupted turn falls back to the sentinel. A clean finish
+          // that produced no content was not interrupted — persist nothing
+          // rather than a spurious retry affordance.
+          (cleanFinish
+            ? null
+            : await this.persistAssistantText(
+                args.conversationId,
+                CHAT_INTERRUPTED_BEFORE_OUTPUT_MARKER,
+              ))
         if (row) {
           persistedId = row.id
           persisted = true
@@ -482,9 +487,10 @@ export class ChatStreamService {
       }
     } finally {
       // Fallback for a premature return (client returned the iterator before
-      // driveStream reached its persist): persist the turn as interrupted. The
-      // internal guard makes this a no-op if driveStream already wrote the row.
-      await persistOnce(false)
+      // driveStream reached its persist). Pass the real cleanFinish (mirrors
+      // driveStream) so an interrupted turn gets the sentinel while a clean
+      // finish with no content writes nothing. No-op if already persisted.
+      await persistOnce(!args.signal?.aborted && !tracedMetrics.errorCode)
     }
   }
 

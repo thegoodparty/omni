@@ -1081,6 +1081,21 @@ describe('ChatStreamService', () => {
       reader.return?.()
     })
 
+    it('persists nothing (no spurious sentinel) on a clean finish with no content', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      // A clean finish (finishReason stop, no abort, no error) that emitted only
+      // an empty delta and no tool call: there is nothing to show and it was not
+      // interrupted, so it must NOT be marked with the retry sentinel.
+      llm.setScript([{ kind: 'text', delta: '' }])
+
+      await collect(service.stream(baseStreamArgs()))
+
+      const assistantRows = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .filter((m) => m.role === ChatMessageRole.assistant)
+      expect(assistantRows).toHaveLength(0)
+    })
+
     it('does not double-persist when the stream completes normally', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([
