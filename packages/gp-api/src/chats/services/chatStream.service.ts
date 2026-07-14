@@ -493,11 +493,14 @@ export class ChatStreamService {
         return
       }
 
+      // Set before the yield: a consumer that breaks on the done chunk calls
+      // .return() on the generator, which jumps straight to finally without
+      // resuming past this yield — so the flag must already be true.
+      completedNormally = true
       yield {
         type: 'done',
         ...(persistedId !== undefined && { assistantMessageId: persistedId }),
       }
-      completedNormally = true
     } finally {
       // Fallback for a premature return (client returned the iterator before
       // driveStream reached its persist). `completedNormally` is a deterministic

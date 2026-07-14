@@ -1131,6 +1131,29 @@ describe('ChatStreamService', () => {
       expect(assistantRows).toHaveLength(0)
     })
 
+    it('writes no spurious sentinel when the consumer returns right after the done chunk (clean-empty)', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      // Clean-empty turn. The consumer reads through the done chunk then returns
+      // the iterator (models a `for await` that breaks on type === 'done'): the
+      // generator jumps to finally without resuming past the yield, so the
+      // completedNormally signal must already be set — otherwise the finally
+      // writes a spurious retry sentinel on a successful turn.
+      llm.setScript([{ kind: 'text', delta: '' }])
+
+      const iter = service.stream(baseStreamArgs())
+      const reader = iter[Symbol.asyncIterator]()
+      while (true) {
+        const r = await reader.next()
+        if (r.done || r.value.type === 'done') break
+      }
+      await reader.return?.()
+
+      const assistantRows = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .filter((m) => m.role === ChatMessageRole.assistant)
+      expect(assistantRows).toHaveLength(0)
+    })
+
     it('does not double-persist when the stream completes normally', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([
