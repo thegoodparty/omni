@@ -249,10 +249,8 @@ export class CampaignStrategyContextService extends createPrismaBase(
     }
     const isoDate = electionDate.toISOString().slice(0, 10)
     const electionYear = electionDate.getUTCFullYear()
-    const electionCode = await this.projectedTurnoutService.determineElectionCode(
-      isoDate,
-      state,
-    )
+    const electionCode =
+      await this.projectedTurnoutService.determineElectionCode(isoDate, state)
     const match = district.ProjectedTurnouts.find(
       (t) => t.electionYear === electionYear && t.electionCode === electionCode,
     )
