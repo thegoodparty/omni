@@ -49,6 +49,12 @@ export const EVENTS = {
     //  destination on the company and trigger the "check your texts/email"
     //  nudge. Fired once by the PIN-delivery detection sweep.
     CompliancePinSent: 'Voter Outreach - 10DLC Compliance PIN Sent',
+    // Server-side twin of gp-webapp's 'Pro Upgrade - Candidate Profile
+    // Submitted' (10DLC events must fire from gp-api for delivery
+    // reliability). Fired when a website content save transitions the
+    // compliance candidate profile from incomplete to complete.
+    ComplianceCandidateProfileSubmitted:
+      'Voter Outreach - 10DLC Compliance Candidate Profile Submitted',
     FreeTextsOfferRedeemed: 'Voter Outreach - Free Texts Offer Redeemed',
     CampaignVerifyTokenStatusUpdate: 'Campaign Verify Token Status Update',
     // Carries peerlyIdentityId so Segment can stamp it onto the campaign's
