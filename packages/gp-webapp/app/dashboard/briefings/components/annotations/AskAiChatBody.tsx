@@ -665,7 +665,11 @@ export default function AskAiChatBody({
   const showJumpPill = !isAtBottom && pillLingering
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // vaul disables text selection on the drawer (user-select:none on fine
+    // pointers) and treats pointer-drags as drawer-drags. select-text restores
+    // selection and data-vaul-no-drag stops a select-drag from moving the
+    // sheet, so users can highlight and copy chat text.
+    <div className="flex min-h-0 flex-1 flex-col select-text" data-vaul-no-drag>
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div
           ref={scrollRef}
