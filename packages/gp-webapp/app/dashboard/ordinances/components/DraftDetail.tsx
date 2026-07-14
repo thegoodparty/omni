@@ -114,9 +114,12 @@ export default function DraftDetail({
     }
   }, [save])
 
-  // Show the ask/flag toolbar when the user selects text inside the draft body.
+  // Position the ask/flag toolbar at the selection inside the draft body.
+  // Recompute on selection change and on scroll of the editor's overflow
+  // container: scrolling moves the selected text without firing selectionchange,
+  // so that alone would leave the toolbar pinned to a stale viewport position.
   useEffect(() => {
-    const onSelectionChange = (): void => {
+    const updatePosition = (): void => {
       const sel = window.getSelection()
       const editor = bodyRef.current
       if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !editor) {
@@ -132,9 +135,13 @@ export default function DraftDetail({
       const rect = range.getBoundingClientRect()
       setSelection({ text, top: rect.top, left: rect.left + rect.width / 2 })
     }
-    document.addEventListener('selectionchange', onSelectionChange)
-    return () =>
-      document.removeEventListener('selectionchange', onSelectionChange)
+    const scrollContainer = bodyRef.current?.parentElement ?? null
+    document.addEventListener('selectionchange', updatePosition)
+    scrollContainer?.addEventListener('scroll', updatePosition)
+    return () => {
+      document.removeEventListener('selectionchange', updatePosition)
+      scrollContainer?.removeEventListener('scroll', updatePosition)
+    }
   }, [])
 
   const seedChat = useCallback((composerText: string): void => {

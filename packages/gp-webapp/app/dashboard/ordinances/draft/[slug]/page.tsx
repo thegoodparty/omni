@@ -1,5 +1,7 @@
+import { notFound } from 'next/navigation'
 import pageMetaData from 'helpers/metadataHelper'
 import { serverRequest } from 'gpApi/server-request'
+import type { Ordinance } from '@goodparty_org/contracts'
 import serveAccess from '../../../shared/serveAccess'
 import DashboardLayout from '../../../shared/DashboardLayout'
 import DraftDetail from '../../components/DraftDetail'
@@ -21,9 +23,15 @@ export default async function Page({
 }: PageProps): Promise<React.JSX.Element> {
   await serveAccess()
   const { slug } = await params
-  const { data: ordinance } = await serverRequest('GET /v1/ordinances/:slug', {
-    slug,
-  })
+  // An unknown or foreign slug makes serverRequest throw (ofetch throws on
+  // 4xx/5xx); render a 404 rather than an unhandled error page.
+  let ordinance: Ordinance
+  try {
+    const { data } = await serverRequest('GET /v1/ordinances/:slug', { slug })
+    ordinance = data
+  } catch {
+    notFound()
+  }
 
   return (
     <DashboardLayout
