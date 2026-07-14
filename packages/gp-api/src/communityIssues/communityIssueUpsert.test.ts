@@ -550,7 +550,7 @@ describe('CommunityIssueService analytics events', () => {
       callsFor(EVENTS.CommunityIssues.InitialIssuesGenerated),
     ).toHaveLength(0)
     expect(
-      callsFor(EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated),
+      callsFor(EVENTS.CommunityIssues.HighPriorityTrendingIssuesCreated),
     ).toHaveLength(0)
 
     await generate('trending_issues', 'trending', [makeIssue(1)])
@@ -592,12 +592,12 @@ describe('CommunityIssueService analytics events', () => {
     ).toHaveLength(0)
   })
 
-  it('fires High Priority Trending only for new high issues on a refresh', async () => {
+  it('fires High Priority Trending Issues Created only for new high issues on a refresh', async () => {
     await generate('trending_issues', 'trending', [
       makeIssue(1, { priority: 'high' }),
     ])
     expect(
-      callsFor(EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated),
+      callsFor(EVENTS.CommunityIssues.HighPriorityTrendingIssuesCreated),
     ).toHaveLength(0)
 
     trackSpy.mockClear()
@@ -605,10 +605,34 @@ describe('CommunityIssueService analytics events', () => {
       makeIssue(2, { priority: 'high', title: 'New High Issue' }),
     ])
     const high = callsFor(
-      EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
+      EVENTS.CommunityIssues.HighPriorityTrendingIssuesCreated,
     )
     expect(high).toHaveLength(1)
-    expect(high[0]?.[2]).toMatchObject({ title: 'New High Issue' })
+    expect(high[0]?.[2]).toMatchObject({
+      issueCount: 1,
+      issue1Title: 'New High Issue',
+    })
+  })
+
+  it('fires High Priority Trending Issues Created once for a batch, not once per issue', async () => {
+    await generate('trending_issues', 'trending', [
+      makeIssue(1, { priority: 'high' }),
+    ])
+
+    trackSpy.mockClear()
+    await generate('trending_issues', 'trending', [
+      makeIssue(2, { priority: 'high', title: 'New High Issue A' }),
+      makeIssue(3, { priority: 'high', title: 'New High Issue B' }),
+    ])
+    const high = callsFor(
+      EVENTS.CommunityIssues.HighPriorityTrendingIssuesCreated,
+    )
+    expect(high).toHaveLength(1)
+    expect(high[0]?.[2]).toMatchObject({
+      issueCount: 2,
+      issue1Title: 'New High Issue A',
+      issue2Title: 'New High Issue B',
+    })
   })
 
   it('fires Top Issue Priority Changed when a main-list issue changes priority', async () => {
