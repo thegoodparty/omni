@@ -455,7 +455,7 @@ export = async () => {
         preview: '',
         dev: '',
         qa: '',
-        prod: '',
+        prod: 'true',
       }),
       SERVE_ANALYSIS_BUCKET_NAME: `serve-analyze-data-${environment === 'preview' ? 'dev' : environment}`,
       MEETING_PIPELINE_BUCKET: meetingPipelineBucketName,
