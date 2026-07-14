@@ -124,8 +124,8 @@ export const EVENTS = {
   // issue headline + summary so a downstream email (HubSpot) can render them.
   CommunityIssues: {
     InitialIssuesGenerated: 'Community Issues - Initial Issues Generated',
-    HighPriorityTrendingIssuesCreated:
-      'Community Issues - High Priority Trending Issues Created',
+    HighPriorityTrendingIssueCreated:
+      'Community Issues - High Priority Trending Issue Created',
     TopIssuePriorityChanged: 'Community Issues - Top Issue Priority Changed',
     // Fires when the daily cron skips an otherwise-eligible org because its
     // user has been inactive beyond the activity-gate threshold — feeds a

@@ -210,33 +210,25 @@ export class CommunityIssueService extends createPrismaBase(
       }
     }
 
-    // High-priority trending issues newly created on a refresh run (never on
-    // the org's first trending generation, where every issue is new). One
-    // event per run, not one per issue, so a batch of new high-priority
-    // issues doesn't fan out into a flood of identical-looking events.
+    // A high-priority trending issue that is newly created on a refresh run
+    // (never on the org's first trending generation, where every issue is new).
     if (
       summary.list === CommunityIssueList.trending &&
-      !summary.wasFirstGenerationForList &&
-      summary.newHighPriorityTrending.length > 0
+      !summary.wasFirstGenerationForList
     ) {
-      const issues: Record<string, string> = {}
-      summary.newHighPriorityTrending
-        .slice(0, MAX_EMAIL_ISSUES)
-        .forEach((issue, i) => {
-          const n = i + 1
-          issues[`issue${n}Title`] = issue.title
-          issues[`issue${n}Summary`] = issue.summary
-        })
-      void this.analytics
-        .track(
-          userId,
-          EVENTS.CommunityIssues.HighPriorityTrendingIssuesCreated,
-          {
-            issueCount: summary.newHighPriorityTrending.length,
-            ...issues,
-          },
-        )
-        .catch(() => undefined)
+      for (const issue of summary.newHighPriorityTrending) {
+        void this.analytics
+          .track(
+            userId,
+            EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
+            {
+              issueId: issue.id,
+              title: issue.title,
+              summary: issue.summary,
+            },
+          )
+          .catch(() => undefined)
+      }
     }
 
     // An existing main-list issue whose priority moved this refresh — answers
