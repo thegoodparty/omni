@@ -1,4 +1,4 @@
-Regenerate the committed Amplitude event git-provenance dataset (the curated summary of instrumentation-related git events in this repo) and open a PR with the refreshed file. This is the fallback/audit path; the instrument-analytics-event skill keeps rows fresh per-PR. The engine is `scripts/python/amplitude_event_provenance_backfill.py`; this runbook is the orchestration around it.
+Regenerate the committed Amplitude event git-provenance dataset (the curated summary of instrumentation-related git events in this repo) and open a PR with the refreshed file. This is the fallback/audit path; the instrument-analytics-event skill keeps rows fresh per-PR, and the host repo's `analytics-governance` GitHub Actions workflow runs this walk on a weekly schedule (the scheduled walk is the authoritative writer of the CSV; see that workflow's header for the state story). The engine is `scripts/python/amplitude_event_provenance_backfill.py`; this runbook is the orchestration around it.
 
 ## Prerequisites
 
