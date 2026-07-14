@@ -16,6 +16,7 @@ import {
 } from './services/ordinanceFlowContext.service'
 import { OrdinanceFlowToolsService } from './services/ordinanceFlowTools.service'
 import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
+import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -54,15 +55,19 @@ describe('OrdinanceFlowHandler', () => {
   let context: OrdinanceFlowContextService
   let tools: OrdinanceFlowToolsService
   let fetchService: OrdinanceFlowFetchService
+  let searchService: OrdinanceFlowSearchService
   let features: { isFeatureEnabled: ReturnType<typeof vi.fn> }
 
   const originalAnthropicKey = process.env.ANTHROPIC_API_KEY
+  const originalBraveKey = process.env.BRAVE_API_KEY
   afterAll(() => {
     process.env.ANTHROPIC_API_KEY = originalAnthropicKey
+    process.env.BRAVE_API_KEY = originalBraveKey
   })
 
   beforeEach(() => {
     process.env.ANTHROPIC_API_KEY = 'test-key'
+    process.env.BRAVE_API_KEY = 'test-brave-key'
     store = {
       findByAnchorResource: vi.fn(() => Promise.resolve([])),
       createScopedConversation: vi.fn(() => Promise.resolve({ id: 'fresh' })),
@@ -73,6 +78,7 @@ describe('OrdinanceFlowHandler', () => {
     } as unknown as OrdinanceFlowContextService
     tools = {} as unknown as OrdinanceFlowToolsService
     fetchService = {} as unknown as OrdinanceFlowFetchService
+    searchService = {} as unknown as OrdinanceFlowSearchService
     features = { isFeatureEnabled: vi.fn(() => Promise.resolve(true)) }
   })
 
@@ -84,6 +90,7 @@ describe('OrdinanceFlowHandler', () => {
       context,
       tools,
       fetchService,
+      searchService,
       features as never,
       districtResolver as never,
     )
@@ -200,7 +207,6 @@ describe('OrdinanceFlowHandler', () => {
       'get_code_source',
       'offer_next_step',
       'read_ordinance',
-      'save_answer',
       'save_note',
       'save_synthesis',
       'web_search',
@@ -213,14 +219,79 @@ describe('OrdinanceFlowHandler', () => {
       handler.buildTools({ ...baseCtx(), step: 'current_law' }),
     ).sort()
     expect(names).toEqual([
+      'brave_search',
       'fetch_url',
       'get_code_source',
       'offer_next_step',
+      'present_current_law_summary',
+      'present_legislative_history',
       'read_ordinance',
       'save_existing_law',
       'save_note',
       'web_search',
     ])
+  })
+
+  it('gates brave_search to current_law and to the BRAVE_API_KEY', () => {
+    const handler = build()
+    const currentLaw = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'current_law' }),
+    )
+    expect(currentLaw).toContain('brave_search')
+    // Only the current_law step reads live pages, so only it gets brave_search.
+    expect(Object.keys(handler.buildTools(baseCtx()))).not.toContain(
+      'brave_search',
+    )
+    expect(
+      Object.keys(handler.buildTools({ ...baseCtx(), step: 'comparables' })),
+    ).not.toContain('brave_search')
+
+    delete process.env.BRAVE_API_KEY
+    expect(
+      Object.keys(handler.buildTools({ ...baseCtx(), step: 'current_law' })),
+    ).not.toContain('brave_search')
+  })
+
+  it('offers the authority finding tool on the authority step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'authority' }),
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'offer_next_step',
+      'present_authority_finding',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+  })
+
+  it('offers the comparables tool on the comparables step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'comparables' }),
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'offer_next_step',
+      'present_comparables',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+  })
+
+  it('gates present_* tools to their own step', () => {
+    const handler = build()
+    const clarify = Object.keys(handler.buildTools(baseCtx()))
+    expect(clarify).not.toContain('present_authority_finding')
+    expect(clarify).not.toContain('present_comparables')
+    const authority = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'authority' }),
+    )
+    expect(authority).not.toContain('present_comparables')
+    expect(authority).not.toContain('present_current_law_summary')
   })
 
   it('omits the clarify tools on non-clarify steps but keeps offer_next_step', () => {
@@ -245,7 +316,7 @@ describe('OrdinanceFlowHandler', () => {
   })
 
   it('raises maxSteps above the default so a research turn can finish', () => {
-    expect(build().maxSteps).toBe(8)
+    expect(build().maxSteps).toBe(30)
   })
 
   it('builds a system prompt grounded in the ordinance context', async () => {

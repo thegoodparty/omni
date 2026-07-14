@@ -96,8 +96,10 @@ export function ToolPillRow({
 }): React.JSX.Element {
   return (
     <div className="flex flex-wrap gap-1.5">
-      {labels.map((label) => (
-        <ToolPill key={label} label={label} running={running} />
+      {labels.map((label, i) => (
+        // Index in the key: the same tool can run twice in a turn (e.g. two
+        // web searches), so labels are not unique on their own.
+        <ToolPill key={`${label}-${i}`} label={label} running={running} />
       ))}
     </div>
   )

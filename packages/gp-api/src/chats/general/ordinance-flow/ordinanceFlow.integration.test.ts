@@ -10,7 +10,10 @@ import {
   ChatStreamService,
 } from '@/chats/services/chatStream.service'
 import { ChatStoreService } from '@/chats/services/chatStore.prisma'
+import { LlmService } from '@/llm/services/llm.service'
 import { useTestService } from '@/test-service'
+import { OrdinanceFlowSearchService } from './services/ordinanceFlowSearch.service'
+import { OrdinanceFlowFetchService } from './services/ordinanceFlowFetch.service'
 
 const service = useTestService()
 
@@ -207,5 +210,160 @@ describe('ordinance_flow chat (integration)', () => {
       .flatMap((m) => m.segments ?? [])
       .find((s) => s.toolName === 'ask_clarify_question')
     expect(withWidget?.payload?.questionId).toBe('q1')
+  })
+
+  it('runs brave_search through the real stream pipeline on current_law', async () => {
+    // The real ChatStreamService must drive the handler-built tools, so undo the
+    // wholesale stream mock (from beforeEach) and fake only the LLM decision +
+    // the two HTTP ports.
+    vi.spyOn(service.app.get(ChatStreamService), 'stream').mockRestore()
+    const priorKey = process.env.BRAVE_API_KEY
+    process.env.BRAVE_API_KEY = 'test-brave-key'
+
+    const searchSpy = vi
+      .spyOn(service.app.get(OrdinanceFlowSearchService), 'search')
+      .mockResolvedValue({
+        ok: true,
+        query: 'noise ordinance amlegal',
+        results: [
+          {
+            title: 'Chapter 9.16 Noise',
+            url: 'https://codelibrary.amlegal.com/codes/x/9.16',
+            description: 'Regulates noise levels.',
+          },
+        ],
+      })
+    vi.spyOn(
+      service.app.get(OrdinanceFlowFetchService),
+      'fetchUrl',
+    ).mockResolvedValue({
+      ok: true,
+      status: HttpStatus.OK,
+      finalUrl: 'https://library.municode.com/x',
+      contentType: 'text/html',
+      content: '',
+      truncated: false,
+      totalChars: 0,
+    })
+
+    const query = 'noise ordinance amlegal'
+    const finalText = 'Here is a server-rendered copy of the chapter.'
+    vi.spyOn(
+      service.app.get(LlmService),
+      'streamChatCompletion',
+    ).mockImplementation(async (opts) => {
+      const fetchTool = opts.tools?.fetch_url
+      if (fetchTool && 'execute' in fetchTool) {
+        await fetchTool.execute({ url: 'https://library.municode.com/x' })
+      }
+      const braveTool = opts.tools?.brave_search
+      if (braveTool && 'execute' in braveTool) {
+        opts.onToolCallStart?.({ name: 'brave_search', input: { query } })
+        const output = await braveTool.execute({ query })
+        opts.onToolCallEnd?.({
+          name: 'brave_search',
+          input: { query },
+          output,
+        })
+      }
+      return {
+        textStream: (async function* () {
+          yield finalText
+        })(),
+        finalText: Promise.resolve(finalText),
+        toolCalls: Promise.resolve([]),
+        usage: Promise.resolve({
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+        }),
+        model: 'claude-sonnet-4-6',
+      }
+    })
+
+    try {
+      const created = await service.client.post(
+        '/v1/chats',
+        { scope: SCOPE, anchor: anchorFor(ordinanceId, 'current_law') },
+        headers,
+      )
+      const conversationId = created.data.conversationId as string
+
+      const res = await service.client.post(
+        `/v1/chats/${conversationId}/messages?scope=${SCOPE}`,
+        { content: 'Find where this code lives.' },
+        headers,
+      )
+      expect(res.status).toBe(HttpStatus.OK)
+      expect(searchSpy).toHaveBeenCalledWith(query, undefined)
+      const body = String(res.data)
+      expect(body).toContain('brave_search')
+      expect(body).toContain(finalText)
+
+      const replay = await service.client.get(
+        `/v1/chats/${conversationId}?scope=${SCOPE}`,
+        headers,
+      )
+      const braveSegment = (
+        replay.data.messages as Array<{
+          segments?: Array<{ toolName?: string }>
+        }>
+      )
+        .flatMap((m) => m.segments ?? [])
+        .find((s) => s.toolName === 'brave_search')
+      expect(braveSegment).toBeDefined()
+    } finally {
+      if (priorKey === undefined) delete process.env.BRAVE_API_KEY
+      else process.env.BRAVE_API_KEY = priorKey
+    }
+  }, 30000)
+
+  it('round-trips a widget-only turn (empty content, tool segment) via replay', async () => {
+    const created = await service.client.post(
+      '/v1/chats',
+      { scope: SCOPE, anchor: anchorFor(ordinanceId, 'comparables') },
+      headers,
+    )
+    const conversationId = created.data.conversationId as string
+
+    // Mirrors exactly what ChatStreamService persists on a clean widget-only
+    // finish: zero text, a single present_* tool segment. This must survive the
+    // real DB write AND the GET response schema (ChatConversationSchema allows
+    // empty content) so the widget replays on reload — a fake store can't prove
+    // either, and a future `content.min(1)` would silently break it.
+    const comparables = { comparables: [{ city: 'Riverton', state: 'WA' }] }
+    await chatStore.appendMessage({
+      conversationId,
+      role: ChatMessageRole.assistant,
+      content: '',
+      segments: [
+        {
+          kind: ChatMessageSegmentKind.tool,
+          toolName: 'present_comparables',
+          payload: comparables,
+        },
+      ],
+    })
+
+    const replay = await service.client.get(
+      `/v1/chats/${conversationId}?scope=${SCOPE}`,
+      headers,
+    )
+    expect(replay.status).toBe(HttpStatus.OK)
+    const assistant = (
+      replay.data.messages as Array<{
+        role: ChatMessageRole
+        content: string
+        segments?: Array<{
+          toolName?: string
+          payload?: { comparables?: Array<{ city?: string }> }
+        }>
+      }>
+    ).find((m) => m.role === ChatMessageRole.assistant)
+    expect(assistant?.content).toBe('')
+    const widget = (assistant?.segments ?? []).find(
+      (s) => s.toolName === 'present_comparables',
+    )
+    expect(widget?.payload?.comparables?.[0]?.city).toBe('Riverton')
   })
 })

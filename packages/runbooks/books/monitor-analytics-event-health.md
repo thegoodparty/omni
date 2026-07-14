@@ -59,13 +59,14 @@ cd scripts/python
 uv run analytics_event_health.py
 ```
 
-Prints the dated digest section, appends it to `instrumentation_data/analytics-event-health-log.md`
-(the growing longitudinal history), and writes `analytics_event_health_state.json` (the
-flagged set, for next run's changes-since-last-run diff). Useful flags:
+Prints the dated digest section, inserts it newest-first at the top of
+`instrumentation_data/analytics-event-health-log.md` (the growing longitudinal history,
+below the header), and writes `analytics_event_health_state.json` (the flagged set, for
+next run's changes-since-last-run diff). Useful flags:
 
 - `--today YYYY-MM-DD` — run "as of" a past date (replay / backfill).
 - `--json PATH` — also write the full per-event result JSON (gitignored; use it to dig into a flag).
-- `--no-log` — print only, do not append to the log.
+- `--no-log` — print only, do not write to the log.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
 Read the digest top-down: priority flags table first (ranks 1-7), then the dormant tail,
@@ -142,6 +143,13 @@ entries to the event-metadata skill:
 2. Get dev/PM answers. For each `yes`/`edit`, feed the entry to the **event-metadata** skill
    (`.claude/skills/event-metadata`), which writes the `gp-meta` block into the Amplitude event
    description (read-modify-write, dev + prod). Client (Amplitude) events only.
+3. **Stamp the payload once written (double-write guard).** Immediately after the batch
+   lands, add a `# WRITTEN: YYYY-MM-DD` line to the payload's top comment header. Payloads
+   are gitignored and long-lived on disk, so a reviewed-but-unstamped payload is
+   indistinguishable from an unwritten one. Conversely, before executing ANY payload: if the
+   header carries a `WRITTEN` stamp, stop — and even without one, spot-check a few entries
+   against live declared intent (the `gpmeta` field in the monitor's `--json` report). If the
+   blocks already match the payload, the batch was already written; never re-run it.
 
 ## Stage 5 — refresh the consumer surface (independent, non-fatal)
 

@@ -19,9 +19,10 @@ def _record(event_type, status, **kw):
     return base
 
 
-def test_columns_are_the_sixteen_in_order():
+def test_columns_are_the_eighteen_in_order():
     assert esa.COLUMNS == [
-        "event", "status", "supersession", "family", "first_seen_date",
+        "event", "status", "declared_intent", "intent_date", "supersession",
+        "family", "first_seen_date",
         "last_seen_date", "event_count_30d", "event_count", "description", "tags",
         "instrumented_pr", "instrumented_date", "instrumented_author_email",
         "retired_pr", "retired_date", "retired_author_email",
@@ -70,6 +71,23 @@ def test_build_rows_blanks_supersession_when_original_and_fills_when_superseded(
     assert rows["A"]["supersession"] == ""
     assert rows["A"]["description"] == "does a thing"
     assert rows["B"]["supersession"] == "superseded by A (rebuild)"
+
+
+def test_build_rows_projects_declared_intent_and_date():
+    records = [
+        _record("Live", "active", gpmeta={"intent": "in_use", "intent_date": "2026-01-01"}),
+        _record("Dead", "dormant", gpmeta={"intent": "not_in_use", "intent_date": "2026-05-05"}),
+        _record("Unstamped", "active", gpmeta=None),
+    ]
+    catalog = {n: {"govern_display_name": n} for n in ("Live", "Dead", "Unstamped")}
+    code = {n: {"last_code_change_date": "2026-06-01"} for n in ("Live", "Dead", "Unstamped")}
+    rows = {r["event"]: r for r in esa.build_rows(records, catalog, code)}
+    assert rows["Live"]["declared_intent"] == "in use"
+    assert rows["Live"]["intent_date"] == "2026-01-01"
+    assert rows["Dead"]["declared_intent"] == "not in use"
+    assert rows["Dead"]["intent_date"] == "2026-05-05"
+    assert rows["Unstamped"]["declared_intent"] == ""
+    assert rows["Unstamped"]["intent_date"] == ""
 
 
 def test_build_rows_handles_never_observed_and_missing_author_columns():
