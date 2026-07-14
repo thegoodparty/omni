@@ -33,6 +33,9 @@ export default function DraftDetail({
 }): React.JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const savingRef = useRef(false)
+  const queuedRef = useRef<string | null>(null)
+  const latestBodyRef = useRef<string | null>(null)
   const chatRef = useRef<DraftChatHandle>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [selection, setSelection] = useState<Selection | null>(null)
@@ -49,28 +52,64 @@ export default function DraftDetail({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Serialize saves so two PATCHes never race: at most one is in flight, and the
+  // newest edit made while it runs is queued and fired on completion. Last edit
+  // wins rather than last response, so an out-of-order PATCH can't persist stale
+  // text.
   const save = useCallback(
-    (body: string) => {
+    (body: string): void => {
+      latestBodyRef.current = body
+      if (savingRef.current) {
+        queuedRef.current = body
+        return
+      }
+      savingRef.current = true
       setSaveState('saving')
       updateOrdinance(ordinance.slug, { draftBody: body })
         .then(() => setSaveState('saved'))
         .catch(() => setSaveState('error'))
+        .finally(() => {
+          savingRef.current = false
+          const queued = queuedRef.current
+          queuedRef.current = null
+          if (queued !== null && queued !== body) save(queued)
+        })
     },
     [ordinance.slug],
   )
 
+  // Read innerText only when typing pauses, not on every keystroke (each read
+  // forces a synchronous layout reflow).
   const onInput = useCallback((): void => {
     if (timerRef.current) clearTimeout(timerRef.current)
-    const body = bodyRef.current?.innerText ?? ''
-    timerRef.current = setTimeout(() => save(body), AUTOSAVE_DELAY_MS)
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      save(bodyRef.current?.innerText ?? '')
+    }, AUTOSAVE_DELAY_MS)
   }, [save])
 
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    },
-    [],
-  )
+  // Flush a pending edit while the editor is still on screen (e.g. clicking the
+  // Back link, which is a client-side navigation that unmounts this component).
+  const flush = useCallback((): void => {
+    if (!timerRef.current) return
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+    save(bodyRef.current?.innerText ?? '')
+  }, [save])
+
+  // Backstop for other exits (sidebar nav, browser back): flush on unmount. If
+  // the editor node is still connected read its live text; otherwise fall back
+  // to the last text we observed so we never overwrite the saved draft with ''.
+  useEffect(() => {
+    const node = bodyRef.current
+    return () => {
+      if (!timerRef.current) return
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+      const body = node?.isConnected ? node.innerText : latestBodyRef.current
+      if (body !== null) save(body)
+    }
+  }, [save])
 
   // Show the ask/flag toolbar when the user selects text inside the draft body.
   useEffect(() => {
@@ -107,6 +146,7 @@ export default function DraftDetail({
         <Link
           href="/dashboard/ordinances"
           aria-label="Back to ordinances"
+          onClick={flush}
           className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
         >
           <ArrowLeftIcon className="size-4" aria-hidden />

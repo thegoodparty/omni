@@ -5,56 +5,28 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from 'react'
 import { IconButton, Input } from '@styleguide'
 import { SendIcon } from '@styleguide/components/ui/icons'
 import type { ChatAnchor, Ordinance } from '@goodparty_org/contracts'
-import type {
-  ChatMessageDto,
-  ChatMessageSegment,
-} from '../../shared/agent-chat/chatClient'
+import type { ChatMessageDto } from '../../shared/agent-chat/chatClient'
 import { AssistantRow, InlineSegments } from '../../shared/agent-chat/chatUI'
 import {
   segmentsTextLength,
+  segmentsToLive,
   useSmoothReveal,
   type LiveSegment,
 } from '../../shared/agent-chat/streaming'
 import { ordinanceFlowChatApi } from '../data/chat-api'
+import { ORDINANCE_TOOL_LABELS, ordinanceToolLabel } from '../data/toolLabels'
 
-// Tools that surface as a running pill; bookkeeping tools stay hidden.
-const TOOL_LABELS: Record<string, string> = {
-  web_search: 'Searching the web',
-  read_ordinance: 'Reviewing your ordinance',
-  get_code_source: 'Checking the current code',
-  fetch_url: 'Reading the municipal code',
-}
 const REVEAL_DRAIN_POLL_MS = 40
 const REVEAL_DRAIN_MAX_TICKS = 250
 
 export type DraftChatHandle = { seed: (composerText: string) => void }
-
-// Persisted assistant segments -> the shared inline-segment model.
-const toLive = (
-  segments: ChatMessageSegment[],
-  content: string,
-): LiveSegment[] =>
-  segments.length > 0
-    ? segments.flatMap((s) =>
-        s.kind === 'text'
-          ? s.text
-            ? [{ kind: 'text', text: s.text } as LiveSegment]
-            : []
-          : s.toolName
-            ? [{ kind: 'tool', toolName: s.toolName } as LiveSegment]
-            : [],
-      )
-    : content
-      ? [{ kind: 'text', text: content }]
-      : []
-
-const toolLabel = (name: string): string | null => TOOL_LABELS[name] ?? null
 
 // A slim chat about the draft: the ordinance_flow conversation anchored to the
 // draft step, orchestrating the shared streaming/reveal primitives. Exposes
@@ -150,7 +122,7 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
               pushText(event.delta)
             } else if (
               event.type === 'tool_call' &&
-              TOOL_LABELS[event.toolName]
+              ORDINANCE_TOOL_LABELS[event.toolName]
             ) {
               segments.push({
                 kind: 'tool',
@@ -214,11 +186,28 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
 
     const working = sending && visibleSegments.length === 0
 
+    // Project persisted assistant turns once per history change, not on every
+    // reveal tick (useSmoothReveal re-renders this component every 24ms while a
+    // turn streams).
+    const history = useMemo(
+      () =>
+        messages.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          live:
+            m.role === 'user'
+              ? null
+              : segmentsToLive(m.segments ?? [], m.content),
+        })),
+      [messages],
+    )
+
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-          {messages.map((m) =>
-            m.role === 'user' ? (
+          {history.map((m) =>
+            m.live === null ? (
               <div
                 key={m.id}
                 className="self-end rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground"
@@ -228,8 +217,8 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
             ) : (
               <AssistantRow key={m.id}>
                 <InlineSegments
-                  segments={toLive(m.segments ?? [], m.content)}
-                  toolLabel={toolLabel}
+                  segments={m.live}
+                  toolLabel={ordinanceToolLabel}
                 />
               </AssistantRow>
             ),
@@ -239,7 +228,7 @@ const DraftChat = forwardRef<DraftChatHandle, { ordinance: Ordinance }>(
             <AssistantRow>
               <InlineSegments
                 segments={visibleSegments}
-                toolLabel={toolLabel}
+                toolLabel={ordinanceToolLabel}
               />
             </AssistantRow>
           ) : null}

@@ -21,11 +21,13 @@ import type {
 import { AssistantRow, InlineSegments } from '../../shared/agent-chat/chatUI'
 import {
   segmentsTextLength,
+  segmentsToLive,
   useSmoothReveal,
   type LiveSegment,
 } from '../../shared/agent-chat/streaming'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
+import { ORDINANCE_TOOL_LABELS, ordinanceToolLabel } from '../data/toolLabels'
 import {
   ORDINANCE_STEP_LABELS,
   isOrdinanceStep,
@@ -54,12 +56,7 @@ const REVEAL_DRAIN_MAX_TICKS = 250
 // (ask_clarify_question renders as the widget; save_note/save_synthesis are
 // internal) are intentionally absent, so they never show a pill — while the
 // agent works toward the next question the "Thinking..." shimmer covers it.
-const TOOL_LABELS: Record<string, string> = {
-  web_search: 'Searching the web',
-  read_ordinance: 'Reviewing your ordinance',
-  get_code_source: 'Checking the current code',
-  fetch_url: 'Reading the municipal code',
-}
+// The label map (ORDINANCE_TOOL_LABELS) is shared with the draft chat.
 
 // While the model is still writing a tool call's arguments (the tool_input_start
 // signal, before the call completes), show what it is working on instead of a
@@ -256,7 +253,7 @@ export default function OrdinanceFlowChat({
                   { instance: widget, appearAfter },
                 ])
               }
-            } else if (TOOL_LABELS[event.toolName]) {
+            } else if (ORDINANCE_TOOL_LABELS[event.toolName]) {
               segments.push({
                 kind: 'tool',
                 toolName: event.toolName,
@@ -567,7 +564,7 @@ export default function OrdinanceFlowChat({
               {visibleSegments.length > 0 ? (
                 <InlineSegments
                   segments={visibleSegments}
-                  toolLabel={(name) => TOOL_LABELS[name] ?? null}
+                  toolLabel={ordinanceToolLabel}
                 />
               ) : null}
               {showWidgets ? <StepWidgetBlocks widgets={shownWidgets} /> : null}
@@ -678,28 +675,12 @@ function AssistantMessage({
   const stepWidgets = parseStepWidgets(segments)
   // Same interleaved model as the live turn: text and tool pills in stream
   // order, so a reloaded turn reads identically to how it streamed.
-  const rendered: LiveSegment[] =
-    segments.length > 0
-      ? segments.flatMap((s) =>
-          s.kind === 'text'
-            ? s.text
-              ? [{ kind: 'text', text: s.text } as LiveSegment]
-              : []
-            : s.toolName
-              ? [{ kind: 'tool', toolName: s.toolName } as LiveSegment]
-              : [],
-        )
-      : message.content
-        ? [{ kind: 'text', text: message.content }]
-        : []
+  const rendered = segmentsToLive(segments, message.content ?? '')
 
   return (
     <>
       <AssistantRow>
-        <InlineSegments
-          segments={rendered}
-          toolLabel={(name) => TOOL_LABELS[name] ?? null}
-        />
+        <InlineSegments segments={rendered} toolLabel={ordinanceToolLabel} />
         <StepWidgetBlocks widgets={stepWidgets} />
         {clarify ? (
           <ClarifyQuestionWidget
