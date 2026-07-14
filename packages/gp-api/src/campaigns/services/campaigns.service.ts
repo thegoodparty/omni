@@ -64,7 +64,8 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
   constructor(
     @Inject(forwardRef(() => CrmCampaignsService))
     private readonly crm: WrapperType<CrmCampaignsService>,
-    private readonly analytics: AnalyticsService,
+    @Inject(forwardRef(() => AnalyticsService))
+    private readonly analytics: WrapperType<AnalyticsService>,
     private planVersionService: CampaignPlanVersionsService,
     private readonly elections: ElectionsService,
     private readonly ballotReady: BallotReadyService,

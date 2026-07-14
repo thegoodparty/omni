@@ -16,8 +16,9 @@ import {
   OrdinanceExistingLawSchema,
   OrdinanceResearchSchema,
   OrdinanceScratchpadSchema,
+  type OrdinanceAuthority,
   type OrdinanceClarify,
-  type OrdinanceClarifyAnswer,
+  type OrdinanceComparables,
 } from '@goodparty_org/contracts'
 
 export const ORDINANCE_READ_SECTIONS = [
@@ -115,26 +116,6 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     return { saved: true }
   }
 
-  async appendAnswer(
-    ordinanceId: string,
-    electedOfficeId: string,
-    answer: OrdinanceClarifyAnswer,
-  ): Promise<{ saved: true }> {
-    const o = await this.findOwned(ordinanceId, electedOfficeId)
-    const answers = parse(OrdinanceClarifyAnswersSchema, o.clarifyAnswers) ?? []
-    // Replace an existing answer to the same question (a re-answer) rather than
-    // appending a duplicate.
-    const next = [
-      ...answers.filter((a) => a.questionId !== answer.questionId),
-      answer,
-    ]
-    await this.model.update({
-      where: { id: o.id },
-      data: { clarifyAnswers: next },
-    })
-    return { saved: true }
-  }
-
   async saveSynthesis(
     ordinanceId: string,
     electedOfficeId: string,
@@ -142,6 +123,26 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
     await this.model.update({ where: { id: o.id }, data: { clarify } })
+    return { saved: true }
+  }
+
+  async saveAuthority(
+    ordinanceId: string,
+    electedOfficeId: string,
+    authority: OrdinanceAuthority,
+  ): Promise<{ saved: true }> {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.model.update({ where: { id: o.id }, data: { authority } })
+    return { saved: true }
+  }
+
+  async saveComparables(
+    ordinanceId: string,
+    electedOfficeId: string,
+    comparables: OrdinanceComparables,
+  ): Promise<{ saved: true }> {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.model.update({ where: { id: o.id }, data: { comparables } })
     return { saved: true }
   }
 

@@ -249,6 +249,15 @@ const CHIEF_OF_STAFF_MENU_ITEM: MenuItem = {
   v2Category: 'elected-office',
 }
 
+const ORDINANCES_MENU_ITEM: MenuItem = {
+  id: 'ordinances-dashboard',
+  label: 'Ordinances',
+  link: '/dashboard/ordinances',
+  icon: <MdFileOpen />,
+  v2Icon: ScrollTextIcon,
+  v2Category: 'elected-office',
+}
+
 const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   id: 'campaign-plan-dashboard',
   label: 'Campaign Plan',
@@ -287,12 +296,14 @@ export const getDashboardMenuItems = (
   winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
+  ordinancesEnabled: boolean,
 ): MenuItem[] => {
   const menuItems = [...DEFAULT_MENU_ITEMS]
 
   // Community Issues nav is gated behind serve-community-issues-v1 so it can be
   // dark-launched independently; the page route itself is serve-access gated.
   const communityIssuesShown = isElectedOffice && communityIssuesEnabled
+  const ordinancesShown = isElectedOffice && ordinancesEnabled
 
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
@@ -322,6 +333,9 @@ export const getDashboardMenuItems = (
     if (communityIssuesShown) {
       menuItems.splice(1, 0, COMMUNITY_ISSUES_MENU_ITEM)
     }
+    if (ordinancesShown) {
+      menuItems.splice(communityIssuesShown ? 2 : 1, 0, ORDINANCES_MENU_ITEM)
+    }
   }
 
   // Chief of Staff is the primary Serve tab (Serve home), so it sits above
@@ -341,6 +355,7 @@ export const getDashboardMenuItems = (
     1 +
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
+    (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
 
   if (campaignStoryEnabled) {
@@ -391,6 +406,9 @@ export default function DashboardMenu({
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
   const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
+  // Nav-only gate for the Ordinances tab; the page's FeatureFlagGuard is the
+  // treatment surface.
+  const { on: ordinancesEnabled } = useFlagOn('serve-ordinances')
   const campaignStrategyExists = useCampaignStrategyExists()
 
   const menuItems = useMemo(() => {
@@ -404,6 +422,7 @@ export default function DashboardMenu({
       winVoterDataEnabled,
       campaignStoryEnabled,
       communityIssuesEnabled,
+      ordinancesEnabled,
     )
 
     if (ecanvasser) {
@@ -422,6 +441,7 @@ export default function DashboardMenu({
     winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
+    ordinancesEnabled,
   ])
 
   useEffect(() => {

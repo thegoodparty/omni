@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useUser } from '@shared/hooks/useUser'
 import { ArchiveIcon } from '@styleguide/components/ui/icons'
 import { chiefOfStaffArchiveHref } from '../routes'
+import BriefingDispatchBanner from './BriefingDispatchBanner'
 import OnboardingCards from './OnboardingCards'
 import { ONBOARDING_CARDS } from './onboardingCardsConfig'
 import TaskList from './TaskList'
@@ -66,6 +67,7 @@ export default function DashboardContent(): React.JSX.Element {
               <span className="hidden sm:inline">Archive</span>
             </Link>
           </div>
+          <BriefingDispatchBanner />
           <OnboardingCards onOpenCard={openCard} />
           <TaskList />
         </section>

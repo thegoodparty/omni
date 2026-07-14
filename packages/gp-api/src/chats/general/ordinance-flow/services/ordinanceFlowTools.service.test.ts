@@ -3,6 +3,15 @@ import { NotFoundException } from '@nestjs/common'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OrdinanceFlowToolsService } from './ordinanceFlowTools.service'
+import { OrdinanceFlowFetchService } from './ordinanceFlowFetch.service'
+import { OrdinanceFlowSearchService } from './ordinanceFlowSearch.service'
+import {
+  buildPresentAuthorityFindingTool,
+  buildPresentComparablesTool,
+  buildPresentCurrentLawSummaryTool,
+  buildPresentLegislativeHistoryTool,
+  type OrdinanceToolDeps,
+} from '../tools/ordinanceFlowTools'
 
 const service = useTestService()
 
@@ -82,39 +91,6 @@ describe('OrdinanceFlowToolsService', () => {
     ;({ ordinanceId, electedOfficeId, organizationSlug } = await seedOrdinance(
       service.user.id,
     ))
-  })
-
-  it('records and re-records clarify answers (replace, not duplicate)', async () => {
-    await tools.appendAnswer(ordinanceId, electedOfficeId, {
-      questionId: 'q1',
-      question: 'What hours?',
-      answer: '10pm to 7am',
-    })
-    await tools.appendAnswer(ordinanceId, electedOfficeId, {
-      questionId: 'q2',
-      question: 'Any exemptions?',
-      answer: 'Emergencies',
-    })
-    // Re-answering q1 replaces it rather than appending a duplicate.
-    await tools.appendAnswer(ordinanceId, electedOfficeId, {
-      questionId: 'q1',
-      question: 'What hours?',
-      answer: '11pm to 6am',
-    })
-
-    const read = await tools.readSection(
-      ordinanceId,
-      electedOfficeId,
-      'clarify_answers',
-    )
-    const answers = read.clarifyAnswers as Array<{
-      questionId: string
-      answer: string
-    }>
-    expect(answers).toHaveLength(2)
-    expect(answers.find((a) => a.questionId === 'q1')?.answer).toBe(
-      '11pm to 6am',
-    )
   })
 
   it('appends scratchpad notes tagged with the step', async () => {
@@ -306,6 +282,47 @@ describe('OrdinanceFlowToolsService', () => {
     })
   })
 
+  it('persists the authority finding artifact readable by later steps', async () => {
+    await tools.saveAuthority(ordinanceId, electedOfficeId, {
+      status: 'pass',
+      explanation: 'The council may regulate camera siting under G.S. 160A.',
+      source: { id: 'gs-160a', title: 'N.C.G.S. § 160A-4' },
+    })
+    const read = await tools.readSection(
+      ordinanceId,
+      electedOfficeId,
+      'authority',
+    )
+    expect(read.authority).toMatchObject({
+      status: 'pass',
+      explanation: 'The council may regulate camera siting under G.S. 160A.',
+      source: { id: 'gs-160a', title: 'N.C.G.S. § 160A-4' },
+    })
+  })
+
+  it('persists the comparables artifact readable by later steps', async () => {
+    await tools.saveComparables(ordinanceId, electedOfficeId, [
+      {
+        city: 'Edgewater',
+        state: 'OR',
+        status: 'passed',
+        quote: 'Cameras sited by published crime-density data.',
+        source: { id: 'edg-2022', title: 'Edgewater Ord. 2022-09' },
+      },
+    ])
+    const read = await tools.readSection(
+      ordinanceId,
+      electedOfficeId,
+      'comparables',
+    )
+    const comparables = read.comparables as Array<{ city: string }>
+    expect(comparables).toHaveLength(1)
+    expect(comparables[0]).toMatchObject({
+      city: 'Edgewater',
+      status: 'passed',
+    })
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),
@@ -313,5 +330,106 @@ describe('OrdinanceFlowToolsService', () => {
     await expect(
       tools.readSection(ordinanceId, 'someone-elses-office', 'draft'),
     ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.saveAuthority(ordinanceId, 'someone-elses-office', {
+        status: 'pass',
+        explanation: 'x',
+        source: { id: 's', title: 't' },
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.saveComparables(ordinanceId, 'someone-elses-office', []),
+    ).rejects.toBeInstanceOf(NotFoundException)
+  })
+})
+
+describe('ordinance-flow present_* tool builders', () => {
+  let tools: OrdinanceFlowToolsService
+  let deps: OrdinanceToolDeps
+  let ordinanceId: string
+  let electedOfficeId: string
+
+  beforeEach(async () => {
+    tools = service.app.get(OrdinanceFlowToolsService)
+    ;({ ordinanceId, electedOfficeId } = await seedOrdinance(service.user.id))
+    deps = {
+      service: tools,
+      fetch: service.app.get(OrdinanceFlowFetchService),
+      search: service.app.get(OrdinanceFlowSearchService),
+      ordinanceId,
+      electedOfficeId,
+      organizationSlug: 'org-unused',
+      step: 'authority',
+    }
+  })
+
+  it('present_authority_finding persists only the artifact subset', async () => {
+    await buildPresentAuthorityFindingTool(deps).execute({
+      headline: 'Pass. The council has authority to act.',
+      status: 'pass',
+      explanation: 'Local surveillance policy sits inside council powers.',
+      source: { id: 'ors-181a', title: 'Or. Rev. Stat. § 181A.250' },
+      confirmation: 'You can introduce this as an amendment.',
+    })
+    const read = await tools.readSection(
+      ordinanceId,
+      electedOfficeId,
+      'authority',
+    )
+    // The display fields (headline, confirmation) render from the tool args;
+    // only the OrdinanceAuthoritySchema subset is persisted to the column.
+    expect(read.authority).toMatchObject({
+      status: 'pass',
+      explanation: 'Local surveillance policy sits inside council powers.',
+    })
+    const dumped = JSON.stringify(read.authority)
+    expect(dumped).not.toContain('headline')
+    expect(dumped).not.toContain('confirmation')
+  })
+
+  it('present_comparables persists the cards, not the framing prose', async () => {
+    await buildPresentComparablesTool(deps).execute({
+      intro: 'I pulled the closest comparable ordinances.',
+      comparables: [
+        {
+          city: 'Riverton',
+          state: 'WA',
+          status: 'passed',
+          quote: 'Independent oversight panel reviews footage requests.',
+          source: { id: 'riv-2021', title: 'Riverton Ord. 2021-14' },
+        },
+      ],
+      takeaway: 'Pair expansion with oversight.',
+    })
+    const read = await tools.readSection(
+      ordinanceId,
+      electedOfficeId,
+      'comparables',
+    )
+    const comparables = read.comparables as Array<{ city: string }>
+    expect(comparables).toHaveLength(1)
+    expect(comparables[0]).toMatchObject({ city: 'Riverton' })
+    const dumped = JSON.stringify(read.comparables)
+    expect(dumped).not.toContain('I pulled the closest')
+    expect(dumped).not.toContain('Pair expansion')
+  })
+
+  it('display-only present tools ack without persisting or throwing', async () => {
+    const summary = await buildPresentCurrentLawSummaryTool().execute({
+      chapterLabel: 'Chapter 12',
+      does: [{ title: 'Police may install cameras' }],
+      gaps: [{ title: 'No retention limit' }],
+    })
+    const history = await buildPresentLegislativeHistoryTool().execute({
+      entries: [{ year: 1998, label: 'Chapter 12 created', summary: 'Pilot.' }],
+    })
+    expect(summary).toEqual({ presented: true })
+    expect(history).toEqual({ presented: true })
+    const read = await tools.readSection(
+      ordinanceId,
+      electedOfficeId,
+      'authority',
+    )
+    expect(read.authority).toBeNull()
   })
 })

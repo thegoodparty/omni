@@ -2,6 +2,8 @@ import type {
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
   Ordinance,
+  OrdinanceListResponse,
+  SaveOrdinanceClarifyAnswerRequest,
   Priority,
   ChatAnchor,
   RaceOpponentSourceType,
@@ -456,13 +458,28 @@ export type APIEndpoints = {
     Response: void
   }
 
+  'GET /v1/ordinances': {
+    Request: {}
+    Response: OrdinanceListResponse
+  }
+
   'POST /v1/ordinances': {
     Request: CreateOrdinanceRequest
     Response: Ordinance
   }
 
+  'GET /v1/priorities': {
+    Request: {}
+    Response: Priority[]
+  }
+
   'GET /v1/ordinances/:slug': {
     Request: {}
+    Response: Ordinance
+  }
+
+  'POST /v1/ordinances/:slug/clarify-answers': {
+    Request: SaveOrdinanceClarifyAnswerRequest
     Response: Ordinance
   }
 
@@ -605,6 +622,21 @@ export type APIEndpoints = {
   'GET /v1/meetings': {
     Request: {}
     Response: MeetingsListResponseDto
+  }
+
+  // Self-serve landing catch-up: called client-side after landing on the
+  // dashboard. Resolves the office from the authenticated user and dispatches
+  // a briefing if the cron's gates would allow it, skipping only the 90-day
+  // activity gate (landing already proves activity). `inFlight` covers both
+  // a fresh dispatch from this call and a run already in progress from an
+  // earlier one — either way the caller should show the loading banner.
+  'POST /v1/meetings/dispatch-if-needed': {
+    Request: {}
+    Response: {
+      dispatched: boolean
+      inFlight: boolean
+      meetingDate: string | null
+    }
   }
 
   'GET /v1/meetings/:date/briefing': {
@@ -811,6 +843,16 @@ export type APIEndpoints = {
         title: string
       }>
     }
+  }
+
+  // Self-serve landing catch-up: called client-side after landing on the
+  // community issues dashboard. Dispatches both experiment types if eligible
+  // and not already in flight, skipping only the 90-day activity gate.
+  // Distinct from self-dispatch above (staff-only, single-type, manual
+  // refresh button).
+  'POST /v1/community-issues/dispatch-if-needed': {
+    Request: {}
+    Response: { dispatched: number; skipped: number }
   }
 
   'GET /v1/campaigns/mine/race-opponent': {

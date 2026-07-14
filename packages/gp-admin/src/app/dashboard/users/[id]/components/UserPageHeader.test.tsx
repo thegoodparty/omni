@@ -43,6 +43,7 @@ const mockUser: User = {
   lastName: 'Doe',
   email: 'john@example.com',
   hasPassword: true,
+  createdAt: new Date('2024-01-01'),
   avatar: 'https://example.com/avatar.jpg',
   zip: null,
   phone: null,

@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, IconButton, Input } from '@styleguide'
+import { Button, IconButton, Input, Skeleton } from '@styleguide'
 import { ChevronRightIcon, SendIcon } from '@styleguide/components/ui/icons'
 import {
   OrdinanceClarifyQuestionSchema,
   OrdinanceNextStepOfferSchema,
   type ChatAnchor,
   type Ordinance,
+  type OrdinanceClarifyAnswer,
   type OrdinanceClarifyQuestion,
   type OrdinanceFlowStep,
   type OrdinanceNextStepOffer,
@@ -24,7 +25,7 @@ import {
   type LiveSegment,
 } from '../../shared/agent-chat/streaming'
 import { ordinanceFlowChatApi } from '../data/chat-api'
-import { fetchOrdinanceBySlug } from '../data/ordinances-api'
+import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
 import {
   ORDINANCE_STEP_LABELS,
   isOrdinanceStep,
@@ -50,7 +51,7 @@ const REVEAL_DRAIN_POLL_MS = 40
 const REVEAL_DRAIN_MAX_TICKS = 250
 
 // User-meaningful "working" actions shown as shimmer pills. Bookkeeping tools
-// (ask_clarify_question renders as the widget; save_answer/save_note are
+// (ask_clarify_question renders as the widget; save_note/save_synthesis are
 // internal) are intentionally absent, so they never show a pill — while the
 // agent works toward the next question the "Thinking..." shimmer covers it.
 const TOOL_LABELS: Record<string, string> = {
@@ -64,7 +65,7 @@ const TOOL_LABELS: Record<string, string> = {
 // signal, before the call completes), show what it is working on instead of a
 // generic "Thinking...". Covers the wait while the clarify question generates.
 const GENERATING_LABELS: Record<string, string> = {
-  [CLARIFY_TOOL]: 'Writing your question...',
+  [CLARIFY_TOOL]: 'Preparing your question...',
   [OFFER_TOOL]: 'Preparing next steps...',
 }
 
@@ -80,6 +81,16 @@ const parseClarify = (value: unknown): OrdinanceClarifyQuestion | null => {
   const parsed = OrdinanceClarifyQuestionSchema.safeParse(value)
   return parsed.success ? parsed.data : null
 }
+
+// Project a persisted clarify answer into the local recordedAnswers shape
+// (drops the optional source, which reconciliation does not use).
+const toRecordedAnswer = (
+  a: OrdinanceClarifyAnswer,
+): { questionId: string; question: string; answer: string } => ({
+  questionId: a.questionId,
+  question: a.question,
+  answer: a.answer,
+})
 
 // The clarify question a persisted assistant turn asked (from its tool segment
 // payload), so the widget renders inline in that turn on reload.
@@ -135,7 +146,7 @@ export default function OrdinanceFlowChat({
   const [ordinanceTitle, setOrdinanceTitle] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [recordedAnswers, setRecordedAnswers] = useState<
-    Array<{ question: string; answer: string }>
+    Array<{ questionId: string; question: string; answer: string }>
   >([])
   const [messages, setMessages] = useState<ChatMessageDto[]>([])
   const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([])
@@ -151,12 +162,16 @@ export default function OrdinanceFlowChat({
     Array<{ instance: StepWidgetInstance; appearAfter: number }>
   >([])
   // The tool whose arguments the model is currently writing, if any, so the
-  // working shimmer can name it (e.g. "Writing your question...").
+  // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
   const [sending, setSending] = useState(false)
   const [streamError, setStreamError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // Synchronous double-submit guard for answerClarify: setSending/setAnswers
+  // are async, so a fast double-tap could otherwise fire two persists and two
+  // streams before the first re-render locks the widget.
+  const answeringRef = useRef(false)
   const router = useRouter()
 
   // Smooth type-out for the in-flight turn: the reveal trails the arrived text
@@ -296,13 +311,50 @@ export default function OrdinanceFlowChat({
   )
 
   const answerClarify = useCallback(
-    (questionId: string, answer: string): void => {
+    (questionId: string, question: string, answer: string): void => {
+      if (answeringRef.current) return
+      answeringRef.current = true
       // Optimistic: highlight the pick immediately. The turn is sent hidden (no
       // echoed text bubble) so only the highlighted option represents the answer.
       setAnswers((prev) => ({ ...prev, [questionId]: answer }))
-      void send(answer, { hidden: true })
+      void (async () => {
+        // Persist the answer verbatim as the source of truth (keyed by the
+        // widget's own questionId), independent of the agent. This and the
+        // agent turn have no data dependency (the agent reads the answer off
+        // the transcript, not the persist result), so fire them together;
+        // persist latency never delays the interactive turn.
+        const persist = saveClarifyAnswer(slug, {
+          questionId,
+          question,
+          answer,
+        })
+          .then((updated) => {
+            setRecordedAnswers(
+              (updated.clarifyAnswers ?? []).map(toRecordedAnswer),
+            )
+          })
+          .catch(() => {
+            // Persist failed. Optimistic `answers` already holds the highlight
+            // for the rest of this session, and the answer still rides the
+            // transcript for the agent; mirror it into recordedAnswers so the
+            // in-session state stays internally consistent. The DB was not
+            // written, so a reload will lose the highlight (nothing to restore).
+            setRecordedAnswers((prev) =>
+              prev.some((a) => a.questionId === questionId)
+                ? prev
+                : [...prev, { questionId, question, answer }],
+            )
+          })
+        // Release the guard only once BOTH the persist and the agent stream
+        // settle, so a tap during the (longer) stream can't open a second one.
+        try {
+          await Promise.all([send(answer, { hidden: true }), persist])
+        } finally {
+          answeringRef.current = false
+        }
+      })()
     },
-    [send],
+    [slug, send],
   )
 
   // Keep a stable handle to the latest `send` so the init effect can trigger the
@@ -329,10 +381,7 @@ export default function OrdinanceFlowChat({
           ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance',
         )
         setRecordedAnswers(
-          (ordinance.clarifyAnswers ?? []).map((a) => ({
-            question: a.question,
-            answer: a.answer,
-          })),
+          (ordinance.clarifyAnswers ?? []).map(toRecordedAnswer),
         )
         setMessages(history)
         setPhase('ready')
@@ -355,13 +404,38 @@ export default function OrdinanceFlowChat({
   }, [messages, visibleSegments, liveClarify])
 
   if (phase === 'loading') {
-    return <div className="p-6 text-tertiary">Loading your ordinance...</div>
+    return (
+      <div className="flex h-full w-full flex-col bg-background">
+        <div
+          className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4"
+          aria-busy="true"
+        >
+          <header className="flex flex-col gap-3">
+            {stepValue ? <OrdinanceStepper current={stepValue} /> : null}
+            <Skeleton className="h-7 w-64" />
+          </header>
+          <div className="flex flex-1 flex-col gap-3">
+            <div className="flex max-w-full items-start gap-2 self-start">
+              <Skeleton className="size-6 shrink-0 rounded-full" />
+              <Skeleton className="h-20 w-80 max-w-full rounded-2xl" />
+            </div>
+            <div className="flex max-w-full items-start gap-2 self-start">
+              <Skeleton className="size-6 shrink-0 rounded-full" />
+              <Skeleton className="h-12 w-64 max-w-full rounded-2xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (phase === 'error' || !stepValue) {
     return (
-      <div className="p-6 text-tertiary">
-        We couldn&apos;t open this ordinance step. Check the link and try again.
+      <div className="flex h-full w-full flex-col bg-background">
+        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center p-6 text-center text-tertiary">
+          We couldn&apos;t open this ordinance step. Check the link and try
+          again.
+        </div>
       </div>
     )
   }
@@ -372,20 +446,20 @@ export default function OrdinanceFlowChat({
       m.role === 'assistant' &&
       (m.segments ?? []).some((s) => s.toolName === CLARIFY_TOOL),
   )
-  // Persisted answers keyed by question text — stable across re-answers (which
-  // reorder the stored list) and independent of the agent's save_answer
-  // questionId (which doesn't match the widget's), unlike ordinal pairing.
-  const recordedByQuestion = new Map(
-    recordedAnswers.map((a) => [a.question, a.answer]),
+  // Persisted answers keyed by questionId. The client now writes answers under
+  // the widget's own questionId (see saveClarifyAnswer), so this is an exact
+  // match, no fragile question-text pairing.
+  const recordedByQuestionId = new Map(
+    recordedAnswers.map((a) => [a.questionId, a.answer]),
   )
-  // Resolve each clarify turn's answer: the optimistic session pick first
-  // (exact, keyed by the question's own id), else the persisted answer for the
-  // same question text.
+  // Resolve each clarify turn's answer: the optimistic session pick first, else
+  // the persisted answer for the same questionId.
   const answerByMessageId: Record<string, string> = {}
   for (const m of clarifyMessages) {
     const q = clarifyFromSegments(m.segments ?? [])
     if (!q) continue
-    const resolved = answers[q.questionId] ?? recordedByQuestion.get(q.question)
+    const resolved =
+      answers[q.questionId] ?? recordedByQuestionId.get(q.questionId)
     if (resolved != null) answerByMessageId[m.id] = resolved
   }
 
@@ -569,7 +643,7 @@ function NextStepButton({
       type="button"
       variant="outline"
       onClick={onAdvance}
-      className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
+      className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
     >
       <span>{label ?? `Continue to ${nextLabel}`}</span>
       <ChevronRightIcon
@@ -591,7 +665,11 @@ function AssistantMessage({
   message: ChatMessageDto
   answer?: string
   interactive: boolean
-  onAnswerClarify: (questionId: string, answer: string) => void
+  onAnswerClarify: (
+    questionId: string,
+    question: string,
+    answer: string,
+  ) => void
   onAdvance?: () => void
   nextLabel?: string
 }): React.JSX.Element {
@@ -628,7 +706,9 @@ function AssistantMessage({
             question={clarify}
             disabled={!interactive}
             {...(answer !== undefined ? { answer } : {})}
-            onAnswer={(a) => onAnswerClarify(clarify.questionId, a)}
+            onAnswer={(a) =>
+              onAnswerClarify(clarify.questionId, clarify.question, a)
+            }
           />
         ) : null}
       </AssistantRow>

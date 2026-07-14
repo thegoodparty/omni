@@ -14,6 +14,7 @@ const mockUser: User = {
   phone: '5551234567',
   zip: '12345',
   hasPassword: true,
+  createdAt: new Date('2024-01-01'),
   roles: [UserRole.admin, UserRole.candidate],
   metaData: {
     hubspotId: 'hs_12345',

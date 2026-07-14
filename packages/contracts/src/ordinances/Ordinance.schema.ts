@@ -43,6 +43,15 @@ export const OrdinanceClarifyAnswersSchema = z.array(
   OrdinanceClarifyAnswerSchema,
 )
 
+// Request body for persisting one clarify answer straight from the UI. The
+// client is the source of truth for the answer (keyed by the widget's own
+// questionId), so persistence no longer depends on the agent transcribing it.
+export const SaveOrdinanceClarifyAnswerRequestSchema =
+  OrdinanceClarifyAnswerSchema
+export type SaveOrdinanceClarifyAnswerRequest = z.infer<
+  typeof SaveOrdinanceClarifyAnswerRequestSchema
+>
+
 // One suggested answer to a clarify question. A factual option cites a source;
 // a pure-judgment option may omit one. The UI always adds an "Or write your
 // own..." freeform option on top of these.
@@ -266,6 +275,8 @@ export const OrdinanceSummarySchema = OrdinanceSchema.pick({
   status: true,
   seedType: true,
   draftTitle: true,
+  goalText: true,
+  lastViewedStep: true,
   createdAt: true,
   updatedAt: true,
 })
