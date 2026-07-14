@@ -55,7 +55,11 @@ import { dirname, join, relative } from 'node:path'
 // (useState + useEffect + a react-query refetchInterval) to show a
 // "generating..." banner once the user lands back in the product; that
 // polling loop cannot run on the server.
-const BASELINE = 538
+// 2026-07-14: 538 -> 539 for DraftDetail — the ordinance draft-detail screen
+// is a contentEditable inline editor with debounced autosave (useRef + useState
+// + event handlers), so it can't be a server component; the page.tsx shell
+// stays server.
+const BASELINE = 539
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

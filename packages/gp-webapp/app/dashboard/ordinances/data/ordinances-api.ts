@@ -5,6 +5,7 @@ import type {
   CreateOrdinanceRequest,
   Ordinance,
   SaveOrdinanceClarifyAnswerRequest,
+  UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {
@@ -16,6 +17,18 @@ export async function createOrdinance(
   input: CreateOrdinanceRequest,
 ): Promise<Ordinance> {
   const { data } = await clientRequest('POST /v1/ordinances', input)
+  return data
+}
+
+// Patch an ordinance (draft body autosave, status change, last-viewed step).
+export async function updateOrdinance(
+  slug: string,
+  input: UpdateOrdinanceRequest,
+): Promise<Ordinance> {
+  const { data } = await clientRequest('PATCH /v1/ordinances/:slug', {
+    slug,
+    ...input,
+  })
   return data
 }
 
