@@ -17,6 +17,17 @@ describe('GET /v1/users/me', () => {
       service.user.createdAt.getTime(),
     )
   })
+
+  it('survives response validation with a single-character name', async () => {
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { firstName: 'A', lastName: 'B' },
+    })
+
+    const res = await service.client.get('/v1/users/me')
+
+    expect(res.status).toBe(HttpStatus.OK)
+  })
 })
 
 describe('POST /v1/users/me/crm-registration', () => {
