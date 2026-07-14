@@ -15,3 +15,9 @@ export const DispatchPreviewQuerySchema = z.object({
 export type DispatchPreviewQuery = z.infer<typeof DispatchPreviewQuerySchema>
 
 export { BriefingDispatchPreviewSchema }
+
+export const BriefingDispatchOutcomeSchema = z.object({
+  dispatched: z.boolean(),
+  inFlight: z.boolean(),
+  meetingDate: z.string().nullable(),
+})

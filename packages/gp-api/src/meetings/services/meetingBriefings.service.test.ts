@@ -3,6 +3,7 @@ import {
   ExperimentRunStatus,
   MeetingResourceLocationType,
 } from '../../generated/prisma'
+import { subDays } from 'date-fns'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
@@ -16,6 +17,17 @@ import { AnalyticsService } from '@/analytics/analytics.service'
 import { MeetingBriefingsService } from './meetingBriefings.service'
 
 const service = useTestService()
+
+// Most suites below exercise dispatch paths that (as of the activity-gated
+// dispatch feature) skip inactive users. Default the shared test user to
+// "active" so those paths are unaffected — the dedicated activity-gate tests
+// further down set an explicit stale/absent lastVisited instead.
+beforeEach(async () => {
+  await service.prisma.user.update({
+    where: { id: service.user.id },
+    data: { metaData: { lastVisited: Date.now() } },
+  })
+})
 
 const seedOrgAndCampaign = async (
   orgSlug: string,
@@ -341,6 +353,54 @@ describe('MeetingBriefingsService.onExperimentRunCompleted', () => {
           meetingTimezone: 'America/Chicago',
         }),
       }),
+    )
+  })
+
+  it('chains a briefing even when the office user has never visited (activity gate skipped)', async () => {
+    // This hook exists to guarantee a newly onboarded office gets its first
+    // briefing. A sales-provisioned office's user may have no lastVisited at
+    // all yet -- that must not be treated as "inactive" and silently drop
+    // the very first briefing (see dispatchBriefingIfDue's identical
+    // skipActivityGate reasoning: reaching this point already proves the
+    // office is real and eligible, independent of the user's own activity).
+    const orgSlug = `eo-chain-never-visited-${Date.now()}`
+    await seedOrgAndCampaign(orgSlug, {
+      positionId: 'br-pos-chain-never-visited',
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgSlug, userId: service.user.id },
+    })
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: {} },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    const artifactKey = await seedScheduleForOrg(orgSlug) // FREQ=DAILY → always inside window
+    const scheduleRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_schedule',
+        status: ExperimentRunStatus.COMPLETED,
+        artifactBucket: 'schedule-bucket',
+        artifactKey,
+        params: { elected_office_id: eo.id },
+      },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app
+      .get(MeetingBriefingsService)
+      .onExperimentRunCompleted(scheduleRun)
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'meeting_briefing' }),
     )
   })
 
@@ -935,6 +995,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
         email: `cron-b-${Date.now()}@test.example`,
         firstName: 'A',
         lastName: 'B',
+        metaData: { lastVisited: Date.now() },
       },
     })
     const orgSlugB = `eo-cron-b-${Date.now()}`
@@ -1205,6 +1266,152 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
 
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('MeetingBriefingsService — activity-gated dispatch', () => {
+  beforeEach(async () => {
+    vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+    mockResolveServeContext(null)
+    await service.prisma.cronRun.deleteMany({})
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  const seedEligibleOffice = async (orgSlug: string) => {
+    await seedOrgAndCampaign(orgSlug, { positionId: `br-pos-${orgSlug}` })
+    const campaign = await service.prisma.campaign.findFirst({
+      where: { organizationSlug: orgSlug },
+    })
+    const eo = await service.prisma.electedOffice.create({
+      data: {
+        organizationSlug: orgSlug,
+        userId: service.user.id,
+        campaignId: campaign?.id,
+      },
+    })
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+    await seedScheduleForOrg(orgSlug)
+    return eo
+  }
+
+  it('cron dispatches for a user active within the threshold', async () => {
+    const orgSlug = `eo-active-${Date.now()}`
+    await seedEligibleOffice(orgSlug)
+    // Global beforeEach already sets service.user active; keep it explicit
+    // here so the test doesn't rely on that default silently.
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { lastVisited: Date.now() } },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('cron skips and tracks a re-engagement event for a user inactive beyond the threshold', async () => {
+    const orgSlug = `eo-inactive-${Date.now()}`
+    await seedEligibleOffice(orgSlug)
+    const staleLastVisited = subDays(new Date(), 91).getTime()
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { lastVisited: staleLastVisited } },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+    const trackSpy = vi
+      .spyOn(service.app.get(AnalyticsService), 'track')
+      .mockResolvedValue({ event: 'stub', userId: 'stub' })
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+    expect(trackSpy).toHaveBeenCalledWith(
+      service.user.id,
+      'Briefing Assistant - Dispatch Skipped',
+      expect.objectContaining({
+        electedOfficeId: expect.any(String) as string,
+        meetingDate: expect.any(Number) as number,
+        daysUntilMeeting: expect.any(Number) as number,
+        lastVisitedAt: staleLastVisited,
+        daysSinceLastVisit: expect.any(Number) as number,
+      }),
+    )
+  })
+
+  it('on-demand path dispatches for an inactive user (activity gate skipped)', async () => {
+    const orgSlug = `eo-ondemand-${Date.now()}`
+    const eo = await seedEligibleOffice(orgSlug)
+    const staleLastVisited = subDays(new Date(), 200).getTime()
+    await service.prisma.user.update({
+      where: { id: service.user.id },
+      data: { metaData: { lastVisited: staleLastVisited } },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    const result = await service.app
+      .get(MeetingBriefingsService)
+      .dispatchBriefingIfDue(eo)
+
+    expect(result.dispatched).toBe(true)
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not double-dispatch when a briefing run is already in flight (cron path)', async () => {
+    const orgSlug = `eo-inflight-cron-${Date.now()}`
+    await seedEligibleOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.QUEUED,
+        params: { meetingDate: '2099-01-01' },
+      },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).not.toHaveBeenCalled()
+  })
+
+  it('does not double-dispatch when a briefing run is already in flight (on-demand path)', async () => {
+    const orgSlug = `eo-inflight-ondemand-${Date.now()}`
+    const eo = await seedEligibleOffice(orgSlug)
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgSlug,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.RUNNING,
+        params: { meetingDate: '2099-01-01' },
+      },
+    })
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    const result = await service.app
+      .get(MeetingBriefingsService)
+      .dispatchBriefingIfDue(eo)
+
+    expect(result.dispatched).toBe(false)
+    expect(result.inFlight).toBe(true)
+    expect(result.meetingDate).toBe('2099-01-01')
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
 })

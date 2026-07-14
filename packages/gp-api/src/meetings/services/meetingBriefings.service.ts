@@ -9,9 +9,11 @@ import {
 import { LlmService } from '@/llm/services/llm.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
 import { parseIsoDateAsUTC } from '@/shared/util/date.util'
+import { isInactiveUser } from '@/shared/util/userActivity.util'
 import { getUserFullName } from '@/users/util/users.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { BraintrustService } from '@/vendors/braintrust/braintrust.service'
+import { EVENTS } from '@/vendors/segment/segment.types'
 import {
   BadGatewayException,
   ForbiddenException,
@@ -130,6 +132,7 @@ type DispatchContext = {
   l2DistrictType?: string
   l2DistrictName?: string
   isServeIcp?: boolean | null
+  lastVisitedMs?: number
 }
 
 const CRON_CONFIG = {
@@ -151,6 +154,16 @@ type TargetMeeting = {
   meetingDate: string // YYYY-MM-DD
   meetingTime?: string // HH:MM (optional — user-supplied agenda path leaves it to the agent)
   meetingTimezone?: string // IANA (optional — same reason)
+}
+
+export type BriefingDispatchOutcome = {
+  dispatched: boolean
+  // A meeting_briefing run for this office is QUEUED/RUNNING/AWAITING_RESUME
+  // — either just dispatched by this call or already in flight from an
+  // earlier one. The caller (on-demand endpoint) uses this to decide whether
+  // to show a "generating your briefing" banner.
+  inFlight: boolean
+  meetingDate: string | null
 }
 
 @Injectable()
@@ -771,14 +784,14 @@ export class MeetingBriefingsService extends createPrismaBase(
     })
     if (!eo) return
 
-    await this.dispatchBriefingIfNeeded(eo, new Date()).catch(
-      (err: unknown) => {
-        this.logger.error(
-          { err, electedOfficeId, scheduleRunId: run.runId },
-          'dispatchBriefingIfNeeded failed after schedule completion',
-        )
-      },
-    )
+    await this.dispatchBriefingIfNeeded(eo, new Date(), {
+      skipActivityGate: true,
+    }).catch((err: unknown) => {
+      this.logger.error(
+        { err, electedOfficeId, scheduleRunId: run.runId },
+        'dispatchBriefingIfNeeded failed after schedule completion',
+      )
+    })
   }
 
   @Cron('0 7 * * *')
@@ -831,16 +844,69 @@ export class MeetingBriefingsService extends createPrismaBase(
     await this.cronLock.markCompleted(DAILY_BRIEFINGS_CRON_JOB, now)
   }
 
+  /**
+   * On-demand landing catch-up: dispatch the caller's own briefing if the
+   * cron's gates would allow it, skipping only the activity gate — landing
+   * on the dashboard already proves the user is active. Reuses the exact
+   * same eligibility function as the cron (`dispatchBriefingIfNeeded`).
+   */
+  async dispatchBriefingIfDue(
+    electedOffice: ElectedOffice,
+  ): Promise<BriefingDispatchOutcome> {
+    return this.dispatchBriefingIfNeeded(
+      {
+        id: electedOffice.id,
+        organizationSlug: electedOffice.organizationSlug,
+        userId: electedOffice.userId,
+      },
+      new Date(),
+      { skipActivityGate: true },
+    )
+  }
+
   private async dispatchBriefingIfNeeded(
     eo: { id: string; organizationSlug: string; userId: number },
     now: Date,
-  ): Promise<void> {
+    options: { skipActivityGate?: boolean } = {},
+  ): Promise<BriefingDispatchOutcome> {
+    const notDispatched: BriefingDispatchOutcome = {
+      dispatched: false,
+      inFlight: false,
+      meetingDate: null,
+    }
+
     // Coverage dedupe: skip if a briefing already covers an upcoming meeting.
     const futureBriefing = await this.model.findFirst({
       where: { electedOfficeId: eo.id, meetingDate: { gte: now } },
       select: { id: true },
     })
-    if (futureBriefing) return
+    if (futureBriefing) return notDispatched
+
+    // In-flight dedupe: a briefing run for this office was already dispatched
+    // and hasn't completed yet (no MeetingBriefing row exists yet to catch
+    // above). Without this, calling the on-demand path repeatedly while a
+    // cron-dispatched run is still processing would double-dispatch.
+    const inFlightRun = await this.client.experimentRun.findFirst({
+      where: {
+        organizationSlug: eo.organizationSlug,
+        experimentType: BRIEFING_EXPERIMENT_TYPE,
+        status: {
+          in: [
+            ExperimentRunStatus.QUEUED,
+            ExperimentRunStatus.RUNNING,
+            ExperimentRunStatus.AWAITING_RESUME,
+          ],
+        },
+      },
+      select: { params: true },
+    })
+    if (inFlightRun) {
+      return {
+        dispatched: false,
+        inFlight: true,
+        meetingDate: readStringField(inFlightRun.params, 'meetingDate'),
+      }
+    }
 
     // Imminence gate: only dispatch when the schedule shows a meeting
     // within IMMINENCE_WINDOW_DAYS. No schedule → no briefing.
@@ -850,15 +916,15 @@ export class MeetingBriefingsService extends createPrismaBase(
       now,
       IMMINENCE_WINDOW_DAYS,
     )
-    if (!target) return
+    if (!target) return notDispatched
 
     const electedOffice = await this.client.electedOffice.findUnique({
       where: { id: eo.id },
     })
-    if (!electedOffice) return
+    if (!electedOffice) return notDispatched
 
     const ctx = await this.resolveDispatchContext(electedOffice)
-    if (!ctx) return
+    if (!ctx) return notDispatched
 
     // Fail closed: automated dispatches require an affirmative serve-ICP
     // flag, so offices stay un-briefed until the Databricks backfill
@@ -870,10 +936,27 @@ export class MeetingBriefingsService extends createPrismaBase(
         { electedOfficeId: eo.id, isServeIcp: ctx.isServeIcp },
         'skipping dispatch: position is not serve-ICP',
       )
-      return
+      return notDispatched
+    }
+
+    // Activity gate: skip on the cron path when the user hasn't opened the
+    // product within INACTIVITY_THRESHOLD_DAYS, firing a re-engagement
+    // signal instead. The on-demand path sets skipActivityGate so a user
+    // who just landed on the dashboard isn't blocked by their own stale
+    // lastVisited from before this request.
+    if (!options.skipActivityGate && isInactiveUser(ctx.lastVisitedMs, now)) {
+      await this.trackBriefingDispatchSkippedInactive({
+        userId: eo.userId,
+        electedOfficeId: eo.id,
+        target,
+        lastVisitedMs: ctx.lastVisitedMs,
+        now,
+      })
+      return notDispatched
     }
 
     await this.dispatchBriefing(ctx, target)
+    return { dispatched: true, inFlight: true, meetingDate: target.meetingDate }
   }
 
   private async resolveDispatchContext(
@@ -926,6 +1009,40 @@ export class MeetingBriefingsService extends createPrismaBase(
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
       isServeIcp: serveCtx.isServeIcp,
+      lastVisitedMs: user.metaData?.lastVisited,
+    }
+  }
+
+  private async trackBriefingDispatchSkippedInactive(args: {
+    userId: number
+    electedOfficeId: string
+    target: TargetMeeting
+    lastVisitedMs: number | undefined
+    now: Date
+  }): Promise<void> {
+    const { userId, electedOfficeId, target, lastVisitedMs, now } = args
+    try {
+      await this.analytics.track(
+        userId,
+        EVENTS.BriefingAssistant.DispatchSkipped,
+        {
+          electedOfficeId,
+          meetingDate: parseIsoDateAsUTC(target.meetingDate).getTime(),
+          daysUntilMeeting: differenceInCalendarDays(
+            parseIsoDateAsUTC(target.meetingDate),
+            parseIsoDateAsUTC(formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')),
+          ),
+          lastVisitedAt: lastVisitedMs ?? null,
+          daysSinceLastVisit: lastVisitedMs
+            ? differenceInCalendarDays(now, new Date(lastVisitedMs))
+            : null,
+        },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, userId },
+        '[SEGMENT] Failed to track Briefing Assistant - Dispatch Skipped',
+      )
     }
   }
 
