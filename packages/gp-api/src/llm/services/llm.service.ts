@@ -117,6 +117,10 @@ export interface LlmStreamOptions {
   // call is complete. Lets the client show a per-tool "generating" indicator
   // during the gap the tool_call event used to leave blank.
   onToolInputStart?: (event: { toolName: string }) => void
+  // Fires on a mid-generation provider error. The AI SDK routes these to its
+  // onError callback rather than throwing from textStream, so a consumer that
+  // only reads textStream must be notified here to surface the failure.
+  onStreamError?: (error: Error) => void
 }
 
 export interface LlmStreamUsage {
@@ -370,6 +374,7 @@ export class LlmService {
       onToolCallStart,
       onToolCallEnd,
       onToolInputStart,
+      onStreamError,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -398,6 +403,11 @@ export class LlmService {
               this.logger.error(
                 { err: event.error, userId, model: currentModel },
                 'streamText error during generation',
+              )
+              onStreamError?.(
+                event.error instanceof Error
+                  ? event.error
+                  : new Error(String(event.error)),
               )
             },
             ...(abortSignal && { abortSignal }),

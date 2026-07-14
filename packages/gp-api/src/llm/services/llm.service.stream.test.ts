@@ -387,15 +387,18 @@ describe('LlmService.streamChatCompletion', () => {
       stubAnthropicFactory,
     )
 
+    const onStreamError = vi.fn()
     await service.streamChatCompletion({
       messages: [USER_MSG],
       models: ['claude-sonnet-4-6'],
       retries: 0,
+      onStreamError,
     })
 
     // streamText swallows generation errors by default (they surface only via
     // the onError callback, never thrown), so the service must register one and
-    // log through it — otherwise a mid-generation provider failure is silent.
+    // both log it AND forward it via onStreamError — otherwise a mid-generation
+    // provider failure is silent and the consumer treats the turn as clean.
     const { onError } = firstOrThrow(streamTextFn.mock.calls)[0]
     expect(typeof onError).toBe('function')
     const boom = new Error('provider exploded mid-generation')
@@ -405,6 +408,7 @@ describe('LlmService.streamChatCompletion', () => {
       expect.objectContaining({ err: boom }),
       'streamText error during generation',
     )
+    expect(onStreamError).toHaveBeenCalledWith(boom)
   })
 })
 

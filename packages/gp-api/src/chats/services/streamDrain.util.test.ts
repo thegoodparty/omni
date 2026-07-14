@@ -26,6 +26,16 @@ describe('waitForDrain', () => {
     await expect(p).resolves.toBe('drained')
   })
 
+  it("resolves 'drained' on a terminal error event", async () => {
+    const stream = new EventEmitter()
+    const ac = new AbortController()
+    const p = waitForDrain(asStream(stream), ac.signal, 10_000)
+    // EventEmitter throws on an unhandled 'error'; the util registers a handler,
+    // so emitting it must resolve the wait rather than crash.
+    stream.emit('error')
+    await expect(p).resolves.toBe('drained')
+  })
+
   it("resolves 'drained' when the abort signal fires", async () => {
     const stream = new EventEmitter()
     const ac = new AbortController()

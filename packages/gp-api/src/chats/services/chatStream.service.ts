@@ -359,6 +359,11 @@ export class ChatStreamService {
       }
     }
 
+    // The AI SDK routes mid-generation provider errors to onError, not by
+    // throwing from textStream — so consuming textStream ends normally and the
+    // error would otherwise be swallowed. Capture it here to surface as a
+    // stream error (client gets an error chunk; the turn isn't marked clean).
+    let streamError: Error | undefined
     let result: LlmStreamResult
     try {
       result = await this.llm.streamChatCompletion({
@@ -367,6 +372,9 @@ export class ChatStreamService {
         ...(args.models && { models: args.models }),
         ...(args.maxSteps && { maxSteps: args.maxSteps }),
         ...(args.signal && { abortSignal: args.signal }),
+        onStreamError: (err) => {
+          streamError = err
+        },
         onToolInputStart: ({ toolName }) => {
           void queue.push({ type: 'tool_input_start', toolName })
         },
@@ -408,6 +416,9 @@ export class ChatStreamService {
           pushTextDelta(delta)
           await queue.push({ type: 'text', delta })
         }
+        // textStream ends normally even on a provider error (the SDK swallows
+        // it to onStreamError), so surface any captured error here.
+        if (streamError) return { error: streamError }
         return {}
       } catch (err) {
         this.logger.error(
@@ -461,6 +472,7 @@ export class ChatStreamService {
         })
       : driveStream()
 
+    let completedNormally = false
     try {
       // The yield loop is now purely client delivery — segments and persistence
       // are handled in driveStream, so a parked consumer can't block either.
@@ -485,12 +497,16 @@ export class ChatStreamService {
         type: 'done',
         ...(persistedId !== undefined && { assistantMessageId: persistedId }),
       }
+      completedNormally = true
     } finally {
       // Fallback for a premature return (client returned the iterator before
-      // driveStream reached its persist). Pass the real cleanFinish (mirrors
-      // driveStream) so an interrupted turn gets the sentinel while a clean
-      // finish with no content writes nothing. No-op if already persisted.
-      await persistOnce(!args.signal?.aborted && !tracedMetrics.errorCode)
+      // driveStream reached its persist). `completedNormally` is a deterministic
+      // signal (no racy read of the floating driveStream's metrics): on a clean
+      // finish driveStream already persisted — or it was a clean-empty turn with
+      // nothing to save — so persistOnce(true) is a no-op / writes nothing; a
+      // premature return is an interrupt, so persistOnce(false) writes the
+      // sentinel. No-op if already persisted.
+      await persistOnce(completedNormally)
     }
   }
 

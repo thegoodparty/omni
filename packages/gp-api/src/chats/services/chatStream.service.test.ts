@@ -192,6 +192,9 @@ type StreamScriptItem =
       output: Record<string, unknown>
     }
   | { kind: 'error'; error: Error }
+  // Models the AI SDK routing a mid-generation error to onError (via
+  // onStreamError) rather than throwing from textStream, which then ends.
+  | { kind: 'streamError'; error: Error }
   | { kind: 'abortCheck' }
   | { kind: 'gate'; gate: Promise<void> }
 
@@ -220,6 +223,10 @@ const consumeScriptItem = async (
   if (item.kind === 'toolInputStart') {
     options.onToolInputStart?.({ toolName: item.toolName })
     return { done: false }
+  }
+  if (item.kind === 'streamError') {
+    options.onStreamError?.(item.error)
+    return { done: true }
   }
   if (item.kind === 'toolCall') {
     const id = `call-${toolCallIds.length + 1}`
@@ -915,6 +922,34 @@ describe('ChatStreamService', () => {
       const errorChunk = expectErrorChunk(chunks)
       expect(errorChunk.code).toBe('aborted')
       expect(errorChunk.retryable).toBe(false)
+    })
+
+    it('surfaces a mid-stream error delivered via onStreamError (SDK does not throw)', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      // The AI SDK routes provider errors to onError and ends textStream
+      // normally (no throw), so the error must be surfaced via onStreamError —
+      // otherwise the turn would look clean and the client would get no error.
+      llm.setScript([
+        { kind: 'text', delta: 'partial ' },
+        {
+          kind: 'streamError',
+          error: Object.assign(
+            new Error('AI_APICallError: 500 https://api.anthropic.com'),
+            { status: 500 },
+          ),
+        },
+      ])
+
+      const chunks = await collect(service.stream(baseStreamArgs()))
+
+      const errorChunk = expectErrorChunk(chunks)
+      expect(errorChunk.code).toBe('upstream_unavailable')
+      expect(errorChunk.message).not.toContain('api.anthropic.com')
+      // The partial text is persisted; the turn is not falsely marked clean.
+      const assistantRow = store
+        .getPersistedMessages(CONVERSATION_ID)
+        .find((m) => m.role === ChatMessageRole.assistant)
+      expect(assistantRow?.content).toBe('partial ')
     })
 
     it('persists partial text and yields sanitized error when llm throws mid-stream', async () => {
