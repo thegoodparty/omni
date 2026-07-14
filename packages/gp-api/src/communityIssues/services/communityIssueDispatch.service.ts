@@ -1,11 +1,19 @@
 import { ExperimentRunsService } from '@/agentExperiments/services/experimentRuns.service'
+import { AnalyticsService } from '@/analytics/analytics.service'
 import { CronLockService } from '@/cron/services/cronLock.service'
 import { OrganizationsService } from '@/organizations/services/organizations.service'
-import { Injectable } from '@nestjs/common'
+import { WrapperType } from '@/shared/types/utility.types'
+import { EVENTS } from '@/vendors/segment/segment.types'
+import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
+import { differenceInCalendarDays } from 'date-fns'
 import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { bucketForSlug } from '../communityIssueBucketing'
+import { isInactiveUser } from '@/shared/util/userActivity.util'
+import {
+  bucketForSlug,
+  topIssuesBucketForDate,
+} from '../communityIssueBucketing'
 
 const EXPERIMENT_TYPES = ['top_community_issues', 'trending_issues'] as const
 
@@ -24,6 +32,7 @@ const TOP_CRON_JOB = 'top_community_issues'
 type DispatchSummary = { dispatched: number; skipped: number }
 
 type ResolvedDispatchContext = {
+  userId: number
   clerkUserId: string
   state: string
   positionName: string
@@ -31,6 +40,7 @@ type ResolvedDispatchContext = {
   l2DistrictType?: string
   l2DistrictName?: string
   isServeIcp?: boolean | null
+  lastVisitedMs?: number
 }
 
 // Builds the agent params for one (org, type) dispatch. The L2 district key is
@@ -65,6 +75,13 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     private readonly experimentRuns: ExperimentRunsService,
     private readonly organizations: OrganizationsService,
     private readonly cronLock: CronLockService,
+    // analytics.service sits on a circular import chain (analytics -> users
+    // -> campaigns -> analytics); a plain class-typed param here makes SWC's
+    // reflected design:paramtypes eagerly capture AnalyticsService before
+    // that cycle finishes loading, undefining an unrelated CampaignsService
+    // dependency at DI time. forwardRef + WrapperType defers resolution.
+    @Inject(forwardRef(() => AnalyticsService))
+    private readonly analytics: WrapperType<AnalyticsService>,
   ) {
     super()
   }
@@ -204,10 +221,42 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       : { dispatched: 0, skipped: 1 }
   }
 
+  /**
+   * Self-serve landing catch-up: dispatch both experiment types for the
+   * caller's own org, skipping the 30-day-inactivity gate (landing on the
+   * dashboard already proves activity). ICP eligibility and the in-flight
+   * check still apply, same as every other dispatch path. Distinct from
+   * `dispatchSelfServe` (staff-only, single type, manual refresh button).
+   */
+  async dispatchIfNeeded(orgSlug: string): Promise<DispatchSummary> {
+    const ctx = await this.resolveContext(orgSlug)
+    if (!ctx || ctx.isServeIcp !== true) {
+      return { dispatched: 0, skipped: EXPERIMENT_TYPES.length }
+    }
+
+    let dispatched = 0
+    let skipped = 0
+    for (const experimentType of EXPERIMENT_TYPES) {
+      const didDispatch = await this.dispatchTypeForOrg(
+        orgSlug,
+        experimentType,
+        ctx,
+        { skipActivityGate: true },
+      )
+      if (didDispatch) {
+        dispatched++
+      } else {
+        skipped++
+      }
+    }
+    return { dispatched, skipped }
+  }
+
   private async dispatchTypeForOrg(
     orgSlug: string,
     experimentType: CommunityIssueExperimentType,
     ctx: ResolvedDispatchContext,
+    { skipActivityGate = true }: { skipActivityGate?: boolean } = {},
   ): Promise<boolean> {
     const inFlight = await this.client.experimentRun.findFirst({
       where: {
@@ -231,6 +280,16 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       return false
     }
 
+    // Activity gate: skip on the cron path when the user hasn't opened the
+    // product within INACTIVITY_THRESHOLD_DAYS, firing a re-engagement
+    // signal instead. Admin/staff dispatch paths (dispatchForCohort,
+    // dispatchSelfServe) never set skipActivityGate, so they keep their
+    // existing unconditional-dispatch behavior.
+    if (!skipActivityGate && isInactiveUser(ctx.lastVisitedMs, new Date())) {
+      await this.trackDispatchSkippedInactive(orgSlug, experimentType, ctx)
+      return false
+    }
+
     await this.experimentRuns.dispatchRun({
       type: experimentType,
       organizationSlug: orgSlug,
@@ -238,6 +297,32 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       params: buildDispatchParams(orgSlug, experimentType, ctx),
     })
     return true
+  }
+
+  private async trackDispatchSkippedInactive(
+    orgSlug: string,
+    experimentType: CommunityIssueExperimentType,
+    ctx: ResolvedDispatchContext,
+  ): Promise<void> {
+    try {
+      await this.analytics.track(
+        ctx.userId,
+        EVENTS.CommunityIssues.DispatchSkipped,
+        {
+          organizationSlug: orgSlug,
+          experimentType,
+          lastVisitedAt: ctx.lastVisitedMs ?? null,
+          daysSinceLastVisit: ctx.lastVisitedMs
+            ? differenceInCalendarDays(new Date(), new Date(ctx.lastVisitedMs))
+            : null,
+        },
+      )
+    } catch (err) {
+      this.logger.error(
+        { err, orgSlug, experimentType },
+        '[SEGMENT] Failed to track Community Issues - Dispatch Skipped',
+      )
+    }
   }
 
   /**
@@ -285,7 +370,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     const claimed = await this.cronLock.tryClaimDailyRun(TOP_CRON_JOB, now)
     if (!claimed) return
 
-    const todayBucket = Math.min(now.getUTCDate(), 28) - 1
+    const todayBucket = topIssuesBucketForDate(now)
 
     await this.dispatchSlice(
       'top_community_issues',
@@ -326,35 +411,14 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       const ctx = await this.resolveContext(organizationSlug)
       if (!ctx || ctx.isServeIcp !== true) continue
 
-      const inFlight = await this.client.experimentRun.findFirst({
-        where: {
-          organizationSlug,
-          experimentType,
-          status: {
-            in: [
-              ExperimentRunStatus.QUEUED,
-              ExperimentRunStatus.RUNNING,
-              ExperimentRunStatus.AWAITING_RESUME,
-            ],
-          },
-        },
-        select: { runId: true },
-      })
-      if (inFlight) continue
-
-      await this.experimentRuns
-        .dispatchRun({
-          type: experimentType,
-          organizationSlug,
-          clerkUserId: ctx.clerkUserId,
-          params: buildDispatchParams(organizationSlug, experimentType, ctx),
-        })
-        .catch((err: unknown) =>
-          this.logger.error(
-            { err, organizationSlug, experimentType },
-            'community-issue cron dispatch failed for org; continuing',
-          ),
-        )
+      await this.dispatchTypeForOrg(organizationSlug, experimentType, ctx, {
+        skipActivityGate: false,
+      }).catch((err: unknown) =>
+        this.logger.error(
+          { err, organizationSlug, experimentType },
+          'community-issue cron dispatch failed for org; continuing',
+        ),
+      )
     }
   }
 
@@ -396,6 +460,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       : `${serveCtx.positionName}, ${serveCtx.state}`
 
     return {
+      userId: eo.user.id,
       clerkUserId: eo.user.clerkId,
       state: serveCtx.state,
       positionName: serveCtx.positionName,
@@ -403,6 +468,7 @@ export class CommunityIssueDispatchService extends createPrismaBase(
       l2DistrictType: serveCtx.l2DistrictType,
       l2DistrictName: serveCtx.l2DistrictName,
       isServeIcp: serveCtx.isServeIcp,
+      lastVisitedMs: eo.user.metaData?.lastVisited,
     }
   }
 }

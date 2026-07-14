@@ -45,14 +45,14 @@ export default function MyOrdinancesSection({
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             My ordinances
           </h2>
           <p className="text-sm text-muted-foreground">
             Ordinances you&apos;re working on.
           </p>
         </div>
-        <Button asChild className="rounded-full">
+        <Button asChild className="rounded-full text-sm">
           <Link href="/dashboard/ordinances/new">New ordinance</Link>
         </Button>
       </div>
@@ -68,7 +68,7 @@ export default function MyOrdinancesSection({
               onClick={() => setFilter(active ? null : status)}
               aria-pressed={active}
               className={cn(
-                'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+                'rounded-full border px-3 py-1 text-xs font-medium uppercase tracking-wide transition-colors',
                 active ? meta.filterActiveClass : meta.filterClass,
               )}
             >
@@ -96,7 +96,7 @@ export default function MyOrdinancesSection({
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">
-                    {o.draftTitle ?? 'Untitled ordinance'}
+                    {o.draftTitle ?? o.goalText ?? 'Untitled ordinance'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {rowTimestamp(o.updatedAt)}

@@ -63,6 +63,13 @@ export const EVENTS = {
   Polls: {
     ResultsSynthesisCompleted: 'Poll - Results Synthesis Complete',
   },
+  // Meeting Briefings (Serve). Fires when the daily cron skips an
+  // otherwise-eligible office because its user has been inactive beyond the
+  // activity-gate threshold — feeds a HubSpot re-engagement email. The
+  // on-demand landing check skips this gate (see meetingBriefings.service).
+  BriefingAssistant: {
+    DispatchSkipped: 'Briefing Assistant - Dispatch Skipped',
+  },
   Campaigns: {
     FollowOnCreated: 'Campaign - Follow-On Created',
     FollowOnBlocked: 'Campaign - Follow-On Blocked',
@@ -120,6 +127,11 @@ export const EVENTS = {
     HighPriorityTrendingIssueCreated:
       'Community Issues - High Priority Trending Issue Created',
     TopIssuePriorityChanged: 'Community Issues - Top Issue Priority Changed',
+    // Fires when the daily cron skips an otherwise-eligible org because its
+    // user has been inactive beyond the activity-gate threshold — feeds a
+    // HubSpot re-engagement email. The on-demand landing check skips this
+    // gate (see communityIssueDispatch.service).
+    DispatchSkipped: 'Community Issues - Dispatch Skipped',
   },
 }
 

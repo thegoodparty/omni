@@ -109,7 +109,11 @@ export class SessionGuard implements CanActivate {
           'Agent token is only valid on the MCP endpoint',
         )
       }
-      this.sessions.trackSession(user)
+      // Agent tokens act on a user's behalf via MCP — that isn't the user
+      // opening the product, so it must not bump their activity signal.
+      if (!request.agentToken) {
+        this.sessions.trackSession(user)
+      }
     } catch (err) {
       if (err instanceof UnauthorizedException) {
         throw err

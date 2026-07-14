@@ -183,6 +183,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       status: record.status,
       seedType: record.seedType,
       draftTitle: record.draftTitle,
+      goalText: record.goalText,
       lastViewedStep: record.lastViewedStep,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),

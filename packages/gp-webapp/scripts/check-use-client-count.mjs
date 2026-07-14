@@ -50,7 +50,12 @@ import { dirname, join, relative } from 'node:path'
 // client-side status filtering, and the "Work on this" seed action with
 // useRouter — so they can't be server components. The page.tsx shell stays a
 // server component.
-const BASELINE = 536
+// 2026-07-10: 536 -> 538 for BriefingDispatchBanner and
+// CommunityIssuesDispatchBanner — both poll gp-api client-side after mount
+// (useState + useEffect + a react-query refetchInterval) to show a
+// "generating..." banner once the user lands back in the product; that
+// polling loop cannot run on the server.
+const BASELINE = 538
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -8,6 +8,17 @@ import { CrmUsersService } from './services/crmUsers.service'
 // spy and 401s every HTTP request made after those suites.
 const service = useTestService()
 
+describe('GET /v1/users/me', () => {
+  it('includes createdAt in the response', async () => {
+    const res = await service.client.get('/v1/users/me')
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(new Date(res.data.createdAt).getTime()).toBe(
+      service.user.createdAt.getTime(),
+    )
+  })
+})
+
 describe('POST /v1/users/me/crm-registration', () => {
   const REGISTER_FORM_ID = '37d98f01-7062-405f-b0d1-c95179057db1'
 

@@ -8,8 +8,10 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ElectedOffice, User } from '../../generated/prisma'
 import { addMonths, subDays } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
@@ -27,6 +29,7 @@ import {
   MeetingDateParamSchema,
 } from '../schemas/meetingDateParam.schema'
 import {
+  BriefingDispatchOutcomeSchema,
   BriefingDispatchPreviewSchema,
   DispatchMeetingAgentDto,
   DispatchMeetingAgentSchema,
@@ -277,6 +280,21 @@ export class MeetingsBriefingsController {
       electedOfficeId,
       requestingUserId,
     )
+  }
+
+  /**
+   * Self-serve landing catch-up: called client-side after the user lands on
+   * the dashboard. Resolves the office from the authenticated user (not an
+   * admin-supplied ID) and dispatches a briefing if the cron's gates would
+   * allow it, skipping only the activity gate — landing already proves the
+   * user is active. Distinct from the admin-only `briefings/dispatch` above.
+   */
+  @UseElectedOffice()
+  @Post('dispatch-if-needed')
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(BriefingDispatchOutcomeSchema)
+  async dispatchIfNeeded(@ReqElectedOffice() electedOffice: ElectedOffice) {
+    return this.meetingBriefings.dispatchBriefingIfDue(electedOffice)
   }
 
   /**

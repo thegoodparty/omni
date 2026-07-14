@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button, IconButton, Input } from '@styleguide'
+import { Button, IconButton, Input, Skeleton } from '@styleguide'
 import { ChevronRightIcon, SendIcon } from '@styleguide/components/ui/icons'
 import {
   OrdinanceClarifyQuestionSchema,
@@ -404,13 +404,38 @@ export default function OrdinanceFlowChat({
   }, [messages, visibleSegments, liveClarify])
 
   if (phase === 'loading') {
-    return <div className="p-6 text-tertiary">Loading your ordinance...</div>
+    return (
+      <div className="flex h-full w-full flex-col bg-background">
+        <div
+          className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4"
+          aria-busy="true"
+        >
+          <header className="flex flex-col gap-3">
+            {stepValue ? <OrdinanceStepper current={stepValue} /> : null}
+            <Skeleton className="h-7 w-64" />
+          </header>
+          <div className="flex flex-1 flex-col gap-3">
+            <div className="flex max-w-full items-start gap-2 self-start">
+              <Skeleton className="size-6 shrink-0 rounded-full" />
+              <Skeleton className="h-20 w-80 max-w-full rounded-2xl" />
+            </div>
+            <div className="flex max-w-full items-start gap-2 self-start">
+              <Skeleton className="size-6 shrink-0 rounded-full" />
+              <Skeleton className="h-12 w-64 max-w-full rounded-2xl" />
+            </div>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   if (phase === 'error' || !stepValue) {
     return (
-      <div className="p-6 text-tertiary">
-        We couldn&apos;t open this ordinance step. Check the link and try again.
+      <div className="flex h-full w-full flex-col bg-background">
+        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center p-6 text-center text-tertiary">
+          We couldn&apos;t open this ordinance step. Check the link and try
+          again.
+        </div>
       </div>
     )
   }
@@ -618,7 +643,7 @@ function NextStepButton({
       type="button"
       variant="outline"
       onClick={onAdvance}
-      className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
+      className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
     >
       <span>{label ?? `Continue to ${nextLabel}`}</span>
       <ChevronRightIcon
