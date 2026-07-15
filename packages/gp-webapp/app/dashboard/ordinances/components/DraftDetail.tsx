@@ -16,15 +16,17 @@ import {
   DrawerDescription,
   DrawerHeader,
   DrawerTitle,
+  IconButton,
   cn,
 } from '@styleguide'
 import {
   ArrowLeftIcon,
   FlagIcon,
-  MessageSquareIcon,
   SparklesIcon,
 } from '@styleguide/components/ui/icons'
+import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import type { Ordinance } from '@goodparty_org/contracts'
+import ChatPill from '../../shared/ai-chat/ChatPill'
 import { updateOrdinance } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META } from '../data/statuses'
 import DraftChat from './DraftChat'
@@ -224,15 +226,24 @@ export default function DraftDetail({
 
         <div className="sticky bottom-0 z-10 border-t border-border bg-background">
           <div className="mx-auto w-full max-w-3xl p-4">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => openChat()}
-              className="w-full justify-start gap-2 rounded-full text-sm font-normal text-muted-foreground"
-            >
-              <MessageSquareIcon className="size-4 shrink-0" aria-hidden />
-              Ask about this draft...
-            </Button>
+            <ChatPill className="w-full" innerClassName="items-center">
+              <button
+                type="button"
+                onClick={() => openChat()}
+                className="flex-1 truncate rounded-full pl-2.5 text-left text-sm font-medium text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none"
+              >
+                Ask about this draft...
+              </button>
+              <IconButton
+                type="button"
+                size="medium"
+                aria-label="Ask about this draft"
+                className="bg-primary text-primary-foreground"
+                onClick={() => openChat()}
+              >
+                <AiIcon className="size-4" aria-hidden />
+              </IconButton>
+            </ChatPill>
           </div>
         </div>
       </div>
