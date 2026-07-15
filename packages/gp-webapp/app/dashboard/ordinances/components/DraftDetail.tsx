@@ -222,7 +222,7 @@ export default function DraftDetail({
           />
         </div>
 
-        <div className="border-t border-border">
+        <div className="sticky bottom-0 z-10 border-t border-border bg-background">
           <div className="mx-auto w-full max-w-3xl p-4">
             <Button
               type="button"
