@@ -223,6 +223,41 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(without).not.toContain('COMPARABLES RULES')
   })
 
+  it('names every comparables card field the widget renders', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+    })
+    // The card renders population, year, headline, and outcome; the prompt must
+    // name each so the model fills them rather than omitting them.
+    expect(prompt).toContain('population')
+    expect(prompt).toContain('year')
+    expect(prompt).toContain('headline')
+    expect(prompt).toContain('outcome')
+  })
+
+  it('directs comparables selection by size/makeup and to seek a failed case', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+    })
+    // Peers are chosen like the prototype (similar size and political makeup),
+    // and a repealed/failed case is the most instructive, so seek one out.
+    expect(prompt).toContain('similar size and political makeup')
+    expect(prompt).toContain('repealed')
+  })
+
+  it('prefers same-state, similar-size peers before broadening', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+    })
+    // Same-state peers operate under the same state enabling law and
+    // preemption framework, so they are the most legally applicable precedent;
+    // broaden to other states only when in-state examples are thin.
+    expect(prompt).toContain('same state')
+  })
+
   it('advertises the present_* tools that render the current_law widgets', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),

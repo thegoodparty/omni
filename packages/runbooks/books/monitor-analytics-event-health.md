@@ -7,6 +7,11 @@ heal the watchlist, and hand metadata fixes to the event-metadata skill.
 Source of truth for the lifecycle model: the Analytics event change SOP (ClickUp doc
 `2ky4jq2q-110533` / page `2ky4jq2q-91453`).
 
+**Scheduled run**: the host repo's `analytics-governance` GitHub Actions workflow runs the
+monitor (with `--slack`) Mondays and Thursdays on the shared service identities, and commits
+the log/state back via an auto-merge PR. The manual procedure below remains valid for ad-hoc
+runs and for the stage-2 code investigation, which is agent work the schedule cannot do.
+
 ## Prerequisites
 
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
