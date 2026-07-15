@@ -3,7 +3,7 @@ Regenerate the committed Amplitude event git-provenance dataset (the curated sum
 ## Prerequisites
 
 **Tools**: `uv` (runs the engine from `scripts/python/`), `gh` (authenticated, push access), `git`.
-**Databricks**: one read per run (the event universe from `goodparty_data_catalog.airbyte_source.amplitude_taxonomy_event_type`). Auth is OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`) — the analytics standard, no PAT. Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with `DATABRICKS_CONFIG_PROFILE` if it is not the default. If a run errors with an empty-host / auth error, run `databricks auth login` and retry.
+**Databricks**: one read per run (the event universe from `goodparty_data_catalog.dbt.stg_airbyte_source__amplitude_taxonomy_event_type`). Auth is OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`) — the analytics standard, no PAT. Set `DATABRICKS_HTTP_PATH` in `scripts/.env` and pick the profile with `DATABRICKS_CONFIG_PROFILE` if it is not the default. If a run errors with an empty-host / auth error, run `databricks auth login` and retry.
 
 ## Steps
 
