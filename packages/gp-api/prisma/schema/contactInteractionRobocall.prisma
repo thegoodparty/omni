@@ -1,0 +1,16 @@
+model ContactInteractionRobocall {
+  id               String       @id @default(uuid(7))
+  createdAt        DateTime     @default(now()) @map("created_at")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String       @map("person_id")
+  occurredAt       DateTime     @map("occurred_at")
+  outreach         Outreach     @relation(fields: [outreachId], references: [id], onDelete: Cascade)
+  outreachId       Int          @map("outreach_id")
+  answeredAt       DateTime?    @map("answered_at")
+  voicemailLeftAt  DateTime?    @map("voicemail_left_at")
+
+  @@unique([outreachId, personId])
+  @@index([organizationSlug, personId, occurredAt])
+  @@map("contact_interaction_robocall")
+}
