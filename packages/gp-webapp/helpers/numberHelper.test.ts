@@ -79,7 +79,12 @@ describe('formatPhoneNumber', () => {
     expect(formatPhoneNumber('(234) 567-8901')).toBe('(234) 567-8901')
   })
 
-  it('strips a leading country-code 1', () => {
+  // Documents current behavior only: formatPhoneNumber strips a leading `1`
+  // unconditionally, so an 11-digit number is formatted correctly but a
+  // 10-digit number whose area code starts with `1` loses its first digit.
+  // This is a known quirk of the implementation, not endorsed behavior.
+  it('strips a leading `1` unconditionally, even from 10-digit input', () => {
+    expect(formatPhoneNumber('12345678901')).toBe('(234) 567-8901')
     expect(formatPhoneNumber('1234567890')).toBe('(234) 567-890')
   })
 
