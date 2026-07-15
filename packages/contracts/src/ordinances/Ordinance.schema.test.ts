@@ -5,6 +5,7 @@ import {
   OrdinanceCurrentLawSummarySchema,
   OrdinanceLegislativeHistorySchema,
   OrdinancePresentComparablesSchema,
+  OrdinancePresentDraftSchema,
 } from './Ordinance.schema'
 
 const source = {
@@ -186,6 +187,53 @@ describe('OrdinancePresentComparablesSchema', () => {
       OrdinancePresentComparablesSchema.safeParse({
         comparables: [{ ...repealed, status: 'success' }],
       }).success,
+    ).toBe(false)
+  })
+})
+
+describe('OrdinancePresentDraftSchema', () => {
+  const draft = {
+    title: 'Draft amendment to Chapter 12, Public Safety Surveillance',
+    description:
+      'Adds a 30-day retention limit, a siting standard, and an annual audit to the existing camera authority.',
+    body: 'Section 12.20  Retention.\n\n(a) Recordings shall be deleted after thirty (30) days unless flagged for an active investigation.',
+    sources: [source],
+  }
+
+  it('parses a full draft with a title, body, and sources', () => {
+    const parsed = OrdinancePresentDraftSchema.parse(draft)
+    expect(parsed.title).toContain('Chapter 12')
+    expect(parsed.body).toContain('thirty (30) days')
+    expect(parsed.sources?.[0]?.id).toBe('or-rs-181a')
+  })
+
+  it('allows description and sources to be absent', () => {
+    const parsed = OrdinancePresentDraftSchema.parse({
+      title: 'Draft resolution on Elm and 6th stormwater remediation',
+      body: 'Resolution No. [____]\n\nSection 1. Findings.',
+    })
+    expect(parsed.description).toBeUndefined()
+    expect(parsed.sources).toBeUndefined()
+  })
+
+  it('preserves {-old-}{+new+} redline markup in the body verbatim', () => {
+    const parsed = OrdinancePresentDraftSchema.parse({
+      title: 'Redline of Chapter 18, Residential Rentals',
+      body: 'Section 18.40  {-Residential rentals generally.-}{+Short-term rental registration.+}',
+    })
+    expect(parsed.body).toContain('{+Short-term rental registration.+}')
+  })
+
+  it('rejects a draft with a missing or empty title or body', () => {
+    const { body: _b, ...withoutBody } = draft
+    expect(OrdinancePresentDraftSchema.safeParse(withoutBody).success).toBe(
+      false,
+    )
+    expect(
+      OrdinancePresentDraftSchema.safeParse({ ...draft, body: '' }).success,
+    ).toBe(false)
+    expect(
+      OrdinancePresentDraftSchema.safeParse({ ...draft, title: '' }).success,
     ).toBe(false)
   })
 })

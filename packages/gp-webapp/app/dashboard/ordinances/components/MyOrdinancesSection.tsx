@@ -16,7 +16,13 @@ import { isOrdinanceStep } from '../data/steps'
 // Where a row opens: the last step the user viewed, else the first working step.
 const RESUME_FALLBACK_STEP = 'clarify'
 
-const resumeHref = (o: OrdinanceSummary): string => {
+// Status is the authoritative "a draft exists" marker: present_draft advances
+// the ordinance off `in_progress` when it writes the first draft. Gate on that
+// (not draftTitle, which the doc editor can be cleared to an empty string) so a
+// drafted ordinance always opens its document instead of stranding back in the
+// guided flow.
+const rowHref = (o: OrdinanceSummary): string => {
+  if (o.status !== 'in_progress') return `/dashboard/ordinances/draft/${o.slug}`
   const step =
     o.lastViewedStep && isOrdinanceStep(o.lastViewedStep)
       ? o.lastViewedStep
@@ -91,12 +97,12 @@ export default function MyOrdinancesSection({
             return (
               <Link
                 key={o.id}
-                href={resumeHref(o)}
+                href={rowHref(o)}
                 className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
               >
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-foreground">
-                    {o.draftTitle ?? o.goalText ?? 'Untitled ordinance'}
+                    {o.draftTitle || o.goalText || 'Untitled ordinance'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {rowTimestamp(o.updatedAt)}
