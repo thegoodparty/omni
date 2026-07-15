@@ -4,10 +4,24 @@ import { screen, fireEvent } from '@testing-library/react'
 import type { Ordinance } from '@goodparty_org/contracts'
 import DraftDetail from './DraftDetail'
 
-const mocks = vi.hoisted(() => ({ updateOrdinance: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  updateOrdinance: vi.fn(),
+  draftChatProps: {
+    current: null as { seedText?: string; seedNonce?: number } | null,
+  },
+}))
 
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
+}))
+
+// Stub the chat so the selection-toolbar tests can assert what the drawer
+// hands DraftChat (seed text + nonce) without mounting the real streaming chat.
+vi.mock('./DraftChat', () => ({
+  default: (props: { seedText?: string; seedNonce?: number }) => {
+    mocks.draftChatProps.current = props
+    return null
+  },
 }))
 
 const AUTOSAVE_DELAY_MS = 800
@@ -117,5 +131,92 @@ describe('DraftDetail autosave', () => {
     await vi.advanceTimersByTimeAsync(0)
 
     expect(screen.getByText('Saved')).toBeVisible()
+  })
+})
+
+const selectPassage = (text: string): void => {
+  const body = screen.getByRole('textbox', { name: 'Ordinance draft body' })
+  vi.spyOn(window, 'getSelection').mockReturnValue({
+    isCollapsed: false,
+    rangeCount: 1,
+    getRangeAt: () => ({
+      commonAncestorContainer: body,
+      getBoundingClientRect: () => ({
+        top: 120,
+        left: 40,
+        width: 60,
+        height: 16,
+      }),
+    }),
+    toString: () => text,
+    removeAllRanges: vi.fn(),
+  } as unknown as Selection)
+  fireEvent(document, new Event('selectionchange'))
+}
+
+const clearSelection = (): void => {
+  vi.spyOn(window, 'getSelection').mockReturnValue({
+    isCollapsed: true,
+    rangeCount: 0,
+    getRangeAt: () => {
+      throw new Error('collapsed')
+    },
+    toString: () => '',
+    removeAllRanges: vi.fn(),
+  } as unknown as Selection)
+  fireEvent(document, new Event('selectionchange'))
+}
+
+describe('DraftDetail selection toolbar', () => {
+  beforeEach(() => {
+    mocks.updateOrdinance.mockReset()
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.draftChatProps.current = null
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('shows the toolbar on selection and hides it when cleared', () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    expect(
+      screen.queryByRole('toolbar', { name: 'Selection actions' }),
+    ).not.toBeInTheDocument()
+
+    selectPassage('a 30-day retention limit')
+    expect(
+      screen.getByRole('toolbar', { name: 'Selection actions' }),
+    ).toBeVisible()
+
+    clearSelection()
+    expect(
+      screen.queryByRole('toolbar', { name: 'Selection actions' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('"Ask about this" seeds the chat with the passage and opens the drawer', () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    selectPassage('a 30-day retention limit')
+    fireEvent.click(screen.getByRole('button', { name: 'Ask about this' }))
+
+    expect(mocks.draftChatProps.current).not.toBeNull()
+    expect(mocks.draftChatProps.current?.seedText).toBe(
+      'About this passage: "a 30-day retention limit"\n\n',
+    )
+    expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
+  })
+
+  it('"Flag a bug" seeds the chat with the problem template', () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    selectPassage('a 30-day retention limit')
+    fireEvent.click(screen.getByRole('button', { name: /flag a bug/i }))
+
+    expect(mocks.draftChatProps.current?.seedText).toBe(
+      'I think there\'s a problem with this passage: "a 30-day retention limit"\n\n',
+    )
+    expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
   })
 })
