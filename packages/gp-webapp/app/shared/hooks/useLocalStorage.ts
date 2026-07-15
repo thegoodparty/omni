@@ -21,7 +21,7 @@ export const useLocalStorage = <T>(
     try {
       const valueToStore = value instanceof Function ? value(state) : value
       localStorage?.setItem(key, JSON.stringify(valueToStore))
-      setState(value)
+      setState(valueToStore)
     } catch (error) {
       console.log(error)
     }
