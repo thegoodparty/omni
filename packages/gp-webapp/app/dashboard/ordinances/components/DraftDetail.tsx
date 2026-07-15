@@ -220,7 +220,7 @@ export default function DraftDetail({
             aria-multiline="true"
             aria-label="Ordinance draft body"
             onInput={onInput}
-            className="min-h-40 whitespace-pre-wrap text-sm leading-relaxed text-foreground outline-none"
+            className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
           />
         </div>
 
