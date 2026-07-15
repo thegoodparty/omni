@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { http, HttpResponse } from 'msw'
+import { mswServer } from 'helpers/test-utils/api-mocking'
+import type { Campaign } from 'helpers/types'
 import OnboardingFlow from './OnboardingFlow'
 import { ONBOARDING_STEPS } from './onboardingConfig'
 import {
@@ -10,10 +13,10 @@ import {
   resolvePostPledgeRoute,
 } from './onboardingHelpers'
 
-const renderFlow = () =>
+const renderFlow = (props: { campaign?: Campaign | null } = {}) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <OnboardingFlow />
+      <OnboardingFlow {...props} />
     </QueryClientProvider>,
   )
 
@@ -114,6 +117,42 @@ describe('new onboarding flow shell', () => {
     fireEvent.click(screen.getByLabelText(/nonpartisan race/i))
     expect(continueButton).toBeEnabled()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('advances the step when the campaign persist succeeds', async () => {
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+    )
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /already on the ballot/i,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not advance the step when the campaign persist fails', async () => {
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () =>
+        HttpResponse.json({ message: 'bad' }, { status: 500 }),
+      ),
+    )
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    fireEvent.click(screen.getByRole('button', { name: /continue/i }))
+
+    await expect(
+      screen.findByRole(
+        'heading',
+        { level: 1, name: /already on the ballot/i },
+        { timeout: 300 },
+      ),
+    ).rejects.toThrow()
+    expect(screen.getByText(/Step 1 of/)).toBeInTheDocument()
   })
 
   it('supports back and continue navigation across skipped manual-office steps', () => {
