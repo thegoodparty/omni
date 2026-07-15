@@ -87,7 +87,7 @@ describe('ajaxActions', () => {
   })
 
   describe('fetchCampaignVersions', () => {
-    it('returns {} on a 500', async () => {
+    it('returns false on a 500', async () => {
       mswServer.use(
         http.get('/api/v1/campaigns/mine/plan-version', () =>
           HttpResponse.json({ message: 'server error' }, { status: 500 }),
@@ -96,7 +96,19 @@ describe('ajaxActions', () => {
 
       const result = await fetchCampaignVersions()
 
-      expect(result).toEqual({})
+      expect(result).toBe(false)
+    })
+
+    it('returns false on a network-level failure', async () => {
+      mswServer.use(
+        http.get('/api/v1/campaigns/mine/plan-version', () =>
+          HttpResponse.error(),
+        ),
+      )
+
+      const result = await fetchCampaignVersions()
+
+      expect(result).toBe(false)
     })
   })
 })

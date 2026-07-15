@@ -75,19 +75,21 @@ export const getCampaign = async (): Promise<Campaign | false> => {
   }
 }
 
-export const fetchCampaignVersions = async (): Promise<CampaignVersions> => {
+export const fetchCampaignVersions = async (): Promise<
+  CampaignVersions | false
+> => {
   try {
     const resp = await clientFetch<CampaignVersions>(
       apiRoutes.campaign.planVersion,
     )
     if (!resp.ok) {
       console.error('fetchCampaignVersions failed', resp.status, resp.data)
-      return {}
+      return false
     }
     return resp.data
   } catch (e) {
     console.log('error at fetchCampaignVersions', e)
-    return {}
+    return false
   }
 }
 

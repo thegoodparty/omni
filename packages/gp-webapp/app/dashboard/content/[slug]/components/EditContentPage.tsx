@@ -35,7 +35,9 @@ const EditContentPage = ({
 
   const updateVersionsCallback = async () => {
     const fetchedVersions = await fetchCampaignVersions()
-    setUpdatedVersions(fetchedVersions)
+    if (fetchedVersions !== false) {
+      setUpdatedVersions(fetchedVersions)
+    }
   }
 
   return (
