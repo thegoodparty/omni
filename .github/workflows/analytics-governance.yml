@@ -18,9 +18,9 @@ name: Analytics governance
 # - GitHub auto-disables scheduled workflows after 60 days without repo
 #   activity. Omni is active daily, so this is theoretical, but it is a way
 #   this cron can stop without ever failing.
-# - Failures notify the same Slack channel the digest posts to. A dead man's
-#   switch (separate subtask) covers the "workflow stopped firing" case that
-#   failure notifications structurally cannot.
+# - Failures notify the same Slack channel the digest posts to. The dead man's
+#   switch (analytics-governance-heartbeat.yml) covers the "workflow stopped
+#   firing" case that failure notifications structurally cannot.
 
 on:
   schedule:
