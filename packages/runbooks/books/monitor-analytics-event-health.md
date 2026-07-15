@@ -33,8 +33,8 @@ The three axes:
 1. **Declared intent** — the `gp-meta` block parsed from the Govern description
    (`in use` / `not in use`, `supersession`). Sparse today; where absent, fall back to code x firing.
 2. **Code** — the provenance CSV: `retired_date` empty means the instrumentation is still in code.
-3. **Firing** — the catalog (`int__amplitude_event_catalog`) plus a trailing weekly aggregate
-   of the raw stream (`stg_airbyte_source__amplitude_api_events`).
+3. **Firing** — the catalog (`mart_analytics.amplitude_event_catalog`) plus a trailing weekly
+   aggregate of the event stream (`mart_analytics.amplitude_events`).
 
 Scope is hybrid: every catalog event gets a status; the curated watchlist
 (`monitored_events.yaml`) drives severity elevation and the self-healing proposal queue.
