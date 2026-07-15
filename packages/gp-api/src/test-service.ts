@@ -14,7 +14,11 @@ import {
 } from './authentication/interfaces/auth-provider.interface'
 import './configrc'
 import { PrismaService } from './prisma/prisma.service'
-import { TEMPLATE_DB, startTestPostgres } from './test-postgres'
+import {
+  TEMPLATE_DB,
+  TEMPLATE_LOCK_KEY,
+  startTestPostgres,
+} from './test-postgres'
 
 export const TEST_CLERK_ID = 'user_test_123'
 
@@ -69,10 +73,24 @@ export const useTestService = (): TestServiceContext => {
     // replaying every migration here. The copy is a near-instant Postgres
     // operation, which is what keeps 60+ suites off a per-suite migration
     // replay against the one shared container.
+    //
+    // Held in shared mode: a concurrent vitest run process's globalSetup can
+    // be rebuilding this same template (see test-global-setup.ts) right now.
+    // The shared lock blocks only while that rebuild's exclusive lock is
+    // held, so the clone can't land against a template mid-drop/rebuild.
     const admin = new Client({ connectionString: baseConnectionUri })
     await admin.connect()
-    await admin.query(`CREATE DATABASE ${uniqueDbName} TEMPLATE ${TEMPLATE_DB}`)
-    await admin.end()
+    try {
+      await admin.query(`SELECT pg_advisory_lock_shared(${TEMPLATE_LOCK_KEY})`)
+      await admin.query(
+        `CREATE DATABASE ${uniqueDbName} TEMPLATE ${TEMPLATE_DB}`,
+      )
+    } finally {
+      await admin.query(
+        `SELECT pg_advisory_unlock_shared(${TEMPLATE_LOCK_KEY})`,
+      )
+      await admin.end()
+    }
 
     const databaseUrl = baseConnectionUri.replace(
       '/postgres',
