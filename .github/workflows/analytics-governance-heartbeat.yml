@@ -37,6 +37,15 @@ jobs:
       SLACK_APP_BOT_TOKEN: ${{ secrets.SLACK_APP_BOT_TOKEN }}
       SLACK_EVENT_LIFECYCLE_CHANNEL_ID: ${{ vars.SLACK_EVENT_LIFECYCLE_CHANNEL_ID }}
       WORKFLOW_FILE: analytics-governance.yml
+      # 120h sits between the two constraints. It must exceed 97.5h: the
+      # heartbeat fires 90 min after Monday's 11:00 run starts, so a Monday run
+      # still in progress shows age 96h + 1.5h — a smaller threshold (e.g. 96h
+      # or delegate-suggested 84h) false-alarms on any run slower than 90 min.
+      # It must stay below the next-success reset points: a missed Monday is
+      # reset by Thursday at age 144h (alert fires Tuesday 12:30, age 121.5h),
+      # a missed Thursday by Monday at 168h (alert fires Saturday, 121.5h).
+      # So every single missed run alerts 1-2 days later, with a 25.5h margin
+      # against false alarms.
       MAX_GAP_HOURS: 120
     steps:
       - name: Check workflow state and last success
