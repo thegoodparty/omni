@@ -5,10 +5,24 @@ import type {
   CreateOrdinanceRequest,
   Ordinance,
   SaveOrdinanceClarifyAnswerRequest,
+  UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {
   const { data } = await clientRequest('GET /v1/ordinances/:slug', { slug })
+  return data
+}
+
+// Patch the draft (title/body) or status. Partial: only the fields passed are
+// written. Returns the updated ordinance so the caller can reconcile.
+export async function updateOrdinance(
+  slug: string,
+  update: UpdateOrdinanceRequest,
+): Promise<Ordinance> {
+  const { data } = await clientRequest('PATCH /v1/ordinances/:slug', {
+    slug,
+    ...update,
+  })
   return data
 }
 
