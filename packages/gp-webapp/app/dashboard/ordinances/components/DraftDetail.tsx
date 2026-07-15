@@ -8,16 +8,26 @@ import {
   useState,
 } from 'react'
 import Link from 'next/link'
-import { Badge, Button, cn } from '@styleguide'
+import {
+  Badge,
+  Button,
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  cn,
+} from '@styleguide'
 import {
   ArrowLeftIcon,
   FlagIcon,
+  MessageSquareIcon,
   SparklesIcon,
 } from '@styleguide/components/ui/icons'
 import type { Ordinance } from '@goodparty_org/contracts'
 import { updateOrdinance } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META } from '../data/statuses'
-import DraftChat, { type DraftChatHandle } from './DraftChat'
+import DraftChat from './DraftChat'
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -48,9 +58,13 @@ export default function DraftDetail({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
   const queuedRef = useRef<string | null>(null)
-  const chatRef = useRef<DraftChatHandle>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [selection, setSelection] = useState<Selection | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  // The composer seed for the chat drawer, plus a nonce so re-highlighting the
+  // same passage re-seeds even when the text is identical.
+  const [chatSeed, setChatSeed] = useState('')
+  const [seedNonce, setSeedNonce] = useState(0)
 
   const title =
     ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance'
@@ -144,11 +158,22 @@ export default function DraftDetail({
     }
   }, [])
 
-  const seedChat = useCallback((composerText: string): void => {
-    chatRef.current?.seed(composerText)
-    window.getSelection()?.removeAllRanges()
-    setSelection(null)
+  // Open the chat drawer, optionally seeding the composer from a highlighted
+  // passage. Bumps the nonce so the drawer re-seeds each time it opens.
+  const openChat = useCallback((seed = ''): void => {
+    setChatSeed(seed)
+    setSeedNonce((n) => n + 1)
+    setChatOpen(true)
   }, [])
+
+  const seedChat = useCallback(
+    (composerText: string): void => {
+      openChat(composerText)
+      window.getSelection()?.removeAllRanges()
+      setSelection(null)
+    },
+    [openChat],
+  )
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -198,11 +223,39 @@ export default function DraftDetail({
         </div>
 
         <div className="border-t border-border">
-          <div className="mx-auto flex h-72 w-full max-w-3xl flex-col p-4">
-            <DraftChat ref={chatRef} ordinance={ordinance} />
+          <div className="mx-auto w-full max-w-3xl p-4">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => openChat()}
+              className="w-full justify-start gap-2 rounded-full text-sm font-normal text-muted-foreground"
+            >
+              <MessageSquareIcon className="size-4 shrink-0" aria-hidden />
+              Ask about this draft...
+            </Button>
           </div>
         </div>
       </div>
+
+      <Drawer open={chatOpen} onOpenChange={setChatOpen} direction="bottom">
+        <DrawerContent className="h-[85vh] data-[vaul-drawer-direction=bottom]:max-h-[90vh]">
+          <DrawerHeader className="border-b border-border px-4 py-3 text-left">
+            <DrawerTitle className="text-base font-semibold">
+              Chat about this draft
+            </DrawerTitle>
+            <DrawerDescription className="sr-only">
+              Ask the agent about this ordinance draft.
+            </DrawerDescription>
+          </DrawerHeader>
+          <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-4 pb-4 pt-3">
+            <DraftChat
+              ordinance={ordinance}
+              seedText={chatSeed}
+              seedNonce={seedNonce}
+            />
+          </div>
+        </DrawerContent>
+      </Drawer>
 
       {selection ? (
         <div
