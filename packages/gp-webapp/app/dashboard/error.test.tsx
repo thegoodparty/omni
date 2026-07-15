@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import DashboardError from './error'
 
@@ -16,15 +16,18 @@ vi.mock('@clerk/nextjs', () => ({
 }))
 
 import { reportErrorToSentry } from '@shared/sentry'
+import { clientFetch } from 'gpApi/clientFetch'
+import { apiRoutes } from 'gpApi/routes'
 
 const mockReportErrorToSentry = vi.mocked(reportErrorToSentry)
+const mockClientFetch = vi.mocked(clientFetch)
 
 beforeEach(() => {
   vi.clearAllMocks()
 })
 
 describe('DashboardError', () => {
-  it('renders the fallback message and reports the error to Sentry', () => {
+  it('renders the fallback message and reports the error to Sentry', async () => {
     const error = new Error('gp-api timed out')
     render(<DashboardError error={error} reset={vi.fn()} />)
 
@@ -32,6 +35,18 @@ describe('DashboardError', () => {
       screen.getByText(/something went wrong loading this page/i),
     ).toBeInTheDocument()
     expect(mockReportErrorToSentry).toHaveBeenCalledWith(error)
+
+    await waitFor(() => {
+      expect(mockClientFetch).toHaveBeenCalledTimes(1)
+    })
+    expect(mockClientFetch).toHaveBeenCalledWith(
+      apiRoutes.logError,
+      expect.objectContaining({
+        message: 'gp-api timed out',
+        url: expect.any(String),
+        userAgent: expect.any(String),
+      }),
+    )
   })
 
   it('calls reset exactly once when "Try again" is clicked', () => {
