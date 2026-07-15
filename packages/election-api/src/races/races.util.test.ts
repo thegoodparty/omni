@@ -22,7 +22,7 @@ describe('getDedupedRacesBySlug', () => {
     ]
     const deduped = getDedupedRacesBySlug(races)
     expect(deduped).toHaveLength(1)
-    expect(deduped[0].slug).toBe('mayor')
+    expect(deduped[0]?.slug).toBe('mayor')
   })
 
   it('unions positionNames without duplicates when merging', () => {
@@ -32,7 +32,7 @@ describe('getDedupedRacesBySlug', () => {
     ]
     const deduped = getDedupedRacesBySlug(races)
     expect(deduped).toHaveLength(1)
-    expect(deduped[0].positionNames).toEqual([
+    expect(deduped[0]?.positionNames).toEqual([
       'Council',
       'At-Large',
       'District 1',
@@ -48,7 +48,7 @@ describe('getDedupedRacesBySlug', () => {
     const deduped = getDedupedRacesBySlug(races)
     expect(deduped).toHaveLength(2)
     expect(deduped.map((r) => r.slug)).toEqual(['mayor', 'council'])
-    expect(deduped[0].positionNames).toEqual(['Mayor', 'Interim Mayor'])
+    expect(deduped[0]?.positionNames).toEqual(['Mayor', 'Interim Mayor'])
   })
 
   it('does not mutate the input races', () => {
