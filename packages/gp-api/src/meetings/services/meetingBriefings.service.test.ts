@@ -1280,7 +1280,10 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
     vi.unstubAllEnvs()
   })
 
-  const seedEligibleOffice = async (orgSlug: string) => {
+  const seedEligibleOffice = async (
+    orgSlug: string,
+    scheduleOverrides: Parameters<typeof seedScheduleForOrg>[1] = {},
+  ) => {
     await seedOrgAndCampaign(orgSlug, { positionId: `br-pos-${orgSlug}` })
     const campaign = await service.prisma.campaign.findFirst({
       where: { organizationSlug: orgSlug },
@@ -1297,7 +1300,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       positionName: 'City Council',
       isServeIcp: true,
     })
-    await seedScheduleForOrg(orgSlug)
+    await seedScheduleForOrg(orgSlug, scheduleOverrides)
     return eo
   }
 
@@ -1321,7 +1324,10 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
 
   it('cron skips and tracks a re-engagement event for a user inactive beyond the threshold', async () => {
     const orgSlug = `eo-inactive-${Date.now()}`
-    await seedEligibleOffice(orgSlug)
+    // Distinct from the 'City Council' positionName set by mockResolveServeContext
+    // inside seedEligibleOffice, so the meetingName assertion below only passes
+    // if the code actually reads schedule.meeting_name.
+    await seedEligibleOffice(orgSlug, { meeting_name: 'Planning Commission' })
     const staleLastVisited = subDays(new Date(), 91).getTime()
     await service.prisma.user.update({
       where: { id: service.user.id },
@@ -1343,6 +1349,7 @@ describe('MeetingBriefingsService — activity-gated dispatch', () => {
       expect.objectContaining({
         electedOfficeId: expect.any(String) as string,
         meetingDate: expect.any(Number) as number,
+        meetingName: 'Planning Commission',
         daysUntilMeeting: expect.any(Number) as number,
         lastVisitedAt: staleLastVisited,
         daysSinceLastVisit: expect.any(Number) as number,

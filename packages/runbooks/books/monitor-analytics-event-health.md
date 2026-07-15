@@ -7,6 +7,11 @@ heal the watchlist, and hand metadata fixes to the event-metadata skill.
 Source of truth for the lifecycle model: the Analytics event change SOP (ClickUp doc
 `2ky4jq2q-110533` / page `2ky4jq2q-91453`).
 
+**Scheduled run**: the host repo's `analytics-governance` GitHub Actions workflow runs the
+monitor (with `--slack`) Mondays and Thursdays on the shared service identities, and commits
+the log/state back via an auto-merge PR. The manual procedure below remains valid for ad-hoc
+runs and for the stage-2 code investigation, which is agent work the schedule cannot do.
+
 ## Prerequisites
 
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
@@ -47,7 +52,8 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |
 | system | n/a | n/a | auto-tracked (`page`, `[Amplitude] …`); anomaly-watched, never a status flag |
 
-Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
+Severity ranks (0 = loudest): 0 counter blind spot — zero call sites but firing normally, a
+tooling alert, see DATA-2106 · 1 orphaned-firing / declared-not-in-use-still-firing · 2 call-site
 removed, name constant survives (DATA-2046) · 3 anomaly drop on an active elevated event · 4
 anomaly drop on any active/system event · 5 intent divergence · 6 dormant elevated · 7
 instrumented-never-observed · 8 dormant (collapsed to a single tail line in the digest).
@@ -69,7 +75,7 @@ next run's changes-since-last-run diff). Useful flags:
 - `--no-log` — print only, do not write to the log.
 - `--csv PATH` / `--watchlist PATH` / `--state PATH` — override the default locations.
 
-Read the digest top-down: priority flags table first (ranks 1-7), then the dormant tail,
+Read the digest top-down: priority flags table first (ranks 0-7), then the dormant tail,
 then changes-since-last-run, then metadata completeness, then watchlist proposals. The loud
 ones (rank 1-2) are what you route to Eng/PM; everything else is awareness.
 
@@ -111,9 +117,24 @@ This flag's propose-and-confirm flow (never auto-decide):
    Govern (dev + prod), embedding the PR/commit as code-removal proof. The monitor itself
    never writes a status.
 
-Note: a rank-2 flag with `call_site_count = 0` but the event **still firing** does not occur
-under the current rule (the flag requires a firing flatline); a genuinely still-firing event
-with no callers would surface as an anomaly/orphaned-firing flag instead.
+Note: `call_site_count = 0` with the event **still firing normally** (active, no anomaly)
+never reaches rank 2 — it surfaces as rank 0 instead (below). Rank 2 requires a firing
+flatline (dormant, or an anomaly drop on still-active code).
+
+### Rank 0 — counter blind spot (DATA-2106)
+
+A rank-0 flag is a contradiction: the provenance CSV says zero call sites, but the event is
+firing normally. A client event cannot fire without a call site, so the call-site counter is
+blind to how the reference is written — not the event dead. Fix the counter, not the event:
+
+1. Find the real reference: `rg -F "<leaf key>" packages/gp-webapp` (search the leaf key,
+   e.g. `MediaRequested`, not the full key-path — the full path is exactly what the counter
+   failed to see).
+2. Identify the shape. Aliased (`const x = EVENTS.<prefix>`) and Prettier-wrapped key-paths
+   are handled since DATA-2106; a rank-0 flag today means a NEW shape.
+3. Extend `count_call_sites` in `scripts/python/amplitude_event_provenance_backfill.py`
+   (tests first), re-run the walk, and confirm the count is non-zero.
+4. Never route a rank-0 event into the rank-2 retirement propose-and-confirm flow.
 
 ## Stage 3 — heal the watchlist (review + agree on additions)
 

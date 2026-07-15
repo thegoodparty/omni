@@ -154,6 +154,7 @@ type TargetMeeting = {
   meetingDate: string // YYYY-MM-DD
   meetingTime?: string // HH:MM (optional — user-supplied agenda path leaves it to the agent)
   meetingTimezone?: string // IANA (optional — same reason)
+  meetingName?: string // official meeting-body name from the schedule (same reason)
 }
 
 export type BriefingDispatchOutcome = {
@@ -457,6 +458,7 @@ export class MeetingBriefingsService extends createPrismaBase(
       meetingDate,
       meetingTime: schedule.time,
       meetingTimezone: schedule.timezone,
+      meetingName: schedule.meeting_name,
     }
   }
 
@@ -1028,6 +1030,7 @@ export class MeetingBriefingsService extends createPrismaBase(
         {
           electedOfficeId,
           meetingDate: parseIsoDateAsUTC(target.meetingDate).getTime(),
+          meetingName: target.meetingName ?? null,
           daysUntilMeeting: differenceInCalendarDays(
             parseIsoDateAsUTC(target.meetingDate),
             parseIsoDateAsUTC(formatInTimeZone(now, 'UTC', 'yyyy-MM-dd')),
