@@ -18,9 +18,9 @@ name: Analytics governance
 # - GitHub auto-disables scheduled workflows after 60 days without repo
 #   activity. Omni is active daily, so this is theoretical, but it is a way
 #   this cron can stop without ever failing.
-# - Failures notify the same Slack channel the digest posts to. A dead man's
-#   switch (separate subtask) covers the "workflow stopped firing" case that
-#   failure notifications structurally cannot.
+# - Failures notify the same Slack channel the digest posts to. The dead man's
+#   switch (analytics-governance-heartbeat.yml) covers the "workflow stopped
+#   firing" case that failure notifications structurally cannot.
 
 on:
   schedule:
@@ -141,16 +141,24 @@ jobs:
           gh pr merge "$branch" --auto --squash
           fi
 
-      # Interim path until DATA-2072 (Google service account): the personal
-      # OAuth token pickle, injected as a base64 secret. Skips cleanly when
-      # the secret is absent.
+      # Interim path until DATA-2072 (Google service account — none exists in
+      # the org yet): the personal OAuth token pickle, injected as a base64
+      # secret. Skips with a visible warning when the secret is absent, so the
+      # sheet surface going un-refreshed is never silent; once the secret
+      # exists, an expired/revoked token fails the step (and so notifies
+      # Slack) rather than skipping.
       - name: Event-state sheet refresh
-        if: env.GP_SHEETS_TOKEN_B64 != '' && env.GP_EVENT_STATE_SHEET_ID != ''
         working-directory: packages/runbooks/scripts/python
         env:
           GP_SHEETS_TOKEN_PATH: ${{ runner.temp }}/gsheet_token.pickle
         run: |
           set -euo pipefail
+          if [ -z "$GP_SHEETS_TOKEN_B64" ] || [ -z "$GP_EVENT_STATE_SHEET_ID" ]; then
+            msg="Event-state sheet NOT refreshed: no CI sheet identity yet (DATA-2072). The sheet only updates via laptop-side runs until then."
+            echo "::warning::$msg"
+            echo ":warning: $msg" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           printf '%s' "$GP_SHEETS_TOKEN_B64" | base64 -d > "$GP_SHEETS_TOKEN_PATH"
           uv run event_state_gsheet.py refresh
 
