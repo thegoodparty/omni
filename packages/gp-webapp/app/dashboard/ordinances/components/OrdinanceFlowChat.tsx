@@ -30,6 +30,7 @@ import {
   segmentsToLive,
 } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
@@ -117,16 +118,11 @@ const buildAnchor = (
   ordinance: Ordinance,
   slug: string,
   step: OrdinanceFlowStep,
-): ChatAnchor => ({
-  resourceType: 'ordinance',
-  resourceId: ordinance.id,
-  url: `/dashboard/ordinances/solve/${slug}/${step}`,
-  snapshot: {
-    title: ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance',
-    summary: ordinance.goalText ?? '',
-  },
-  step,
-})
+): ChatAnchor =>
+  buildOrdinanceAnchor(ordinance, {
+    url: `/dashboard/ordinances/solve/${slug}/${step}`,
+    step,
+  })
 
 export default function OrdinanceFlowChat({
   slug,

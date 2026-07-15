@@ -30,6 +30,7 @@ import ChatPill from '../../shared/ai-chat/ChatPill'
 import { updateOrdinance } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META } from '../data/statuses'
 import DraftChat from './DraftChat'
+import SourceLine from './SourceLine'
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -71,6 +72,7 @@ export default function DraftDetail({
   const title =
     ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance'
   const statusMeta = ORDINANCE_STATUS_META[ordinance.status]
+  const sources = ordinance.draftSources ?? []
 
   // Uncontrolled contentEditable: seed once on mount from the saved body so
   // typing never resets the caret. The saved body is the source of truth from
@@ -86,6 +88,10 @@ export default function DraftDetail({
   // text.
   const save = useCallback(
     (body: string): void => {
+      // The draft body can't be empty: UpdateOrdinanceRequest requires min
+      // length 1 and gp-api 400s on ''. Skip persisting an emptied editor rather
+      // than flip to an error state.
+      if (body.trim().length === 0) return
       if (savingRef.current) {
         queuedRef.current = body
         return
@@ -151,12 +157,23 @@ export default function DraftDetail({
       const rect = range.getBoundingClientRect()
       setSelection({ text, top: rect.top, left: rect.left + rect.width / 2 })
     }
+    // Coalesce scroll events to one reposition per frame (getBoundingClientRect
+    // + setSelection forces a reflow; scroll can fire many times per frame).
+    let rafId = 0
+    const onScroll = (): void => {
+      if (rafId) return
+      rafId = requestAnimationFrame(() => {
+        rafId = 0
+        updatePosition()
+      })
+    }
     const scrollContainer = bodyRef.current?.parentElement ?? null
     document.addEventListener('selectionchange', updatePosition)
-    scrollContainer?.addEventListener('scroll', updatePosition)
+    scrollContainer?.addEventListener('scroll', onScroll)
     return () => {
       document.removeEventListener('selectionchange', updatePosition)
-      scrollContainer?.removeEventListener('scroll', updatePosition)
+      scrollContainer?.removeEventListener('scroll', onScroll)
+      if (rafId) cancelAnimationFrame(rafId)
     }
   }, [])
 
@@ -222,6 +239,18 @@ export default function DraftDetail({
             onInput={onInput}
             className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
           />
+          {sources.length > 0 ? (
+            <div className="mt-8 border-t border-border pt-4">
+              <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                Sources
+              </h3>
+              <div className="flex flex-col gap-2">
+                {sources.map((source, i) => (
+                  <SourceLine key={`${source.id}-${i}`} source={source} />
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
 
         <div className="sticky bottom-0 z-10 border-t border-border bg-background">

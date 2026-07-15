@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatAnchor, Ordinance } from '@goodparty_org/contracts'
+import type { Ordinance } from '@goodparty_org/contracts'
 import {
   AssistantRow,
   ChatComposer,
@@ -11,6 +11,7 @@ import {
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
 
@@ -40,17 +41,10 @@ export default function DraftChat({
   useEffect(() => {
     let cancelled = false
     const init = async (): Promise<void> => {
-      const anchor: ChatAnchor = {
-        resourceType: 'ordinance',
-        resourceId: ordinance.id,
+      const anchor = buildOrdinanceAnchor(ordinance, {
         url: `/dashboard/ordinances/draft/${ordinance.slug}`,
-        snapshot: {
-          title:
-            ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance',
-          summary: ordinance.goalText ?? '',
-        },
         step: 'draft',
-      }
+      })
       try {
         const { conversationId: id } =
           await ordinanceFlowChatApi.createConversation(anchor)
@@ -89,9 +83,17 @@ export default function DraftChat({
     if (seedNonce !== 0 && conversationId) inputRef.current?.focus()
   }, [seedNonce, conversationId])
 
+  // A new persisted turn scrolls in smoothly.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, visibleSegments])
+  }, [messages])
+
+  // Stay pinned to the bottom as the live turn streams. visibleSegments updates
+  // ~40x/s, so use an instant scroll (a smooth one would restart its animation
+  // every tick and never settle).
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+  }, [visibleSegments])
 
   const working = sending && visibleSegments.length === 0
 
