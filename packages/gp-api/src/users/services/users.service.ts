@@ -29,7 +29,7 @@ import {
 } from 'src/shared/types/utility.types'
 import Stripe from 'stripe'
 import { AnalyticsService } from '../../analytics/analytics.service'
-import { trimMany } from '../../shared/util/strings.util'
+import { toLowerAndTrim, trimMany } from '../../shared/util/strings.util'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import {
   CreateUserInputDto,
@@ -153,10 +153,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       name,
       email: unNormalizedEmail,
     } = restUserData
-    const email = unNormalizedEmail
+    const email = toLowerAndTrim(unNormalizedEmail)
 
     const hashedPassword = password ? await hashPassword(password) : null
-    const existingUser = await this.findUser({ email })
+    const existingUser = await this.findUserByEmail(email)
     if (existingUser) {
       throw new ConflictException('User with this email already exists')
     }
@@ -179,6 +179,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const userDataToPersist = {
       ...restUserData,
       ...trimmed,
+      email,
       ...(hashedPassword ? { password: hashedPassword } : {}),
       hasPassword: !!hashedPassword,
       name: name?.trim() || `${firstNameTrimmed} ${lastNameTrimmed}`,
@@ -281,7 +282,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       const user = await this.model.create({
         data: {
           clerkId: data.clerkId,
-          email: data.email,
+          email: toLowerAndTrim(data.email),
           firstName: data.firstName,
           lastName: data.lastName,
           name: `${data.firstName} ${data.lastName}`.trim(),
@@ -584,7 +585,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     lastName: string
     expiresInSeconds?: number
   }): Promise<{ user: User; token: string; clerkId: string }> {
-    const email = data.email.trim()
+    const email = toLowerAndTrim(data.email)
 
     // Reject the magic link for any account the person actually controls. A
     // password, an OAuth/SSO identity (e.g. Google), a TOTP/2FA authenticator,
