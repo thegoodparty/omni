@@ -80,8 +80,14 @@ export default function DraftChat({
   useEffect(() => {
     if (seedNonce === 0) return
     setComposer(seedText)
-    inputRef.current?.focus()
   }, [seedNonce, seedText])
+
+  // Focus the composer once it is enabled. The input stays disabled until the
+  // conversation resolves, and the drawer remounts this component on each open,
+  // so focusing at seed time would land on a still-disabled input (a no-op).
+  useEffect(() => {
+    if (seedNonce !== 0 && conversationId) inputRef.current?.focus()
+  }, [seedNonce, conversationId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
