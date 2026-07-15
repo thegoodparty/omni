@@ -14,11 +14,11 @@ Given an elected official's jurisdiction, produce a focused ranked list of up to
 
 **Lead with 1 to 3 issues; do not pad toward 5.** The list is a focused lead of the few highest-attention concerns, not a quota. Reserve `priority: "high"` for the 1 to 3 best-evidenced, clearly resident-driven issues; include further issues only when each independently clears the same evidence and freshness bar, ranked below at `priority` `medium`/`low`. The schema allows up to 5, but that is a ceiling, not a target — a short, airtight list is the product, and padding it with thin or stale rows is a failure mode. Never drop a real issue just to shorten the list; demote it instead (see the attribution rule).
 
-**Resident-attribution is a labeling rule, not a selection filter.** Only _claim_ residents are raising an issue when you have direct resident voice for it: a letter or op-ed (`article_type` `opinion`/`editorial`), a petition, a public-comment write-up, an advocacy-group statement, a resident survey (`source_type` `poll`), or a 311 record. A topic that appears only in straight news reporting, a press release, or a government communication (`article_type` `reporting`/`press_release`/`government_communication`) is not, on its own, evidence that residents care — it may be a reporter's or an official's framing. Do **not** delete such an issue; include it, but say so honestly in the `summary` (e.g. "covered in local news; direct resident voice not yet evidenced") and do not give it `priority: "high"` on salience grounds. The error to avoid is asserting resident demand you cannot source, not mentioning a real issue.
+**Resident-attribution is a labeling rule, not a selection filter.** Only *claim* residents are raising an issue when you have direct resident voice for it: a letter or op-ed (`article_type` `opinion`/`editorial`), a petition, a public-comment write-up, an advocacy-group statement, a resident survey (`source_type` `poll`), or a 311 record. A topic that appears only in straight news reporting, a press release, or a government communication (`article_type` `reporting`/`press_release`/`government_communication`) is not, on its own, evidence that residents care — it may be a reporter's or an official's framing. Do **not** delete such an issue; include it, but say so honestly in the `summary` (e.g. "covered in local news; direct resident voice not yet evidenced") and do not give it `priority: "high"` on salience grounds. The error to avoid is asserting resident demand you cannot source, not mentioning a real issue.
 
 **Use the recipient's identity, but their own voice is not resident demand.** The list is generated for the elected official in `organization_slug`/`office`, who is a public figure quoted in local coverage. Their own statements, campaign messaging, and votes are the supply side, not resident salience: never file a `quotes` item attributed to the official (or their office) as evidence residents are raising an issue, and do not let the official's framing stand in for resident demand. Use identity only to tune the actionability note. (The governing-body record is already excluded as a source.)
 
-**Time horizon: sustained but still live.** This list surfaces established concerns with evidence of resident attention going back at least ~6 months **that are also still active now**: each issue needs at least one reputable source with a **verified `article_date` within the last ~12 months** of the run. Sustained does not mean stale — if the most recent credible coverage is older than ~12 months, treat the issue as lapsed and drop it (this is what removes multi-year date-traps). This still differs from the companion `trending_issues` experiment, which requires issues to have _arisen_ within its recent window; here the test is a long history plus a recent pulse. **Verify the real byline `article_date` from the source itself** — a search-snippet date can be wrong, so when a date is load-bearing near the ~12-month boundary, confirm it from the article body. A one-week flare-up belongs in trending, not here.
+**Time horizon: sustained but still live.** This list surfaces established concerns with evidence of resident attention going back at least ~6 months **that are also still active now**: each issue needs at least one reputable source with a **verified `article_date` within the last ~12 months** of the run. Sustained does not mean stale — if the most recent credible coverage is older than ~12 months, treat the issue as lapsed and drop it (this is what removes multi-year date-traps). This still differs from the companion `trending_issues` experiment, which requires issues to have *arisen* within its recent window; here the test is a long history plus a recent pulse. **Verify the real byline `article_date` from the source itself** — a search-snippet date can be wrong, so when a date is load-bearing near the ~12-month boundary, confirm it from the article body. A one-week flare-up belongs in trending, not here.
 
 **Re-verify every fact against a current source before you publish it.** Do not assert a project, vote, dollar figure, or claim from memory or a search snippet alone. Name dollars, dates, votes, and locations, and attach a source to each. Distinguish "residents believe X" (a citable salience fact) from "X is true." A confident-but-wrong issue is worse than a thinner true one.
 
@@ -34,38 +34,6 @@ Resident-demand sources rank the list; the internal modeled data only annotates 
 6. **Internal GoodParty.org modeled voter-priority scores (Databricks), lean annotation only.** Not a salience source and not a report-ranking input. One batched aggregation (below) yields a per-issue lean chip. Run the per-variable coverage check first; many states return 0 coverage on some columns.
 
 **Social media and community forums are NOT a source here.** Do not attempt to scrape Twitter/X, Facebook, Nextdoor, or Reddit — those platforms block automated access and the signal is unreliable. Resident voice comes from news, letters/op-eds, and the public output of advocacy groups instead.
-
-## The QA projection: `claims[]` and `sources[]`
-
-This artifact is quality-checked by a shared validator (`qa_validate.py`) that adjudicates **discrete claims**, not whole issues. So alongside the human-facing `issues[]`, emit two machine-facing arrays **at the artifact root**. `issues[]` stays exactly as specified elsewhere — these two arrays are additive, and they are what a reviewer on GitHub runs QA against.
-
-**`sources[]` (artifact root)** — the deduped union of every issue's `detail.sources[]`. Same `Source` shape (`id`, `name`, `source_type`, `url`, `article_date`, `retrieved_at`, `retrieved_text_or_snapshot`). One entry per unique source: a source cited by two issues appears once, and both issues' claims reference that one `id`. Every `source_id` used anywhere in the artifact must resolve to an entry here.
-
-**`claims[]` (artifact root)** — decompose each issue into the individual factual assertions a skeptical reader would check, **one assertion per claim**: a single dollar figure, a single date, a single vote, the existence of a named project/ordinance, a specific location, or a specific resident-demand attribution. "The $2M shelter purchase was debated at the Jan 7 2026 meeting" is _two_ claims (the $2M figure; the Jan 7 2026 date), not one.
-
-Each claim carries:
-
-- `claim_id` — unique within the artifact.
-- `item_id` — the `id` of the issue in `issues[]` it supports.
-- `claim_text` — the self-contained assertion, naming the specific value.
-- `claim_type` and `claim_weight` — pick from this table:
-
-  | `claim_type`                  | use for                                                                      | `claim_weight` |
-  | ----------------------------- | ---------------------------------------------------------------------------- | -------------- |
-  | `existence_or_event`          | the named project / ordinance / measure / event is real and occurred         | high           |
-  | `figure_or_dollar`            | a dollar amount, count, rate, or percentage                                  | high           |
-  | `date_or_timeframe`           | a specific date, or the ~12-month freshness of the issue                     | high           |
-  | `vote_or_official_action`     | a vote tally or a specific official decision/action                          | high           |
-  | `location_or_geography`       | the issue is in this jurisdiction / at a specific place                      | high           |
-  | `attribution_resident_demand` | residents are raising it (letter, petition, survey, 311, advocacy statement) | medium         |
-  | `background_context`          | supporting context that is not load-bearing                                  | medium         |
-  | `lean_annotation`             | a Haystaq lean chip (a labeled, modeled figure)                              | low            |
-  | `synthesis`                   | a summary or inference across sources                                        | low            |
-
-- `source_ids` — the `sources[]` entries that ground the claim (at least one).
-- `source_extracts` — the **verbatim** text from those sources that states the claim. **Each extract MUST be a literal substring of the cited source's `retrieved_text_or_snapshot`** — the validator checks this, so copy it exactly, do not paraphrase or summarize. Prefer the object form `{"text": "...", "section_header": "..."}` so the judge sees where in the source it came from.
-
-**Why the decomposition quality is the QA quality.** The validator's judge classifies each claim as supported / unsupported / contradicted against its extracts — the same adjudication a human QA reviewer does. A **contradicted** high-weight claim blocks the release (the issue was Incorrect); an **unsupported** specific claim warns (Unverified). So: emit every load-bearing fact as its own claim with a real verbatim extract, and never manufacture support — an honest claim whose extract does not actually state it is one the judge should catch, not one to paper over. Every high-weight fact in an issue's `detail` (its dollars, dates, votes, named instance, location, and ~12-month freshness) should appear as a claim. A rich overview with only one or two claims is under-decomposed — the QA layer cannot see facts you did not project.
 
 ## BEFORE YOU START
 
@@ -99,12 +67,11 @@ Each claim carries:
 11. Classify each issue into exactly one `category` from the allowed enum (the category is a tag; the title is the named instance).
 12. Annotate each issue with its internal-data lean chip where coverage allows; an operational row with no covered var is "hyperlocal, no model lean," which is informative, not a gap. Add a "who can act / what they could do" note to the `summary`. For any issue carried only by press/agenda coverage (no resident-voice source), say so in the `summary` and keep it below `priority: "high"`; do not file the official's own quotes as resident voice.
 13. Assign `priority` (`low|medium|high`) and `rank` (1 = most important). Rank by resident attention mass; the internal-data lean does not move the rank.
-14. Write a substantive `detail.overview.summary` (2-3 sourced sentences naming the instance) for every issue — never empty. Give every issue a stable `id`. Deduplicate `detail.sources[]` by URL. Verify every `source_id` resolves to an entry in `detail.sources[]`.
-15. Build the QA projection (see "The QA projection" above): flatten every `detail.sources[]` into a deduped top-level `sources[]`; decompose each issue into top-level `claims[]` (one discrete fact per claim, linked by `item_id`), each with a `claim_type`/`claim_weight` and a **verbatim** `source_extracts` substring of the cited source.
-16. Set `sources_used`, `data_quality`, `data_quality_reason`, `notes` honestly — name any missing source layer (no 311 feed, no resident survey, internal-data domains dropped for zero coverage). The list is intentionally short (1 to 3 lead issues is normal); use `data_quality_reason`/`notes` to explain the lead and any issue dropped for staleness, not to apologize for being under 5.
-17. Assemble artifact and write to `/workspace/output/top_community_issues.json`.
-18. Run `python3 /workspace/validate_output.py`.
-19. Perform the spot-check.
+14. Write a substantive `detail.overview.summary` (2-3 sourced sentences naming the instance) for every issue — never empty. Deduplicate `detail.sources[]` by URL. Verify every `source_id` resolves to an entry in `detail.sources[]`.
+15. Set `sources_used`, `data_quality`, `data_quality_reason`, `notes` honestly — name any missing source layer (no 311 feed, no resident survey, internal-data domains dropped for zero coverage). The list is intentionally short (1 to 3 lead issues is normal); use `data_quality_reason`/`notes` to explain the lead and any issue dropped for staleness, not to apologize for being under 5.
+16. Assemble artifact and write to `/workspace/output/top_community_issues.json`.
+17. Run `python3 /workspace/validate_output.py`.
+18. Perform the spot-check.
 
 ## CRITICAL RULES
 
@@ -202,13 +169,6 @@ direction. Grouped into 9 topics:
 - `detail.overview` is always required and its `summary` must be substantive (2-3 sentences naming the instance) — never an empty string.
 - Every factual claim in a subsection (a dollar figure, a vote, a date, a project) must trace to a source in `source_ids`. An unsourced claim is a re-verify failure — drop it or source it.
 - Do not reproduce an individual resident's personal data (name, address, contact) from a letter, petition, or group roster; report the topic and aggregate intensity only.
-
-**QA projection (`claims[]` + `sources[]` at the artifact root)**:
-
-- Emit a top-level `sources[]` that is the deduped union of every issue's `detail.sources[]` (dedupe by URL; one `id` per unique source). Emit a top-level `claims[]` decomposing each issue's facts. See "The QA projection" for the full contract.
-- Every issue needs a stable top-level `id`; every claim's `item_id` must equal one of those issue ids; every claim's `source_ids` must resolve to the top-level `sources[]`.
-- **Each `source_extracts` entry must be a literal, verbatim substring of the cited source's `retrieved_text_or_snapshot`.** Copy it character-for-character — do not paraphrase, trim mid-word, or reconstruct from memory. The validator fails claims whose extract does not appear in the cited source.
-- One assertion per claim. Split compound facts (a dollar figure AND a date = two claims). Use the high-weight `claim_type`s for the load-bearing facts (figure, date, vote, existence, location) — those are the ones a contradiction turns into a blocking defect.
 
 **Output**:
 
@@ -390,50 +350,18 @@ For each issue, add the internal-data lean chip where coverage allows ("hyperloc
 
 Compare each output issue against the existing feed from Step 2. When the issue clearly maps to an existing record, set `existing_issue_id`. Do not invent a mapping if it is ambiguous.
 
-### Step 9 — Build the QA projection and assemble the artifact
-
-Give each issue a stable `id`. Flatten every `detail.sources[]` into one deduped top-level `sources[]`. Decompose each issue into top-level `claims[]` — one discrete fact each, linked by `item_id`, with a verbatim `source_extracts` substring of the cited source (see "The QA projection").
+### Step 9 — Assemble artifact
 
 **Milestone — run `milestone("assemble")`** (per BEFORE YOU START item 7) before this step's work.
 
 ```python
 import json
-
-# Each issue carries a stable id used by claims[].item_id (distinct from existing_issue_id).
-issues = [
-    {"id": "issue-1", "title": "...", "summary": "...", "category": "...",
-     "priority": "high", "rank": 1, "detail": {...}},
-    # ...
-]
-
-# Deduped union of every issue's detail.sources[] — one entry per unique source.
-sources = [
-    {"id": "src-1", "name": "...", "source_type": "news", "url": "https://...",
-     "article_type": "reporting", "article_date": "2026-05-08",
-     "retrieved_at": "2026-07-02T00:00:00Z",
-     "retrieved_text_or_snapshot": "... full snippet, the text extracts are quoted from ..."},
-    # ...
-]
-
-# One assertion per claim. source_extracts MUST be verbatim substrings of the cited source's snapshot.
-claims = [
-    {"claim_id": "c-1", "item_id": "issue-1",
-     "claim_text": "The city council debated a >$2M building purchase for a long-term shelter.",
-     "claim_type": "figure_or_dollar", "claim_weight": "high",
-     "source_ids": ["src-1"],
-     "source_extracts": [{"text": "the more than $2 million building purchase",
-                          "section_header": "Council weighs shelter options"}]},
-    # ... one claim per load-bearing fact (dollars, dates, votes, existence, location, freshness, attribution)
-]
-
 artifact = {
     "schema_version": 1,
     "list": "top_community",
     "organization_slug": ORG_SLUG,
     "generated_for_run_id": RUN_ID,
-    "issues": issues,           # up to 5 IssueOutput, each a specific named issue
-    "claims": claims,           # QA projection: discrete facts the validator adjudicates
-    "sources": sources,         # QA projection: deduped provenance, source_ids resolve here
+    "issues": [...],            # up to 5 IssueOutput, each a specific named issue
     "sources_used": [...],      # layers actually used, e.g. ["local_news", "resident_voice", "advocacy_groups", "petitions", "311", "survey", "internal_voter_data"]
     "data_quality": "ok",       # "partial" if some lookups failed; "insufficient_signal" if you couldn't ground the list
     "data_quality_reason": "...",  # name dropped internal-data domains, missing layers (no 311, no survey, empty feed), and why fewer than 5 if short
@@ -443,7 +371,7 @@ with open("/workspace/output/top_community_issues.json", "w") as f:
     json.dump(artifact, f, indent=2)
 ```
 
-Every issue needs a substantive `detail.overview.summary`; build `history` / `research` / `quotes` where you have sourced material. Every `source_id` — in a subsection and in `claims[]` — must resolve to `sources[]`.
+Every issue needs a substantive `detail.overview.summary`; build `history` / `research` / `quotes` where you have sourced material. Every `source_id` must resolve.
 
 ### Step 10 — Validate
 
@@ -470,30 +398,26 @@ After validation passes, verify the points below. **A spot-check finding is fixe
 - **Issues span at least 2 categories.** If every issue is one category, your search was too narrow.
 - **The internal lean is a lean annotation, not the ranker.** The rank follows resident attention mass. The lean uses `AVG - 50`; if you used a `>= 50` count to rank, redo it.
 - **Advocacy-group framing is nonpartisan or flagged.** Any partisan group's claim is corroborated by an independent source.
-- **The QA projection is complete and honest.** Every issue has an `id`; every high-weight fact (dollars, dates, votes, named instance, location, ~12-month freshness) is its own `claims[]` entry linked by `item_id`; every claim's `source_extracts` is a verbatim substring of the cited source's snapshot; every `source_ids` resolves to the deduped top-level `sources[]`. No claim's extract was paraphrased or invented to manufacture support.
 - **`detail.overview.summary` is present and substantive on every issue**, and `list` is `"top_community"`.
 - **Coverage gaps are stated.** `data_quality_reason` names dropped zero-coverage internal-data domains, any missing layer (no 311 feed, no resident survey, empty feed), and why the list is short if under 5.
 - **No internal data-vendor names in output.** Search the finished artifact text for "Haystaq" and "L2" — neither may appear in any reader-facing field (`title`, `summary`, `notes`, `data_quality_reason`, `detail.*`, `sources[].name`, `sources_used[]`). Describe the signal as "internal GoodParty.org data."
 
 ## Failure modes
 
-| Symptom                                                                   | Cause                                                         | Fix                                                                                           |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Rows are categories ("Housing", "Safety") not named issues                | Stopped at the domain                                         | Find the specific project/rate/vote/location residents are raising; that is the title         |
-| List mirrors the council agenda                                           | Used the governing-body record as a source                    | Drop it; this is demand-side — rank by what residents raise in news/advocacy/petitions        |
-| List padded toward 5 with thin rows                                       | Treated 5 as a target                                         | Lead with 1-3; reserve `priority:"high"`; add more only if independently well-evidenced       |
-| A straight-news topic asserted as resident demand                         | Counted `reporting` as resident voice                         | Label it "resident voice not yet evidenced," keep it below high priority; do not delete it    |
-| Official's own quote used as resident salience                            | Recipient's voice treated as demand                           | Exclude the official's quotes/votes/press; that is supply-side, not resident demand           |
-| List feels stale or one-week-thin                                         | Confused trending with sustained                              | Require ~6 months of resident attention; send one-week flare-ups to `trending_issues`         |
-| An issue's newest source is >12 months old (date-trap)                    | Trusted a stale or snippet date                               | Verify the byline `article_date`; drop the issue if nothing reputable is within ~12 months    |
-| The internal lean drives the ranking                                      | Treated the lean as salience                                  | Rank by resident attention mass; the internal lean only annotates via `AVG - 50`              |
-| All internal leans near 0 / all domains ~50%                              | Used a thresholded count on percentile-rank scores            | Use `AVG - 50`; scores center on 50 by construction                                           |
-| An internal-data domain shows 0 coverage                                  | No coverage for that model in this state                      | Drop it; record in `data_quality_reason`                                                      |
-| `ScopeViolation: scope_predicate_override`                                | Added `WHERE Residence_Addresses_State/City` manually         | Remove those clauses; broker auto-injects them                                                |
-| Partisan group's claim ranked as resident salience                        | Skipped the nonpartisan-corroboration rule                    | Flag affiliation; require a second independent source                                         |
-| `source_id` not found in `detail.sources[]`                               | Referenced a source you never added                           | Add the matching entry to `detail.sources[]`                                                  |
-| QA validator: claim extract not found in cited source                     | Paraphrased or reconstructed the `source_extracts` text       | Copy the extract verbatim from `retrieved_text_or_snapshot`; it must be a literal substring   |
-| QA validator: an issue's facts aren't adjudicated                         | Under-decomposed — dollars/dates/votes left out of `claims[]` | Emit one claim per load-bearing fact, linked by `item_id`, with the right high `claim_weight` |
-| QA validator: `claims[].source_ids` unresolved / no top-level `sources[]` | Left provenance only under `detail.sources[]`                 | Flatten to a deduped top-level `sources[]`; point `source_ids` at those ids                   |
-| Validator: missing/empty `overview`                                       | `detail.overview.summary` omitted or empty                    | Always emit a substantive `overview.summary`; it is required                                  |
-| `GET_community_issues` 404                                                | Organization has no feed yet                                  | Treat as empty feed; note it in `data_quality_reason`                                         |
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Rows are categories ("Housing", "Safety") not named issues | Stopped at the domain | Find the specific project/rate/vote/location residents are raising; that is the title |
+| List mirrors the council agenda | Used the governing-body record as a source | Drop it; this is demand-side — rank by what residents raise in news/advocacy/petitions |
+| List padded toward 5 with thin rows | Treated 5 as a target | Lead with 1-3; reserve `priority:"high"`; add more only if independently well-evidenced |
+| A straight-news topic asserted as resident demand | Counted `reporting` as resident voice | Label it "resident voice not yet evidenced," keep it below high priority; do not delete it |
+| Official's own quote used as resident salience | Recipient's voice treated as demand | Exclude the official's quotes/votes/press; that is supply-side, not resident demand |
+| List feels stale or one-week-thin | Confused trending with sustained | Require ~6 months of resident attention; send one-week flare-ups to `trending_issues` |
+| An issue's newest source is >12 months old (date-trap) | Trusted a stale or snippet date | Verify the byline `article_date`; drop the issue if nothing reputable is within ~12 months |
+| The internal lean drives the ranking | Treated the lean as salience | Rank by resident attention mass; the internal lean only annotates via `AVG - 50` |
+| All internal leans near 0 / all domains ~50% | Used a thresholded count on percentile-rank scores | Use `AVG - 50`; scores center on 50 by construction |
+| An internal-data domain shows 0 coverage | No coverage for that model in this state | Drop it; record in `data_quality_reason` |
+| `ScopeViolation: scope_predicate_override` | Added `WHERE Residence_Addresses_State/City` manually | Remove those clauses; broker auto-injects them |
+| Partisan group's claim ranked as resident salience | Skipped the nonpartisan-corroboration rule | Flag affiliation; require a second independent source |
+| `source_id` not found in `detail.sources[]` | Referenced a source you never added | Add the matching entry to `detail.sources[]` |
+| Validator: missing/empty `overview` | `detail.overview.summary` omitted or empty | Always emit a substantive `overview.summary`; it is required |
+| `GET_community_issues` 404 | Organization has no feed yet | Treat as empty feed; note it in `data_quality_reason` |
