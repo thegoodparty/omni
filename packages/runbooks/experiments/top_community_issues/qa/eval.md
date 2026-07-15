@@ -24,18 +24,18 @@ Read `issues` (the array) and `data_quality`.
 
 ## The checks at a glance
 
-| Check                        | What you are grading                                                                             |
-| ---------------------------- | ------------------------------------------------------------------------------------------------ |
-| `named_issue`                | Every issue is a specific named instance, not a taxonomy category                                |
-| `demand_side`                | The list reads as resident demand, not the governing body's own agenda                           |
-| `lead_tight`                 | `priority: "high"` is reserved for the 1-3 best-evidenced issues; not padded toward the 5 cap    |
-| `attribution_labeling`       | Resident demand is sourced or honestly labeled when only press/agenda-carried                    |
-| `no_official_voice`          | The recipient official's own quotes/votes/press are never used as resident-demand evidence       |
-| `category_diversity`         | Issues span more than one category, unless too few issues exist to show it                       |
-| `lean_is_annotation`         | The internal-data lean reads as an annotation in prose, never cited as the ranking rationale     |
-| `advocacy_nonpartisan`       | A partisan advocacy group's claim is flagged or independently corroborated                       |
-| `summary_substantive`        | Every issue's `detail.overview.summary` is a real, sourced 2-3 sentence summary, not boilerplate |
-| `honest_data_quality_reason` | `data_quality_reason`/`notes` honestly name gaps (missing layers, dropped domains, short list)   |
+| Check                        | What you are grading                                                                                                                |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `named_issue`                | Every issue is a specific named instance, not a taxonomy category                                                                   |
+| `demand_side`                | The list reads as resident demand, not the governing body's own agenda                                                              |
+| `lead_tight`                 | `priority: "high"` is reserved for the 1-3 best-evidenced issues; not padded toward the 5 cap                                       |
+| `attribution_labeling`       | Resident demand is sourced or honestly labeled when only press/agenda-carried                                                       |
+| `no_official_voice`          | The recipient official's own quotes/votes/press are never used as resident-demand evidence                                          |
+| `category_diversity`         | Issues span more than one category, unless too few issues exist to show it                                                          |
+| `lean_is_annotation`         | The internal-data lean reads as an annotation in prose, never cited as the ranking rationale                                        |
+| `advocacy_nonpartisan`       | A partisan advocacy group's claim is flagged or independently corroborated                                                          |
+| `summary_substantive`        | Every issue's `detail.overview.summary` is a real, sourced 2-3 sentence summary, not boilerplate                                    |
+| `honest_data_quality_reason` | `data_quality_reason`/`notes` honestly name genuine gaps (missing source layers, dropped issues) — list length alone is never a gap |
 
 ## Grading scale
 
@@ -131,11 +131,13 @@ Rules for the fail note:
 
 ### 10. Data-quality reason is honest → `honest_data_quality_reason`
 
-**Fail if:** the list is short (fewer than 5 issues) or a source layer is visibly missing (no 311, no survey, no advocacy-group source) and `data_quality_reason`/`notes` does not name it — i.e. the artifact is silent about a gap a reader would want to know about.
+A short list (1-3 issues) is the intended product, not a deficiency — `instruction.md` explicitly tells the producing agent not to apologize for being under 5. This check is about disclosing genuine gaps, not list length.
 
-**Pass if:** `data_quality_reason`/`notes` honestly account for any missing layer and for why the list is short, when applicable.
+**Fail if:** a source layer is visibly missing (no 311, no survey, no advocacy-group source) or an issue was evidently dropped for staleness/insufficient evidence, and `data_quality_reason`/`notes` does not name it — i.e. the artifact is silent about a gap a reader would want to know about.
 
-**N/A if:** the list has 5 issues and every source layer is evidently present (nothing to disclose).
+**Pass if:** `data_quality_reason`/`notes` honestly account for any missing source layer and for why any issue was dropped, when applicable.
+
+**N/A if:** every source layer is evidently present and nothing was evidently dropped (nothing to disclose).
 
 ## Output — write a contract-C fragment array to the result file
 
