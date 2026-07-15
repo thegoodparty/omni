@@ -14,7 +14,7 @@ Internal admin tools. GoodParty staff use this to manage users, impersonate cand
 ## Patterns
 
 - **Admin gating**: routes here are reachable only by users with admin role. Auth/role check happens in `app/shared/user/UserProvider.tsx` and at the page level — don't rely on the URL alone.
-- **Impersonation** uses the `ImpersonateUser` provider in `app/shared/user/`. After kicking off, the global `ImpersonationBanner` shows on every page until exited.
+- **Impersonation**: `ImpersonateAction` calls the Clerk ticket flow directly (`POST /v1/admin/users/impersonate/:userId` → `client.signIn.create({ strategy: 'ticket' })`), the same pattern as `ImpersonationBanner`'s "Switch User". There is no separate impersonation context provider. After kicking off, the global `ImpersonationBanner` shows on every page until exited.
 - **Server actions** (`shared/sendSetPasswordEmail.ts`) call gp-api directly via `serverRequest`; admin actions tend to be one-shot rather than form-driven.
 
 ## Gotchas
@@ -25,6 +25,6 @@ Internal admin tools. GoodParty staff use this to manage users, impersonate cand
 
 ## Related
 
-- `app/shared/user/UserProvider.tsx`, `ImpersonateUserProvider.tsx`, `ImpersonationBanner.tsx`.
+- `app/shared/user/UserProvider.tsx`, `ImpersonationBanner.tsx`.
 - `app/impersonate/` — public route used to enter impersonation by token.
 - `helpers/authHelper.ts` — role checks.
