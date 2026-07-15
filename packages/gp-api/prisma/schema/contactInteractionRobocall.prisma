@@ -9,8 +9,11 @@ model ContactInteractionRobocall {
   outreachId       Int          @map("outreach_id")
   answeredAt       DateTime?    @map("answered_at")
   voicemailLeftAt  DateTime?    @map("voicemail_left_at")
+  // Peerly call id for write-back idempotency (feature 5).
+  sourceCallId     String?      @map("source_call_id")
 
   @@unique([outreachId, personId])
+  @@unique([organizationSlug, sourceCallId])
   @@index([organizationSlug, personId, occurredAt])
   @@map("contact_interaction_robocall")
 }

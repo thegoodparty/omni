@@ -33,6 +33,7 @@ CREATE TABLE "contact_interaction_robocall" (
     "outreach_id" INTEGER NOT NULL,
     "answered_at" TIMESTAMP(3),
     "voicemail_left_at" TIMESTAMP(3),
+    "source_call_id" TEXT,
 
     CONSTRAINT "contact_interaction_robocall_pkey" PRIMARY KEY ("id")
 );
@@ -76,6 +77,9 @@ CREATE INDEX "contact_interaction_robocall_organization_slug_person_id_oc_idx" O
 
 -- CreateIndex
 CREATE UNIQUE INDEX "contact_interaction_robocall_outreach_id_person_id_key" ON "contact_interaction_robocall"("outreach_id", "person_id");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "contact_interaction_robocall_organization_slug_source_call__key" ON "contact_interaction_robocall"("organization_slug", "source_call_id");
 
 -- CreateIndex
 CREATE INDEX "contact_interaction_text_organization_slug_person_id_occurr_idx" ON "contact_interaction_text"("organization_slug", "person_id", "occurred_at");
