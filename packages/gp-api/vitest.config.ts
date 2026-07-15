@@ -38,5 +38,11 @@ export default defineConfig({
     include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
     env: dotenv.parse(readFileSync(`${__dirname}/.env.test`)),
     clearMocks: true,
+    // Unbounded, every forked worker runs its own Nest app + Prisma pool
+    // against the one shared test Postgres container, which measured at
+    // 200-350% sustained CPU on a full local run. CI's ubuntu-latest runners
+    // are already core-constrained (and shard across 2 jobs), so this only
+    // changes local behavior.
+    maxWorkers: process.env.CI ? undefined : 4,
   },
 })
