@@ -84,6 +84,9 @@ CREATE INDEX "contact_interaction_text_organization_slug_person_id_occurr_idx" O
 CREATE UNIQUE INDEX "contact_interaction_text_outreach_id_person_id_key" ON "contact_interaction_text"("outreach_id", "person_id");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "contact_interaction_text_organization_slug_source_event_id_key" ON "contact_interaction_text"("organization_slug", "source_event_id");
+
+-- CreateIndex
 CREATE INDEX "contact_note_organization_slug_person_id_created_at_idx" ON "contact_note"("organization_slug", "person_id", "created_at");
 
 -- AddForeignKey
@@ -105,5 +108,5 @@ ALTER TABLE "contact_interaction_text" ADD CONSTRAINT "contact_interaction_text_
 ALTER TABLE "contact_note" ADD CONSTRAINT "contact_note_organization_slug_fkey" FOREIGN KEY ("organization_slug") REFERENCES "organization"("slug") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "outreach" ADD CONSTRAINT "outreach_organization_slug_fkey" FOREIGN KEY ("organization_slug") REFERENCES "organization"("slug") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "outreach" ADD CONSTRAINT "outreach_organization_slug_fkey" FOREIGN KEY ("organization_slug") REFERENCES "organization"("slug") ON DELETE SET NULL ON UPDATE CASCADE;
 

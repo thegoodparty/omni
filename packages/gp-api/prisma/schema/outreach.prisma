@@ -49,7 +49,7 @@ model Outreach {
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill.
   organizationSlug            String?                      @map("organization_slug")
-  organization                Organization?                @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  organization                Organization?                @relation(fields: [organizationSlug], references: [slug], onDelete: SetNull)
   voterActivities             VoterOutreachActivity[]
   raceOpponentContrasts       RaceOpponentContrast[]
   contactInteractionTexts     ContactInteractionText[]
