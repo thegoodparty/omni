@@ -47,6 +47,10 @@ export const updateCampaign = async (
       slug, // admin only
     }
     const resp = await clientFetch<Campaign>(apiRoutes.campaign.update, payload)
+    if (!resp.ok) {
+      console.error('updateCampaign failed', resp.status, resp.data)
+      return false
+    }
     return resp.data
   } catch (e) {
     console.error('error', e)
@@ -60,6 +64,10 @@ export const updateCampaign = async (
 export const getCampaign = async (): Promise<Campaign | false> => {
   try {
     const resp = await clientFetch<Campaign>(apiRoutes.campaign.get)
+    if (!resp.ok) {
+      console.error('getCampaign failed', resp.status, resp.data)
+      return false
+    }
     return resp.data
   } catch (e) {
     console.error('error', e)
@@ -72,6 +80,10 @@ export const fetchCampaignVersions = async (): Promise<CampaignVersions> => {
     const resp = await clientFetch<CampaignVersions>(
       apiRoutes.campaign.planVersion,
     )
+    if (!resp.ok) {
+      console.error('fetchCampaignVersions failed', resp.status, resp.data)
+      return {}
+    }
     return resp.data
   } catch (e) {
     console.log('error at fetchCampaignVersions', e)
@@ -99,6 +111,10 @@ export const createCampaignWithOffice = async (
       {},
     )
     const resp = await clientFetch<Campaign>(apiRoutes.campaign.create, payload)
+    if (!resp.ok) {
+      console.error('createCampaignWithOffice failed', resp.status, resp.data)
+      return false
+    }
     return resp.data
   } catch (e) {
     console.error('error creating campaign', e)
