@@ -801,14 +801,14 @@ class FakeCursor:
         return self._fetch
 
 
-def test_fetch_event_universe_reads_dbt_taxonomy_staging():
-    # The event universe is read from the Amplitude Govern taxonomy's dbt staging model
-    # (a 1:1 passthrough of the Airbyte feed), never the raw airbyte_source table.
+def test_fetch_event_universe_reads_mart_taxonomy():
+    # The event universe is read from the mart_analytics taxonomy exposure, never the dbt
+    # staging model or the raw airbyte_source table (grants live at the mart schema).
     cur = FakeCursor(["Event A", "Event B"])
     events = bf.fetch_event_universe(cur)
     assert events == ["Event A", "Event B"]
     sql = cur.executed[-1][0]
-    assert "dbt.stg_airbyte_source__amplitude_taxonomy_event_type" in sql
+    assert "mart_analytics.amplitude_taxonomy_event_type" in sql
     assert "airbyte_source.amplitude_taxonomy_event_type" not in sql
 
 

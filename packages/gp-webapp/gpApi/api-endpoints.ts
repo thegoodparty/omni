@@ -489,6 +489,11 @@ export type APIEndpoints = {
     Response: Ordinance
   }
 
+  'PATCH /v1/ordinances/:slug': {
+    Request: UpdateOrdinanceRequest
+    Response: Ordinance
+  }
+
   'GET /v1/contacts/stats': {
     Request: {}
     Response: ContactsStats

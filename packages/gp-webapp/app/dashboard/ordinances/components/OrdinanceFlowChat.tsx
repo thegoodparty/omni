@@ -472,6 +472,7 @@ export default function OrdinanceFlowChat({
               <AssistantMessage
                 key={message.id}
                 message={message}
+                slug={slug}
                 answer={answerByMessageId[message.id]}
                 interactive={
                   message.id === activeClarifyId &&
@@ -500,7 +501,9 @@ export default function OrdinanceFlowChat({
                   toolLabel={ordinanceToolLabel}
                 />
               ) : null}
-              {showWidgets ? <StepWidgetBlocks widgets={shownWidgets} /> : null}
+              {showWidgets ? (
+                <StepWidgetBlocks widgets={shownWidgets} slug={slug} />
+              ) : null}
               {showClarify && liveClarify ? (
                 <ClarifyQuestionWidget
                   question={liveClarify}
@@ -569,6 +572,7 @@ function NextStepButton({
 
 function AssistantMessage({
   message,
+  slug,
   answer,
   interactive,
   onAnswerClarify,
@@ -576,6 +580,7 @@ function AssistantMessage({
   nextLabel,
 }: {
   message: ChatMessageDto
+  slug: string
   answer?: string
   interactive: boolean
   onAnswerClarify: (
@@ -597,7 +602,7 @@ function AssistantMessage({
     <>
       <AssistantRow>
         <InlineSegments segments={rendered} toolLabel={ordinanceToolLabel} />
-        <StepWidgetBlocks widgets={stepWidgets} />
+        <StepWidgetBlocks widgets={stepWidgets} slug={slug} />
         {clarify ? (
           <ClarifyQuestionWidget
             question={clarify}

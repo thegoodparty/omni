@@ -33,6 +33,7 @@ import {
   buildPresentAuthorityFindingTool,
   buildPresentComparablesTool,
   buildPresentCurrentLawSummaryTool,
+  buildPresentDraftTool,
   buildPresentLegislativeHistoryTool,
   buildReadOrdinanceTool,
   buildSaveExistingLawTool,
@@ -225,6 +226,12 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
 
     if (ctx.step === 'comparables') {
       tools.present_comparables = buildPresentComparablesTool(deps)
+    }
+
+    // The terminal step synthesizes the prior steps into a complete draft and
+    // persists it to the ordinance's draft columns.
+    if (ctx.step === 'draft') {
+      tools.present_draft = buildPresentDraftTool(deps)
     }
 
     // Every step except the last can offer a button to advance the flow.

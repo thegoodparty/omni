@@ -4,10 +4,12 @@ import {
 } from '@goodparty_org/contracts'
 import { PeerlyCvVerificationData } from '../peerly.types'
 
-// The channel Peerly used plus the raw destination it sent the PIN to. Internal
-// to gp-api: the raw destination is persisted on the TcrCompliance record (like
-// the existing email/phone columns) but never leaves the API — callers that
-// return it to the browser mask it via maskPinDeliveryDestination first.
+// The channel Peerly used plus the raw destination it sent the PIN to. The
+// raw destination is persisted on the TcrCompliance record and synced to
+// HubSpot via the PIN Sent event so Campaign Success can name the exact
+// inbox/number in the nudge (CV may deliver to a treasurer's contact from the
+// state filing, not the candidate's own). Callers that return it to the
+// browser still mask it via maskPinDeliveryDestination first.
 export interface DerivedPinDelivery {
   method: PinDeliveryMethod
   destination: string
