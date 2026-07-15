@@ -258,6 +258,25 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('same state')
   })
 
+  it('includes draft rules and advertises present_draft only on the draft step', () => {
+    const withTool = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'draft' }),
+      toolNames: ['read_ordinance', 'present_draft', 'web_search', 'save_note'],
+    })
+    expect(withTool).toContain('DRAFT RULES')
+    expect(withTool).toContain('present_draft:')
+    // The draft synthesizes the prior steps into one complete ordinance, is a
+    // first draft for the user's attorney, and can amend in place via redline.
+    expect(withTool).toContain('synthesize')
+    expect(withTool).toContain('attorney')
+    expect(withTool).toContain('redline')
+    const without = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'offer_next_step'],
+    })
+    expect(without).not.toContain('DRAFT RULES')
+  })
+
   it('advertises the present_* tools that render the current_law widgets', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),
