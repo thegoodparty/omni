@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import AlertDialog from '@shared/utils/AlertDialog'
 import { MoreMenu } from '@shared/utils/MoreMenu'
 import { clientFetch } from 'gpApi/clientFetch'
@@ -30,6 +31,7 @@ const deleteSurvey = async (id: string): Promise<void> => {
 export default function EditSurvey(): React.JSX.Element {
   const [survey, refreshSurvey] = useEcanvasserSurvey()
   const [isOpen, setIsOpen] = useState(false)
+  const router = useRouter()
 
   const { status } = survey || {}
   const menuItems: MenuItem[] = []
@@ -48,7 +50,8 @@ export default function EditSurvey(): React.JSX.Element {
 
   const handleDelete = async (): Promise<void> => {
     await deleteSurvey(survey.id)
-    window.location.href = '/dashboard/door-knocking/surveys'
+    router.push('/dashboard/door-knocking/surveys')
+    router.refresh()
   }
 
   if (status === 'Live') {
