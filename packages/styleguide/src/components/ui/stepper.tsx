@@ -16,16 +16,39 @@ interface VerticalStepperProps {
   variant: 'vertical'
   currentStep: number
   labels: string[]
+  size?: 'small' | 'medium'
   className?: string
 }
 
 type StepperProps = BarStepperProps | VerticalStepperProps
+type VerticalStepperSize = NonNullable<VerticalStepperProps['size']>
+
+// Mirrors Avatar's size -> indicator/text pairing (small: size-8/text-xs,
+// medium: size-10/text-sm) so the two circular indicators in the design
+// system stay on the same scale.
+const verticalSizeClasses: Record<
+  VerticalStepperSize,
+  { item: string; indicator: string; label: string }
+> = {
+  small: {
+    item: 'gap-2 px-3 py-2',
+    indicator: 'size-8 text-xs',
+    label: 'text-xs',
+  },
+  medium: {
+    item: 'gap-3 px-4 py-3',
+    indicator: 'size-10 text-sm',
+    label: 'text-sm',
+  },
+}
 
 function Stepper(props: StepperProps) {
   if (props.variant === 'vertical') {
-    const { currentStep, labels, className } = props
+    const { currentStep, labels, size = 'medium', className } = props
+    const sizeClasses = verticalSizeClasses[size]
     return (
       <ol
+        data-slot="stepper"
         className={cn('flex flex-col gap-2', className)}
         aria-label="Progress"
       >
@@ -36,6 +59,7 @@ function Stepper(props: StepperProps) {
           return (
             <li
               key={label}
+              data-slot="stepper-item"
               aria-current={isActive ? 'step' : undefined}
               // Completed steps are announced as such but render identically
               // to upcoming ones: the Figma "steps" component set defines only
@@ -43,21 +67,34 @@ function Stepper(props: StepperProps) {
               // apply.
               aria-label={isCompleted ? `${label} - completed` : undefined}
               className={cn(
-                'flex items-center gap-3 rounded-full px-4 py-3',
-                isActive && 'bg-slate-200',
+                'flex items-center rounded-full transition-colors',
+                sizeClasses.item,
+                isActive && 'bg-muted',
               )}
             >
               <span
+                data-slot="stepper-indicator"
+                aria-hidden="true"
                 className={cn(
-                  'flex size-10 shrink-0 items-center justify-center rounded-full',
+                  'flex shrink-0 items-center justify-center rounded-full font-medium transition-colors',
+                  sizeClasses.indicator,
                   isActive
-                    ? 'bg-slate-600 text-base-foreground-dark'
+                    ? 'bg-primary text-primary-foreground'
                     : 'bg-tertiary-light text-tertiary-dark',
                 )}
               >
                 {stepNumber}
               </span>
-              {label}
+              <span
+                data-slot="stepper-label"
+                className={cn(
+                  'leading-5 text-foreground',
+                  sizeClasses.label,
+                  isActive && 'font-medium',
+                )}
+              >
+                {label}
+              </span>
             </li>
           )
         })}
@@ -68,6 +105,7 @@ function Stepper(props: StepperProps) {
   const { currentStep, totalSteps, showLabel = true, className } = props
   return (
     <div
+      data-slot="stepper"
       className={cn('space-y-3', className)}
       role="progressbar"
       aria-label="Progress"
@@ -76,11 +114,15 @@ function Stepper(props: StepperProps) {
       aria-valuenow={currentStep}
     >
       {showLabel && (
-        <div className="flex justify-end text-sm font-medium text-muted-foreground">
+        <div
+          data-slot="stepper-counter"
+          className="flex justify-end text-sm font-medium text-muted-foreground"
+        >
           Step {currentStep} of {totalSteps}
         </div>
       )}
       <div
+        data-slot="stepper-track"
         className="grid gap-3"
         style={{
           gridTemplateColumns: `repeat(${totalSteps}, minmax(0, 1fr))`,
@@ -89,11 +131,10 @@ function Stepper(props: StepperProps) {
         {Array.from({ length: totalSteps }, (_, index) => (
           <div
             key={index}
+            data-slot="stepper-segment"
             className={cn(
-              'h-1.5 rounded-full',
-              index < currentStep
-                ? 'bg-components-input-active'
-                : 'bg-slate-200',
+              'h-1.5 rounded-full transition-colors',
+              index < currentStep ? 'bg-primary' : 'bg-primary/20',
             )}
           />
         ))}
@@ -102,4 +143,9 @@ function Stepper(props: StepperProps) {
   )
 }
 
-export { Stepper, type StepperVariant }
+export {
+  type StepperVariant,
+  type BarStepperProps,
+  type VerticalStepperProps,
+  Stepper,
+}
