@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
+import type { OrdinanceSource } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
 import { S3Service } from '@/vendors/aws/services/s3.service'
 import { OrdinanceFlowToolsService } from './ordinanceFlowTools.service'
@@ -9,6 +10,7 @@ import {
   buildPresentAuthorityFindingTool,
   buildPresentComparablesTool,
   buildPresentCurrentLawSummaryTool,
+  buildPresentDraftTool,
   buildPresentLegislativeHistoryTool,
   type OrdinanceToolDeps,
 } from '../tools/ordinanceFlowTools'
@@ -323,6 +325,24 @@ describe('OrdinanceFlowToolsService', () => {
     })
   })
 
+  it('persists the draft and flips the ordinance status to draft', async () => {
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Draft amendment to Chapter 12, Public Safety Surveillance',
+      body: 'Section 12.20  Retention.\n\n(a) Footage deleted after thirty (30) days.',
+      sources: [{ id: 'ch12', title: 'Chapter 12' }],
+    })
+    const read = await tools.readSection(ordinanceId, electedOfficeId, 'draft')
+    expect(read.draft).toMatchObject({
+      title: 'Draft amendment to Chapter 12, Public Safety Surveillance',
+      body: 'Section 12.20  Retention.\n\n(a) Footage deleted after thirty (30) days.',
+      sources: [{ id: 'ch12', title: 'Chapter 12' }],
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.status).toBe('draft')
+  })
+
   it('scopes every operation to the owning office', async () => {
     await expect(
       tools.appendNote(ordinanceId, 'someone-elses-office', 'clarify', 'x'),
@@ -339,6 +359,12 @@ describe('OrdinanceFlowToolsService', () => {
     ).rejects.toBeInstanceOf(NotFoundException)
     await expect(
       tools.saveComparables(ordinanceId, 'someone-elses-office', []),
+    ).rejects.toBeInstanceOf(NotFoundException)
+    await expect(
+      tools.saveDraft(ordinanceId, 'someone-elses-office', {
+        title: 't',
+        body: 'b',
+      }),
     ).rejects.toBeInstanceOf(NotFoundException)
   })
 })
@@ -412,6 +438,86 @@ describe('ordinance-flow present_* tool builders', () => {
     const dumped = JSON.stringify(read.comparables)
     expect(dumped).not.toContain('I pulled the closest')
     expect(dumped).not.toContain('Pair expansion')
+  })
+
+  it('present_draft persists the durable subset, not the description framing', async () => {
+    await buildPresentDraftTool(deps).execute({
+      title: 'Draft amendment to Chapter 12, Public Safety Surveillance',
+      description: 'Adds a 30-day retention limit and an annual audit.',
+      body: 'Section 12.20  Retention.\n\n(a) Footage deleted after thirty (30) days.',
+      sources: [{ id: 'ch12', title: 'Chapter 12' }],
+    })
+    const read = await tools.readSection(ordinanceId, electedOfficeId, 'draft')
+    const draft = read.draft as {
+      title: string
+      body: string
+      sources: OrdinanceSource[]
+    }
+    expect(draft.title).toContain('Chapter 12')
+    expect(draft.body).toContain('thirty (30) days')
+    expect(draft.sources).toHaveLength(1)
+    // description is render-only (replayed from the persisted tool args); no
+    // draft column holds it.
+    expect(draft).not.toHaveProperty('description')
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.status).toBe('draft')
+  })
+
+  it('reads the draft section as null before any draft is saved', async () => {
+    const read = await tools.readSection(ordinanceId, electedOfficeId, 'draft')
+    expect(read.draft).toBeNull()
+  })
+
+  it('reads the draft section as null when only one draft field is set', async () => {
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { draftTitle: 'Title only, no body' },
+    })
+    const read = await tools.readSection(ordinanceId, electedOfficeId, 'draft')
+    expect(read.draft).toBeNull()
+  })
+
+  it('saveDraft advances in_progress to draft but never downgrades an advanced status', async () => {
+    // A re-draft of an ordinance that already advanced past draft must not
+    // regress its lifecycle status.
+    await service.prisma.ordinance.update({
+      where: { id: ordinanceId },
+      data: { status: 'proposed' },
+    })
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Revised draft',
+      body: 'Section 1. Revised.',
+    })
+    const row = await service.prisma.ordinance.findUniqueOrThrow({
+      where: { id: ordinanceId },
+    })
+    expect(row.status).toBe('proposed')
+    expect(row.draftBody).toBe('Section 1. Revised.')
+  })
+
+  it('saveDraft leaves prior sources intact when a re-draft omits or empties them', async () => {
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'First draft',
+      body: 'Section 1.',
+      sources: [{ id: 's1', title: 'Source one' }],
+    })
+    // Omitted sources preserve the prior list.
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Second draft',
+      body: 'Section 1 revised.',
+    })
+    // An empty array (the sourceless default the agent can re-emit) must also
+    // preserve, not wipe.
+    await tools.saveDraft(ordinanceId, electedOfficeId, {
+      title: 'Third draft',
+      body: 'Section 1 revised again.',
+      sources: [],
+    })
+    const read = await tools.readSection(ordinanceId, electedOfficeId, 'draft')
+    const draft = read.draft as { sources: OrdinanceSource[] }
+    expect(draft.sources).toEqual([{ id: 's1', title: 'Source one' }])
   })
 
   it('display-only present tools ack without persisting or throwing', async () => {
