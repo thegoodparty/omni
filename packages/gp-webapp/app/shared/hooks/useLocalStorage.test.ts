@@ -9,11 +9,12 @@ beforeEach(() => {
 })
 
 describe('useLocalStorage', () => {
-  // Before the fix, `setState(value)` let React resolve the functional
-  // updater against its own update queue (state ends at 2) while
-  // localStorage was written from the stale outer `state` closure (ends at
-  // 1) — the two diverge. This asserts they stay in sync.
-  it('keeps state in sync with the persisted value across functional updates in one batch', () => {
+  // Functional updaters must compose within one batch like useState's do:
+  // two `(n) => n + 1` from 0 end at 2 in BOTH state and localStorage.
+  // Original code (setState(value)): state 2, localStorage 1 — diverged.
+  // Minimal fix (setState(valueToStore) from the render-time closure):
+  // state 1, localStorage 1 — consistent but the updaters don't compose.
+  it('composes functional updaters in one batch, in state and in localStorage', () => {
     const { result } = renderHook(() => useLocalStorage<number>(KEY, 0))
 
     act(() => {
@@ -21,9 +22,8 @@ describe('useLocalStorage', () => {
       result.current[1]((n) => n + 1)
     })
 
-    expect(result.current[0]).toBe(
-      JSON.parse(localStorage.getItem(KEY) as string),
-    )
+    expect(result.current[0]).toBe(2)
+    expect(JSON.parse(localStorage.getItem(KEY) as string)).toBe(2)
   })
 
   it('round-trips a plain value', () => {
