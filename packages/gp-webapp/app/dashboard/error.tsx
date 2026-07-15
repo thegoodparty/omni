@@ -19,22 +19,41 @@ export default function DashboardError({
 }: DashboardErrorProps): React.JSX.Element {
   const { user: clerkUser, isLoaded } = useClerkUser()
 
+  const isChunkLoadError = error?.message?.startsWith('Loading chunk')
+
   useEffect(() => {
     reportErrorToSentry(error)
     if (error?.message?.startsWith('Loading chunk')) {
-      window.location.reload()
+      // Flush telemetry before navigating away — the reload would abort an
+      // in-flight fetch. Not gated on Clerk's isLoaded (the failed chunk may
+      // be Clerk's own), so userEmail may be undefined. sendError catches
+      // internally, so the reload always happens.
+      sendError({
+        message: error?.message,
+        url: window.location.href,
+        userEmail: clerkUser?.primaryEmailAddress?.emailAddress,
+        userAgent: window?.navigator?.userAgent,
+      }).then(() => {
+        window.location.reload()
+      })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per error with a best-effort user snapshot; must not re-run (or wait) on Clerk state
   }, [error])
 
   useEffect(() => {
-    if (!isLoaded) return
+    if (!isLoaded || isChunkLoadError) return
     sendError({
       message: error?.message,
       url: window.location.href,
       userEmail: clerkUser?.primaryEmailAddress?.emailAddress,
       userAgent: window?.navigator?.userAgent,
     })
-  }, [isLoaded, error, clerkUser?.primaryEmailAddress?.emailAddress])
+  }, [
+    isLoaded,
+    isChunkLoadError,
+    error,
+    clerkUser?.primaryEmailAddress?.emailAddress,
+  ])
 
   return (
     <div className="flex flex-col items-center justify-center px-3 py-16 lg:px-5">

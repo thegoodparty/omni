@@ -58,7 +58,7 @@ describe('DashboardError', () => {
     expect(reset).toHaveBeenCalledTimes(1)
   })
 
-  it('reloads the page on a chunk-load error', () => {
+  it('flushes telemetry to the error logger before reloading on a chunk-load error', async () => {
     const reloadSpy = vi.fn()
     const originalLocation = window.location
     Object.defineProperty(window, 'location', {
@@ -73,7 +73,17 @@ describe('DashboardError', () => {
       />,
     )
 
-    expect(reloadSpy).toHaveBeenCalled()
+    expect(mockClientFetch).toHaveBeenCalledTimes(1)
+    expect(mockClientFetch).toHaveBeenCalledWith(
+      apiRoutes.logError,
+      expect.objectContaining({ message: 'Loading chunk 4 failed' }),
+    )
+    expect(reloadSpy).not.toHaveBeenCalled()
+
+    await waitFor(() => {
+      expect(reloadSpy).toHaveBeenCalled()
+    })
+    expect(mockClientFetch).toHaveBeenCalledTimes(1)
 
     Object.defineProperty(window, 'location', {
       configurable: true,
