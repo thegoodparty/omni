@@ -52,6 +52,28 @@ describe('UsersService', () => {
     })
   })
 
+  describe('user email case-insensitive unique index', () => {
+    it('rejects a case-variant duplicate at the DB level', async () => {
+      await service.prisma.user.create({
+        data: {
+          email: 'indexed.unique@example.com',
+          firstName: 'Index',
+          lastName: 'Guard',
+        },
+      })
+
+      await expect(
+        service.prisma.user.create({
+          data: {
+            email: 'Indexed.Unique@Example.com',
+            firstName: 'Index',
+            lastName: 'Bypass',
+          },
+        }),
+      ).rejects.toThrow(/unique/i)
+    })
+  })
+
   describe('createUser', () => {
     const stubCrm = () => {
       const crm = service.app.get(CrmUsersService)
