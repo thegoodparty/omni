@@ -446,6 +446,29 @@ describe('UsersService', () => {
       expect(result.user.email).toBe(email)
     })
 
+    it('normalizes a MixedCase email before provisioning', async () => {
+      const suffix = uniqueSuffix()
+      const email = `EO-Mixed-${suffix}@Example.com`
+      vi.spyOn(clerkClient.users, 'getUserList').mockResolvedValue({
+        data: [],
+        totalCount: 0,
+      } as Awaited<ReturnType<typeof clerkClient.users.getUserList>>)
+      const createUser = vi
+        .spyOn(clerkClient.users, 'createUser')
+        .mockResolvedValue({ id: `clerk_mixed_${suffix}` } as never)
+
+      const result = await usersService.provisionMagicLinkUser({
+        email,
+        firstName: 'Mixed',
+        lastName: 'Case',
+      })
+
+      expect(createUser).toHaveBeenCalledWith(
+        expect.objectContaining({ emailAddress: [email.toLowerCase()] }),
+      )
+      expect(result.user.email).toBe(email.toLowerCase())
+    })
+
     it('recovers from a concurrent create that lost the duplicate-email race', async () => {
       // Two concurrent magic-link requests both miss the initial lookup and
       // race on createUser; the loser gets Clerk's 422 form_identifier_exists.
@@ -961,6 +984,14 @@ describe('UsersService', () => {
       service.prisma.user.create({
         data: { email, clerkId },
       })
+
+    it('persists a MixedCase email lowercased on create', async () => {
+      const result = await provision(
+        'user_mixed_case',
+        'MixedCase.Clerk@Test.GoodParty.Org',
+      )
+      expect(result?.email).toBe('mixedcase.clerk@test.goodparty.org')
+    })
 
     it('returns existing user when found by clerkId', async () => {
       const existing = await createUser(

@@ -282,7 +282,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       const user = await this.model.create({
         data: {
           clerkId: data.clerkId,
-          email: data.email,
+          email: toLowerAndTrim(data.email),
           firstName: data.firstName,
           lastName: data.lastName,
           name: `${data.firstName} ${data.lastName}`.trim(),
@@ -585,7 +585,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     lastName: string
     expiresInSeconds?: number
   }): Promise<{ user: User; token: string; clerkId: string }> {
-    const email = data.email.trim()
+    const email = toLowerAndTrim(data.email)
 
     // Reject the magic link for any account the person actually controls. A
     // password, an OAuth/SSO identity (e.g. Google), a TOTP/2FA authenticator,
