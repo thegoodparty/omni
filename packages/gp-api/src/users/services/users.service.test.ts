@@ -13,6 +13,7 @@ import {
   type ResolvedActorIdentity,
 } from './users.service'
 import { AnalyticsService } from '@/analytics/analytics.service'
+import { CrmUsersService } from './crmUsers.service'
 import { StripeService } from '@/vendors/stripe/services/stripe.service'
 import { UserRole } from '../../generated/prisma'
 import { subDays } from 'date-fns'
@@ -48,6 +49,64 @@ describe('UsersService', () => {
     it('should return null for non-existent email', async () => {
       const user = await usersService.findUserByEmail('nonexistent@example.com')
       expect(user).toBeNull()
+    })
+  })
+
+  describe('createUser', () => {
+    const stubCrm = () => {
+      const crm = service.app.get(CrmUsersService)
+      vi.spyOn(crm, 'submitCrmForm').mockResolvedValue(undefined)
+      vi.spyOn(crm, 'trackUserUpdate').mockResolvedValue(undefined)
+    }
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('rejects a lowercase email when a MixedCase row exists', async () => {
+      stubCrm()
+      await service.prisma.user.create({
+        data: {
+          email: 'MixedCase.Dup@Example.com',
+          firstName: 'Mixed',
+          lastName: 'Case',
+          name: 'Mixed Case',
+        },
+      })
+
+      await expect(
+        usersService.createUser({
+          email: 'mixedcase.dup@example.com',
+          firstName: 'New',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('rejects a MixedCase email when a lowercase row exists', async () => {
+      stubCrm()
+      await expect(
+        usersService.createUser({
+          email: 'Tests@GoodParty.Org',
+          firstName: 'New',
+          lastName: 'User',
+        }),
+      ).rejects.toThrow(ConflictException)
+    })
+
+    it('persists the email lowercased and trimmed', async () => {
+      stubCrm()
+      const user = await usersService.createUser({
+        email: ' Fresh.Signup@Example.com ',
+        firstName: 'Fresh',
+        lastName: 'Signup',
+      })
+
+      expect(user.email).toBe('fresh.signup@example.com')
+      const persisted = await service.prisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(persisted?.email).toBe('fresh.signup@example.com')
     })
   })
 

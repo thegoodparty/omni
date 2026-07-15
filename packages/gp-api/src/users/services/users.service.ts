@@ -29,7 +29,7 @@ import {
 } from 'src/shared/types/utility.types'
 import Stripe from 'stripe'
 import { AnalyticsService } from '../../analytics/analytics.service'
-import { trimMany } from '../../shared/util/strings.util'
+import { toLowerAndTrim, trimMany } from '../../shared/util/strings.util'
 import { StripeService } from '../../vendors/stripe/services/stripe.service'
 import {
   CreateUserInputDto,
@@ -153,10 +153,10 @@ export class UsersService extends createPrismaBase(MODELS.User) {
       name,
       email: unNormalizedEmail,
     } = restUserData
-    const email = unNormalizedEmail
+    const email = toLowerAndTrim(unNormalizedEmail)
 
     const hashedPassword = password ? await hashPassword(password) : null
-    const existingUser = await this.findUser({ email })
+    const existingUser = await this.findUserByEmail(email)
     if (existingUser) {
       throw new ConflictException('User with this email already exists')
     }
@@ -179,6 +179,7 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     const userDataToPersist = {
       ...restUserData,
       ...trimmed,
+      email,
       ...(hashedPassword ? { password: hashedPassword } : {}),
       hasPassword: !!hashedPassword,
       name: name?.trim() || `${firstNameTrimmed} ${lastNameTrimmed}`,
