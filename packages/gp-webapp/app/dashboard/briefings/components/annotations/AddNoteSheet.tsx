@@ -21,7 +21,7 @@ import {
   type ResolvedAnchor,
 } from '@shared/briefings/anchorResolver'
 import type { Item } from '@shared/briefings/types'
-import type { SheetState } from './AnnotationsScope'
+import type { SheetState } from './sheetState'
 import type { PredictedPosition } from './enrichForCycler'
 import { useClearSelectionOnOpen } from './useClearSelectionOnOpen'
 import { AnchoredQuote } from './AnchoredQuote'
