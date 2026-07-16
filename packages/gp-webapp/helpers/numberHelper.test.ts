@@ -74,25 +74,45 @@ describe('formatPhoneNumber', () => {
     expect(formatPhoneNumber('')).toBe('')
   })
 
+  it('formats partial input of 1-3 digits as a bare area code', () => {
+    expect(formatPhoneNumber('2')).toBe('(2')
+    expect(formatPhoneNumber('23')).toBe('(23')
+    expect(formatPhoneNumber('234')).toBe('(234')
+  })
+
+  it('formats partial input of 4-6 digits with the prefix', () => {
+    expect(formatPhoneNumber('2345')).toBe('(234) 5')
+    expect(formatPhoneNumber('23456')).toBe('(234) 56')
+    expect(formatPhoneNumber('234567')).toBe('(234) 567')
+  })
+
+  it('formats partial input of 7-10 digits with the line number', () => {
+    expect(formatPhoneNumber('2345678')).toBe('(234) 567-8')
+    expect(formatPhoneNumber('234567890')).toBe('(234) 567-890')
+    expect(formatPhoneNumber('2345678901')).toBe('(234) 567-8901')
+  })
+
   it('formats a full 10-digit number', () => {
     expect(formatPhoneNumber('2345678901')).toBe('(234) 567-8901')
     expect(formatPhoneNumber('(234) 567-8901')).toBe('(234) 567-8901')
   })
 
-  // Documents current behavior only: formatPhoneNumber strips a leading `1`
-  // unconditionally, so an 11-digit number is formatted correctly but a
-  // 10-digit number whose area code starts with `1` loses its first digit.
-  // This is a known quirk of the implementation, not endorsed behavior.
-  it('strips a leading `1` unconditionally, even from 10-digit input', () => {
-    expect(formatPhoneNumber('12345678901')).toBe('(234) 567-8901')
-    expect(formatPhoneNumber('1234567890')).toBe('(234) 567-890')
+  it('ignores punctuation and whitespace', () => {
+    expect(formatPhoneNumber('234-567-8901')).toBe('(234) 567-8901')
+    expect(formatPhoneNumber('234.567.8901')).toBe('(234) 567-8901')
+    expect(formatPhoneNumber('  234 567 8901  ')).toBe('(234) 567-8901')
   })
 
-  it('formats partial input based on how many digits are present', () => {
-    expect(formatPhoneNumber('234567')).toBe('(234) 567')
-    expect(formatPhoneNumber('2345')).toBe('(234) 5')
-    expect(formatPhoneNumber('234')).toBe('(234')
-    expect(formatPhoneNumber('2')).toBe('(2')
+  it('strips the country code from an 11-digit `1XXXXXXXXXX` number', () => {
+    expect(formatPhoneNumber('12345678901')).toBe('(234) 567-8901')
+  })
+
+  it('strips the country code from a `+1`-prefixed formatted number', () => {
+    expect(formatPhoneNumber('+1 (234) 567-8901')).toBe('(234) 567-8901')
+  })
+
+  it('keeps all 10 digits of a bare number whose area code starts with `1`', () => {
+    expect(formatPhoneNumber('1234567890')).toBe('(123) 456-7890')
   })
 })
 
