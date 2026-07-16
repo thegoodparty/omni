@@ -95,6 +95,22 @@ describe('QualityReport', () => {
     ).toBeVisible()
   })
 
+  it('surfaces an error when the run returns no report', async () => {
+    const onReran = vi.fn()
+    mocks.generateQualityReport.mockResolvedValue({
+      qualityReport: null,
+    } as unknown as Ordinance)
+
+    render(<QualityReport {...props({ initialReport: null, onReran })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(
+      await screen.findByText(/quality report was not returned/i),
+    ).toBeVisible()
+    expect(onReran).not.toHaveBeenCalled()
+  })
+
   it('shows a stale banner from the server report', () => {
     render(
       <QualityReport {...props({ initialReport: report({ stale: true }) })} />,

@@ -69,6 +69,9 @@ export default function QualityReport({
     try {
       const updated = await generateQualityReport(slug)
       if (!updated.qualityReport) {
+        // Reset so the empty-state branch shows only the error, not the old
+        // report alongside it.
+        setReport(null)
         setError('The quality report was not returned. Please try again.')
         return
       }
