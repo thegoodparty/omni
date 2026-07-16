@@ -82,13 +82,16 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
     shouldSkip: ({ answers }) => answers.officePath === 'manual',
   },
   {
-    id: 'voter-demographics',
-    title: 'Voter insights for your district',
+    id: 'campaign-story',
+    title: 'Tell your campaign story',
     description:
-      'We use survey and voter data along with your district demographics to project likely top issues for your race.',
+      'A few words in your voice about why you are running. We use it to personalize your plan and voter outreach. You can skip this and do it later.',
     whyThisMatters:
-      'We use this data to help you understand what voters care most about, and to customize your campaign plan.',
-    shouldSkip: ({ answers }) => answers.officePath === 'manual',
+      'Your story is what makes your outreach sound like you. We turn it into a personalized plan and tracker, so the more you share now, the less generic everything downstream feels.',
+    // Skippable, so navigation is never blocked here. Completion (and whether
+    // to fire generation) is decided in OnboardingFlow from live card state,
+    // not from this static validator.
+    isValid: () => true,
   },
   {
     id: 'pledge',
