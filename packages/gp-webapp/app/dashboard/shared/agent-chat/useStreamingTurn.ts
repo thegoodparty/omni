@@ -23,6 +23,21 @@ import {
 const REVEAL_DRAIN_POLL_MS = 40
 const REVEAL_DRAIN_MAX_TICKS = 250
 
+// If the stream goes silent for this long, treat it as stalled — the client
+// never saw end-of-stream (a proxy drop or a throttled/backgrounded tab can
+// swallow the tail + close) — and reconcile with the persisted transcript
+// instead of spinning on "Thinking..." forever. The server persists every
+// turn, so re-fetching is authoritative. Must exceed the longest legitimate
+// silence (a native web_search step, ~47s); a server heartbeat can shrink it.
+const STREAM_IDLE_MS = 60_000
+
+// The server persists the assistant turn a beat after the stream closes
+// (longest on the draft turn's large body write). Poll the transcript until it
+// actually contains the finished turn before swapping the live render away, so
+// a refetch that predates persistence can't blank the turn. ~8s covers the lag.
+const COMMIT_POLL_MS = 200
+const COMMIT_MAX_TRIES = 40
+
 type StreamingTurnChatApi = Pick<
   AgentChatClient,
   'streamMessage' | 'listMessages'
@@ -74,6 +89,10 @@ export function useStreamingTurn(
   handlers: StreamingTurnHandlers,
 ): StreamingTurn {
   const [messages, setMessages] = useState<ChatMessageDto[]>([])
+  const messagesRef = useRef(messages)
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
   const [liveSegments, setLiveSegments] = useState<LiveSegment[]>([])
   const [sending, setSending] = useState(false)
   // Synchronous guard so a fast double-submit can't start two turns before the
@@ -137,12 +156,43 @@ export function useStreamingTurn(
       }
 
       let errorSeen = false
+      const abortController = new AbortController()
+      let stalled = false
+      // The id the server assigns the finished assistant turn (from `done`), so
+      // the commit can wait for that exact turn to appear in the transcript.
+      let doneMessageId: string | null = null
       try {
-        for await (const event of chatApi.streamMessage({
-          conversationId,
-          content: trimmed,
-          clientMessageId: crypto.randomUUID(),
-        })) {
+        const iterator = chatApi
+          .streamMessage({
+            conversationId,
+            content: trimmed,
+            clientMessageId: crypto.randomUUID(),
+            signal: abortController.signal,
+          })
+          [Symbol.asyncIterator]()
+        // Consume events, but race each one against an idle watchdog so a stream
+        // that never ends (client never sees end-of-stream) can't wedge the turn
+        // on "Thinking..." forever. On idle we stop, abort the dead stream, and
+        // fall through to the same persisted-history reconcile the clean-finish
+        // path uses.
+        while (true) {
+          let idleTimer: ReturnType<typeof setTimeout> | undefined
+          const idle = new Promise<'idle'>((resolve) => {
+            idleTimer = setTimeout(() => resolve('idle'), STREAM_IDLE_MS)
+          })
+          let step: IteratorResult<ChatStreamEvent, void> | 'idle'
+          try {
+            step = await Promise.race([iterator.next(), idle])
+          } finally {
+            if (idleTimer) clearTimeout(idleTimer)
+          }
+          if (step === 'idle') {
+            stalled = true
+            void iterator.return?.(undefined)
+            break
+          }
+          if (step.done) break
+          const event = step.value
           const consumed = scope.onEvent?.(event, {
             textLength: () => segmentsTextLength(segments),
           })
@@ -174,6 +224,8 @@ export function useStreamingTurn(
                 break
               }
             }
+          } else if (event.type === 'done') {
+            doneMessageId = event.assistantMessageId ?? null
           } else if (event.type === 'error') {
             scope.onError?.(event.message)
             errorSeen = true
@@ -183,25 +235,47 @@ export function useStreamingTurn(
         // On an error the server has no new persisted turn to swap in, and
         // reloading would revert the optimistic user message; skip the handoff.
         if (!errorSeen) {
-          // Hold the swap to persisted history until the smooth reveal has typed
-          // out the tail, so the last words don't snap in on the handoff.
-          const total = segmentsTextLength(segments)
-          let ticks = 0
-          while (
-            revealedRef.current < total &&
-            ticks < REVEAL_DRAIN_MAX_TICKS
-          ) {
-            await new Promise((resolve) =>
-              setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
-            )
-            ticks += 1
+          // On a clean finish, hold the swap until the smooth reveal has typed
+          // out the tail so the last words don't snap in. On a stall there is
+          // nothing left to type out — reconcile immediately.
+          if (!stalled) {
+            const total = segmentsTextLength(segments)
+            let ticks = 0
+            while (
+              revealedRef.current < total &&
+              ticks < REVEAL_DRAIN_MAX_TICKS
+            ) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
+              )
+              ticks += 1
+            }
           }
-          const history = await chatApi.listMessages(conversationId)
+          // Swap to persisted history only once it actually contains this turn.
+          // The live turn stays rendered (sending is still true) while we poll,
+          // so a refetch that lands before the server has persisted the turn
+          // never blanks it. Match on the server-assigned id when we have it,
+          // else on any assistant turn that wasn't already in the transcript.
+          const priorIds = new Set(messagesRef.current.map((m) => m.id))
+          const hasTurn = (h: ChatMessageDto[]): boolean =>
+            doneMessageId !== null
+              ? h.some((m) => m.id === doneMessageId)
+              : h.some((m) => m.role === 'assistant' && !priorIds.has(m.id))
+          let history = await chatApi.listMessages(conversationId)
+          let commitTries = 0
+          while (!hasTurn(history) && commitTries < COMMIT_MAX_TRIES) {
+            await new Promise((resolve) => setTimeout(resolve, COMMIT_POLL_MS))
+            history = await chatApi.listMessages(conversationId)
+            commitTries += 1
+          }
           setMessages(history)
         }
       } catch {
         scope.onError?.('Something went wrong. Please try again.')
       } finally {
+        // Free the underlying stream/fetch (a no-op after a clean finish; frees
+        // the socket when we bailed on a stall).
+        abortController.abort()
         setLiveSegments([])
         scope.onTurnSettle?.()
         sendingRef.current = false

@@ -87,6 +87,7 @@ export function useSmoothReveal(
   const [revealed, setRevealed] = useState(0)
   const revealedRef = useRef(0)
   const segmentsRef = useRef(segments)
+  const lastTickRef = useRef<number | null>(null)
 
   useEffect(() => {
     segmentsRef.current = segments
@@ -96,16 +97,37 @@ export function useSmoothReveal(
     if (!active) {
       setRevealed(0)
       revealedRef.current = 0
+      lastTickRef.current = null
       return
     }
     const id = setInterval(() => {
       setRevealed((r) => {
         const total = segmentsTextLength(segmentsRef.current)
-        if (r >= total) return r
-        const next = Math.min(
+        if (r >= total) {
+          lastTickRef.current = null
+          return r
+        }
+        // Pace the reveal by elapsed wall-clock, not by how many times this
+        // timer fires. Browsers throttle setInterval to ~1s in a hidden or
+        // backgrounded tab; keying the step to tick count alone made the
+        // type-out (and everything gated behind it — the next-step button,
+        // widgets, the commit to history) run ~40x slower there, trailing a
+        // finished stream by tens of seconds. Applying one step per elapsed
+        // 24ms frame keeps the foreground feel identical (one frame per tick)
+        // while a throttled tick catches up the frames it slept through.
+        const now = Date.now()
+        const frames = Math.min(
           total,
-          r + Math.max(2, Math.ceil((total - r) / 50)),
+          Math.max(1, Math.round((now - (lastTickRef.current ?? now)) / 24)),
         )
+        lastTickRef.current = now
+        let next = r
+        for (let i = 0; i < frames && next < total; i++) {
+          next = Math.min(
+            total,
+            next + Math.max(2, Math.ceil((total - next) / 50)),
+          )
+        }
         revealedRef.current = next
         return next
       })
