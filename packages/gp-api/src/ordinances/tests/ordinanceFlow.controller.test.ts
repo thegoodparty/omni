@@ -43,10 +43,17 @@ describe('Ordinances endpoints', () => {
 
     const updated = await service.client.patch(
       `/v1/ordinances/${slug}`,
-      { status: 'draft', draftBody: 'Section 1. ...' },
+      {
+        status: 'draft',
+        draftTitle: 'Draft ordinance limiting late-night noise',
+        draftBody: 'Section 1. ...',
+      },
       header,
     )
     expect(updated.data.status).toBe('draft')
+    expect(updated.data.draftTitle).toBe(
+      'Draft ordinance limiting late-night noise',
+    )
     expect(updated.data.draftBody).toBe('Section 1. ...')
 
     const removed = await service.client.delete(
@@ -59,6 +66,97 @@ describe('Ordinances endpoints', () => {
     expect(afterDelete.data.items).toHaveLength(0)
     const gone = await service.client.get(`/v1/ordinances/${slug}`, header)
     expect(gone.status).toBe(404)
+  })
+
+  it('applies a partial PATCH without clobbering unspecified draft fields', async () => {
+    const orgSlug = 'eo-ordinances-partial-patch'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Noise' },
+      header,
+    )
+    const { slug } = created.data
+
+    await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      {
+        status: 'draft',
+        draftTitle: 'Noise ordinance draft',
+        draftBody: 'Section 1. Quiet hours.',
+      },
+      header,
+    )
+    // A status-only PATCH (e.g. advancing the lifecycle) must leave the draft
+    // title/body untouched — they are omitted, not nulled.
+    const advanced = await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { status: 'in_review' },
+      header,
+    )
+    expect(advanced.data.status).toBe('in_review')
+    expect(advanced.data.draftTitle).toBe('Noise ordinance draft')
+    expect(advanced.data.draftBody).toBe('Section 1. Quiet hours.')
+  })
+
+  it('rejects a PATCH that would blank the draft title', async () => {
+    const orgSlug = 'eo-ordinances-blank-title'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Noise' },
+      header,
+    )
+    const res = await service.client.patch(
+      `/v1/ordinances/${created.data.slug}`,
+      { draftTitle: '' },
+      header,
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects a PATCH with empty draftSources', async () => {
+    const orgSlug = 'eo-ordinances-empty-sources'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Noise' },
+      header,
+    )
+    const res = await service.client.patch(
+      `/v1/ordinances/${created.data.slug}`,
+      { draftSources: [] },
+      header,
+    )
+    expect(res.status).toBe(400)
+  })
+
+  it('refuses to downgrade an ordinance status', async () => {
+    const orgSlug = 'eo-ordinances-downgrade'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const created = await service.client.post(
+      '/v1/ordinances',
+      { seedType: 'new', goalText: 'Noise' },
+      header,
+    )
+    const { slug } = created.data
+    await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { status: 'proposed' },
+      header,
+    )
+    const res = await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { status: 'in_progress' },
+      header,
+    )
+    expect(res.status).toBe(403)
+    const after = await service.client.get(`/v1/ordinances/${slug}`, header)
+    expect(after.data.status).toBe('proposed')
   })
 
   it('persists a clarify answer by questionId', async () => {

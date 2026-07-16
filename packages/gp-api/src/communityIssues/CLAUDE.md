@@ -67,8 +67,10 @@ defaulting to `true` so `dispatchForCohort`/`dispatchSelfServe` keep their
 existing unconditional-dispatch behavior. The cron (`dispatchSlice`) is the
 only caller that passes `skipActivityGate: false` — if the user hasn't
 opened the product in `INACTIVITY_THRESHOLD_DAYS` (30), it fires
-`Community Issues - Dispatch Skipped` (feeds a HubSpot re-engagement email)
-instead of dispatching. `dispatchIfNeeded` passes `skipActivityGate: true`
+`Community Issues - Top Issues Dispatch Skipped` or `Community Issues -
+Trending Issues Dispatch Skipped` (per experiment type, feeds a HubSpot
+re-engagement email) instead of dispatching. `dispatchIfNeeded` passes
+`skipActivityGate: true`
 explicitly. The gate itself (`isInactiveUser`, `INACTIVITY_THRESHOLD_DAYS`)
 lives in `src/shared/util/userActivity.util.ts`, shared with
 `meetingBriefings.service.ts` — the two domains use the same threshold and

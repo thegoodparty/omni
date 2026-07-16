@@ -7,6 +7,11 @@ heal the watchlist, and hand metadata fixes to the event-metadata skill.
 Source of truth for the lifecycle model: the Analytics event change SOP (ClickUp doc
 `2ky4jq2q-110533` / page `2ky4jq2q-91453`).
 
+**Scheduled run**: the host repo's `analytics-governance` GitHub Actions workflow runs the
+monitor (with `--slack`) Mondays and Thursdays on the shared service identities, and commits
+the log/state back via an auto-merge PR. The manual procedure below remains valid for ad-hoc
+runs and for the stage-2 code investigation, which is agent work the schedule cannot do.
+
 ## Prerequisites
 
 - **Auth**: Databricks OAuth via the SDK profile in `~/.databrickscfg` (`databricks auth login`).
@@ -28,8 +33,8 @@ The three axes:
 1. **Declared intent** — the `gp-meta` block parsed from the Govern description
    (`in use` / `not in use`, `supersession`). Sparse today; where absent, fall back to code x firing.
 2. **Code** — the provenance CSV: `retired_date` empty means the instrumentation is still in code.
-3. **Firing** — the catalog (`int__amplitude_event_catalog`) plus a trailing weekly aggregate
-   of the raw stream (`stg_airbyte_source__amplitude_api_events`).
+3. **Firing** — the catalog (`mart_analytics.amplitude_event_catalog`) plus a trailing weekly
+   aggregate of the event stream (`mart_analytics.amplitude_events`).
 
 Scope is hybrid: every catalog event gets a status; the curated watchlist
 (`monitored_events.yaml`) drives severity elevation and the self-healing proposal queue.

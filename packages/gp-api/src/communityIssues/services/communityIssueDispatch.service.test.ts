@@ -407,6 +407,10 @@ describe('CommunityIssueDispatchService.dispatchForCohort', () => {
 // Freeze time to 2026-06-21 (Sunday) so the cron selects bucket 0.
 const CRON_BUCKET0_SLUG = 'cif-cron-2'
 const SUNDAY_UTC = new Date('2026-06-21T08:00:00.000Z')
+// 'cif-cron-top-31' hashes to bucket 17 (mod 28) via FNV-1a, matching
+// topIssuesBucketForDate(SUNDAY_UTC) — so the monthly top-issues cron
+// selects it on the same frozen date as the weekly trending tests above.
+const CRON_TOP_BUCKET_SLUG = 'cif-cron-top-31'
 
 describe(
   'CommunityIssueDispatchService.dispatchWeeklyTrendingIssues' +
@@ -553,10 +557,104 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       expect(trendingCalls).toHaveLength(0)
       expect(trackSpy).toHaveBeenCalledWith(
         service.user.id,
-        'Community Issues - Dispatch Skipped',
+        'Community Issues - Trending Issues Dispatch Skipped',
         {
-          organizationSlug: CRON_BUCKET0_SLUG,
-          experimentType: 'trending_issues',
+          lastVisitedAt: staleLastVisited,
+          daysSinceLastVisit: expect.any(Number) as number,
+        },
+      )
+    })
+  })
+
+  describe('cron path (dispatchMonthlyTopIssues)', () => {
+    beforeEach(() => {
+      vi.stubEnv('MEETINGS_AUTOMATION_ENABLED', 'true')
+      vi.useFakeTimers({ now: SUNDAY_UTC })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.unstubAllEnvs()
+      vi.restoreAllMocks()
+    })
+
+    it('dispatches for a user active within the threshold', async () => {
+      await service.prisma.organization.upsert({
+        where: { slug: CRON_TOP_BUCKET_SLUG },
+        create: { slug: CRON_TOP_BUCKET_SLUG, ownerId: service.user.id },
+        update: {},
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_TOP_BUCKET_SLUG,
+        },
+      })
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { metaData: { lastVisited: Date.now() } },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+      const cronLock = service.app.get(CronLockService)
+      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+
+      await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchMonthlyTopIssues()
+
+      const topCalls = dispatchSpy.mock.calls.filter(
+        (c) => c[0].type === 'top_community_issues',
+      )
+      expect(topCalls).toHaveLength(1)
+    })
+
+    it('skips and tracks a re-engagement event for a user inactive beyond the threshold', async () => {
+      await service.prisma.organization.upsert({
+        where: { slug: CRON_TOP_BUCKET_SLUG },
+        create: { slug: CRON_TOP_BUCKET_SLUG, ownerId: service.user.id },
+        update: {},
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          organizationSlug: CRON_TOP_BUCKET_SLUG,
+        },
+      })
+      const staleLastVisited = subDays(new Date(), 91).getTime()
+      await service.prisma.user.update({
+        where: { id: service.user.id },
+        data: { metaData: { lastVisited: staleLastVisited } },
+      })
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+      const trackSpy = vi
+        .spyOn(service.app.get(AnalyticsService), 'track')
+        .mockResolvedValue({ event: 'stub', userId: 'stub' })
+      const cronLock = service.app.get(CronLockService)
+      vi.spyOn(cronLock, 'tryClaimDailyRun').mockResolvedValue(true)
+      vi.spyOn(cronLock, 'markCompleted').mockResolvedValue(undefined)
+
+      await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchMonthlyTopIssues()
+
+      const topCalls = dispatchSpy.mock.calls.filter(
+        (c) => c[0].type === 'top_community_issues',
+      )
+      expect(topCalls).toHaveLength(0)
+      expect(trackSpy).toHaveBeenCalledWith(
+        service.user.id,
+        'Community Issues - Top Issues Dispatch Skipped',
+        {
           lastVisitedAt: staleLastVisited,
           daysSinceLastVisit: expect.any(Number) as number,
         },

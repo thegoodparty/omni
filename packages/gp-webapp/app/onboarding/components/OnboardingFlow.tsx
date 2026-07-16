@@ -611,6 +611,13 @@ export default function OnboardingFlow({
       { key: 'details.hasPrimary', value: office.hasPrimary },
       { key: 'details.filingPeriodsStart', value: office.filingPeriodsStart },
       { key: 'details.filingPeriodsEnd', value: office.filingPeriodsEnd },
+      // Persist the office-picker ZIP onto the campaign so HubSpot's Company
+      // sync sends it (candidate_zip) and Peerly line rental can derive the
+      // DID area code — without it, new candidates end up with no area code
+      // and can't rent a robocall number (ENG-10618).
+      ...(answers.officeZip
+        ? [{ key: 'details.zip', value: answers.officeZip }]
+        : []),
     ]
 
     const trackingProperties = {
@@ -707,6 +714,12 @@ export default function OnboardingFlow({
       { key: 'details.district', value: form.district },
       { key: 'details.officeTermLength', value: form.officeTermLength },
       { key: 'details.electionDate', value: form.electionDate },
+      // Manual entry doesn't collect ZIP directly — the office-picker step
+      // required a valid ZIP before "I don't see my office" was clickable, so
+      // reuse that. Persist so HubSpot / Peerly get an area code (ENG-10618).
+      ...(answers.officeZip
+        ? [{ key: 'details.zip', value: answers.officeZip }]
+        : []),
     ]
     const customPositionName = form.office
 

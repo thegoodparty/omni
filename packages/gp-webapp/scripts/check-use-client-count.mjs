@@ -55,10 +55,20 @@ import { dirname, join, relative } from 'node:path'
 // (useState + useEffect + a react-query refetchInterval) to show a
 // "generating..." banner once the user lands back in the product; that
 // polling loop cannot run on the server.
-// 2026-07-14: 538 -> 539 for app/dashboard/error.tsx — error boundaries must
+// 2026-07-15: the draft-detail screen supersedes develop's OrdinanceDraftDocument
+// (removed) with DraftDetail (contentEditable inline editor with autosave +
+// selection toolbar) and DraftChat (streaming chat in a drawer). Both are
+// stateful client components; the page.tsx shell stays server.
+// 2026-07-16: 540 -> 541 for useCrmEnabled — a hook composing
+// useWinVoterContext (React Query) with two feature-flag reads, so it must
+// run on the client, like the sibling useWinVoterContext.
+// 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
+// dropdown holds input/debounce state and a React Query fetch, so it cannot
+// be a server component (same as the ContactSearch it flag-replaces).
+// 2026-07-16: 542 -> 543 for app/dashboard/error.tsx — error boundaries must
 // be client components (the Next.js error-file contract requires it), so the
 // new dashboard-segment boundary adds exactly one.
-const BASELINE = 539
+const BASELINE = 543
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -3,15 +3,18 @@ import {
   OrdinanceCurrentLawSummarySchema,
   OrdinanceLegislativeHistorySchema,
   OrdinancePresentComparablesSchema,
+  OrdinancePresentDraftSchema,
   type OrdinanceAuthorityFinding,
   type OrdinanceCurrentLawSummary,
   type OrdinanceLegislativeHistory,
   type OrdinancePresentComparables,
+  type OrdinancePresentDraft,
 } from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../shared/agent-chat/chatClient'
 import AuthorityFindingWidget from './AuthorityFindingWidget'
 import ComparablesWidget from './ComparablesWidget'
 import CurrentLawSummaryWidget from './CurrentLawSummaryWidget'
+import DraftReadyWidget from './DraftReadyWidget'
 import LegislativeHistoryWidget from './LegislativeHistoryWidget'
 
 // The present_* tools the agent calls to render a step's finding as a
@@ -22,12 +25,14 @@ export const AUTHORITY_TOOL = 'present_authority_finding'
 export const CURRENT_LAW_TOOL = 'present_current_law_summary'
 export const HISTORY_TOOL = 'present_legislative_history'
 export const COMPARABLES_TOOL = 'present_comparables'
+export const DRAFT_TOOL = 'present_draft'
 
 export type StepWidgetInstance =
   | { tool: typeof AUTHORITY_TOOL; data: OrdinanceAuthorityFinding }
   | { tool: typeof CURRENT_LAW_TOOL; data: OrdinanceCurrentLawSummary }
   | { tool: typeof HISTORY_TOOL; data: OrdinanceLegislativeHistory }
   | { tool: typeof COMPARABLES_TOOL; data: OrdinancePresentComparables }
+  | { tool: typeof DRAFT_TOOL; data: OrdinancePresentDraft }
 
 // Record keyed by the union so tsc forces this map to stay exhaustive when a
 // new widget variant is added.
@@ -36,10 +41,17 @@ const STEP_WIDGET_TOOLS: Record<StepWidgetInstance['tool'], true> = {
   [CURRENT_LAW_TOOL]: true,
   [HISTORY_TOOL]: true,
   [COMPARABLES_TOOL]: true,
+  [DRAFT_TOOL]: true,
 }
 
 export const isStepWidgetTool = (toolName: string): boolean =>
   toolName in STEP_WIDGET_TOOLS
+
+// Compile-time guard: adding a StepWidgetInstance variant without a render case
+// makes this fail to typecheck.
+const assertNever = (widget: never): never => {
+  throw new Error(`Unhandled step widget: ${JSON.stringify(widget)}`)
+}
 
 export const parseStepWidget = (
   toolName: string,
@@ -72,6 +84,14 @@ export const parseStepWidget = (
         ? { tool: COMPARABLES_TOOL, data: parsed.data }
         : null
     }
+    case DRAFT_TOOL: {
+      // A draft with an empty body carries nothing to render, so it drops like
+      // a parse failure rather than occupying an empty assistant row.
+      const parsed = OrdinancePresentDraftSchema.safeParse(value)
+      return parsed.success && parsed.data.body.length > 0
+        ? { tool: DRAFT_TOOL, data: parsed.data }
+        : null
+    }
     default:
       return null
   }
@@ -89,8 +109,10 @@ export const parseStepWidgets = (
 
 export function StepWidgetBlocks({
   widgets,
+  slug,
 }: {
   widgets: StepWidgetInstance[]
+  slug: string
 }): React.JSX.Element | null {
   if (widgets.length === 0) return null
   return (
@@ -105,6 +127,10 @@ export function StepWidgetBlocks({
             return <LegislativeHistoryWidget key={i} history={widget.data} />
           case COMPARABLES_TOOL:
             return <ComparablesWidget key={i} presentation={widget.data} />
+          case DRAFT_TOOL:
+            return <DraftReadyWidget key={i} draft={widget.data} slug={slug} />
+          default:
+            return assertNever(widget)
         }
       })}
     </>
