@@ -11,10 +11,13 @@ import {
   InternalServerErrorException,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Post,
+  UseGuards,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
+import { AdminOrM2MGuard } from '@/authentication/guards/AdminOrM2M.guard'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { CampaignTcrComplianceService } from './services/campaignTcrCompliance.service'
 import { ComplianceStateService } from './services/complianceState.service'
@@ -76,6 +79,30 @@ export class CampaignTcrComplianceController {
   })
   async getMyComplianceState(@ReqCampaign() campaign: Campaign) {
     return this.complianceStateService.findStateForCampaign(campaign.id)
+  }
+
+  // Admin (gp-admin via M2M) view of any campaign's compliance state — same
+  // payload as `mine/compliance-state`, without the session-campaign scoping.
+  @Get('admin/:campaignId/compliance-state')
+  @UseGuards(AdminOrM2MGuard)
+  @UseInterceptors(ZodResponseInterceptor)
+  @ResponseSchema(ComplianceStateOutputSchema)
+  async getComplianceStateForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    return this.complianceStateService.findStateForCampaign(campaignId)
+  }
+
+  @Post('admin/:campaignId/resend-cv-pin')
+  @UseGuards(AdminOrM2MGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async resendCampaignVerifyPinForCampaign(
+    @Param('campaignId', ParseIntPipe) campaignId: number,
+  ) {
+    const campaign = await this.campaignsService.findUniqueOrThrow({
+      where: { id: campaignId },
+    })
+    await this.tcrComplianceService.resendCampaignVerifyPin(campaign)
   }
 
   @Post('submit-to-peerly')

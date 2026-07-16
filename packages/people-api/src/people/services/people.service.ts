@@ -18,13 +18,46 @@ import {
   ExtraSelectedField,
 } from '../people.select'
 import { resolveDistrict } from '../utils/resolveDistrict.utils'
-import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.utils'
+import {
+  buildVoterWhereSql,
+  isNameSearch,
+} from '../utils/buildVoterWhereSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
 
 export const DATABASE_SCHEMA = 'green'
 
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
+
+// Postgres floors LIKE selectivity estimates at ~2000 rows, so for a
+// near-zero-match pattern ('%zzq%') the planner walks the ordering index and
+// scans the entire state partition (30+ seconds on large states) instead of
+// using the trigram indexes; raising statistics targets does not fix it.
+// Common patterns resolve in well under a second, so only runaway plans trip
+// this timeout.
+const NAME_SEARCH_TIMEOUT_MS = 2500
+// The fallback wraps the same WHERE in an UNORDERED subquery capped at this
+// many rows, which frees the planner to pick the trigram bitmap scan. The
+// fallback only runs for patterns that already proved slow — i.e. patterns
+// with very few matches, far below this cap — so the fence never truncates
+// the ordered, paginated result. Always fencing is NOT safe: above the cap
+// the fenced subset is arbitrary and would break deterministic pagination.
+const NAME_SEARCH_FENCE_LIMIT = 10000
+
+type RawPeopleQueryArgs = {
+  districtId: string | null
+  whereClause: Prisma.Sql
+  take: number
+  skip: number
+  extraFields?: ExtraSelectedField[]
+  groupByHousehold?: boolean
+  fenceLimit?: number
+}
+
+const isStatementTimeoutError = (error: unknown): boolean =>
+  error instanceof Prisma.PrismaClientKnownRequestError &&
+  ((error.meta as { code?: unknown } | undefined)?.code === '57014' ||
+    error.message.includes('57014'))
 
 @Injectable()
 export class PeopleService extends createPrismaBase(MODELS.Voter) {
@@ -69,21 +102,26 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     const { filters, search, resultsPerPage, page, groupByHousehold } = dto
     const effectiveDistrictId = useVoterOnlyPath ? null : districtId
 
-    const buildData = (skip: number) =>
-      this.client.$queryRaw<Array<BaseDbPerson>>(
-        this.buildRawPeopleQuery({
-          districtId: effectiveDistrictId,
-          whereClause: buildVoterWhereSql({
-            state,
-            districtId: effectiveDistrictId,
-            filters,
-            search,
-          }),
-          take: resultsPerPage,
-          skip,
-          groupByHousehold,
-        }),
-      )
+    const whereClause = buildVoterWhereSql({
+      state,
+      districtId: effectiveDistrictId,
+      filters,
+      search,
+    })
+    const buildData = (skip: number) => {
+      const queryArgs = {
+        districtId: effectiveDistrictId,
+        whereClause,
+        take: resultsPerPage,
+        skip,
+        groupByHousehold,
+      }
+      return isNameSearch(search)
+        ? this.queryPeopleWithTimeoutGuard(queryArgs)
+        : this.client.$queryRaw<Array<BaseDbPerson>>(
+            this.buildRawPeopleQuery(queryArgs),
+          )
+    }
 
     const countArgs = {
       state,
@@ -186,35 +224,106 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       ? Prisma.sql`COUNT(DISTINCT ${buildHouseholdKeySql('v')})::bigint`
       : Prisma.sql`COUNT(*)::bigint`
 
-    if (districtId) {
-      const rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(
-        Prisma.sql`SELECT ${countExpr} AS voter_count
-          FROM "green"."DistrictVoter" dv
+    const fromSql = districtId
+      ? Prisma.sql`FROM "green"."DistrictVoter" dv
           JOIN "green"."Voter" v
             ON v."State" = dv."State"
-           AND v."id"    = dv."voter_id"
-          ${whereClause}`,
-      )
-      const count = rows[0]?.voter_count ?? 0n
-      return Number(count)
+           AND v."id"    = dv."voter_id"`
+      : Prisma.sql`FROM "green"."Voter" v`
+
+    const countSql = Prisma.sql`SELECT ${countExpr} AS voter_count
+      ${fromSql}
+      ${whereClause}`
+
+    if (!isNameSearch(search)) {
+      const rows =
+        await this.client.$queryRaw<{ voter_count: bigint }[]>(countSql)
+      return Number(rows[0]?.voter_count ?? 0n)
     }
-    const rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(
-      Prisma.sql`SELECT ${countExpr} AS voter_count
-        FROM "green"."Voter" v
-        ${whereClause}`,
-    )
-    const count = rows[0]?.voter_count ?? 0n
-    return Number(count)
+
+    // Same pathological-plan exposure as the data query (the count shares the
+    // name-LIKE WHERE), same guard. The fenced count re-aliases the capped row
+    // set as v so countExpr (including the household key) applies unchanged. A
+    // pattern that trips the timeout matches far fewer rows than the fence in
+    // practice, so the fallback count is exact; if the cap ever binds, a floor
+    // of 10k beats a request that never returns.
+    const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
+      FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${NAME_SEARCH_FENCE_LIMIT}) v`
+    const rows = await this.countWithTimeoutGuard(countSql, fencedCountSql)
+    return Number(rows[0]?.voter_count ?? 0n)
   }
 
-  private buildRawPeopleQuery(args: {
-    districtId: string | null
-    whereClause: Prisma.Sql
-    take: number
-    skip: number
-    extraFields?: ExtraSelectedField[]
-    groupByHousehold?: boolean
-  }): Prisma.Sql {
+  private async countWithTimeoutGuard(
+    countSql: Prisma.Sql,
+    fencedCountSql: Prisma.Sql,
+  ): Promise<Array<{ voter_count: bigint }>> {
+    const startedAt = Date.now()
+    try {
+      const [, rows] = await this.client.$transaction([
+        this.client.$executeRaw(
+          Prisma.raw(
+            `SET LOCAL statement_timeout = '${NAME_SEARCH_TIMEOUT_MS}ms'`,
+          ),
+        ),
+        this.client.$queryRaw<Array<{ voter_count: bigint }>>(countSql),
+      ])
+      return rows
+    } catch (error) {
+      if (!isStatementTimeoutError(error)) {
+        throw error
+      }
+      this.logger.warn(
+        { elapsedMs: Date.now() - startedAt },
+        'Name-search count hit the statement timeout; retrying with trigram-fenced subquery',
+      )
+      return this.client.$queryRaw<Array<{ voter_count: bigint }>>(
+        fencedCountSql,
+      )
+    }
+  }
+
+  // Name-search LIKE patterns can trigger a pathological full-partition plan
+  // (see NAME_SEARCH_TIMEOUT_MS). Attempt the normal query under a statement
+  // timeout; if Postgres cancels it (SQLSTATE 57014), retry once with the
+  // trigram-fenced shape. SET LOCAL only holds for the transaction it runs
+  // in, and Prisma batch transactions execute on a single connection, so the
+  // timeout scopes to exactly this query.
+  private async queryPeopleWithTimeoutGuard(
+    args: RawPeopleQueryArgs,
+  ): Promise<Array<BaseDbPerson>> {
+    const startedAt = Date.now()
+    try {
+      const [, people] = await this.client.$transaction([
+        // SET does not accept bind parameters; the interval is a
+        // compile-time constant, so Prisma.raw is safe here.
+        this.client.$executeRaw(
+          Prisma.raw(
+            `SET LOCAL statement_timeout = '${NAME_SEARCH_TIMEOUT_MS}ms'`,
+          ),
+        ),
+        this.client.$queryRaw<Array<BaseDbPerson>>(
+          this.buildRawPeopleQuery(args),
+        ),
+      ])
+      return people
+    } catch (error) {
+      if (!isStatementTimeoutError(error)) {
+        throw error
+      }
+      this.logger.warn(
+        { elapsedMs: Date.now() - startedAt },
+        'Name-search voter query hit the statement timeout; retrying with trigram-fenced subquery',
+      )
+      return this.client.$queryRaw<Array<BaseDbPerson>>(
+        this.buildRawPeopleQuery({
+          ...args,
+          fenceLimit: NAME_SEARCH_FENCE_LIMIT,
+        }),
+      )
+    }
+  }
+
+  private buildRawPeopleQuery(args: RawPeopleQueryArgs): Prisma.Sql {
     const { districtId, whereClause, take, skip, groupByHousehold } = args
 
     const householdKey = buildHouseholdKeySql('v')
@@ -254,10 +363,23 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
             ON v."State" = dv."State" AND v."id" = dv."voter_id"`
       : Prisma.empty
 
-    return Prisma.sql`${selectSql.sql}
-          FROM ${voterTable} v
+    // Fenced shape: the inner subquery has no ORDER BY, so the planner is
+    // free to serve rare LIKE patterns from the trigram bitmap indexes
+    // instead of walking the ordering index across the whole partition.
+    // `SELECT v.*` re-exposes every voter column under the same alias, so
+    // the outer SELECT / DISTINCT ON / window / ORDER BY run unchanged
+    // against the fenced rows.
+    const rowSource = args.fenceLimit
+      ? Prisma.sql`(SELECT v.* FROM ${voterTable} v
           ${joinClause}
           ${whereClause}
+          LIMIT ${args.fenceLimit}) v`
+      : Prisma.sql`${voterTable} v
+          ${joinClause}
+          ${whereClause}`
+
+    return Prisma.sql`${selectSql.sql}
+          FROM ${rowSource}
           ${orderByClause}
           LIMIT ${take} OFFSET ${skip}`
   }
