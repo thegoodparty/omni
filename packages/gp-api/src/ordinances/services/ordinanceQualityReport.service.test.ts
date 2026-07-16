@@ -113,6 +113,20 @@ describe('OrdinanceQualityReportService', () => {
     expect(report.tally).toEqual({ pass: 1, flag: 0, attention: 5 })
   })
 
+  it('fills all six checks when the model returns no checks', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue({
+      object: { checks: [] },
+      tokens: 10,
+      model: 'claude-sonnet-4-6',
+    })
+
+    const report = await build(jsonCompletion).generate(record(), 7)
+
+    expect(report.checks).toHaveLength(6)
+    expect(report.checks.every((c) => c.status === 'attention')).toBe(true)
+    expect(report.tally).toEqual({ pass: 0, flag: 0, attention: 6 })
+  })
+
   it('normalizes a source into a valid one (synthesizes id, drops a non-URL link)', async () => {
     const jsonCompletion = vi.fn().mockResolvedValue({
       object: {

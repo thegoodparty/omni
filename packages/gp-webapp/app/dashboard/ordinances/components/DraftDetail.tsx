@@ -71,6 +71,10 @@ export default function DraftDetail({
   // The in-flight save's promise, so a flush can await the chain to settle.
   const savingPromiseRef = useRef<Promise<void> | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
+  // Mirror saveState in a ref so the quality report's async onReran reads the
+  // current value, not the one captured when its run() started.
+  const saveStateRef = useRef<SaveState>('idle')
+  saveStateRef.current = saveState
   const [selection, setSelection] = useState<Selection | null>(null)
   // True once the draft is edited this session, so the quality report can show
   // a stale banner without refetching. Cleared when a fresh report is run.
@@ -331,9 +335,14 @@ export default function DraftDetail({
               draftDirty={draftDirty}
               onBeforeRun={flushPendingSaves}
               onReran={() => {
-                // Keep the stale banner if the flush save failed — the report
-                // was graded against the old DB text, not the user's edits.
-                if (saveState !== 'error') setDraftDirty(false)
+                // Keep the stale banner unless the draft is safely persisted:
+                // a failed or still-in-flight save means the report was graded
+                // against old DB text. Read the ref so a re-render during the
+                // run doesn't leave this reading a stale saveState.
+                const state = saveStateRef.current
+                if (state !== 'error' && state !== 'saving') {
+                  setDraftDirty(false)
+                }
               }}
               onDiscussFinding={(check) =>
                 openChat(`About the "${check.label}" check: ${check.note}\n\n`)

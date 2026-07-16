@@ -39,14 +39,19 @@ const QcGenerationSourceSchema = z
   .catch(undefined)
 
 const QcGenerationSchema = z.object({
-  checks: z.array(
-    z.object({
-      id: z.string(),
-      status: z.enum(['pass', 'flag', 'attention']).catch('attention'),
-      note: z.string().catch('').optional(),
-      source: QcGenerationSourceSchema,
-    }),
-  ),
+  // `.catch([])` on the array too: if the model omits `checks` or returns a
+  // non-array, degrade to an empty list (assembleChecks then fills all six with
+  // the 'attention' fallback) rather than throwing and 500ing the request.
+  checks: z
+    .array(
+      z.object({
+        id: z.string(),
+        status: z.enum(['pass', 'flag', 'attention']).catch('attention'),
+        note: z.string().catch('').optional(),
+        source: QcGenerationSourceSchema,
+      }),
+    )
+    .catch([]),
 })
 
 type QcGeneratedCheck = z.infer<typeof QcGenerationSchema>['checks'][number]
