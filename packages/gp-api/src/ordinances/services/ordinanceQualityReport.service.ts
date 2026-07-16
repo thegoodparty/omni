@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
 import {
-  OrdinanceSourceSchema,
   type OrdinanceQualityReport,
+  type OrdinanceSource,
 } from '@goodparty_org/contracts'
 import { LlmService } from '@/llm/services/llm.service'
 import { Ordinance } from '../../generated/prisma'
@@ -23,24 +23,49 @@ const QC_CHECKS = [
   { id: 'voice', label: 'Voice' },
 ] as const
 
-// Keep the id list in sync with QC_CHECKS above (the assembly source of truth).
+// Tolerant of model variance so one off field (an unexpected status, a source
+// missing an id or with a non-URL link) degrades that field instead of failing
+// the whole parse and 500ing. Everything is normalized to the fixed rubric and
+// a valid OrdinanceSource in assembleChecks below.
+const QcGenerationSourceSchema = z
+  .object({
+    id: z.string().optional(),
+    title: z.string(),
+    url: z.string().optional(),
+    publisher: z.string().optional(),
+    excerpt: z.string().optional(),
+  })
+  .optional()
+  .catch(undefined)
+
 const QcGenerationSchema = z.object({
   checks: z.array(
     z.object({
-      id: z.enum([
-        'authority',
-        'legal_conflict',
-        'precedent_grounding',
-        'completeness',
-        'clarity',
-        'voice',
-      ]),
-      status: z.enum(['pass', 'flag', 'attention']),
-      note: z.string(),
-      source: OrdinanceSourceSchema.optional(),
+      id: z.string(),
+      status: z.enum(['pass', 'flag', 'attention']).catch('attention'),
+      note: z.string().catch('').optional(),
+      source: QcGenerationSourceSchema,
     }),
   ),
 })
+
+type QcGeneratedCheck = z.infer<typeof QcGenerationSchema>['checks'][number]
+
+const normalizeSource = (
+  raw: QcGeneratedCheck['source'],
+  checkId: string,
+): OrdinanceSource | undefined => {
+  if (!raw) return undefined
+  const url =
+    raw.url && z.string().url().safeParse(raw.url).success ? raw.url : undefined
+  return {
+    id: raw.id && raw.id.length > 0 ? raw.id : `${checkId}-source`,
+    title: raw.title,
+    ...(url ? { url } : {}),
+    ...(raw.publisher ? { publisher: raw.publisher } : {}),
+    ...(raw.excerpt ? { excerpt: raw.excerpt } : {}),
+  }
+}
 
 // Hash the full text the report is graded against (title + body), so a
 // title-only edit also marks the report stale. Used both when stamping a fresh
@@ -122,12 +147,15 @@ export class OrdinanceQualityReportService {
     const byId = new Map(object.checks.map((c) => [c.id, c]))
     const checks = QC_CHECKS.map(({ id, label }) => {
       const generated = byId.get(id)
+      const source = normalizeSource(generated?.source, id)
+      const note = generated?.note?.trim()
       return {
         id,
         label,
         status: generated?.status ?? 'attention',
-        note: generated?.note ?? 'This check could not be evaluated.',
-        ...(generated?.source ? { source: generated.source } : {}),
+        note:
+          note && note.length > 0 ? note : 'This check could not be evaluated.',
+        ...(source ? { source } : {}),
       }
     })
 

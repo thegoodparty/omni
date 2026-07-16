@@ -112,4 +112,45 @@ describe('OrdinanceQualityReportService', () => {
     )
     expect(report.tally).toEqual({ pass: 1, flag: 0, attention: 5 })
   })
+
+  it('normalizes a source into a valid one (synthesizes id, drops a non-URL link)', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue({
+      object: {
+        checks: [
+          {
+            id: 'authority',
+            status: 'pass',
+            note: 'Check authority.',
+            source: { title: 'City Charter §3', url: 'not a url' },
+          },
+        ],
+      },
+      tokens: 10,
+      model: 'claude-sonnet-4-6',
+    })
+
+    const report = await build(jsonCompletion).generate(record(), 7)
+
+    const authority = report.checks.find((c) => c.id === 'authority')
+    // The report is persisted through OrdinanceSchema, so a source with no id
+    // or a bad url would 400 on read; normalize it here instead.
+    expect(authority?.source?.id).toBe('authority-source')
+    expect(authority?.source?.title).toBe('City Charter §3')
+    expect(authority?.source?.url).toBeUndefined()
+    expect(report.checks).toHaveLength(6)
+  })
+
+  it('falls back to a note when the model omits one', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue({
+      object: { checks: [{ id: 'authority', status: 'pass' }] },
+      tokens: 10,
+      model: 'claude-sonnet-4-6',
+    })
+
+    const report = await build(jsonCompletion).generate(record(), 7)
+
+    expect(report.checks.find((c) => c.id === 'authority')?.note).toBe(
+      'This check could not be evaluated.',
+    )
+  })
 })
