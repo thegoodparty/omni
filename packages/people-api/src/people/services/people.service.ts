@@ -93,17 +93,44 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       groupByHousehold,
     }
 
-    // Resolve the count first, clamp the requested page to the last page, then
-    // fetch at the clamped offset. An out-of-bounds page (e.g. a client on a
-    // high voter-list page switching to door knocking, where the household
-    // count is far smaller) would otherwise return an empty page whose rows
-    // diverge from the clamped currentPage below — no caller clamps `page`.
-    // This trades the parallel count/data fetch for a sequential one; the added
-    // latency is acceptable to keep pagination metadata and rows consistent.
-    const totalResults = await this.rawCountForDistrict(countArgs)
+    let totalResults: number
+    let people: Array<BaseDbPerson>
+    let currentPage: number
+
+    if (groupByHousehold) {
+      // Household counts are small, so the extra round trip is cheap. Resolve
+      // the count first, clamp the requested page to the last household page,
+      // then fetch at the clamped offset. This is the deliberate door-knocking
+      // behavior: a client paging in from the (much longer) voter list lands on
+      // the last household page instead of an empty one (no caller clamps
+      // `page`), and currentPage matches the rows returned.
+      totalResults = await this.rawCountForDistrict(countArgs)
+      const householdPages = Math.max(
+        1,
+        Math.ceil(totalResults / resultsPerPage),
+      )
+      currentPage = Math.min(Math.max(1, page), householdPages)
+      people = await buildData((currentPage - 1) * resultsPerPage)
+    } else {
+      // The ungrouped voter list is the hot, large-population path. Keep the
+      // count and data queries PARALLEL so we neither add a round trip nor
+      // serialize behind the count — critically, the count here is usually an
+      // O(1) precomputed-stats lookup (see rawCountForDistrict), so folding it
+      // into the data query (e.g. COUNT(*) OVER()) would be a regression, not a
+      // win. Because we can't clamp the offset without the count, we fetch at
+      // the requested offset and report the page we ACTUALLY fetched: an
+      // out-of-bounds page returns empty rows with currentPage = the requested
+      // page. Metadata never claims a page whose rows we didn't return (the old
+      // divergence: clamped currentPage but empty rows). totalPages still tells
+      // the client the valid range, and the webapp clamps navigation to it.
+      ;[totalResults, people] = await Promise.all([
+        this.rawCountForDistrict(countArgs),
+        buildData((page - 1) * resultsPerPage),
+      ])
+      currentPage = Math.max(1, page)
+    }
+
     const totalPages = Math.max(1, Math.ceil(totalResults / resultsPerPage))
-    const currentPage = Math.min(Math.max(1, page), totalPages)
-    const people = await buildData((currentPage - 1) * resultsPerPage)
 
     return {
       pagination: {

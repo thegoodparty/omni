@@ -215,19 +215,20 @@ describe('POST /v1/people (list pagination)', () => {
       expect(body.people[9]?.id).toBe('person-19')
     })
 
-    it('out-of-bounds page clamps the offset and returns the last page', async () => {
+    it('out-of-bounds page returns empty rows with currentPage = the requested page (no divergence)', async () => {
       const { statusCode, body } = await listPeople({ page: 99 })
 
       expect(statusCode).toBe(201)
+      expect(body.pagination.totalResults).toBe(25)
       expect(body.pagination.totalPages).toBe(3)
-      expect(body.pagination.currentPage).toBe(3)
+      // The ungrouped path fetches at the requested offset in parallel with the
+      // count (no extra round trip), so an out-of-bounds page comes back empty
+      // and currentPage reports the page actually fetched — metadata never
+      // claims a populated page whose rows were not returned.
+      expect(body.pagination.currentPage).toBe(99)
       expect(body.pagination.hasNextPage).toBe(false)
       expect(body.pagination.hasPreviousPage).toBe(true)
-      // Rows are fetched at the clamped offset (20), so the last page (rows
-      // 20..24) comes back consistent with currentPage — no divergence.
-      expect(body.people).toHaveLength(5)
-      expect(body.people[0]?.id).toBe('person-20')
-      expect(body.people[4]?.id).toBe('person-24')
+      expect(body.people).toHaveLength(0)
     })
   })
 

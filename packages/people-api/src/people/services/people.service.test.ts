@@ -178,7 +178,7 @@ describe('PeopleService', () => {
       expect(result.pagination.totalResults).toBe(7)
     })
 
-    it('clamps currentPage to totalPages when request page is too high', async () => {
+    it('reports the requested out-of-bounds page (unclamped) so metadata matches the fetched rows', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
       mockStatsService.getTotalCounts.mockResolvedValue({
         totalConstituents: 15,
@@ -192,16 +192,22 @@ describe('PeopleService', () => {
         page: 99,
       } as never)
 
+      // The ungrouped path fetches at the requested offset (parallel with the
+      // count), so currentPage reflects the page actually queried rather than a
+      // clamped page whose rows were never fetched. totalPages still bounds the
+      // valid range; hasNextPage is false because there is nothing beyond.
       expect(result.pagination.totalPages).toBe(2)
-      expect(result.pagination.currentPage).toBe(2)
+      expect(result.pagination.currentPage).toBe(99)
       expect(result.pagination.hasPreviousPage).toBe(true)
       expect(result.pagination.hasNextPage).toBe(false)
     })
 
-    it('clamps a too-high ungrouped page to the last page offset instead of returning empty', async () => {
-      // 25 constituents, 10 per page → 3 pages. An out-of-bounds page (99) must
-      // return the last page (offset 20), consistent with the clamped
-      // currentPage — matching the grouped path — rather than an empty page.
+    it('keeps the ungrouped count and data queries parallel and fetches at the requested offset (no serialization / no clamp)', async () => {
+      // 25 constituents, 10 per page → 3 pages. An out-of-bounds page (99) is
+      // fetched at the RAW offset (980) in parallel with the count, so it comes
+      // back empty. currentPage reports the requested page — no divergence with
+      // a clamped page, and no extra round trip / serialization behind the
+      // count (that would regress the hot voter-list path).
       const dataset = Array.from({ length: 25 }, (_, i) =>
         makeDbPerson({ id: `person-${i}` }),
       )
@@ -223,17 +229,19 @@ describe('PeopleService', () => {
         page: 99,
       } as never)
 
-      // The offset is clamped to the last page (20), so the returned rows are
-      // the last page and stay consistent with currentPage.
+      expect(result.pagination.totalResults).toBe(25)
       expect(result.pagination.totalPages).toBe(3)
-      expect(result.pagination.currentPage).toBe(3)
-      expect(result.people).toHaveLength(5)
-      expect(result.people[0]?.id).toBe('person-20')
+      expect(result.pagination.currentPage).toBe(99)
+      expect(result.pagination.hasNextPage).toBe(false)
+      expect(result.pagination.hasPreviousPage).toBe(true)
+      expect(result.people).toHaveLength(0)
 
+      // The data query used the raw requested offset (99 - 1) * 10 = 980, proving
+      // it was not clamped or made dependent on the count result.
       const dataSql = mockClient.$queryRaw.mock.calls[0]?.[0] as {
         values?: unknown[]
       }
-      expect(dataSql.values?.[dataSql.values.length - 1]).toBe(20)
+      expect(dataSql.values?.[dataSql.values.length - 1]).toBe(980)
     })
   })
 
