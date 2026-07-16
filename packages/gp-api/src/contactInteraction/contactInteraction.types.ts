@@ -2,6 +2,7 @@ import {
   ContactInteractionDoorKnock,
   ContactInteractionRobocall,
   ContactInteractionText,
+  SupportAnswer,
 } from '@/generated/prisma'
 
 /**
@@ -60,3 +61,16 @@ export type ContactInteraction = SatisfiesRecord<
   | ContactInteractionText
   | ContactInteractionRobocall
 >
+
+export const SUPPORT_STATUS_UNKNOWN = 'unknown' as const
+
+// The single source for the answer → rollup derivation. Both
+// SupportStatusService methods (display and filter resolution) compile
+// their SQL CASE from this constant so the two can never disagree.
+export const SUPPORT_ANSWER_ROLLUP = {
+  [SupportAnswer.supporter]: 'supporter',
+  [SupportAnswer.non_supporter]: 'non_supporter',
+  [SupportAnswer.unsure]: SUPPORT_STATUS_UNKNOWN,
+} as const satisfies Record<SupportAnswer, string>
+
+export type SupportStatusRollup = (typeof SUPPORT_ANSWER_ROLLUP)[SupportAnswer]
