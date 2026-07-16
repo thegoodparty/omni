@@ -2,6 +2,7 @@
 import dynamic from 'next/dynamic'
 import DashboardLayout from '../../shared/DashboardLayout'
 import InteractionsSummary from './InteractionsSummary'
+import InteractionsSummaryPie from './InteractionsSummaryPie'
 import { apiRoutes } from 'gpApi/routes'
 import H1 from '@shared/typography/H1'
 import H2 from '@shared/typography/H2'
@@ -17,12 +18,12 @@ import { Campaign } from 'helpers/types'
 import type { EcanvasserSummary } from './types'
 
 // chart.js + react-chartjs-2 is the heaviest dependency this route pulls in, and
-// every chart here sits below the fold. All three chart panels
-// (InteractionsSummaryPie, InteractionsByDay, RatingSummary) statically import
-// chart.js, so all three must load lazily to keep the charting lib out of the
-// route's first-load bundle — deferring only one still ships chart.js. Each
-// placeholder mirrors its panel's Paper + heading + fixed-height slot so the
-// layout stays stable while the chart hydrates.
+// every chart sits below the fold. InteractionsByDay and RatingSummary are
+// chart-only panels, so the whole panel loads lazily with a placeholder that
+// mirrors its Paper + heading + fixed-height slot. InteractionsSummaryPie also
+// renders a legend table (visible in the initial viewport on xl), so it stays
+// in the first load and defers only its chart internally to avoid a layout
+// shift. Either way chart.js is kept out of the route's first-load bundle.
 const ChartPanelFallback = ({
   title,
   className,
@@ -36,19 +37,6 @@ const ChartPanelFallback = ({
       <div className="text-gray-500">Loading…</div>
     </div>
   </Paper>
-)
-
-const InteractionsSummaryPie = dynamic(
-  () => import('./InteractionsSummaryPie'),
-  {
-    ssr: false,
-    loading: () => (
-      <ChartPanelFallback
-        title="Interactions Status Breakdown"
-        className="md:p-6"
-      />
-    ),
-  },
 )
 
 const InteractionsByDay = dynamic(() => import('./InteractionsByDay'), {

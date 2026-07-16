@@ -2,20 +2,22 @@
 import H2 from '@shared/typography/H2'
 import Paper from '@shared/utils/Paper'
 import { numberFormatter } from 'helpers/numberHelper'
-import { Doughnut } from 'react-chartjs-2'
-import {
-  Chart as ChartJS,
-  ArcElement,
-  Tooltip,
-  Legend,
-  CategoryScale,
-  TooltipItem,
-} from 'chart.js'
+import dynamic from 'next/dynamic'
+import type { ChartData, ChartOptions, TooltipItem } from 'chart.js'
 import { Fragment } from 'react'
 import interactionsColors from './interactionsColors'
 import type { EcanvasserSummary } from './types'
 
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale)
+// chart.js only ships when the doughnut actually mounts; the panel shell and
+// its legend table below stay in the route's first-load bundle. The h-[400px]
+// slot reserves the chart's space so hydration doesn't shift the layout.
+const InteractionsSummaryPieChart = dynamic(
+  () => import('./InteractionsSummaryPieChart'),
+  {
+    ssr: false,
+    loading: () => <div className="text-gray-500">Loading…</div>,
+  },
+)
 
 interface InteractionsSummaryPieProps {
   summary?: EcanvasserSummary
@@ -87,7 +89,7 @@ const InteractionsSummaryPie = ({
     .filter((field) => field.value > 0)
     .sort((a, b) => b.value - a.value)
 
-  const data = {
+  const data: ChartData<'doughnut'> = {
     labels: fields.map((field) => field.label),
     datasets: [
       {
@@ -97,7 +99,7 @@ const InteractionsSummaryPie = ({
     ],
   }
 
-  const options = {
+  const options: ChartOptions<'doughnut'> = {
     plugins: {
       tooltip: {
         callbacks: {
@@ -125,7 +127,7 @@ const InteractionsSummaryPie = ({
       <div className="">
         <div className="">
           <div className="h-[400px] flex items-center justify-center">
-            <Doughnut data={data} options={options} />
+            <InteractionsSummaryPieChart data={data} options={options} />
           </div>
         </div>
         <div className="mt-12">
