@@ -435,4 +435,33 @@ describe('ContactsTableProvider — shallow person selection (no route navigatio
 
     expect(screen.getByTestId('selected-id')).toHaveTextContent('null')
   })
+
+  it('table URL updates push the base path, not the shallow person path', async () => {
+    mockPathname = '/dashboard/contacts/p_9'
+    mockSearchParams = new URLSearchParams('query=smith')
+
+    const PageSizeProbe = () => {
+      const { setPageSize } = useContactsTable()
+      return (
+        <button data-testid="resize" onClick={() => setPageSize(50)}>
+          resize
+        </button>
+      )
+    }
+    render(
+      <CampaignContext.Provider value={[null]}>
+        <ContactsTableProvider>
+          <PageSizeProbe />
+        </ContactsTableProvider>
+      </CampaignContext.Provider>,
+    )
+    screen.getByTestId('resize').click()
+
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(
+        '/dashboard/contacts?query=smith&pageSize=50&page=1',
+        { scroll: false },
+      ),
+    )
+  })
 })

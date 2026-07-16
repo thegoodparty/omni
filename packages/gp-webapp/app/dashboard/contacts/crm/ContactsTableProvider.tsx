@@ -406,12 +406,16 @@ export const ContactsTableProvider = ({
         }
       })
 
-      const newUrl = `${pathname}${
+      // CONTACTS_BASE_PATH, not the live pathname: selectPerson mutates the
+      // pathname shallowly to /dashboard/contacts/<id>, and a router.push of
+      // that person path from a table action would re-trigger the full
+      // loading-boundary navigation the shallow selection exists to avoid.
+      const newUrl = `${CONTACTS_BASE_PATH}${
         params.toString() ? `?${params.toString()}` : ''
       }`
       router.push(newUrl, { scroll: false })
     },
-    [router, pathname, searchParams],
+    [router, searchParams],
   )
 
   const queryClient = useQueryClient()
