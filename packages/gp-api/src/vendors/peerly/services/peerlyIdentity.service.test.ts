@@ -420,6 +420,68 @@ describe('PeerlyIdentityService', () => {
       ).rejects.toThrow(BadRequestException)
     })
 
+    it('resolves the address from placeId when present', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const campaign = createMockCampaign({
+        placeId: 'test-place-id',
+        details: {
+          electionDate: '2024-11-05',
+          ballotLevel: BallotReadyPositionLevel.STATE,
+        },
+      })
+
+      await service.submitCampaignVerifyRequest(
+        {
+          email: 'candidate@example.com',
+          ein: '12-3456789',
+          phone: '15551234567',
+          peerlyIdentityId: 'peerly-123',
+          filingUrl: 'https://state.gov/filing/123',
+          officeLevel: OfficeLevel.state,
+          fecCommitteeId: null,
+          committeeType: CommitteeType.CANDIDATE,
+        },
+        baseUser,
+        campaign,
+        baseDomainName,
+      )
+
+      expect(placesService.getAddressByPlaceId).toHaveBeenCalledWith(
+        'test-place-id',
+      )
+    })
+
+    it('throws BadRequestException before the address lookup when placeId is null', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const campaign = createMockCampaign({
+        placeId: null,
+        details: {
+          electionDate: '2024-11-05',
+          ballotLevel: BallotReadyPositionLevel.STATE,
+        },
+      })
+
+      await expect(
+        service.submitCampaignVerifyRequest(
+          {
+            email: 'candidate@example.com',
+            ein: '12-3456789',
+            phone: '15551234567',
+            peerlyIdentityId: 'peerly-123',
+            filingUrl: 'https://state.gov/filing/123',
+            officeLevel: OfficeLevel.state,
+            fecCommitteeId: null,
+            committeeType: CommitteeType.CANDIDATE,
+          },
+          baseUser,
+          campaign,
+          baseDomainName,
+        ),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(placesService.getAddressByPlaceId).not.toHaveBeenCalled()
+    })
+
     it('includes verification_method, filing_phone_number, filing_phone_type, and filing_url_instructions when calling Peerly', async () => {
       const campaign = createMockCampaign({
         details: {
@@ -783,6 +845,47 @@ describe('PeerlyIdentityService', () => {
           baseDomainName,
         ),
       ).rejects.toThrow(BadRequestException)
+    })
+
+    it('resolves the address from placeId when present', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const areaCodeService = module.get(AreaCodeFromZipService)
+      vi.mocked(areaCodeService.getAreaCodeFromZip).mockResolvedValue([])
+
+      const campaign = createMockCampaign({
+        placeId: 'test-place-id',
+        details: { campaignCommittee: 'Jane for Springfield' },
+      })
+
+      await service.submit10DlcBrand(
+        'peerly-123',
+        baseTcrPayload as never,
+        campaign,
+        baseDomainName,
+      )
+
+      expect(placesService.getAddressByPlaceId).toHaveBeenCalledWith(
+        'test-place-id',
+      )
+    })
+
+    it('throws BadRequestException before the address lookup when placeId is null', async () => {
+      const placesService = module.get(GooglePlacesService)
+      const campaign = createMockCampaign({
+        placeId: null,
+        details: { campaignCommittee: 'Jane for Springfield' },
+      })
+
+      await expect(
+        service.submit10DlcBrand(
+          'peerly-123',
+          baseTcrPayload as never,
+          campaign,
+          baseDomainName,
+        ),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(placesService.getAddressByPlaceId).not.toHaveBeenCalled()
     })
 
     it('sends correctly formatted brand data fields', async () => {
