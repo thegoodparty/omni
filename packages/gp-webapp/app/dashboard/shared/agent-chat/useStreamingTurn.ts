@@ -136,6 +136,7 @@ export function useStreamingTurn(
         setLiveSegments([...segments])
       }
 
+      let errorSeen = false
       try {
         for await (const event of chatApi.streamMessage({
           conversationId,
@@ -175,20 +176,29 @@ export function useStreamingTurn(
             }
           } else if (event.type === 'error') {
             scope.onError?.(event.message)
+            errorSeen = true
+            break
           }
         }
-        // Hold the swap to persisted history until the smooth reveal has typed
-        // out the tail, so the last words don't snap in on the handoff.
-        const total = segmentsTextLength(segments)
-        let ticks = 0
-        while (revealedRef.current < total && ticks < REVEAL_DRAIN_MAX_TICKS) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
-          )
-          ticks += 1
+        // On an error the server has no new persisted turn to swap in, and
+        // reloading would revert the optimistic user message; skip the handoff.
+        if (!errorSeen) {
+          // Hold the swap to persisted history until the smooth reveal has typed
+          // out the tail, so the last words don't snap in on the handoff.
+          const total = segmentsTextLength(segments)
+          let ticks = 0
+          while (
+            revealedRef.current < total &&
+            ticks < REVEAL_DRAIN_MAX_TICKS
+          ) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, REVEAL_DRAIN_POLL_MS),
+            )
+            ticks += 1
+          }
+          const history = await chatApi.listMessages(conversationId)
+          setMessages(history)
         }
-        const history = await chatApi.listMessages(conversationId)
-        setMessages(history)
       } catch {
         scope.onError?.('Something went wrong. Please try again.')
       } finally {

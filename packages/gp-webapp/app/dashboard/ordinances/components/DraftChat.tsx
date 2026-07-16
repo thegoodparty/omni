@@ -48,12 +48,20 @@ export default function DraftChat({
       try {
         const { conversationId: id } =
           await ordinanceFlowChatApi.createConversation(anchor)
-        const history = await ordinanceFlowChatApi.listMessages(id)
         if (cancelled) return
+        // Enable the composer as soon as the conversation exists, even if the
+        // history reload below fails — otherwise a listMessages error would
+        // leave the composer permanently disabled with no retry path.
         setConversationId(id)
-        setMessages(history)
+        try {
+          const history = await ordinanceFlowChatApi.listMessages(id)
+          if (cancelled) return
+          setMessages(history)
+        } catch {
+          // History unavailable; the composer stays usable so the user can send.
+        }
       } catch {
-        // Leave the chat empty; the composer stays disabled until it resolves.
+        // Couldn't open the conversation; the composer stays disabled.
       }
     }
     void init()

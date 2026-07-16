@@ -40,7 +40,7 @@ export default async function Page({
       wrapperClassName="!p-0"
       navHeader={{ icon: 'scroll', label: 'Ordinances' }}
     >
-      <DraftDetail ordinance={ordinance} />
+      <DraftDetail key={ordinance.slug} ordinance={ordinance} />
     </DashboardLayout>
   )
 }

@@ -41,6 +41,35 @@ describe('useStreamingTurn', () => {
     expect(result.current.sending).toBe(false)
   })
 
+  it('does not reload history after a streamed error (keeps the optimistic turn)', async () => {
+    const listMessages = vi.fn().mockResolvedValue([])
+    const api = {
+      streamMessage: () =>
+        streamOf([
+          {
+            type: 'error',
+            code: 'internal',
+            message: 'boom',
+            retryable: false,
+          },
+        ]),
+      listMessages,
+    }
+
+    const { result } = renderHook(() =>
+      useStreamingTurn(api, { toolLabel: () => null, onError: vi.fn() }),
+    )
+
+    await act(async () => {
+      await result.current.send('c1', 'hello')
+    })
+
+    expect(listMessages).not.toHaveBeenCalled()
+    // The optimistic user message survives (no history swap reverted it).
+    expect(result.current.messages).toHaveLength(1)
+    expect(result.current.messages[0]?.content).toBe('hello')
+  })
+
   it('reports a thrown stream via onError and clears sending', async () => {
     const onError = vi.fn()
     const api = {

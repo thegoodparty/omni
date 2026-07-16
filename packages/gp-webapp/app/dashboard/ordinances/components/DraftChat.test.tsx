@@ -62,6 +62,16 @@ describe('DraftChat', () => {
     await waitFor(() => expect(input).toBeDisabled())
   })
 
+  it('keeps the composer usable when history fails to load', async () => {
+    mocks.createConversation.mockResolvedValue({ conversationId: 'c1' })
+    mocks.listMessages.mockRejectedValue(new Error('no history'))
+
+    render(<DraftChat ordinance={ordinance} />)
+
+    const input = screen.getByPlaceholderText(/ask me any questions/i)
+    await waitFor(() => expect(input).not.toBeDisabled())
+  })
+
   it('prefills the composer from a seeded passage', async () => {
     mocks.createConversation.mockResolvedValue({ conversationId: 'c1' })
     mocks.listMessages.mockResolvedValue([])
