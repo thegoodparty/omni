@@ -59,6 +59,6 @@ model Campaign {
   raceOpponentFieldAnalysis RaceOpponentFieldAnalysis?
   raceOpponentStandoutActions RaceOpponentStandoutAction[]
 
-  @@index([slug])
+  @@index([userId])
   @@map("campaign")
 }
