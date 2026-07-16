@@ -18,8 +18,12 @@ export const dynamic = 'force-dynamic'
 export default async function Page(): Promise<React.JSX.Element> {
   await candidateAccess()
 
-  const user = await getServerUser() // can be removed when door knocking app is not for admins only
-  const campaign = await fetchUserCampaign()
+  // `getServerUser` (door-knocking admin gate) and `fetchUserCampaign` are
+  // independent reads, so fetch them concurrently instead of serially.
+  const [user, campaign] = await Promise.all([
+    getServerUser(), // can be removed when door knocking app is not for admins only
+    fetchUserCampaign(),
+  ])
   if (!campaign?.isPro) {
     redirect('/dashboard/pro-upgrade')
   }
