@@ -296,7 +296,7 @@ describe('Ordinances endpoints', () => {
     expect(res.status).toBe(400)
   })
 
-  it('generates, persists, and returns a quality report', async () => {
+  it('generates and returns a quality report', async () => {
     const orgSlug = 'eo-ordinances-qc-happy'
     await seedElectedOffice(orgSlug)
     const header = orgHeader(orgSlug)
@@ -316,8 +316,23 @@ describe('Ordinances endpoints', () => {
         attention: 0,
       })
       expect(res.data.qualityReport.stale).toBe(false)
+    } finally {
+      spy.mockRestore()
+    }
+  })
 
-      // Persisted: a fresh read returns the stored report.
+  it('persists the generated report for a later read', async () => {
+    const orgSlug = 'eo-ordinances-qc-persist'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+    const spy = mockQcLlm()
+    try {
+      await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
       const detail = await service.client.get(`/v1/ordinances/${slug}`, header)
       expect(detail.data.qualityReport.checks).toHaveLength(6)
       expect(detail.data.qualityReport.stale).toBe(false)
