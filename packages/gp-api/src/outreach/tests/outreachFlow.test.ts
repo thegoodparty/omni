@@ -213,6 +213,7 @@ async function assertSuccessfulOutreach(opts: SuccessOutcomeOpts) {
   })
   expect(outreachRows.length).toBe(1)
   expect(outreachRows[0]?.outreachType).toBe(opts.outreachType)
+  expect(outreachRows[0]?.organizationSlug).toBe(orgSlug)
   if (opts.outreachType === OutreachType.p2p) {
     expect(outreachRows[0]?.projectId).toBeTruthy()
   }
@@ -505,6 +506,8 @@ describe('Outreach submission flow — single API call contract', () => {
         }),
       )
       expect(row.status).toBe(OutreachStatus.pending_payment)
+      // Stamped at the initial insert, not deferred to finalize.
+      expect(row.organizationSlug).toBe(orgSlug)
       expect(row.identityId).toBe('11538886')
       expect(row.script).toBe('Hi from AI')
       expect(row.textCount).toBe(5200)
