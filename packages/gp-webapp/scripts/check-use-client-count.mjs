@@ -80,7 +80,10 @@ import { dirname, join, relative } from 'node:path'
 // campaign-story onboarding step holds local completion/skip state and wires
 // user interaction into the pledge-flow "Continue" gating, so it can't be a
 // server component.
-const BASELINE = 543
+// 2026-07-16: 543 -> 542 for deleting the standalone campaign-story route:
+// removed page.tsx and its orphaned client component CampaignStoryPage.tsx now
+// that onboarding and the plan-tab gate compose the cards directly.
+const BASELINE = 542
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
