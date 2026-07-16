@@ -1,6 +1,9 @@
 import { AudienceFiltersState } from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
 import { VoterFileFilters } from 'helpers/types'
-import { VOTER_FILE_FILTER_KEY_MAP } from 'app/dashboard/outreach/util/audienceFilterKeyMap'
+import {
+  VOTER_FILE_FILTER_KEY_MAP,
+  camelToSnakeAudienceKey,
+} from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 
 const isConvertibleFilterKey = (
   key: string,
@@ -13,10 +16,9 @@ export const convertAudienceFiltersForModal = (
   const result: AudienceFiltersState = {}
   for (const key of Object.keys(filters)) {
     if (isConvertibleFilterKey(key)) {
-      const convertedKey = VOTER_FILE_FILTER_KEY_MAP[key]
       const value = filters[key]
-      if (convertedKey && typeof value === 'boolean') {
-        result[convertedKey] = value
+      if (typeof value === 'boolean') {
+        result[camelToSnakeAudienceKey(key)] = value
       }
     }
   }

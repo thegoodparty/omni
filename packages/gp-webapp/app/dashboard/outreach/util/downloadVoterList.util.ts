@@ -3,8 +3,8 @@ import { voterFileDownload } from 'helpers/voterFileDownload'
 import { VoterFileFilters } from 'helpers/types'
 import { AudienceState } from 'app/dashboard/components/tasks/flows/util/flowHandlers.util'
 import {
-  AUDIENCE_FILTER_KEY_MAP,
   AUDIENCE_FILTER_SNAKE_KEYS,
+  snakeToCamelAudienceKey,
 } from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 
 interface DownloadVoterListParams {
@@ -31,7 +31,7 @@ export const downloadVoterList = async (
   const selectedAudience = isAudienceState(voterFileFilter)
     ? AUDIENCE_FILTER_SNAKE_KEYS.filter((key) => voterFileFilter[key] === true)
     : AUDIENCE_FILTER_SNAKE_KEYS.filter(
-        (key) => voterFileFilter[AUDIENCE_FILTER_KEY_MAP[key]] === true,
+        (key) => voterFileFilter[snakeToCamelAudienceKey(key)] === true,
       )
 
   try {

@@ -10,9 +10,9 @@ import { VoterFileFilters } from 'helpers/types'
 import { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { OutreachType } from 'gpApi/types/outreach.types'
 import {
-  AUDIENCE_FILTER_KEY_MAP,
   AUDIENCE_FILTER_SNAKE_KEYS,
   AudienceFilterCamelKey,
+  snakeToCamelAudienceKey,
 } from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 
 const PEERLY_DEFAULT_IMAGE_TITLE = `P2P Outreach - Campaign`
@@ -183,7 +183,7 @@ export const mapAudienceForPersistence = (
 ): MappedAudience =>
   AUDIENCE_FILTER_SNAKE_KEYS.reduce<MappedAudience>((acc, snakeKey) => {
     const value = audience[snakeKey]
-    return value ? { ...acc, [AUDIENCE_FILTER_KEY_MAP[snakeKey]]: value } : acc
+    return value ? { ...acc, [snakeToCamelAudienceKey(snakeKey)]: value } : acc
   }, {})
 
 export const handleCreatePhoneList =
