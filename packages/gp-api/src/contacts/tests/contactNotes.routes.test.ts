@@ -54,56 +54,63 @@ describe('Contact notes routes', () => {
           return slug
         },
       },
-    ])('create, list, edit, delete for $name', async ({ setup }) => {
-      const slug = await setup()
-      const personId = 'person-1'
-      const headers = { [ORG_SLUG_HEADER]: slug }
+    ])(
+      'create, list, edit, delete for $name',
+      async ({ setup }) => {
+        const slug = await setup()
+        const personId = 'person-1'
+        const headers = { [ORG_SLUG_HEADER]: slug }
 
-      const created = await service.client.post(
-        `/v1/contacts/${personId}/notes`,
-        { body: 'first note' },
-        { headers },
-      )
-      expect(created.status).toBe(201)
-      expect(created.data).toMatchObject({
-        personId,
-        body: 'first note',
-      })
-      expect(created.data.createdAt).toBeDefined()
-      expect(created.data.updatedAt).toBeDefined()
-      const noteId = created.data.id
+        const created = await service.client.post(
+          `/v1/contacts/${personId}/notes`,
+          { body: 'first note' },
+          { headers },
+        )
+        expect(created.status).toBe(201)
+        expect(created.data).toMatchObject({
+          personId,
+          body: 'first note',
+        })
+        expect(created.data.createdAt).toBeDefined()
+        expect(created.data.updatedAt).toBeDefined()
+        const noteId = created.data.id
 
-      const listed = await service.client.get(
-        `/v1/contacts/${personId}/notes`,
-        { headers },
-      )
-      expect(listed.status).toBe(200)
-      expect(listed.data.results).toHaveLength(1)
-      expect(listed.data.results[0]).toMatchObject({
-        id: noteId,
-        body: 'first note',
-      })
+        const listed = await service.client.get(
+          `/v1/contacts/${personId}/notes`,
+          { headers },
+        )
+        expect(listed.status).toBe(200)
+        expect(listed.data.results).toHaveLength(1)
+        expect(listed.data.results[0]).toMatchObject({
+          id: noteId,
+          body: 'first note',
+        })
 
-      const edited = await service.client.patch(
-        `/v1/contacts/notes/${noteId}`,
-        { body: 'edited note' },
-        { headers },
-      )
-      expect(edited.status).toBe(200)
-      expect(edited.data.body).toBe('edited note')
+        const edited = await service.client.patch(
+          `/v1/contacts/notes/${noteId}`,
+          { body: 'edited note' },
+          { headers },
+        )
+        expect(edited.status).toBe(200)
+        expect(edited.data.body).toBe('edited note')
 
-      const deleted = await service.client.delete(
-        `/v1/contacts/notes/${noteId}`,
-        { headers },
-      )
-      expect(deleted.status).toBe(204)
+        const deleted = await service.client.delete(
+          `/v1/contacts/notes/${noteId}`,
+          { headers },
+        )
+        expect(deleted.status).toBe(204)
 
-      const listedAfterDelete = await service.client.get(
-        `/v1/contacts/${personId}/notes`,
-        { headers },
-      )
-      expect(listedAfterDelete.data.results).toEqual([])
-    })
+        const listedAfterDelete = await service.client.get(
+          `/v1/contacts/${personId}/notes`,
+          { headers },
+        )
+        expect(listedAfterDelete.data.results).toEqual([])
+        // 6 sequential round-trips against a cold testcontainer clear the
+        // vitest 5000ms default (reproduced at 5705ms/5386ms) but stay well
+        // under this on a warm one.
+      },
+      15_000,
+    )
   })
 
   it('returns notes newest first with createdAt and updatedAt', async () => {
@@ -200,6 +207,70 @@ describe('Contact notes routes', () => {
         { headers },
       )
       expect(deleted.status).toBe(400)
+    })
+  })
+
+  // A Pro Win org still routes through assertContactsAccess first; eo- orgs
+  // bypass this flag entirely (see hasElectedOfficeAccess), so this can only
+  // fail if the four routes' assertContactsAccess calls are removed.
+  describe('win-voter-data flag off', () => {
+    it.each([
+      {
+        name: 'list',
+        call: (headers: Record<string, string>, personId: string) =>
+          service.client.get(`/v1/contacts/${personId}/notes`, { headers }),
+      },
+      {
+        name: 'create',
+        call: (headers: Record<string, string>, personId: string) =>
+          service.client.post(
+            `/v1/contacts/${personId}/notes`,
+            { body: 'note' },
+            { headers },
+          ),
+      },
+    ])('rejects $name with 403', async ({ call }) => {
+      const slug = `win-flagoff-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(false)
+      const headers = { [ORG_SLUG_HEADER]: slug }
+
+      const result = await call(headers, 'person-1')
+
+      expect(result.status).toBe(403)
+    })
+
+    it('rejects edit and delete with 403', async () => {
+      const slug = `win-flagoff-edit-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      const note = await service.prisma.contactNote.create({
+        data: {
+          organizationSlug: slug,
+          personId: 'person-1',
+          body: 'seed note',
+        },
+      })
+      vi.spyOn(
+        service.app.get(FeaturesService),
+        'isFeatureEnabled',
+      ).mockResolvedValue(false)
+      const headers = { [ORG_SLUG_HEADER]: slug }
+
+      const edited = await service.client.patch(
+        `/v1/contacts/notes/${note.id}`,
+        { body: 'hijack attempt' },
+        { headers },
+      )
+      expect(edited.status).toBe(403)
+
+      const deleted = await service.client.delete(
+        `/v1/contacts/notes/${note.id}`,
+        { headers },
+      )
+      expect(deleted.status).toBe(403)
     })
   })
 
