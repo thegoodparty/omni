@@ -9,7 +9,7 @@ import {
   ContactsTableProvider,
   useContactsTable,
 } from './ContactsTableProvider'
-import { makePerson } from '../components/shared/test-fixtures'
+import { makePerson } from './shared/test-fixtures'
 
 // The real navigation hooks return a new reference only when the URL actually
 // changes, so an unrelated provider re-render (a keystroke in a sibling, a

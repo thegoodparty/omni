@@ -9,9 +9,9 @@ import {
   CommandList,
   LoaderCircleIcon,
 } from '@styleguide'
-import { useShowContactProModal } from '../hooks/ContactProModal'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
-import { getContactsLabels } from '../../../shared/contactsLabels'
+import { useShowContactProModal } from './ContactProModal'
+import { useContactsTable } from './ContactsTableProvider'
+import { getContactsLabels } from '../../shared/contactsLabels'
 import { formatPersonName } from './person/PersonOverlay'
 import type { Person } from './shared/contacts-types'
 import {

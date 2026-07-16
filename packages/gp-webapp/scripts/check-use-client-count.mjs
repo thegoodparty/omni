@@ -71,7 +71,12 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 543 -> 540 for removing the legacy impersonation path:
 // ImpersonateUserProvider, useImpersonateUser, and the orphaned
 // ImpersonateAction (gp-admin owns admin impersonation now).
-const BASELINE = 540
+// 2026-07-16: 540 -> 542 for the whole-page CRM gate (ENG-10683):
+// ContactsPageGate branches on the client-resolved CRM flag, and
+// CrmContactsPage hosts the interactive typeahead + Pro-modal state, so
+// neither can be a server component. The crm/ moves themselves are
+// count-neutral.
+const BASELINE = 542
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

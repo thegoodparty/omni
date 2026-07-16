@@ -3,15 +3,15 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import ContactsTable from './ContactsTable'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
-import { useShowContactProModal } from '../hooks/ContactProModal'
-import { makePerson } from './shared/test-fixtures'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
+import { useShowContactProModal } from '../../crm/ContactProModal'
+import { makePerson } from '../../crm/shared/test-fixtures'
 
-vi.mock('../hooks/ContactsTableProvider', () => ({
+vi.mock('../../crm/ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 
-vi.mock('../hooks/ContactProModal', () => ({
+vi.mock('../../crm/ContactProModal', () => ({
   useShowContactProModal: vi.fn(),
 }))
 

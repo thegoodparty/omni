@@ -11,10 +11,10 @@ import {
   Button,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
-import { useContactsTable } from '../../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../../crm/ContactsTableProvider'
 import { ReactNode, useState } from 'react'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { type SegmentResponse } from '../shared/contacts-types'
+import { type SegmentResponse } from '../../../crm/shared/contacts-types'
 
 interface DeleteSegmentProps {
   segment: SegmentResponse

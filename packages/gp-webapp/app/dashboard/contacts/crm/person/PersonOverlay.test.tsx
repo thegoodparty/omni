@@ -3,7 +3,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import PersonOverlay from './PersonOverlay'
-import { useContactsTable } from '../../hooks/ContactsTableProvider'
+import { useContactsTable } from '../ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { makePerson } from '../shared/test-fixtures'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -12,7 +12,7 @@ import type {
   ConstituentActivity,
 } from '../shared/contacts-types'
 
-vi.mock('../../hooks/ContactsTableProvider', () => ({
+vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 

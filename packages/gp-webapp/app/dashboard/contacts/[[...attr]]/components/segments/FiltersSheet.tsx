@@ -16,17 +16,17 @@ import { numberFormatter } from 'helpers/numberHelper'
 import filterSections from '../configs/filters.config'
 import { FiEdit } from 'react-icons/fi'
 import { clientRequest } from 'gpApi/typed-request'
-import { type SegmentResponse } from '../shared/contacts-types'
+import { type SegmentResponse } from '../../../crm/shared/contacts-types'
 import { useSnackbar } from 'helpers/useSnackbar'
-import { useContactsTable } from '../../hooks/ContactsTableProvider'
-import { SHEET_MODES } from '../shared/constants'
+import { useContactsTable } from '../../../crm/ContactsTableProvider'
+import { SHEET_MODES } from '../../../crm/shared/constants'
 import DeleteSegment from './DeleteSegment'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   filterOnlyTrueValues,
   trimCustomSegmentName,
   MAX_SEGMENT_NAME_LENGTH,
-} from '../shared/segments.util'
+} from '../../../crm/shared/segments.util'
 
 type SheetMode = (typeof SHEET_MODES)[keyof typeof SHEET_MODES]
 

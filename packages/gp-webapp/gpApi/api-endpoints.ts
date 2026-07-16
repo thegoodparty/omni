@@ -40,7 +40,7 @@ import type {
   ListContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
-} from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
+} from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {

@@ -4,23 +4,23 @@ import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { ContactTypeahead } from './ContactTypeahead'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
-import { useShowContactProModal } from '../hooks/ContactProModal'
-import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { useContactsTable } from './ContactsTableProvider'
+import { useShowContactProModal } from './ContactProModal'
+import { useWinVoterContext } from '../../shared/useWinVoterContext'
 import { trackEvent } from 'helpers/analyticsHelper'
 import { makePerson } from './shared/test-fixtures'
 import type { ListContactsResponse, Person } from './shared/contacts-types'
 
-vi.mock('../hooks/ContactsTableProvider', () => ({
+vi.mock('./ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
-vi.mock('../hooks/ContactProModal', () => ({
+vi.mock('./ContactProModal', () => ({
   useShowContactProModal: vi.fn(),
 }))
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
-vi.mock('../../../shared/useWinVoterContext', () => ({
+vi.mock('../../shared/useWinVoterContext', () => ({
   useWinVoterContext: vi.fn(),
 }))
 vi.mock('helpers/analyticsHelper', async (importOriginal) => ({

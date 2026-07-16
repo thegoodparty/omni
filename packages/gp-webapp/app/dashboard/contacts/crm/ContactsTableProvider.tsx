@@ -7,12 +7,7 @@ import {
   useMemo,
   ReactNode,
 } from 'react'
-import {
-  useRouter,
-  useSearchParams,
-  usePathname,
-  useParams,
-} from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import {
   useQuery,
   useInfiniteQuery,
@@ -28,32 +23,37 @@ import {
   type ConstituentActivity,
   type ListContactsResponse,
   type SegmentResponse,
-} from '../components/shared/contacts-types'
+} from './shared/contacts-types'
 import {
   DEFAULT_PAGE_SIZE,
   ALL_SEGMENTS,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
-} from '../components/shared/constants'
-import defaultSegments from '../components/configs/defaultSegments.config'
-import {
-  isCustomSegment,
-  findCustomSegment,
-} from '../components/shared/segments.util'
+} from './shared/constants'
+import defaultSegments from './configs/defaultSegments.config'
+import { isCustomSegment, findCustomSegment } from './shared/segments.util'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { useOrganization } from '@shared/organization-picker'
-import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { useWinVoterContext } from '../../shared/useWinVoterContext'
 
-const extractPersonIdFromParams = (
-  params: ReturnType<typeof useParams> | null,
+const CONTACTS_BASE_PATH = '/dashboard/contacts'
+
+// Derived from usePathname, not useParams: selectPerson navigates via the
+// native History API (shallow, no server round-trip), which updates
+// usePathname but never re-resolves route params.
+const extractPersonIdFromPathname = (
+  pathname: string | null,
 ): string | null => {
-  if (!params?.attr) return null
+  if (!pathname?.startsWith(CONTACTS_BASE_PATH)) return null
 
-  const attrArray = Array.isArray(params.attr) ? params.attr : [params.attr]
-  if (attrArray.length !== 1) return null
+  const segments = pathname
+    .slice(CONTACTS_BASE_PATH.length)
+    .split('/')
+    .filter(Boolean)
+  if (segments.length !== 1) return null
 
-  const personId = attrArray[0]
-  if (personId && typeof personId === 'string' && personId.trim().length > 0) {
+  const personId = segments[0]
+  if (personId && personId.trim().length > 0) {
     return personId
   }
 
@@ -178,7 +178,6 @@ export const ContactsTableProvider = ({
     useWinVoterContext()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const params = useParams()
 
   const segments = defaultSegments
 
@@ -213,8 +212,8 @@ export const ContactsTableProvider = ({
   }, [searchParams])
 
   const currentlySelectedPersonId = useMemo(
-    () => extractPersonIdFromParams(params),
-    [params],
+    () => extractPersonIdFromPathname(pathname),
+    [pathname],
   )
 
   const contactsQuery = useQuery(
@@ -411,12 +410,16 @@ export const ContactsTableProvider = ({
         }
       })
 
-      const newUrl = `${pathname}${
+      // CONTACTS_BASE_PATH, not the live pathname: selectPerson mutates the
+      // pathname shallowly to /dashboard/contacts/<id>, and a router.push of
+      // that person path from a table action would re-trigger the full
+      // loading-boundary navigation the shallow selection exists to avoid.
+      const newUrl = `${CONTACTS_BASE_PATH}${
         params.toString() ? `?${params.toString()}` : ''
       }`
       router.push(newUrl, { scroll: false })
     },
-    [router, pathname, searchParams],
+    [router, searchParams],
   )
 
   const queryClient = useQueryClient()
@@ -460,18 +463,24 @@ export const ContactsTableProvider = ({
 
   const selectPerson = useCallback(
     (personId: string | number | null) => {
-      const basePath = '/dashboard/contacts'
       const currentParams = new URLSearchParams(searchParams?.toString() || '')
       const queryString = currentParams.toString()
         ? `?${currentParams.toString()}`
         : ''
 
       const path =
-        personId === null ? basePath : `${basePath}/${String(personId)}`
+        personId === null
+          ? CONTACTS_BASE_PATH
+          : `${CONTACTS_BASE_PATH}/${String(personId)}`
 
-      router.push(`${path}${queryString}`, { scroll: false })
+      // Native pushState (which the App Router syncs into usePathname /
+      // useSearchParams) instead of router.push: this route is force-dynamic
+      // with a loading.tsx, so a router navigation does a full server
+      // round-trip through the loading boundary — blank page + spinner — just
+      // to open/close the overlay. Shallow history keeps the page mounted.
+      window.history.pushState(null, '', `${path}${queryString}`)
     },
-    [router, searchParams],
+    [searchParams],
   )
 
   const selectSegment = useCallback(
