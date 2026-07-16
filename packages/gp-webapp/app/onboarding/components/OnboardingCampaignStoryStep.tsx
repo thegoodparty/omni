@@ -1,0 +1,117 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { Card } from '@styleguide'
+import type { WebsiteIssue } from 'helpers/types'
+import { useSnackbar } from 'helpers/useSnackbar'
+import {
+  getUserWebsite,
+  saveAboutFields,
+  USER_WEBSITE_QUERY_KEY,
+} from 'app/dashboard/website/util/website.util'
+import PolicyPriorities from 'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities'
+import { getBioPlainLength } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
+import { CAMPAIGN_STORY_SECTIONS } from 'app/dashboard/campaign-story/sections'
+import {
+  isStoryFieldAnswered,
+  useCampaignStory,
+} from 'app/dashboard/campaign-story/useCampaignStory'
+import CampaignStoryWhyCard from 'app/dashboard/campaign-story/components/CampaignStoryWhyCard'
+import CampaignStoryCard from 'app/dashboard/campaign-story/components/CampaignStoryCard'
+
+interface Props {
+  onCompleteChange: (complete: boolean) => void
+}
+
+// Onboarding-chrome version of the Campaign Story cards (no DashboardLayout /
+// FeatureFlagGuard wrapper). Fetches the same website (bio, issues) + story
+// (background) the standalone page seeds server-side, then reuses the same cards
+// which autosave on their own. Completion is reported up so OnboardingFlow can
+// adapt the footer and fire generation.
+export default function OnboardingCampaignStoryStep({
+  onCompleteChange,
+}: Props): React.JSX.Element {
+  const { errorSnackbar } = useSnackbar()
+  const { data: website } = useQuery({
+    queryKey: USER_WEBSITE_QUERY_KEY,
+    queryFn: getUserWebsite,
+    refetchOnMount: 'always',
+  })
+  const { data: story } = useCampaignStory()
+
+  const initialBio = website?.content?.about?.bio ?? ''
+  const initialIssues = website?.content?.about?.issues ?? []
+
+  const [answered, setAnswered] = useState({ why: false, background: false })
+  const [issues, setIssues] = useState<WebsiteIssue[]>([])
+
+  // Seed local state once the fetches resolve (the cards take initial* props,
+  // but this component also derives completeness, so it mirrors their state).
+  useEffect(() => {
+    setAnswered({
+      why: getBioPlainLength(initialBio) > 0,
+      background: isStoryFieldAnswered(story?.background),
+    })
+    setIssues(initialIssues)
+    // Seed from the resolved fetches; card onAnsweredChange keeps it live after.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [website, story])
+
+  const complete = answered.why && answered.background && issues.length > 0
+  useEffect(() => {
+    onCompleteChange(complete)
+  }, [complete, onCompleteChange])
+
+  const handleIssuesChange = (next: WebsiteIssue[]): void => {
+    const previous = issues
+    setIssues(next)
+    void saveAboutFields({ issues: next }).then((ok) => {
+      if (!ok) {
+        setIssues((current) => (current === next ? previous : current))
+        errorSnackbar('Could not save your issues. Please try again.')
+      }
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <CampaignStoryWhyCard
+        initialBio={initialBio}
+        onAnsweredChange={(value) =>
+          setAnswered((prev) =>
+            prev.why === value ? prev : { ...prev, why: value },
+          )
+        }
+      />
+      {CAMPAIGN_STORY_SECTIONS.map((section) => (
+        <CampaignStoryCard
+          key={section.id}
+          section={section}
+          initialValue={story?.[section.id] ?? null}
+          onAnsweredChange={(value) =>
+            setAnswered((prev) =>
+              prev.background === value ? prev : { ...prev, background: value },
+            )
+          }
+        />
+      ))}
+      <Card className="p-6">
+        <div className="flex flex-col gap-1">
+          <h3 className="text-xl font-semibold text-foreground">
+            Your Policies
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            Two to four concrete fights for your first term. These are shared
+            with your campaign website.
+          </p>
+        </div>
+        <PolicyPriorities
+          issues={issues}
+          onChange={handleIssuesChange}
+          hideToolbar
+        />
+      </Card>
+    </div>
+  )
+}
