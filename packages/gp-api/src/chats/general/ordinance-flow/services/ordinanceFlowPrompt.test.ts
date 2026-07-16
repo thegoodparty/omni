@@ -223,6 +223,60 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(without).not.toContain('COMPARABLES RULES')
   })
 
+  it('names every comparables card field the widget renders', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+    })
+    // The card renders population, year, headline, and outcome; the prompt must
+    // name each so the model fills them rather than omitting them.
+    expect(prompt).toContain('population')
+    expect(prompt).toContain('year')
+    expect(prompt).toContain('headline')
+    expect(prompt).toContain('outcome')
+  })
+
+  it('directs comparables selection by size/makeup and to seek a failed case', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+    })
+    // Peers are chosen like the prototype (similar size and political makeup),
+    // and a repealed/failed case is the most instructive, so seek one out.
+    expect(prompt).toContain('similar size and political makeup')
+    expect(prompt).toContain('repealed')
+  })
+
+  it('prefers same-state, similar-size peers before broadening', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+    })
+    // Same-state peers operate under the same state enabling law and
+    // preemption framework, so they are the most legally applicable precedent;
+    // broaden to other states only when in-state examples are thin.
+    expect(prompt).toContain('same state')
+  })
+
+  it('includes draft rules and advertises present_draft only on the draft step', () => {
+    const withTool = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'draft' }),
+      toolNames: ['read_ordinance', 'present_draft', 'web_search', 'save_note'],
+    })
+    expect(withTool).toContain('DRAFT RULES')
+    expect(withTool).toContain('present_draft:')
+    // The draft synthesizes the prior steps into one complete ordinance, is a
+    // first draft for the user's attorney, and can amend in place via redline.
+    expect(withTool).toContain('synthesize')
+    expect(withTool).toContain('attorney')
+    expect(withTool).toContain('redline')
+    const without = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables' }),
+      toolNames: ['present_comparables', 'offer_next_step'],
+    })
+    expect(without).not.toContain('DRAFT RULES')
+  })
+
   it('advertises the present_* tools that render the current_law widgets', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),

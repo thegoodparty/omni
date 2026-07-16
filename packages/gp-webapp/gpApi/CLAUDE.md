@@ -36,7 +36,7 @@ Returns a consistent `Response<T>`:
 ## Do NOT use for new code
 
 - `gpFetch.ts` — deprecated
-- `clientFetch.ts` — deprecated (still used in 85+ files; do not add more)
+- `clientFetch.ts` — deprecated (still imported by 65 files; do not add more — CI's `check:legacy-fetch` ratchet blocks new usage)
 - `serverFetch.ts` — deprecated
 - `routes.ts` — the `ApiRoute` registry consumed only by the deprecated helpers
 

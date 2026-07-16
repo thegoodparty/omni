@@ -16,9 +16,11 @@ import {
   OrdinanceExistingLawSchema,
   OrdinanceResearchSchema,
   OrdinanceScratchpadSchema,
+  OrdinanceSourceSchema,
   type OrdinanceAuthority,
   type OrdinanceClarify,
   type OrdinanceComparables,
+  type OrdinanceSource,
 } from '@goodparty_org/contracts'
 
 export const ORDINANCE_READ_SECTIONS = [
@@ -93,7 +95,21 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
           comparables: parse(OrdinanceComparablesSchema, o.comparables) ?? [],
         }
       case 'draft':
-        return { draft: { title: o.draftTitle, body: o.draftBody } }
+        // No complete draft → null, matching every other section's unsaved
+        // signal. Either field null (e.g. a partial PATCH set only the title)
+        // is not a valid draft; returning it would surprise `draft !== null`
+        // consumers and feed nulls into the re-draft prompt.
+        if (o.draftTitle === null || o.draftBody === null) {
+          return { draft: null }
+        }
+        return {
+          draft: {
+            title: o.draftTitle,
+            body: o.draftBody,
+            sources:
+              parse(z.array(OrdinanceSourceSchema), o.draftSources) ?? [],
+          },
+        }
       case 'research':
         return { research: parse(OrdinanceResearchSchema, o.research) }
       case 'scratchpad':
@@ -143,6 +159,32 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
     await this.model.update({ where: { id: o.id }, data: { comparables } })
+    return { saved: true }
+  }
+
+  // The draft owns dedicated columns (draftTitle/draftBody/draftSources).
+  // Persisting the first draft advances the ordinance from `in_progress` to
+  // `draft`, but never DOWNGRADES: re-drafting a record that already advanced
+  // (in_review/proposed/...) keeps its current status. description is
+  // render-only and lives in the tool args, not a column. Sources are written
+  // only when non-empty: a regeneration that re-emits `[]` (readSection's
+  // sourceless default) must not wipe citations a prior draft saved.
+  async saveDraft(
+    ordinanceId: string,
+    electedOfficeId: string,
+    draft: { title: string; body: string; sources?: OrdinanceSource[] },
+  ): Promise<{ saved: true }> {
+    const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.model.update({
+      where: { id: o.id },
+      data: {
+        draftTitle: draft.title,
+        draftBody: draft.body,
+        ...(o.status === 'in_progress' && { status: 'draft' as const }),
+        ...(draft.sources &&
+          draft.sources.length > 0 && { draftSources: draft.sources }),
+      },
+    })
     return { saved: true }
   }
 

@@ -50,6 +50,20 @@ const AWAITING_PIN_NUDGE_DAYS = 7
 // budget (with headroom for the "…and N more" marker), never by row count.
 const SECTION_TEXT_BUDGET = 2800
 
+// Staff walk this flow in prod with @goodparty.org accounts (isTestUser only
+// covers the seeded @test.goodparty.org domain), and their intentionally
+// stuck records would page as real incidents — exclude both domains.
+const INTERNAL_EMAIL_SUFFIXES = ['@goodparty.org', '@test.goodparty.org']
+
+const reportableCampaign = {
+  isPro: true,
+  user: {
+    NOT: INTERNAL_EMAIL_SUFFIXES.map((suffix) => ({
+      email: { endsWith: suffix, mode: Prisma.QueryMode.insensitive },
+    })),
+  },
+}
+
 type RecordWithCampaign = TcrCompliance & { campaign: Campaign }
 
 type ReportSection = {
@@ -135,7 +149,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
     reportDate,
   }: Nightly10DlcReportMessage): Promise<boolean> {
     const now = new Date()
-    const proOnly = { campaign: { isPro: true } }
+    const proOnly = { campaign: reportableCampaign }
 
     const [
       stuckSubmissions,
@@ -178,7 +192,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           createdAt: { gte: REGISTRANT_STAMPING_UNIVERSAL_FROM },
           website: {
             campaign: {
-              isPro: true,
+              ...reportableCampaign,
               tcrCompliance: {
                 status: TcrComplianceStatus.submitted,
                 peerlyIdentityId: null,

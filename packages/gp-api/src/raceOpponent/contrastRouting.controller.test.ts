@@ -314,6 +314,7 @@ describe('POST /v1/campaigns/mine/race-opponent/contrasts/:id/route', () => {
       where: { id: result.data.routedOutreachId },
     })
     expect(outreach.campaignId).toBe(campaign.id)
+    expect(outreach.organizationSlug).toBe(SLUG)
     expect(outreach.outreachType).toBe(OutreachType.text)
     expect(outreach.message).toBe(CONTRAST_SENTENCE)
     expect(outreach.script).toBe(CONTRAST_SENTENCE)

@@ -176,6 +176,22 @@ export type OrdinancePresentComparables = z.infer<
   typeof OrdinancePresentComparablesSchema
 >
 
+// present_draft: the agent's synthesized first-draft ordinance, rendered as the
+// "draft ready" card and persisted to the ordinance's draft columns. `body` is
+// the full statute-formatted text; a redline draft carries {-struck-}{+inserted+}
+// markup inline (the document view infers redline from that markup — the single
+// source of truth — so there is no separate `kind`). `description` is the
+// one-line summary the card shows. Both title and body are required non-empty so
+// a persisted draft is never blank. execute persists title/body/sources to the
+// draft columns; the card replays title/description from this payload.
+export const OrdinancePresentDraftSchema = z.object({
+  title: z.string().min(1),
+  description: z.string().optional(),
+  body: z.string().min(1),
+  sources: z.array(OrdinanceSourceSchema).optional(),
+})
+export type OrdinancePresentDraft = z.infer<typeof OrdinancePresentDraftSchema>
+
 export const OrdinanceQualityCheckSchema = z.object({
   id: z.string(),
   label: z.string(),
@@ -312,7 +328,12 @@ export type CreateOrdinanceRequest = z.infer<
 export const UpdateOrdinanceRequestSchema = z
   .object({
     status: OrdinanceStatusSchema,
-    draftBody: z.string(),
+    // Non-empty when provided: a persisted draft is never blank (mirrors
+    // OrdinancePresentDraftSchema). .partial() keeps them optional, so a
+    // status-only or body-only PATCH is still valid.
+    draftTitle: z.string().min(1),
+    draftBody: z.string().min(1),
+    draftSources: z.array(OrdinanceSourceSchema).min(1),
     lastViewedStep: z.string(),
   })
   .partial()

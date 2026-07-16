@@ -375,6 +375,41 @@ describe('LlmService.streamChatCompletion', () => {
       output: { results: [] },
     })
   })
+
+  it('logs an error surfaced through streamText onError', async () => {
+    const streamTextFn = vi.fn().mockReturnValue(fakeStreamResult())
+    const logger = createMockLogger()
+    const service = new LlmService(
+      logger,
+      streamTextFn as unknown as StreamTextFn,
+      vi.fn() as unknown as GenerateTextFn,
+      vi.fn() as unknown as GenerateObjectFn,
+      stubAnthropicFactory,
+    )
+
+    const onStreamError = vi.fn()
+    await service.streamChatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      retries: 0,
+      onStreamError,
+    })
+
+    // streamText swallows generation errors by default (they surface only via
+    // the onError callback, never thrown), so the service must register one and
+    // both log it AND forward it via onStreamError — otherwise a mid-generation
+    // provider failure is silent and the consumer treats the turn as clean.
+    const { onError } = firstOrThrow(streamTextFn.mock.calls)[0]
+    expect(typeof onError).toBe('function')
+    const boom = new Error('provider exploded mid-generation')
+    onError({ error: boom })
+
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ err: boom }),
+      'streamText error during generation',
+    )
+    expect(onStreamError).toHaveBeenCalledWith(boom)
+  })
 })
 
 describe('LlmService.buildToolSet (via streamChatCompletion)', () => {

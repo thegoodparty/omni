@@ -801,15 +801,15 @@ class FakeCursor:
         return self._fetch
 
 
-def test_fetch_event_universe_anchors_on_airbyte_taxonomy_source():
-    # The event universe is anchored on the Airbyte-synced Amplitude Govern taxonomy,
-    # not the dbt int__ model (repointed 2026-06-22).
+def test_fetch_event_universe_reads_mart_taxonomy():
+    # The event universe is read from the mart_analytics taxonomy exposure, never the dbt
+    # staging model or the raw airbyte_source table (grants live at the mart schema).
     cur = FakeCursor(["Event A", "Event B"])
     events = bf.fetch_event_universe(cur)
     assert events == ["Event A", "Event B"]
     sql = cur.executed[-1][0]
-    assert "airbyte_source.amplitude_taxonomy_event_type" in sql
-    assert "int__amplitude_event_taxonomy" not in sql
+    assert "mart_analytics.amplitude_taxonomy_event_type" in sql
+    assert "airbyte_source.amplitude_taxonomy_event_type" not in sql
 
 
 def test_run_backfill_writes_csv_and_state(monkeypatch, tmp_path):

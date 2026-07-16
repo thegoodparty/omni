@@ -1,7 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { headers } from 'next/headers'
-import { redirect } from 'next/navigation'
-import { isRedirectError } from 'next/dist/client/components/redirect-error'
+import { redirect, unstable_rethrow } from 'next/navigation'
 import { apiRoutes } from 'gpApi/routes'
 import { serverFetch } from 'gpApi/serverFetch'
 import { getCurrentUserOrganizations } from 'helpers/getCurrentUserOrganizations'
@@ -19,7 +18,7 @@ export async function fetchCampaignStatus(): Promise<CampaignStatus> {
     }
     return resp.data
   } catch (e) {
-    if (isRedirectError(e)) throw e
+    unstable_rethrow(e)
     console.log('error at fetchCampaignStatus', e)
     return { status: false }
   }
