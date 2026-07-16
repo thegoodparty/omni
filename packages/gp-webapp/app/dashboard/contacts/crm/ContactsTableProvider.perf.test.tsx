@@ -131,7 +131,7 @@ describe('ContactsTableProvider — next-page prefetch guard', () => {
     const requestedPages: string[] = []
     mockSupportingEndpoints()
     api.mock('GET /v1/contacts', (request) => {
-      requestedPages.push(request.query.page ?? '1')
+      requestedPages.push(String(request.query.page ?? 1))
       return {
         status: 200,
         data: { people: [makePerson()], pagination: paginationFor(false) },
@@ -160,7 +160,7 @@ describe('ContactsTableProvider — next-page prefetch guard', () => {
     const requestedPages: string[] = []
     mockSupportingEndpoints()
     api.mock('GET /v1/contacts', (request) => {
-      const page = request.query.page ?? '1'
+      const page = String(request.query.page ?? 1)
       requestedPages.push(page)
       return {
         status: 200,
