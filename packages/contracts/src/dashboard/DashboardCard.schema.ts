@@ -33,7 +33,7 @@ export const DashboardCardSchema = z.object({
   ctaLabel: z.string(),
   ctaHref: z.string(),
   dueDate: z.string(),
-  sourceBriefingId: z.string(),
+  sourceExternalId: z.string(),
   sourceItemId: z.string().nullable(),
   dismissedAt: z.string().nullable(),
   createdAt: z.string(),

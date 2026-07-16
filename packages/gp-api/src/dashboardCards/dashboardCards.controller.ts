@@ -62,7 +62,7 @@ const toDto = (row: DashboardCardRow): DashboardCard => ({
   ctaLabel: row.ctaLabel,
   ctaHref: row.ctaHref,
   dueDate: row.dueDate.toISOString(),
-  sourceBriefingId: row.sourceBriefingId,
+  sourceExternalId: row.sourceExternalId,
   sourceItemId: row.sourceItemId,
   dismissedAt: row.dismissedAt ? row.dismissedAt.toISOString() : null,
   createdAt: row.createdAt.toISOString(),

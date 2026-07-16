@@ -93,7 +93,7 @@ describe('DashboardCardsService.syncFromBriefing', () => {
       summary: 'The following items require action:',
       ctaLabel: 'Prepare for the meeting',
       ctaHref: `/dashboard/briefings/${DATE}`,
-      sourceBriefingId: briefing.id,
+      sourceExternalId: briefing.id,
     })
 
     const itemCard = cards.find((c) => c.sourceItemId === 'item_a')

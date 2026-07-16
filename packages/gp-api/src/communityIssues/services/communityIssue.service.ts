@@ -9,6 +9,7 @@ import {
 } from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { EVENTS } from 'src/vendors/segment/segment.types'
+import { DashboardCardsService } from '@/dashboardCards/services/dashboardCards.service'
 import { validateCommunityIssuesArtifact } from '../communityIssueArtifact.validation'
 import {
   CommunityIssueUpsertService,
@@ -61,6 +62,7 @@ export class CommunityIssueService extends createPrismaBase(
     private readonly s3: S3Service,
     private readonly upsert: CommunityIssueUpsertService,
     private readonly analytics: AnalyticsService,
+    private readonly dashboardCards: DashboardCardsService,
   ) {
     super()
   }
@@ -142,6 +144,43 @@ export class CommunityIssueService extends createPrismaBase(
     if (!summary) return
 
     await this.emitGenerationEvents(run, summary)
+    await this.syncCardsForCreatedIssues(run, summary)
+  }
+
+  // Turns each issue a non-initial run newly created into a Chief of Staff task
+  // card. Skips the list's first-ever generation (that is not "news"). Card
+  // writes are best-effort: a failure here must not throw out of the handler, or
+  // the SQS run-completed message would redeliver and the id-less issues would be
+  // re-created as duplicate rows on the already-committed upsert.
+  private async syncCardsForCreatedIssues(
+    run: ExperimentRun,
+    summary: CommunityIssueUpsertSummary,
+  ): Promise<void> {
+    if (summary.wasFirstGenerationForList) return
+    if (summary.createdIssues.length === 0) return
+
+    const office = await this.client.electedOffice.findFirst({
+      where: { organizationSlug: run.organizationSlug },
+      select: { id: true },
+    })
+    if (!office) {
+      this.logger.warn(
+        { runId: run.runId, organizationSlug: run.organizationSlug },
+        'community-issue run: no elected office; skipping task cards',
+      )
+      return
+    }
+
+    try {
+      for (const issue of summary.createdIssues) {
+        await this.dashboardCards.syncFromCommunityIssue(office.id, issue)
+      }
+    } catch (err) {
+      this.logger.error(
+        { runId: run.runId, organizationSlug: run.organizationSlug, err },
+        'community-issue run: failed to create task cards',
+      )
+    }
   }
 
   private async emitGenerationEvents(
