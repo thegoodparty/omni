@@ -272,7 +272,9 @@ export function useStreamingTurn(
           if (segments.length > 0) {
             let commitTries = 0
             while (!hasTurn(history) && commitTries < COMMIT_MAX_TRIES) {
-              await new Promise((resolve) => setTimeout(resolve, COMMIT_POLL_MS))
+              await new Promise((resolve) =>
+                setTimeout(resolve, COMMIT_POLL_MS),
+              )
               history = await chatApi.listMessages(conversationId)
               commitTries += 1
             }
