@@ -19,6 +19,13 @@ def _record(event_type, status, **kw):
     return base
 
 
+def test_event_state_sql_reads_mart_analytics_catalog():
+    # Guard the read target: the assembler tests inject run_query and discard the SQL,
+    # so without this a revert to the dbt relation would pass silently.
+    assert "mart_analytics.amplitude_event_catalog" in esa.EVENT_STATE_SQL
+    assert "dbt." not in esa.EVENT_STATE_SQL
+
+
 def test_columns_are_the_eighteen_in_order():
     assert esa.COLUMNS == [
         "event", "status", "declared_intent", "intent_date", "supersession",

@@ -138,6 +138,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     } = await this.resolveP2pCreateInputs(campaign, createOutreachDto, script)
 
     return await this.createRecord(
+      campaign,
       {
         ...createOutreachDto,
         script: resolvedScriptText,
@@ -190,6 +191,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
 
     return await this.createRecord(
+      campaign,
       {
         ...createOutreachDto,
         script: resolvedScriptText,
@@ -270,7 +272,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       return outreach
     }
 
-    const outreach = await this.createRecord(createOutreachDto, imageUrl)
+    const outreach = await this.createRecord(
+      campaign,
+      createOutreachDto,
+      imageUrl,
+    )
     await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
     await this.tryRecordSegmentAttribution(user, campaign, outreach)
     return outreach
@@ -526,6 +532,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
 
   /** Persists a single outreach record. Used by both non-P2P and P2P flows. */
   private async createRecord(
+    campaign: Campaign,
     createOutreachDto: CreateOutreachSchema,
     imageUrl?: string,
     identityId?: string,
@@ -536,6 +543,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     return await this.model.create({
       data: {
         ...outreachData,
+        organizationSlug: campaign.organizationSlug,
         ...(imageUrl ? { imageUrl } : {}),
         ...(identityId ? { identityId } : {}),
       },

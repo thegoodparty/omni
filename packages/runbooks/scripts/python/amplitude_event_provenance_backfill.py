@@ -9,8 +9,8 @@ changed, carries the rest forward, onboards any universe events absent from the 
 full-history pickaxe walk, and advances the watermark.
 
 It READS the omni working tree's git history (``--repo`` / ``OMNI_REPO``) and the Amplitude
-Govern event universe from Databricks (``airbyte_source.amplitude_taxonomy_event_type``, the one
-Databricks read), and WRITES the CSV + JSON into this repo. It never writes back to Amplitude.
+Govern event universe from Databricks (``mart_analytics.amplitude_taxonomy_event_type``,
+the one Databricks read), and WRITES the CSV + JSON into this repo. It never writes back to Amplitude.
 
 Extraction note: ``trackEvent(...)`` in omni is called with *constant references*, so we anchor
 on the authoritative event universe and match those literals against added/removed diff lines in
@@ -73,9 +73,10 @@ DEFAULT_SINCE = "2024-06-01"
 DEPLOY_REF = "origin/develop"
 
 DATABRICKS_CATALOG = "goodparty_data_catalog"
-# Event universe: Amplitude Govern taxonomy synced directly via Airbyte (~434 events, all
-# is_active). The one Databricks read this pipeline still makes.
-TAXONOMY_TABLE = f"{DATABRICKS_CATALOG}.airbyte_source.amplitude_taxonomy_event_type"
+# Event universe: the Amplitude Govern taxonomy (~434 events, all is_active). Read through the
+# mart_analytics exposure, not the dbt staging or raw airbyte_source table, so access is granted
+# at the mart schema. The one Databricks read this pipeline still makes.
+TAXONOMY_TABLE = f"{DATABRICKS_CATALOG}.mart_analytics.amplitude_taxonomy_event_type"
 
 JOB_NAME = "amplitude_event_provenance_backfill"
 

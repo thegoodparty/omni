@@ -177,26 +177,9 @@ export class CommunityIssueService extends createPrismaBase(
         where: { organizationSlug: run.organizationSlug, list: otherList },
       })
       if (otherListCount > 0) {
-        const [topIssues, trendingIssues] = await Promise.all([
-          this.model.findMany({
-            where: {
-              organizationSlug: run.organizationSlug,
-              list: CommunityIssueList.top_community,
-              archivedAt: null,
-            },
-            select: { title: true, summary: true, priority: true },
-            orderBy: { rank: Prisma.SortOrder.asc },
-          }),
-          this.model.findMany({
-            where: {
-              organizationSlug: run.organizationSlug,
-              list: CommunityIssueList.trending,
-              archivedAt: null,
-            },
-            select: { title: true, summary: true, priority: true },
-            orderBy: { rank: Prisma.SortOrder.asc },
-          }),
-        ])
+        const [topIssues, trendingIssues] = await this.loadCurrentIssues(
+          run.organizationSlug,
+        )
         if (topIssues.length > 0 && trendingIssues.length > 0) {
           void this.analytics
             .track(userId, EVENTS.CommunityIssues.InitialIssuesGenerated, {
@@ -208,43 +191,57 @@ export class CommunityIssueService extends createPrismaBase(
             .catch(() => undefined)
         }
       }
+      return
     }
 
-    // A high-priority trending issue that is newly created on a refresh run
-    // (never on the org's first trending generation, where every issue is new).
-    if (
-      summary.list === CommunityIssueList.trending &&
-      !summary.wasFirstGenerationForList
-    ) {
-      for (const issue of summary.newHighPriorityTrending) {
-        void this.analytics
-          .track(
-            userId,
-            EVENTS.CommunityIssues.HighPriorityTrendingIssueCreated,
-            {
-              issueId: issue.id,
-              title: issue.title,
-              summary: issue.summary,
-            },
-          )
-          .catch(() => undefined)
-      }
-    }
-
-    // An existing main-list issue whose priority moved this refresh — answers
-    // "is something on the main list changing in urgency?". Only top_community
-    // changes are collected, and these only occur on refreshes (a first
-    // generation has no existing issues to change).
-    for (const issue of summary.topPriorityChanges) {
+    // Every later refresh gets a fresh snapshot event of the list that just
+    // refreshed — no diffing against the prior state, just "here's what the
+    // list looks like now". Both counts ride along on either event so a
+    // downstream consumer always has the full-picture context.
+    const [topIssues, trendingIssues] = await this.loadCurrentIssues(
+      run.organizationSlug,
+    )
+    if (summary.list === CommunityIssueList.top_community) {
       void this.analytics
-        .track(userId, EVENTS.CommunityIssues.TopIssuePriorityChanged, {
-          issueId: issue.id,
-          title: issue.title,
-          summary: issue.summary,
-          previousPriority: issue.previousPriority,
-          priority: issue.priority,
+        .track(userId, EVENTS.CommunityIssues.TopIssuesRefreshed, {
+          topIssueCount: topIssues.length,
+          trendingIssueCount: trendingIssues.length,
+          ...flattenIssuesForEmail('topIssue', topIssues),
+        })
+        .catch(() => undefined)
+    } else {
+      void this.analytics
+        .track(userId, EVENTS.CommunityIssues.TrendingIssuesRefreshed, {
+          topIssueCount: topIssues.length,
+          trendingIssueCount: trendingIssues.length,
+          ...flattenIssuesForEmail('trendingIssue', trendingIssues),
         })
         .catch(() => undefined)
     }
+  }
+
+  private async loadCurrentIssues(
+    organizationSlug: string,
+  ): Promise<[EmailIssueFields[], EmailIssueFields[]]> {
+    return Promise.all([
+      this.model.findMany({
+        where: {
+          organizationSlug,
+          list: CommunityIssueList.top_community,
+          archivedAt: null,
+        },
+        select: { title: true, summary: true, priority: true },
+        orderBy: { rank: Prisma.SortOrder.asc },
+      }),
+      this.model.findMany({
+        where: {
+          organizationSlug,
+          list: CommunityIssueList.trending,
+          archivedAt: null,
+        },
+        select: { title: true, summary: true, priority: true },
+        orderBy: { rank: Prisma.SortOrder.asc },
+      }),
+    ])
   }
 }

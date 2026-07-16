@@ -142,7 +142,9 @@ test.describe('Custom office flow', () => {
         officeTermLength: '4 years',
         state: 'NC',
         electionId: null,
-        zip: null,
+        // ENG-10618: the office-picker ZIP entered above (82001) now persists onto
+        // the campaign so HubSpot/Peerly can rent a robocall line with the right area code.
+        zip: '82001',
       },
     })
   })

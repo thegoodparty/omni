@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import analytics_event_health as aeh
-from databricks_query import execute_query
+from databricks_oauth import run_query as execute_query
 
-CATALOG_TABLE = "goodparty_data_catalog.dbt.int__amplitude_event_catalog"
+# Read through the mart_analytics exposure so access is granted at the mart schema.
+CATALOG_TABLE = "goodparty_data_catalog.mart_analytics.amplitude_event_catalog"
 EVENT_STATE_SQL = f"""
 select event_type, govern_display_name, family, first_seen_date, last_seen_date,
        event_count, event_count_30d, govern_description, govern_tags

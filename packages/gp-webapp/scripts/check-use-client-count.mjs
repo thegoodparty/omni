@@ -55,7 +55,17 @@ import { dirname, join, relative } from 'node:path'
 // (useState + useEffect + a react-query refetchInterval) to show a
 // "generating..." banner once the user lands back in the product; that
 // polling loop cannot run on the server.
-const BASELINE = 538
+// 2026-07-15: the draft-detail screen supersedes develop's OrdinanceDraftDocument
+// (removed) with DraftDetail (contentEditable inline editor with autosave +
+// selection toolbar) and DraftChat (streaming chat in a drawer). Both are
+// stateful client components; the page.tsx shell stays server.
+// 2026-07-16: 540 -> 541 for useCrmEnabled — a hook composing
+// useWinVoterContext (React Query) with two feature-flag reads, so it must
+// run on the client, like the sibling useWinVoterContext.
+// 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
+// dropdown holds input/debounce state and a React Query fetch, so it cannot
+// be a server component (same as the ContactSearch it flag-replaces).
+const BASELINE = 542
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

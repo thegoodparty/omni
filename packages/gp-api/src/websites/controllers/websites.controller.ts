@@ -56,7 +56,11 @@ import {
 } from '../schemas/WebsiteResponse.schema'
 import { VerifyLiveResponseSchema } from '../schemas/VerifyLive.schema'
 import { serializeWebsiteWithDomain } from '../util/serializeWebsite.util'
-import { isBioPublishable, isGenuineIssue } from '../util/genericContent.util'
+import {
+  isBioPublishable,
+  isGenericComplianceContent,
+  isGenuineIssue,
+} from '../util/genericContent.util'
 
 const PUBLISHABLE_DOMAIN_STATUSES: DomainStatus[] = [
   DomainStatus.submitted,
@@ -313,6 +317,9 @@ export class WebsitesController {
       )
     }
 
+    // Captured before merge() below mutates currentContent in place.
+    const wasProfileIncomplete = isGenericComplianceContent(currentContent)
+
     const updatedContent: PrismaJson.WebsiteContent = merge(
       currentContent || {},
       body,
@@ -330,6 +337,12 @@ export class WebsitesController {
 
     const isFirstPublish =
       body.status === WebsiteStatus.published && !hasEverBeenPublished
+
+    // Transition-gated so each completion of the compliance candidate
+    // profile emits one event: ordinary edits to an already-complete
+    // profile stay silent.
+    const candidateProfileCompleted =
+      wasProfileIncomplete && !isGenericComplianceContent(updatedContent)
 
     const [logo, hero] = await Promise.all([
       logoFile ? this.uploadWebsiteImage(campaignId, logoFile) : null,
@@ -380,6 +393,20 @@ export class WebsitesController {
         this.logger.error(
           { e },
           `Failed to track website published event for user ${user.id}`,
+        )
+      }
+    }
+
+    if (candidateProfileCompleted) {
+      try {
+        await this.analytics.track(
+          user.id,
+          EVENTS.Outreach.ComplianceCandidateProfileSubmitted,
+        )
+      } catch (e) {
+        this.logger.error(
+          { e },
+          `Failed to track candidate profile submitted event for user ${user.id}`,
         )
       }
     }

@@ -110,7 +110,9 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
 - **Always posts** — a zero-stuck night gets an explicit ✅ all-clear with
   in-flight pipeline counts, so a *missing* report is itself a signal.
 - **Six sections**, all scoped to `campaign.isPro` (pre-payment records
-  intentionally sit idle): submission never completed (>24h after kickoff,
+  intentionally sit idle) and excluding internal accounts (user email
+  ending `@goodparty.org` / `@test.goodparty.org` — staff walk this flow
+  in prod and their stuck records are noise): submission never completed (>24h after kickoff,
   with agentic run status), kickoff `error`, Peerly/CV `rejected`, active
   billing block (within `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES`), domain
   purchase never completed (post-cutoff `registrantVerifiedAt` NULL — see

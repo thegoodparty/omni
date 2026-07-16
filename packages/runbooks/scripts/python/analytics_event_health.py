@@ -13,8 +13,8 @@ Hybrid scope: every catalog event gets an SOP status; a curated watchlist
 (new events in watched families that are not yet on the list). The deeper per-flag code
 investigation (reading the diffs) is the runbook agent's job — see books/monitor-analytics-event-health.md.
 
-It READS from Databricks (the catalog ``int__amplitude_event_catalog`` and the raw stream
-``stg_airbyte_source__amplitude_api_events``, via OAuth in ``databricks_oauth`` — no PAT) for
+It READS from Databricks (the ``mart_analytics`` exposures ``amplitude_event_catalog`` and the
+event stream ``amplitude_events``, via OAuth in ``databricks_oauth`` — no PAT) for
 the firing axis, and the provenance CSV for the code axis. It WRITES nothing back to
 Amplitude; the CLI emits a markdown digest section and a JSON result.
 
@@ -47,8 +47,10 @@ import yaml
 # --- locations ---------------------------------------------------------------
 
 CATALOG = "goodparty_data_catalog"
-CATALOG_TABLE = f"{CATALOG}.dbt.int__amplitude_event_catalog"
-STREAM_TABLE = f"{CATALOG}.dbt.stg_airbyte_source__amplitude_api_events"
+# Read through mart_analytics exposures so access is granted at the mart schema,
+# not on individual dbt relations (dbt owns the models, Terraform owns the grant).
+CATALOG_TABLE = f"{CATALOG}.mart_analytics.amplitude_event_catalog"
+STREAM_TABLE = f"{CATALOG}.mart_analytics.amplitude_events"
 HERE = Path(__file__).resolve().parent
 DATA_DIR = HERE / "instrumentation_data"
 

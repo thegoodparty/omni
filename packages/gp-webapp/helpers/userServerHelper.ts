@@ -1,3 +1,4 @@
+import 'server-only'
 import { cache } from 'react'
 import { User } from './types'
 import { serverFetch } from 'gpApi/serverFetch'
