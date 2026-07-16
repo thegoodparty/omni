@@ -52,7 +52,7 @@ vi.mock('helpers/useSnackbar', () => ({
 
 // Stubbed out so tests can drive the manual-office path with a couple of
 // clicks instead of exercising the real search/geo UI (unrelated to what
-// these tests cover — the flag-gated campaign-story step further down the
+// these tests cover - the flag-gated campaign-story step further down the
 // flow).
 vi.mock('./OfficeSelectionStep', () => ({
   OfficeSelectionStep: ({
@@ -113,7 +113,7 @@ const renderFlow = (props: { campaign?: Campaign | null } = {}) =>
 
 // Drives the flow from welcome through the manual-office-entry step (using
 // the mocked office steps above) and clicks Continue once more, landing on
-// whatever step comes next — campaign-story when the flag is on, pledge when
+// whatever step comes next - campaign-story when the flag is on, pledge when
 // it's off. Requires the caller to have mocked the PUT /campaigns/mine and
 // PATCH /organizations/:slug endpoints the manual-office persist path hits.
 const advancePastManualOfficeEntry = async (): Promise<void> => {
@@ -512,6 +512,130 @@ describe('new onboarding flow shell', () => {
       EVENTS.OnboardingV2.CampaignStoryCompleted,
       expect.anything(),
     )
+  })
+
+  it('fires CampaignStorySkipped only once across skip, back, and skip again', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /tell your campaign story/i,
+      }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+
+    // Back to the (still-incomplete) story step, then skip a second time.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+
+    const skippedCalls = mockTrackEvent.mock.calls.filter(
+      ([event]) => event === EVENTS.OnboardingV2.CampaignStorySkipped,
+    )
+    expect(skippedCalls).toHaveLength(1)
+  })
+
+  it('fires CampaignStoryCompleted and generation once when a prior skip is followed by completion', async () => {
+    const prewarm = vi
+      .spyOn(landscapeModule, 'prewarmStrategicLandscape')
+      .mockResolvedValue()
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'I grew up here and ran a small business.' },
+    })
+    // A dedicated client (renderFlow's is private to the helper) so the test
+    // can drop the cached website fetch below, forcing the re-entered story
+    // step to pick up the now-complete bio/issues instead of reusing the
+    // stale (incomplete) cache from the first visit.
+    const queryClient = new QueryClient()
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OnboardingFlow campaign={{ id: 1 } as Campaign} />
+      </QueryClientProvider>,
+    )
+
+    await advancePastManualOfficeEntry()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /tell your campaign story/i,
+      }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.CampaignStorySkipped,
+      expect.anything(),
+    )
+    expect(prewarm).not.toHaveBeenCalled()
+
+    // Back to the story step, now with a complete bio + issue, so the
+    // candidate finishes their story after having skipped once before.
+    mockGetUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          bio: '<p>My why is long enough</p>',
+          issues: [{ title: 'Roads', description: 'Fix them' }],
+        },
+      },
+    })
+    queryClient.removeQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue',
+    })
+    fireEvent.click(continueButton)
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(prewarm).toHaveBeenCalledTimes(1)
+
+    const skippedCalls = mockTrackEvent.mock.calls.filter(
+      ([event]) => event === EVENTS.OnboardingV2.CampaignStorySkipped,
+    )
+    const completedCalls = mockTrackEvent.mock.calls.filter(
+      ([event]) => event === EVENTS.OnboardingV2.CampaignStoryCompleted,
+    )
+    expect(skippedCalls).toHaveLength(1)
+    expect(completedCalls).toHaveLength(1)
   })
 })
 

@@ -47,6 +47,7 @@ import { MajorPartyBlockedAlert } from '../shared/partisanParty'
 import type {
   BallotStatus,
   ManualOfficeForm,
+  NonEmptyArray,
   OnboardingStepConfig,
   OnboardingAnswers,
   OnboardingStepId,
@@ -340,14 +341,16 @@ export default function OnboardingFlow({
   // The campaign-story step lives in the static config but only for the story
   // cohort. Inject it (flag-gated) into the array getVisibleOnboardingSteps
   // filters, so the stepper count and back/forward navigation stay correct.
-  const effectiveSteps = campaignStoryEnabled
-    ? ONBOARDING_STEPS
-    : // welcome (the required first element) is never filtered out here, so
-      // the result is always non-empty — TS can't infer that through
-      // .filter(), hence the unknown round-trip.
-      (ONBOARDING_STEPS.filter(
-        (step) => step.id !== 'campaign-story',
-      ) as unknown as typeof ONBOARDING_STEPS)
+  const [welcomeStep, ...laterOnboardingSteps] = ONBOARDING_STEPS
+  const effectiveSteps: NonEmptyArray<OnboardingStepConfig> =
+    campaignStoryEnabled
+      ? ONBOARDING_STEPS
+      : [
+          welcomeStep,
+          ...laterOnboardingSteps.filter(
+            (step) => step.id !== 'campaign-story',
+          ),
+        ]
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -363,9 +366,14 @@ export default function OnboardingFlow({
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
   // Guards against a double-fire of the strategic-landscape pre-warm (e.g. a
-  // rapid double-click of Continue). Generation should only ever kick off
-  // once per campaign-story completion.
+  // rapid double-click of Continue). Generation - and the Completed event
+  // that rides with it - fires at most once ever, on first completion.
   const storyGenFiredRef = useRef(false)
+  // Guards CampaignStorySkipped so a user who skips, goes Back, and skips
+  // again only counts once. Independent of storyGenFiredRef: a Skipped fire
+  // must not block a later Completed fire (skip-then-complete still upgrades
+  // to Completed + generation).
+  const storySkippedFiredRef = useRef(false)
   const [liveCampaign, setLiveCampaign] = useState<Campaign | null>(
     initialCampaign,
   )
@@ -976,7 +984,12 @@ export default function OnboardingFlow({
         trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
           campaignId: liveCampaign?.id ?? campaign?.id,
         })
-      } else if (!storyComplete && !storyGenFiredRef.current) {
+      } else if (
+        !storyComplete &&
+        !storyGenFiredRef.current &&
+        !storySkippedFiredRef.current
+      ) {
+        storySkippedFiredRef.current = true
         trackEvent(EVENTS.OnboardingV2.CampaignStorySkipped, {
           campaignId: liveCampaign?.id ?? campaign?.id,
         })

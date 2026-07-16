@@ -108,6 +108,9 @@ site, and vice versa.
 
 ## Related
 
+- `app/onboarding/components/OnboardingCampaignStoryStep.tsx` composes the same
+  why/background/issues cards into the onboarding flow as a skippable step,
+  firing plan + tracker generation on completion.
 - `app/shared/experiments/campaignStoryFlag.ts` — flag wrapper hook + key.
 - `app/dashboard/shared/DashboardMenu.tsx` — sidebar entry (campaign category).
 - `packages/gp-api/src/campaignStory/` — `campaign_story` table (`background`,
