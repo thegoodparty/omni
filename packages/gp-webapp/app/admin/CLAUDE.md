@@ -1,12 +1,11 @@
 # app/admin/
 
-Internal admin tools. GoodParty staff use this to manage users, impersonate candidates for support, and trigger account-recovery actions. Not exposed to candidates.
+Internal admin tools. GoodParty staff use this to manage users and trigger account-recovery actions. Not exposed to candidates. Admin impersonation is driven from the gp-admin console, not from here.
 
 ## Key files
 
 | File | Role |
 |------|------|
-| `shared/ImpersonateAction.tsx` | Per-user "impersonate" action — flips session to view as that user |
 | `shared/sendSetPasswordEmail.ts` | Triggers password-reset email for a user |
 | `users/components/ResendPasswordEmailAction.tsx` | Resend password-set email from the user list |
 | `shared/` | Layout, table primitives, access guards used across admin pages |
@@ -14,7 +13,7 @@ Internal admin tools. GoodParty staff use this to manage users, impersonate cand
 ## Patterns
 
 - **Admin gating**: routes here are reachable only by users with admin role. Auth/role check happens in `app/shared/user/UserProvider.tsx` and at the page level — don't rely on the URL alone.
-- **Impersonation** uses the `ImpersonateUser` provider in `app/shared/user/`. After kicking off, the global `ImpersonationBanner` shows on every page until exited.
+- **Impersonation**: admin impersonation lives in the gp-admin console (`packages/gp-admin`), not here. It enters gp-webapp via the `/impersonate` route (Clerk ticket sign-in) and via `ImpersonationBanner`'s "Switch User" flow (`POST /v1/admin/users/impersonate/:userId` → `client.signIn.create({ strategy: 'ticket' })`). There is no per-user impersonate action in this package and no impersonation context provider. While impersonating, the global `ImpersonationBanner` shows on every page until exited.
 - **Server actions** (`shared/sendSetPasswordEmail.ts`) call gp-api directly via `serverRequest`; admin actions tend to be one-shot rather than form-driven.
 
 ## Gotchas
@@ -25,6 +24,6 @@ Internal admin tools. GoodParty staff use this to manage users, impersonate cand
 
 ## Related
 
-- `app/shared/user/UserProvider.tsx`, `ImpersonateUserProvider.tsx`, `ImpersonationBanner.tsx`.
+- `app/shared/user/UserProvider.tsx`, `ImpersonationBanner.tsx`.
 - `app/impersonate/` — public route used to enter impersonation by token.
 - `helpers/authHelper.ts` — role checks.

@@ -68,7 +68,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 542 -> 543 for app/dashboard/error.tsx — error boundaries must
 // be client components (the Next.js error-file contract requires it), so the
 // new dashboard-segment boundary adds exactly one.
-const BASELINE = 543
+// 2026-07-16: 543 -> 540 for removing the legacy impersonation path:
+// ImpersonateUserProvider, useImpersonateUser, and the orphaned
+// ImpersonateAction (gp-admin owns admin impersonation now).
+const BASELINE = 540
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
