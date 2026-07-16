@@ -42,13 +42,23 @@ export default function OnboardingCampaignStoryStep({
 
   // The cards seed their editable state from initial* props via useState at
   // mount, read only once. Don't mount them until both fetches have resolved
-  // (data present, or errored so a real failure doesn't hang forever) — a
+  // (data present, or errored so a real failure doesn't hang forever), a
   // returning candidate's bio/background/issues must be in hand before first
   // render, the same way the standalone CampaignStoryPage gets them as
   // server-fetched props.
   const isReady =
     (website !== undefined || isWebsiteError) &&
     (story !== undefined || isStoryError)
+
+  // While loading, the inner CampaignStoryStepCards isn't mounted yet (its
+  // useState(initial*) can't seed from unresolved fetches), so nothing else
+  // reports a value up. Report incomplete here for the loading window; once
+  // isReady flips true, the inner component's own effect takes over.
+  useEffect(() => {
+    if (!isReady) {
+      onCompleteChange(false)
+    }
+  }, [isReady, onCompleteChange])
 
   if (!isReady) {
     return <p className="text-sm text-muted-foreground">Loading your story…</p>

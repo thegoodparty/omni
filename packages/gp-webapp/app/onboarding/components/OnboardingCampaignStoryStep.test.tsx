@@ -62,6 +62,16 @@ describe('OnboardingCampaignStoryStep', () => {
     await waitFor(() => expect(onCompleteChange).toHaveBeenLastCalledWith(true))
   })
 
+  it('reports incomplete while the website/story fetches are still pending', async () => {
+    mockGetUserWebsite.mockImplementation(() => new Promise(() => undefined))
+    api.mock('GET /v1/campaigns/mine/story', () => new Promise(() => undefined))
+    const onCompleteChange = vi.fn()
+    render(<OnboardingCampaignStoryStep onCompleteChange={onCompleteChange} />)
+
+    await waitFor(() => expect(onCompleteChange).toHaveBeenCalledWith(false))
+    expect(onCompleteChange).not.toHaveBeenCalledWith(true)
+  })
+
   it("renders a returning candidate's fetched background into the card instead of an empty field", async () => {
     mockGetUserWebsite.mockResolvedValue(website)
     const background = 'I grew up here and ran a small business.'
@@ -73,7 +83,7 @@ describe('OnboardingCampaignStoryStep', () => {
     render(<OnboardingCampaignStoryStep onCompleteChange={onCompleteChange} />)
 
     // The background card must show the previously-saved text, not an empty
-    // textarea — proves the card mounted after the fetch resolved rather than
+    // textarea, proves the card mounted after the fetch resolved rather than
     // seeding its useState(initialValue) from a pre-fetch empty default.
     await waitFor(() =>
       expect(screen.getByDisplayValue(background)).toBeInTheDocument(),
