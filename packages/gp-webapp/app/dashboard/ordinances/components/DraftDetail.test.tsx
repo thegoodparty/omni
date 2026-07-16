@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, act } from '@testing-library/react'
 import type { Ordinance } from '@goodparty_org/contracts'
 import DraftDetail from './DraftDetail'
 
@@ -149,6 +149,41 @@ describe('DraftDetail autosave', () => {
       {
         draftBody: 'edited right before leaving',
       },
+    )
+  })
+
+  it('surfaces an error and drops the queued edit when a save fails', async () => {
+    let rejectFirst!: (e: Error) => void
+    mocks.updateOrdinance.mockReturnValueOnce(
+      new Promise<Ordinance>((_resolve, reject) => {
+        rejectFirst = reject
+      }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('first')
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    editBody('second')
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      rejectFirst(new Error('save failed'))
+    })
+
+    // Error stays visible and the queued edit is dropped (no auto-retry).
+    expect(screen.getByText("Couldn't save")).toBeVisible()
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+
+    // A later edit still fires a fresh save.
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    editBody('third')
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(2)
+    expect(mocks.updateOrdinance).toHaveBeenLastCalledWith(
+      'public-safety-cameras',
+      { draftBody: 'third' },
     )
   })
 
