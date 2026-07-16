@@ -276,7 +276,7 @@ describe('PeopleService', () => {
         ...overrides,
       }) as never
 
-    it('runs the name-search data query in a transaction with a SET LOCAL statement timeout', async () => {
+    it('runs the name-search count and data queries in transactions with a SET LOCAL statement timeout', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 1n }])
         .mockResolvedValueOnce([makeDbPerson()])
@@ -284,13 +284,18 @@ describe('PeopleService', () => {
       const result = await service.findPeople(searchDto())
 
       expect(result.people).toHaveLength(1)
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      // Both the count (constructed first) and the data query are guarded.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
       expect(mockClient.$transaction.mock.calls[0]?.[0]).toHaveLength(2)
-      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
-        "SET LOCAL statement_timeout = '2500ms'",
-      )
+      expect(mockClient.$transaction.mock.calls[1]?.[0]).toHaveLength(2)
+      for (const call of mockClient.$executeRaw.mock.calls) {
+        expect(sqlOf(call[0])).toBe("SET LOCAL statement_timeout = '2500ms'")
+      }
       // Call 0 is the count; call 1 is the primary data query — normal,
       // unfenced shape.
+      const countSql = sqlOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(countSql).toContain('COUNT(*)')
+      expect(countSql).not.toContain('SELECT v.*')
       const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[1]?.[0])
       expect(dataSql).not.toContain('SELECT v.*')
       expect(dataSql).toMatch(/ORDER BY v\."id"\s+LIMIT \? OFFSET \?/)
@@ -301,12 +306,15 @@ describe('PeopleService', () => {
         .mockResolvedValueOnce([{ voter_count: 1n }])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([makeDbPerson({ id: 'fenced-person' })])
-      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+      // First transaction is the count (succeeds); second is the data query.
+      mockClient.$transaction
+        .mockImplementationOnce((ops: Promise<unknown>[]) => Promise.all(ops))
+        .mockRejectedValueOnce(statementTimeoutError())
 
       const result = await service.findPeople(searchDto())
 
       expect(result.people[0]?.id).toBe('fenced-person')
-      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(3)
 
       const primary = mockClient.$queryRaw.mock.calls[1]?.[0]
@@ -342,13 +350,16 @@ describe('PeopleService', () => {
         .mockResolvedValueOnce([
           makeDbPerson({ id: 'rep-1', householdId: 'A', householdSize: 2n }),
         ])
-      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+      mockClient.$transaction
+        .mockImplementationOnce((ops: Promise<unknown>[]) => Promise.all(ops))
+        .mockRejectedValueOnce(statementTimeoutError())
 
       const result = await service.findPeople(
         searchDto({ groupByHousehold: true, page: 1 }),
       )
 
       expect(result.people[0]?.householdSize).toBe(2)
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(2)
       const fencedSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
       expect(fencedSql).toContain('DISTINCT ON')
       expect(fencedSql).toContain('COUNT(*) OVER (PARTITION BY')
@@ -360,6 +371,45 @@ describe('PeopleService', () => {
       expect(fencedSql.indexOf('LIMIT ?) v')).toBeLessThan(
         fencedSql.indexOf('ORDER BY'),
       )
+    })
+
+    it('retries the count once with a trigram-fenced subquery on statement cancellation (57014)', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([]) // count primary (cancelled inside txn)
+        .mockResolvedValueOnce([makeDbPerson()]) // data primary
+        .mockResolvedValueOnce([{ voter_count: 42n }]) // fenced count retry
+      // First transaction is the count — cancel it; the data query succeeds.
+      mockClient.$transaction
+        .mockRejectedValueOnce(statementTimeoutError())
+        .mockImplementationOnce((ops: Promise<unknown>[]) => Promise.all(ops))
+
+      const result = await service.findPeople(searchDto())
+
+      expect(result.pagination.totalResults).toBe(42)
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(3)
+      const primaryCountSql = sqlOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      const fencedCountSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
+      // The fenced count wraps the same FROM+WHERE, unordered, capped, with the
+      // COUNT applied outside over the re-aliased row set.
+      expect(fencedCountSql).toContain('FROM (SELECT v.* FROM')
+      expect(fencedCountSql).toContain('LIMIT ?) v')
+      expect(fencedCountSql.indexOf('COUNT(*)')).toBeLessThan(
+        fencedCountSql.indexOf('FROM (SELECT v.*'),
+      )
+      expect(
+        valuesOf(mockClient.$queryRaw.mock.calls[2]?.[0]).slice(-1),
+      ).toEqual([10000])
+      // Same WHERE, same params as the primary count.
+      const primaryWhere = primaryCountSql
+        .slice(primaryCountSql.indexOf('WHERE'))
+        .trim()
+      const fencedWhere = fencedCountSql
+        .slice(
+          fencedCountSql.indexOf('WHERE'),
+          fencedCountSql.indexOf('LIMIT ?) v'),
+        )
+        .trim()
+      expect(fencedWhere).toBe(primaryWhere)
     })
 
     it('propagates non-timeout errors without a fenced retry', async () => {

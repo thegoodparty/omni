@@ -224,25 +224,62 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       ? Prisma.sql`COUNT(DISTINCT ${buildHouseholdKeySql('v')})::bigint`
       : Prisma.sql`COUNT(*)::bigint`
 
-    if (districtId) {
-      const rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(
-        Prisma.sql`SELECT ${countExpr} AS voter_count
-          FROM "green"."DistrictVoter" dv
+    const fromSql = districtId
+      ? Prisma.sql`FROM "green"."DistrictVoter" dv
           JOIN "green"."Voter" v
             ON v."State" = dv."State"
-           AND v."id"    = dv."voter_id"
-          ${whereClause}`,
-      )
-      const count = rows[0]?.voter_count ?? 0n
-      return Number(count)
+           AND v."id"    = dv."voter_id"`
+      : Prisma.sql`FROM "green"."Voter" v`
+
+    const countSql = Prisma.sql`SELECT ${countExpr} AS voter_count
+      ${fromSql}
+      ${whereClause}`
+
+    if (!isNameSearch(search)) {
+      const rows =
+        await this.client.$queryRaw<{ voter_count: bigint }[]>(countSql)
+      return Number(rows[0]?.voter_count ?? 0n)
     }
-    const rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(
-      Prisma.sql`SELECT ${countExpr} AS voter_count
-        FROM "green"."Voter" v
-        ${whereClause}`,
-    )
-    const count = rows[0]?.voter_count ?? 0n
-    return Number(count)
+
+    // Same pathological-plan exposure as the data query (the count shares the
+    // name-LIKE WHERE), same guard. The fenced count re-aliases the capped row
+    // set as v so countExpr (including the household key) applies unchanged. A
+    // pattern that trips the timeout matches far fewer rows than the fence in
+    // practice, so the fallback count is exact; if the cap ever binds, a floor
+    // of 10k beats a request that never returns.
+    const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
+      FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${NAME_SEARCH_FENCE_LIMIT}) v`
+    const rows = await this.countWithTimeoutGuard(countSql, fencedCountSql)
+    return Number(rows[0]?.voter_count ?? 0n)
+  }
+
+  private async countWithTimeoutGuard(
+    countSql: Prisma.Sql,
+    fencedCountSql: Prisma.Sql,
+  ): Promise<Array<{ voter_count: bigint }>> {
+    const startedAt = Date.now()
+    try {
+      const [, rows] = await this.client.$transaction([
+        this.client.$executeRaw(
+          Prisma.raw(
+            `SET LOCAL statement_timeout = '${NAME_SEARCH_TIMEOUT_MS}ms'`,
+          ),
+        ),
+        this.client.$queryRaw<Array<{ voter_count: bigint }>>(countSql),
+      ])
+      return rows
+    } catch (error) {
+      if (!isStatementTimeoutError(error)) {
+        throw error
+      }
+      this.logger.warn(
+        { elapsedMs: Date.now() - startedAt },
+        'Name-search count hit the statement timeout; retrying with trigram-fenced subquery',
+      )
+      return this.client.$queryRaw<Array<{ voter_count: bigint }>>(
+        fencedCountSql,
+      )
+    }
   }
 
   // Name-search LIKE patterns can trigger a pathological full-partition plan
