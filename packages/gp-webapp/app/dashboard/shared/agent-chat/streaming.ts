@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChatMessageSegment } from './chatClient'
 
 // A live assistant turn as interleaved blocks: streamed text and tool-call
 // pills in the order they arrived. Shared by every agent-chat scope so the
@@ -11,6 +12,29 @@ export type LiveSegment =
   // cleared on tool_result). Absent on persisted history, so reloaded pills are
   // always static.
   | { kind: 'tool'; toolName: string; running?: boolean }
+
+// Project a persisted assistant message into interleaved LiveSegments, so a
+// reloaded turn renders identically to how it streamed: stored segments in order
+// (dropping empty text), falling back to a bare `content` string for legacy rows
+// with no segments. Shared by every agent-chat scope.
+export function segmentsToLive(
+  segments: ChatMessageSegment[],
+  content: string,
+): LiveSegment[] {
+  return segments.length > 0
+    ? segments.flatMap((s): LiveSegment[] =>
+        s.kind === 'text'
+          ? s.text
+            ? [{ kind: 'text', text: s.text }]
+            : []
+          : s.toolName
+            ? [{ kind: 'tool', toolName: s.toolName }]
+            : [],
+      )
+    : content
+      ? [{ kind: 'text', text: content }]
+      : []
+}
 
 // Revealed-able characters in a turn (text only; pills reveal with the text
 // before them).

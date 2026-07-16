@@ -479,13 +479,13 @@ export type APIEndpoints = {
     Response: Ordinance
   }
 
-  'POST /v1/ordinances/:slug/clarify-answers': {
-    Request: SaveOrdinanceClarifyAnswerRequest
+  'PATCH /v1/ordinances/:slug': {
+    Request: UpdateOrdinanceRequest
     Response: Ordinance
   }
 
-  'PATCH /v1/ordinances/:slug': {
-    Request: UpdateOrdinanceRequest
+  'POST /v1/ordinances/:slug/clarify-answers': {
+    Request: SaveOrdinanceClarifyAnswerRequest
     Response: Ordinance
   }
 

@@ -55,10 +55,11 @@ import { dirname, join, relative } from 'node:path'
 // (useState + useEffect + a react-query refetchInterval) to show a
 // "generating..." banner once the user lands back in the product; that
 // polling loop cannot run on the server.
-// 2026-07-15: 538 -> 539 for OrdinanceDraftDocument — the draft document editor
-// holds body/title state, debounced autosave timers, and an auto-resize layout
-// effect, so it must be a client component.
-const BASELINE = 539
+// 2026-07-15: the draft-detail screen supersedes develop's OrdinanceDraftDocument
+// (removed) with DraftDetail (contentEditable inline editor with autosave +
+// selection toolbar) and DraftChat (streaming chat in a drawer). Both are
+// stateful client components; the page.tsx shell stays server.
+const BASELINE = 540
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
