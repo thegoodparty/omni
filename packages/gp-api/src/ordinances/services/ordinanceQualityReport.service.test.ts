@@ -3,7 +3,7 @@ import { LlmService } from '@/llm/services/llm.service'
 import { Ordinance } from '../../generated/prisma'
 import {
   OrdinanceQualityReportService,
-  draftBodyHash,
+  qualityReportInputHash,
 } from './ordinanceQualityReport.service'
 
 const record = (overrides: Partial<Ordinance> = {}): Ordinance =>
@@ -84,7 +84,7 @@ describe('OrdinanceQualityReportService', () => {
     ).generate(draft, 7)
 
     expect(report.stale).toBe(false)
-    expect(report.ranAgainstBodyHash).toBe(draftBodyHash(draft.draftBody ?? ''))
+    expect(report.ranAgainstBodyHash).toBe(qualityReportInputHash(draft))
   })
 
   it('coerces the userId to the string the LLM options expect', async () => {

@@ -68,7 +68,11 @@ export default function QualityReport({
     setError(null)
     try {
       const updated = await generateQualityReport(slug)
-      setReport(updated.qualityReport ?? null)
+      if (!updated.qualityReport) {
+        setError('The quality report was not returned. Please try again.')
+        return
+      }
+      setReport(updated.qualityReport)
       onReran()
     } catch {
       setError('Could not run the quality checks. Please try again.')

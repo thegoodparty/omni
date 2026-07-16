@@ -24,7 +24,7 @@ import {
 import { ElectedOffice, Ordinance, Prisma } from '../../generated/prisma'
 import {
   OrdinanceQualityReportService,
-  draftBodyHash,
+  qualityReportInputHash,
 } from './ordinanceQualityReport.service'
 
 const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
@@ -246,9 +246,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     if (!parsed.success) return null
     return {
       ...parsed.data,
-      stale:
-        parsed.data.ranAgainstBodyHash !==
-        draftBodyHash(record.draftBody ?? ''),
+      stale: parsed.data.ranAgainstBodyHash !== qualityReportInputHash(record),
     }
   }
 

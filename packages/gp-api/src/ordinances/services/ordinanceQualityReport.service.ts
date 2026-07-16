@@ -42,8 +42,15 @@ const QcGenerationSchema = z.object({
   ),
 })
 
-export const draftBodyHash = (body: string): string =>
-  createHash('sha256').update(body).digest('hex')
+// Hash the full text the report is graded against (title + body), so a
+// title-only edit also marks the report stale. Used both when stamping a fresh
+// report and when deriving staleness on read, so the two must stay identical.
+export const qualityReportInputHash = (
+  record: Pick<Ordinance, 'draftTitle' | 'draftBody'>,
+): string =>
+  createHash('sha256')
+    .update(`${record.draftTitle ?? ''}\n${record.draftBody ?? ''}`)
+    .digest('hex')
 
 const QC_SYSTEM_PROMPT = [
   'You are a legislative drafting reviewer. Evaluate a municipal ordinance',
@@ -132,7 +139,7 @@ export class OrdinanceQualityReportService {
         attention: checks.filter((c) => c.status === 'attention').length,
       },
       stale: false,
-      ranAgainstBodyHash: draftBodyHash(record.draftBody ?? ''),
+      ranAgainstBodyHash: qualityReportInputHash(record),
     }
   }
 }
