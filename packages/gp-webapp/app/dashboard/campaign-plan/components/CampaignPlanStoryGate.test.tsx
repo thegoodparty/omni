@@ -52,7 +52,7 @@ describe('CampaignPlanStoryGate', () => {
     render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
 
     expect(
-      await screen.findByRole('link', { name: 'Go to Campaign Story' }),
+      await screen.findByRole('link', { name: 'Open your campaign manager' }),
     ).toBeInTheDocument()
   })
 
@@ -66,9 +66,9 @@ describe('CampaignPlanStoryGate', () => {
     render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
 
     const link = await screen.findByRole('link', {
-      name: 'Go to Campaign Story',
+      name: 'Open your campaign manager',
     })
-    expect(link).toHaveAttribute('href', '/dashboard/campaign-story')
+    expect(link).toHaveAttribute('href', '/dashboard')
     expect(
       screen.queryByRole('button', { name: /Generate my Campaign Plan/ }),
     ).not.toBeInTheDocument()
@@ -84,7 +84,7 @@ describe('CampaignPlanStoryGate', () => {
     render(<CampaignPlanStoryGate onGenerate={vi.fn()} />)
 
     expect(
-      await screen.findByRole('link', { name: 'Go to Campaign Story' }),
+      await screen.findByRole('link', { name: 'Open your campaign manager' }),
     ).toBeInTheDocument()
   })
 
@@ -101,10 +101,9 @@ describe('CampaignPlanStoryGate', () => {
     expect(screen.getByText('background answer')).toBeInTheDocument()
     expect(screen.getByText('Roads')).toBeInTheDocument()
     expect(screen.getByText('Fix the roads')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Edit my Story' })).toHaveAttribute(
-      'href',
-      '/dashboard/campaign-story',
-    )
+    expect(
+      screen.getByRole('link', { name: 'Edit in campaign manager' }),
+    ).toHaveAttribute('href', '/dashboard')
   })
 
   it('renders issue descriptions without dropping text after an HTML entity', async () => {

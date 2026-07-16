@@ -83,7 +83,7 @@ const CampaignPlanStoryGate = ({
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/campaign-story">Go to Campaign Story</Link>
+          <Link href="/dashboard">Open your campaign manager</Link>
         </Button>
       </Card>
     )
@@ -149,7 +149,7 @@ const CampaignPlanStoryGate = ({
           Generate my Campaign Plan
         </Button>
         <Button variant="ghost" className="sm:ml-auto" asChild>
-          <Link href="/dashboard/campaign-story">Edit my Story</Link>
+          <Link href="/dashboard">Edit in campaign manager</Link>
         </Button>
       </div>
 
