@@ -96,6 +96,26 @@ describe('QualityReport', () => {
     expect(onReran).toHaveBeenCalled()
   })
 
+  it('disables the run button and shows a reviewing state while running', async () => {
+    let resolveRun: ((value: unknown) => void) | undefined
+    mocks.generateQualityReport.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRun = resolve
+        }),
+    )
+
+    render(<QualityReport {...props({ initialReport: null })} />)
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    const button = await screen.findByRole('button', { name: /reviewing/i })
+    expect(button).toBeDisabled()
+
+    // Settle the run so the test doesn't leak a pending state update.
+    resolveRun?.({ qualityReport: report() })
+    await screen.findByText(/reviewed by 6 checks/i)
+  })
+
   it('surfaces an error when the run fails', async () => {
     mocks.generateQualityReport.mockRejectedValue(new Error('nope'))
 
@@ -105,6 +125,20 @@ describe('QualityReport', () => {
 
     expect(
       await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
+  })
+
+  it('surfaces the API error message when the run is rejected with one', async () => {
+    mocks.generateQualityReport.mockRejectedValue({
+      data: { message: 'Cannot run quality checks on an empty draft' },
+    })
+
+    render(<QualityReport {...props({ initialReport: null })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(
+      await screen.findByText(/cannot run quality checks on an empty draft/i),
     ).toBeVisible()
   })
 

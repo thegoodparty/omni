@@ -243,7 +243,18 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     record: Ordinance,
   ): OrdinanceQualityReport | null {
     const parsed = OrdinanceQualityReportSchema.safeParse(record.qualityReport)
-    if (!parsed.success) return null
+    if (!parsed.success) {
+      // A null blob is just "no report yet". A non-null blob that fails to
+      // parse is malformed stored data (e.g. a schema change) — log it so it
+      // isn't silently indistinguishable from never-generated.
+      if (record.qualityReport !== null) {
+        this.logger.error(
+          { ordinanceId: record.id, error: parsed.error },
+          'qualityReport failed schema parse; treating as no report',
+        )
+      }
+      return null
+    }
     return {
       ...parsed.data,
       stale: parsed.data.ranAgainstBodyHash !== qualityReportInputHash(record),

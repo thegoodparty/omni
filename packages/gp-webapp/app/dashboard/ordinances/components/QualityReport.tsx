@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Button, cn } from '@styleguide'
+import { Badge, Button, cn } from '@styleguide'
 import {
   ChevronRightIcon,
   CircleAlertIcon,
@@ -31,37 +31,59 @@ type StatusMeta = {
 const STATUS_META: Record<OrdinanceQualityCheckStatus, StatusMeta> = {
   pass: {
     label: 'pass',
-    pillClass: 'bg-success/10 text-success-dark',
+    pillClass: 'border-success/40 bg-success/10 text-success-dark',
     Icon: CircleCheckIcon,
     iconClass: 'text-success',
   },
   flag: {
     label: 'flag',
-    pillClass: 'bg-destructive/10 text-destructive-dark',
+    pillClass: 'border-destructive/40 bg-destructive/10 text-destructive-dark',
     Icon: TriangleAlertIcon,
     iconClass: 'text-destructive',
   },
   attention: {
     label: 'attention',
-    pillClass: 'bg-warning/10 text-warning-dark',
+    pillClass: 'border-warning/50 bg-warning/10 text-warning-dark',
     Icon: CircleAlertIcon,
     iconClass: 'text-warning-dark',
   },
 }
 
-const PILL_CLASS = 'rounded-full px-2 py-0.5 text-xs font-semibold uppercase'
-
-const TallyPill = ({
-  count,
+const StatusPill = ({
   status,
+  children,
+  className,
 }: {
-  count: number
   status: OrdinanceQualityCheckStatus
+  children: React.ReactNode
+  className?: string
 }): React.JSX.Element => (
-  <span className={cn(PILL_CLASS, STATUS_META[status].pillClass)}>
-    {count} {STATUS_META[status].label}
-  </span>
+  <Badge
+    variant="outline"
+    shape="pill"
+    className={cn(
+      'font-semibold uppercase',
+      STATUS_META[status].pillClass,
+      className,
+    )}
+  >
+    {children}
+  </Badge>
 )
+
+// Surface a NestJS 400/error body message (ofetch puts the parsed body on
+// error.data) so an actionable API error like "Cannot run quality checks on an
+// empty draft" reaches the user instead of a generic string.
+const apiErrorMessage = (err: unknown): string | null => {
+  if (err && typeof err === 'object' && 'data' in err) {
+    const { data } = err as { data: unknown }
+    if (data && typeof data === 'object' && 'message' in data) {
+      const { message } = data as { message: unknown }
+      if (typeof message === 'string') return message
+    }
+  }
+  return null
+}
 
 function Check({
   check,
@@ -87,9 +109,9 @@ function Check({
         <span className="text-sm font-semibold text-foreground">
           {check.label}
         </span>
-        <span className={cn('ml-auto', PILL_CLASS, meta.pillClass)}>
+        <StatusPill status={check.status} className="ml-auto">
           {meta.label}
-        </span>
+        </StatusPill>
         <ChevronRightIcon
           className={cn(
             'size-4 shrink-0 text-muted-foreground transition-transform',
@@ -178,8 +200,11 @@ export default function QualityReport({
       }
       setReport(updated.qualityReport)
       onReran()
-    } catch {
-      setError('Could not run the quality checks. Please try again.')
+    } catch (err) {
+      setError(
+        apiErrorMessage(err) ??
+          'Could not run the quality checks. Please try again.',
+      )
     } finally {
       setRunning(false)
     }
@@ -223,9 +248,11 @@ export default function QualityReport({
             Reviewed by {report.checks.length} checks
           </h3>
           <div className="flex flex-wrap items-center gap-2">
-            <TallyPill count={report.tally.pass} status="pass" />
-            <TallyPill count={report.tally.flag} status="flag" />
-            <TallyPill count={report.tally.attention} status="attention" />
+            <StatusPill status="pass">{report.tally.pass} pass</StatusPill>
+            <StatusPill status="flag">{report.tally.flag} flag</StatusPill>
+            <StatusPill status="attention">
+              {report.tally.attention} attention
+            </StatusPill>
           </div>
         </div>
         <Button

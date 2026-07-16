@@ -156,6 +156,11 @@ export default function DraftDetail({
     while (savingRef.current && savingPromiseRef.current) {
       await savingPromiseRef.current
     }
+    // If the flush save failed the DB still holds the old text, so let the
+    // caller abort rather than grade the report against a stale draft.
+    if (saveStateRef.current === 'error') {
+      throw new Error('Draft could not be saved before running quality checks')
+    }
   }, [save])
 
   // Read innerText only when typing pauses, not on every keystroke (each read
