@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { useWinVoterContext } from '../../shared/useWinVoterContext'
 import type { Person } from './shared/contacts-types'
 
 export const MIN_TYPEAHEAD_QUERY_LENGTH = 3

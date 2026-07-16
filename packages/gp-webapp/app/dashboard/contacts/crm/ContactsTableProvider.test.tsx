@@ -1,4 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  type MockInstance,
+} from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -8,7 +16,7 @@ import {
   ContactsTableProvider,
   useContactsTable,
 } from './ContactsTableProvider'
-import { makePerson } from '../components/shared/test-fixtures'
+import { makePerson } from './shared/test-fixtures'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
 
 const electedOfficeFixture: ElectedOffice = {
@@ -27,17 +35,18 @@ const electedOfficeFixture: ElectedOffice = {
   campaignId: null,
 }
 
-// The provider reads all four navigation hooks; the global setup only mocks
-// useRouter/usePathname, so provide the rest here. params is mutable so a test
-// can select a person (drives the engagement queries).
-let mockParams: Record<string, string | string[]> = {}
+// The provider reads three navigation hooks; the global setup only mocks
+// useRouter/usePathname, so provide the rest here. pathname is mutable so a
+// test can select a person (drives the engagement queries) — the provider
+// derives the selected id from the pathname, not from route params.
+let mockPathname = '/dashboard/contacts'
+let mockSearchParams = new URLSearchParams()
 let mockPush = vi.fn()
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mockPush }),
-  usePathname: () => '/dashboard/contacts',
-  useSearchParams: () => new URLSearchParams(),
-  useParams: () => mockParams,
+  usePathname: () => mockPathname,
+  useSearchParams: () => mockSearchParams,
 }))
 
 vi.mock('@shared/experiments/winVoterDataFlag', () => ({
@@ -53,7 +62,8 @@ vi.mock('@shared/organization-picker', () => ({
 const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
 
 beforeEach(() => {
-  mockParams = {}
+  mockPathname = '/dashboard/contacts'
+  mockSearchParams = new URLSearchParams()
   mockPush = vi.fn()
   mockedUseWinVoterDataFlag.mockReset()
   mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
@@ -153,7 +163,7 @@ describe('ContactsTableProvider — engagement :id selection', () => {
     })
 
   it('passes person.lalVoterId (not person.id) for the Win activities branch', async () => {
-    mockParams = { attr: ['p_1'] }
+    mockPathname = '/dashboard/contacts/p_1'
     mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
     // No elected office -> Win context.
@@ -178,7 +188,7 @@ describe('ContactsTableProvider — engagement :id selection', () => {
   })
 
   it('passes person.id for the Serve (elected office) activities branch', async () => {
-    mockParams = { attr: ['p_1'] }
+    mockPathname = '/dashboard/contacts/p_1'
     mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
     mockContactsList()
     api.mock('GET /v1/elected-office/current', {
@@ -202,7 +212,7 @@ describe('ContactsTableProvider — engagement :id selection', () => {
   })
 
   it('never fires the Win-keyed lalVoterId request for an elected official while the flag is on (loading-window guard)', async () => {
-    mockParams = { attr: ['p_1'] }
+    mockPathname = '/dashboard/contacts/p_1'
     mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
     // Delay the elected-office resolution so the person fetch (with its
@@ -310,5 +320,119 @@ describe('ContactsTableProvider — selectSegment re-applies a saved search', ()
     const pushedUrl = mockPush.mock.calls.at(-1)?.[0] as string
     expect(pushedUrl).toContain('segment=56')
     expect(pushedUrl).not.toContain('query=')
+  })
+})
+
+describe('ContactsTableProvider — shallow person selection (no route navigation)', () => {
+  // Opening/closing a person must never go through router.push: the route is
+  // force-dynamic with a loading.tsx, so a router navigation blanks the page
+  // through the loading boundary. selectPerson uses native pushState instead,
+  // and the selected id derives from usePathname (useParams does not react to
+  // shallow pushState).
+  const mockContactsList = () =>
+    api.mock('GET /v1/contacts', {
+      status: 200,
+      data: {
+        people: [],
+        pagination: {
+          totalResults: 0,
+          currentPage: 1,
+          pageSize: 20,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      },
+    })
+
+  const SelectionProbe = ({ personId }: { personId: string | null }) => {
+    const { currentlySelectedPersonId, selectPerson } = useContactsTable()
+    return (
+      <div>
+        <span data-testid="selected-id">
+          {String(currentlySelectedPersonId)}
+        </span>
+        <button data-testid="go" onClick={() => selectPerson(personId)}>
+          go
+        </button>
+      </div>
+    )
+  }
+
+  const renderSelectionProbe = (personId: string | null) =>
+    render(
+      <CampaignContext.Provider value={[null]}>
+        <ContactsTableProvider>
+          <SelectionProbe personId={personId} />
+        </ContactsTableProvider>
+      </CampaignContext.Provider>,
+    )
+
+  let pushStateSpy: MockInstance
+
+  beforeEach(() => {
+    mockContactsList()
+    pushStateSpy = vi.spyOn(window.history, 'pushState')
+  })
+
+  afterEach(() => {
+    pushStateSpy.mockRestore()
+  })
+
+  it('selects a person via history.pushState preserving the query string, with no router.push', async () => {
+    mockSearchParams = new URLSearchParams('segment=55&page=2')
+
+    renderSelectionProbe('p_9')
+    screen.getByTestId('go').click()
+
+    await waitFor(() =>
+      expect(pushStateSpy).toHaveBeenCalledWith(
+        null,
+        '',
+        '/dashboard/contacts/p_9?segment=55&page=2',
+      ),
+    )
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('closing (selectPerson(null)) returns to the base path preserving the query string', async () => {
+    mockPathname = '/dashboard/contacts/p_9'
+    mockSearchParams = new URLSearchParams('query=smith')
+
+    renderSelectionProbe(null)
+    screen.getByTestId('go').click()
+
+    await waitFor(() =>
+      expect(pushStateSpy).toHaveBeenCalledWith(
+        null,
+        '',
+        '/dashboard/contacts?query=smith',
+      ),
+    )
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('derives the selected person id from the pathname', () => {
+    mockPathname = '/dashboard/contacts/p_7'
+
+    renderSelectionProbe(null)
+
+    expect(screen.getByTestId('selected-id')).toHaveTextContent('p_7')
+  })
+
+  it('reads no selection on the base path', () => {
+    mockPathname = '/dashboard/contacts'
+
+    renderSelectionProbe(null)
+
+    expect(screen.getByTestId('selected-id')).toHaveTextContent('null')
+  })
+
+  it('reads no selection when the path has more than one extra segment', () => {
+    mockPathname = '/dashboard/contacts/a/b'
+
+    renderSelectionProbe(null)
+
+    expect(screen.getByTestId('selected-id')).toHaveTextContent('null')
   })
 })

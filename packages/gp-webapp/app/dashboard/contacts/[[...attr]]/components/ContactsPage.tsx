@@ -2,22 +2,20 @@
 import Paper from '@shared/utils/Paper'
 import DashboardLayout from '../../../shared/DashboardLayout'
 import ContactsTable from './ContactsTable'
-import PersonOverlay from './person/PersonOverlay'
+import PersonOverlay from '../../crm/person/PersonOverlay'
 import Download from './Download'
 import SegmentSection from './segments/SegmentSection'
 import ContactsStatsSection from './ContactsStatsSection'
 import { ContactSearch } from './ContactSearch'
-import { ContactTypeahead } from './ContactTypeahead'
-import { ContactProModalProvider } from '../hooks/ContactProModal'
+import { ContactProModalProvider } from '../../crm/ContactProModal'
 import { useEffect, useRef, useState } from 'react'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import H2 from '@shared/typography/H2'
 import Body2 from '@shared/typography/Body2'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { getContactsLabels } from '../../../shared/contactsLabels'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
 
 export default function ContactsPage() {
   const [campaign] = useCampaign()
@@ -31,17 +29,6 @@ export default function ContactsPage() {
     isWinContextReady,
   } = useContactsTable()
   const labels = getContactsLabels(isWinContext)
-
-  // The typeahead is the CRM rollout's treatment surface, so exposure fires
-  // here (trackExposure: true). `enabled` already folds in `ready`, so both
-  // flag-off and not-yet-settled render today's table search — the flag-off
-  // experience is byte-identical to before this gate existed.
-  const { enabled: isCrmTypeaheadEnabled } = useCrmEnabled(true)
-  const searchControl = isCrmTypeaheadEnabled ? (
-    <ContactTypeahead />
-  ) : (
-    <ContactSearch />
-  )
 
   // isWinContext reads false until both the elected-office query and the
   // win-voter-data flag settle, so firing before then would emit a spurious
@@ -102,7 +89,7 @@ export default function ContactsPage() {
                   <Download />
                 </div>
                 <div className="align-right hidden md:flex md:w-full xl:w-[400px]">
-                  {searchControl}
+                  <ContactSearch />
                 </div>
               </div>
 
@@ -119,7 +106,7 @@ export default function ContactsPage() {
               )}
 
               <div className="flex align-right md:hidden sm:w-full">
-                {searchControl}
+                <ContactSearch />
               </div>
               <div className="relative mt-6 lg:mt-0">
                 <ContactsTable />

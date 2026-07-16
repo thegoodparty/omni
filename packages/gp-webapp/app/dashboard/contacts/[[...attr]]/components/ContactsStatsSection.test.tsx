@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import ContactsStatsSection from './ContactsStatsSection'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 
-vi.mock('../hooks/ContactsTableProvider', () => ({
+vi.mock('../../crm/ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 
