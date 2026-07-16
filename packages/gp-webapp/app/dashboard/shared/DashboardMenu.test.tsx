@@ -136,8 +136,8 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
   })
 })
 
-describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
-  it('renders Campaign Plan before Campaign Story when both are present', () => {
+describe('getDashboardMenuItems — Campaign Story sidebar item removed', () => {
+  it('does not render a Campaign Story sidebar item even when the story flag is on', () => {
     const items = getDashboardMenuItems(
       proCampaign,
       false, // serveAccessEnabled
@@ -151,11 +151,11 @@ describe('getDashboardMenuItems — Campaign Plan vs Story order', () => {
       false, // ordinancesEnabled
     )
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
-    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
 
     expect(planIdx).toBeGreaterThanOrEqual(0)
-    expect(storyIdx).toBeGreaterThanOrEqual(0)
-    expect(planIdx).toBeLessThan(storyIdx)
+    expect(
+      items.find((i) => i.id === 'campaign-story-dashboard'),
+    ).toBeUndefined()
   })
 })
 
@@ -279,7 +279,7 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
   })
 
-  it('keeps Campaign Plan before Story when the flag hides Community Issues for an elected office', () => {
+  it('still renders Campaign Plan when the flag hides Community Issues for an elected office', () => {
     // With Community Issues hidden, the front-of-list offset drops by one;
     // the campaign-category items must still render in order.
     const items = links(proCampaign, {
@@ -289,10 +289,7 @@ describe('getDashboardMenuItems — Community Issues nav gating', () => {
     })
     expect(items.some((i) => i.id === 'community-issues-dashboard')).toBe(false)
     const planIdx = items.findIndex((i) => i.id === 'campaign-plan-dashboard')
-    const storyIdx = items.findIndex((i) => i.id === 'campaign-story-dashboard')
     expect(planIdx).toBeGreaterThanOrEqual(0)
-    expect(storyIdx).toBeGreaterThanOrEqual(0)
-    expect(planIdx).toBeLessThan(storyIdx)
   })
 })
 
