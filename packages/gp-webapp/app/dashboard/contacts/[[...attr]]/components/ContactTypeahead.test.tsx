@@ -6,6 +6,8 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { ContactTypeahead } from './ContactTypeahead'
 import { useContactsTable } from '../hooks/ContactsTableProvider'
 import { useShowContactProModal } from '../hooks/ContactProModal'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { trackEvent } from 'helpers/analyticsHelper'
 import { makePerson } from './shared/test-fixtures'
 import type { ListContactsResponse, Person } from './shared/contacts-types'
 
@@ -18,9 +20,18 @@ vi.mock('../hooks/ContactProModal', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
+vi.mock('../../../shared/useWinVoterContext', () => ({
+  useWinVoterContext: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseShowContactProModal = vi.mocked(useShowContactProModal)
+const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
+const mockedTrackEvent = vi.mocked(trackEvent)
 
 type ContextValue = ReturnType<typeof useContactsTable>
 
@@ -65,7 +76,9 @@ beforeEach(() => {
   searches = []
   selectPerson.mockClear()
   showProModal.mockClear()
+  mockedTrackEvent.mockClear()
   mockedUseShowContactProModal.mockReturnValue(showProModal)
+  mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
   setContext()
 })
 
@@ -269,5 +282,183 @@ describe('ContactTypeahead — selection and dismissal', () => {
 
     await user.type(screen.getByRole('combobox'), 'e')
     expect(await screen.findByText('Jane Doe')).toBeInTheDocument()
+  })
+})
+
+// Event-name strings are asserted as literals on purpose: the CRM brief specs
+// them exactly, so a rename in the EVENTS map must fail here.
+describe('ContactTypeahead — Contact Searched analytics (ENG-10688)', () => {
+  it('fires exactly one Voter Data event with resultCount for a resolved Win search', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jan')
+    await screen.findByText('Jane Doe')
+
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(1))
+    expect(mockedTrackEvent).toHaveBeenCalledWith(
+      'Voter Data - Contact Searched',
+      { resultCount: 1 },
+    )
+  })
+
+  it('fires the Constituent Data event in a Serve context', async () => {
+    mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
+    setContext({ isWinContext: false })
+    mockContacts([makePerson()])
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jan')
+    await screen.findByText('Jane Doe')
+
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(1))
+    expect(mockedTrackEvent).toHaveBeenCalledWith(
+      'Constituent Data - Contact Searched',
+      { resultCount: 1 },
+    )
+  })
+
+  it('fires with resultCount 0 for a resolved empty search', async () => {
+    mockContacts([])
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Zzz')
+    await screen.findByText('No voters found')
+
+    await waitFor(() =>
+      expect(mockedTrackEvent).toHaveBeenCalledWith(
+        'Voter Data - Contact Searched',
+        { resultCount: 0 },
+      ),
+    )
+    expect(mockedTrackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire for a superseded out-of-order response', async () => {
+    let releaseSlow!: () => void
+    const slowGate = new Promise<void>((resolve) => {
+      releaseSlow = resolve
+    })
+    api.mock('GET /v1/contacts', async ({ query }) => {
+      searches.push(query.search ?? '')
+      if (query.search === 'Ann') {
+        await slowGate
+        return {
+          status: 200,
+          data: listResponse([
+            makePerson({ id: 'stale-1' }),
+            makePerson({ id: 'stale-2' }),
+          ]),
+        }
+      }
+      return { status: 200, data: listResponse([makePerson({ id: 'fresh' })]) }
+    })
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    const input = screen.getByRole('combobox')
+    await user.type(input, 'Ann')
+    await waitFor(() => expect(searches).toContain('Ann'))
+
+    await user.type(input, 'a')
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(1))
+
+    releaseSlow()
+    await debounceSettle()
+
+    expect(mockedTrackEvent).toHaveBeenCalledTimes(1)
+    expect(mockedTrackEvent).toHaveBeenCalledWith(
+      'Voter Data - Contact Searched',
+      { resultCount: 1 },
+    )
+  })
+
+  it('does not re-fire on re-render, but fires again for a new distinct search', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup()
+    const { rerender } = render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jan')
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(1))
+
+    rerender(<ContactTypeahead />)
+    await debounceSettle()
+    expect(mockedTrackEvent).toHaveBeenCalledTimes(1)
+
+    await user.type(screen.getByRole('combobox'), 'e')
+    await waitFor(() => expect(searches).toContain('Jane'))
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(2))
+  })
+
+  it('fires again when the same term is cleared and searched a second time', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    const input = screen.getByRole('combobox')
+    await user.type(input, 'Jan')
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(1))
+
+    await user.clear(input)
+    await user.type(input, 'Jan')
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not fire before the Win/Serve context settles, then fires once with the settled mode', async () => {
+    mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: false })
+    mockContacts([makePerson()])
+    const user = userEvent.setup()
+    const { rerender } = render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jan')
+    await screen.findByText('Jane Doe')
+    await debounceSettle()
+    expect(mockedTrackEvent).not.toHaveBeenCalled()
+
+    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+    rerender(<ContactTypeahead />)
+
+    await waitFor(() => expect(mockedTrackEvent).toHaveBeenCalledTimes(1))
+    expect(mockedTrackEvent).toHaveBeenCalledWith(
+      'Voter Data - Contact Searched',
+      { resultCount: 1 },
+    )
+  })
+
+  it('does not fire for the non-pro modal path', async () => {
+    setContext({ canUseProFeatures: false })
+    mockContacts([makePerson()])
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jan')
+    await debounceSettle()
+
+    expect(mockedTrackEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not fire for sub-3-character input', async () => {
+    mockContacts([makePerson()])
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Ja')
+    await debounceSettle()
+
+    expect(mockedTrackEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not fire when the request fails', async () => {
+    api.mock('GET /v1/contacts', { status: 500, data: { message: 'boom' } })
+    const user = userEvent.setup()
+    render(<ContactTypeahead />)
+
+    await user.type(screen.getByRole('combobox'), 'Jan')
+    await screen.findByText('Something went wrong. Try again.')
+
+    expect(mockedTrackEvent).not.toHaveBeenCalled()
   })
 })
