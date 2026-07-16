@@ -77,6 +77,11 @@ Services backed by a Prisma model **must** extend `createPrismaBase(MODELS.Model
 
 Almost all `Voter` queries go through `Prisma.sql` / `$queryRaw`, not Prisma ORM CRUD. The Voter table has 100+ L2 columns and partitioning by state — the ORM path is too coarse. Filter Zod → `transformFilters` → `buildVoterFiltersSql` → `Prisma.sql` WHERE clauses → execute. Output is normalized via `transformToPersonOutput` before leaving the service.
 
+Name-search list queries run under a 2.5s `SET LOCAL statement_timeout`; on
+cancellation (SQLSTATE 57014) `people.service.ts` retries once with a
+trigram-fenced subquery — Postgres floors LIKE selectivity estimates, so rare
+patterns otherwise mislead the planner into a full-partition scan.
+
 `District` and `DistrictStats` use ORM methods — they're small lookup tables.
 
 See `docs/data-pipeline.md` for the full pipeline.
