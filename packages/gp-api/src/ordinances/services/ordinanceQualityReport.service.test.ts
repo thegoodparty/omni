@@ -24,34 +24,31 @@ const build = (jsonCompletion: ReturnType<typeof vi.fn>) =>
     jsonCompletion,
   } as unknown as LlmService)
 
-describe('OrdinanceQualityReportService', () => {
-  it('assembles the six fixed checks, tally, and body hash', async () => {
-    const jsonCompletion = vi.fn().mockResolvedValue({
-      object: {
-        checks: [
-          { id: 'authority', status: 'pass', note: 'Council has authority.' },
-          {
-            id: 'legal_conflict',
-            status: 'flag',
-            note: 'Conflicts with Chapter 12.',
-            source: { id: 's1', title: 'Municipal Code 12.20' },
-          },
-          { id: 'precedent_grounding', status: 'pass', note: 'Well grounded.' },
-          {
-            id: 'completeness',
-            status: 'attention',
-            note: 'Add effective date.',
-          },
-          { id: 'clarity', status: 'pass', note: 'Clear.' },
-          { id: 'voice', status: 'pass', note: 'Good voice.' },
-        ],
+const fullResponse = {
+  object: {
+    checks: [
+      { id: 'authority', status: 'pass', note: 'Council has authority.' },
+      {
+        id: 'legal_conflict',
+        status: 'flag',
+        note: 'Conflicts with Chapter 12.',
+        source: { id: 's1', title: 'Municipal Code 12.20' },
       },
-      tokens: 10,
-      model: 'claude-sonnet-4-6',
-    })
-    const draft = record()
+      { id: 'precedent_grounding', status: 'pass', note: 'Well grounded.' },
+      { id: 'completeness', status: 'attention', note: 'Add effective date.' },
+      { id: 'clarity', status: 'pass', note: 'Clear.' },
+      { id: 'voice', status: 'pass', note: 'Good voice.' },
+    ],
+  },
+  tokens: 10,
+  model: 'claude-sonnet-4-6',
+}
 
-    const report = await build(jsonCompletion).generate(draft, 7)
+describe('OrdinanceQualityReportService', () => {
+  it('assembles the six fixed checks in order with fixed labels', async () => {
+    const report = await build(
+      vi.fn().mockResolvedValue(fullResponse),
+    ).generate(record(), 7)
 
     expect(report.checks.map((c) => c.id)).toEqual([
       'authority',
@@ -69,10 +66,32 @@ describe('OrdinanceQualityReportService', () => {
       'Clarity',
       'Voice',
     ])
+  })
+
+  it('computes the tally from the check statuses', async () => {
+    const report = await build(
+      vi.fn().mockResolvedValue(fullResponse),
+    ).generate(record(), 7)
+
     expect(report.tally).toEqual({ pass: 4, flag: 1, attention: 1 })
+  })
+
+  it('stamps a fresh report with the current body hash', async () => {
+    const draft = record()
+
+    const report = await build(
+      vi.fn().mockResolvedValue(fullResponse),
+    ).generate(draft, 7)
+
     expect(report.stale).toBe(false)
     expect(report.ranAgainstBodyHash).toBe(draftBodyHash(draft.draftBody ?? ''))
-    // userId is coerced to the string the LLM options expect.
+  })
+
+  it('coerces the userId to the string the LLM options expect', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue(fullResponse)
+
+    await build(jsonCompletion).generate(record(), 7)
+
     expect(jsonCompletion).toHaveBeenCalledWith(
       expect.objectContaining({ userId: '7' }),
     )

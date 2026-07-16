@@ -1,19 +1,15 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import type {
   Ordinance,
   OrdinanceQualityReport,
 } from '@goodparty_org/contracts'
 import QualityReport from './QualityReport'
 
-const mocks = vi.hoisted(() => ({
-  fetchOrdinanceBySlug: vi.fn(),
-  generateQualityReport: vi.fn(),
-}))
+const mocks = vi.hoisted(() => ({ generateQualityReport: vi.fn() }))
 
 vi.mock('../data/ordinances-api', () => ({
-  fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
   generateQualityReport: mocks.generateQualityReport,
 }))
 
@@ -49,64 +45,79 @@ const report = (
   ...overrides,
 })
 
-const ordinance = (qualityReport: OrdinanceQualityReport | null): Ordinance =>
-  ({ id: 'ord-1', slug: 'tree-canopy', qualityReport }) as unknown as Ordinance
+const props = (over: Partial<Parameters<typeof QualityReport>[0]> = {}) => ({
+  slug: 'tree-canopy',
+  initialReport: report(),
+  draftDirty: false,
+  onReran: vi.fn(),
+  onDiscussFinding: vi.fn(),
+  ...over,
+})
 
 describe('QualityReport', () => {
   beforeEach(() => {
-    mocks.fetchOrdinanceBySlug.mockReset()
     mocks.generateQualityReport.mockReset()
   })
 
-  it('renders the six checks and tally after load', async () => {
-    mocks.fetchOrdinanceBySlug.mockResolvedValue(ordinance(report()))
+  it('renders the six checks and tally from the report', () => {
+    render(<QualityReport {...props()} />)
 
-    render(<QualityReport slug="tree-canopy" onDiscussFinding={vi.fn()} />)
-
-    expect(await screen.findByText(/reviewed by 6 checks/i)).toBeVisible()
+    expect(screen.getByText(/reviewed by 6 checks/i)).toBeVisible()
     expect(screen.getByText('Authority')).toBeVisible()
     expect(screen.getByText('Conflicts with Chapter 12.')).toBeVisible()
     expect(screen.getByText('4 pass')).toBeVisible()
   })
 
-  it('generates the report when none exists yet', async () => {
-    mocks.fetchOrdinanceBySlug.mockResolvedValue(ordinance(null))
-    mocks.generateQualityReport.mockResolvedValue(ordinance(report()))
+  it('generates a report when none exists yet', async () => {
+    const onReran = vi.fn()
+    mocks.generateQualityReport.mockResolvedValue({
+      qualityReport: report(),
+    } as unknown as Ordinance)
 
-    render(<QualityReport slug="tree-canopy" onDiscussFinding={vi.fn()} />)
+    render(<QualityReport {...props({ initialReport: null, onReran })} />)
 
-    const run = await screen.findByRole('button', {
-      name: /run quality checks/i,
-    })
-    fireEvent.click(run)
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
 
     expect(mocks.generateQualityReport).toHaveBeenCalledWith('tree-canopy')
     expect(await screen.findByText(/reviewed by 6 checks/i)).toBeVisible()
+    expect(onReran).toHaveBeenCalled()
   })
 
-  it('shows a stale banner when the draft changed since the report ran', async () => {
-    mocks.fetchOrdinanceBySlug.mockResolvedValue(
-      ordinance(report({ stale: true })),
-    )
+  it('surfaces an error when the run fails', async () => {
+    mocks.generateQualityReport.mockRejectedValue(new Error('nope'))
 
-    render(<QualityReport slug="tree-canopy" onDiscussFinding={vi.fn()} />)
+    render(<QualityReport {...props({ initialReport: null })} />)
 
-    expect(await screen.findByText(/the draft changed/i)).toBeVisible()
-    expect(screen.getByRole('button', { name: /re-run/i })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(
+      await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
   })
 
-  it('calls onDiscussFinding for a check', async () => {
-    mocks.fetchOrdinanceBySlug.mockResolvedValue(ordinance(report()))
-    const onDiscussFinding = vi.fn()
-
+  it('shows a stale banner from the server report', () => {
     render(
-      <QualityReport slug="tree-canopy" onDiscussFinding={onDiscussFinding} />,
+      <QualityReport {...props({ initialReport: report({ stale: true }) })} />,
     )
 
-    await screen.findByText(/reviewed by 6 checks/i)
-    fireEvent.click(screen.getAllByRole('button', { name: /discuss/i })[0])
+    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+  })
 
-    await waitFor(() => expect(onDiscussFinding).toHaveBeenCalledTimes(1))
-    expect(onDiscussFinding.mock.calls[0][0].id).toBe('authority')
+  it('shows a stale banner when the draft was edited this session', () => {
+    render(<QualityReport {...props({ draftDirty: true })} />)
+
+    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+  })
+
+  it('calls onDiscussFinding for a check', () => {
+    const onDiscussFinding = vi.fn()
+    render(<QualityReport {...props({ onDiscussFinding })} />)
+
+    const [firstDiscuss] = screen.getAllByRole('button', { name: /discuss/i })
+    if (!firstDiscuss) throw new Error('no discuss button')
+    fireEvent.click(firstDiscuss)
+
+    expect(onDiscussFinding).toHaveBeenCalledTimes(1)
+    expect(onDiscussFinding.mock.calls[0]?.[0]?.id).toBe('authority')
   })
 })

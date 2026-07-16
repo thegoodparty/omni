@@ -76,6 +76,9 @@ export default function DraftDetail({
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [selection, setSelection] = useState<Selection | null>(null)
   const [tab, setTab] = useState<DraftTab>('draft')
+  // True once the draft is edited this session, so the quality report can show
+  // a stale banner without refetching. Cleared when a fresh report is run.
+  const [draftDirty, setDraftDirty] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   // The composer seed for the chat drawer, plus a nonce so re-highlighting the
   // same passage re-seeds even when the text is identical.
@@ -132,6 +135,7 @@ export default function DraftDetail({
   // forces a synchronous layout reflow). Empty fields are skipped: the contract
   // requires draftTitle/draftBody be non-empty, so gp-api 400s on ''.
   const onBodyInput = useCallback((): void => {
+    setDraftDirty(true)
     if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     bodyTimerRef.current = setTimeout(() => {
       bodyTimerRef.current = null
@@ -141,29 +145,13 @@ export default function DraftDetail({
   }, [save])
 
   const onTitleInput = useCallback((): void => {
+    setDraftDirty(true)
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
     titleTimerRef.current = setTimeout(() => {
       titleTimerRef.current = null
       const next = titleRef.current?.innerText.trim() ?? ''
       if (next.length > 0) save({ draftTitle: next })
     }, AUTOSAVE_DELAY_MS)
-  }, [save])
-
-  // Flush any pending debounced edit immediately (e.g. before switching to the
-  // Quality report tab, so its fetch sees the current draft, not a stale save).
-  const flushPending = useCallback((): void => {
-    if (bodyTimerRef.current) {
-      clearTimeout(bodyTimerRef.current)
-      bodyTimerRef.current = null
-      const body = bodyRef.current?.innerText ?? ''
-      if (body.trim().length > 0) save({ draftBody: body })
-    }
-    if (titleTimerRef.current) {
-      clearTimeout(titleTimerRef.current)
-      titleTimerRef.current = null
-      const next = titleRef.current?.innerText.trim() ?? ''
-      if (next.length > 0) save({ draftTitle: next })
-    }
   }, [save])
 
   // Flush pending debounced edits on unmount so leaving the screen (the Back
@@ -250,12 +238,7 @@ export default function DraftDetail({
   return (
     <Tabs
       value={tab}
-      onValueChange={(value) => {
-        // Persist any pending draft edit before the Quality report tab fetches,
-        // so its staleness reflects the current draft, not a stale save.
-        if (value !== 'draft') flushPending()
-        setTab(value as DraftTab)
-      }}
+      onValueChange={(value) => setTab(value as DraftTab)}
       className="flex h-full w-full flex-col bg-background"
     >
       <header className="flex items-center gap-3 border-b border-border px-4 py-3">
@@ -331,9 +314,16 @@ export default function DraftDetail({
           ) : null}
         </TabsContent>
 
-        <TabsContent value="quality" className="min-h-0 flex-1 overflow-y-auto">
+        <TabsContent
+          value="quality"
+          forceMount
+          className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden"
+        >
           <QualityReport
             slug={ordinance.slug}
+            initialReport={ordinance.qualityReport}
+            draftDirty={draftDirty}
+            onReran={() => setDraftDirty(false)}
             onDiscussFinding={(check) =>
               openChat(`About the "${check.label}" check: ${check.note}\n\n`)
             }

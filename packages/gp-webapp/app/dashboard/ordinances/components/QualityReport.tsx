@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { Badge, Button, Skeleton, cn } from '@styleguide'
+import { useState } from 'react'
+import { Badge, Button, cn } from '@styleguide'
 import {
   CircleAlertIcon,
   CircleCheckIcon,
@@ -11,14 +11,11 @@ import {
   TriangleAlertIcon,
 } from '@styleguide/components/ui/icons'
 import type {
-  Ordinance,
   OrdinanceQualityCheck,
   OrdinanceQualityCheckStatus,
+  OrdinanceQualityReport,
 } from '@goodparty_org/contracts'
-import {
-  fetchOrdinanceBySlug,
-  generateQualityReport,
-} from '../data/ordinances-api'
+import { generateQualityReport } from '../data/ordinances-api'
 import SourceLine from './SourceLine'
 
 type StatusMeta = {
@@ -45,60 +42,39 @@ const STATUS_META: Record<OrdinanceQualityCheckStatus, StatusMeta> = {
   },
 }
 
-// A slim chat about the draft is offered per finding: clicking "Discuss" opens
-// the review chat seeded with the finding, so the user can act on it.
+// The quality-report tab. Renders the saved report handed down by DraftDetail
+// (no fetch of its own), and re-runs it on demand. `draftDirty` is true once the
+// draft has been edited this session, so the stale banner shows without a
+// refetch; `onReran` clears it after a fresh run.
 export default function QualityReport({
   slug,
+  initialReport,
+  draftDirty,
+  onReran,
   onDiscussFinding,
 }: {
   slug: string
+  initialReport: OrdinanceQualityReport | null
+  draftDirty: boolean
+  onReran: () => void
   onDiscussFinding: (check: OrdinanceQualityCheck) => void
 }): React.JSX.Element {
-  const [ordinance, setOrdinance] = useState<Ordinance | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [report, setReport] = useState(initialReport)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetchOrdinanceBySlug(slug)
-      .then((o) => {
-        if (!cancelled) setOrdinance(o)
-      })
-      .catch(() => {
-        if (!cancelled) setError('Could not load the quality report.')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [slug])
-
-  const report = ordinance?.qualityReport ?? null
 
   const run = async (): Promise<void> => {
     setRunning(true)
     setError(null)
     try {
-      setOrdinance(await generateQualityReport(slug))
+      const updated = await generateQualityReport(slug)
+      setReport(updated.qualityReport ?? null)
+      onReran()
     } catch {
       setError('Could not run the quality checks. Please try again.')
     } finally {
       setRunning(false)
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-6">
-        <Skeleton className="h-6 w-48" />
-        {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="h-20 w-full rounded-lg" />
-        ))}
-      </div>
-    )
   }
 
   if (!report) {
@@ -128,6 +104,8 @@ export default function QualityReport({
       </div>
     )
   }
+
+  const stale = report.stale || draftDirty
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-6">
@@ -159,7 +137,7 @@ export default function QualityReport({
         </Button>
       </div>
 
-      {report.stale ? (
+      {stale ? (
         <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-dark">
           The draft changed since this report ran. Re-run to refresh it.
         </p>
