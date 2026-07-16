@@ -17,7 +17,13 @@ const report = (
   overrides: Partial<OrdinanceQualityReport> = {},
 ): OrdinanceQualityReport => ({
   checks: [
-    { id: 'authority', label: 'Authority', status: 'pass', note: 'Solid.' },
+    {
+      id: 'authority',
+      label: 'Authority',
+      status: 'pass',
+      note: 'Solid.',
+      source: { id: 's-auth', title: 'Or. Rev. Stat. § 227.215' },
+    },
     {
       id: 'legal_conflict',
       label: 'Legal conflict',
@@ -66,6 +72,13 @@ describe('QualityReport', () => {
     expect(screen.getByText('Authority')).toBeVisible()
     expect(screen.getByText('Conflicts with Chapter 12.')).toBeVisible()
     expect(screen.getByText('4 pass')).toBeVisible()
+  })
+
+  it('shows a check source on the collapsed row', () => {
+    render(<QualityReport {...props()} />)
+
+    // The source chip is visible without expanding the check.
+    expect(screen.getByText('Or. Rev. Stat. § 227.215')).toBeVisible()
   })
 
   it('generates a report when none exists yet', async () => {

@@ -108,21 +108,24 @@ function Check({
         {check.note}
       </p>
 
+      {check.source ? (
+        <div className="mt-2">
+          <SourceLine source={check.source} />
+        </div>
+      ) : null}
+
       {open ? (
-        <div className="mt-2 flex flex-col gap-2">
-          {check.source ? <SourceLine source={check.source} /> : null}
-          <div>
-            <Button
-              type="button"
-              variant="outline"
-              size="small"
-              onClick={onDiscuss}
-              className="gap-1.5 rounded-full text-sm"
-            >
-              <SparklesIcon className="size-3.5" aria-hidden />
-              Discuss
-            </Button>
-          </div>
+        <div className="mt-3">
+          <Button
+            type="button"
+            variant="outline"
+            size="small"
+            onClick={onDiscuss}
+            className="gap-1.5 rounded-full text-sm"
+          >
+            <SparklesIcon className="size-3.5" aria-hidden />
+            Discuss
+          </Button>
         </div>
       ) : null}
     </div>
