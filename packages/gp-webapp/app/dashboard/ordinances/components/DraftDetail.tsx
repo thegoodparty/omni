@@ -71,10 +71,11 @@ export default function DraftDetail({
   // The in-flight save's promise, so a flush can await the chain to settle.
   const savingPromiseRef = useRef<Promise<void> | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
-  // Mirror saveState in a ref so the quality report's async onReran reads the
-  // current value, not the one captured when its run() started.
-  const saveStateRef = useRef<SaveState>('idle')
-  saveStateRef.current = saveState
+  // Whether the most recently settled save failed, set synchronously in save()'s
+  // then/catch. A ref (not saveState) because it must be read reliably inside
+  // flushPendingSaves right after the save promise settles — saveState's ref
+  // mirror only updates on React's deferred re-render, which is too late here.
+  const lastSaveFailedRef = useRef(false)
   const [selection, setSelection] = useState<Selection | null>(null)
   // True once the draft is edited this session, so the quality report can show
   // a stale banner without refetching. Cleared when a fresh report is run.
@@ -113,12 +114,16 @@ export default function DraftDetail({
       savingRef.current = true
       setSaveState('saving')
       savingPromiseRef.current = updateOrdinance(ordinance.slug, update)
-        .then(() => setSaveState('saved'))
+        .then(() => {
+          setSaveState('saved')
+          lastSaveFailedRef.current = false
+        })
         .catch(() => {
           // Drop the queued edit on failure so the error state stays visible (a
           // queued retry would immediately flip back to 'saving') and we don't
           // spin an unbounded retry loop; the next edit re-triggers a save.
           setSaveState('error')
+          lastSaveFailedRef.current = true
           queuedRef.current = null
         })
         .finally(() => {
@@ -158,7 +163,7 @@ export default function DraftDetail({
     }
     // If the flush save failed the DB still holds the old text, so let the
     // caller abort rather than grade the report against a stale draft.
-    if (saveStateRef.current === 'error') {
+    if (lastSaveFailedRef.current) {
       throw new Error('Draft could not be saved before running quality checks')
     }
   }, [save])
@@ -340,12 +345,11 @@ export default function DraftDetail({
               draftDirty={draftDirty}
               onBeforeRun={flushPendingSaves}
               onReran={() => {
-                // Keep the stale banner unless the draft is safely persisted:
-                // a failed or still-in-flight save means the report was graded
-                // against old DB text. Read the ref so a re-render during the
-                // run doesn't leave this reading a stale saveState.
-                const state = saveStateRef.current
-                if (state !== 'error' && state !== 'saving') {
+                // Only clear the stale banner once the draft is safely
+                // persisted: not while a save is still in flight, and not if
+                // the last save failed. Both are synchronous refs, so this is
+                // reliable regardless of React's deferred re-render timing.
+                if (!savingRef.current && !lastSaveFailedRef.current) {
                   setDraftDirty(false)
                 }
               }}

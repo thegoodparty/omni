@@ -196,6 +196,20 @@ describe('QualityReport', () => {
     expect(calls).toEqual(['flush', 'generate'])
   })
 
+  it('aborts the run and shows an error when onBeforeRun (flush) fails', async () => {
+    const onBeforeRun = vi.fn().mockRejectedValue(new Error('save failed'))
+    render(<QualityReport {...props({ onBeforeRun })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
+
+    expect(
+      await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
+    expect(mocks.generateQualityReport).not.toHaveBeenCalled()
+    // The existing report stays on screen.
+    expect(screen.getByText(/reviewed by 6 checks/i)).toBeVisible()
+  })
+
   it('shows a stale banner from the server report', () => {
     render(
       <QualityReport {...props({ initialReport: report({ stale: true }) })} />,
