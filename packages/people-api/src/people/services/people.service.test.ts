@@ -197,6 +197,44 @@ describe('PeopleService', () => {
       expect(result.pagination.hasPreviousPage).toBe(true)
       expect(result.pagination.hasNextPage).toBe(false)
     })
+
+    it('clamps a too-high ungrouped page to the last page offset instead of returning empty', async () => {
+      // 25 constituents, 10 per page → 3 pages. An out-of-bounds page (99) must
+      // return the last page (offset 20), consistent with the clamped
+      // currentPage — matching the grouped path — rather than an empty page.
+      const dataset = Array.from({ length: 25 }, (_, i) =>
+        makeDbPerson({ id: `person-${i}` }),
+      )
+      mockStatsService.getTotalCounts.mockResolvedValue({
+        totalConstituents: dataset.length,
+        totalConstituentsWithCellPhone: 0,
+      })
+      mockClient.$queryRaw.mockImplementation((query: unknown) => {
+        const values = (query as { values?: unknown[] })?.values ?? []
+        const skip = Number(values[values.length - 1] ?? 0)
+        const take = Number(values[values.length - 2] ?? dataset.length)
+        return Promise.resolve(dataset.slice(skip, skip + take))
+      })
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+        resultsPerPage: 10,
+        page: 99,
+      } as never)
+
+      // The offset is clamped to the last page (20), so the returned rows are
+      // the last page and stay consistent with currentPage.
+      expect(result.pagination.totalPages).toBe(3)
+      expect(result.pagination.currentPage).toBe(3)
+      expect(result.people).toHaveLength(5)
+      expect(result.people[0]?.id).toBe('person-20')
+
+      const dataSql = mockClient.$queryRaw.mock.calls[0]?.[0] as {
+        values?: unknown[]
+      }
+      expect(dataSql.values?.[dataSql.values.length - 1]).toBe(20)
+    })
   })
 
   describe('findPeople household grouping (door knocking)', () => {

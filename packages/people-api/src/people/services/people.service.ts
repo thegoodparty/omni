@@ -93,34 +93,17 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       groupByHousehold,
     }
 
-    let totalResults: number
-    let people: Array<BaseDbPerson>
-
-    if (groupByHousehold) {
-      // Household count is far smaller than the voter count, so a client that
-      // was on a high voter-list page and switches to door knocking would page
-      // past the end. Resolve the count first, clamp the offset to the last
-      // household page, then fetch — otherwise the request deterministically
-      // returns an empty page (no caller clamps `page`).
-      totalResults = await this.rawCountForDistrict(countArgs)
-      const totalPages = Math.max(1, Math.ceil(totalResults / resultsPerPage))
-      const clampedPage = Math.min(Math.max(1, page), totalPages)
-      people = await buildData((clampedPage - 1) * resultsPerPage)
-    } else {
-      // Ungrouped path keeps the parallel count/data fetch. Its pre-existing
-      // out-of-bounds-page divergence (TODO below) is unchanged here.
-      // TODO: This executes count and data query in parallel for latency, but
-      // the data query uses the requested page offset while currentPage is
-      // clamped from totalResults below. If requested page is out of bounds,
-      // pagination metadata and returned rows can diverge.
-      ;[totalResults, people] = await Promise.all([
-        this.rawCountForDistrict(countArgs),
-        buildData((page - 1) * resultsPerPage),
-      ])
-    }
-
+    // Resolve the count first, clamp the requested page to the last page, then
+    // fetch at the clamped offset. An out-of-bounds page (e.g. a client on a
+    // high voter-list page switching to door knocking, where the household
+    // count is far smaller) would otherwise return an empty page whose rows
+    // diverge from the clamped currentPage below — no caller clamps `page`.
+    // This trades the parallel count/data fetch for a sequential one; the added
+    // latency is acceptable to keep pagination metadata and rows consistent.
+    const totalResults = await this.rawCountForDistrict(countArgs)
     const totalPages = Math.max(1, Math.ceil(totalResults / resultsPerPage))
     const currentPage = Math.min(Math.max(1, page), totalPages)
+    const people = await buildData((currentPage - 1) * resultsPerPage)
 
     return {
       pagination: {
