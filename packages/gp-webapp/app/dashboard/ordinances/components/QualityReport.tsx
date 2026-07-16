@@ -16,6 +16,7 @@ import type {
   OrdinanceQualityCheckStatus,
   OrdinanceQualityReport,
 } from '@goodparty_org/contracts'
+import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 import { generateQualityReport } from '../data/ordinances-api'
 import SourceLine from './SourceLine'
 
@@ -71,18 +72,17 @@ const StatusPill = ({
   </Badge>
 )
 
-// Surface a NestJS 400/error body message (ofetch puts the parsed body on
-// error.data) so an actionable API error like "Cannot run quality checks on an
-// empty draft" reaches the user instead of a generic string.
-const apiErrorMessage = (err: unknown): string | null => {
-  if (err && typeof err === 'object' && 'data' in err) {
-    const { data } = err as { data: unknown }
-    if (data && typeof data === 'object' && 'message' in data) {
-      const { message } = data as { message: unknown }
-      if (typeof message === 'string') return message
-    }
-  }
-  return null
+// ofetch puts the parsed error body on error.data; extractApiErrorInfo pulls a
+// readable message off it (joining NestJS's string[] validation messages) so an
+// actionable API error like "Cannot run quality checks on an empty draft"
+// reaches the user instead of a generic string.
+const runErrorMessage = (err: unknown): string => {
+  const body =
+    err && typeof err === 'object' && 'data' in err ? err.data : undefined
+  return (
+    extractApiErrorInfo(body).message ??
+    'Could not run the quality checks. Please try again.'
+  )
 }
 
 function Check({
@@ -201,10 +201,7 @@ export default function QualityReport({
       setReport(updated.qualityReport)
       onReran()
     } catch (err) {
-      setError(
-        apiErrorMessage(err) ??
-          'Could not run the quality checks. Please try again.',
-      )
+      setError(runErrorMessage(err))
     } finally {
       setRunning(false)
     }
