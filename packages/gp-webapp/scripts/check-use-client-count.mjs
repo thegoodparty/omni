@@ -62,7 +62,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 540 -> 541 for useCrmEnabled — a hook composing
 // useWinVoterContext (React Query) with two feature-flag reads, so it must
 // run on the client, like the sibling useWinVoterContext.
-const BASELINE = 541
+// 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
+// dropdown holds input/debounce state and a React Query fetch, so it cannot
+// be a server component (same as the ContactSearch it flag-replaces).
+const BASELINE = 542
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

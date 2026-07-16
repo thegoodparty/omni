@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import ContactsPage from './ContactsPage'
 import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useCrmEnabled } from '../../../shared/useCrmEnabled'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
 vi.mock('../hooks/ContactsTableProvider', () => ({
@@ -51,8 +52,21 @@ vi.mock('./ContactsStatsSection', () => ({
 vi.mock('./ContactSearch', () => ({
   ContactSearch: () => <div data-testid="search" />,
 }))
+vi.mock('./ContactTypeahead', () => ({
+  ContactTypeahead: () => <div data-testid="typeahead" />,
+}))
+vi.mock('../../../shared/useCrmEnabled', () => ({
+  useCrmEnabled: vi.fn(),
+}))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
+const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
+
+// CRM flag off is the default state every pre-existing behavior is asserted
+// against; the gating describe below overrides it per test.
+beforeEach(() => {
+  mockedUseCrmEnabled.mockReturnValue({ enabled: false, ready: true })
+})
 
 type ContextValue = ReturnType<typeof useContactsTable>
 
@@ -191,6 +205,47 @@ describe('ContactsPage — Win vs Serve naming (ENG-10448)', () => {
 
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('ContactsPage — CRM typeahead gating (ENG-10687)', () => {
+  it('renders the existing ContactSearch when the CRM flag is off', () => {
+    mockedUseCrmEnabled.mockReturnValue({ enabled: false, ready: true })
+    setContext({})
+
+    render(<ContactsPage />)
+
+    // Both render sites (desktop + mobile) keep today's search.
+    expect(screen.getAllByTestId('search')).toHaveLength(2)
+    expect(screen.queryByTestId('typeahead')).not.toBeInTheDocument()
+  })
+
+  it('falls back to ContactSearch while the flag has not settled', () => {
+    mockedUseCrmEnabled.mockReturnValue({ enabled: false, ready: false })
+    setContext({})
+
+    render(<ContactsPage />)
+
+    expect(screen.getAllByTestId('search')).toHaveLength(2)
+    expect(screen.queryByTestId('typeahead')).not.toBeInTheDocument()
+  })
+
+  it('replaces ContactSearch with the typeahead when the CRM flag is on', () => {
+    mockedUseCrmEnabled.mockReturnValue({ enabled: true, ready: true })
+    setContext({})
+
+    render(<ContactsPage />)
+
+    expect(screen.getAllByTestId('typeahead')).toHaveLength(2)
+    expect(screen.queryByTestId('search')).not.toBeInTheDocument()
+  })
+
+  it('reads the flag as the treatment surface (exposure tracked)', () => {
+    setContext({})
+
+    render(<ContactsPage />)
+
+    expect(mockedUseCrmEnabled).toHaveBeenCalledWith(true)
   })
 })
 
