@@ -44,6 +44,12 @@ const editBody = (text: string): void => {
   fireEvent.input(body)
 }
 
+const editTitle = (text: string): void => {
+  const el = screen.getByRole('textbox', { name: 'Ordinance draft title' })
+  el.innerText = text
+  fireEvent.input(el)
+}
+
 describe('DraftDetail autosave', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -74,6 +80,30 @@ describe('DraftDetail autosave', () => {
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
     editBody('')
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+  })
+
+  it('autosaves a title edit as draftTitle only', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editTitle('A clearer title')
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+    expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      {
+        draftTitle: 'A clearer title',
+      },
+    )
+  })
+
+  it('does not PATCH an empty title', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editTitle('   ')
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
 
     expect(mocks.updateOrdinance).not.toHaveBeenCalled()

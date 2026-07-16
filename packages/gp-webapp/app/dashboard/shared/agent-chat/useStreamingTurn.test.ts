@@ -89,6 +89,28 @@ describe('useStreamingTurn', () => {
     expect(result.current.sending).toBe(false)
   })
 
+  it('reports a listMessages rejection via onError and clears sending', async () => {
+    const onError = vi.fn()
+    const api = {
+      streamMessage: () => streamOf([]),
+      listMessages: vi.fn().mockRejectedValue(new Error('history load failed')),
+    }
+
+    const { result } = renderHook(() =>
+      useStreamingTurn(api, { toolLabel: () => null, onError }),
+    )
+
+    await act(async () => {
+      await result.current.send('c1', 'hello')
+    })
+
+    expect(onError).toHaveBeenCalledWith(
+      'Something went wrong. Please try again.',
+    )
+    expect(result.current.sending).toBe(false)
+    expect(result.current.liveSegments).toEqual([])
+  })
+
   it('does not send an empty or whitespace-only message', async () => {
     const streamMessage = vi.fn()
     const api = { streamMessage, listMessages: vi.fn().mockResolvedValue([]) }
