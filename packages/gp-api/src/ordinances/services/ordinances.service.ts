@@ -193,6 +193,18 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         'Cannot run quality checks on an empty draft',
       )
     }
+    // Idempotency: if a report already exists for the current draft text, return
+    // it instead of spending another LLM call. Makes a re-click or retry on an
+    // unchanged draft free, and collapses the common double-run to one call.
+    const stored = OrdinanceQualityReportSchema.safeParse(
+      existing.qualityReport,
+    )
+    if (
+      stored.success &&
+      stored.data.ranAgainstBodyHash === qualityReportInputHash(existing)
+    ) {
+      return this.toResponse(existing)
+    }
     const report = await this.qualityReports.generate(
       existing,
       electedOffice.userId,

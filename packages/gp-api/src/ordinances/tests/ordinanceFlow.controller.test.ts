@@ -339,6 +339,65 @@ describe('Ordinances endpoints', () => {
     expect(res.status).toBe(404)
   })
 
+  it('reuses the stored report without a second LLM call on an unchanged draft', async () => {
+    const orgSlug = 'eo-ordinances-qc-idempotent'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+    const spy = mockQcLlm()
+    try {
+      const first = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      const second = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(first.status).toBe(201)
+      expect(second.status).toBe(201)
+      // The second call was served from the stored report, not a fresh model
+      // call.
+      expect(spy).toHaveBeenCalledTimes(1)
+      expect(second.data.qualityReport.tally).toEqual(
+        first.data.qualityReport.tally,
+      )
+      expect(second.data.qualityReport.stale).toBe(false)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('re-runs the model when the draft changed since the last report', async () => {
+    const orgSlug = 'eo-ordinances-qc-rerun'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+    const spy = mockQcLlm()
+    try {
+      await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      await service.client.patch(
+        `/v1/ordinances/${slug}`,
+        { draftBody: 'Section 34.21 Canopy goal of sixty percent by 2040.' },
+        header,
+      )
+      await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   it('marks a stored report stale after the draft changes', async () => {
     const orgSlug = 'eo-ordinances-qc-stale'
     await seedElectedOffice(orgSlug)
