@@ -40,11 +40,8 @@ import { PathToVictoryStep } from './PathToVictoryStep'
 import { PledgeStep } from './PledgeStep'
 import OnboardingTopBar from '../shared/OnboardingTopBar'
 import { WhyThisMatters } from './WhyThisMatters'
-import {
-  VoterDemographicsStep,
-  onboardingDistrictStatsQueryOptions,
-} from './VoterDemographicsStep'
 import { localNewsQueryOptions } from './LocalNewsSourcesSection'
+import OnboardingCampaignStoryStep from './OnboardingCampaignStoryStep'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
 import { MajorPartyBlockedAlert } from '../shared/partisanParty'
 import type {
@@ -196,6 +193,7 @@ interface StepBodyProps {
   >
   p2vOfficeName: string | null
   skipP2vReveal: boolean
+  onStoryCompleteChange: (complete: boolean) => void
 }
 
 const StepBody = ({
@@ -209,6 +207,7 @@ const StepBody = ({
   onP2vMetricsResolved,
   p2vOfficeName,
   skipP2vReveal,
+  onStoryCompleteChange,
 }: StepBodyProps): React.JSX.Element | null => {
   if (activeStep.id === 'welcome') {
     return (
@@ -303,19 +302,9 @@ const StepBody = ({
     )
   }
 
-  if (activeStep.id === 'voter-demographics') {
+  if (activeStep.id === 'campaign-story') {
     return (
-      <VoterDemographicsStep
-        ballotReadyPositionId={answers.structuredOffice?.positionId}
-        // Keys the stats query identically to the path-to-victory prefetch
-        // (which includes the org position) so the warmed entry is the one
-        // this step reads — and keeps the query enabled when the snapshot
-        // id is missing.
-        orgPositionId={liveCampaign?.organization?.positionId ?? undefined}
-        city={answers.structuredOffice?.city}
-        state={answers.structuredOffice?.state}
-        office={answers.structuredOffice?.positionName}
-      />
+      <OnboardingCampaignStoryStep onCompleteChange={onStoryCompleteChange} />
     )
   }
 
@@ -348,6 +337,17 @@ export default function OnboardingFlow({
   // exposure for every onboarding visitor.
   const { ready: campaignStoryReady, enabled: campaignStoryEnabled } =
     useCampaignStoryFlag(false)
+  // The campaign-story step lives in the static config but only for the story
+  // cohort. Inject it (flag-gated) into the array getVisibleOnboardingSteps
+  // filters, so the stepper count and back/forward navigation stay correct.
+  const effectiveSteps = campaignStoryEnabled
+    ? ONBOARDING_STEPS
+    : // welcome (the required first element) is never filtered out here, so
+      // the result is always non-empty — TS can't infer that through
+      // .filter(), hence the unknown round-trip.
+      (ONBOARDING_STEPS.filter(
+        (step) => step.id !== 'campaign-story',
+      ) as unknown as typeof ONBOARDING_STEPS)
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -356,6 +356,9 @@ export default function OnboardingFlow({
   )
   const [isSavingOffice, setIsSavingOffice] = useState(false)
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
+  // Reported by OnboardingCampaignStoryStep as its underlying cards resolve.
+  // Task 4 reads the value to gate pledge-step continue / fire generation.
+  const [, setStoryComplete] = useState(false)
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
   const [liveCampaign, setLiveCampaign] = useState<Campaign | null>(
@@ -381,7 +384,7 @@ export default function OnboardingFlow({
   const hasResolvedPathToVictory =
     Boolean(officeIdentityKey) && resolvedP2vOfficeKey === officeIdentityKey
 
-  const visibleSteps = getVisibleOnboardingSteps(ONBOARDING_STEPS, answers)
+  const visibleSteps = getVisibleOnboardingSteps(effectiveSteps, answers)
   const activeIndex = Math.max(
     0,
     visibleSteps.findIndex((step) => step.id === activeStepId),
@@ -469,7 +472,6 @@ export default function OnboardingFlow({
       'party-affiliation': EVENTS.OnboardingV2.PartyDesignationViewed,
       'office-selection': EVENTS.OnboardingV2.OfficeViewed,
       'path-to-victory': EVENTS.OnboardingV2.VotesNeededViewed,
-      'voter-demographics': EVENTS.OnboardingV2.VoterInsightsViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
@@ -520,21 +522,9 @@ export default function OnboardingFlow({
 
   useEffect(() => {
     if (activeStepId !== 'path-to-victory') return
-    const ballotReadyPositionId = answers.structuredOffice?.positionId
-    // The plan page keys this query by orgPositionId too — the prefetch
-    // must match or it warms a key the plan page never reads.
-    const orgPositionId = liveCampaign?.organization?.positionId ?? undefined
     const city = answers.structuredOffice?.city
     const state = answers.structuredOffice?.state
     const office = answers.structuredOffice?.positionName
-    if (ballotReadyPositionId || orgPositionId) {
-      void queryClient.prefetchQuery(
-        onboardingDistrictStatsQueryOptions({
-          ballotReadyPositionId,
-          orgPositionId,
-        }),
-      )
-    }
     if (state && office) {
       void queryClient.prefetchQuery(
         localNewsQueryOptions({ city, state, office }),
@@ -542,11 +532,9 @@ export default function OnboardingFlow({
     }
   }, [
     activeStepId,
-    answers.structuredOffice?.positionId,
     answers.structuredOffice?.city,
     answers.structuredOffice?.state,
     answers.structuredOffice?.positionName,
-    liveCampaign?.organization?.positionId,
     queryClient,
   ])
 
@@ -885,11 +873,6 @@ export default function OnboardingFlow({
         winNumber: trackedCampaign?.raceTargetMetrics?.winNumber ?? 0,
       })
     }
-    if (activeStep.id === 'voter-demographics') {
-      trackEvent(EVENTS.OnboardingV2.VoterInsightsCompleted, {
-        campaignId: campaign?.id,
-      })
-    }
     if (
       activeStep.id === 'office-selection' &&
       answers.structuredOffice &&
@@ -1014,7 +997,7 @@ export default function OnboardingFlow({
       unmatchedOffice: true,
       structuredOffice: undefined,
     }))
-    const visibleAfter = getVisibleOnboardingSteps(ONBOARDING_STEPS, {
+    const visibleAfter = getVisibleOnboardingSteps(effectiveSteps, {
       ...answers,
       officePath: 'manual',
     })
@@ -1080,6 +1063,7 @@ export default function OnboardingFlow({
                 onP2vMetricsResolved={handleP2vMetricsResolved}
                 p2vOfficeName={p2vOfficeName}
                 skipP2vReveal={hasResolvedPathToVictory}
+                onStoryCompleteChange={setStoryComplete}
               />
             </section>
 
