@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
-import { mswServer } from 'helpers/test-utils/api-mocking'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import type { Campaign } from 'helpers/types'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import * as landscapeModule from '../success/hooks/useStrategicLandscape'
 import OnboardingFlow from './OnboardingFlow'
 import { ONBOARDING_STEPS } from './onboardingConfig'
 import {
@@ -13,6 +14,29 @@ import {
   getVisibleOnboardingSteps,
   resolvePostPledgeRoute,
 } from './onboardingHelpers'
+
+const { mockGetUserWebsite } = vi.hoisted(() => ({
+  mockGetUserWebsite: vi.fn(),
+}))
+
+// Bio + issues come from the website via the legacy getUserWebsite (not a
+// typed route), so mock the function directly — same as
+// OnboardingCampaignStoryStep.test.tsx — to drive the real story step's
+// completeness signal without exercising the network layer.
+vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import('app/dashboard/website/util/website.util')
+    >()
+  return { ...actual, getUserWebsite: mockGetUserWebsite }
+})
+
+// The campaign-story cards use the app's SnackbarProvider (only for save
+// errors), which isn't mounted in this test tree — mock it down to no-ops,
+// same as OnboardingCampaignStoryStep.test.tsx.
+vi.mock('helpers/useSnackbar', () => ({
+  useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
+}))
 
 // Stubbed out so tests can drive the manual-office path with a couple of
 // clicks instead of exercising the real search/geo UI (unrelated to what
@@ -101,6 +125,14 @@ beforeEach(() => {
   // the context default resolves to ready:false/enabled:false) so every
   // existing test keeps seeing the flag off unless it opts in.
   setCampaignStoryFlag(false, false)
+})
+
+// vi.spyOn on an already-spied export returns the SAME mock instance rather
+// than a fresh one, so a prior test's call history (and any mockImplementation
+// override) otherwise leaks into the next spyOn(landscapeModule, ...) call.
+// Restore after every test so each spyOn call starts from the real export.
+afterEach(() => {
+  vi.restoreAllMocks()
 })
 
 describe('new onboarding flow shell', () => {
@@ -297,6 +329,89 @@ describe('new onboarding flow shell', () => {
         name: /tell your campaign story/i,
       }),
     ).not.toBeInTheDocument()
+  })
+
+  it('fires plan generation once when continuing a completed campaign-story step', async () => {
+    const prewarm = vi
+      .spyOn(landscapeModule, 'prewarmStrategicLandscape')
+      .mockResolvedValue()
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    mockGetUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          bio: '<p>My why is long enough</p>',
+          issues: [{ title: 'Roads', description: 'Fix them' }],
+        },
+      },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'I grew up here and ran a small business.' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /tell your campaign story/i,
+      }),
+    ).toBeInTheDocument()
+
+    // The footer label flips to "Continue" once the story cards report
+    // complete (bio + background + an issue all present).
+    const continueButton = await screen.findByRole('button', {
+      name: 'Continue',
+    })
+    fireEvent.click(continueButton)
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(prewarm).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not fire generation when skipping an incomplete campaign-story step', async () => {
+    const prewarm = vi
+      .spyOn(landscapeModule, 'prewarmStrategicLandscape')
+      .mockResolvedValue()
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /tell your campaign story/i,
+      }),
+    ).toBeInTheDocument()
+
+    const skipButton = await screen.findByRole('button', {
+      name: 'Skip for now',
+    })
+    fireEvent.click(skipButton)
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(prewarm).not.toHaveBeenCalled()
   })
 })
 

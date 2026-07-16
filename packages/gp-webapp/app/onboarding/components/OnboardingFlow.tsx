@@ -357,10 +357,15 @@ export default function OnboardingFlow({
   const [isSavingOffice, setIsSavingOffice] = useState(false)
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
   // Reported by OnboardingCampaignStoryStep as its underlying cards resolve.
-  // Task 4 reads the value to gate pledge-step continue / fire generation.
-  const [, setStoryComplete] = useState(false)
+  // Gates the campaign-story step's footer label and whether continuing
+  // fires plan generation.
+  const [storyComplete, setStoryComplete] = useState(false)
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
+  // Guards against a double-fire of the strategic-landscape pre-warm (e.g. a
+  // rapid double-click of Continue) — generation should only ever kick off
+  // once per campaign-story completion.
+  const storyGenFiredRef = useRef(false)
   const [liveCampaign, setLiveCampaign] = useState<Campaign | null>(
     initialCampaign,
   )
@@ -960,6 +965,22 @@ export default function OnboardingFlow({
       const ok = await persistPartyAffiliation(answers.partyAffiliation)
       if (!ok) return
     }
+    if (activeStep.id === 'campaign-story') {
+      if (storyComplete && !storyGenFiredRef.current) {
+        storyGenFiredRef.current = true
+        // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
+        // raceId) and prewarmStrategicLandscape swallows that, so a candidate
+        // is never blocked from reaching the pledge.
+        void prewarmStrategicLandscape()
+        trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
+          campaignId: liveCampaign?.id ?? campaign?.id,
+        })
+      } else if (!storyComplete) {
+        trackEvent(EVENTS.OnboardingV2.CampaignStorySkipped, {
+          campaignId: liveCampaign?.id ?? campaign?.id,
+        })
+      }
+    }
     if (activeStep.id === 'pledge') {
       const effectiveCampaign = campaign ?? liveCampaign
       if (!effectiveCampaign) return
@@ -1114,7 +1135,11 @@ export default function OnboardingFlow({
             disabled={!canContinue}
           >
             {nextStep
-              ? 'Continue'
+              ? activeStep.id === 'campaign-story'
+                ? storyComplete
+                  ? 'Continue'
+                  : 'Skip for now'
+                : 'Continue'
               : activeStep.id === 'pledge'
                 ? campaignStoryEnabled
                   ? "Let's Create Your Story"

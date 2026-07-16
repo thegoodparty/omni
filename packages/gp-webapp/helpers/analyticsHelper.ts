@@ -626,6 +626,9 @@ export const EVENTS = {
     VotesNeededFailed: 'Onboarding V2 - Votes Needed Failed',
     OfficeNextClicked: 'Onboarding V2 - Office Next Clicked',
     PledgeSubmitClicked: 'Onboarding V2 - Pledge Submit Clicked',
+    CampaignStoryViewed: 'Onboarding V2 - Campaign Story Viewed',
+    CampaignStoryCompleted: 'Onboarding V2 - Campaign Story Completed',
+    CampaignStorySkipped: 'Onboarding V2 - Campaign Story Skipped',
   },
   CommunityIssues: {
     ListViewed: 'Community Issues - List Viewed',
