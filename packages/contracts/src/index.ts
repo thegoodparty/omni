@@ -65,6 +65,15 @@ export {
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
 } from './people/Person.schema'
 
+export {
+  ContactNoteSchema,
+  type ContactNote,
+  ContactNoteInputSchema,
+  type ContactNoteInput,
+  ContactNoteListResponseSchema,
+  type ContactNoteListResponse,
+} from './people/ContactNote.schema'
+
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
 export { ZipSchema } from './shared/Zip.schema'
