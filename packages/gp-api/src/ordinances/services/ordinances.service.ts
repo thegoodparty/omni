@@ -195,14 +195,10 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     }
     // Idempotency: if a report already exists for the current draft text, return
     // it instead of spending another LLM call. Makes a re-click or retry on an
-    // unchanged draft free, and collapses the common double-run to one call.
-    const stored = OrdinanceQualityReportSchema.safeParse(
-      existing.qualityReport,
-    )
-    if (
-      stored.success &&
-      stored.data.ranAgainstBodyHash === qualityReportInputHash(existing)
-    ) {
+    // unchanged draft free, and collapses the common double-run to one call. A
+    // malformed blob is stale/null and correctly falls through to regenerate.
+    const current = this.qualityReportWithStaleness(existing)
+    if (current && !current.stale) {
       return this.toResponse(existing)
     }
     const report = await this.qualityReports.generate(

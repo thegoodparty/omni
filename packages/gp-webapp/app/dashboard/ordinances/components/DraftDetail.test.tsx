@@ -341,7 +341,31 @@ describe('DraftDetail quality report flush', () => {
     expect(mocks.generateQualityReport).not.toHaveBeenCalled()
   })
 
-  it('shows the stale banner on edit and clears it after a successful re-run', async () => {
+  it('recovers on a later run after a failed flush save instead of dead-ending', async () => {
+    mocks.updateOrdinance.mockRejectedValueOnce(new Error('blip'))
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('edited during a blip')
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    // First run aborts because the flush save failed.
+    expect(
+      await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
+    expect(mocks.generateQualityReport).not.toHaveBeenCalled()
+
+    // The next run re-saves the current text (network recovered) and proceeds,
+    // rather than dead-ending on the stale failure flag.
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(await screen.findByText(/reviewed by/i)).toBeVisible()
+    expect(mocks.generateQualityReport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+    )
+  })
+
+  it('shows the stale banner after an edit', () => {
     render(
       <DraftDetail
         ordinance={makeOrdinance({
@@ -353,6 +377,19 @@ describe('DraftDetail quality report flush', () => {
     expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
 
     editBody('a new edit')
+    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+  })
+
+  it('clears the stale banner after a successful re-run', async () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityReport: { ...sampleReport, stale: true },
+        } as Partial<Ordinance>)}
+      />,
+    )
+
+    // Starts stale (server-reported).
     expect(screen.getByText(/the draft changed/i)).toBeVisible()
 
     fireEvent.click(screen.getByRole('button', { name: /re-run/i }))

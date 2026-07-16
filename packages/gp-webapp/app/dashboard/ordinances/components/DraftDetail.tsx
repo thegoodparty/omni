@@ -157,12 +157,22 @@ export default function DraftDetail({
       const next = titleRef.current?.innerText.trim() ?? ''
       if (next.length > 0) update.draftTitle = next
     }
+    // If a prior save failed, the DB is stale and there may be no pending timer
+    // to re-drive it. Re-send the current editor text so a run recovers from a
+    // transient failure instead of dead-ending (we don't know which field
+    // failed, so persist both).
+    if (lastSaveFailedRef.current) {
+      const body = bodyRef.current?.innerText ?? ''
+      if (body.trim().length > 0) update.draftBody = body
+      const next = titleRef.current?.innerText.trim() ?? ''
+      if (next.length > 0) update.draftTitle = next
+    }
     if (Object.keys(update).length > 0) save(update)
     while (savingRef.current && savingPromiseRef.current) {
       await savingPromiseRef.current
     }
-    // If the flush save failed the DB still holds the old text, so let the
-    // caller abort rather than grade the report against a stale draft.
+    // Only abort if the draft still isn't saved after the attempt above — the
+    // report would otherwise be graded against stale text.
     if (lastSaveFailedRef.current) {
       throw new Error('Draft could not be saved before running quality checks')
     }
