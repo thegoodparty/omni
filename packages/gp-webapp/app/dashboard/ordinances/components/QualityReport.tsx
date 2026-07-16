@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { Badge, Button, cn } from '@styleguide'
+import { Button, cn } from '@styleguide'
 import {
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   LoaderCircleIcon,
@@ -22,30 +23,116 @@ type StatusMeta = {
   label: string
   pillClass: string
   Icon: typeof CircleCheckIcon
+  iconClass: string
 }
 
+// Labels are stored lowercase and uppercased with CSS so the rendered text still
+// reads "PASS" / "FLAG" while the DOM text stays lowercase.
 const STATUS_META: Record<OrdinanceQualityCheckStatus, StatusMeta> = {
   pass: {
-    label: 'Pass',
-    pillClass: 'border-success/40 bg-success/10 text-success-dark',
+    label: 'pass',
+    pillClass: 'bg-success/10 text-success-dark',
     Icon: CircleCheckIcon,
+    iconClass: 'text-success',
   },
   flag: {
-    label: 'Flag',
-    pillClass: 'border-destructive/40 bg-destructive/10 text-destructive-dark',
+    label: 'flag',
+    pillClass: 'bg-destructive/10 text-destructive-dark',
     Icon: TriangleAlertIcon,
+    iconClass: 'text-destructive',
   },
   attention: {
-    label: 'Attention',
-    pillClass: 'border-warning/40 bg-warning/10 text-warning-dark',
+    label: 'attention',
+    pillClass: 'bg-warning/10 text-warning-dark',
     Icon: CircleAlertIcon,
+    iconClass: 'text-warning-dark',
   },
 }
 
-// The quality-report tab. Renders the saved report handed down by DraftDetail
-// (no fetch of its own), and re-runs it on demand. `draftDirty` is true once the
-// draft has been edited this session, so the stale banner shows without a
-// refetch; `onReran` clears it after a fresh run.
+const PILL_CLASS = 'rounded-full px-2 py-0.5 text-xs font-semibold uppercase'
+
+const TallyPill = ({
+  count,
+  status,
+}: {
+  count: number
+  status: OrdinanceQualityCheckStatus
+}): React.JSX.Element => (
+  <span className={cn(PILL_CLASS, STATUS_META[status].pillClass)}>
+    {count} {STATUS_META[status].label}
+  </span>
+)
+
+function Check({
+  check,
+  onDiscuss,
+}: {
+  check: OrdinanceQualityCheck
+  onDiscuss: () => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const meta = STATUS_META[check.status]
+  return (
+    <div className="p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        <meta.Icon
+          className={cn('size-4 shrink-0', meta.iconClass)}
+          aria-hidden
+        />
+        <span className="text-sm font-semibold text-foreground">
+          {check.label}
+        </span>
+        <span className={cn('ml-auto', PILL_CLASS, meta.pillClass)}>
+          {meta.label}
+        </span>
+        <ChevronRightIcon
+          className={cn(
+            'size-4 shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-90',
+          )}
+          aria-hidden
+        />
+      </button>
+
+      <p
+        className={cn(
+          'mt-2 text-sm text-foreground',
+          open ? 'whitespace-pre-wrap' : 'line-clamp-1',
+        )}
+      >
+        {check.note}
+      </p>
+
+      {open ? (
+        <div className="mt-2 flex flex-col gap-2">
+          {check.source ? <SourceLine source={check.source} /> : null}
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              size="small"
+              onClick={onDiscuss}
+              className="gap-1.5 rounded-full text-sm"
+            >
+              <SparklesIcon className="size-3.5" aria-hidden />
+              Discuss
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+// The quality report, rendered below the draft. Shows the saved six-check report
+// handed down by DraftDetail (no fetch of its own) and re-runs it on demand.
+// `draftDirty` is true once the draft has been edited this session, so the stale
+// banner shows without a refetch; `onReran` clears it after a fresh run.
 export default function QualityReport({
   slug,
   initialReport,
@@ -69,8 +156,6 @@ export default function QualityReport({
     try {
       const updated = await generateQualityReport(slug)
       if (!updated.qualityReport) {
-        // Reset so the empty-state branch shows only the error, not the old
-        // report alongside it.
         setReport(null)
         setError('The quality report was not returned. Please try again.')
         return
@@ -86,10 +171,10 @@ export default function QualityReport({
 
   if (!report) {
     return (
-      <div className="mx-auto flex w-full max-w-3xl flex-col items-start gap-3 p-6">
-        <h2 className="text-base font-semibold text-foreground">
+      <div className="mt-8 flex flex-col items-start gap-3 border-t border-border pt-6">
+        <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           Quality report
-        </h2>
+        </p>
         <p className="text-sm text-muted-foreground">
           Run the six-check review to see where the draft is strong and where it
           needs work.
@@ -115,17 +200,17 @@ export default function QualityReport({
   const stale = report.stale || draftDirty
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-6">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="text-base font-semibold text-foreground">
-          Reviewed by {report.checks.length} checks
-        </h2>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{report.tally.pass} pass</span>
-          <span>·</span>
-          <span>{report.tally.flag} flag</span>
-          <span>·</span>
-          <span>{report.tally.attention} attention</span>
+    <div className="mt-8 flex flex-col gap-4 border-t border-border pt-6">
+      <div className="flex items-start gap-3">
+        <div className="flex flex-col gap-2">
+          <h3 className="text-base font-semibold text-foreground">
+            Reviewed by {report.checks.length} checks
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <TallyPill count={report.tally.pass} status="pass" />
+            <TallyPill count={report.tally.flag} status="flag" />
+            <TallyPill count={report.tally.attention} status="attention" />
+          </div>
         </div>
         <Button
           type="button"
@@ -133,6 +218,7 @@ export default function QualityReport({
           size="small"
           onClick={run}
           disabled={running}
+          aria-label="Re-run quality checks"
           className="ml-auto gap-1.5 rounded-full text-sm"
         >
           {running ? (
@@ -140,7 +226,7 @@ export default function QualityReport({
           ) : (
             <RefreshIcon className="size-3.5" aria-hidden />
           )}
-          {running ? 'Reviewing…' : 'Re-run'}
+          Re-run
         </Button>
       </div>
 
@@ -152,45 +238,14 @@ export default function QualityReport({
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <div className="flex flex-col gap-3">
-        {report.checks.map((check) => {
-          const meta = STATUS_META[check.status]
-          return (
-            <div
-              key={check.id}
-              className="flex flex-col gap-2 rounded-lg border border-border p-4"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-foreground">
-                  {check.label}
-                </span>
-                <Badge
-                  className={cn(
-                    'gap-1 rounded-full border text-xs',
-                    meta.pillClass,
-                  )}
-                >
-                  <meta.Icon className="size-3.5" aria-hidden />
-                  {meta.label}
-                </Badge>
-              </div>
-              <p className="text-sm text-foreground">{check.note}</p>
-              {check.source ? <SourceLine source={check.source} /> : null}
-              <div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="small"
-                  onClick={() => onDiscussFinding(check)}
-                  className="gap-1.5 rounded-full text-sm"
-                >
-                  <SparklesIcon className="size-3.5" aria-hidden />
-                  Discuss
-                </Button>
-              </div>
-            </div>
-          )
-        })}
+      <div className="divide-y divide-border rounded-lg border border-border">
+        {report.checks.map((check) => (
+          <Check
+            key={check.id}
+            check={check}
+            onDiscuss={() => onDiscussFinding(check)}
+          />
+        ))}
       </div>
     </div>
   )

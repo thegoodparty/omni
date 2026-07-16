@@ -17,10 +17,6 @@ import {
   DrawerHeader,
   DrawerTitle,
   IconButton,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   cn,
 } from '@styleguide'
 import {
@@ -39,8 +35,6 @@ import { ORDINANCE_STATUS_META } from '../data/statuses'
 import DraftChat from './DraftChat'
 import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
-
-type DraftTab = 'draft' | 'quality'
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -69,13 +63,13 @@ export default function DraftDetail({
 }): React.JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
   const queuedRef = useRef<UpdateOrdinanceRequest | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [tab, setTab] = useState<DraftTab>('draft')
   // True once the draft is edited this session, so the quality report can show
   // a stale banner without refetching. Cleared when a fresh report is run.
   const [draftDirty, setDraftDirty] = useState(false)
@@ -212,7 +206,7 @@ export default function DraftDetail({
         updatePosition()
       })
     }
-    const scrollContainer = bodyRef.current?.parentElement ?? null
+    const scrollContainer = scrollRef.current
     document.addEventListener('selectionchange', updatePosition)
     scrollContainer?.addEventListener('scroll', onScroll)
     return () => {
@@ -236,11 +230,7 @@ export default function DraftDetail({
   }, [])
 
   return (
-    <Tabs
-      value={tab}
-      onValueChange={(value) => setTab(value as DraftTab)}
-      className="flex h-full w-full flex-col bg-background"
-    >
+    <div className="flex h-full w-full flex-col bg-background">
       <header className="flex items-center gap-3 border-b border-border px-4 py-3">
         <Link
           href="/dashboard/ordinances"
@@ -252,10 +242,6 @@ export default function DraftDetail({
         <h1 className="text-base font-semibold text-foreground">
           Draft details
         </h1>
-        <TabsList className="ml-2">
-          <TabsTrigger value="draft">Draft</TabsTrigger>
-          <TabsTrigger value="quality">Quality report</TabsTrigger>
-        </TabsList>
         <div className="ml-auto flex items-center gap-3">
           {saveState !== 'idle' ? (
             <span
@@ -276,59 +262,51 @@ export default function DraftDetail({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <TabsContent
-          value="draft"
-          forceMount
-          className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto p-6 data-[state=inactive]:hidden"
-        >
-          <h2
-            ref={titleRef}
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-label="Ordinance draft title"
-            onInput={onTitleInput}
-            className="mb-4 text-xl font-bold text-foreground outline-none"
-          />
-          <div
-            ref={bodyRef}
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-multiline="true"
-            aria-label="Ordinance draft body"
-            onInput={onBodyInput}
-            className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
-          />
-          {sources.length > 0 ? (
-            <div className="mt-8 border-t border-border pt-4">
-              <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Sources
-              </h3>
-              <div className="flex flex-col gap-2">
-                {sources.map((source, i) => (
-                  <SourceLine key={`${source.id}-${i}`} source={source} />
-                ))}
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl p-6">
+            <h2
+              ref={titleRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-label="Ordinance draft title"
+              onInput={onTitleInput}
+              className="mb-4 text-xl font-bold text-foreground outline-none"
+            />
+            <div
+              ref={bodyRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              aria-label="Ordinance draft body"
+              onInput={onBodyInput}
+              className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
+            />
+            {sources.length > 0 ? (
+              <div className="mt-8 border-t border-border pt-4">
+                <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Sources
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {sources.map((source, i) => (
+                    <SourceLine key={`${source.id}-${i}`} source={source} />
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : null}
-        </TabsContent>
+            ) : null}
 
-        <TabsContent
-          value="quality"
-          forceMount
-          className="min-h-0 flex-1 overflow-y-auto data-[state=inactive]:hidden"
-        >
-          <QualityReport
-            slug={ordinance.slug}
-            initialReport={ordinance.qualityReport}
-            draftDirty={draftDirty}
-            onReran={() => setDraftDirty(false)}
-            onDiscussFinding={(check) =>
-              openChat(`About the "${check.label}" check: ${check.note}\n\n`)
-            }
-          />
-        </TabsContent>
+            <QualityReport
+              slug={ordinance.slug}
+              initialReport={ordinance.qualityReport}
+              draftDirty={draftDirty}
+              onReran={() => setDraftDirty(false)}
+              onDiscussFinding={(check) =>
+                openChat(`About the "${check.label}" check: ${check.note}\n\n`)
+              }
+            />
+          </div>
+        </div>
 
         <div className="sticky bottom-0 z-10 border-t border-border bg-background">
           <div className="mx-auto w-full max-w-3xl p-4">
@@ -407,6 +385,6 @@ export default function DraftDetail({
           </Button>
         </div>
       ) : null}
-    </Tabs>
+    </div>
   )
 }

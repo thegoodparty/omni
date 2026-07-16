@@ -125,13 +125,17 @@ describe('QualityReport', () => {
     expect(screen.getByText(/the draft changed/i)).toBeVisible()
   })
 
-  it('calls onDiscussFinding for a check', () => {
+  it('expands a check to reveal its Discuss action and calls onDiscussFinding', () => {
     const onDiscussFinding = vi.fn()
     render(<QualityReport {...props({ onDiscussFinding })} />)
 
-    const [firstDiscuss] = screen.getAllByRole('button', { name: /discuss/i })
-    if (!firstDiscuss) throw new Error('no discuss button')
-    fireEvent.click(firstDiscuss)
+    // Checks start collapsed, so no Discuss action is shown yet.
+    expect(screen.queryByRole('button', { name: /discuss/i })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /authority/i }))
+
+    const discuss = screen.getByRole('button', { name: /discuss/i })
+    fireEvent.click(discuss)
 
     expect(onDiscussFinding).toHaveBeenCalledTimes(1)
     expect(onDiscussFinding.mock.calls[0]?.[0]?.id).toBe('authority')
