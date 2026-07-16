@@ -602,9 +602,11 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         })
 
-    // TODO: this should throw an exception if the update failed
-    //  https://goodparty.atlassian.net/browse/WEB-4384
-    if (updatedCampaign && trackCampaign) {
+    if (!updatedCampaign) {
+      throw new InternalServerErrorException(`Failed to update campaign ${id}`)
+    }
+
+    if (trackCampaign) {
       if (scalarFields?.isPro) {
         await this.analytics.identify(updatedCampaign.userId, {
           isPro: scalarFields.isPro,
@@ -614,7 +616,7 @@ export class CampaignsService extends createPrismaBase(MODELS.Campaign) {
       await this.crm.trackCampaign(updatedCampaign.id)
     }
 
-    return updatedCampaign ? updatedCampaign : null
+    return updatedCampaign
   }
 
   async patchCampaignDetails(
