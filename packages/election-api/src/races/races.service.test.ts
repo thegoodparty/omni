@@ -305,15 +305,20 @@ describe('RacesService.findRaces — pagination', () => {
   let service: RacesService
   let raceFindMany: ReturnType<typeof vi.fn>
   let raceGroupBy: ReturnType<typeof vi.fn>
+  let placeFindUnique: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     raceFindMany = vi
       .fn()
       .mockResolvedValue([{ id: 'race-1', slug: 'tx/a', positionNames: ['X'] }])
     raceGroupBy = vi.fn().mockResolvedValue([{ slug: 'tx/a' }])
+    placeFindUnique = vi.fn().mockResolvedValue({ id: 'place-123' })
     service = new RacesService()
     Object.defineProperty(service, '_prisma', {
-      value: { race: { findMany: raceFindMany, groupBy: raceGroupBy } },
+      value: {
+        race: { findMany: raceFindMany, groupBy: raceGroupBy },
+        place: { findUnique: placeFindUnique },
+      },
     })
   })
 
@@ -358,16 +363,28 @@ describe('RacesService.findRaces — pagination', () => {
     expect(groupArgs.take).toBe(100)
   })
 
-  it('passes the placeSlug relation filter through to the grouped query', async () => {
-    // Prisma groupBy accepts relation filters in `where` (verified against
-    // @prisma/client 6.x); the Place join must reach both the grouping and
-    // the row fetch so placeSlug-scoped requests page correctly.
+  it('resolves placeSlug to a scalar placeId filter for both queries', async () => {
+    // placeSlug is resolved to a scalar placeId first so the slug `groupBy`
+    // never has to filter on the `Place` relation.
     await service.findRaces({ placeSlug: 'tx/austin' } as RaceFilterDto)
 
+    expect(placeFindUnique).toHaveBeenCalledWith({
+      where: { slug: 'tx/austin' },
+      select: { id: true },
+    })
     const groupArgs = raceGroupBy.mock.calls[0]?.[0]
-    expect(groupArgs.where).toEqual({ Place: { slug: 'tx/austin' } })
+    expect(groupArgs.where).toEqual({ placeId: 'place-123' })
     const findArgs = raceFindMany.mock.calls[0]?.[0]
-    expect(findArgs.where.Place).toEqual({ slug: 'tx/austin' })
+    expect(findArgs.where.placeId).toBe('place-123')
+  })
+
+  it('404s when placeSlug matches no place', async () => {
+    placeFindUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findRaces({ placeSlug: 'tx/nonexistent' } as RaceFilterDto),
+    ).rejects.toThrow('No place found for slug')
+    expect(raceGroupBy).not.toHaveBeenCalled()
   })
 
   it('returns an empty array when paging past the last result', async () => {

@@ -50,9 +50,26 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
       candidacyColumns,
     } = filterDto
 
+    // Resolve placeSlug to a scalar placeId up front rather than filtering on
+    // the `Place` relation. The `where` below is reused by the slug `groupBy`
+    // that bounds the page, and keeping every filter scalar avoids relying on
+    // relation-filter support in `groupBy` (and lets both queries use the
+    // placeId index directly).
+    let placeIdFilter: string | undefined
+    if (placeSlug) {
+      const place = await this.client.place.findUnique({
+        where: { slug: placeSlug },
+        select: { id: true },
+      })
+      if (!place) {
+        throw new NotFoundException(`No place found for slug: ${placeSlug}`)
+      }
+      placeIdFilter = place.id
+    }
+
     const where: Prisma.RaceWhereInput = {
       ...(state ? { state } : {}),
-      ...(placeSlug ? { Place: { slug: placeSlug } } : {}),
+      ...(placeIdFilter ? { placeId: placeIdFilter } : {}),
       ...(positionLevel ? { positionLevel } : {}),
       ...(raceSlug ? { slug: raceSlug } : {}),
       ...(isPrimary !== undefined ? { isPrimary } : {}),
