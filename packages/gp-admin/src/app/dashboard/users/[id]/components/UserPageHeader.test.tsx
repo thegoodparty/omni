@@ -31,6 +31,15 @@ vi.mock('../../actions', () => ({
   createImpersonationToken: vi.fn(),
 }))
 
+vi.mock('@/app/dashboard/campaigns/actions', () => ({
+  listCampaigns: vi.fn().mockResolvedValue({
+    data: [],
+    meta: { total: 0, offset: 0, limit: 0 },
+  }),
+  getCampaignComplianceState: vi.fn(),
+  resendCvPin: vi.fn(),
+}))
+
 const mockUsePathname = vi.fn()
 
 vi.mock('next/navigation', () => ({

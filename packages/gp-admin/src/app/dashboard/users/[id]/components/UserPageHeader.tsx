@@ -7,6 +7,7 @@ import { HiPencil, HiArrowLeft } from 'react-icons/hi'
 import { ProtectedContent } from '@/components/ProtectedContent'
 import { PERMISSIONS } from '@/lib/permissions'
 import { useUser } from '../context/UserContext'
+import { CvPinStatus } from './CvPinStatus'
 import { ImpersonateButton } from './ImpersonateButton'
 
 interface UserPageHeaderProps {
@@ -46,6 +47,7 @@ export function UserPageHeader({ isEditMode = false }: UserPageHeaderProps) {
       </Flex>
       {!isEditMode && (
         <Flex gap="3" align="center">
+          <CvPinStatus />
           <ImpersonateButton userId={id} />
           <ProtectedContent
             requiredPermission={PERMISSIONS.WRITE_USERS}
