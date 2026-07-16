@@ -188,6 +188,10 @@ export function useStreamingTurn(
           }
           if (step === 'idle') {
             stalled = true
+            // Abort now, before we poll: closing the connection is what tells
+            // the server to stop generating and persist the partial turn, so it
+            // must happen before the reconcile fetch can hope to load it.
+            abortController.abort()
             void iterator.return?.(undefined)
             break
           }
@@ -268,7 +272,32 @@ export function useStreamingTurn(
             history = await chatApi.listMessages(conversationId)
             commitTries += 1
           }
-          setMessages(history)
+          if (hasTurn(history)) {
+            setMessages(history)
+          } else {
+            // Persistence lagged past the poll window (rare — the server
+            // normally has the turn immediately). `finally` is about to clear
+            // the live render, so swapping in a transcript that lacks this turn
+            // would blank it. Instead keep the finished turn on screen by
+            // appending what streamed (text + pills); a later transcript load
+            // reconciles with the server's authoritative copy.
+            const streamed: ChatMessageDto = {
+              id: `local-${crypto.randomUUID()}`,
+              conversationId,
+              role: 'assistant',
+              content: segments.reduce(
+                (acc, s) => (s.kind === 'text' ? acc + s.text : acc),
+                '',
+              ),
+              createdAt: new Date().toISOString(),
+              segments: segments.map((s) =>
+                s.kind === 'text'
+                  ? { kind: 'text' as const, text: s.text }
+                  : { kind: 'tool' as const, toolName: s.toolName },
+              ),
+            }
+            setMessages((prev) => [...prev, streamed])
+          }
         }
       } catch {
         scope.onError?.('Something went wrong. Please try again.')

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, waitFor } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import type { ChatStreamEvent } from '../../shared/agent-chat/chatClient'
 import type { Ordinance, OrdinancePresentDraft } from '@goodparty_org/contracts'
 import OrdinanceFlowChat from './OrdinanceFlowChat'
@@ -114,4 +114,26 @@ describe('OrdinanceFlowChat — draft turn commit', () => {
     expect(screen.getByText(draft.title)).toBeVisible()
     expect(screen.getByText('Draft for attorney')).toBeVisible()
   }, 15000)
+
+  it('keeps the finished turn on screen if persistence never lands within the poll window', async () => {
+    // Pathological: the refetch never returns the turn (server persistence
+    // stalls past the whole poll window). The commit must not blank the
+    // finished turn — it keeps the streamed text/pills on screen rather than
+    // swapping in a transcript that lacks the turn.
+    mocks.listMessages.mockResolvedValue([])
+
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="draft" />)
+
+    // The lead-in text shows live…
+    expect(
+      await screen.findByText('Here is your first draft.', undefined, {
+        timeout: 8000,
+      }),
+    ).toBeVisible()
+
+    // …and survives the commit even though the poll never found the turn
+    // (the whole ~8s poll window elapses, then the turn is settled locally).
+    await new Promise((resolve) => setTimeout(resolve, 11000))
+    expect(screen.getByText('Here is your first draft.')).toBeVisible()
+  }, 20000)
 })
