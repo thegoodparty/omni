@@ -1,5 +1,6 @@
 import {
   CalendarIcon,
+  FlagIcon,
   GavelIcon,
   MessageSquareIcon,
   SparklesIcon,
@@ -15,12 +16,12 @@ interface CardCategory {
 const BY_TYPE: Record<DashboardCardType, CardCategory> = {
   briefing: { label: 'Briefing', Icon: CalendarIcon },
   agenda_item: { label: 'Legislation', Icon: GavelIcon },
+  community_issue: { label: 'Community Issue', Icon: FlagIcon },
 }
 
 /**
  * Map a card type to its eyebrow label + icon. `comms` / CoS categories
- * (message-square / sparkles) are reserved for future card sources; v1 only
- * generates `briefing` and `agenda_item` rows.
+ * (message-square / sparkles) are reserved for future card sources.
  */
 export function cardCategory(type: DashboardCardType): CardCategory {
   return BY_TYPE[type]

@@ -29,7 +29,7 @@ export interface SupportEstimate {
 // slice 2 — dashboard cards (GET /v1/dashboard/cards, PUT .../dismiss)
 // ---------------------------------------------------------------------------
 
-export type DashboardCardType = 'briefing' | 'agenda_item'
+export type DashboardCardType = 'briefing' | 'agenda_item' | 'community_issue'
 
 export type DashboardCardBucket = 'active' | 'this_week' | 'skipped' | 'missed'
 
@@ -42,7 +42,7 @@ export interface DashboardCard {
   ctaHref: string
   /** ISO timestamp — the meeting / due date. */
   dueDate: string
-  sourceBriefingId: string
+  sourceExternalId: string
   sourceItemId: string | null
   dismissedAt: string | null
   createdAt: string

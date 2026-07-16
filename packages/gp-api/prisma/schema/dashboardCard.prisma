@@ -10,14 +10,14 @@ model DashboardCard {
   ctaHref  String           @map("cta_href")
 
   dueDate          DateTime  @map("due_date")
-  sourceBriefingId String    @map("source_briefing_id")
+  sourceExternalId String    @map("source_external_id")
   sourceItemId     String?   @map("source_item_id")
   dismissedAt      DateTime? @map("dismissed_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@unique([electedOfficeId, type, sourceBriefingId, sourceItemId])
+  @@unique([electedOfficeId, type, sourceExternalId, sourceItemId])
   @@index([electedOfficeId, dismissedAt, dueDate])
   @@map("dashboard_card")
 }
@@ -25,4 +25,5 @@ model DashboardCard {
 enum DashboardCardType {
   briefing
   agenda_item
+  community_issue
 }
