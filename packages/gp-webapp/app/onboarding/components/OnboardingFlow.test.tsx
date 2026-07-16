@@ -165,9 +165,9 @@ describe('new onboarding flow shell', () => {
     ).toBe('path-to-victory')
   })
 
-  it('routes structured users from voter-demographics straight to pledge', () => {
+  it('routes structured users from campaign-story straight to pledge', () => {
     expect(
-      getNextOnboardingStep(ONBOARDING_STEPS, 'voter-demographics', {
+      getNextOnboardingStep(ONBOARDING_STEPS, 'campaign-story', {
         officePath: 'structured',
       })?.id,
     ).toBe('pledge')
@@ -187,7 +187,9 @@ describe('new onboarding flow shell', () => {
     ).toBe('manual-office-entry')
     expect(visibleStepIds).toContain('manual-office-entry')
     expect(visibleStepIds).not.toContain('path-to-victory')
-    expect(visibleStepIds).not.toContain('voter-demographics')
+    // Unlike its voter-demographics predecessor, campaign-story has no
+    // officePath-based shouldSkip, so it stays visible for manual users too.
+    expect(visibleStepIds).toContain('campaign-story')
   })
 
   it('disables continue on the ballot-status step until a status is selected', async () => {
@@ -290,13 +292,15 @@ describe('new onboarding flow shell', () => {
       unmatchedOffice: true,
     }
 
+    // path-to-victory is skipped for manual users, but campaign-story is
+    // not, so it sits directly before pledge in both directions.
     expect(
       getPreviousOnboardingStep(ONBOARDING_STEPS, 'pledge', answers)?.id,
-    ).toBe('manual-office-entry')
+    ).toBe('campaign-story')
     expect(
       getNextOnboardingStep(ONBOARDING_STEPS, 'manual-office-entry', answers)
         ?.id,
-    ).toBe('pledge')
+    ).toBe('campaign-story')
   })
 
   it('renders the campaign-story step when the flag is on and never the demographics step', async () => {

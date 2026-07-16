@@ -477,6 +477,7 @@ export default function OnboardingFlow({
       'party-affiliation': EVENTS.OnboardingV2.PartyDesignationViewed,
       'office-selection': EVENTS.OnboardingV2.OfficeViewed,
       'path-to-victory': EVENTS.OnboardingV2.VotesNeededViewed,
+      'campaign-story': EVENTS.OnboardingV2.CampaignStoryViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
