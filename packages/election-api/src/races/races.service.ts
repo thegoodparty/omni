@@ -43,6 +43,8 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
       electionDateEnd,
       isPrimary,
       isRunoff,
+      page,
+      pageSize,
       raceColumns,
       placeColumns,
       candidacyColumns,
@@ -83,14 +85,30 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
       ...(includeCandidacies && { Candidacies: candidacyInclude }),
     }
 
+    // Bound the result set. A stable order is required for pagination to be
+    // meaningful (Postgres has no implicit row order); ordering by slug also
+    // keeps same-slug rows adjacent so the downstream dedupe collapses them
+    // within a page. `id` is the deterministic tiebreaker.
+    const skip = (page - 1) * pageSize
+    const orderBy: Prisma.RaceOrderByWithRelationInput[] = [
+      { slug: 'asc' },
+      { id: 'asc' },
+    ]
+
     const races = raceSelectBase
       ? await this.model.findMany({
           where,
           select: raceQueryObj,
+          orderBy,
+          skip,
+          take: pageSize,
         })
       : await this.model.findMany({
           where,
           include: raceQueryObj,
+          orderBy,
+          skip,
+          take: pageSize,
         })
 
     if (!races || races.length === 0) {

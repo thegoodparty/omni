@@ -20,6 +20,16 @@ const positionLevelEnum = z.enum([
   'TOWNSHIP',
 ])
 
+// `GET /races` historically ran an unbounded `findMany` (no `take`), so a broad
+// filter like `?state=TX` could materialize the entire state's race set into
+// memory before deduping. These bound that. The default is deliberately
+// generous — larger than any realistic single-state/level result set — so
+// existing (unpaginated) callers keep getting their full result while a
+// pathological unfiltered scan is still capped. Callers that genuinely need
+// more than one page's worth walk pages explicitly via `page`.
+export const DEFAULT_RACE_PAGE_SIZE = 1000
+export const MAX_RACE_PAGE_SIZE = 5000
+
 export const raceFilterSchema = z
   .object({
     state: z
@@ -50,6 +60,14 @@ export const raceFilterSchema = z
       (val) => val === 'true' || val === '1' || val === true,
       z.boolean().optional(),
     ),
+    page: z.coerce.number().int().positive().optional().default(1),
+    pageSize: z.coerce
+      .number()
+      .int()
+      .positive()
+      .max(MAX_RACE_PAGE_SIZE)
+      .optional()
+      .default(DEFAULT_RACE_PAGE_SIZE),
     raceColumns: z
       .string()
       .optional()

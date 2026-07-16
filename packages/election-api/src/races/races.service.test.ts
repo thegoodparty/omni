@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RacesService } from './races.service'
-import { RaceFilterDto } from './races.schema'
+import { DEFAULT_RACE_PAGE_SIZE, RaceFilterDto } from './races.schema'
 
 describe('RacesService.findFilingFeeByBrHashId', () => {
   let service: RacesService
@@ -296,5 +296,59 @@ describe('RacesService.findRaces — candidacy PII', () => {
     // raceColumns present -> top-level `select`; the Candidacies relation still
     // carries the omit so email never comes back.
     expect(args.select.Candidacies).toEqual({ omit: { email: true } })
+  })
+})
+
+describe('RacesService.findRaces — pagination', () => {
+  let service: RacesService
+  let raceFindMany: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    raceFindMany = vi.fn().mockResolvedValue([{ id: 'race-1' }])
+    service = new RacesService()
+    Object.defineProperty(service, '_prisma', {
+      value: { race: { findMany: raceFindMany } },
+    })
+  })
+
+  it('bounds the query with the default page size and a stable order', async () => {
+    await service.findRaces({
+      state: 'TX',
+      page: 1,
+      pageSize: DEFAULT_RACE_PAGE_SIZE,
+    } as RaceFilterDto)
+
+    const args = raceFindMany.mock.calls[0]?.[0]
+    expect(args.take).toBe(DEFAULT_RACE_PAGE_SIZE)
+    expect(args.skip).toBe(0)
+    // Deterministic order is required for offset pagination and keeps
+    // same-slug rows adjacent for the downstream dedupe.
+    expect(args.orderBy).toEqual([{ slug: 'asc' }, { id: 'asc' }])
+    expect(args.where).toEqual({ state: 'TX' })
+  })
+
+  it('computes skip from page and pageSize', async () => {
+    await service.findRaces({
+      page: 3,
+      pageSize: 100,
+    } as RaceFilterDto)
+
+    const args = raceFindMany.mock.calls[0]?.[0]
+    expect(args.skip).toBe(200)
+    expect(args.take).toBe(100)
+  })
+
+  it('applies the bound on the select path too', async () => {
+    await service.findRaces({
+      raceColumns: 'id',
+      page: 2,
+      pageSize: 250,
+    } as RaceFilterDto)
+
+    const args = raceFindMany.mock.calls[0]?.[0]
+    expect(args.select).toBeDefined()
+    expect(args.skip).toBe(250)
+    expect(args.take).toBe(250)
+    expect(args.orderBy).toEqual([{ slug: 'asc' }, { id: 'asc' }])
   })
 })
