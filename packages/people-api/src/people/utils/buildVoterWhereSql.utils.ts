@@ -2,6 +2,12 @@ import { Prisma } from '../../generated/prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { buildVoterFiltersSql } from './filters.sql.utils'
 
+// pg_trgm needs at least one full trigram to extract from the pattern;
+// `%ab%` on a 1-2 char token degrades to a near-full GIN scan, so short
+// tokens (middle initials, "Li") stay prefix-matched on the b-tree
+// functional indexes.
+const MIN_SUBSTRING_TOKEN_LENGTH = 3
+
 export const getNormalizedPhoneNumber = (phone: string): string | null => {
   if (!/^\d+$/.test(phone)) {
     return null
@@ -53,18 +59,25 @@ export const buildVoterWhereSql = (args: {
       )
     } else {
       const tokens = search.split(/\s+/).filter(Boolean)
-      // Case-insensitive prefix match per token, AND-joined across tokens, with
-      // each token allowed to match either name field. This handles "First Last",
-      // "Last First", and middle-name noise. `lower(col) LIKE lower(tok) || '%'`
-      // is the form the Voter_firstname_lower_idx / Voter_lastname_lower_idx
-      // functional indexes can serve; ILIKE would seq-scan the 200M-row table.
-      // LIKE metacharacters in the user token are escaped so a `_`/`%` can't
-      // widen the match or turn the anchored prefix into a non-prefix pattern
-      // that seq-scans the 200M-row table.
+      // Case-insensitive match-anywhere per token, AND-joined across tokens,
+      // with each token allowed to match either name field. This handles
+      // "First Last", "Last First", and middle-name noise.
+      // `lower(col) LIKE '%tok%'` is the form the trigram GIN indexes
+      // (Voter_firstname_lower_trgm_idx / Voter_lastname_lower_trgm_idx) can
+      // serve — the lower() expression must match the index expression
+      // exactly. Tokens shorter than MIN_SUBSTRING_TOKEN_LENGTH stay
+      // anchored-prefix on the b-tree Voter_firstname_lower_idx /
+      // Voter_lastname_lower_idx functional indexes instead. LIKE
+      // metacharacters in the user token are escaped so a `_`/`%` can't
+      // widen the match.
       for (const token of tokens) {
-        const prefix = token.toLowerCase().replace(/[%_\\]/g, '\\$&') + '%'
+        const escaped = token.toLowerCase().replace(/[%_\\]/g, '\\$&')
+        const pattern =
+          token.length >= MIN_SUBSTRING_TOKEN_LENGTH
+            ? `%${escaped}%`
+            : `${escaped}%`
         parts.push(
-          Prisma.sql`(lower(v."FirstName") LIKE ${prefix} ESCAPE '\\' OR lower(v."LastName") LIKE ${prefix} ESCAPE '\\')`,
+          Prisma.sql`(lower(v."FirstName") LIKE ${pattern} ESCAPE '\\' OR lower(v."LastName") LIKE ${pattern} ESCAPE '\\')`,
         )
       }
     }

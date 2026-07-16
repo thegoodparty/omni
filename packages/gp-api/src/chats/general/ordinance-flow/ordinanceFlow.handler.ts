@@ -33,6 +33,7 @@ import {
   buildPresentAuthorityFindingTool,
   buildPresentComparablesTool,
   buildPresentCurrentLawSummaryTool,
+  buildPresentDraftTool,
   buildPresentLegislativeHistoryTool,
   buildReadOrdinanceTool,
   buildSaveExistingLawTool,
@@ -227,8 +228,15 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       tools.present_comparables = buildPresentComparablesTool(deps)
     }
 
-    // Every step except the last can offer a button to advance the flow.
-    if (ctx.step !== 'draft') {
+    // The terminal step synthesizes the prior steps into a complete draft and
+    // persists it to the ordinance's draft columns.
+    if (ctx.step === 'draft') {
+      tools.present_draft = buildPresentDraftTool(deps)
+    }
+
+    // A numbered flow step can offer a button to advance. The terminal draft
+    // step and the post-draft review chat have nowhere to advance to.
+    if (ctx.step !== 'draft' && ctx.step !== 'review') {
       tools.offer_next_step = buildOfferNextStepTool()
     }
 

@@ -1,7 +1,7 @@
 import Body1 from '@shared/typography/Body1'
 import IssuesSelector from './IssuesSelector'
 import type { Campaign, CandidatePosition, TopIssue } from 'helpers/types'
-import type { EditIssuePosition } from './IssuesList'
+import type { EditIssuePosition } from './issueTypes'
 
 interface AddIssuesProps {
   completeCallback?: (value: string) => void

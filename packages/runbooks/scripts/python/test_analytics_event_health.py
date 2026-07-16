@@ -17,6 +17,15 @@ MONDAY = date(2026, 6, 22)
 # --- to_date -----------------------------------------------------------------
 
 
+def test_health_sql_reads_mart_analytics_tables():
+    # The reconcile tests inject pre-built data and never touch the SQL constants,
+    # so without this a revert to the dbt relations would pass silently.
+    assert "mart_analytics.amplitude_event_catalog" in eh.CATALOG_SQL
+    assert "mart_analytics.amplitude_events" in eh.WEEKLY_SQL
+    assert "dbt." not in eh.CATALOG_SQL
+    assert "dbt." not in eh.WEEKLY_SQL
+
+
 def test_to_date_handles_datetime_before_date():
     # datetime subclasses date; must coerce to a plain date, not pass through.
     assert eh.to_date(datetime(2026, 6, 25, 13, 30)) == date(2026, 6, 25)

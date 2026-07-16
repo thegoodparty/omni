@@ -12,7 +12,6 @@ import { CampaignProvider } from '@shared/hooks/CampaignProvider'
 import { getReqPathname } from '@shared/utils/getReqPathname'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import SegmentIdentify from './navigation/SegmentIdentify'
-import { P2pUxEnabledProvider } from 'app/dashboard/components/tasks/flows/hooks/P2pUxEnabledProvider'
 import { SentryIdentifier } from '@shared/sentry'
 import AmplitudeInit from '@shared/AmplitudeInit'
 import { ImpersonatingTracker } from '@shared/user/ImpersonatingTracker'
@@ -62,26 +61,24 @@ const PageWrapper = async ({
               <CampaignProvider campaign={campaign}>
                 <SentryIdentifier />
                 <CampaignStatusProvider>
-                  <P2pUxEnabledProvider>
-                    <NavigationProvider>
-                      <SnackbarProvider>
-                        <div className="overflow-x-clip">
-                          <JsonLdSchema />
-                          <Nav />
-                          {children}
-                          <Suspense>
-                            <Footer initPathname={pathname || ''} />
-                          </Suspense>
-                          <Suspense>
-                            <CookiesSnackbar />
-                          </Suspense>
-                          <Suspense>
-                            <SegmentIdentify />
-                          </Suspense>
-                        </div>
-                      </SnackbarProvider>
-                    </NavigationProvider>
-                  </P2pUxEnabledProvider>
+                  <NavigationProvider>
+                    <SnackbarProvider>
+                      <div className="overflow-x-clip">
+                        <JsonLdSchema />
+                        <Nav />
+                        {children}
+                        <Suspense>
+                          <Footer initPathname={pathname || ''} />
+                        </Suspense>
+                        <Suspense>
+                          <CookiesSnackbar />
+                        </Suspense>
+                        <Suspense>
+                          <SegmentIdentify />
+                        </Suspense>
+                      </div>
+                    </SnackbarProvider>
+                  </NavigationProvider>
                 </CampaignStatusProvider>
               </CampaignProvider>
             </OrganizationProvider>

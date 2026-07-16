@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Organization } from 'gpApi/api-endpoints'
-import candidateAccess, { getPostAuthRedirectPath } from './candidateAccess'
+import candidateAccess, {
+  getPostAuthRedirectPath,
+  fetchCampaignStatus,
+} from './candidateAccess'
 
 const {
   mockAuth,
@@ -37,9 +40,17 @@ vi.mock('next/headers', () => ({
     }),
 }))
 
-vi.mock('next/navigation', () => ({
-  redirect: (url: string) => mockRedirect(url),
-}))
+// Keep the real `unstable_rethrow` (and other exports) so post-swap
+// candidateAccess.ts calls the genuine Next implementation against a real
+// NEXT_REDIRECT-shaped error; only `redirect` itself is mocked so tests can
+// control whether/how it throws without invoking full Next request context.
+vi.mock('next/navigation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('next/navigation')>()
+  return {
+    ...actual,
+    redirect: (url: string) => mockRedirect(url),
+  }
+})
 
 vi.mock('helpers/getCurrentUserOrganizations', () => ({
   getCurrentUserOrganizations: () => mockGetCurrentUserOrganizations(),
@@ -85,6 +96,40 @@ const routeServerFetch = (
     },
   )
 }
+
+describe('fetchCampaignStatus', () => {
+  it('rethrows the redirect error on a 498 (expired legacy token) response', async () => {
+    // Real Next `redirect()` always throws a NEXT_REDIRECT-digest error; simulate
+    // that here since `redirect` is mocked as a no-op by default for the other
+    // describe blocks. This is the regression this plan exists to protect: the
+    // guard in the catch block must recognize and rethrow this error rather than
+    // swallow it into `{ status: false }`.
+    mockRedirect.mockImplementation(() => {
+      throw Object.assign(new Error('NEXT_REDIRECT'), {
+        digest: 'NEXT_REDIRECT;replace;/logout;307;',
+      })
+    })
+    mockServerFetch.mockResolvedValue({ ok: false, status: 498, data: null })
+
+    await expect(fetchCampaignStatus()).rejects.toMatchObject({
+      digest: expect.stringMatching(/^NEXT_REDIRECT/),
+    })
+    expect(mockRedirect).toHaveBeenCalledWith('/logout')
+  })
+
+  it('resolves { status: false } when serverFetch rejects with a plain error', async () => {
+    mockServerFetch.mockRejectedValue(new Error('network blew up'))
+
+    await expect(fetchCampaignStatus()).resolves.toEqual({ status: false })
+  })
+
+  it('resolves the response body on a 200', async () => {
+    const body = { status: true, slug: 'campaign-1' }
+    mockServerFetch.mockResolvedValue({ ok: true, status: 200, data: body })
+
+    await expect(fetchCampaignStatus()).resolves.toEqual(body)
+  })
+})
 
 describe('getPostAuthRedirectPath', () => {
   it('routes an EO with incomplete serve onboarding to /serve/onboarding', async () => {

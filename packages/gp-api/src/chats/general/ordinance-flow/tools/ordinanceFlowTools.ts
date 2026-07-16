@@ -7,6 +7,7 @@ import {
   OrdinanceLegislativeHistorySchema,
   OrdinanceNextStepOfferSchema,
   OrdinancePresentComparablesSchema,
+  OrdinancePresentDraftSchema,
 } from '@goodparty_org/contracts'
 import {
   ORDINANCE_READ_SECTIONS,
@@ -241,6 +242,27 @@ export const buildPresentComparablesTool = (
       deps.electedOfficeId,
       comparables,
     ),
+})
+
+export const buildPresentDraftTool = (
+  deps: OrdinanceToolDeps,
+): LlmStreamTool<typeof OrdinancePresentDraftSchema> => ({
+  description:
+    'Present the finished first-draft ordinance as a card and save it to the ' +
+    'record. Synthesize the prior steps into one complete, section-numbered ' +
+    'draft: pass a title, a one-line description for the card, the full statute ' +
+    'body, and the sources it draws on. For an in-place amendment, write the ' +
+    'body as a redline using {-struck old text-}{+inserted new text+} markup; ' +
+    'for standalone new text write plain statute prose. Call it once, at the ' +
+    'end of the draft step; do not restate the body as chat text. execute ' +
+    'persists title/body/sources and sets the ordinance to draft status.',
+  inputSchema: OrdinancePresentDraftSchema,
+  execute: ({ title, body, sources }) =>
+    deps.service.saveDraft(deps.ordinanceId, deps.electedOfficeId, {
+      title,
+      body,
+      ...(sources && { sources }),
+    }),
 })
 
 export const buildOfferNextStepTool = (): LlmStreamTool<

@@ -1,0 +1,14 @@
+// personId is the people-api Voter.id (stable hash of the L2 voter id) —
+// a plain string, never a Prisma FK, since the person lives in people-api's DB.
+model ContactNote {
+  id               String       @id @default(uuid(7))
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  organizationSlug String       @map("organization_slug")
+  organization     Organization @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
+  personId         String       @map("person_id")
+  body             String
+
+  @@index([organizationSlug, personId, createdAt])
+  @@map("contact_note")
+}

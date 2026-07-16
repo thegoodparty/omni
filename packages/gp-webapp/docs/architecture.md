@@ -7,7 +7,6 @@ A pointer-heavy doc. Detailed conventions live in `CLAUDE.md` and feature-level 
 - **Next.js 16** App Router on Vercel (React 19.2), Turbopack builds, Serwist service worker
 - **TanStack React Query 5** (5-minute stale time) for server-state caching
 - **Tailwind CSS v4** + custom design tokens (`styleguide/design-tokens.css`, `styleguide/tailwind-theme.css`)
-- **MUI 7** for some legacy material primitives; new code prefers `@styleguide`
 - **Clerk** for auth widgets (e2e setup), session JWT issued by gp-api
 - **Amplitude** for analytics + feature flags
 - **Sentry** for error reporting (`@sentry/nextjs`)
@@ -63,7 +62,7 @@ Shared types flow through hand-rolled `Request`/`Response` declarations on `gpAp
 ## Bootstrap
 
 - `app/layout.tsx` — root layout, mounts every provider in `app/shared/`.
-- `app/shared/AmplitudeInit.tsx`, `sentry.tsx`, `materialTheme.ts` — third-party init.
+- `app/shared/AmplitudeInit.tsx`, `sentry.tsx` — third-party init.
 - `appEnv.ts` (repo root) — env constants. Defaults point at the dev API.
 
 ## Key patterns

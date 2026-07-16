@@ -25,8 +25,10 @@ export const voterFileDownload = async (
     document.body.appendChild(link)
     link.click()
 
-    window.URL.revokeObjectURL(url)
-    document.body.removeChild(link)
+    setTimeout(() => {
+      window.URL.revokeObjectURL(url)
+      document.body.removeChild(link)
+    }, 0)
     return Promise.resolve()
   }
   return Promise.reject(res)

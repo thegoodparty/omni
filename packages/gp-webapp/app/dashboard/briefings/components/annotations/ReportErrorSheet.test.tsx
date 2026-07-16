@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ReportErrorSheet from './ReportErrorSheet'
-import type { SheetState } from './AnnotationsScope'
+import type { SheetState } from './sheetState'
 import type { Annotation } from '@shared/briefings/types'
 
 vi.mock('@styleguide/hooks/use-mobile', () => ({

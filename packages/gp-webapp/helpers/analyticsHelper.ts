@@ -396,7 +396,16 @@ export const EVENTS = {
     SegmentViewed: 'Contacts - Segment Viewed',
     OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
   },
+  // ENG-10688: the CRM brief specs the typeahead search events as
+  // product-specific by nav surface — "Voter Data" (Win) vs "Constituent
+  // Data" (Serve) — a deliberate exception to the Contacts group's
+  // context-property rule above. Both fire from useContactTypeaheadSearch
+  // with { resultCount }.
+  ConstituentData: {
+    ContactSearched: 'Constituent Data - Contact Searched',
+  },
   VoterData: {
+    ContactSearched: 'Voter Data - Contact Searched',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',

@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common'
-import { CommunityIssueList, ExperimentRun } from '../../generated/prisma'
+import {
+  CommunityIssue,
+  CommunityIssueList,
+  ExperimentRun,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import {
   CommunityIssuesArtifact,
@@ -11,6 +15,9 @@ export type CommunityIssueUpsertSummary = {
   // True when the org had no rows for this list before this run and this run
   // created its first ones — i.e. the list's first-ever generation.
   wasFirstGenerationForList: boolean
+  // The rows this run newly created (the id-less artifact issues). Refreshed
+  // rows (those carrying an existing_issue_id) are not included.
+  createdIssues: CommunityIssue[]
 }
 
 @Injectable()
@@ -84,6 +91,8 @@ export class CommunityIssueUpsertService extends createPrismaBase(
       }
     }
 
+    const createdIssues: CommunityIssue[] = []
+
     // Assumes at most one in-flight run per (org, list). Concurrent runs for the
     // same org+list could interleave archive-by-omission with the other's creates
     // under READ COMMITTED; the pipeline is agent-triggered so this is rare.
@@ -120,6 +129,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
           },
         })
         updatedIds.add(created.id)
+        createdIssues.push(created)
       }
 
       await tx.communityIssue.updateMany({
@@ -136,6 +146,7 @@ export class CommunityIssueUpsertService extends createPrismaBase(
     return {
       list,
       wasFirstGenerationForList: existingCount === 0 && idLess.length > 0,
+      createdIssues,
     }
   }
 }

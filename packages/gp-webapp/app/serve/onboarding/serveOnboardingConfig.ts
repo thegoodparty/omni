@@ -428,7 +428,7 @@ export const SERVE_PLEDGE_COMMITMENTS: ServePledgeCommitment[] = [
     icon: Users,
     title: 'People-First',
     detail:
-      'I get a majority of my funding from individuals, not from political action committees (PACs), lobbies, unions or corporations. Once elected, I will focus on solving the problems facing my constituents, not serving myself or special interests.',
+      'I get a majority of my funding from individuals, not from political action committees (PACs), lobbies, unions or corporations. I do not accept funding from either the Republican or Democratic party. Once elected, I will focus on solving the problems facing my constituents, not serving myself or special interests.',
   },
   {
     icon: Flag,

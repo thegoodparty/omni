@@ -13,6 +13,7 @@ export const ORDINANCE_STEP_LABELS: Record<OrdinanceFlowStep, string> = {
   current_law: 'Current law',
   comparables: 'How others solved it',
   draft: 'Draft',
+  review: 'Review',
 }
 
 export const isOrdinanceStep = (value: string): value is OrdinanceFlowStep =>

@@ -14,17 +14,7 @@ import Body2 from '@shared/typography/Body2'
 import { syncEcanvasser } from '@shared/utils/syncEcanvasser'
 import DoorKnockingTabs from '../shared/DoorKnockingTabs'
 import { Campaign } from 'helpers/types'
-
-export interface EcanvasserSummary {
-  totalInteractions?: number
-  totalContactAttempts?: number
-  totalHouseholds?: number
-  lastSync?: string
-  averageRating?: number
-  interactions?: Partial<Record<string, number>>
-  interactionsByDay?: Partial<Record<string, Partial<Record<string, number>>>>
-  groupedRatings?: Partial<Record<string, number>>
-}
+import type { EcanvasserSummary } from './types'
 
 interface DoorKnockingPageProps {
   pathname: string

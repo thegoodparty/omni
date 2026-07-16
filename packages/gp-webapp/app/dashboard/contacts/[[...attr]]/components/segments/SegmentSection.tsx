@@ -17,16 +17,16 @@ import {
 import { useState } from 'react'
 import DeleteSegment from './DeleteSegment'
 import FiltersSheet from './FiltersSheet'
-import { useContactsTable } from '../../hooks/ContactsTableProvider'
-import { ALL_SEGMENTS, SHEET_MODES } from '../shared/constants'
+import { useContactsTable } from '../../../crm/ContactsTableProvider'
+import { ALL_SEGMENTS, SHEET_MODES } from '../../../crm/shared/constants'
 import {
   isDefaultSegment,
   findCustomSegment,
   trimCustomSegmentName,
-} from '../shared/segments.util'
+} from '../../../crm/shared/segments.util'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useShowContactProModal } from '../../hooks/ContactProModal'
-import { type SegmentResponse } from '../shared/contacts-types'
+import { useShowContactProModal } from '../../../crm/ContactProModal'
+import { type SegmentResponse } from '../../../crm/shared/contacts-types'
 
 type SheetMode = (typeof SHEET_MODES)[keyof typeof SHEET_MODES]
 

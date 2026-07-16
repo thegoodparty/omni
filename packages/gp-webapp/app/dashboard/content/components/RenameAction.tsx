@@ -1,5 +1,6 @@
 'use client'
 import { useState, ChangeEvent } from 'react'
+import { useRouter } from 'next/navigation'
 import Modal from '@shared/utils/Modal'
 import TextField from '@shared/inputs/TextField'
 import { Button } from '@styleguide'
@@ -46,13 +47,15 @@ const RenameAction = ({
 }: RenameActionProps): React.JSX.Element => {
   const [newName, setNewName] = useState('')
   const { successSnackbar, errorSnackbar } = useSnackbar()
+  const router = useRouter()
 
   const handleRename = async (key: string, name: string) => {
     const renameResp = await renameContent(key, name)
     if (renameResp === true) {
       successSnackbar('Renamed document')
       if (tableVersion === true) {
-        window.location.href = '/dashboard/content'
+        router.push('/dashboard/content')
+        router.refresh()
       } else {
         setDocumentName?.(newName)
       }

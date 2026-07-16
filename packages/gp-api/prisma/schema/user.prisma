@@ -16,6 +16,8 @@ model User {
   avatar                String?
   password              String?
   hasPassword           Boolean                 @default(false) @map("has_password")
+  /// Also unique case-insensitively via a raw-SQL expression index
+  /// (user_email_lower_unique on LOWER(email)) that schema.prisma can't declare.
   email                 String                  @unique
   clerkId               String?                 @unique @map("clerk_id")
   phone                 String?

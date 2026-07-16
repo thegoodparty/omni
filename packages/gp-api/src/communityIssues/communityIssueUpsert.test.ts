@@ -2,6 +2,7 @@ import {
   CommunityIssueCategory,
   CommunityIssueList,
   CommunityIssuePriority,
+  DashboardCardType,
   ExperimentRunStatus,
 } from '../generated/prisma'
 import {
@@ -654,5 +655,91 @@ describe('CommunityIssueService analytics events', () => {
       topIssue1Title: 'Pothole backlog',
       topIssue1Priority: 'high',
     })
+  })
+})
+
+describe('CommunityIssueService dashboard task cards', () => {
+  const s3Responses: Record<string, string> = {}
+  let keyCounter = 0
+
+  const generate = async (
+    type: 'top_community_issues' | 'trending_issues',
+    list: 'top_community' | 'trending',
+    issues: unknown[],
+  ) => {
+    const key = `card-${keyCounter++}.json`
+    const run = await seedRun(ORG, type, key)
+    s3Responses[key] = JSON.stringify(
+      makeArtifact(ORG, run.runId, issues, list),
+    )
+    await service.app.get(CommunityIssueService).onExperimentRunCompleted(run)
+    return run
+  }
+
+  const cards = () =>
+    service.prisma.dashboardCard.findMany({
+      where: {
+        electedOfficeId: eo.id,
+        type: DashboardCardType.community_issue,
+      },
+    })
+
+  let eo: { id: string }
+
+  beforeEach(async () => {
+    for (const k of Object.keys(s3Responses)) delete s3Responses[k]
+    keyCounter = 0
+    eo = await service.prisma.electedOffice.create({
+      data: { organizationSlug: ORG, userId: service.user.id },
+    })
+    vi.spyOn(service.app.get(S3Service), 'getFile').mockImplementation(
+      async (_bucket, key) => s3Responses[key],
+    )
+  })
+
+  it('creates no cards on a list first-ever generation', async () => {
+    await generate('top_community_issues', 'top_community', [
+      makeIssue(1),
+      makeIssue(2),
+    ])
+    expect(await cards()).toHaveLength(0)
+  })
+
+  it('creates one card per new issue on a later run', async () => {
+    await generate('top_community_issues', 'top_community', [makeIssue(1)])
+
+    await generate('top_community_issues', 'top_community', [
+      makeIssue(2, { title: 'Broken streetlights' }),
+    ])
+
+    const created = await cards()
+    expect(created).toHaveLength(1)
+    const issue = await service.prisma.communityIssue.findFirstOrThrow({
+      where: { organizationSlug: ORG, title: 'Broken streetlights' },
+    })
+    expect(created[0]).toMatchObject({
+      title: 'Broken streetlights',
+      summary: 'Summary for issue 2.',
+      ctaLabel: 'View issue',
+      ctaHref: `/dashboard/community-issues/${issue.id}`,
+      sourceExternalId: issue.id,
+      sourceItemId: null,
+    })
+  })
+
+  it('creates no card when a later run only refreshes existing issues', async () => {
+    await generate('top_community_issues', 'top_community', [makeIssue(1)])
+    const existing = await service.prisma.communityIssue.findFirstOrThrow({
+      where: { organizationSlug: ORG },
+    })
+
+    await generate('top_community_issues', 'top_community', [
+      makeIssue(1, {
+        existing_issue_id: existing.id,
+        title: 'Refreshed title',
+      }),
+    ])
+
+    expect(await cards()).toHaveLength(0)
   })
 })

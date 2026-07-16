@@ -17,10 +17,10 @@ import {
 } from '@styleguide'
 import { noop } from '@shared/utils/noop'
 import { clsx } from 'clsx'
-import { PAGE_SIZES } from './shared/constants'
+import { PAGE_SIZES } from '../../crm/shared/constants'
 import { type ColumnDef } from '@tanstack/react-table'
 import { type VisibilityState } from '@tanstack/react-table'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 
 interface Pagination {
   totalPages?: number

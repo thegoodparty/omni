@@ -49,6 +49,12 @@ jobs:
       - name: Guard 'use client' count
         run: npm run check:use-client -w ${{ env.WORKSPACE }}
 
+      - name: Guard circular dependencies
+        run: npm run detect-circular-dependencies -w ${{ env.WORKSPACE }}
+
+      - name: Guard legacy fetch count
+        run: npm run check:legacy-fetch -w ${{ env.WORKSPACE }}
+
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
 
