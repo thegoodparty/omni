@@ -1268,6 +1268,123 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     expect(dispatchSpy).not.toHaveBeenCalled()
   })
+
+  // Correctness of the DB-side pre-filter + bounded concurrency: with a mix of
+  // offices in a single run, exactly the dispatch-eligible office fires. This
+  // proves the pre-filter keeps every office that would have dispatched (A),
+  // drops only offices that never could (B: no schedule, C: already covered by
+  // a future briefing), and that an office which survives the pre-filter but is
+  // skipped by a per-office guard (D) still does not dispatch — all while the
+  // batch is processed concurrently.
+  it('dispatches only the eligible office across a mixed population', async () => {
+    const suffix = Date.now()
+
+    const orgA = `eo-mix-a-${suffix}`
+    await seedOrgAndCampaign(orgA, { positionId: `br-pos-${orgA}` })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgA, userId: service.user.id },
+    })
+
+    const orgB = `eo-mix-b-${suffix}`
+    await seedOrgAndCampaign(orgB, { positionId: `br-pos-${orgB}` })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgB, userId: service.user.id },
+    })
+
+    const orgC = `eo-mix-c-${suffix}`
+    await seedOrgAndCampaign(orgC, { positionId: `br-pos-${orgC}` })
+    const eoC = await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgC, userId: service.user.id },
+    })
+
+    const orgD = `eo-mix-d-${suffix}`
+    await seedOrgAndCampaign(orgD, { positionId: `br-pos-${orgD}` })
+    await service.prisma.electedOffice.create({
+      data: { organizationSlug: orgD, userId: service.user.id },
+    })
+
+    mockResolveServeContext({
+      state: 'MN',
+      positionName: 'City Council',
+      isServeIcp: true,
+    })
+
+    const scheduleBody = (status: 'found' | 'not_found') =>
+      JSON.stringify({
+        status,
+        rrule: 'FREQ=DAILY',
+        time: '23:59',
+        timezone: 'America/Chicago',
+        duration_minutes: 120,
+        meeting_name: 'City Council',
+        location: 'Council Chambers',
+        sources: [],
+        generated_at: new Date().toISOString(),
+        human: 'Daily test schedule',
+      })
+
+    // A + C + D have completed schedule runs (so they survive the pre-filter's
+    // schedule predicate); B has none (excluded). C additionally has a future
+    // briefing (excluded by the coverage predicate). D's schedule resolves to
+    // not_found, so it survives the pre-filter but the per-office guard skips.
+    const keyA = `sched-a-${suffix}.json`
+    const keyC = `sched-c-${suffix}.json`
+    const keyD = `sched-d-${suffix}.json`
+    for (const [orgSlug, key] of [
+      [orgA, keyA],
+      [orgC, keyC],
+      [orgD, keyD],
+    ] as const) {
+      await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: 'meeting_schedule',
+          status: ExperimentRunStatus.COMPLETED,
+          artifactBucket: 'schedule-bucket',
+          artifactKey: key,
+        },
+      })
+    }
+
+    const cBriefingRun = await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: orgC,
+        experimentType: 'meeting_briefing',
+        status: ExperimentRunStatus.COMPLETED,
+      },
+    })
+    await service.prisma.meetingBriefing.create({
+      data: {
+        electedOfficeId: eoC.id,
+        meetingDate: new Date('2099-12-31'),
+        meetingTime: '19:00',
+        meetingTimezone: 'America/Denver',
+        experimentRunId: cBriefingRun.runId,
+        artifactBucket: 'b',
+        artifactKey: 'existing.json',
+      },
+    })
+
+    mockS3({
+      [keyA]: scheduleBody('found'),
+      [keyC]: scheduleBody('found'),
+      [keyD]: scheduleBody('not_found'),
+    })
+
+    const dispatchSpy = vi
+      .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
+      .mockResolvedValue(undefined)
+
+    await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
+
+    expect(dispatchSpy).toHaveBeenCalledTimes(1)
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'meeting_briefing',
+        organizationSlug: orgA,
+      }),
+    )
+  })
 })
 
 describe('MeetingBriefingsService — activity-gated dispatch', () => {
