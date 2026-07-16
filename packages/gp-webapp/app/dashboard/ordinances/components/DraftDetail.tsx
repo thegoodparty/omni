@@ -346,10 +346,18 @@ export default function DraftDetail({
               onBeforeRun={flushPendingSaves}
               onReran={() => {
                 // Only clear the stale banner once the draft is safely
-                // persisted: not while a save is still in flight, and not if
-                // the last save failed. Both are synchronous refs, so this is
-                // reliable regardless of React's deferred re-render timing.
-                if (!savingRef.current && !lastSaveFailedRef.current) {
+                // persisted: not while a save is in flight, not if the last
+                // save failed, and not while an edit typed during the run is
+                // still waiting on its debounce timer. All synchronous, so this
+                // is reliable regardless of React's deferred re-render timing.
+                const editPending =
+                  bodyTimerRef.current !== null ||
+                  titleTimerRef.current !== null
+                if (
+                  !savingRef.current &&
+                  !lastSaveFailedRef.current &&
+                  !editPending
+                ) {
                   setDraftDirty(false)
                 }
               }}
