@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Card } from '@styleguide'
+import type { CampaignStory } from '@goodparty_org/contracts'
 import type { WebsiteIssue } from 'helpers/types'
 import { useSnackbar } from 'helpers/useSnackbar'
 import {
@@ -32,31 +33,59 @@ interface Props {
 export default function OnboardingCampaignStoryStep({
   onCompleteChange,
 }: Props): React.JSX.Element {
-  const { errorSnackbar } = useSnackbar()
-  const { data: website } = useQuery({
+  const { data: website, isError: isWebsiteError } = useQuery({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
     refetchOnMount: 'always',
   })
-  const { data: story } = useCampaignStory()
+  const { data: story, isError: isStoryError } = useCampaignStory()
 
-  const initialBio = website?.content?.about?.bio ?? ''
-  const initialIssues = website?.content?.about?.issues ?? []
+  // The cards seed their editable state from initial* props via useState at
+  // mount, read only once. Don't mount them until both fetches have resolved
+  // (data present, or errored so a real failure doesn't hang forever) — a
+  // returning candidate's bio/background/issues must be in hand before first
+  // render, the same way the standalone CampaignStoryPage gets them as
+  // server-fetched props.
+  const isReady =
+    (website !== undefined || isWebsiteError) &&
+    (story !== undefined || isStoryError)
 
-  const [answered, setAnswered] = useState({ why: false, background: false })
-  const [issues, setIssues] = useState<WebsiteIssue[]>([])
+  if (!isReady) {
+    return <p className="text-sm text-muted-foreground">Loading your story…</p>
+  }
 
-  // Seed local state once the fetches resolve (the cards take initial* props,
-  // but this component also derives completeness, so it mirrors their state).
-  useEffect(() => {
-    setAnswered({
-      why: getBioPlainLength(initialBio) > 0,
-      background: isStoryFieldAnswered(story?.background),
-    })
-    setIssues(initialIssues)
-    // Seed from the resolved fetches; card onAnsweredChange keeps it live after.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [website, story])
+  return (
+    <CampaignStoryStepCards
+      initialBio={website?.content?.about?.bio ?? ''}
+      initialIssues={website?.content?.about?.issues ?? []}
+      story={story}
+      onCompleteChange={onCompleteChange}
+    />
+  )
+}
+
+interface CampaignStoryStepCardsProps {
+  initialBio: string
+  initialIssues: WebsiteIssue[]
+  story: CampaignStory | undefined
+  onCompleteChange: (complete: boolean) => void
+}
+
+// Mounted only once the fetches OnboardingCampaignStoryStep depends on have
+// resolved, so the cards' useState(initial*) captures the real fetched values
+// on first mount instead of the fetch's pre-resolution empty defaults.
+function CampaignStoryStepCards({
+  initialBio,
+  initialIssues,
+  story,
+  onCompleteChange,
+}: CampaignStoryStepCardsProps): React.JSX.Element {
+  const { errorSnackbar } = useSnackbar()
+  const [answered, setAnswered] = useState(() => ({
+    why: getBioPlainLength(initialBio) > 0,
+    background: isStoryFieldAnswered(story?.background),
+  }))
+  const [issues, setIssues] = useState<WebsiteIssue[]>(initialIssues)
 
   const complete = answered.why && answered.background && issues.length > 0
   useEffect(() => {
