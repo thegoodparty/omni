@@ -27,9 +27,10 @@ export const setCookie = (
     date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000)
     expires = `; expires=${date.toUTCString()}`
   }
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
   document.cookie = `${name}=${
     encodeURI(value) || ''
-  }${expires}; path=/; SameSite=Lax`
+  }${expires}; path=/; SameSite=Lax${secure}`
 }
 
 export const deleteCookies = (): void => {
