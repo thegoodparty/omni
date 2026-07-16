@@ -5,6 +5,8 @@ import { http, HttpResponse } from 'msw'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import type { Campaign } from 'helpers/types'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
+import { EVENTS } from 'helpers/analyticsHelper'
+import { USER_WEBSITE_QUERY_KEY } from 'app/dashboard/website/util/website.util'
 import * as landscapeModule from '../success/hooks/useStrategicLandscape'
 import OnboardingFlow from './OnboardingFlow'
 import { ONBOARDING_STEPS } from './onboardingConfig'
@@ -15,13 +17,14 @@ import {
   resolvePostPledgeRoute,
 } from './onboardingHelpers'
 
-const { mockGetUserWebsite } = vi.hoisted(() => ({
+const { mockGetUserWebsite, mockTrackEvent } = vi.hoisted(() => ({
   mockGetUserWebsite: vi.fn(),
+  mockTrackEvent: vi.fn(),
 }))
 
 // Bio + issues come from the website via the legacy getUserWebsite (not a
-// typed route), so mock the function directly — same as
-// OnboardingCampaignStoryStep.test.tsx — to drive the real story step's
+// typed route), so mock the function directly (same as
+// OnboardingCampaignStoryStep.test.tsx) to drive the real story step's
 // completeness signal without exercising the network layer.
 vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
   const actual =
@@ -31,8 +34,17 @@ vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
   return { ...actual, getUserWebsite: mockGetUserWebsite }
 })
 
+// Keeps the real EVENTS map but replaces trackEvent with a spy, so tests can
+// assert on which analytics events fire (or don't) around the campaign-story
+// completion/skip guard, without exercising the network layer.
+vi.mock('helpers/analyticsHelper', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('helpers/analyticsHelper')>()
+  return { ...actual, trackEvent: mockTrackEvent }
+})
+
 // The campaign-story cards use the app's SnackbarProvider (only for save
-// errors), which isn't mounted in this test tree — mock it down to no-ops,
+// errors), which isn't mounted in this test tree, so mock it down to no-ops,
 // same as OnboardingCampaignStoryStep.test.tsx.
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
@@ -125,6 +137,7 @@ beforeEach(() => {
   // the context default resolves to ready:false/enabled:false) so every
   // existing test keeps seeing the flag off unless it opts in.
   setCampaignStoryFlag(false, false)
+  mockTrackEvent.mockClear()
 })
 
 // vi.spyOn on an already-spied export returns the SAME mock instance rather
@@ -412,6 +425,89 @@ describe('new onboarding flow shell', () => {
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
     expect(prewarm).not.toHaveBeenCalled()
+  })
+
+  it('does not fire a stray Skipped event on re-advance after completion', async () => {
+    const prewarm = vi
+      .spyOn(landscapeModule, 'prewarmStrategicLandscape')
+      .mockResolvedValue()
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    mockGetUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          bio: '<p>My why is long enough</p>',
+          issues: [{ title: 'Roads', description: 'Fix them' }],
+        },
+      },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'I grew up here and ran a small business.' },
+    })
+    // A dedicated client (renderFlow's is private to the helper) so the test
+    // can drop the cached website fetch below, forcing the re-entered story
+    // step through a real loading window instead of reusing stale cache.
+    const queryClient = new QueryClient()
+    render(
+      <QueryClientProvider client={queryClient}>
+        <OnboardingFlow campaign={{ id: 1 } as Campaign} />
+      </QueryClientProvider>,
+    )
+
+    await advancePastManualOfficeEntry()
+
+    expect(
+      await screen.findByRole('heading', {
+        level: 1,
+        name: /tell your campaign story/i,
+      }),
+    ).toBeInTheDocument()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(prewarm).toHaveBeenCalledTimes(1)
+    expect(mockTrackEvent).toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.CampaignStoryCompleted,
+      expect.anything(),
+    )
+    mockTrackEvent.mockClear()
+
+    // Simulate re-entering the story step mid-refetch: drop the cached
+    // website fetch and swap in an incomplete response, so the remounted
+    // step transiently (then persistently) reports storyComplete === false,
+    // same as a user navigating back and forward before the story loads.
+    // Generation already fired this session, so re-advancing must not
+    // re-fire Completed or fire a stray Skipped.
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '', issues: [] } },
+    })
+    queryClient.removeQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+
+    const skipButton = await screen.findByRole('button', {
+      name: 'Skip for now',
+    })
+    fireEvent.click(skipButton)
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(prewarm).toHaveBeenCalledTimes(1)
+    expect(mockTrackEvent).not.toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.CampaignStorySkipped,
+      expect.anything(),
+    )
+    expect(mockTrackEvent).not.toHaveBeenCalledWith(
+      EVENTS.OnboardingV2.CampaignStoryCompleted,
+      expect.anything(),
+    )
   })
 })
 
