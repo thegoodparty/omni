@@ -14,6 +14,7 @@ import {
   InputOTPSlot,
   Label,
 } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { GoogleIcon } from './GoogleIcon'
 
 const SIGN_UP_REDIRECT = '/post-auth-redirect?source=signup'
@@ -336,7 +337,11 @@ export default function SignUpForm() {
         </Button>
         <p className="text-sm text-muted-foreground">
           Already have an account?{' '}
-          <Link href="/login" className="text-primary underline">
+          <Link
+            href="/login"
+            className="text-primary underline"
+            onClick={() => trackEvent(EVENTS.SignUp.ClickLogin)}
+          >
             Sign in
           </Link>
         </p>

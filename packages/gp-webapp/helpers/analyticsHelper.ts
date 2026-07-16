@@ -86,6 +86,9 @@ export const EVENTS = {
   SignIn: {
     LoginCompleted: 'Sign In: Login Completed',
   },
+  SignUp: {
+    ClickLogin: 'Sign Up: Click Login',
+  },
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
     // Top of the magic-link funnel. The recipient landed on the redemption
@@ -532,6 +535,11 @@ export const EVENTS = {
       ClickUpgrade: 'Settings - Account Settings: Click Upgrade',
       ClickManageSubscription:
         'Settings - Account Settings: Click Manage Pro Subscription',
+    },
+    DeleteAccount: {
+      ClickDelete: 'Settings - Delete Account: Click Delete',
+      SubmitDelete: 'Settings - Delete Account: Submit Delete',
+      CancelDelete: 'Settings - Delete Account: Cancel Delete',
     },
     Notifications: {
       ToggleEmail: 'Settings - Notifications: Toggle Email',
