@@ -22,11 +22,12 @@ const positionLevelEnum = z.enum([
 
 // `GET /races` historically ran an unbounded `findMany` (no `take`), so a broad
 // filter like `?state=TX` could materialize the entire state's race set into
-// memory before deduping. These bound that. The default is deliberately
-// generous — larger than any realistic single-state/level result set — so
-// existing (unpaginated) callers keep getting their full result while a
-// pathological unfiltered scan is still capped. Callers that genuinely need
-// more than one page's worth walk pages explicitly via `page`.
+// memory before deduping. `pageSize` bounds that; it counts DISTINCT races
+// (post-dedupe slugs), not raw rows. The default is deliberately generous —
+// larger than any realistic single-state/level result set — so existing
+// (unpaginated) callers keep getting their full result while a pathological
+// unfiltered scan is still capped. Callers that need more than one page's
+// worth walk pages explicitly via `page`.
 export const DEFAULT_RACE_PAGE_SIZE = 1000
 export const MAX_RACE_PAGE_SIZE = 5000
 

@@ -85,11 +85,42 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
       ...(includeCandidacies && { Candidacies: candidacyInclude }),
     }
 
-    // Bound the result set. A stable order is required for pagination to be
-    // meaningful (Postgres has no implicit row order); ordering by slug also
-    // keeps same-slug rows adjacent so the downstream dedupe collapses them
-    // within a page. `id` is the deterministic tiebreaker.
-    const skip = (page - 1) * pageSize
+    // Bound the result set. Pagination is over DISTINCT slugs rather than raw
+    // rows: this endpoint collapses same-slug Race rows via
+    // getDedupedRacesBySlug (merging positionNames), so a plain row-level
+    // skip/take could split a slug group across a page boundary and hand
+    // callers the same slug twice with a partial positionNames union. Instead
+    // resolve the page's slugs first with a grouped query — GROUP BY slug with
+    // LIMIT/OFFSET is pushed down to Postgres and reads only the indexed slug
+    // column, so it stays memory-bounded — then fetch every row for exactly
+    // those slugs so each returned slug is fully merged.
+    const slugGroups = await this.model.groupBy({
+      by: ['slug'],
+      where,
+      orderBy: { slug: 'asc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    })
+    const pageSlugs = slugGroups.map((group) => group.slug)
+
+    if (pageSlugs.length === 0) {
+      // An empty page past the last result is a normal end-of-data signal for
+      // an offset-paginated API, not a missing resource. Preserve the historic
+      // 404 only for the first page genuinely matching nothing.
+      if (page > 1) {
+        return []
+      }
+      throw new NotFoundException(
+        `No races found for query: ${JSON.stringify(where)}`,
+      )
+    }
+
+    const pagedWhere: Prisma.RaceWhereInput = {
+      ...where,
+      slug: { in: pageSlugs },
+    }
+    // `id` is the deterministic tiebreaker; slug order keeps same-slug rows
+    // adjacent for the dedupe below.
     const orderBy: Prisma.RaceOrderByWithRelationInput[] = [
       { slug: 'asc' },
       { id: 'asc' },
@@ -97,25 +128,15 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
 
     const races = raceSelectBase
       ? await this.model.findMany({
-          where,
+          where: pagedWhere,
           select: raceQueryObj,
           orderBy,
-          skip,
-          take: pageSize,
         })
       : await this.model.findMany({
-          where,
+          where: pagedWhere,
           include: raceQueryObj,
           orderBy,
-          skip,
-          take: pageSize,
         })
-
-    if (!races || races.length === 0) {
-      throw new NotFoundException(
-        `No races found for query: ${JSON.stringify(where)}`,
-      )
-    }
 
     if (!races[0]?.positionNames || !races[0]?.slug) {
       return races
