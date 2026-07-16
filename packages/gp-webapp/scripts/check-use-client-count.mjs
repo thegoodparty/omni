@@ -65,7 +65,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
 // dropdown holds input/debounce state and a React Query fetch, so it cannot
 // be a server component (same as the ContactSearch it flag-replaces).
-const BASELINE = 542
+// 2026-07-16: 542 -> 543 for app/dashboard/error.tsx — error boundaries must
+// be client components (the Next.js error-file contract requires it), so the
+// new dashboard-segment boundary adds exactly one.
+const BASELINE = 543
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
