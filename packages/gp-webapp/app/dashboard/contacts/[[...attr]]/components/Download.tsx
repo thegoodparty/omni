@@ -1,15 +1,15 @@
 'use client'
 import { DownloadIcon, IconButton, LockIcon } from '@styleguide'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
-import { type SegmentResponse } from './shared/contacts-types'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
+import { type SegmentResponse } from '../../crm/shared/contacts-types'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import {
   isCustomSegment,
   findCustomSegment,
   filterOnlyTrueValues,
-} from './shared/segments.util'
-import { useShowContactProModal } from '../hooks/ContactProModal'
+} from '../../crm/shared/segments.util'
+import { useShowContactProModal } from '../../crm/ContactProModal'
 import { useEffect, useRef, useState } from 'react'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { deleteCookie, getCookie } from 'helpers/cookieHelper'

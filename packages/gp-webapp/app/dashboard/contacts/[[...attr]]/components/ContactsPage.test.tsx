@@ -2,11 +2,10 @@ import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import ContactsPage from './ContactsPage'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
-import { useCrmEnabled } from '../../../shared/useCrmEnabled'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
-vi.mock('../hooks/ContactsTableProvider', () => ({
+vi.mock('../../crm/ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -29,7 +28,7 @@ vi.mock('../../../shared/DashboardLayout', () => ({
     </>
   ),
 }))
-vi.mock('../hooks/ContactProModal', () => ({
+vi.mock('../../crm/ContactProModal', () => ({
   ContactProModalProvider: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
@@ -38,7 +37,7 @@ vi.mock('app/dashboard/shared/ProUpgradeModal', () => ({
   ProUpgradeModal: () => null,
   VARIANTS: { Second_NonViable: 'second-nonviable' },
 }))
-vi.mock('./person/PersonOverlay', () => ({ default: () => null }))
+vi.mock('../../crm/person/PersonOverlay', () => ({ default: () => null }))
 vi.mock('./ContactsTable', () => ({
   default: () => <div data-testid="contacts-table" />,
 }))
@@ -52,21 +51,8 @@ vi.mock('./ContactsStatsSection', () => ({
 vi.mock('./ContactSearch', () => ({
   ContactSearch: () => <div data-testid="search" />,
 }))
-vi.mock('./ContactTypeahead', () => ({
-  ContactTypeahead: () => <div data-testid="typeahead" />,
-}))
-vi.mock('../../../shared/useCrmEnabled', () => ({
-  useCrmEnabled: vi.fn(),
-}))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
-const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
-
-// CRM flag off is the default state every pre-existing behavior is asserted
-// against; the gating describe below overrides it per test.
-beforeEach(() => {
-  mockedUseCrmEnabled.mockReturnValue({ enabled: false, ready: true })
-})
 
 type ContextValue = ReturnType<typeof useContactsTable>
 
@@ -208,44 +194,16 @@ describe('ContactsPage — Win vs Serve naming (ENG-10448)', () => {
   })
 })
 
-describe('ContactsPage — CRM typeahead gating (ENG-10687)', () => {
-  it('renders the existing ContactSearch when the CRM flag is off', () => {
-    mockedUseCrmEnabled.mockReturnValue({ enabled: false, ready: true })
-    setContext({})
-
-    render(<ContactsPage />)
-
-    // Both render sites (desktop + mobile) keep today's search.
-    expect(screen.getAllByTestId('search')).toHaveLength(2)
-    expect(screen.queryByTestId('typeahead')).not.toBeInTheDocument()
-  })
-
-  it('falls back to ContactSearch while the flag has not settled', () => {
-    mockedUseCrmEnabled.mockReturnValue({ enabled: false, ready: false })
+describe('ContactsPage — table search', () => {
+  it('always renders ContactSearch at both render sites (desktop + mobile)', () => {
+    // The CRM flag no longer touches this page: flag-on users get the whole
+    // CrmContactsPage via ContactsPageGate, and this page stays byte-equivalent
+    // to its pre-typeahead behavior for everyone else.
     setContext({})
 
     render(<ContactsPage />)
 
     expect(screen.getAllByTestId('search')).toHaveLength(2)
-    expect(screen.queryByTestId('typeahead')).not.toBeInTheDocument()
-  })
-
-  it('replaces ContactSearch with the typeahead when the CRM flag is on', () => {
-    mockedUseCrmEnabled.mockReturnValue({ enabled: true, ready: true })
-    setContext({})
-
-    render(<ContactsPage />)
-
-    expect(screen.getAllByTestId('typeahead')).toHaveLength(2)
-    expect(screen.queryByTestId('search')).not.toBeInTheDocument()
-  })
-
-  it('reads the flag as the treatment surface (exposure tracked)', () => {
-    setContext({})
-
-    render(<ContactsPage />)
-
-    expect(mockedUseCrmEnabled).toHaveBeenCalledWith(true)
   })
 })
 

@@ -1,12 +1,12 @@
 'use client'
 import { DataTableColumnHeader } from '@styleguide'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import ServerDataTable from './ServerDataTable'
-import { useShowContactProModal } from '../hooks/ContactProModal'
+import { useShowContactProModal } from '../../crm/ContactProModal'
 import { type ColumnDef } from '@tanstack/react-table'
 import { type ReactNode } from 'react'
-import { Person } from './shared/contacts-types'
-import { formatPersonName } from './person/PersonOverlay'
+import { Person } from '../../crm/shared/contacts-types'
+import { formatPersonName } from '../../crm/person/PersonOverlay'
 
 interface MaybeBlurredContentProps {
   children: ReactNode

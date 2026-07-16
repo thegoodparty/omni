@@ -25,7 +25,7 @@ import {
   LuSmile,
 } from 'react-icons/lu'
 import { format } from 'date-fns'
-import { useContactsTable } from '../../hooks/ContactsTableProvider'
+import { useContactsTable } from '../ContactsTableProvider'
 import {
   ConstituentActivity,
   OutreachChannel,
