@@ -8,7 +8,6 @@ model ContactInteractionText {
   outreach         Outreach     @relation(fields: [outreachId], references: [id], onDelete: Cascade)
   outreachId       Int          @map("outreach_id")
   respondedAt      DateTime?    @map("responded_at")
-  unsubscribedAt   DateTime?    @map("unsubscribed_at")
   optedOutAt       DateTime?    @map("opted_out_at")
   // Peerly event id for write-back idempotency (feature 5).
   sourceEventId    String?      @map("source_event_id")
