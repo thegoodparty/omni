@@ -235,9 +235,13 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
   ) {
     const { details: campaignDetails, placeId } = campaign
     const { phone, websiteDomain, ein } = tcrCompliancePayload
+    if (!placeId) {
+      throw new BadRequestException(
+        'Campaign placeId is required to submit 10DLC brand',
+      )
+    }
     const { street, city, state, postalCode } = extractAddressComponents(
-      // TODO(ENG-6400): using `placeId!` is dangerous here.
-      await this.placesService.getAddressByPlaceId(placeId!),
+      await this.placesService.getAddressByPlaceId(placeId),
     )
     const { campaignCommittee } = campaignDetails
     if (!campaignCommittee) {
@@ -515,6 +519,12 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       )
     }
 
+    if (!placeId) {
+      throw new BadRequestException(
+        'Campaign placeId is required to submit CV request',
+      )
+    }
+
     const {
       street: filingAddressLine1,
       city,
@@ -522,8 +532,7 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       county,
       postalCode,
     } = extractAddressComponents(
-      // TODO(ENG-6400): using `placeId!` is dangerous here.
-      await this.placesService.getAddressByPlaceId(placeId!),
+      await this.placesService.getAddressByPlaceId(placeId),
     )
 
     // Map officeLevel to Peerly locality
