@@ -186,7 +186,11 @@ describe('OutreachService', () => {
 
       expect(mockOutreachCreate).toHaveBeenCalledTimes(1)
       expect(mockOutreachCreate).toHaveBeenCalledWith({
-        data: { ...baseCreateDto, imageUrl },
+        data: {
+          ...baseCreateDto,
+          organizationSlug: mockCampaign.organizationSlug,
+          imageUrl,
+        },
         include: { voterFileFilter: true },
       })
       expect(result).toEqual(created)
@@ -301,7 +305,10 @@ describe('OutreachService', () => {
       )
 
       expect(mockOutreachCreate).toHaveBeenCalledWith({
-        data: baseCreateDto,
+        data: {
+          ...baseCreateDto,
+          organizationSlug: mockCampaign.organizationSlug,
+        },
         include: { voterFileFilter: true },
       })
     })
@@ -364,6 +371,7 @@ describe('OutreachService', () => {
       expect(mockOutreachCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({
           ...p2pCreateDto,
+          organizationSlug: mockCampaign.organizationSlug,
           projectId: 'job-id-456',
           status: OutreachStatus.pending,
           didState: 'CA',
