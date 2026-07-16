@@ -317,6 +317,21 @@ describe('OrdinanceFlowHandler', () => {
     ])
   })
 
+  it('builds the review tool set: base tools only, no present_draft or offer_next_step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'review' }),
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+    expect(names).not.toContain('present_draft')
+    expect(names).not.toContain('offer_next_step')
+  })
+
   it('gates present_* tools to their own step', () => {
     const handler = build()
     const clarify = Object.keys(handler.buildTools(baseCtx()))
