@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing'
 import {
   BadGatewayException,
   BadRequestException,
+  ConflictException,
   NotFoundException,
   ServiceUnavailableException,
   UnprocessableEntityException,
@@ -21,6 +22,7 @@ import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { CampaignTcrComplianceService } from './campaignTcrCompliance.service'
 import { ComplianceStateService } from './complianceState.service'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
 import { WebsitesService } from '../../../websites/services/websites.service'
 import { CampaignsService } from '../../services/campaigns.service'
 import { CrmCampaignsService } from '../../services/crmCampaigns.service'
@@ -2067,6 +2069,200 @@ describe('CampaignTcrComplianceService - PIN submission non-prod bypass', () => 
       expect(mockPeerly.createCampaignVerifyToken).toHaveBeenCalledWith(
         'peerly-1',
         { id: 1 },
+      )
+    })
+  })
+})
+
+describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
+  let service: CampaignTcrComplianceService
+  let mockPeerly: {
+    retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn>
+    resendCampaignVerifyPin: ReturnType<typeof vi.fn>
+  }
+  let mockModel: { findUnique: ReturnType<typeof vi.fn> }
+
+  const campaign = createMockCampaign({ id: 7, userId: 1 })
+
+  const withEnv = async (
+    value: string | undefined,
+    body: () => Promise<void>,
+  ) => {
+    const original = process.env.OTEL_SERVICE_ENVIRONMENT
+    if (value === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+    else process.env.OTEL_SERVICE_ENVIRONMENT = value
+    try {
+      await body()
+    } finally {
+      if (original === undefined) delete process.env.OTEL_SERVICE_ENVIRONMENT
+      else process.env.OTEL_SERVICE_ENVIRONMENT = original
+    }
+  }
+
+  beforeEach(async () => {
+    mockPeerly = {
+      retrieveCampaignVerifyDetails: vi.fn(),
+      resendCampaignVerifyPin: vi.fn().mockResolvedValue(undefined),
+    }
+    mockModel = { findUnique: vi.fn() }
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        { provide: PrismaService, useValue: { tcrCompliance: mockModel } },
+        { provide: PeerlyIdentityService, useValue: mockPeerly },
+        { provide: WebsitesService, useValue: {} },
+        { provide: CampaignsService, useValue: {} },
+        { provide: CrmCampaignsService, useValue: {} },
+        { provide: ComplianceStateService, useValue: {} },
+        { provide: QueueProducerService, useValue: {} },
+        { provide: ExperimentRunsService, useValue: {} },
+        { provide: PinoLogger, useValue: createMockLogger() },
+        {
+          provide: AnalyticsService,
+          useValue: { track: vi.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: SlackService,
+          useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
+        },
+        CampaignTcrComplianceService,
+      ],
+    }).compile()
+    service = module.get(CampaignTcrComplianceService)
+  })
+
+  it('throws NotFoundException when the campaign has no TCR record', async () => {
+    mockModel.findUnique.mockResolvedValueOnce(null)
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        NotFoundException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('short-circuits in non-prod without touching Peerly', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: null,
+    })
+
+    await withEnv('dev', async () => {
+      await expect(
+        service.resendCampaignVerifyPin(campaign),
+      ).resolves.toBeUndefined()
+      expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('throws UnprocessableEntityException when no Peerly identity exists yet', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        UnprocessableEntityException,
+      )
+      expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('throws ConflictException when the PIN was already verified', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.VERIFIED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        ConflictException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('throws UnprocessableEntityException when CV has not issued a PIN yet', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.REQUESTED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        UnprocessableEntityException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('throws UnprocessableEntityException when Peerly has no CV request (404-as-null)', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: null,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        UnprocessableEntityException,
+      )
+      expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+    })
+  })
+
+  it('resends the PIN when the live CV status is APPROVED', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+
+    await withEnv('prod', async () => {
+      await expect(
+        service.resendCampaignVerifyPin(campaign),
+      ).resolves.toBeUndefined()
+      expect(mockPeerly.resendCampaignVerifyPin).toHaveBeenCalledWith(
+        'peerly-1',
+        campaign,
+      )
+    })
+  })
+
+  it('propagates a Peerly failure from the resend call', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+    mockPeerly.resendCampaignVerifyPin.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        BadGatewayException,
       )
     })
   })
