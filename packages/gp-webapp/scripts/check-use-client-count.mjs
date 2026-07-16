@@ -59,7 +59,10 @@ import { dirname, join, relative } from 'node:path'
 // (removed) with DraftDetail (contentEditable inline editor with autosave +
 // selection toolbar) and DraftChat (streaming chat in a drawer). Both are
 // stateful client components; the page.tsx shell stays server.
-const BASELINE = 540
+// 2026-07-16: 540 -> 541 for useCrmEnabled — a hook composing
+// useWinVoterContext (React Query) with two feature-flag reads, so it must
+// run on the client, like the sibling useWinVoterContext.
+const BASELINE = 541
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
