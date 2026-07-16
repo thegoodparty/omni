@@ -85,6 +85,7 @@ export class OrdinanceFlowController {
 
   @Post(':slug/quality-report')
   @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
   @ResponseSchema(OrdinanceSchema)
   async generateQualityReport(
     @ReqElectedOffice() electedOffice: ElectedOffice,
