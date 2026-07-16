@@ -103,6 +103,14 @@ describe('polls/[id] Page behavior', () => {
     expect(mockGetPollTopIssues).toHaveBeenCalledWith(POLL_ID)
   })
 
+  it('renders (issues default to []) when top-issues resolves with an empty body', async () => {
+    mockGetPoll.mockResolvedValue({ id: POLL_ID, name: 'Poll' })
+    mockGetPollTopIssues.mockResolvedValue(undefined)
+
+    await expect(runPage()).resolves.toBeDefined()
+    expect(mockRedirect).not.toHaveBeenCalled()
+  })
+
   it('propagates a top-issues failure when the poll exists (behavior preserved)', async () => {
     mockGetPoll.mockResolvedValue({ id: POLL_ID, name: 'Poll' })
     mockGetPollTopIssues.mockRejectedValue(new Error('top-issues 500'))

@@ -45,7 +45,9 @@ export default async function Page({
   if (issuesResult.status === 'rejected') {
     throw issuesResult.reason
   }
-  const issues = issuesResult.value.results
+  // `getPollTopIssues` resolves (doesn't throw) on a 2xx with an empty/missing
+  // body (e.g. 204), so guard the payload like the sibling issue page does.
+  const issues = issuesResult.value?.results ?? []
 
   return (
     <PollProvider poll={poll}>
