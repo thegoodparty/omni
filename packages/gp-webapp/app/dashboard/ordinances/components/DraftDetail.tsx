@@ -178,21 +178,17 @@ export default function DraftDetail({
   }, [])
 
   // Open the chat drawer, optionally seeding the composer from a highlighted
-  // passage. Bumps the nonce so the drawer re-seeds each time it opens.
+  // passage. Bumps the nonce so the drawer re-seeds each time it opens. Always
+  // clears any active selection so the selection toolbar doesn't linger over the
+  // opening drawer (this fires whether opened from the launcher or a toolbar
+  // button).
   const openChat = useCallback((seed = ''): void => {
     setChatSeed(seed)
     setSeedNonce((n) => n + 1)
     setChatOpen(true)
+    window.getSelection()?.removeAllRanges()
+    setSelection(null)
   }, [])
-
-  const seedChat = useCallback(
-    (composerText: string): void => {
-      openChat(composerText)
-      window.getSelection()?.removeAllRanges()
-      setSelection(null)
-    },
-    [openChat],
-  )
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
@@ -309,7 +305,7 @@ export default function DraftDetail({
             type="button"
             size="small"
             onClick={() =>
-              seedChat(`About this passage: "${selection.text}"\n\n`)
+              openChat(`About this passage: "${selection.text}"\n\n`)
             }
           >
             <SparklesIcon className="size-3.5" aria-hidden />
@@ -320,7 +316,7 @@ export default function DraftDetail({
             size="small"
             variant="outline"
             onClick={() =>
-              seedChat(
+              openChat(
                 `I think there's a problem with this passage: "${selection.text}"\n\n`,
               )
             }
