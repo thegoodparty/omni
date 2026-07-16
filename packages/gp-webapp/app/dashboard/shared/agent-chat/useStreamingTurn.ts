@@ -266,15 +266,18 @@ export function useStreamingTurn(
               ? h.some((m) => m.id === doneMessageId)
               : h.some((m) => m.role === 'assistant' && !priorIds.has(m.id))
           let history = await chatApi.listMessages(conversationId)
-          let commitTries = 0
-          while (!hasTurn(history) && commitTries < COMMIT_MAX_TRIES) {
-            await new Promise((resolve) => setTimeout(resolve, COMMIT_POLL_MS))
-            history = await chatApi.listMessages(conversationId)
-            commitTries += 1
+          // Poll for late persistence only when this turn actually produced
+          // content. A degenerate/empty stream (no text, no tools) has no turn
+          // to wait for, so polling would just burn the whole window.
+          if (segments.length > 0) {
+            let commitTries = 0
+            while (!hasTurn(history) && commitTries < COMMIT_MAX_TRIES) {
+              await new Promise((resolve) => setTimeout(resolve, COMMIT_POLL_MS))
+              history = await chatApi.listMessages(conversationId)
+              commitTries += 1
+            }
           }
-          if (hasTurn(history)) {
-            setMessages(history)
-          } else {
+          if (segments.length > 0 && !hasTurn(history)) {
             // Persistence lagged past the poll window (rare — the server
             // normally has the turn immediately). `finally` is about to clear
             // the live render, so swapping in a transcript that lacks this turn
@@ -297,6 +300,8 @@ export function useStreamingTurn(
               ),
             }
             setMessages((prev) => [...prev, streamed])
+          } else {
+            setMessages(history)
           }
         }
       } catch {
