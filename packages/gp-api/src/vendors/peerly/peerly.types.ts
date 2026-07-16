@@ -79,6 +79,10 @@ export interface PeerlySubmitCVResponseBody {
   message: string
   verification_id: string
 }
+// Peerly's resend_pin response body is undocumented; nothing is read off it.
+export interface PeerlyResendPinResponseBody {
+  message?: string
+}
 export interface Peerly10DlcBrandData {
   entityType: string
   vertical: string

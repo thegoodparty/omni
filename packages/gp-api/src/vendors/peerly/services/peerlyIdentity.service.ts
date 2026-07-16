@@ -43,6 +43,7 @@ import {
   PeerlyIdentityProfileResponseBody,
   PeerlyIdentityUseCaseResponseBody,
   PeerlyRetrieveCampaignVerifyStatusResponseBody,
+  PeerlyResendPinResponseBody,
   PeerlyRetrieveCvResponseBody,
   PeerlySubmitCVResponseBody,
   PeerlyVerifyCVPinResponse,
@@ -813,6 +814,22 @@ export class PeerlyIdentityService extends PeerlyBaseConfig {
       } else {
         return await this.handleApiError(e, { campaign, peerlyIdentityId })
       }
+    }
+  }
+
+  // Peerly re-sends the PIN through the same verification method and contact
+  // info Campaign Verify originally approved; CV requires the request to be
+  // APPROVED first — callers gate on that.
+  async resendCampaignVerifyPin(
+    peerlyIdentityId: string,
+    campaign: Campaign,
+  ): Promise<void> {
+    try {
+      await this.peerlyHttpService.post<PeerlyResendPinResponseBody>(
+        `/v2/tdlc/${peerlyIdentityId}/resend_pin`,
+      )
+    } catch (e) {
+      await this.handleApiError(e, { campaign, peerlyIdentityId })
     }
   }
 

@@ -1553,6 +1553,59 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     return Boolean(useCase?.activated)
   }
 
+  async resendCampaignVerifyPin(campaign: Campaign): Promise<void> {
+    const tcrCompliance = await this.fetchByCampaignId(campaign.id)
+    if (!tcrCompliance) {
+      throw new NotFoundException(
+        'TCR compliance does not exist for this campaign',
+      )
+    }
+    // Non-prod deploys short-circuit the Peerly submission (see
+    // websites.service.ts verifyLive), so there is no real CV request to
+    // resend a PIN for; succeed without calling Peerly so testers can walk
+    // the admin flow (mirrors retrieveCampaignVerifyToken's bypass).
+    if (process.env.OTEL_SERVICE_ENVIRONMENT !== 'prod') {
+      this.logger.info(
+        `Non-prod environment detected. Skipping Peerly CV PIN resend for ` +
+          `campaign ${campaign.id}.`,
+      )
+      return
+    }
+
+    if (!tcrCompliance.peerlyIdentityId) {
+      throw new UnprocessableEntityException(
+        'The Campaign Verify request has not been submitted yet, so there ' +
+          'is no PIN to resend.',
+      )
+    }
+
+    // CV only resends once the request is APPROVED (PIN issued) and rejects a
+    // resend after VERIFIED (PIN already consumed); pre-checking the live
+    // status turns those into actionable 4xxs instead of an opaque 502.
+    const { status } =
+      await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
+        tcrCompliance.peerlyIdentityId,
+        campaign,
+      )
+    if (status === PeerlyCvVerificationStatus.VERIFIED) {
+      throw new ConflictException(
+        'The PIN has already been entered and verified for this campaign.',
+      )
+    }
+    if (status !== PeerlyCvVerificationStatus.APPROVED) {
+      throw new UnprocessableEntityException(
+        `Campaign Verify has not issued a PIN yet (status: ` +
+          `${status ?? 'none'}). A PIN can only be resent once the ` +
+          'verification request is approved.',
+      )
+    }
+
+    await this.peerlyIdentityService.resendCampaignVerifyPin(
+      tcrCompliance.peerlyIdentityId,
+      campaign,
+    )
+  }
+
   async getCvTokenStatus(peerlyIdentityId: string) {
     const { campaign } = await this.model.findFirstOrThrow({
       where: { peerlyIdentityId },
