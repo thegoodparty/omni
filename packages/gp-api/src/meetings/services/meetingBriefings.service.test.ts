@@ -1281,13 +1281,13 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     const orgA = `eo-mix-a-${suffix}`
     await seedOrgAndCampaign(orgA, { positionId: `br-pos-${orgA}` })
-    await service.prisma.electedOffice.create({
+    const eoA = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgA, userId: service.user.id },
     })
 
     const orgB = `eo-mix-b-${suffix}`
     await seedOrgAndCampaign(orgB, { positionId: `br-pos-${orgB}` })
-    await service.prisma.electedOffice.create({
+    const eoB = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgB, userId: service.user.id },
     })
 
@@ -1299,7 +1299,7 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
 
     const orgD = `eo-mix-d-${suffix}`
     await seedOrgAndCampaign(orgD, { positionId: `br-pos-${orgD}` })
-    await service.prisma.electedOffice.create({
+    const eoD = await service.prisma.electedOffice.create({
       data: { organizationSlug: orgD, userId: service.user.id },
     })
 
@@ -1374,9 +1374,56 @@ describe('MeetingBriefingsService.dispatchDailyBriefings', () => {
     const dispatchSpy = vi
       .spyOn(service.app.get(ExperimentRunsService), 'dispatchRun')
       .mockResolvedValue(undefined)
+    // Spy (without mocking) on the cron's candidate query so we can assert the
+    // pre-filter itself excludes C — not just the per-office coverage guard,
+    // which would also skip C and make the outcome assertion tautological.
+    const findManySpy = vi.spyOn(service.prisma.electedOffice, 'findMany')
 
     await service.app.get(MeetingBriefingsService).dispatchDailyBriefings()
 
+    // The cron issues exactly one electedOffice.findMany, and its where clause
+    // must carry BOTH pre-filter predicates. Deleting the coverage-dedupe
+    // predicate (C's exclusion) or the schedule predicate (B's exclusion) fails
+    // here, giving the DB-side optimization real coverage independent of the
+    // per-office guard.
+    expect(findManySpy).toHaveBeenCalledTimes(1)
+    const cronQuery = findManySpy.mock.calls[0]?.[0]
+    expect(cronQuery?.where?.meetingBriefings).toEqual({
+      none: { meetingDate: { gte: expect.any(Date) as Date } },
+    })
+    expect(cronQuery?.where?.organization).toEqual({
+      experimentRuns: {
+        some: {
+          experimentType: 'meeting_schedule',
+          status: ExperimentRunStatus.COMPLETED,
+          artifactBucket: { not: null },
+          artifactKey: { not: null },
+        },
+      },
+    })
+
+    // And the pre-filtered candidate set the query returned excludes B (no
+    // schedule) and C (future briefing) while keeping A and D.
+    const returned: unknown = await findManySpy.mock.results[0]?.value
+    const candidateIds = new Set<string>()
+    if (Array.isArray(returned)) {
+      for (const row of returned) {
+        if (
+          typeof row === 'object' &&
+          row !== null &&
+          'id' in row &&
+          typeof row.id === 'string'
+        ) {
+          candidateIds.add(row.id)
+        }
+      }
+    }
+    expect(candidateIds.has(eoA.id)).toBe(true)
+    expect(candidateIds.has(eoD.id)).toBe(true)
+    expect(candidateIds.has(eoB.id)).toBe(false)
+    expect(candidateIds.has(eoC.id)).toBe(false)
+
+    // Only the eligible office (A) actually dispatches.
     expect(dispatchSpy).toHaveBeenCalledTimes(1)
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
