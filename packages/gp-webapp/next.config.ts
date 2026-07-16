@@ -32,6 +32,17 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  async redirects() {
+    return [
+      // Story authoring moved into onboarding and the standalone route was
+      // removed; send any bookmarked/old links to the Campaign Manager home.
+      {
+        source: '/dashboard/campaign-story',
+        destination: '/dashboard',
+        permanent: false,
+      },
+    ]
+  },
   async rewrites() {
     const apiBase = process.env.NEXT_PUBLIC_API_BASE
     if (!apiBase) {

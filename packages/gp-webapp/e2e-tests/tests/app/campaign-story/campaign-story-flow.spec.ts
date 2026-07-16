@@ -1,4 +1,4 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import {
   blockSlowScripts,
   NavigationHelper,
@@ -6,8 +6,6 @@ import {
 import { completeOnboardingUpToPledge } from '../../../src/helpers/onboarding.helper'
 import {
   acceptCookieBanner,
-  addCampaignStoryIssue,
-  blockCampaignPlanGeneration,
   enableCampaignStoryFlag,
 } from '../../../src/helpers/campaignStory.helper'
 import { authenticateTestUser } from 'tests/utils/api-registration'
@@ -19,48 +17,12 @@ import { authenticateTestUser } from 'tests/utils/api-registration'
 // the flag is forced on deterministically — independent of Amplitude targeting,
 // so these run on every PR (no @dev-only).
 
-const STORY_ANSWERS = {
-  why: 'I am running because our roads have been neglected for a decade and my neighbors deserve a council member who answers the phone.',
-  background:
-    'I grew up here, taught at the local high school for fifteen years, and have volunteered on the parks board since 2019.',
-} as const
-
-// Issues are no longer a free-text story field — they're structured website
-// issues (title + rich-text description) edited via the shared PolicyPriorities
-// editor. One issue is what makes the issues section "answered".
-const STORY_ISSUE = {
-  title: 'Fix the roads',
-  // The PolicyPriorities "policy focus" requires a 100-character (plain-text)
-  // minimum, so keep this comfortably above it.
-  description:
-    'Repave Main Street and replace the aging water lines before they fail, then fund the after-school programs and neighborhood street lighting residents have gone without for years.',
-} as const
-
-// Fill one story card and trigger its save via the explicit Save button (more
-// deterministic than relying on the blur autosave), then wait for the persisted
-// "Saved" state so the answer is durable before we navigate to the plan tab.
-// Scoped by the card's stable data-testid (campaign-story-card-<field>) so the
-// Save button relabeling to "Saved" mid-flow can't shift the card locator.
-//
-// `why` is the candidate's website bio now, edited via a RichEditor (Quill) that
-// persists with saveAboutFields — so it has no plain textbox; type into the
-// `.ql-editor` contenteditable. `background` is still a plain-text story field.
-const fillStoryCard = async (
-  page: Page,
-  field: 'why' | 'background',
-  value: string,
-): Promise<void> => {
-  const card = page.getByTestId(`campaign-story-card-${field}`)
-  if (field === 'why') {
-    const editor = card.locator('.ql-editor')
-    await editor.click()
-    await editor.pressSequentially(value)
-  } else {
-    await card.getByRole('textbox').fill(value)
-  }
-  await card.getByRole('button', { name: /^Save$/ }).click()
-  await expect(card.getByRole('button', { name: /^Saved$/ })).toBeVisible()
-}
+// Story authoring moved from the standalone /dashboard/campaign-story route
+// (removed) into onboarding, so the "author the story, then generate a plan"
+// end-to-end coverage that used to live here (fillStoryCard/STORY_ANSWERS/
+// STORY_ISSUE and the addCampaignStoryIssue/blockCampaignPlanGeneration
+// helpers) was removed along with it. Onboarding e2e coverage for story
+// authoring is a follow-up.
 
 test.describe('campaign-story flag flow', () => {
   test.beforeEach(async ({ page }) => {
@@ -106,7 +68,7 @@ test.describe('campaign-story flag flow', () => {
     ).toBeVisible({ timeout: 30000 })
   })
 
-  test('campaign plan tab gates an incomplete story behind a link to it', async ({
+  test('campaign plan tab gates an incomplete story behind a link to the campaign manager', async ({
     page,
   }) => {
     // Set the override cookie before auth so the first SSR render already sees it.
@@ -124,61 +86,15 @@ test.describe('campaign-story flag flow', () => {
       }),
     ).toBeVisible({ timeout: 30000 })
 
-    await page.getByRole('link', { name: /go to campaign story/i }).click()
-    await page.waitForURL('**/dashboard/campaign-story', { timeout: 30000 })
-    await expect(
-      page.getByRole('heading', { name: 'Campaign Story', level: 2 }),
-    ).toBeVisible()
-  })
-
-  test('completing the story unlocks generation without enqueuing a job', async ({
-    page,
-  }) => {
-    // Set the override cookie before auth so the first SSR render already sees it.
-    await enableCampaignStoryFlag(page)
-    await authenticateTestUser(page, { isolated: true })
-    const generation = await blockCampaignPlanGeneration(page)
-
-    await page.goto('/dashboard/campaign-story')
-    await expect(
-      page.getByRole('heading', { name: 'Campaign Story', level: 2 }),
-    ).toBeVisible({ timeout: 30000 })
-
-    // No footer until why + background are written AND at least one issue exists.
-    const readyFooter = page.getByText(/your campaign story is ready/i)
-    await expect(readyFooter).toBeHidden()
-
-    await fillStoryCard(page, 'why', STORY_ANSWERS.why)
-    await fillStoryCard(page, 'background', STORY_ANSWERS.background)
-    // Issues are the website-issues editor now — add one through it.
-    await addCampaignStoryIssue(page, STORY_ISSUE)
-
-    // The "story ready" footer appears and sends the user to the plan tab.
-    await expect(readyFooter).toBeVisible()
-    await page.getByRole('link', { name: /generate my campaign plan/i }).click()
-    await page.waitForURL('**/dashboard/campaign-plan', { timeout: 30000 })
-
-    // The plan gate now shows the completed-story review: the why/background
-    // answers plus the issue (by title) under "Your issues", and a real CTA.
-    await expect(
-      page.getByRole('heading', { name: /ready to build your campaign plan/i }),
-    ).toBeVisible({ timeout: 30000 })
-    await expect(page.getByText(STORY_ANSWERS.why).first()).toBeVisible()
-    await expect(page.getByText(STORY_ISSUE.title).first()).toBeVisible()
-
-    // Generating goes through a confirm dialog before kicking off.
+    // The gate's incomplete-state CTA now sends the user to the Campaign
+    // Manager home to author their story there (onboarding), not to a
+    // standalone story route.
     await page
-      .getByRole('button', { name: /generate my campaign plan/i })
+      .getByRole('link', { name: /open your campaign manager/i })
       .click()
-    await page.getByRole('button', { name: /yes, generate my plan/i }).click()
-
-    // Generation started — the plan view replaces the gate — and the CAP/PMF
-    // POST was attempted but fulfilled in-browser, so no SQS job was enqueued.
+    await page.waitForURL('**/dashboard', { timeout: 30000 })
     await expect(
-      page.getByRole('heading', { name: /ready to build your campaign plan/i }),
-    ).toBeHidden({ timeout: 30000 })
-    await expect
-      .poll(() => generation.strategyPostCount(), { timeout: 30000 })
-      .toBeGreaterThan(0)
+      page.getByRole('heading', { name: 'Your campaign manager', level: 1 }),
+    ).toBeVisible({ timeout: 30000 })
   })
 })
