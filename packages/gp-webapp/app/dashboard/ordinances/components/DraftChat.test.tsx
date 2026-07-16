@@ -51,6 +51,10 @@ describe('DraftChat', () => {
 
     expect(await screen.findByText('What does section 4 do?')).toBeVisible()
     expect(screen.getByText('It sets a 30-day retention limit.')).toBeVisible()
+    // Its own conversation (step 'review'), separate from the flow's draft step.
+    expect(mocks.createConversation).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'review' }),
+    )
   })
 
   it('keeps the composer disabled when the conversation fails to open', async () => {

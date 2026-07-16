@@ -15,6 +15,7 @@ const STEP_LABELS: Record<OrdinanceFlowStep, string> = {
   current_law: 'Current law',
   comparables: 'How others solved it',
   draft: 'Drafting',
+  review: 'Reviewing the draft',
 }
 
 const STEP_GOALS: Record<OrdinanceFlowStep, string> = {
@@ -32,6 +33,9 @@ const STEP_GOALS: Record<OrdinanceFlowStep, string> = {
   draft:
     'Synthesize the prior steps into one complete, section-numbered first ' +
     'draft ordinance and present it for the user and their attorney to review.',
+  review:
+    'Help the user review and refine the existing draft: answer questions ' +
+    'about specific passages, explain and flag issues, and suggest edits.',
 }
 
 const ROLE_BLOCK = `ROLE (do not violate)
@@ -211,6 +215,12 @@ const DRAFT_RULES = `DRAFT RULES (this step):
 - Present the draft in ONE \`present_draft\` call, preceded by a one-line lead-in sentence (so the turn carries text and replays on reload). Put the whole draft in that call — a title, a one-line description for the ready card, the full statute body, and the sources it draws on — not as separate chat text.
 - This is a first draft for the user and their attorney to review, not final legal advice; say so briefly, once, in the lead-in. Do not call any next-step tool — the draft ends the guided flow.`
 
+const REVIEW_RULES = `REVIEW RULES (this step):
+- The draft already exists. Help the user review it: answer questions about specific passages, explain what a section does, flag problems, and suggest concrete edits in plain language.
+- Call \`read_ordinance\` to pull the current draft (and the prior-step detail behind it) before answering; ground every answer in the actual draft text, quoting the relevant passage.
+- You cannot regenerate or overwrite the draft here. Propose edits for the user to make in the editor; never claim to have changed the draft yourself.
+- This is a standalone review, not a numbered step: do not offer to advance the flow.`
+
 const toolBlock = (toolNames: string[]): string => {
   if (toolNames.length === 0) return 'Available tools: none in this session.'
   const lines = toolNames.map((name) => {
@@ -242,6 +252,7 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
       : []),
     ...(toolNames.includes('present_comparables') ? [COMPARABLES_RULES] : []),
     ...(toolNames.includes('present_draft') ? [DRAFT_RULES] : []),
+    ...(ctx.step === 'review' ? [REVIEW_RULES] : []),
     INSTRUCTIONS_BLOCK,
   ].join('\n\n')
 }

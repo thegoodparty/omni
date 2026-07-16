@@ -43,7 +43,8 @@ export default function DraftChat({
     const init = async (): Promise<void> => {
       const anchor = buildOrdinanceAnchor(ordinance, {
         url: `/dashboard/ordinances/draft/${ordinance.slug}`,
-        step: 'draft',
+        // Its own conversation and tools, separate from the flow's draft step.
+        step: 'review',
       })
       try {
         const { conversationId: id } =

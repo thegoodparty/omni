@@ -234,8 +234,9 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
       tools.present_draft = buildPresentDraftTool(deps)
     }
 
-    // Every step except the last can offer a button to advance the flow.
-    if (ctx.step !== 'draft') {
+    // A numbered flow step can offer a button to advance. The terminal draft
+    // step and the post-draft review chat have nowhere to advance to.
+    if (ctx.step !== 'draft' && ctx.step !== 'review') {
       tools.offer_next_step = buildOfferNextStepTool()
     }
 
