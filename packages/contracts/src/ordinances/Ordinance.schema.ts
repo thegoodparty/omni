@@ -246,6 +246,10 @@ export const ORDINANCE_FLOW_STEP_VALUES = [
   'current_law',
   'comparables',
   'draft',
+  // Post-draft review chat on the draft detail page. A lifecycle stage, not a
+  // numbered wizard step (like 'intro'), so it stays out of ORDINANCE_NUMBERED_
+  // STEPS. Its own conversation, and it omits the draft-synthesis tools.
+  'review',
 ] as const
 export const OrdinanceFlowStepSchema = z.enum(ORDINANCE_FLOW_STEP_VALUES)
 export type OrdinanceFlowStep = z.infer<typeof OrdinanceFlowStepSchema>

@@ -190,6 +190,41 @@ describe('OrdinanceFlowHandler', () => {
     expect(store.createScopedConversation).toHaveBeenCalled()
   })
 
+  it('gives the review step its own conversation, apart from the flow draft', async () => {
+    store.findByAnchorResource = vi.fn(() =>
+      Promise.resolve([{ id: 'flow-draft', anchor: anchorFor('draft') }]),
+    ) as never
+    const result = await build().resolveConversation(
+      {
+        scope: ChatScope.ordinance_flow,
+        organizationSlug: ORG,
+        anchor: { ...ANCHOR, step: 'review' as const },
+      },
+      USER_ID,
+    )
+    expect(result).toEqual({ conversationId: 'fresh', created: true })
+    expect(store.createScopedConversation).toHaveBeenCalled()
+  })
+
+  it('resumes the review conversation without matching the flow draft', async () => {
+    store.findByAnchorResource = vi.fn(() =>
+      Promise.resolve([
+        { id: 'flow-draft', anchor: anchorFor('draft') },
+        { id: 'review-conv', anchor: anchorFor('review') },
+      ]),
+    ) as never
+    const result = await build().resolveConversation(
+      {
+        scope: ChatScope.ordinance_flow,
+        organizationSlug: ORG,
+        anchor: { ...ANCHOR, step: 'review' as const },
+      },
+      USER_ID,
+    )
+    expect(result).toEqual({ conversationId: 'review-conv', created: false })
+    expect(store.createScopedConversation).not.toHaveBeenCalled()
+  })
+
   it('rejects a request without an ordinance anchor', async () => {
     await expect(
       build().resolveConversation(
@@ -280,6 +315,21 @@ describe('OrdinanceFlowHandler', () => {
       'save_note',
       'web_search',
     ])
+  })
+
+  it('builds the review tool set: base tools only, no present_draft or offer_next_step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'review' }),
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+    expect(names).not.toContain('present_draft')
+    expect(names).not.toContain('offer_next_step')
   })
 
   it('gates present_* tools to their own step', () => {
