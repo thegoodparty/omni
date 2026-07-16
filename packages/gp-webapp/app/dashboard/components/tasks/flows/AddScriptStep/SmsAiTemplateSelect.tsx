@@ -5,14 +5,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@styleguide'
-import { hasRequiredQuestions } from '../util/hasRequiredQuestions.util'
+import {
+  hasRequiredQuestions,
+  type SmsTemplate,
+} from '../util/hasRequiredQuestions.util'
 import { noop } from '@shared/utils/noop'
-
-export interface SmsTemplate {
-  key: string
-  name?: string
-  requiresQuestions?: string[]
-}
 
 interface SmsAiTemplateSelectProps {
   templates?: SmsTemplate[]

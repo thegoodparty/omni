@@ -2,7 +2,7 @@
 import H2 from '@shared/typography/H2'
 import Caption from '@shared/typography/Caption'
 import Paper from '@shared/utils/Paper'
-import { EcanvasserSummary } from './DoorKnockingPage'
+import type { EcanvasserSummary } from './types'
 
 interface InteractionsSummaryProps {
   summary?: EcanvasserSummary
