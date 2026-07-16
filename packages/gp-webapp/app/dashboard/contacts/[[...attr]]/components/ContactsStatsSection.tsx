@@ -13,7 +13,7 @@ import {
 import { Card } from '@styleguide'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { useQuery } from '@tanstack/react-query'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 
 interface StatCard {

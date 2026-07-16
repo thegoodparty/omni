@@ -244,17 +244,37 @@ describe('Nightly10DlcReportService', () => {
       expect(text).not.toContain('6 stuck')
     })
 
-    it('scopes every record query to Pro campaigns', async () => {
+    it('scopes every record query to Pro, non-internal campaigns', async () => {
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
+      // Staff test accounts use @goodparty.org (not just the seeded
+      // @test.goodparty.org), so both domains must be excluded or their
+      // intentionally stuck records page as real incidents.
+      const expectedCampaignWhere = {
+        isPro: true,
+        user: {
+          NOT: [
+            { email: { endsWith: '@goodparty.org', mode: 'insensitive' } },
+            {
+              email: { endsWith: '@test.goodparty.org', mode: 'insensitive' },
+            },
+          ],
+        },
+      }
       for (const call of mockModel.findMany.mock.calls) {
         const [{ where }] = call as [{ where: WhereClause }]
-        expect(where.campaign).toEqual({ isPro: true })
+        expect(where.campaign).toEqual(expectedCampaignWhere)
       }
       const [domainCall] = mockDomain.findMany.mock.calls[0] as [
-        { where: { website: { campaign: { isPro: boolean } } } },
+        { where: { website: { campaign: object } } },
       ]
-      expect(domainCall.where.website.campaign.isPro).toBe(true)
+      expect(domainCall.where.website.campaign).toEqual({
+        ...expectedCampaignWhere,
+        tcrCompliance: {
+          status: TcrComplianceStatus.submitted,
+          peerlyIdentityId: null,
+        },
+      })
     })
 
     it('truncates a section to the Slack character budget and names the hidden count', async () => {

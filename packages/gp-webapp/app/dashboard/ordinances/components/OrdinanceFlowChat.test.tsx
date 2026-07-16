@@ -285,7 +285,29 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
   })
 
   it('keeps every live widget mounted while later text in the same turn types out', async () => {
-    mocks.listMessages.mockResolvedValue([])
+    // Mount load is empty (kickoff); the post-stream refetch returns the
+    // persisted turn so the commit swap resolves (the client waits for the
+    // finished turn to appear before swapping away the live render).
+    mocks.listMessages.mockResolvedValueOnce([]).mockResolvedValue([
+      assistantTurn('m1', [
+        { kind: 'text', text: 'Here is the chapter.' },
+        {
+          kind: 'tool',
+          toolName: 'present_current_law_summary',
+          payload: currentLawPayload,
+        },
+        {
+          kind: 'tool',
+          toolName: 'present_legislative_history',
+          payload: historyPayload,
+        },
+        {
+          kind: 'tool',
+          toolName: 'present_comparables',
+          payload: comparablesPayload,
+        },
+      ]),
+    ])
     let releaseMid: (() => void) | undefined
     const midGate = new Promise<void>((resolve) => {
       releaseMid = resolve
@@ -383,5 +405,50 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     // orphaned avatar row while the agent is still thinking.
     await waitFor(() => expect(screen.getByText('Thinking...')).toBeVisible())
     expect(screen.queryByText('Intent and history')).not.toBeInTheDocument()
+  })
+})
+
+describe('OrdinanceFlowChat stalled-stream recovery', () => {
+  it('reconciles with persisted history when the stream stalls without ending', async () => {
+    vi.useFakeTimers()
+    try {
+      // Init loads an empty conversation (triggers the hidden kickoff send);
+      // the reconcile after the idle watchdog returns the completed turn.
+      mocks.listMessages.mockResolvedValueOnce([]).mockResolvedValue([
+        assistantTurn('m1', [
+          {
+            kind: 'tool',
+            toolName: 'present_comparables',
+            payload: comparablesPayload,
+          },
+        ]),
+      ])
+      // The stream emits a lead-in then hangs forever — never a `done`, never
+      // ending. This is the delivery stall where the client's reader never sees
+      // end-of-stream, so the turn would otherwise spin on "Thinking..." even
+      // though the server finished and persisted the turn.
+      mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
+        ChatStreamEvent,
+        void,
+        void
+      > {
+        yield { type: 'text', delta: 'Let me pull the comparables.' }
+        await new Promise<void>(() => undefined)
+      })
+
+      render(
+        <OrdinanceFlowChat slug="public-safety-cameras" step="comparables" />,
+      )
+
+      // Drive past the idle watchdog. The client must stop waiting on the dead
+      // stream, re-fetch the persisted transcript, and render the finished turn.
+      await vi.advanceTimersByTimeAsync(90_000)
+
+      expect(
+        screen.getByText('I pulled the closest comparable camera ordinances.'),
+      ).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

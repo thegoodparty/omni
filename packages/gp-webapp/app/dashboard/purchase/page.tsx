@@ -26,11 +26,13 @@ const buildMetadata = (
   params: PurchaseParams,
 ): Partial<Record<string, string | number | boolean | undefined>> => {
   switch (type) {
-    case PURCHASE_TYPES.DOMAIN_REGISTRATION:
+    case PURCHASE_TYPES.DOMAIN_REGISTRATION: {
+      const websiteId = parseInt(params.websiteId || '', 10)
       return {
         domainName: params.domainName,
-        websiteId: parseInt(params.websiteId || ''),
+        ...(Number.isFinite(websiteId) && { websiteId }),
       }
+    }
     default:
       return {}
   }

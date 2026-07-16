@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { CronModule } from '@/cron/cron.module'
+import { DashboardCardsModule } from '@/dashboardCards/dashboardCards.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
@@ -17,6 +18,7 @@ import { CommunityIssueUpsertService } from './services/communityIssueUpsert.ser
     AgentExperimentsModule,
     AwsModule,
     CronModule,
+    DashboardCardsModule,
     forwardRef(() => ElectedOfficeModule),
     OrganizationsModule,
   ],

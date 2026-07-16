@@ -13,7 +13,7 @@ const PLEDGE_ITEMS = [
   {
     title: 'People-First',
     Icon: UsersRound,
-    body: 'I get a majority of my funding from individuals, not from political action committees (PACs), lobbies, unions or corporations. Once elected, I will focus on solving the problems facing my constituents, not serving myself or special interests.',
+    body: 'I get a majority of my funding from individuals, not from political action committees (PACs), lobbies, unions or corporations. I do not accept funding from either the Republican or Democratic party. Once elected, I will focus on solving the problems facing my constituents, not serving myself or special interests.',
   },
   {
     title: 'Anti-Corruption',

@@ -996,10 +996,11 @@ export default function OnboardingFlow({
     }
     if (nextStep) {
       if (campaign) {
-        await updateCampaign([
+        const updated = await updateCampaign([
           { key: 'data.currentStep', value: nextStep.id },
           { key: 'data.onboarding', value: answers },
         ])
+        if (updated === false) return
       }
       setActiveStepId(nextStep.id)
     }

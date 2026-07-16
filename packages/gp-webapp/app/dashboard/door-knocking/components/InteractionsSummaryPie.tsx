@@ -13,7 +13,7 @@ import {
 } from 'chart.js'
 import { Fragment } from 'react'
 import interactionsColors from './interactionsColors'
-import { EcanvasserSummary } from './DoorKnockingPage'
+import type { EcanvasserSummary } from './types'
 
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale)
 

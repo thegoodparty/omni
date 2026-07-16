@@ -1,3 +1,4 @@
+import 'server-only'
 import { API_ROOT } from 'appEnv'
 import { cookies } from 'next/headers'
 import { createRequest } from './typed-request'

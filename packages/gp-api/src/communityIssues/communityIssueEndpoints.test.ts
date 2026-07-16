@@ -166,6 +166,28 @@ describe('GET /v1/community-issues', () => {
       )
     },
   )
+
+  it('reports a stale non-terminal run as failed, not running', async () => {
+    await seedIssue()
+
+    await service.prisma.experimentRun.create({
+      data: {
+        organizationSlug: eoOrgSlug,
+        experimentType: 'top_community_issues',
+        status: ExperimentRunStatus.RUNNING,
+        artifactBucket: 'bucket',
+        artifactKey: `key-${Date.now()}.json`,
+        createdAt: new Date('2020-01-01'),
+      },
+    })
+
+    const res = await service.client.get<{
+      refresh: { status: string; lastCompletedAt: string | null }
+    }>(`${BASE}?list=top_community`, eoHeaders())
+
+    expect(res.status).toBe(HttpStatus.OK)
+    expect(res.data.refresh.status).toBe('failed')
+  })
 })
 
 describe('GET /v1/community-issues — archived priority', () => {

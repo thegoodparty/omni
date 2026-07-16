@@ -21,7 +21,7 @@ const CARD: DashboardCard = {
   ctaLabel: 'Prepare for the meeting',
   ctaHref: '/dashboard/briefings/2026-06-20',
   dueDate: '2026-06-20T00:00:00.000Z',
-  sourceBriefingId: 'b_1',
+  sourceExternalId: 'b_1',
   sourceItemId: null,
   dismissedAt: null,
   createdAt: '2026-06-15T00:00:00.000Z',

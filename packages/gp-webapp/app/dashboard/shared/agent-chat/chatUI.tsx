@@ -1,9 +1,14 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import type { Ref, ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { SearchIcon, SparklesIcon } from '@styleguide/components/ui/icons'
+import { IconButton, Input } from '@styleguide'
+import {
+  SearchIcon,
+  SendIcon,
+  SparklesIcon,
+} from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
 
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
@@ -154,4 +159,78 @@ export function InlineSegments({
   })
   flushPills('end')
   return <>{blocks}</>
+}
+
+// A user's message bubble, right-aligned. `whitespace-pre-wrap` preserves the
+// line breaks a user typed (and the seeded passage quotes the draft chat sends).
+export function UserBubble({
+  children,
+}: {
+  children: ReactNode
+}): React.JSX.Element {
+  return (
+    <div className="self-end rounded-2xl bg-primary px-3 py-2 text-sm whitespace-pre-wrap text-primary-foreground">
+      {children}
+    </div>
+  )
+}
+
+// The "working" shimmer shown while the assistant is thinking but nothing is on
+// screen yet. `label` names what it is doing when known (e.g. a tool generating).
+export function ThinkingRow({
+  label = 'Thinking...',
+}: {
+  label?: string
+}): React.JSX.Element {
+  return (
+    <div className="w-fit self-start rounded-2xl bg-muted px-3 py-2 text-sm">
+      <span className="text-shimmer-muted">{label}</span>
+    </div>
+  )
+}
+
+// The message composer: a pill-shaped input with a send button. The consumer
+// owns the value and clears it on submit; `onSubmit` fires on Enter or the
+// button, and the button is disabled while empty.
+export function ChatComposer({
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+  placeholder = 'Ask me any questions about this...',
+  inputRef,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onSubmit: () => void
+  disabled?: boolean
+  placeholder?: string
+  inputRef?: Ref<HTMLInputElement>
+}): React.JSX.Element {
+  return (
+    <form
+      className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onSubmit()
+      }}
+    >
+      <Input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+      />
+      <IconButton
+        type="submit"
+        className="rounded-full"
+        disabled={disabled || value.trim().length === 0}
+        aria-label="Send"
+      >
+        <SendIcon className="size-4" aria-hidden />
+      </IconButton>
+    </form>
+  )
 }

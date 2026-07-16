@@ -81,7 +81,7 @@ export const saveCandidatePosition = async ({
     )
     return resp.data
   } catch (e) {
-    console.log('error at saveCandidatePosition', e)
+    console.error('error at saveCandidatePosition', e)
     return false
   }
 }
@@ -98,7 +98,7 @@ export const deleteCandidatePosition = async (
     await clientFetch(apiRoutes.campaign.campaignPosition.delete, payload)
     return true
   } catch (e) {
-    console.log('error at deleteCandidatePosition', e)
+    console.error('error at deleteCandidatePosition', e)
     return false
   }
 }
@@ -120,7 +120,7 @@ export async function updateCandidatePosition(
     )
     return resp.data
   } catch (e) {
-    console.log('error at updateCandidatePosition', e)
+    console.error('error at updateCandidatePosition', e)
     return false
   }
 }
@@ -138,7 +138,7 @@ export async function loadCandidatePosition(
     )
     return resp.data
   } catch (e) {
-    console.log('error at loadCandidatePosition', e)
+    console.error('error at loadCandidatePosition', e)
     return false
   }
 }

@@ -86,11 +86,12 @@ export const formatPhoneNumber = (value: string | null | undefined): string => {
   if (!value) {
     return ''
   }
-  let noCountryCode = value
-  if (value.charAt(0) === '1') {
-    noCountryCode = value.substring(1)
-  }
-  const input = noCountryCode.replace(/\D/g, '').substring(0, 10)
+  const digits = value.replace(/\D/g, '')
+  const normalized =
+    digits.length === 11 && digits.charAt(0) === '1'
+      ? digits.substring(1)
+      : digits
+  const input = normalized.substring(0, 10)
   const areaCode = input.substring(0, 3)
   const middle = input.substring(3, 6)
   const last = input.substring(6, 10)

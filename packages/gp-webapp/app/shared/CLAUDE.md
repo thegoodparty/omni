@@ -7,7 +7,7 @@ Cross-route building blocks: providers, hooks, UI primitives, layouts, and featu
 | Subdir / file | Role |
 |---------------|------|
 | `user/UserProvider.tsx` | Auth state — loaded from cookie, exposed to the tree |
-| `user/ImpersonateUserProvider.tsx`, `ImpersonationBanner.tsx`, `ImpersonatingTracker.tsx` | Impersonation state + global UI |
+| `user/ImpersonationBanner.tsx`, `ImpersonatingTracker.tsx` | Impersonation state + global UI (Clerk-actor based; no separate context provider) |
 | `user/CampaignStatusProvider.tsx` | Campaign-level status flag |
 | `hooks/CampaignProvider.tsx` + `useCampaign.ts` | Current campaign context |
 | `hooks/VoterContactsProvider.tsx` | Voter-contact data shared across dashboard features |

@@ -2,8 +2,8 @@
 
 import { Input } from '@styleguide'
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useShowContactProModal } from '../hooks/ContactProModal'
-import { useContactsTable } from '../hooks/ContactsTableProvider'
+import { useShowContactProModal } from '../../crm/ContactProModal'
+import { useContactsTable } from '../../crm/ContactsTableProvider'
 import { LuSearch } from 'react-icons/lu'
 
 export const ContactSearch = () => {

@@ -4,6 +4,7 @@ import type {
   Ordinance,
   OrdinanceListResponse,
   SaveOrdinanceClarifyAnswerRequest,
+  UpdateOrdinanceRequest,
   Priority,
   ChatAnchor,
   RaceOpponentSourceType,
@@ -39,7 +40,7 @@ import type {
   ListContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
-} from 'app/dashboard/contacts/[[...attr]]/components/shared/contacts-types'
+} from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
@@ -475,6 +476,11 @@ export type APIEndpoints = {
 
   'GET /v1/ordinances/:slug': {
     Request: {}
+    Response: Ordinance
+  }
+
+  'PATCH /v1/ordinances/:slug': {
+    Request: UpdateOrdinanceRequest
     Response: Ordinance
   }
 

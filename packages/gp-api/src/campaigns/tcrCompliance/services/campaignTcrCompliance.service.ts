@@ -456,14 +456,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     pinDelivery: DerivedPinDelivery,
     context: { peerlyIdentityId: string; pinSentAt: Date },
   ) {
-    // Only the channel is sent to Segment (→ analytics warehouse + HubSpot),
-    // never the destination. HubSpot needs the method to pick the nudge; the
-    // destination is the candidate's raw filing email/phone/address and stays
-    // in our own DB (persisted on the record, like the existing email/phone
-    // columns) rather than syncing to the warehouse.
+    // The destination rides along so the HubSpot nudge can name the actual
+    // inbox/number CV delivered to — often a treasurer's contact from the
+    // state filing, not the candidate's own. Same sensitivity class as the
+    // filing email/phone we already sync to HubSpot company properties. The
+    // candidate-facing API still masks it (see complianceState.service).
     await this.analytics.track(userId, EVENTS.Outreach.CompliancePinSent, {
       peerly_identity_id: context.peerlyIdentityId,
       pin_delivery_method: pinDelivery.method,
+      pin_delivery_destination: pinDelivery.destination,
       pin_sent_at: formatISO(context.pinSentAt),
       ...(campaign.data.hubspotId
         ? { company_hubspot_id: campaign.data.hubspotId }

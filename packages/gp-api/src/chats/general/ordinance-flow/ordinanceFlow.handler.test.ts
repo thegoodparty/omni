@@ -190,6 +190,41 @@ describe('OrdinanceFlowHandler', () => {
     expect(store.createScopedConversation).toHaveBeenCalled()
   })
 
+  it('gives the review step its own conversation, apart from the flow draft', async () => {
+    store.findByAnchorResource = vi.fn(() =>
+      Promise.resolve([{ id: 'flow-draft', anchor: anchorFor('draft') }]),
+    ) as never
+    const result = await build().resolveConversation(
+      {
+        scope: ChatScope.ordinance_flow,
+        organizationSlug: ORG,
+        anchor: { ...ANCHOR, step: 'review' as const },
+      },
+      USER_ID,
+    )
+    expect(result).toEqual({ conversationId: 'fresh', created: true })
+    expect(store.createScopedConversation).toHaveBeenCalled()
+  })
+
+  it('resumes the review conversation without matching the flow draft', async () => {
+    store.findByAnchorResource = vi.fn(() =>
+      Promise.resolve([
+        { id: 'flow-draft', anchor: anchorFor('draft') },
+        { id: 'review-conv', anchor: anchorFor('review') },
+      ]),
+    ) as never
+    const result = await build().resolveConversation(
+      {
+        scope: ChatScope.ordinance_flow,
+        organizationSlug: ORG,
+        anchor: { ...ANCHOR, step: 'review' as const },
+      },
+      USER_ID,
+    )
+    expect(result).toEqual({ conversationId: 'review-conv', created: false })
+    expect(store.createScopedConversation).not.toHaveBeenCalled()
+  })
+
   it('rejects a request without an ordinance anchor', async () => {
     await expect(
       build().resolveConversation(
@@ -282,6 +317,21 @@ describe('OrdinanceFlowHandler', () => {
     ])
   })
 
+  it('builds the review tool set: base tools only, no present_draft or offer_next_step', () => {
+    const handler = build()
+    const names = Object.keys(
+      handler.buildTools({ ...baseCtx(), step: 'review' }),
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+    expect(names).not.toContain('present_draft')
+    expect(names).not.toContain('offer_next_step')
+  })
+
   it('gates present_* tools to their own step', () => {
     const handler = build()
     const clarify = Object.keys(handler.buildTools(baseCtx()))
@@ -307,11 +357,19 @@ describe('OrdinanceFlowHandler', () => {
     expect(names).toContain('offer_next_step')
   })
 
-  it('offers no next step on the final (draft) step', () => {
+  it('offers the draft tool but no next step on the final (draft) step', () => {
     const handler = build()
     const names = Object.keys(
       handler.buildTools({ ...baseCtx(), step: 'draft' }),
-    )
+    ).sort()
+    expect(names).toEqual([
+      'get_code_source',
+      'present_draft',
+      'read_ordinance',
+      'save_note',
+      'web_search',
+    ])
+    // The draft is the terminal step, so it never offers a next-step button.
     expect(names).not.toContain('offer_next_step')
   })
 

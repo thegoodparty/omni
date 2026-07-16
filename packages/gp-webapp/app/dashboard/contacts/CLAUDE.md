@@ -8,13 +8,22 @@ This is the **unified, People-API-backed** voter experience shared by Serve (ele
 
 | File                               | Role                                                                   |
 | ---------------------------------- | ---------------------------------------------------------------------- |
-| `[[...attr]]/page.tsx`             | Single catch-all route — sub-views are query/path slugs handled inside |
-| `[[...attr]]/components/`          | Top-level layout + tab content                                         |
+| `[[...attr]]/page.tsx`             | Single catch-all route — renders `ContactsPageGate` inside the provider |
+| `crm/`                             | **All CRM-era code** (not a route): gate, new CRM page, typeahead, provider, person detail, shared types/utils |
+| `crm/ContactsPageGate.tsx`         | Whole-page CRM flag gate — picks `CrmContactsPage` vs the old `ContactsPage` |
+| `crm/CrmContactsPage.tsx`          | Flag-on page: universe title, typeahead, "Create new list" placeholder |
+| `crm/ContactsTableProvider.tsx`    | Data/state provider shared by both pages                               |
+| `crm/person/`                      | Individual voter detail (`PersonOverlay.tsx`), shared by both pages    |
+| `[[...attr]]/components/`          | The pre-CRM (flag-off) page UI — slated for wholesale deletion at full CRM ramp |
 | `[[...attr]]/components/segments/` | Saved audience segments (list, create, edit)                           |
-| `[[...attr]]/components/person/`   | Individual voter detail (`PersonOverlay.tsx`)                          |
-| `[[...attr]]/components/configs/`  | Filter / column configuration UI                                       |
-| `[[...attr]]/components/shared/`   | Cross-tab primitives (table, filter chips)                             |
-| `[[...attr]]/hooks/`               | Data fetching hooks for voter file pages                               |
+| `[[...attr]]/components/configs/`  | Filter / column configuration UI (old page only)                       |
+
+**crm/ folder convention:** every new CRM surface goes in `crm/`, never mixed into
+`[[...attr]]/components/`. Code shared by both UIs (the provider, `ContactProModal`,
+`person/`, `shared/` types/fixtures, `configs/defaultSegments.config.ts`) lives in
+`crm/` and the old code imports it from there — so deleting `[[...attr]]/components/`
+at full ramp cannot break the CRM page (only `ContactsPageGate`'s old-page branch
+needs collapsing).
 
 ## Patterns
 
@@ -23,8 +32,10 @@ This is the **unified, People-API-backed** voter experience shared by Serve (ele
 - **A saved list can also carry a free-text search** (ENG-10518). When "Create list" opens with an active search (the `query` URL param), `FiltersSheet` saves that term on the `VoterFileFilter.search` column with no filter required, and `selectSegment` (in `ContactsTableProvider`) re-applies it to the `query` param when the list is selected — so the saved view reproduces the searched-down set. A live request search always wins over a list's stored search server-side (gp-api `findContacts`). Download does not re-apply stored search (people-api `/download` has no search param).
 - **Live segment-builder count** (ENG-10517): while `FiltersSheet` is open, it shows a running "N voters match" for the in-progress (unsaved) filter set, fetched from `POST /v1/contacts/count`. That endpoint runs the same `convertVoterFileFilterToFilters` translation a saved segment would, then queries people-api with `resultsPerPage: 1` and returns only `pagination.totalResults` — no real rows are loaded. The webapp debounces the payload (~600ms, mirroring the search box) and keys a React Query on `['contacts-count', orgSlug, debouncedPayload]` (org-scoped per ENG-10511); `enabled` reads the _debounced_ payload's criteria so a request never fires with a payload that lags its own gate. The count is pro-gated like search/named segments (a non-pro requester only ever sees the base-list preview). The count honors any active create-mode search (ENG-10518), so the number matches the list it would save. It's a display affordance only — it does not change how segments are saved or how the main table counts.
 - **Deleting a list** (ENG-10520) is handled by `DeleteSegment.tsx` (a styleguide `AlertDialog` confirmation that calls `DELETE /v1/voters/voter-file/filter/:id`, then `refreshCustomSegments`). It renders in two places off the same component: the bottom of the edit `FiltersSheet`, and a per-row trash `IconButton` next to each custom list in the `SegmentSection` dropdown (via the optional `trigger` prop). The per-row trigger stops pointer/click propagation so it doesn't select the Radix `SelectItem`. `afterDeleteCallback(deletedId)` lets the caller decide fallback: `SegmentSection` resets to `ALL_SEGMENTS` only when the deleted list is the active one; `FiltersSheet` always closes + resets. Only custom `VoterFileFilter`s get the affordance — default segments (all/doorKnocking/texting/…) never do. Backend delete is org-scoped (`deleteByIdAndOrganizationSlug` → `where: { id, organizationSlug }`), so a user can't delete another org's list.
+- **Whole-page CRM gate** (ENG-10683): `[[...attr]]/page.tsx` renders `crm/ContactsPageGate` inside the provider. When `useCrmEnabled()` (app/dashboard/shared) reads `ready && enabled`, the user gets ONLY `crm/CrmContactsPage` — universe title ("Your Voter Universe" / "Your Constituent Universe" via `contactsLabels.ts`), the `ContactTypeahead`, a no-op "Create new list" placeholder (wired by CRM feature 4), and `PersonOverlay`. Flag off or unsettled renders the old `ContactsPage` exactly as it was pre-CRM (always `ContactSearch`; the ENG-10687 in-page typeahead swap is gone). The gate is the one treatment/control divergence point, so the experiment exposure fires there (`useCrmEnabled(true)`). Note: `Contacts - Contacts Viewed` fires only from the old page — the minimal CRM page deliberately doesn't emit it yet.
+- **CRM typeahead search** (ENG-10687, now `crm/ContactTypeahead.tsx`): a debounced (300ms, min 3 chars) results dropdown over the same `GET /v1/contacts` client path (`resultsPerPage: 8`), fetched standalone via `crm/useContactTypeaheadSearch` (query key `['contacts-typeahead', orgSlug, term]`, never the table's `['contacts', ...]` key or the `query` URL param); selecting a row navigates via the provider's `selectPerson`. Non-pro: focus/typing opens the Pro modal and no request fires (gp-api still rejects non-pro search). The mode-specific Contact Searched events (ENG-10688) fire from the `settled` derivation inside `useContactTypeaheadSearch` — see Analytics below.
 - **Voter file fetching** uses `helpers/createVoterFileFilter.ts` to build the filter payload — keep that helper as the single shape source.
-- The `PersonOverlay` is a side-panel detail view that opens over the table; route-level navigation isn't used to drill in.
+- The `PersonOverlay` is a side-panel detail view that opens over the page. Drilling in DOES put the person id in the path (`/dashboard/contacts/:personId`, deep-linkable), but via **shallow navigation**: `selectPerson` calls `window.history.pushState` (never `router.push` — the route is `force-dynamic` with a `loading.tsx`, so a router navigation blanks the whole page through the loading boundary just to open/close the overlay). The provider derives `currentlySelectedPersonId` from `usePathname()`, not `useParams()` — `useParams` does not react to native pushState.
 
 ## Gotchas
 
@@ -41,6 +52,7 @@ Events live under the `Contacts` group in `helpers/analyticsHelper.ts` and fire 
 - `Contacts - Contacts Viewed` — fires once on page entry (`ContactsPage`), `context` only.
 - `Contacts - Outreach Timeline Viewed` — Win-only; fires when the Win outreach timeline renders rows in `PersonOverlay` (`context: 'win'`, `personId`). Not fired for an empty feed or the Serve poll-interaction timeline.
 - `Contacts - Download` / `Segment Viewed` / `Segment Created` / `Segment Updated` / `Segment Deleted` — existing events, now carrying `context`.
+- `Voter Data - Contact Searched` (Win) / `Constituent Data - Contact Searched` (Serve) — the one deliberate exception to the context-property rule: the CRM brief specs the typeahead search events as product-specific by nav surface, each with `resultCount`. They fire once per distinct resolved search from the `settled` derivation in `useContactTypeaheadSearch` (ENG-10688) — never on aborted/superseded requests, sub-3-char input, or the non-pro modal path; an empty result set fires with `resultCount: 0`. Mode comes from `useWinVoterContext()`, gated on `isReady` like the mount event.
 
 Source the `context` from `isWinContext` (single source of truth in `ContactsTableProvider`) — don't recompute Win-vs-Serve. New events: follow `.claude/skills/instrument-analytics-event/SKILL.md`.
 
