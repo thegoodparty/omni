@@ -12,6 +12,7 @@ import { CampaignPlanSharesModule } from '@/campaignPlanShares/campaignPlanShare
 import { CampaignsModule } from '@/campaigns/campaigns.module'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactEngagementModule } from '@/contactEngagement/contactEngagement.module'
+import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { ContentModule } from '@/content/content.module'
@@ -106,6 +107,7 @@ import { GeneralChatsModule } from '@/chats/general/general-chats.module'
     PeerlyModule,
     ContactsModule,
     ContactEngagementModule,
+    ContactInteractionModule,
     ContactNoteModule,
     PollsModule,
     PrioritiesModule,

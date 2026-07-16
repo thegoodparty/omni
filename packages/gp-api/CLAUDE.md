@@ -122,6 +122,7 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Working in                               | Read                                        |
 | ---------------------------------------- | ------------------------------------------- |
 | Campaigns / plans / tasks                | `src/campaigns/CLAUDE.md`                   |
+| Contact interactions (per-channel models) | `src/contactInteraction/contactInteraction.types.ts` |
 | Campaign plan PDF sharing                | `src/campaignPlanShares/CLAUDE.md`          |
 | Voter file / L2 lookups                  | `src/voters/CLAUDE.md`                      |
 | Stripe payments / pro upgrades           | `src/payments/CLAUDE.md`                    |
@@ -135,6 +136,12 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Pulumi / Docker / Grafana                | `deploy/CLAUDE.md`                          |
 | One-off / build scripts                  | `scripts/CLAUDE.md`                         |
 | Seed data / factories / scenarios        | `seed/CLAUDE.md`                            |
+
+`VoterOutreachActivity` is deprecated: new per-person interaction write paths
+target the `ContactInteraction*` models via `ContactInteractionModule` (see
+`src/contactInteraction/contactInteraction.types.ts` for the add-a-channel
+convention). Existing segment-derived send-attribution writes remain on it
+until feature 5 of the CRM epic migrates them.
 
 ## Module shape (enforced by `.cursor/rules/rules.mdc` Rule 7)
 
