@@ -42,6 +42,9 @@ describe('<CommunityIssuesDispatchBanner>', () => {
     expect(
       await screen.findByText(/refreshing your community issues/i),
     ).toBeInTheDocument()
+    expect(
+      screen.getByText(/we'll email you when they're ready/i),
+    ).toBeInTheDocument()
 
     // A running poll response must not trigger router.refresh(): the run is
     // still in flight and we are far below the attempt cap. The bug fired
