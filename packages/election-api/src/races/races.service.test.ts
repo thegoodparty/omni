@@ -358,6 +358,18 @@ describe('RacesService.findRaces — pagination', () => {
     expect(groupArgs.take).toBe(100)
   })
 
+  it('passes the placeSlug relation filter through to the grouped query', async () => {
+    // Prisma groupBy accepts relation filters in `where` (verified against
+    // @prisma/client 6.x); the Place join must reach both the grouping and
+    // the row fetch so placeSlug-scoped requests page correctly.
+    await service.findRaces({ placeSlug: 'tx/austin' } as RaceFilterDto)
+
+    const groupArgs = raceGroupBy.mock.calls[0]?.[0]
+    expect(groupArgs.where).toEqual({ Place: { slug: 'tx/austin' } })
+    const findArgs = raceFindMany.mock.calls[0]?.[0]
+    expect(findArgs.where.Place).toEqual({ slug: 'tx/austin' })
+  })
+
   it('returns an empty array when paging past the last result', async () => {
     raceGroupBy.mockResolvedValue([])
 
