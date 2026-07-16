@@ -1,0 +1,138 @@
+import { createHash } from 'node:crypto'
+import { Injectable } from '@nestjs/common'
+import { z } from 'zod'
+import {
+  OrdinanceSourceSchema,
+  type OrdinanceQualityReport,
+} from '@goodparty_org/contracts'
+import { LlmService } from '@/llm/services/llm.service'
+import { Ordinance } from '../../generated/prisma'
+
+// Sensitive: the draft and its constituent-derived rationale go into the model
+// context, so QC runs Claude-only.
+const QC_MODELS = ['claude-sonnet-4-6', 'claude-opus-4-7']
+
+// The six fixed rubric checks. Labels and order are fixed here so the rubric
+// can't drift; the model only supplies each check's status, note, and source.
+const QC_CHECKS = [
+  { id: 'authority', label: 'Authority' },
+  { id: 'legal_conflict', label: 'Legal conflict' },
+  { id: 'precedent_grounding', label: 'Precedent grounding' },
+  { id: 'completeness', label: 'Completeness' },
+  { id: 'clarity', label: 'Clarity' },
+  { id: 'voice', label: 'Voice' },
+] as const
+
+// Keep the id list in sync with QC_CHECKS above (the assembly source of truth).
+const QcGenerationSchema = z.object({
+  checks: z.array(
+    z.object({
+      id: z.enum([
+        'authority',
+        'legal_conflict',
+        'precedent_grounding',
+        'completeness',
+        'clarity',
+        'voice',
+      ]),
+      status: z.enum(['pass', 'flag', 'attention']),
+      note: z.string(),
+      source: OrdinanceSourceSchema.optional(),
+    }),
+  ),
+})
+
+export const draftBodyHash = (body: string): string =>
+  createHash('sha256').update(body).digest('hex')
+
+const QC_SYSTEM_PROMPT = [
+  'You are a legislative drafting reviewer. Evaluate a municipal ordinance',
+  'draft against a fixed six-check quality rubric for the elected official who',
+  'wrote it. Be a rigorous but fair reviewer; ground every judgment in the',
+  'draft text and the prior-step material provided, and never invent facts,',
+  'statutes, or citations.',
+  '',
+  'Return one result for each of these six checks, by id:',
+  '- authority: does the council have the legal power to enact this? Lean on the',
+  '  authority finding provided.',
+  '- legal_conflict: does the draft conflict with higher law or the existing',
+  '  code? Lean on the current-law material.',
+  '- precedent_grounding: is the approach grounded in how comparable',
+  '  jurisdictions handled this? Lean on the comparables provided.',
+  '- completeness: does the draft cover the essentials (definitions,',
+  '  enforcement, effective date, scope) with no obvious gaps or unresolved',
+  '  placeholders?',
+  '- clarity: is the text clear, unambiguous, and well structured?',
+  '- voice: is it in plain, governance-focused municipal-code style, addressed',
+  '  to constituents (not campaign or political framing)?',
+  '',
+  'For each check set status to: pass (solid), flag (a real problem to fix), or',
+  'attention (worth a look, not clearly wrong). Write the note as a short,',
+  'actionable prompt the user can act on to improve the draft. Where a judgment',
+  'rests on a specific provided source (an authority citation, a comparable, a',
+  'current-law reference), attach that source; omit the source when the check is',
+  'about the draft text itself.',
+].join('\n')
+
+const section = (label: string, value: unknown): string => {
+  if (value === null || value === undefined) return ''
+  const text =
+    typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  return text.trim().length === 0 ? '' : `## ${label}\n${text}`
+}
+
+const buildQcUserPrompt = (record: Ordinance): string =>
+  [
+    section('Goal', record.goalText),
+    section('Draft title', record.draftTitle),
+    section('Draft body', record.draftBody),
+    section('Authority finding', record.authority),
+    section('Current law', record.existingLaw),
+    section('Comparables', record.comparables),
+    section('Clarifying answers', record.clarifyAnswers),
+  ]
+    .filter((s) => s.length > 0)
+    .join('\n\n')
+
+@Injectable()
+export class OrdinanceQualityReportService {
+  constructor(private readonly llm: LlmService) {}
+
+  async generate(
+    record: Ordinance,
+    userId: number,
+  ): Promise<OrdinanceQualityReport> {
+    const { object } = await this.llm.jsonCompletion({
+      messages: [
+        { role: 'system', content: QC_SYSTEM_PROMPT },
+        { role: 'user', content: buildQcUserPrompt(record) },
+      ],
+      schema: QcGenerationSchema,
+      models: QC_MODELS,
+      userId: String(userId),
+    })
+
+    const byId = new Map(object.checks.map((c) => [c.id, c]))
+    const checks = QC_CHECKS.map(({ id, label }) => {
+      const generated = byId.get(id)
+      return {
+        id,
+        label,
+        status: generated?.status ?? 'attention',
+        note: generated?.note ?? 'This check could not be evaluated.',
+        ...(generated?.source ? { source: generated.source } : {}),
+      }
+    })
+
+    return {
+      checks,
+      tally: {
+        pass: checks.filter((c) => c.status === 'pass').length,
+        flag: checks.filter((c) => c.status === 'flag').length,
+        attention: checks.filter((c) => c.status === 'attention').length,
+      },
+      stale: false,
+      ranAgainstBodyHash: draftBodyHash(record.draftBody ?? ''),
+    }
+  }
+}

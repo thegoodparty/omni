@@ -76,7 +76,10 @@ import { dirname, join, relative } from 'node:path'
 // CrmContactsPage hosts the interactive typeahead + Pro-modal state, so
 // neither can be a server component. The crm/ moves themselves are
 // count-neutral.
-const BASELINE = 542
+// 2026-07-16: 542 -> 543 for QualityReport — the ordinance draft quality-report
+// tab fetches, generates/re-runs, and manages loading/error state, so it must
+// be a client component.
+const BASELINE = 543
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

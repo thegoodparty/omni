@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common'
 import { AgentExperimentsModule } from '@/agentExperiments/agentExperiments.module'
 import { CronModule } from '@/cron/cron.module'
+import { LlmModule } from '@/llm/llm.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
 import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
@@ -10,12 +11,14 @@ import { OrdinancesService } from './services/ordinances.service'
 import { OrdinanceCodePersistService } from './services/ordinanceCodePersist.service'
 import { OrdinanceCodeReadService } from './services/ordinanceCodeRead.service'
 import { OrdinanceDispatchService } from './services/ordinanceDispatch.service'
+import { OrdinanceQualityReportService } from './services/ordinanceQualityReport.service'
 
 @Module({
   imports: [
     AgentExperimentsModule,
     AwsModule,
     CronModule,
+    LlmModule,
     OrganizationsModule,
     forwardRef(() => ElectedOfficeModule),
   ],
@@ -25,6 +28,7 @@ import { OrdinanceDispatchService } from './services/ordinanceDispatch.service'
     OrdinanceCodePersistService,
     OrdinanceCodeReadService,
     OrdinanceDispatchService,
+    OrdinanceQualityReportService,
   ],
   exports: [
     OrdinancesService,

@@ -17,6 +17,10 @@ import {
   DrawerHeader,
   DrawerTitle,
   IconButton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   cn,
 } from '@styleguide'
 import {
@@ -33,7 +37,10 @@ import ChatPill from '../../shared/ai-chat/ChatPill'
 import { updateOrdinance } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META } from '../data/statuses'
 import DraftChat from './DraftChat'
+import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
+
+type DraftTab = 'draft' | 'quality'
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -68,6 +75,7 @@ export default function DraftDetail({
   const queuedRef = useRef<UpdateOrdinanceRequest | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [selection, setSelection] = useState<Selection | null>(null)
+  const [tab, setTab] = useState<DraftTab>('draft')
   const [chatOpen, setChatOpen] = useState(false)
   // The composer seed for the chat drawer, plus a nonce so re-highlighting the
   // same passage re-seeds even when the text is identical.
@@ -139,6 +147,23 @@ export default function DraftDetail({
       const next = titleRef.current?.innerText.trim() ?? ''
       if (next.length > 0) save({ draftTitle: next })
     }, AUTOSAVE_DELAY_MS)
+  }, [save])
+
+  // Flush any pending debounced edit immediately (e.g. before switching to the
+  // Quality report tab, so its fetch sees the current draft, not a stale save).
+  const flushPending = useCallback((): void => {
+    if (bodyTimerRef.current) {
+      clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = null
+      const body = bodyRef.current?.innerText ?? ''
+      if (body.trim().length > 0) save({ draftBody: body })
+    }
+    if (titleTimerRef.current) {
+      clearTimeout(titleTimerRef.current)
+      titleTimerRef.current = null
+      const next = titleRef.current?.innerText.trim() ?? ''
+      if (next.length > 0) save({ draftTitle: next })
+    }
   }, [save])
 
   // Flush pending debounced edits on unmount so leaving the screen (the Back
@@ -223,7 +248,16 @@ export default function DraftDetail({
   }, [])
 
   return (
-    <div className="flex h-full w-full flex-col bg-background">
+    <Tabs
+      value={tab}
+      onValueChange={(value) => {
+        // Persist any pending draft edit before the Quality report tab fetches,
+        // so its staleness reflects the current draft, not a stale save.
+        if (value !== 'draft') flushPending()
+        setTab(value as DraftTab)
+      }}
+      className="flex h-full w-full flex-col bg-background"
+    >
       <header className="flex items-center gap-3 border-b border-border px-4 py-3">
         <Link
           href="/dashboard/ordinances"
@@ -235,6 +269,10 @@ export default function DraftDetail({
         <h1 className="text-base font-semibold text-foreground">
           Draft details
         </h1>
+        <TabsList className="ml-2">
+          <TabsTrigger value="draft">Draft</TabsTrigger>
+          <TabsTrigger value="quality">Quality report</TabsTrigger>
+        </TabsList>
         <div className="ml-auto flex items-center gap-3">
           {saveState !== 'idle' ? (
             <span
@@ -255,7 +293,11 @@ export default function DraftDetail({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto p-6">
+        <TabsContent
+          value="draft"
+          forceMount
+          className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto p-6 data-[state=inactive]:hidden"
+        >
           <h2
             ref={titleRef}
             contentEditable
@@ -287,7 +329,16 @@ export default function DraftDetail({
               </div>
             </div>
           ) : null}
-        </div>
+        </TabsContent>
+
+        <TabsContent value="quality" className="min-h-0 flex-1 overflow-y-auto">
+          <QualityReport
+            slug={ordinance.slug}
+            onDiscussFinding={(check) =>
+              openChat(`About the "${check.label}" check: ${check.note}\n\n`)
+            }
+          />
+        </TabsContent>
 
         <div className="sticky bottom-0 z-10 border-t border-border bg-background">
           <div className="mx-auto w-full max-w-3xl p-4">
@@ -366,6 +417,6 @@ export default function DraftDetail({
           </Button>
         </div>
       ) : null}
-    </div>
+    </Tabs>
   )
 }
