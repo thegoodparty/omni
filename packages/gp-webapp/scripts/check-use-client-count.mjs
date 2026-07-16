@@ -65,10 +65,13 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 541 -> 542 for ContactTypeahead — the CRM contacts search
 // dropdown holds input/debounce state and a React Query fetch, so it cannot
 // be a server component (same as the ContactSearch it flag-replaces).
-// 2026-07-16: 542 -> 539 for removing the legacy impersonation path:
+// 2026-07-16: 542 -> 543 for app/dashboard/error.tsx — error boundaries must
+// be client components (the Next.js error-file contract requires it), so the
+// new dashboard-segment boundary adds exactly one.
+// 2026-07-16: 543 -> 540 for removing the legacy impersonation path:
 // ImpersonateUserProvider, useImpersonateUser, and the orphaned
 // ImpersonateAction (gp-admin owns admin impersonation now).
-const BASELINE = 539
+const BASELINE = 540
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
