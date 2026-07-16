@@ -124,6 +124,24 @@ describe('QualityReport', () => {
     expect(onReran).not.toHaveBeenCalled()
   })
 
+  it('keeps the existing report visible when a re-run returns no report', async () => {
+    const onReran = vi.fn()
+    mocks.generateQualityReport.mockResolvedValue({
+      qualityReport: null,
+    } as unknown as Ordinance)
+
+    render(<QualityReport {...props({ onReran })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
+
+    expect(
+      await screen.findByText(/quality report was not returned/i),
+    ).toBeVisible()
+    // The previously displayed report is not wiped by the failed re-run.
+    expect(screen.getByText(/reviewed by 6 checks/i)).toBeVisible()
+    expect(onReran).not.toHaveBeenCalled()
+  })
+
   it('shows a stale banner from the server report', () => {
     render(
       <QualityReport {...props({ initialReport: report({ stale: true }) })} />,

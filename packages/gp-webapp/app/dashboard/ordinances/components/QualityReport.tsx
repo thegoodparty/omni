@@ -158,8 +158,10 @@ export default function QualityReport({
     setError(null)
     try {
       const updated = await generateQualityReport(slug)
+      // A 2xx with a null report shouldn't happen (the endpoint always saves
+      // one), but if it does, keep any report already on screen and just surface
+      // the error rather than wiping the user's visible results.
       if (!updated.qualityReport) {
-        setReport(null)
         setError('The quality report was not returned. Please try again.')
         return
       }
