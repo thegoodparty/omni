@@ -22,6 +22,85 @@ Severity ranks (1 = loudest): 1 orphaned-firing / declared-not-in-use-still-firi
 drop, active elevated · 3 anomaly drop, active/system · 4 intent divergence · 5 dormant
 elevated · 6 instrumented-never-observed · 7 dormant (collapsed to a tail line).
 
+## 2026-07-16
+
+Basis: complete weeks before 2026-07-13. 488 events — active 326, deprecating 47, system 39, dormant 25, orphaned_firing 22, retired 20, code_unknown 5, instrumented_never_observed 4. 56 flagged (32 priority, 24 dormant tail).
+
+### Flagged (ranked)
+
+| rank | event | status | elev | evidence | divergence |
+| --- | --- | --- | --- | --- | --- |
+| 1 orphaned-firing / not-in-use still firing | Dashboard - Campaign Plan: Community Events Requested | orphaned_firing |  | 30d=138; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 |  |
+| 1 orphaned-firing / not-in-use still firing | Dashboard - Campaign Plan: Community Events Displayed | orphaned_firing |  | 30d=126; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 |  |
+| 1 orphaned-firing / not-in-use still firing | Dashboard - Campaign Plan: Community Events Results Received | orphaned_firing |  | 30d=126; last_seen 2026-06-27; PR https://github.com/thegoodparty/omni/pull/54 |  |
+| 1 orphaned-firing / not-in-use still firing | Settings - Personal Info: Click Save | orphaned_firing |  | 30d=62; last_seen 2026-07-07 |  |
+| 1 orphaned-firing / not-in-use still firing | Navigation - Dashboard: Click Website | orphaned_firing |  | 30d=58; last_seen 2026-06-25 |  |
+| 1 orphaned-firing / not-in-use still firing | Profile - Why Running: Click Save | orphaned_firing |  | 30d=37; last_seen 2026-07-07; PR https://github.com/thegoodparty/omni/pull/1778 |  |
+| 1 orphaned-firing / not-in-use still firing | Serve Onboarding - Magic Link Activated | orphaned_firing | yes | 30d=17; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/198 |  |
+| 1 orphaned-firing / not-in-use still firing | Profile - Policy Priorities: Click Save | orphaned_firing |  | 30d=16; last_seen 2026-07-07; PR https://github.com/thegoodparty/omni/pull/1778 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade - Splash Page: Click upgrade | orphaned_firing | yes | 30d=11; last_seen 2026-06-18 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade - Committee Check Page: Hover "Upload" help | orphaned_firing |  | 30d=10; last_seen 2026-06-18; PR https://github.com/thegoodparty/omni/pull/1132 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade: Confirm office | orphaned_firing |  | 30d=9; last_seen 2026-06-18 |  |
+| 1 orphaned-firing / not-in-use still firing | Settings - Account Settings: Click Send Email | orphaned_firing |  | 30d=7; last_seen 2026-07-02 |  |
+| 1 orphaned-firing / not-in-use still firing | Onboarding V2 - New Campaign Context Viewed | orphaned_firing | yes | 30d=6; last_seen 2026-06-25; PR https://github.com/thegoodparty/omni/pull/151 | declared not-in-use but still firing |
+| 1 orphaned-firing / not-in-use still firing | Account - Pro Subscription Canceled | orphaned_firing |  | 30d=5; last_seen 2026-07-07; PR https://github.com/thegoodparty/omni/pull/920 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade - Committee Check Page: Click next | orphaned_firing |  | 30d=4; last_seen 2026-06-18 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade - Service Agreement Page: Click finish | orphaned_firing |  | 30d=3; last_seen 2026-06-18 |  |
+| 1 orphaned-firing / not-in-use still firing | Settings - Personal Info: Click Upload | active |  | 30d=3; last_seen 2026-07-13 | declared not-in-use but still firing |
+| 1 orphaned-firing / not-in-use still firing | Serve Onboarding - Magic Link Sent | orphaned_firing | yes | 30d=3; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/198 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade - Splash Page: Exit | orphaned_firing |  | 30d=2; last_seen 2026-06-16 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade - Committee Check Page: Click back | orphaned_firing |  | 30d=2; last_seen 2026-06-17 |  |
+| 1 orphaned-firing / not-in-use still firing | Pro Upgrade: Click Go to Stripe | orphaned_firing |  | 30d=1; last_seen 2026-06-18 |  |
+| 1 orphaned-firing / not-in-use still firing | Navigation Top - Avatar Dropdown: Click Settings | orphaned_firing |  | 30d=1; last_seen 2026-06-22 |  |
+| 1 orphaned-firing / not-in-use still firing | Win Onboarding - Magic Link Sent | orphaned_firing | yes | 30d=1; last_seen 2026-06-24; PR https://github.com/thegoodparty/omni/pull/318 |  |
+| 4 anomaly drop, active | [Experiment] Exposure | active |  | 30d=212319; week 2245 vs base 64828.0; last_seen 2026-07-15 |  |
+| 4 anomaly drop, active | Voter Data - File Detail: Click Custom File Info Icon | active |  | 30d=7; week 1 vs base 30.8; last_seen 2026-06-30 |  |
+| 5 intent divergence | Onboarding V2 - Resources Viewed | deprecating | yes | 30d=0; last_seen 2026-06-10; PR https://github.com/thegoodparty/omni/pull/2002 | declared in-use but code removed + quiet |
+| 5 intent divergence | Onboarding V2 - Resources Completed | deprecating | yes | 30d=0; last_seen 2026-06-10; PR https://github.com/thegoodparty/omni/pull/2002 | declared in-use but code removed + quiet |
+| 6 dormant (elevated) | Onboarding - User Created | dormant | yes | 30d=0; last_seen 2026-04-17; PR https://github.com/thegoodparty/omni/pull/319 |  |
+| 7 instrumented, never observed | Briefing Assistant - Dispatch Skipped | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/701 |  |
+| 7 instrumented, never observed | Community Issues - Dispatch Skipped | instrumented_never_observed |  | 30d=0; PR https://github.com/thegoodparty/omni/pull/701 |  |
+| 7 instrumented, never observed | Win - Opponent Activity Viewed | instrumented_never_observed |  | 30d=0 |  |
+| 7 instrumented, never observed | Win - Self Research Completed | instrumented_never_observed |  | 30d=0 |  |
+
+**Dormant tail (24)** — code present, 0 fires/30d, not elevated: Account - Password Reset Requested · Account - Pro Subscription Confirmed · Payment - Completed · Click to Call CTA Viewed · Voter Data - Need Help: Submit · Profile - Running Against: Cancel Edit · Voter Data - File Detail - Learn & Take Action: Click Read More · Polls - Expand Poll Recommendations Completed · Navigation - Dashboard: Click Community · Download Voter File Failure · AI Assistant - Chat History: Click delete · schedule_campaign_image_too_large · Polls - Poll Preview Completed · Profile - Running Against: Submit Edit · Payment - Schedule and Pay Viewed · Polls - Expand Poll Review Viewed · AI Assistant - Chat: Click thumbs down · Payment - Review and Pay Screen Viewed · AI Assistant - Chat History: Click menu · Profile - Running Against: Click Edit · Profile - Top Issues: Cancel Edit · Click to Call Phone Submitted · Click to Call CTA Clicked · Content Builder - Editor: Open Kebab Menu
+
+### Changes since last run
+
+- new: 21 (see flagged table)
+- escalated: Onboarding V2 - New Campaign Context Viewed, Onboarding V2 - Resources Completed, Onboarding V2 - Resources Viewed
+- resolved: 43 (see flagged table)
+- still open: 32 event(s)
+
+### Metadata completeness (description field)
+
+- Non-system events with a description: 428/445 (96%). Remaining are blank pending the historical backfill.
+- Onboarding / activation / compliance missing a description (fill first): Voter Outreach - 10DLC Compliance PIN Sent
+- Other non-system events missing a description: 16 (not listed).
+
+### Watchlist proposals (self-healing)
+
+105 event(s) in a watched family, first seen in the last 90d, not yet on the watchlist. Triage in the runbook (add real funnel/activation milestones; skip UI micro-interactions), confirm in code, then paste the agreed rows into `monitored_events.yaml`:
+
+```yaml
+  - {event: "Voter Outreach - 10DLC Compliance Candidate Profile Submitted", product: win, family: win_voter_outreach, floor: null, owner: TBD}
+  - {event: "Community Issues - Trending Issues Refreshed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Top Issues Refreshed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Pro Upgrade - Filing Details Submit Error", product: win, family: win_pro_upgrade, floor: null, owner: TBD}
+  - {event: "Community Issues - Ask AI Started", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Top Issue Priority Changed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Prioritize Clicked", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Dashboard - Campaign Plan: Plan Shared", product: win, family: win_dashboard, floor: null, owner: TBD}
+  - {event: "Community Issues - Run Poll Clicked", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Confirm Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - List Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Issue Detail Viewed", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - Initial Issues Generated", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Community Issues - High Priority Trending Issue Created", product: serve, family: serve, floor: null, owner: TBD}
+  - {event: "Serve Onboarding - Pledge Viewed", product: serve, family: serve, floor: null, owner: TBD}
+```
+(90 more — see the JSON report.)
+
 ## 2026-07-13
 
 Basis: complete weeks before 2026-07-13. 479 events — active 347, dormant 67, system 39, retired 20, orphaned_firing 3, instrumented_never_observed 2, code_unknown 1. 78 flagged (56 priority, 22 dormant tail).
