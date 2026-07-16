@@ -227,16 +227,20 @@ export const ContactsTableProvider = ({
     }),
   )
 
-  // Prefetch the next page
-  useQuery(
-    contactTableQueryOptions({
+  // Prefetch the next page, but only once we know there is one. Without this
+  // guard the prefetch fires a second /v1/contacts request on every view —
+  // including the last page, where page+1 has no results — doubling the list
+  // request volume for no benefit.
+  useQuery({
+    ...contactTableQueryOptions({
       orgSlug,
       page: currentPage + 1,
       resultsPerPage: pageSize,
       segment: currentSegment,
       search: searchTerm,
     }),
-  )
+    enabled: !!contactsQuery.data?.pagination?.hasNextPage,
+  })
 
   const personQuery = useQuery({
     queryKey: ['person', orgSlug, currentlySelectedPersonId],
@@ -417,10 +421,14 @@ export const ContactsTableProvider = ({
 
   const queryClient = useQueryClient()
 
+  // Depend on the stable `refetch` rather than the whole query object: the
+  // useQuery result is a new reference every render, so keying on it would make
+  // this callback (and therefore the context value) churn on every render.
+  const refetchCustomSegments = customSegmentsQuery.refetch
   const refreshCustomSegments = useCallback(async () => {
-    await customSegmentsQuery.refetch()
+    await refetchCustomSegments()
     queryClient.invalidateQueries({ queryKey: ['contacts'] })
-  }, [customSegmentsQuery, queryClient])
+  }, [refetchCustomSegments, queryClient])
 
   const pageUp = useCallback(() => {
     if (pagination?.hasNextPage) {
@@ -489,33 +497,68 @@ export const ContactsTableProvider = ({
     [updateURL],
   )
 
-  const value: ContactsTableContextValue = {
-    filteredContacts,
-    currentlySelectedPersonId,
-    currentlySelectedPerson,
-    segments,
-    customSegments,
-    currentSegment,
-    searchTerm,
-    urlQueryParams,
-    pagination,
-    isLoading,
-    isVoterDataUnavailable,
-    isCustomSegment: isCustomSegmentValue,
-    totalSegmentContacts,
-    canUseProFeatures,
-    isElectedOfficial,
-    isWinContext,
-    isWinContextReady,
-    pageUp,
-    pageDown,
-    goToPage,
-    setPageSize,
-    selectPerson,
-    selectSegment,
-    searchContacts: searchContactsAction,
-    refreshCustomSegments,
-  }
+  // The provider re-renders on every keystroke and URL change. A fresh object
+  // literal here would be a new reference each render, forcing every consumer
+  // of the context to re-render regardless of whether the slice it reads
+  // actually changed — defeating the useMemo/useCallback on the members below.
+  // Memoize on the members themselves (all already stable references) so the
+  // value only changes when something a consumer can observe changes.
+  const value = useMemo<ContactsTableContextValue>(
+    () => ({
+      filteredContacts,
+      currentlySelectedPersonId,
+      currentlySelectedPerson,
+      segments,
+      customSegments,
+      currentSegment,
+      searchTerm,
+      urlQueryParams,
+      pagination,
+      isLoading,
+      isVoterDataUnavailable,
+      isCustomSegment: isCustomSegmentValue,
+      totalSegmentContacts,
+      canUseProFeatures,
+      isElectedOfficial,
+      isWinContext,
+      isWinContextReady,
+      pageUp,
+      pageDown,
+      goToPage,
+      setPageSize,
+      selectPerson,
+      selectSegment,
+      searchContacts: searchContactsAction,
+      refreshCustomSegments,
+    }),
+    [
+      filteredContacts,
+      currentlySelectedPersonId,
+      currentlySelectedPerson,
+      segments,
+      customSegments,
+      currentSegment,
+      searchTerm,
+      urlQueryParams,
+      pagination,
+      isLoading,
+      isVoterDataUnavailable,
+      isCustomSegmentValue,
+      totalSegmentContacts,
+      canUseProFeatures,
+      isElectedOfficial,
+      isWinContext,
+      isWinContextReady,
+      pageUp,
+      pageDown,
+      goToPage,
+      setPageSize,
+      selectPerson,
+      selectSegment,
+      searchContactsAction,
+      refreshCustomSegments,
+    ],
+  )
 
   return (
     <ContactsTableContext.Provider value={value}>
