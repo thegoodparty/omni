@@ -14,7 +14,7 @@ import {
   ChartOptions,
 } from 'chart.js'
 import slugify from 'slugify'
-import { EcanvasserSummary } from './DoorKnockingPage'
+import type { EcanvasserSummary } from './types'
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 

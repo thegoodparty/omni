@@ -7,7 +7,7 @@ import type {
   Annotation,
   AnnotationNoteAttachmentData,
 } from '@shared/briefings/types'
-import type { SheetState } from './AnnotationsScope'
+import type { SheetState } from './sheetState'
 
 vi.mock('@styleguide/hooks/use-mobile', () => ({
   useIsMobile: vi.fn(() => false),

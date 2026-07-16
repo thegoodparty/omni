@@ -8,7 +8,7 @@ import {
 } from 'app/dashboard/campaign-details/components/issues/issuesUtils'
 import { IssueEditorButtons } from 'app/dashboard/questions/components/issues/IssueEditorButtons'
 import { Campaign, CustomIssue } from 'helpers/types'
-import type { EditIssuePosition, IssueOption } from './IssuesList'
+import type { EditIssuePosition, IssueOption } from './issueTypes'
 
 interface AddCustomIssueProps {
   selectIssueCallback: (value: IssueOption | 'custom' | null | false) => void
