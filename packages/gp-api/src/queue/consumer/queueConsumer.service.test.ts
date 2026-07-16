@@ -121,6 +121,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
   let contactsService: {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
+    resolveProAccess: ReturnType<typeof vi.fn>
   }
   let pollIssuesService: {
     model: { deleteMany: ReturnType<typeof vi.fn> }
@@ -184,6 +185,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .fn()
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
+      resolveProAccess: vi.fn().mockResolvedValue(true),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -306,6 +308,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(contactsService.findPersonByPhone).toHaveBeenCalledWith(
       '5559999999',
       expect.anything(),
+      expect.anything(),
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -344,6 +347,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(contactsService.findPersonByPhone).toHaveBeenCalledWith(
       '5559999999',
       expect.anything(),
+      expect.anything(),
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,
@@ -361,6 +365,73 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         }),
       ]),
     })
+  })
+
+  it('maps each unmapped phone to its own person regardless of lookup resolution order (bounded fan-out is order-independent)', async () => {
+    pollIndividualMessage.findMany.mockResolvedValue([])
+
+    const phones = Array.from(
+      { length: 40 },
+      (_, i) => `+1555${String(i).padStart(7, '0')}`,
+    )
+    const expectedPersonId = (normalized: string): string =>
+      `person-${normalized.replace(/^\+1/, '')}`
+
+    // Resolve out of order: later phones resolve first. If the fan-out ever
+    // mismatched a result to the wrong phone (e.g. by relying on completion
+    // order), this shuffled timing would surface it.
+    contactsService.findPersonByPhone.mockImplementation(
+      async (digitsOnly: string) => {
+        const index = Number(digitsOnly.slice(-4))
+        await new Promise((resolve) =>
+          setTimeout(resolve, (phones.length - index) % 7),
+        )
+        return { id: `person-${digitsOnly}` }
+      },
+    )
+
+    const json = createPollAnalysisJson(
+      phones.map((phoneNumber, i) => ({
+        phoneNumber,
+        receivedAt: `2024-01-15T10:00:${String(i).padStart(2, '0')}Z`,
+        originalMessage: `Reply ${i}`,
+        clusterId: 1,
+      })),
+    )
+    s3Service.getFile.mockResolvedValue(json)
+    const message = createPollAnalysisCompleteMessage({ pollId })
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    // Pro-access resolved once, not once per phone.
+    expect(contactsService.resolveProAccess).toHaveBeenCalledTimes(1)
+    expect(contactsService.findPersonByPhone).toHaveBeenCalledTimes(
+      phones.length,
+    )
+
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
+    const captured: Array<{ personCellPhone: string; personId: string }> = []
+    const mockTx = {
+      pollIndividualMessage: {
+        deleteMany: vi.fn(),
+        createMany: vi.fn((args: { data: typeof captured }) => {
+          captured.push(...args.data)
+        }),
+      },
+      $executeRaw: vi.fn(),
+    }
+    await txCb(mockTx)
+
+    const mapping = new Map(
+      captured.map((row) => [row.personCellPhone, row.personId]),
+    )
+    expect(mapping.size).toBe(phones.length)
+    for (const normalized of phones) {
+      expect(mapping.get(normalized)).toBe(expectedPersonId(normalized))
+    }
   })
 
   it('does not call People DB fallback when every response phone maps to outreach', async () => {
