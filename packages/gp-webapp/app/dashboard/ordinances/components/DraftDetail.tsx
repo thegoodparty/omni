@@ -68,6 +68,8 @@ export default function DraftDetail({
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
   const queuedRef = useRef<UpdateOrdinanceRequest | null>(null)
+  // The in-flight save's promise, so a flush can await the chain to settle.
+  const savingPromiseRef = useRef<Promise<void> | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [selection, setSelection] = useState<Selection | null>(null)
   // True once the draft is edited this session, so the quality report can show
@@ -106,7 +108,7 @@ export default function DraftDetail({
       }
       savingRef.current = true
       setSaveState('saving')
-      updateOrdinance(ordinance.slug, update)
+      savingPromiseRef.current = updateOrdinance(ordinance.slug, update)
         .then(() => setSaveState('saved'))
         .catch(() => {
           // Drop the queued edit on failure so the error state stays visible (a
@@ -119,11 +121,38 @@ export default function DraftDetail({
           savingRef.current = false
           const queued = queuedRef.current
           queuedRef.current = null
-          if (queued && Object.keys(queued).length > 0) save(queued)
+          if (queued && Object.keys(queued).length > 0) {
+            save(queued)
+          } else {
+            savingPromiseRef.current = null
+          }
         })
     },
     [ordinance.slug],
   )
+
+  // Fire any pending debounced edits immediately and resolve once the save
+  // chain (including a queued follow-up) has fully settled. Run before
+  // generating the quality report so the LLM grades the latest saved text.
+  const flushPendingSaves = useCallback(async (): Promise<void> => {
+    const update: UpdateOrdinanceRequest = {}
+    if (bodyTimerRef.current) {
+      clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = null
+      const body = bodyRef.current?.innerText ?? ''
+      if (body.trim().length > 0) update.draftBody = body
+    }
+    if (titleTimerRef.current) {
+      clearTimeout(titleTimerRef.current)
+      titleTimerRef.current = null
+      const next = titleRef.current?.innerText.trim() ?? ''
+      if (next.length > 0) update.draftTitle = next
+    }
+    if (Object.keys(update).length > 0) save(update)
+    while (savingRef.current && savingPromiseRef.current) {
+      await savingPromiseRef.current
+    }
+  }, [save])
 
   // Read innerText only when typing pauses, not on every keystroke (each read
   // forces a synchronous layout reflow). Empty fields are skipped: the contract
@@ -300,7 +329,12 @@ export default function DraftDetail({
               slug={ordinance.slug}
               initialReport={ordinance.qualityReport}
               draftDirty={draftDirty}
-              onReran={() => setDraftDirty(false)}
+              onBeforeRun={flushPendingSaves}
+              onReran={() => {
+                // Keep the stale banner if the flush save failed — the report
+                // was graded against the old DB text, not the user's edits.
+                if (saveState !== 'error') setDraftDirty(false)
+              }}
               onDiscussFinding={(check) =>
                 openChat(`About the "${check.label}" check: ${check.note}\n\n`)
               }

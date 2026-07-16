@@ -91,8 +91,8 @@ describe('QualityReport', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
 
-    expect(mocks.generateQualityReport).toHaveBeenCalledWith('tree-canopy')
     expect(await screen.findByText(/reviewed by 6 checks/i)).toBeVisible()
+    expect(mocks.generateQualityReport).toHaveBeenCalledWith('tree-canopy')
     expect(onReran).toHaveBeenCalled()
   })
 
@@ -135,11 +135,31 @@ describe('QualityReport', () => {
     fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
 
     expect(
-      await screen.findByText(/quality report was not returned/i),
+      await screen.findByText(/did not return an updated report/i),
     ).toBeVisible()
     // The previously displayed report is not wiped by the failed re-run.
     expect(screen.getByText(/reviewed by 6 checks/i)).toBeVisible()
     expect(onReran).not.toHaveBeenCalled()
+  })
+
+  it('flushes pending edits before generating on re-run', async () => {
+    const calls: string[] = []
+    const onBeforeRun = vi.fn(async () => {
+      calls.push('flush')
+    })
+    mocks.generateQualityReport.mockImplementation(async () => {
+      calls.push('generate')
+      return { qualityReport: report() } as unknown as Ordinance
+    })
+
+    render(<QualityReport {...props({ onBeforeRun })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
+
+    await screen.findByText(/reviewed by 6 checks/i)
+    expect(onBeforeRun).toHaveBeenCalledTimes(1)
+    // The flush is awaited before the report is generated.
+    expect(calls).toEqual(['flush', 'generate'])
   })
 
   it('shows a stale banner from the server report', () => {

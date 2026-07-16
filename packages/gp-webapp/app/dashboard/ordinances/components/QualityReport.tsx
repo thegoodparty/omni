@@ -142,12 +142,16 @@ export default function QualityReport({
   draftDirty,
   onReran,
   onDiscussFinding,
+  onBeforeRun,
 }: {
   slug: string
   initialReport: OrdinanceQualityReport | null
   draftDirty: boolean
   onReran: () => void
   onDiscussFinding: (check: OrdinanceQualityCheck) => void
+  // Flush any pending draft edits (awaited) before the report is generated, so
+  // the LLM grades the just-saved text rather than the stale DB copy.
+  onBeforeRun?: () => Promise<void>
 }): React.JSX.Element {
   const [report, setReport] = useState(initialReport)
   const [running, setRunning] = useState(false)
@@ -157,12 +161,19 @@ export default function QualityReport({
     setRunning(true)
     setError(null)
     try {
+      await onBeforeRun?.()
       const updated = await generateQualityReport(slug)
       // A 2xx with a null report shouldn't happen (the endpoint always saves
-      // one), but if it does, keep any report already on screen and just surface
-      // the error rather than wiping the user's visible results.
+      // one). If it does, keep any report already on screen rather than wiping
+      // the user's visible results, and say so plainly so the shown report and
+      // the error don't read as contradictory.
       if (!updated.qualityReport) {
-        setError('The quality report was not returned. Please try again.')
+        setError(
+          report
+            ? 'The re-run did not return an updated report, so the one below' +
+                ' is unchanged. Please try again.'
+            : 'The quality report was not returned. Please try again.',
+        )
         return
       }
       setReport(updated.qualityReport)
