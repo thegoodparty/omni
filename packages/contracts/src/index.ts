@@ -63,6 +63,8 @@ export {
   PeopleListResponseSchema,
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  SupportStatusRollupSchema,
+  type SupportStatusRollup,
 } from './people/Person.schema'
 
 export { EmailSchema } from './shared/Email.schema'

@@ -118,6 +118,28 @@ describe('people query schemas', () => {
       filters: {},
     })
     expect(parsed.districtId).toBe(DISTRICT_ID)
+    expect(parsed.excludeColumns).toBeUndefined()
+  })
+
+  // ENG-10696: bounded to a known-safe enum — never an arbitrary
+  // caller-supplied column name reaching raw SQL.
+  it('accepts a known excludeColumns entry on the download query', () => {
+    const parsed = downloadPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: {},
+      excludeColumns: ['Parties_Description'],
+    })
+    expect(parsed.excludeColumns).toEqual(['Parties_Description'])
+  })
+
+  it('rejects an excludeColumns entry outside the known-safe enum', () => {
+    expect(() =>
+      downloadPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: {},
+        excludeColumns: ['LALVOTERID'],
+      }),
+    ).toThrow()
   })
 
   it('accepts districtId getPerson query', () => {
