@@ -2,6 +2,11 @@ import { Injectable } from '@nestjs/common'
 import { OutreachType, Prisma } from '@/generated/prisma'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 
+// DEPRECATED — replaced by the ContactInteraction* models and services
+// (src/contactInteraction/) per the CRM tech design:
+// https://app.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-98973
+// No new write paths may target this service. The existing segment-derived
+// send-attribution writes keep running until feature 5 moves them over.
 @Injectable()
 export class VoterOutreachActivityService extends createPrismaBase(
   MODELS.VoterOutreachActivity,

@@ -1,3 +1,9 @@
+// DEPRECATED — replaced by the ContactInteraction* models (see
+// prisma/schema/contactInteraction*.prisma) per the CRM tech design:
+// https://app.clickup.com/90132012119/v/dc/2ky4jq2q-20493/2ky4jq2q-98973
+// No new write paths may target this model. The existing segment-derived
+// send-attribution writes keep running until feature 5 moves them over.
+//
 // Per-voter outreach attribution for Win campaigns. Each row records one outreach
 // event experienced by one voter, keyed on the durable L2 id (lalVoterId) rather
 // than the people-api personId so attribution survives people-api id changes.
