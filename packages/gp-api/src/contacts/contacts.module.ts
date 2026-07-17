@@ -4,7 +4,6 @@ import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { CampaignsModule } from 'src/campaigns/campaigns.module'
-import { ContactInteractionModule } from 'src/contactInteraction/contactInteraction.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
 import { VotersModule } from 'src/voters/voters.module'
@@ -23,7 +22,6 @@ import { ContactsService } from './services/contacts.service'
     OrganizationsModule,
     ContactInteractionModule,
     ContactNoteModule,
-    ContactInteractionModule,
   ],
   controllers: [
     ContactsController,
