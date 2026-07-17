@@ -59,7 +59,7 @@ export default function DeleteListDialog({
       router.push('/dashboard/contacts')
     } catch (error) {
       if (error instanceof FetchError && error.status === 409) {
-        successSnackbar(LOCKED_MESSAGE, { autoHideDuration: 6000 })
+        errorSnackbar(LOCKED_MESSAGE, { autoHideDuration: 6000 })
         await queryClient.invalidateQueries({
           queryKey: ['custom-segments', orgSlug],
         })

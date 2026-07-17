@@ -64,7 +64,7 @@ export default function RenameListDialog({
     },
     onError: async (error: unknown) => {
       if (error instanceof FetchError && error.status === 409) {
-        successSnackbar(LOCKED_MESSAGE, { autoHideDuration: 6000 })
+        errorSnackbar(LOCKED_MESSAGE, { autoHideDuration: 6000 })
         await invalidateSegments()
         onOpenChange(false)
         return

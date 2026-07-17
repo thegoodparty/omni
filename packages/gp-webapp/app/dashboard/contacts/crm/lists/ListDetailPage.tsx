@@ -68,8 +68,12 @@ export default function ListDetailPage({ listId }: ListDetailPageProps) {
 
   const segmentIdNumber = Number(listId)
 
+  // Numeric id in the key, not the raw string `listId` param — must match
+  // useListRowDetail's key structurally (same order, same types) or the
+  // lists-table row's warm cache is invisible to this page (and vice versa),
+  // and every navigation from a row refetches instead of reading the cache.
   const detailQuery = useQuery({
-    queryKey: ['list-detail', orgSlug, listId],
+    queryKey: ['list-detail', orgSlug, segmentIdNumber],
     queryFn: () =>
       clientRequest('GET /v1/contacts/list-detail', {
         segment: segmentIdNumber,

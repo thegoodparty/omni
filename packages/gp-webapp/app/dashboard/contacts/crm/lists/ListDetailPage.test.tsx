@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
+import { useSnackbar } from 'helpers/useSnackbar'
 import ListDetailPage from './ListDetailPage'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -20,12 +23,16 @@ vi.mock('../../../shared/DashboardLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 vi.mock('helpers/useSnackbar', () => ({
-  useSnackbar: () => ({
-    successSnackbar: vi.fn(),
-    errorSnackbar: vi.fn(),
-    displaySnackbar: vi.fn(),
-  }),
+  useSnackbar: vi.fn(),
 }))
+
+// Stable mock references (not a fresh vi.fn() per useSnackbar() call) — both
+// useContactsDownload and useDuplicateList call useSnackbar() independently
+// from inside ListDetailPage, so the test needs one shared instance to
+// assert against regardless of which internal hook fired it.
+const mockedUseSnackbar = vi.mocked(useSnackbar)
+const successSnackbar = vi.fn()
+const errorSnackbar = vi.fn()
 
 const emptyDetailResponse = {
   demographics: { people: 100, avgAge: 42, avgIncome: 65000 },
@@ -42,6 +49,12 @@ const emptyDetailResponse = {
 
 beforeEach(() => {
   api.reset()
+  vi.clearAllMocks()
+  mockedUseSnackbar.mockReturnValue({
+    successSnackbar,
+    errorSnackbar,
+    displaySnackbar: vi.fn(),
+  })
   api.mock('GET /v1/contacts/list-detail', {
     status: 200,
     data: emptyDetailResponse,
@@ -85,6 +98,66 @@ describe('ListDetailPage — locked-state affordance (firstUsedForOutreachAt)', 
     expect(
       screen.queryByRole('button', { name: 'Rename list' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('ListDetailPage — "Duplicate to edit" (the sole edit path for a locked list)', () => {
+  const lockedSegment = {
+    id: 42,
+    name: 'GOTV text list',
+    firstUsedForOutreachAt: '2026-07-01T00:00:00.000Z',
+  }
+
+  it('posts a copy and navigates to the new list on success', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [lockedSegment],
+    })
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return {
+        status: 200,
+        data: { id: 555, name: 'GOTV text list (copy)' },
+      }
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+
+    await user.click(
+      await screen.findByRole('button', { name: /duplicate to edit/i }),
+    )
+
+    await vi.waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/555'),
+    )
+    expect(sentBody).toMatchObject({ name: 'GOTV text list (copy)' })
+    expect(successSnackbar).toHaveBeenCalledWith('List duplicated')
+    expect(errorSnackbar).not.toHaveBeenCalled()
+  })
+
+  it('shows an error snackbar and does not navigate when the duplicate call fails', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [lockedSegment],
+    })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 500,
+      data: { message: 'server exploded' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+
+    await user.click(
+      await screen.findByRole('button', { name: /duplicate to edit/i }),
+    )
+
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith('Failed to duplicate list'),
+    )
+    expect(router.push).not.toHaveBeenCalled()
   })
 })
 
