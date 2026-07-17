@@ -16,7 +16,7 @@ export default function SourceLine({
         title={source.title}
         description={source.excerpt ?? source.title}
         chipLabel={source.title}
-        className="hover:bg-muted"
+        className="border-transparent bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"
         {...(source.url ? { url: source.url } : {})}
       />
     </div>
