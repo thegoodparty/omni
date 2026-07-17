@@ -191,7 +191,10 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
 describe('CreateListWizard — activity branch payload assembly', () => {
   it('fires no count request while the activity selection is incomplete', async () => {
-    const countHandler = vi.fn(() => ({ status: 200, data: { count: 250 } }))
+    const countHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { count: 250 },
+    }))
     api.mock('POST /v1/contacts/count', countHandler)
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
