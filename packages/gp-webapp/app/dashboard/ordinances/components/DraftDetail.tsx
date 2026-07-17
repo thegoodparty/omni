@@ -8,7 +8,16 @@ import {
   useState,
 } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Badge,
   Button,
   Drawer,
@@ -16,13 +25,20 @@ import {
   DrawerDescription,
   DrawerHeader,
   DrawerTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   IconButton,
   cn,
 } from '@styleguide'
 import {
   ArrowLeftIcon,
+  DownloadIcon,
+  FileTextIcon,
   FlagIcon,
   SparklesIcon,
+  Trash2Icon,
 } from '@styleguide/components/ui/icons'
 import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import type {
@@ -30,7 +46,7 @@ import type {
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 import ChatPill from '../../shared/ai-chat/ChatPill'
-import { updateOrdinance } from '../data/ordinances-api'
+import { deleteOrdinance, updateOrdinance } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META } from '../data/statuses'
 import DraftChat from './DraftChat'
 import QualityReport from './QualityReport'
@@ -85,6 +101,23 @@ export default function DraftDetail({
   // same passage re-seeds even when the text is identical.
   const [chatSeed, setChatSeed] = useState('')
   const [seedNonce, setSeedNonce] = useState(0)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const router = useRouter()
+
+  const confirmDelete = async (): Promise<void> => {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteOrdinance(ordinance.slug)
+      router.push('/dashboard/ordinances')
+    } catch {
+      setDeleting(false)
+      setDeleteError('Could not delete the draft. Please try again.')
+    }
+  }
 
   const title =
     ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance'
@@ -311,6 +344,39 @@ export default function DraftDetail({
           <Badge className={cn('rounded-full', statusMeta.pillClass)}>
             {statusMeta.label}
           </Badge>
+          <IconButton
+            type="button"
+            variant="outline"
+            size="small"
+            aria-label="Delete draft"
+            onClick={() => setDeleteOpen(true)}
+            className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Trash2Icon className="size-4" aria-hidden />
+          </IconButton>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <IconButton
+                type="button"
+                variant="outline"
+                size="small"
+                aria-label="Download draft"
+                className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <DownloadIcon className="size-4" aria-hidden />
+              </IconButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem>
+                <FileTextIcon className="size-4" aria-hidden />
+                Download as PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <FileTextIcon className="size-4" aria-hidden />
+                Download as Word
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </header>
 
@@ -455,6 +521,36 @@ export default function DraftDetail({
           </Button>
         </div>
       ) : null}
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the ordinance draft and its quality report from your
+              ordinances. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteError ? (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => {
+                // Keep the dialog open through the async delete so an error can
+                // surface; navigation on success unmounts it.
+                e.preventDefault()
+                confirmDelete()
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? 'Deleting…' : 'Delete draft'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

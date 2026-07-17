@@ -26,6 +26,10 @@ export async function updateOrdinance(
   return data
 }
 
+export async function deleteOrdinance(slug: string): Promise<void> {
+  await clientRequest('DELETE /v1/ordinances/:slug', { slug })
+}
+
 export async function createOrdinance(
   input: CreateOrdinanceRequest,
 ): Promise<Ordinance> {
