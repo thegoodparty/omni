@@ -42,6 +42,7 @@ export const CrmContactsPage = () => {
             </div>
             <Button
               className="shrink-0 self-start md:self-auto"
+              disabled={!isWinContextReady}
               onClick={handleCreateList}
             >
               Create new list
