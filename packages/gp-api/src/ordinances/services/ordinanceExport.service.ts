@@ -215,6 +215,13 @@ const pdfCheckRow = (
   const pillW = doc.widthOfString(style.label) + padX * 2
   const pillX = right - pillW
 
+  // Keep the label and its pill on the same page. The pill is drawn at an
+  // absolute y, so if the label line would overflow the page, pdfkit moves the
+  // label to a new page while the pill stays behind — stranding it in the old
+  // page's footer. Break first when the header line won't fit.
+  const bottom = doc.page.height - doc.page.margins.bottom
+  if (doc.y + pillH + 4 > bottom) doc.addPage()
+
   const y0 = doc.y
   // Label on the left, leaving room for the pill on the right.
   doc

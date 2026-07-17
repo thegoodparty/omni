@@ -75,6 +75,34 @@ describe('OrdinanceExportService', () => {
     expect(xml).toContain('PASS')
   })
 
+  it('renders a long multi-page draft without stranding a check pill', async () => {
+    const longBody = Array.from(
+      { length: 120 },
+      (_, i) => `Section ${i}. Lorem ipsum dolor sit amet, consectetur.`,
+    ).join('\n')
+    const manyChecks = Array.from({ length: 6 }, (_, i) => ({
+      id: `c${i}`,
+      label: `Check number ${i}`,
+      status: 'flag' as const,
+      note: 'This needs work before adoption. '.repeat(3),
+    }))
+    const big = record({
+      draftBody: longBody,
+      qualityReport: {
+        checks: manyChecks,
+        tally: { pass: 0, flag: 6, attention: 0 },
+        stale: false,
+        ranAgainstBodyHash: 'h',
+      },
+    } as Partial<Ordinance>)
+
+    const pdf = await service.render(big, 'pdf')
+
+    // The page-break guard must render a valid, multi-page PDF without throwing.
+    expect(pdf.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+    expect(pdf.buffer.length).toBeGreaterThan(2000)
+  })
+
   it('renders the empty-state fallbacks when there is no report or sources', async () => {
     const bare = record({
       draftSources: null,
