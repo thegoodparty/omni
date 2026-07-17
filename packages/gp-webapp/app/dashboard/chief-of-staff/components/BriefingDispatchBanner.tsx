@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 
@@ -18,7 +18,7 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
   const [pendingMeetingDate, setPendingMeetingDate] = useState<string | null>(
     null,
   )
-  const [pollAttempts, setPollAttempts] = useState(0)
+  const pollAttempts = useRef(0)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -51,19 +51,17 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
     const meeting = meetings.meetings.find(
       (m) => m.meetingDate === pendingMeetingDate,
     )
-    const nextAttempts = pollAttempts + 1
-    if (meeting?.hasBriefing || nextAttempts >= MAX_POLL_ATTEMPTS) {
+    pollAttempts.current += 1
+    if (meeting?.hasBriefing || pollAttempts.current >= MAX_POLL_ATTEMPTS) {
       if (meeting?.hasBriefing) {
         void queryClient.invalidateQueries({
           queryKey: ['chief-of-staff', 'cards'],
         })
       }
+      pollAttempts.current = 0
       setPendingMeetingDate(null)
-      setPollAttempts(0)
-    } else {
-      setPollAttempts(nextAttempts)
     }
-  }, [meetings, pendingMeetingDate, pollAttempts, queryClient])
+  }, [meetings, pendingMeetingDate, queryClient])
 
   if (!pendingMeetingDate) return null
 
