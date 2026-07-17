@@ -9,6 +9,9 @@ type FilterValue =
   | boolean
   | {
       in?: string[] | number[]
+      // Only the activity-condition/support-status resolution engine's `id`
+      // key uses `notIn` — every other filter value collapses to `in`/`eq`.
+      notIn?: string[]
       eq?: string | number
       gte?: number
       lte?: number
