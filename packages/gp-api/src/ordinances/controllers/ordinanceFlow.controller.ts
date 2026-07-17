@@ -8,6 +8,8 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  StreamableFile,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
@@ -25,6 +27,7 @@ import { ElectedOffice } from '../../generated/prisma'
 import { OrdinancesService } from '../services/ordinances.service'
 import {
   CreateOrdinanceDto,
+  OrdinanceExportQueryDto,
   OrdinanceSlugParamDto,
   SaveClarifyAnswerDto,
   UpdateOrdinanceDto,
@@ -92,6 +95,25 @@ export class OrdinanceFlowController {
     @Param() { slug }: OrdinanceSlugParamDto,
   ) {
     return this.ordinances.generateQualityReport(electedOffice, slug)
+  }
+
+  @Get(':slug/export')
+  @UseElectedOffice()
+  async exportDraft(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+    @Query() { format }: OrdinanceExportQueryDto,
+  ): Promise<StreamableFile> {
+    const { buffer, filename, contentType } = await this.ordinances.exportDraft(
+      electedOffice,
+      slug,
+      format,
+    )
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${filename}"`,
+      length: buffer.length,
+    })
   }
 
   @Patch(':slug')

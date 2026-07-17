@@ -22,6 +22,11 @@ import {
   OrdinanceSummarySchema,
 } from '@goodparty_org/contracts'
 import { ElectedOffice, Ordinance, Prisma } from '../../generated/prisma'
+import { OrdinanceExportFormat } from '../schemas/ordinances.schema'
+import {
+  OrdinanceExportResult,
+  OrdinanceExportService,
+} from './ordinanceExport.service'
 import {
   OrdinanceQualityReportService,
   qualityReportInputHash,
@@ -34,8 +39,21 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   constructor(
     private readonly features: FeaturesService,
     private readonly qualityReports: OrdinanceQualityReportService,
+    private readonly exporter: OrdinanceExportService,
   ) {
     super()
+  }
+
+  // Render the draft (plus a sources + quality-report appendix with links) as a
+  // downloadable PDF or Word document for attorney review.
+  async exportDraft(
+    electedOffice: ElectedOffice,
+    slug: string,
+    format: OrdinanceExportFormat,
+  ): Promise<OrdinanceExportResult> {
+    await this.assertEnabled(electedOffice.userId)
+    const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    return this.exporter.render(existing, format)
   }
 
   async create(

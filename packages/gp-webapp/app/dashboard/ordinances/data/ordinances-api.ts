@@ -1,12 +1,46 @@
 'use client'
 
 import { clientRequest } from 'gpApi/typed-request'
+import { getCookie } from 'helpers/cookieHelper'
+import {
+  ORG_SLUG_COOKIE,
+  ORG_SLUG_HEADER,
+} from '@shared/organizations/constants'
 import type {
   CreateOrdinanceRequest,
   Ordinance,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
+
+export type OrdinanceExportFormat = 'pdf' | 'docx'
+
+// Download the exported draft (PDF/Word). The endpoint streams a binary file, so
+// this bypasses the JSON typed client: fetch through the /api proxy with the org
+// header the elected-office guard needs, then save the returned blob.
+export async function downloadOrdinanceExport(
+  slug: string,
+  format: OrdinanceExportFormat,
+): Promise<void> {
+  const orgSlug = getCookie(ORG_SLUG_COOKIE)
+  const res = await fetch(
+    `/api/v1/ordinances/${slug}/export?format=${format}`,
+    {
+      credentials: 'include',
+      headers: orgSlug ? { [ORG_SLUG_HEADER]: orgSlug } : {},
+    },
+  )
+  if (!res.ok) throw new Error(`Export failed (${res.status})`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `${slug}.${format}`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
 
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {
   const { data } = await clientRequest('GET /v1/ordinances/:slug', { slug })

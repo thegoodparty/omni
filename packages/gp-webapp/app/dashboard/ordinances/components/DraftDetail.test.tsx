@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   updateOrdinance: vi.fn(),
   generateQualityReport: vi.fn(),
   deleteOrdinance: vi.fn(),
+  downloadOrdinanceExport: vi.fn(),
   draftChatProps: {
     current: null as { seedText?: string; seedNonce?: number } | null,
   },
@@ -19,6 +20,7 @@ vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
   generateQualityReport: mocks.generateQualityReport,
   deleteOrdinance: mocks.deleteOrdinance,
+  downloadOrdinanceExport: mocks.downloadOrdinanceExport,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
@@ -410,6 +412,8 @@ describe('DraftDetail header actions', () => {
     mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
     mocks.deleteOrdinance.mockReset()
     mocks.deleteOrdinance.mockResolvedValue(undefined)
+    mocks.downloadOrdinanceExport.mockReset()
+    mocks.downloadOrdinanceExport.mockResolvedValue(undefined)
     router.push?.mockReset?.()
   })
   afterEach(() => {
@@ -424,6 +428,38 @@ describe('DraftDetail header actions', () => {
 
     expect(await screen.findByText(/download as pdf/i)).toBeVisible()
     expect(screen.getByText(/download as word/i)).toBeVisible()
+  })
+
+  it('downloads the draft as PDF and Word from the download menu', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
+    expect(mocks.downloadOrdinanceExport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      'pdf',
+    )
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(
+      screen.getByRole('menuitem', { name: /download as word/i }),
+    )
+    expect(mocks.downloadOrdinanceExport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      'docx',
+    )
+  })
+
+  it('surfaces an error when an export fails', async () => {
+    const user = userEvent.setup()
+    mocks.downloadOrdinanceExport.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
+
+    expect(await screen.findByText(/could not export the draft/i)).toBeVisible()
   })
 
   it('changes the status from the status dropdown', async () => {
