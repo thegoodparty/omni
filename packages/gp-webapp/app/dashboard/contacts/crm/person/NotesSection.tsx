@@ -306,6 +306,9 @@ export default function NotesSection({
 
   const handleStartCompose = () => {
     createMutation.reset()
+    // Mutually exclusive with the in-place editor — two open editors would
+    // fight over focus and offer competing save paths.
+    setEditingNoteId(null)
     setIsComposing(true)
   }
 
@@ -317,6 +320,7 @@ export default function NotesSection({
 
   const handleStartEdit = (note: ContactNote) => {
     updateMutation.reset()
+    setIsComposing(false)
     setEditingNoteId(note.id)
     setEditingBody(note.body)
   }

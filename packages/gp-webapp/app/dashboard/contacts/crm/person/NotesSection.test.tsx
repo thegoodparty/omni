@@ -147,6 +147,28 @@ describe('<NotesSection>', () => {
     expect(screen.getByLabelText('Add a note')).toHaveValue('')
   })
 
+  it('keeps compose and edit mutually exclusive', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/contacts/:personId/notes', {
+      status: 200,
+      data: { results: [makeNote()] },
+    })
+
+    render(<NotesSection personId={PERSON_ID} />)
+    await screen.findByText('Called about the lawn ordinance')
+
+    // Compose open, then starting an edit closes it.
+    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.click(screen.getByRole('button', { name: 'Edit note' }))
+    expect(screen.getAllByRole('textbox')).toHaveLength(1)
+    expect(screen.getByLabelText('Edit note body')).toBeInTheDocument()
+
+    // Edit open, then starting compose closes it.
+    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    expect(screen.getAllByRole('textbox')).toHaveLength(1)
+    expect(screen.getByLabelText('Add a note')).toBeInTheDocument()
+  })
+
   it('edits a note in place', async () => {
     const user = userEvent.setup()
     let notes: ContactNote[] = [makeNote()]
