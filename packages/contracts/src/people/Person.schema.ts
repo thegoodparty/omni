@@ -1,19 +1,22 @@
 import { z } from 'zod'
+import {
+  SupportStatusRollupSchema as GeneratedSupportStatusRollupSchema,
+  type SupportStatusRollup as GeneratedSupportStatusRollup,
+} from '../generated/enums'
 
 // Support-status rollup vocabulary shown on the person detail response
-// (ENG-10696). Single-sourced against the shipped `SupportAnswer` enum
-// (`supporter | unsure | non_supporter` storage): `supporter` and
-// `non_supporter` map 1:1, `unsure` and "no interaction history at all" both
-// roll up to `unknown`. gp-api's contactInteraction.types.ts ties its
-// SUPPORT_ANSWER_ROLLUP derivation to this schema's inferred type via
+// (ENG-10696). Sourced from the Prisma `SupportStatusRollup` enum (ENG-10700)
+// via `../generated/enums` and re-exported under this historical name so
+// existing importers (gp-api's contactInteraction.types.ts, this file's own
+// PersonSchema.supportStatus field) don't change. Single-sourced against the
+// shipped `SupportAnswer` enum (`supporter | unsure | non_supporter` storage):
+// `supporter` and `non_supporter` map 1:1, `unsure` and "no interaction
+// history at all" both roll up to `unknown`. gp-api's contactInteraction.types.ts
+// ties its SUPPORT_ANSWER_ROLLUP derivation to this schema's inferred type via
 // `satisfies`, so the two can't drift.
-export const SupportStatusRollupSchema = z.enum([
-  'supporter',
-  'non_supporter',
-  'unknown',
-])
+export const SupportStatusRollupSchema = GeneratedSupportStatusRollupSchema
 
-export type SupportStatusRollup = z.infer<typeof SupportStatusRollupSchema>
+export type SupportStatusRollup = GeneratedSupportStatusRollup
 
 // Residence-address columns (Voter table) that compose a physical-household
 // key for door-knocking de-duplication. Chosen as the canvassing-correct key
