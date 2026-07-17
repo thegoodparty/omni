@@ -696,6 +696,77 @@ describe('<ChiefOfStaffChatBody>', () => {
     ).toBeInTheDocument()
   })
 
+  it('excludes hiddenMessageContents from a reloaded transcript (sentinel user turn)', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_hide',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_hide',
+        role: 'user',
+        content: '__start_story__',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+      {
+        id: 'm3',
+        conversationId: 'conv_hide',
+        role: 'assistant',
+        content: 'Tell me your why.',
+        createdAt: '2026-07-01T00:00:02.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_hide"
+        hiddenMessageContents={['__start_story__']}
+      />,
+    )
+
+    // The surrounding assistant turns still render...
+    await waitFor(
+      () => expect(screen.getByText('Tell me your why.')).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+    expect(
+      screen.getByText('Welcome back to your campaign.'),
+    ).toBeInTheDocument()
+    // ...but the sentinel user turn is never shown as a bubble.
+    expect(screen.queryByText('__start_story__')).not.toBeInTheDocument()
+  })
+
+  it('renders all messages including a sentinel when hiddenMessageContents is unset (default)', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_show',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_show',
+        role: 'user',
+        content: '__start_story__',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+    ])
+
+    render(<ChiefOfStaffChatBody active conversationIdOverride="conv_show" />)
+
+    // No filtering prop: the raw sentinel renders as a user bubble.
+    await waitFor(() =>
+      expect(screen.getByText('__start_story__')).toBeInTheDocument(),
+    )
+  })
+
   it('focuses the composer when a suggestion requests it via composerRef', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])

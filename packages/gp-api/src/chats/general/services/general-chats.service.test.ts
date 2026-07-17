@@ -49,6 +49,9 @@ const buildChatStore = (
   overrides: Partial<ChatStoreService> = {},
 ): ChatStoreService =>
   ({
+    appendUserMessageIfAlive: vi.fn(() =>
+      Promise.resolve({ id: 'user-msg-1' }),
+    ),
     appendMessage: vi.fn(() => Promise.resolve({ id: 'assistant-msg-1' })),
     ...overrides,
   }) as unknown as ChatStoreService
@@ -322,14 +325,88 @@ describe('GeneralChatsService', () => {
         { type: 'text', delta: 'Welcome aboard!' },
         { type: 'done', assistantMessageId: 'assistant-msg-1' },
       ])
+      // The user (sentinel) turn is persisted first so history alternates,
+      // keyed on clientMessageId for dedup...
+      expect(chatStore.appendUserMessageIfAlive).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        ownerUserId: USER_ID,
+        content: '__kickoff__',
+        clientMessageId: 'client-1',
+      })
+      // ...then the canned assistant reply, under a derived idempotency key.
       expect(chatStore.appendMessage).toHaveBeenCalledWith({
         conversationId: 'c1',
         role: ChatMessageRole.assistant,
         content: 'Welcome aboard!',
-        clientMessageId: 'client-1',
+        clientMessageId: 'client-1:assistant',
       })
       expect(chatStream.stream).not.toHaveBeenCalled()
       expect(store.setTitleIfUnset).not.toHaveBeenCalled()
+    },
+  )
+
+  it(
+    'stays idempotent on retry: reuses the same client + derived keys for ' +
+      'both turns so neither row is duplicated',
+    async () => {
+      handler = buildHandler({
+        maybeCannedReply: vi.fn((userMessage: string) =>
+          userMessage === '__kickoff__' ? 'Welcome aboard!' : null,
+        ),
+      })
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: null }),
+        ) as never,
+      })
+      // The store dedups on these keys (see appendMessageIdempotent); the
+      // service's job is to send the SAME keys on a retry so no second row is
+      // ever created. Assert that contract with a stable-return mock.
+      const chatStore = buildChatStore()
+      const chatStream = { stream: vi.fn() }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        chatStore,
+        chatStream as never,
+      )
+      const args = {
+        conversationId: 'c1',
+        scope: SCOPE,
+        userId: USER_ID,
+        organizationSlug: ORG,
+        userMessage: '__kickoff__',
+        clientMessageId: 'client-1',
+      }
+      await collect(service.sendMessage(args))
+      await collect(service.sendMessage(args))
+
+      expect(chatStore.appendUserMessageIfAlive).toHaveBeenCalledTimes(2)
+      expect(chatStore.appendUserMessageIfAlive).toHaveBeenNthCalledWith(1, {
+        conversationId: 'c1',
+        ownerUserId: USER_ID,
+        content: '__kickoff__',
+        clientMessageId: 'client-1',
+      })
+      expect(chatStore.appendUserMessageIfAlive).toHaveBeenNthCalledWith(2, {
+        conversationId: 'c1',
+        ownerUserId: USER_ID,
+        content: '__kickoff__',
+        clientMessageId: 'client-1',
+      })
+      expect(chatStore.appendMessage).toHaveBeenCalledTimes(2)
+      expect(chatStore.appendMessage).toHaveBeenNthCalledWith(1, {
+        conversationId: 'c1',
+        role: ChatMessageRole.assistant,
+        content: 'Welcome aboard!',
+        clientMessageId: 'client-1:assistant',
+      })
+      expect(chatStore.appendMessage).toHaveBeenNthCalledWith(2, {
+        conversationId: 'c1',
+        role: ChatMessageRole.assistant,
+        content: 'Welcome aboard!',
+        clientMessageId: 'client-1:assistant',
+      })
     },
   )
 
@@ -372,6 +449,7 @@ describe('GeneralChatsService', () => {
           retryable: false,
         },
       ])
+      expect(chatStore.appendUserMessageIfAlive).not.toHaveBeenCalled()
       expect(chatStore.appendMessage).not.toHaveBeenCalled()
       expect(chatStream.stream).not.toHaveBeenCalled()
     },

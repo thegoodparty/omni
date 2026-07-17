@@ -90,6 +90,13 @@ interface Props {
   pendingKickoff?: string
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLInputElement | null>
+  /**
+   * Message contents to drop from a reloaded transcript before it renders —
+   * hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
+   * exist only to keep the server-side history alternating. Default empty: no
+   * filtering, so Chief of Staff / Community Issues / Ordinance are unchanged.
+   */
+  hiddenMessageContents?: string[]
 }
 
 /**
@@ -209,6 +216,10 @@ function messageToItem(msg: ChatMessageDto): ChatItem | null {
 
 const INTRO_SEEN_KEY = 'cos-intro-streamed'
 
+// Stable default so callers that omit the prop keep the same array identity
+// across renders (no needless re-run of the load effect).
+const NO_HIDDEN_CONTENTS: string[] = []
+
 // Starter prompts shown on a fresh chat; tapping one sends it.
 const CHAT_SUGGESTIONS = [
   "What's most urgent this week?",
@@ -238,6 +249,7 @@ export default function ChiefOfStaffChatBody({
   showSuggestionsWithGreeting = false,
   pendingKickoff,
   composerRef,
+  hiddenMessageContents = NO_HIDDEN_CONTENTS,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -456,8 +468,12 @@ export default function ChiefOfStaffChatBody({
     try {
       setConversationId(conversationIdOverride)
       const msgs = await chatApi.listMessages(conversationIdOverride)
+      // Drop persisted sentinel turns (e.g. the story-kickoff sentinel) so
+      // they never enter history/playback or render as a raw bubble.
+      const hidden = new Set(hiddenMessageContents)
       const items: ChatItem[] = []
       for (const m of msgs) {
+        if (hidden.has(m.content)) continue
         const it = messageToItem(m)
         if (it) items.push(it)
       }
@@ -492,7 +508,7 @@ export default function ChiefOfStaffChatBody({
     } finally {
       setCreating(false)
     }
-  }, [conversationIdOverride])
+  }, [conversationIdOverride, hiddenMessageContents])
 
   useEffect(() => {
     if (!active) return

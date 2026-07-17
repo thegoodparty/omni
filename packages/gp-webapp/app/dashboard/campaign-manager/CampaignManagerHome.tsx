@@ -176,6 +176,10 @@ export default function CampaignManagerHome({
         showSuggestionsWithGreeting
         pendingKickoff={pendingKickoff}
         composerRef={composerRef}
+        hiddenMessageContents={[
+          CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+          CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+        ]}
       />
     </div>
   )

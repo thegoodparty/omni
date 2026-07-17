@@ -189,14 +189,32 @@ export class GeneralChatsService {
           }
           return
         }
-        // No user row is written on this path, so clientMessageId here
-        // idempotency-keys the retried send: appendMessageIdempotent dedups
-        // a resend of the same canned reply.
+        // Persist the user (sentinel) turn BEFORE the canned assistant reply
+        // so history alternates user/assistant — Anthropic rejects two
+        // consecutive assistant turns on the candidate's next real message.
+        // The user turn dedups on clientMessageId; the assistant reply carries
+        // a derived idempotency key so a retry with the same clientMessageId
+        // re-streams the same reply without appending a second assistant row.
+        const userTurn = await self.chatStore.appendUserMessageIfAlive({
+          conversationId: args.conversationId,
+          ownerUserId: args.userId,
+          content: args.userMessage,
+          clientMessageId: args.clientMessageId,
+        })
+        if (!userTurn) {
+          yield {
+            type: 'error',
+            code: 'conversation_not_found',
+            message: 'Conversation not found.',
+            retryable: false,
+          }
+          return
+        }
         const saved = await self.chatStore.appendMessage({
           conversationId: args.conversationId,
           role: ChatMessageRole.assistant,
           content: canned,
-          clientMessageId: args.clientMessageId,
+          clientMessageId: `${args.clientMessageId}:assistant`,
         })
         yield { type: 'text', delta: canned }
         yield { type: 'done', assistantMessageId: saved.id }

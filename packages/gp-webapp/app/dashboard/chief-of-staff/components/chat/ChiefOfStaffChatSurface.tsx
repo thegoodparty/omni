@@ -33,6 +33,8 @@ interface Props {
   pendingKickoff?: string
   /** Ref to the body's composer input, so a suggestion can focus it. */
   composerRef?: RefObject<HTMLInputElement | null>
+  /** Message contents to hide from a reloaded transcript (e.g. sentinels). */
+  hiddenMessageContents?: string[]
 }
 
 /**
@@ -56,6 +58,7 @@ export default function ChiefOfStaffChatSurface({
   showSuggestionsWithGreeting,
   pendingKickoff,
   composerRef,
+  hiddenMessageContents,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -100,6 +103,7 @@ export default function ChiefOfStaffChatSurface({
           showSuggestionsWithGreeting={showSuggestionsWithGreeting}
           pendingKickoff={pendingKickoff}
           composerRef={composerRef}
+          hiddenMessageContents={hiddenMessageContents}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />
       </DrawerContent>
