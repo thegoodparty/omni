@@ -428,7 +428,7 @@ export default function OnboardingFlow({
     !isP2vBlocking &&
     !isOfficeHydrationBlocking &&
     // Hold Continue until the story flag resolves so effectiveSteps is stable
-    // (story step present) before the candidate can advance past it — otherwise
+    // (story step present) before the candidate can advance past it. Otherwise
     // a slow flag load drops the step and they never see it.
     campaignStoryReady &&
     pledgeFlagsReady

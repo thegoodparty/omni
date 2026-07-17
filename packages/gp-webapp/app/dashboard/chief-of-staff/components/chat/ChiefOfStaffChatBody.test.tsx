@@ -475,7 +475,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     // ...then re-opens with the SAME sentinel on the still-mounted body.
     rerender(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
 
-    // The kickoff fires a second time — the story flow can restart.
+    // The kickoff fires a second time, so the story flow can restart.
     await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
   })
 
