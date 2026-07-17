@@ -293,7 +293,9 @@ const docxCheckParagraphs = (check: OrdinanceQualityCheck): Paragraph[] => {
           bold: true,
           size: 16,
           color: style.text,
-          shading: { type: ShadingType.SOLID, color: 'auto', fill: style.bg },
+          // CLEAR shows `fill` as the background; SOLID would fill with the
+          // foreground `color` (auto=black), which reads as a black pill.
+          shading: { type: ShadingType.CLEAR, color: 'auto', fill: style.bg },
         }),
       ],
     }),
