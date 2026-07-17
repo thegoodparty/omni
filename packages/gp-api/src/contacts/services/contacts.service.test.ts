@@ -77,6 +77,9 @@ describe('ContactsService', () => {
     let mockFeaturesService: {
       isFeatureEnabled: ReturnType<typeof vi.fn>
     }
+    let mockSupportStatusService: {
+      statusForPeople: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockHttpService = {
@@ -112,6 +115,9 @@ describe('ContactsService', () => {
       mockFeaturesService = {
         isFeatureEnabled: vi.fn().mockResolvedValue(true),
       }
+      mockSupportStatusService = {
+        statusForPeople: vi.fn().mockResolvedValue(new Map()),
+      }
 
       service = new ContactsService(
         mockHttpService as never,
@@ -121,6 +127,7 @@ describe('ContactsService', () => {
         mockOrganizationsService as never,
         voterFileDownloadAccess,
         mockFeaturesService as never,
+        mockSupportStatusService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -894,20 +901,18 @@ describe('ContactsService', () => {
         expect(result.people[0]?.politicalParty).toBe('Republican')
       })
 
-      // Regression guard: the backend treats Win and Serve identically — it
-      // forwards the party filter and passes politicalParty through for eo-
-      // (Serve) orgs too. The Win/Serve party-visibility rule is a frontend
-      // display concern (the contacts person overlay's hidePoliticalParty
-      // gate), not duplicated on the backend. This locks that in so a future
-      // change that strips party server-side can't silently break Serve.
-      it('does not strip party or the party filter for Serve (eo-) orgs', async () => {
+      // Server-enforced Serve party-visibility rule (ENG-10696). Win keeps the
+      // old, unfiltered behavior (asserted above); an `eo-` org now (1) never
+      // sees `politicalParty` in a response, and (2) gets a 400 — not a
+      // silently-stripped 200 — for any request whose filter resolves to a
+      // party condition, on list, count, and download alike. The typeahead UI
+      // calls this same `findContacts` path, so this list coverage doubles as
+      // typeahead coverage — there is no separate typeahead route.
+      it('strips politicalParty from the list/typeahead response for a Serve (eo-) org', async () => {
         const org = makeOrganization({
           slug: 'eo-mayor-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
         })
-        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
-          partySegment,
-        )
         mockHttpService.post.mockReturnValue(
           of({
             data: {
@@ -918,20 +923,192 @@ describe('ContactsService', () => {
         )
 
         const result = await service.findContacts(
-          { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+          { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
           org,
         )
 
-        expect(mockHttpService.post).toHaveBeenCalledWith(
-          expect.stringContaining(PEOPLE_V1_PATH),
-          expect.objectContaining({
-            filters: expect.objectContaining({
-              politicalParty: { eq: 'Democratic' },
-            }),
+        expect(result.people[0]).not.toHaveProperty('politicalParty')
+      })
+
+      it('rejects a party-segment list request for a Serve (eo-) org with 400, without calling people-api', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+
+        await expect(
+          service.findContacts(
+            { resultsPerPage: 10, page: 1, search: undefined, segment: '7' },
+            org,
+          ),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('rejects a party-filter count request for a Serve (eo-) org with 400, without calling people-api', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+
+        await expect(
+          service.countContacts({ partyDemocrat: true }, org),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('rejects a party-segment download request for a Serve (eo-) org with 400, without calling people-api', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          partySegment,
+        )
+        const res = {
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        } as never
+
+        await expect(
+          service.downloadContacts({ segment: '7' }, res, org),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('excludes the party column from a Serve (eo-) org CSV download', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        const stream = {
+          destroyed: false,
+          pipe: vi.fn(),
+          destroy: vi.fn(),
+          on: vi.fn((event: string, cb: (err?: Error) => void) => {
+            if (event === 'end') setImmediate(() => cb())
           }),
+        }
+        mockHttpService.post.mockReturnValue(of({ data: stream }))
+        const res = {
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        } as never
+
+        await service.downloadContacts({ segment: 'all' }, res, org)
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(`${PEOPLE_V1_PATH}/download`),
+          expect.objectContaining({ excludeColumns: ['Parties_Description'] }),
           expect.any(Object),
         )
-        expect(result.people[0]?.politicalParty).toBe('Democratic')
+      })
+
+      it('does not exclude any column from a Win org CSV download', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        const stream = {
+          destroyed: false,
+          pipe: vi.fn(),
+          destroy: vi.fn(),
+          on: vi.fn((event: string, cb: (err?: Error) => void) => {
+            if (event === 'end') setImmediate(() => cb())
+          }),
+        }
+        mockHttpService.post.mockReturnValue(of({ data: stream }))
+        const res = {
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        } as never
+
+        await service.downloadContacts({ segment: 'all' }, res, org)
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(`${PEOPLE_V1_PATH}/download`),
+          expect.objectContaining({ excludeColumns: undefined }),
+          expect.any(Object),
+        )
+      })
+    })
+
+    describe('findPerson — party strip + supportStatus wiring (ENG-10696)', () => {
+      it('strips politicalParty for a Serve (eo-) org', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.get.mockReturnValue(
+          of({ data: { id: 'p1', politicalParty: 'Republican' } }),
+        )
+
+        const result = await service.findPerson('p1', org)
+
+        expect(result).not.toHaveProperty('politicalParty')
+      })
+
+      it('keeps politicalParty for a Win org', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.get.mockReturnValue(
+          of({ data: { id: 'p1', politicalParty: 'Republican' } }),
+        )
+
+        const result = await service.findPerson('p1', org)
+
+        expect(result.politicalParty).toBe('Republican')
+      })
+
+      it('attaches the supportStatus rollup returned by SupportStatusService', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.get.mockReturnValue(of({ data: { id: 'p1' } }))
+        mockSupportStatusService.statusForPeople.mockResolvedValue(
+          new Map([['p1', 'supporter']]),
+        )
+
+        const result = await service.findPerson('p1', org)
+
+        expect(mockSupportStatusService.statusForPeople).toHaveBeenCalledWith(
+          'eo-mayor-1',
+          ['p1'],
+        )
+        expect(result.supportStatus).toBe('supporter')
+      })
+
+      it('defaults to unknown when SupportStatusService has no entry for the person', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.get.mockReturnValue(of({ data: { id: 'p1' } }))
+        mockSupportStatusService.statusForPeople.mockResolvedValue(new Map())
+
+        const result = await service.findPerson('p1', org)
+
+        expect(result.supportStatus).toBe('unknown')
       })
     })
 
