@@ -40,7 +40,10 @@ export async function downloadOrdinanceExport(
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
-  URL.revokeObjectURL(url)
+  // Defer the revoke: the browser's download manager reads the blob URL
+  // asynchronously, and revoking on the same tick can abort the download on
+  // Safari / older Chromium (matches the other download helpers here).
+  setTimeout(() => URL.revokeObjectURL(url), 100)
 }
 
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {
