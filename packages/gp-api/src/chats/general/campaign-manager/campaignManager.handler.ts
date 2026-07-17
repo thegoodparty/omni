@@ -1,6 +1,9 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import { differenceInCalendarWeeks, parseISO } from 'date-fns'
-import { CAMPAIGN_MANAGER_START_STORY_SENTINEL } from '@goodparty_org/contracts'
+import {
+  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+  CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+} from '@goodparty_org/contracts'
 import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
@@ -93,6 +96,19 @@ export const buildStoryGreeting = (story: StoryState): string => {
   const lead = answered === 0 ? 'First' : 'Next'
   return [...intro, `${lead}, ${STORY_QUESTION_PROMPTS[next]}`].join('\n\n')
 }
+
+// Canned reply for the product-overview sentinel (the "Learn more about the
+// product" chip). Independent of the candidate's Campaign Story state, so it
+// answers the same way whether the story is missing, in progress, or done.
+const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW = [
+  "I'm your campaign manager, here to help you run and win.",
+  'GoodParty.org gives you a personalized campaign plan, a weekly tracker ' +
+    'of your highest-impact tasks, voter outreach tools like texting, ' +
+    'door-knocking scripts, and social posts, and a free candidate website.',
+  'Tell me what you are working on and I will point you to the next best ' +
+    'step. When you are ready, tap Personalize your campaign and I will ' +
+    'tailor everything to your race.',
+].join('\n\n')
 
 // Campaign Manager's own rollout flag for the constituent-data tool, distinct
 // from Chief of Staff's. Off until enabled per internal tester while the tool
@@ -350,7 +366,11 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     userMessage: string,
     ctx: CampaignManagerContext,
   ): string | null {
-    if (userMessage.trim() !== CAMPAIGN_MANAGER_START_STORY_SENTINEL) {
+    const message = userMessage.trim()
+    if (message === CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL) {
+      return CAMPAIGN_MANAGER_PRODUCT_OVERVIEW
+    }
+    if (message !== CAMPAIGN_MANAGER_START_STORY_SENTINEL) {
       return null
     }
     if (!ctx.story) return null

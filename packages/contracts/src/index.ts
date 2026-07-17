@@ -543,6 +543,7 @@ export {
   type CreateChatResponse,
   CHAT_MESSAGE_MAX_LENGTH,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   SendChatMessageRequestSchema,
   type SendChatMessageRequest,
   ChatMessageSegmentSchema,

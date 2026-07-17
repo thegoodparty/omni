@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { CAMPAIGN_MANAGER_START_STORY_SENTINEL } from '@goodparty_org/contracts'
+import {
+  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+  CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+} from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
@@ -280,6 +283,9 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
     missing: [],
   }
 
+  const PRODUCT_OVERVIEW_OPENER =
+    "I'm your campaign manager, here to help you run and win."
+
   it('returns the story-intake opener when the sentinel arrives mid-intake', () => {
     const reply = buildHandler().maybeCannedReply(
       CAMPAIGN_MANAGER_START_STORY_SENTINEL,
@@ -313,5 +319,29 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
       ctxWith({ story: null }),
     )
     expect(reply).toBeNull()
+  })
+
+  it('returns the product overview when the story has not loaded', () => {
+    const reply = buildHandler().maybeCannedReply(
+      CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+      ctxWith({ story: null }),
+    )
+    expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
+  })
+
+  it('returns the product overview when the story is incomplete', () => {
+    const reply = buildHandler().maybeCannedReply(
+      CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+      ctxWith({ story: incompleteStory }),
+    )
+    expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
+  })
+
+  it('returns the product overview when the story is complete', () => {
+    const reply = buildHandler().maybeCannedReply(
+      CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+      ctxWith({ story: completeStory }),
+    )
+    expect(reply).toContain(PRODUCT_OVERVIEW_OPENER)
   })
 })
