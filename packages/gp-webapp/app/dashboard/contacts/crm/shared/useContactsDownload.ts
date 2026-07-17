@@ -71,6 +71,15 @@ export function useContactsDownload({
       string,
       string | number | boolean | null | undefined
     >,
+    // ENG-10709: called from the cookie-confirmed success branch below, not
+    // at click time — the CRM `List Exported` event must not fire on a
+    // failed download, and the cookie handshake is the only signal this hook
+    // has that the server actually started streaming. Optional: the legacy
+    // (pre-CRM) Download.tsx caller doesn't pass one, so it never emits the
+    // CRM-only event. The 15s fallback branch is deliberately excluded (see
+    // its own comment) — it's ambiguous between "failed" and "succeeded but
+    // missed the cookie", so it can't safely fire a success event either.
+    onDownloadConfirmed?: () => void,
   ): void => {
     if (!canUseProFeatures) {
       onProGated?.()
@@ -122,6 +131,7 @@ export function useContactsDownload({
         deleteCookie(DOWNLOAD_COOKIE_NAME)
         setIsPreparing(false)
         successSnackbar('Download started', { autoHideDuration: 3000 })
+        onDownloadConfirmed?.()
       }
     }, DOWNLOAD_COOKIE_POLL_MS)
 

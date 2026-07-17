@@ -415,12 +415,28 @@ export const EVENTS = {
     // doorKnock logs, same properties as the Win variant below).
     ContactViewed: 'Constituent Data - Contact Viewed',
     ContactLogged: 'Constituent Data - Contact Logged',
+    // ENG-10709: crm/wizard's two create branches + the list-detail download
+    // seam. Same product-specific naming exception as the events above.
+    // ListCreated fires once per successful voter-file-branch create with
+    // { variableCount } (Win variant also carries hasParty — Serve is
+    // nonpartisan and must never see it). ActivityListCreated fires once per
+    // successful activity-branch create with { sourceCampaign, actionFilter }.
+    // ListExported fires once per confirmed-successful download with
+    // { listSize }.
+    ListCreated: 'Constituent Data - List Created',
+    ActivityListCreated: 'Constituent Data - Activity List Created',
+    ListExported: 'Constituent Data - List Exported',
   },
   VoterData: {
     ContactSearched: 'Voter Data - Contact Searched',
     NoteAdded: 'Voter Data - Note Added',
     ContactViewed: 'Voter Data - Contact Viewed',
     ContactLogged: 'Voter Data - Contact Logged',
+    // ENG-10709: see the ConstituentData variants above for the full seam
+    // description — Win-only difference is ListCreated's hasParty property.
+    ListCreated: 'Voter Data - List Created',
+    ActivityListCreated: 'Voter Data - Activity List Created',
+    ListExported: 'Voter Data - List Exported',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',

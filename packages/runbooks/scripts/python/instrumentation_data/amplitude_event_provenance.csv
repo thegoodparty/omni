@@ -78,7 +78,10 @@ Community Issues - List Viewed,community_issues_list_viewed,f59a02ee308f8df11272
 Community Issues - Prioritize Clicked,community_issues_prioritize_clicked,f59a02ee308f8df11272dbd06c5e519b14abf96f,https://github.com/thegoodparty/omni/pull/246,2026-06-19,swain.molster@gmail.com,,,,,2026-06-19,1,,2026-07-13T21:45:27
 Community Issues - Run Poll Clicked,community_issues_run_poll_clicked,f59a02ee308f8df11272dbd06c5e519b14abf96f,https://github.com/thegoodparty/omni/pull/246,2026-06-19,swain.molster@gmail.com,,,,,2026-06-19,1,,2026-07-13T17:19:23
 Community Issues - Top Issue Priority Changed,community_issues_top_issue_priority_changed,385db53a32df1b84b585bf39db3d83fe29fdd25a,https://github.com/thegoodparty/omni/pull/437,2026-06-26,swain.molster@gmail.com,,,,,2026-06-26,,,2026-07-13T21:45:27
+Constituent Data - Activity List Created,constituent_data_activity_list_created,,,2026-07-17,,,,,,2026-07-17,,,2026-07-17T15:00:43
 Constituent Data - Contact Searched,constituent_data_contact_searched,,,2026-07-16,,,,,,2026-07-16,,,2026-07-16T14:17:19
+Constituent Data - List Created,constituent_data_list_created,,,2026-07-17,,,,,,2026-07-17,,,2026-07-17T15:00:43
+Constituent Data - List Exported,constituent_data_list_exported,,,2026-07-17,,,,,,2026-07-17,,,2026-07-17T15:00:43
 Contacts - Column Edited,contacts_column_edited,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,58821b65733bc3b6da57c261c7602ee7e8f1c6e5,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Contacts - Contacts Viewed,contacts_contacts_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,52380560+tomer-tgp@users.noreply.github.com,,,,,2026-06-17,1,,2026-06-30T20:12:33
 Contacts - Download,contacts_download,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,2026-06-30T20:12:33
@@ -407,6 +410,7 @@ Viewed /elections/tx/borger-independent-school-district,viewed_elections_tx_borg
 Viewed /elections/tx/gray/hoover,viewed_elections_tx_gray_hoover,,,,,,,,,,,,2026-06-30T20:12:33
 Viewed /elections/tx/saint-jo-independent-school-district,viewed_elections_tx_saint_jo_independent_school_district,,,,,,,,,,,,2026-06-30T20:12:33
 Viewed /elections/va/wise/dixiana,viewed_elections_va_wise_dixiana,,,,,,,,,,,,2026-06-30T20:12:33
+Voter Data - Activity List Created,voter_data_activity_list_created,,,2026-07-17,,,,,,2026-07-17,,,2026-07-17T15:00:43
 Voter Data - Contact Searched,voter_data_contact_searched,,,2026-07-16,,,,,,2026-07-16,,,2026-07-16T14:17:19
 Voter Data - Custom Voter File - Audience: Click Back,voter_data_custom_voter_file_audience_click_back,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
 Voter Data - Custom Voter File: Click Create,voter_data_custom_voter_file_click_create,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
@@ -422,6 +426,8 @@ Voter Data - File Detail: Click Back,voter_data_file_detail_click_back,1170c2777
 Voter Data - File Detail: Click Custom File Info Icon,voter_data_file_detail_click_custom_file_info_icon,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
 Voter Data - File Detail: Click Download CSV,voter_data_file_detail_click_download_csv,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
 Voter Data - File Detail: Click View Audience Filters,voter_data_file_detail_click_view_audience_filters,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
+Voter Data - List Created,voter_data_list_created,,,2026-07-17,,,,,,2026-07-17,,,2026-07-17T15:00:43
+Voter Data - List Exported,voter_data_list_exported,,,2026-07-17,,,,,,2026-07-17,,,2026-07-17T15:00:43
 Voter Data - Need Help: Exit modal,voter_data_need_help_exit_modal,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
 Voter Data - Need Help: Select Voter File type,voter_data_need_help_select_voter_file_type,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
 Voter Data - Need Help: Submit,voter_data_need_help_submit,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,1,,2026-06-30T20:12:33
