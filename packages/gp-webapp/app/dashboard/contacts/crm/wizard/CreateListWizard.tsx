@@ -131,7 +131,12 @@ export default function CreateListWizard({
       ),
     onSuccess: async (response) => {
       successSnackbar('List created successfully')
-      await refreshCustomSegments()
+      // A failed cache refresh must not strand the sheet open after the
+      // create itself succeeded (React Query doesn't catch onSuccess throws;
+      // DeleteSegment guards the same call).
+      await refreshCustomSegments().catch((error) =>
+        console.log('Error refreshing segments after create', error),
+      )
       onOpenChange(false)
       // ENG-10707: land on the new list-detail page instead of selecting the
       // segment in the (soon superseded) main table — refreshCustomSegments
