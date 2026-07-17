@@ -17,6 +17,10 @@ import filterSections from '../configs/filters.config'
 import { FiEdit } from 'react-icons/fi'
 import { clientRequest } from 'gpApi/typed-request'
 import { type SegmentResponse } from '../../../crm/shared/contacts-types'
+import {
+  INCOME_KEY_TO_RANGE,
+  LANGUAGE_KEY_TO_CODE,
+} from '../../../crm/shared/voterFileFilterTransform.util'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { useContactsTable } from '../../../crm/ContactsTableProvider'
 import { SHEET_MODES } from '../../../crm/shared/constants'
@@ -50,27 +54,9 @@ interface FiltersSheetProps {
   afterSave: (segmentId: number) => void
 }
 
-const INCOME_KEY_TO_RANGE: Record<string, string> = {
-  incomeUnder25k: 'Under $25k',
-  income25kTo35k: '$25k - $35k',
-  income35kTo50k: '$35k - $50k',
-  income50kTo75k: '$50k - $75k',
-  income75kTo100k: '$75k - $100k',
-  income100kTo125k: '$100k - $125k',
-  income125kTo150k: '$125k - $150k',
-  income150kTo200k: '$150k - $200k',
-  income200kPlus: '$200k+',
-}
-
 const RANGE_TO_INCOME_KEY: Record<string, string> = Object.fromEntries(
   Object.entries(INCOME_KEY_TO_RANGE).map(([k, v]) => [v, k]),
 )
-
-const LANGUAGE_KEY_TO_CODE: Record<string, string> = {
-  languageEnglish: 'en',
-  languageSpanish: 'es',
-  languageOther: 'other',
-}
 
 const LANGUAGE_KEYS = new Set(Object.keys(LANGUAGE_KEY_TO_CODE))
 const INCOME_KEYS = new Set([

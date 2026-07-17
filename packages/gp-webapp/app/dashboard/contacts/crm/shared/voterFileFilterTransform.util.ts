@@ -1,9 +1,9 @@
 import filterSections from '../../[[...attr]]/components/configs/filters.config'
 
-// Ported from FiltersSheet.tsx's identical private copy (ENG-10708) so the
-// wizard's voter-file branch sends the exact same backend field shapes
-// without forking the mapping. FiltersSheet keeps its own copy untouched —
-// this is the one new code (the wizard) is required to import.
+// Single source of truth for the voter-file filter → backend field mapping
+// (ENG-10708): both the wizard's voter-file branch and FiltersSheet import
+// these maps so the two surfaces can never send diverging payloads for the
+// same selection.
 export interface VoterFileFilters {
   [key: string]: boolean
 }
@@ -14,7 +14,7 @@ export interface VoterFileBackendFilters extends Record<string, unknown> {
   incomeUnknown?: boolean
 }
 
-const INCOME_KEY_TO_RANGE: Record<string, string> = {
+export const INCOME_KEY_TO_RANGE: Record<string, string> = {
   incomeUnder25k: 'Under $25k',
   income25kTo35k: '$25k - $35k',
   income35kTo50k: '$35k - $50k',
@@ -26,7 +26,7 @@ const INCOME_KEY_TO_RANGE: Record<string, string> = {
   income200kPlus: '$200k+',
 }
 
-const LANGUAGE_KEY_TO_CODE: Record<string, string> = {
+export const LANGUAGE_KEY_TO_CODE: Record<string, string> = {
   languageEnglish: 'en',
   languageSpanish: 'es',
   languageOther: 'other',
