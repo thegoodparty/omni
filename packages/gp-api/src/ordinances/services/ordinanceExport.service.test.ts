@@ -70,6 +70,9 @@ describe('OrdinanceExportService', () => {
     expect(xml).toContain('Or. Rev. Stat. § 227.215')
     expect(xml).toContain('Quality report')
     expect(xml).toContain('Authority')
+    // Styled QA: tally summary + the colored status pill label.
+    expect(xml).toContain('Reviewed by 1 checks')
+    expect(xml).toContain('PASS')
   })
 
   it('renders the empty-state fallbacks when there is no report or sources', async () => {

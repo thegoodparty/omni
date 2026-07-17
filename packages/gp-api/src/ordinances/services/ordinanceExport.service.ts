@@ -3,11 +3,14 @@ import { Injectable } from '@nestjs/common'
 import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import {
+  BorderStyle,
   Document,
   ExternalHyperlink,
   HeadingLevel,
   Packer,
   Paragraph,
+  ShadingType,
+  TabStopType,
   TextRun,
 } from 'docx'
 import {
@@ -19,23 +22,34 @@ import {
 import { Ordinance } from '../../generated/prisma'
 import { OrdinanceExportFormat } from '../schemas/ordinances.schema'
 
-const LINK_COLOR = '#1155cc'
-
-const STATUS_LABEL: Record<OrdinanceQualityCheck['status'], string> = {
-  pass: 'Pass',
-  flag: 'Flag',
-  attention: 'Attention',
+// Status palette echoing the app's QC pills. Hex without '#' so docx can use it
+// directly; the PDF renderer prepends '#'.
+const STATUS_STYLE: Record<
+  OrdinanceQualityCheck['status'],
+  { label: string; text: string; bg: string }
+> = {
+  pass: { label: 'PASS', text: '15803D', bg: 'DCFCE7' },
+  flag: { label: 'FLAG', text: 'B91C1C', bg: 'FEE2E2' },
+  attention: { label: 'ATTENTION', text: 'B45309', bg: 'FEF3C7' },
 }
 
-// The assembled document, format-agnostic, so the PDF and Word renderers stay
-// in sync. The last section (sources + quality report) is the attorney-facing
-// reference, with links to each source.
+const MUTED = '6B7280'
+const NOTE = '333333'
+const DIVIDER = 'E5E7EB'
+const LINK = '1155CC'
+
 type ExportContent = {
   title: string
   bodyLines: string[]
   sources: OrdinanceSource[]
   checks: OrdinanceQualityCheck[]
 }
+
+const tallyOf = (checks: OrdinanceQualityCheck[]) => ({
+  pass: checks.filter((c) => c.status === 'pass').length,
+  flag: checks.filter((c) => c.status === 'flag').length,
+  attention: checks.filter((c) => c.status === 'attention').length,
+})
 
 const sourceLabel = (source: OrdinanceSource): string =>
   source.publisher ? `${source.title} — ${source.publisher}` : source.title
@@ -81,6 +95,8 @@ export class OrdinanceExportService {
   }
 }
 
+// ── PDF ────────────────────────────────────────────────────────────────────
+
 const renderPdf = (content: ExportContent): Promise<Buffer> => {
   const doc = new PDFDocument({ size: 'LETTER', margin: 54 })
   const chunks: Buffer[] = []
@@ -92,55 +108,89 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
     doc.on('error', reject)
   })
 
-  doc.font('Helvetica-Bold').fontSize(18).fillColor('black')
-  doc.text(content.title)
+  const left = doc.page.margins.left
+  const right = doc.page.width - doc.page.margins.right
+  const contentW = right - left
+
+  const rule = (): void => {
+    const y = doc.y + 1
+    doc
+      .moveTo(left, y)
+      .lineTo(right, y)
+      .lineWidth(0.5)
+      .strokeColor(`#${DIVIDER}`)
+      .stroke()
+    doc.moveDown(0.8)
+  }
+
+  const link = (label: string, url?: string): void => {
+    if (url) {
+      doc
+        .fillColor(`#${LINK}`)
+        .text(label, { link: url, underline: true })
+        .fillColor('black')
+    } else {
+      doc.fillColor('black').text(label)
+    }
+  }
+
+  doc.font('Helvetica-Bold').fontSize(18).fillColor('black').text(content.title)
   doc.moveDown()
-  doc.font('Helvetica').fontSize(11)
+  doc.font('Helvetica').fontSize(11).fillColor('black')
   for (const line of content.bodyLines) {
-    // Empty lines are paragraph breaks in the source text; render a gap.
     if (line.trim().length === 0) doc.moveDown()
     else doc.text(line)
   }
 
-  const pdfLink = (label: string, url?: string): void => {
-    if (url) {
-      doc
-        .fillColor(LINK_COLOR)
-        .text(label, { link: url, underline: true })
-        .fillColor('black')
-    } else {
-      doc.text(label)
-    }
-  }
-
   doc.addPage()
-  doc.font('Helvetica-Bold').fontSize(14).text('Sources')
-  doc.moveDown(0.5).font('Helvetica').fontSize(11)
+
+  // Sources
+  doc.font('Helvetica-Bold').fontSize(14).fillColor('black').text('Sources')
+  doc.moveDown(0.3)
+  rule()
+  doc.font('Helvetica').fontSize(10.5)
   if (content.sources.length === 0) {
-    doc.fillColor('#666666').text('No sources cited.').fillColor('black')
+    doc.fillColor(`#${MUTED}`).text('No sources cited.').fillColor('black')
   } else {
     for (const source of content.sources) {
-      pdfLink(`• ${sourceLabel(source)}`, source.url)
+      link(`• ${sourceLabel(source)}`, source.url)
+      doc.moveDown(0.2)
     }
   }
 
-  doc.moveDown().font('Helvetica-Bold').fontSize(14).text('Quality report')
-  doc.moveDown(0.5).fontSize(11)
+  // Quality report
+  doc.moveDown()
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(14)
+    .fillColor('black')
+    .text('Quality report')
+  doc.moveDown(0.2)
+  if (content.checks.length > 0) {
+    const t = tallyOf(content.checks)
+    doc
+      .font('Helvetica')
+      .fontSize(10)
+      .fillColor(`#${MUTED}`)
+      .text(
+        `Reviewed by ${content.checks.length} checks    ` +
+          `${t.pass} pass · ${t.flag} flag · ${t.attention} attention`,
+      )
+      .fillColor('black')
+  }
+  doc.moveDown(0.3)
+  rule()
+
   if (content.checks.length === 0) {
     doc
       .font('Helvetica')
-      .fillColor('#666666')
+      .fontSize(10.5)
+      .fillColor(`#${MUTED}`)
       .text('No quality report was generated.')
       .fillColor('black')
   } else {
     for (const check of content.checks) {
-      doc
-        .font('Helvetica-Bold')
-        .text(`${check.label} — ${STATUS_LABEL[check.status]}`)
-      doc.font('Helvetica').text(check.note)
-      if (check.source)
-        pdfLink(`Source: ${sourceLabel(check.source)}`, check.source.url)
-      doc.moveDown(0.5)
+      pdfCheckRow(doc, check, left, right, contentW, link)
     }
   }
 
@@ -148,7 +198,69 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
   return done
 }
 
-const docxLink = (label: string, url?: string): Paragraph => {
+const pdfCheckRow = (
+  doc: PDFKit.PDFDocument,
+  check: OrdinanceQualityCheck,
+  left: number,
+  right: number,
+  contentW: number,
+  link: (label: string, url?: string) => void,
+): void => {
+  const style = STATUS_STYLE[check.status]
+  const padX = 6
+  const pillH = 14
+
+  // Measure the pill at its own font before laying out the label beside it.
+  doc.font('Helvetica-Bold').fontSize(8)
+  const pillW = doc.widthOfString(style.label) + padX * 2
+  const pillX = right - pillW
+
+  const y0 = doc.y
+  // Label on the left, leaving room for the pill on the right.
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .fillColor('black')
+    .text(check.label, left, y0, { width: contentW - pillW - 10 })
+  const afterLabelY = doc.y
+
+  // Pill on the right, top-aligned with the label.
+  doc.roundedRect(pillX, y0, pillW, pillH, 7).fill(`#${style.bg}`)
+  doc
+    .font('Helvetica-Bold')
+    .fontSize(8)
+    .fillColor(`#${style.text}`)
+    .text(style.label, pillX + padX, y0 + 3.5, { lineBreak: false })
+
+  doc.fillColor('black')
+  doc
+    .font('Helvetica')
+    .fontSize(10.5)
+    .fillColor(`#${NOTE}`)
+    .text(check.note, left, afterLabelY, { width: contentW })
+  doc.fillColor('black')
+
+  if (check.source) {
+    doc.font('Helvetica').fontSize(9.5)
+    link(`source: ${sourceLabel(check.source)}`, check.source.url)
+  }
+  doc.moveDown(0.7)
+}
+
+// ── Word (.docx) ─────────────────────────────────────────────────────────────
+
+const RIGHT_TAB = 9350
+
+const docxDivider = (): Paragraph =>
+  new Paragraph({
+    spacing: { after: 120 },
+    border: {
+      bottom: { style: BorderStyle.SINGLE, size: 6, color: DIVIDER },
+    },
+    children: [],
+  })
+
+const docxSourceLine = (label: string, url?: string): Paragraph => {
   if (!url) return new Paragraph({ children: [new TextRun(label)] })
   return new Paragraph({
     children: [
@@ -158,6 +270,36 @@ const docxLink = (label: string, url?: string): Paragraph => {
       }),
     ],
   })
+}
+
+const docxCheckParagraphs = (check: OrdinanceQualityCheck): Paragraph[] => {
+  const style = STATUS_STYLE[check.status]
+  const paragraphs: Paragraph[] = [
+    new Paragraph({
+      spacing: { before: 160 },
+      tabStops: [{ type: TabStopType.RIGHT, position: RIGHT_TAB }],
+      children: [
+        new TextRun({ text: check.label, bold: true }),
+        new TextRun({ text: '\t' }),
+        new TextRun({
+          text: ` ${style.label} `,
+          bold: true,
+          size: 16,
+          color: style.text,
+          shading: { type: ShadingType.SOLID, color: 'auto', fill: style.bg },
+        }),
+      ],
+    }),
+    new Paragraph({
+      children: [new TextRun({ text: check.note, color: NOTE })],
+    }),
+  ]
+  if (check.source) {
+    paragraphs.push(
+      docxSourceLine(`source: ${sourceLabel(check.source)}`, check.source.url),
+    )
+  }
+  return paragraphs
 }
 
 const renderDocx = (content: ExportContent): Promise<Buffer> => {
@@ -172,34 +314,39 @@ const renderDocx = (content: ExportContent): Promise<Buffer> => {
       heading: HeadingLevel.HEADING_2,
       pageBreakBefore: true,
     }),
+    docxDivider(),
     ...(content.sources.length === 0
       ? [new Paragraph({ text: 'No sources cited.' })]
-      : content.sources.map((s) => docxLink(`• ${sourceLabel(s)}`, s.url))),
+      : content.sources.map((s) =>
+          docxSourceLine(`• ${sourceLabel(s)}`, s.url),
+        )),
   ]
 
+  const t = tallyOf(content.checks)
   const quality: Paragraph[] = [
-    new Paragraph({ text: 'Quality report', heading: HeadingLevel.HEADING_2 }),
-    ...(content.checks.length === 0
-      ? [new Paragraph({ text: 'No quality report was generated.' })]
-      : content.checks.flatMap((check) => [
+    new Paragraph({
+      text: 'Quality report',
+      heading: HeadingLevel.HEADING_2,
+      spacing: { before: 240 },
+    }),
+    ...(content.checks.length > 0
+      ? [
           new Paragraph({
             children: [
               new TextRun({
-                text: `${check.label} — ${STATUS_LABEL[check.status]}`,
-                bold: true,
+                text:
+                  `Reviewed by ${content.checks.length} checks    ` +
+                  `${t.pass} pass · ${t.flag} flag · ${t.attention} attention`,
+                color: MUTED,
               }),
             ],
           }),
-          new Paragraph({ text: check.note }),
-          ...(check.source
-            ? [
-                docxLink(
-                  `Source: ${sourceLabel(check.source)}`,
-                  check.source.url,
-                ),
-              ]
-            : []),
-        ])),
+        ]
+      : []),
+    docxDivider(),
+    ...(content.checks.length === 0
+      ? [new Paragraph({ text: 'No quality report was generated.' })]
+      : content.checks.flatMap(docxCheckParagraphs)),
   ]
 
   const doc = new Document({
