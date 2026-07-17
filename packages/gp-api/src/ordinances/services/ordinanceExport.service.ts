@@ -85,11 +85,17 @@ const buildContent = (record: Ordinance): ExportContent => {
 // Whether a check row's header (label + pill) fits before the page's bottom
 // margin. Extracted so the page-break decision is unit-testable; the pill is
 // drawn at an absolute y, so a row that doesn't fit must start a new page.
+// Reserve the taller of the pill and one label line (labels are the six fixed
+// rubric strings, so a single line is the realistic case, but this stays
+// correct if the label ever wraps).
 export const checkRowHeaderFits = (
   currentY: number,
   pillHeight: number,
   bottomMargin: number,
-): boolean => currentY + pillHeight + 4 <= bottomMargin
+  labelFontSize = 11,
+): boolean =>
+  currentY + Math.max(pillHeight, Math.ceil(labelFontSize * 1.2)) + 4 <=
+  bottomMargin
 
 export type OrdinanceExportResult = {
   buffer: Buffer
