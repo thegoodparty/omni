@@ -180,16 +180,23 @@ export class GeneralChatsService {
 
       const canned = handler.maybeCannedReply?.(args.userMessage, ctx) ?? null
       if (canned !== null) {
+        if (!args.clientMessageId) {
+          yield {
+            type: 'error',
+            code: 'internal',
+            message: 'clientMessageId is required for this request.',
+            retryable: false,
+          }
+          return
+        }
+        // No user row is written on this path, so clientMessageId here
+        // idempotency-keys the retried send: appendMessageIdempotent dedups
+        // a resend of the same canned reply.
         const saved = await self.chatStore.appendMessage({
           conversationId: args.conversationId,
           role: ChatMessageRole.assistant,
           content: canned,
-          // No user row is written on this path, so clientMessageId here
-          // idempotency-keys the retried send: appendMessageIdempotent dedups
-          // a resend of the same canned reply.
-          ...(args.clientMessageId && {
-            clientMessageId: args.clientMessageId,
-          }),
+          clientMessageId: args.clientMessageId,
         })
         yield { type: 'text', delta: canned }
         yield { type: 'done', assistantMessageId: saved.id }

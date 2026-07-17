@@ -333,6 +333,50 @@ describe('GeneralChatsService', () => {
     },
   )
 
+  it(
+    'errors a canned reply without appending when clientMessageId is ' +
+      'absent, to stay idempotent on retry',
+    async () => {
+      handler = buildHandler({
+        maybeCannedReply: vi.fn((userMessage: string) =>
+          userMessage === '__kickoff__' ? 'Welcome aboard!' : null,
+        ),
+      })
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: null }),
+        ) as never,
+      })
+      const chatStore = buildChatStore()
+      const chatStream = { stream: vi.fn() }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        chatStore,
+        chatStream as never,
+      )
+      const chunks = await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: '__kickoff__',
+        }),
+      )
+      expect(chunks).toEqual([
+        {
+          type: 'error',
+          code: 'internal',
+          message: 'clientMessageId is required for this request.',
+          retryable: false,
+        },
+      ])
+      expect(chatStore.appendMessage).not.toHaveBeenCalled()
+      expect(chatStream.stream).not.toHaveBeenCalled()
+    },
+  )
+
   it('runs the normal LLM turn when maybeCannedReply returns null', async () => {
     handler = buildHandler({
       maybeCannedReply: vi.fn(() => null),
