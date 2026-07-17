@@ -104,6 +104,31 @@ describe('Contact interactions routes', () => {
       expect(row.sourceEventId).toBeNull()
     }, 15_000)
 
+    it('text with opted_out outcome sets optedOutAt to occurredAt', async () => {
+      const slug = `win-pro-text-optout-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      enableVoterData()
+      const headers = { [ORG_SLUG_HEADER]: slug }
+      const personId = 'person-text-optout'
+      const occurredAt = '2026-06-03T15:00:00.000Z'
+
+      const result = await service.client.post(
+        interactionsPath(personId),
+        { channel: 'text', outcome: 'opted_out', occurredAt },
+        { headers },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data.outcome).toBe('opted_out')
+
+      const row = await service.prisma.contactInteractionText.findUniqueOrThrow(
+        { where: { id: result.data.id } },
+      )
+      expect(row.optedOutAt?.toISOString()).toBe(occurredAt)
+      expect(row.respondedAt).toBeNull()
+      expect(row.manual).toBe(true)
+    }, 15_000)
+
     it('text with no outcome leaves both timestamp columns null', async () => {
       const slug = `win-pro-text-noop-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
@@ -154,6 +179,32 @@ describe('Contact interactions routes', () => {
       expect(row.manual).toBe(true)
       expect(row.outreachId).toBeNull()
       expect(row.sourceCallId).toBeNull()
+    }, 15_000)
+
+    it('robocall with answered outcome sets answeredAt', async () => {
+      const slug = `win-pro-robocall-answered-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      enableVoterData()
+      const headers = { [ORG_SLUG_HEADER]: slug }
+      const personId = 'person-robocall-answered'
+      const occurredAt = '2026-06-04T10:15:00.000Z'
+
+      const result = await service.client.post(
+        interactionsPath(personId),
+        { channel: 'robocall', outcome: 'answered', occurredAt },
+        { headers },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data.outcome).toBe('answered')
+
+      const row =
+        await service.prisma.contactInteractionRobocall.findUniqueOrThrow({
+          where: { id: result.data.id },
+        })
+      expect(row.answeredAt?.toISOString()).toBe(occurredAt)
+      expect(row.voicemailLeftAt).toBeNull()
+      expect(row.manual).toBe(true)
     }, 15_000)
   })
 
