@@ -7,6 +7,9 @@ import type {
   ConstituentActivityEventType,
   DoorKnockConstituentActivity,
   GetIndividualActivitiesResponse,
+  ListDetailContactsResponse,
+  ListDetailOutreachHistoryEntry,
+  ListDetailReachability,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   NoteConstituentActivity,
@@ -76,3 +79,14 @@ export type {
 // local names (outreachType/attributionSource render labels key off these).
 export type OutreachChannel = OutreachType
 export type OutreachAttributionSource = VoterOutreachAttributionSource
+
+// GET /v1/contacts/list-detail (ENG-10706): demographics + reachable-by-channel
+// counts + outreach history for one saved list, consumed by the list-detail
+// page (task 08). Defined once in
+// @goodparty_org/contracts/people/ListDetailContacts.schema and re-exported
+// here so this feature's imports don't all need to change.
+export type {
+  ListDetailContactsResponse,
+  ListDetailOutreachHistoryEntry,
+  ListDetailReachability,
+}

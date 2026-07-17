@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import type { ListDetailContactsResponse } from '@goodparty_org/contracts'
 import { Organization, User } from '../../generated/prisma'
 import { FeaturesService } from 'src/features/services/features.service'
 import { isAxiosError } from 'axios'
@@ -28,10 +29,12 @@ import { OrganizationsService } from 'src/organizations/services/organizations.s
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import {
+  PeopleAggregatesResponse,
   StatsResponse,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
+import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -411,6 +414,130 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // Demographics + reachable-by-channel counts + outreach history for a
+  // saved list's detail page (ENG-10706). Unlike countContacts (an unsaved,
+  // in-progress filter set), segment here is always a persisted
+  // VoterFileFilter id, so a cross-org/unknown id 404s instead of silently
+  // falling back to "no filter" the way the segmentToFilters seam does for
+  // the list/count/download paths.
+  async getListDetail(
+    { segment }: ListDetailContactsDTO,
+    organization: Organization,
+  ): Promise<ListDetailContactsResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Filtering voter data is only available for pro campaigns',
+      )
+    }
+
+    const filter =
+      await this.voterFileFilterService.findByIdAndOrganizationSlug(
+        segment,
+        organization.slug,
+      )
+    if (!filter) {
+      throw new NotFoundException('List not found')
+    }
+
+    const baseFilters = convertVoterFileFilterToFilters(filter)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filter.activityConditions,
+        supportStatus: filter.supportStatus,
+      },
+    )
+
+    const outreachHistory =
+      await this.voterFileFilterService.findOutreachesByVoterFileFilterId(
+        filter.id,
+      )
+
+    if (idResolution.kind === 'empty') {
+      return {
+        demographics: { people: 0, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 0,
+          robocall: 0,
+          phoneBanking: 0,
+          doorKnocking: 0,
+          email: null,
+          metaAds: null,
+        },
+        outreachHistory,
+      }
+    }
+
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+
+    const [base, cellphone, landline, address] =
+      await this.withOrgDistrictResolution(organization, (districtParams) =>
+        Promise.all([
+          this.fetchPeopleAggregates(districtParams, filters),
+          this.fetchPeopleAggregates(districtParams, {
+            ...filters,
+            hasCellPhone: true,
+          }),
+          // phoneBanking mirrors the built-in channel map
+          // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
+          // phones — the legacy raw-SQL export's phoneBanking population is
+          // landline-only.
+          this.fetchPeopleAggregates(districtParams, {
+            ...filters,
+            hasLandline: true,
+          }),
+          this.fetchPeopleAggregates(districtParams, {
+            ...filters,
+            hasAddress: true,
+          }),
+        ]),
+      )
+
+    return {
+      demographics: {
+        people: base.count,
+        avgAge: base.avgAge,
+        avgIncome: base.avgIncome,
+      },
+      reachability: {
+        sms: cellphone.count,
+        robocall: cellphone.count,
+        phoneBanking: landline.count,
+        doorKnocking: address.count,
+        email: null,
+        metaAds: null,
+      },
+      outreachHistory,
+    }
+  }
+
+  private async fetchPeopleAggregates(
+    districtParams: { districtId: string },
+    filters: FilterObject,
+  ): Promise<PeopleAggregatesResponse> {
+    try {
+      const response = await lastValueFrom(
+        this.httpService.post(
+          `${PEOPLE_API_URL}/v1/people/aggregates`,
+          { ...districtParams, filters },
+          {
+            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+          },
+        ),
+      )
+      // People API response is untyped — external API returns unknown shape
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      return response.data as PeopleAggregatesResponse
+    } catch (error) {
+      this.logger.error({ error }, 'Failed to fetch aggregates from people API')
+      throw new BadGatewayException(
+        'Failed to fetch aggregates from people API',
+      )
+    }
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {

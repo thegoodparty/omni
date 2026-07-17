@@ -63,6 +63,15 @@ export class DownloadPeopleDTO extends createZodDto(downloadPeopleSchema) {}
 
 export class StatsDTO extends createZodDto(withDistrictInput({})) {}
 
+// Filtered aggregates (COUNT/AVG age/AVG income) over a list-detail page's
+// membership — distinct from GET /stats, which only serves the precomputed,
+// unfiltered DistrictStats row (see StatsService).
+export const aggregatesSchema = withDistrictInput({
+  filters: filtersSchema,
+})
+
+export class AggregatesDTO extends createZodDto(aggregatesSchema) {}
+
 export const samplePeopleSchema = withDistrictInput({
   size: z.coerce.number().int().min(1).max(10000).optional().default(500),
   hasCellPhone: z.coerce.boolean().optional(),

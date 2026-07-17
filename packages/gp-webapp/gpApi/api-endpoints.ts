@@ -38,6 +38,7 @@ import type {
   SegmentResponse,
   Person,
   ListContactsResponse,
+  ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
   ContactNote,
@@ -624,6 +625,10 @@ export type APIEndpoints = {
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
+  }
+  'GET /v1/contacts/list-detail': {
+    Request: { segment: number }
+    Response: ListDetailContactsResponse
   }
 
   'GET /v1/contacts/:personId/notes': {

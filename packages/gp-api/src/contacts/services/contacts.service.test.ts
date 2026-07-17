@@ -1,7 +1,7 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { BallotReadyPositionLevel } from '@goodparty_org/contracts'
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Campaign, Organization, VoterFileFilter } from '../../generated/prisma'
 import { of } from 'rxjs'
@@ -62,6 +62,7 @@ describe('ContactsService', () => {
     }
     let mockVoterFileFilterService: {
       findByIdAndOrganizationSlug: ReturnType<typeof vi.fn>
+      findOutreachesByVoterFileFilterId: ReturnType<typeof vi.fn>
     }
     let mockElectionsService: {
       cleanDistrictName: ReturnType<typeof vi.fn>
@@ -93,6 +94,7 @@ describe('ContactsService', () => {
       }
       mockVoterFileFilterService = {
         findByIdAndOrganizationSlug: vi.fn().mockResolvedValue(null),
+        findOutreachesByVoterFileFilterId: vi.fn().mockResolvedValue([]),
       }
       mockElectionsService = {
         cleanDistrictName: vi.fn((name: string) => name),
@@ -1481,6 +1483,178 @@ describe('ContactsService', () => {
         ).rejects.toMatchObject({
           response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },
         })
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('getListDetail (list-detail demographics/reachability, ENG-10706)', () => {
+      const savedFilter = {
+        id: 42,
+        activityConditions: [],
+        supportStatus: [],
+      } as unknown as VoterFileFilter
+
+      const aggregatesResponse = (
+        count: number,
+        avgAge: number | null = null,
+        avgIncome: number | null = null,
+      ) => of({ data: { count, avgAge, avgIncome } })
+
+      it('throws when the organization is not pro, before looking up the list', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.getListDetail({ segment: 42 }, org),
+        ).rejects.toThrow(BadRequestException)
+        expect(
+          mockVoterFileFilterService.findByIdAndOrganizationSlug,
+        ).not.toHaveBeenCalled()
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('404s when the list does not belong to this org (or does not exist)', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          null,
+        )
+
+        await expect(
+          service.getListDetail({ segment: 999 }, org),
+        ).rejects.toThrow(NotFoundException)
+        expect(
+          mockVoterFileFilterService.findByIdAndOrganizationSlug,
+        ).toHaveBeenCalledWith(999, 'campaign-1')
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('returns zero demographics/reachability without calling people-api when the resolution is empty', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          savedFilter,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'empty' },
+        )
+        mockVoterFileFilterService.findOutreachesByVoterFileFilterId.mockResolvedValue(
+          [{ id: 1, name: 'Text blast', outreachType: 'text' }],
+        )
+
+        const result = await service.getListDetail({ segment: 42 }, org)
+
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+        expect(result.demographics).toEqual({
+          people: 0,
+          avgAge: null,
+          avgIncome: null,
+        })
+        expect(result.reachability).toEqual({
+          sms: 0,
+          robocall: 0,
+          phoneBanking: 0,
+          doorKnocking: 0,
+          email: null,
+          metaAds: null,
+        })
+        // Outreach history is independent of person-membership — it still
+        // comes back even when the resolved id set is empty.
+        expect(result.outreachHistory).toEqual([
+          { id: 1, name: 'Text blast', outreachType: 'text' },
+        ])
+      })
+
+      it('runs base/cellphone/landline/address aggregate calls in parallel and maps reachability channels', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          savedFilter,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'none' },
+        )
+        mockHttpService.post
+          .mockReturnValueOnce(aggregatesResponse(100, 42, 55000))
+          .mockReturnValueOnce(aggregatesResponse(60))
+          // Distinct from the cellphone count so a phoneBanking/sms mix-up
+          // (both reading the same mocked value) would fail this assertion.
+          .mockReturnValueOnce(aggregatesResponse(45))
+          .mockReturnValueOnce(aggregatesResponse(30))
+
+        const result = await service.getListDetail({ segment: 42 }, org)
+
+        expect(result.demographics).toEqual({
+          people: 100,
+          avgAge: 42,
+          avgIncome: 55000,
+        })
+        expect(result.reachability).toEqual({
+          sms: 60,
+          robocall: 60,
+          // phoneBanking mirrors segmentsToFiltersMap.const.ts: landline-only,
+          // not the cellphone count sms/robocall use.
+          phoneBanking: 45,
+          doorKnocking: 30,
+          email: null,
+          metaAds: null,
+        })
+
+        expect(mockHttpService.post).toHaveBeenCalledTimes(4)
+        const bodies = mockHttpService.post.mock.calls.map(
+          (call) => call[1] as { filters: Record<string, unknown> },
+        )
+        expect(bodies[0]?.filters).toEqual({})
+        expect(bodies[1]?.filters).toEqual({ hasCellPhone: true })
+        expect(bodies[2]?.filters).toEqual({ hasLandline: true })
+        expect(bodies[3]?.filters).toEqual({ hasAddress: true })
+      })
+
+      it('merges a resolved activity-condition id filter into every outgoing aggregate call', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          savedFilter,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'filter', idFilter: { in: ['p-1', 'p-2'] } },
+        )
+        mockHttpService.post.mockReturnValue(aggregatesResponse(2))
+
+        await service.getListDetail({ segment: 42 }, org)
+
+        const bodies = mockHttpService.post.mock.calls.map(
+          (call) => call[1] as { filters: Record<string, unknown> },
+        )
+        for (const body of bodies) {
+          expect(body.filters).toMatchObject({ id: { in: ['p-1', 'p-2'] } })
+        }
+      })
+
+      it('rejects a party-filtered list for an elected-office organization', async () => {
+        const org = makeOrganization({ slug: 'eo-mayor' })
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          { ...savedFilter, partyDemocrat: true },
+        )
+
+        await expect(
+          service.getListDetail({ segment: 42 }, org),
+        ).rejects.toThrow(BadRequestException)
         expect(mockHttpService.post).not.toHaveBeenCalled()
       })
     })
