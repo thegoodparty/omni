@@ -56,8 +56,8 @@ export const acceptCookieBanner = async (page: Page): Promise<void> => {
     .addCookies([{ name: 'cookiesAccepted', value: 'true', url: baseURL }])
 }
 
-// addCampaignStoryIssue and blockCampaignPlanGeneration were removed here —
-// they existed only to author the story at the standalone
+// addCampaignStoryIssue and blockCampaignPlanGeneration were removed here.
+// They existed only to author the story at the standalone
 // /dashboard/campaign-story route, which no longer exists (story authoring
 // moved into onboarding). Onboarding e2e coverage for story authoring is a
 // follow-up; reintroduce equivalent helpers there if needed.

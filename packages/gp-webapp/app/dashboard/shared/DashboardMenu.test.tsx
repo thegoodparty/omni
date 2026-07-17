@@ -136,7 +136,7 @@ describe('getDashboardMenuItems — Win Contacts gating', () => {
   })
 })
 
-describe('getDashboardMenuItems — Campaign Story sidebar item removed', () => {
+describe('getDashboardMenuItems: Campaign Story sidebar item removed', () => {
   it('does not render a Campaign Story sidebar item even when the story flag is on', () => {
     const items = getDashboardMenuItems(
       proCampaign,
