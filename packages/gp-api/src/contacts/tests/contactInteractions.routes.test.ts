@@ -1,6 +1,9 @@
 import { useTestService } from '@/test-service'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { FeaturesService } from '@/features/services/features.service'
 import { SupportStatusService } from '@/contactInteraction/services/supportStatus.service'
+import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -38,6 +41,21 @@ const enableVoterData = () =>
 const interactionsPath = (personId: string) =>
   `/v1/contacts/${personId}/interactions`
 
+// The write path now runs the same district-scoped person lookup every read
+// path uses (findPerson), so a real people-api round trip would need a
+// resolvable district on the org. Stubbed at the service layer — same
+// pattern as contacts.controller.test.ts's gatedEndpoints — instead of wiring
+// overrideDistrictId + a real HttpService response on every test.
+const mockPersonFound = (personId: string) =>
+  vi
+    .spyOn(service.app.get(ContactsService), 'findPerson')
+    .mockResolvedValue({ id: personId } as PersonOutput)
+
+const mockPersonNotFound = () =>
+  vi
+    .spyOn(service.app.get(ContactsService), 'findPerson')
+    .mockRejectedValue(new NotFoundException('Person not found'))
+
 describe('Contact interactions routes', () => {
   describe('happy path per channel', () => {
     it('door knock with outcome and supportAnswer writes manual columns', async () => {
@@ -46,6 +64,7 @@ describe('Contact interactions routes', () => {
       enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-dk'
+      mockPersonFound(personId)
 
       const result = await service.client.post(
         interactionsPath(personId),
@@ -83,6 +102,7 @@ describe('Contact interactions routes', () => {
       enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-text'
+      mockPersonFound(personId)
       const occurredAt = '2026-06-01T12:00:00.000Z'
 
       const result = await service.client.post(
@@ -110,6 +130,7 @@ describe('Contact interactions routes', () => {
       enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-text-optout'
+      mockPersonFound(personId)
       const occurredAt = '2026-06-03T15:00:00.000Z'
 
       const result = await service.client.post(
@@ -135,6 +156,7 @@ describe('Contact interactions routes', () => {
       enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-text-noop'
+      mockPersonFound(personId)
 
       const result = await service.client.post(
         interactionsPath(personId),
@@ -159,6 +181,7 @@ describe('Contact interactions routes', () => {
       enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-robocall'
+      mockPersonFound(personId)
       const occurredAt = '2026-06-02T09:30:00.000Z'
 
       const result = await service.client.post(
@@ -187,6 +210,7 @@ describe('Contact interactions routes', () => {
       enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-robocall-answered'
+      mockPersonFound(personId)
       const occurredAt = '2026-06-04T10:15:00.000Z'
 
       const result = await service.client.post(
@@ -264,6 +288,7 @@ describe('Contact interactions routes', () => {
       const slug = `eo-${Date.now()}`
       await seedEoOrg(slug)
       const headers = { [ORG_SLUG_HEADER]: slug }
+      mockPersonFound('person-1')
 
       const result = await service.client.post(
         interactionsPath('person-1'),
@@ -273,6 +298,29 @@ describe('Contact interactions routes', () => {
 
       expect(result.status).toBe(201)
       expect(result.data.channel).toBe('doorKnock')
+    }, 15_000)
+  })
+
+  describe('person not found in the org district', () => {
+    it('404s and writes no interaction row', async () => {
+      const slug = `win-pro-notfound-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      enableVoterData()
+      mockPersonNotFound()
+      const headers = { [ORG_SLUG_HEADER]: slug }
+      const personId = 'person-out-of-district'
+
+      const result = await service.client.post(
+        interactionsPath(personId),
+        { channel: 'doorKnock', outcome: 'answered' },
+        { headers },
+      )
+
+      expect(result.status).toBe(404)
+      const count = await service.prisma.contactInteractionDoorKnock.count({
+        where: { organizationSlug: slug, personId },
+      })
+      expect(count).toBe(0)
     }, 15_000)
   })
 
@@ -303,6 +351,7 @@ describe('Contact interactions routes', () => {
       enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-support'
+      mockPersonFound(personId)
 
       const supportStatus = service.app.get(SupportStatusService)
       expect(

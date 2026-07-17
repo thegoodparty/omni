@@ -98,6 +98,12 @@ export class ContactInteractionsController {
   ): Promise<LogContactInteractionResponse> {
     await this.contactsService.assertContactsAccess(organization, user)
     await this.contactsService.assertProAccess(organization)
+    // Every read path on this surface (findPerson/findContacts) resolves the
+    // person through the org's district via people-api, so an out-of-district
+    // or unknown personId 404s. The write path must match — otherwise a
+    // caller could write an interaction row for a personId outside the org's
+    // district scope, since nothing else here validates it.
+    await this.contactsService.findPerson(personId, organization)
 
     const { slug: organizationSlug } = organization
     const occurredAt = body.occurredAt ?? new Date()
