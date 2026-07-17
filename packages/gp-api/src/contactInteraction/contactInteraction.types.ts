@@ -4,6 +4,7 @@ import {
   ContactInteractionText,
   SupportAnswer,
 } from '@/generated/prisma'
+import type { SupportStatusRollup } from '@goodparty_org/contracts'
 
 /**
  * The contact interaction convention (2026-07-14 design review, CRM tech
@@ -63,15 +64,18 @@ export type ContactInteraction = SatisfiesRecord<
   | ContactInteractionRobocall
 >
 
-export const SUPPORT_STATUS_UNKNOWN = 'unknown' as const
+export const SUPPORT_STATUS_UNKNOWN: SupportStatusRollup = 'unknown'
 
 // The single source for the answer → rollup derivation. Both
 // SupportStatusService methods (display and filter resolution) compile
-// their SQL CASE from this constant so the two can never disagree.
+// their SQL CASE from this constant so the two can never disagree. The
+// `satisfies` clause pins every arm to contracts' SupportStatusRollup — the
+// same vocabulary the person-detail response serializes (ENG-10696) — so the
+// derivation can't silently drift from what the contract promises.
 export const SUPPORT_ANSWER_ROLLUP = {
   [SupportAnswer.supporter]: 'supporter',
   [SupportAnswer.non_supporter]: 'non_supporter',
   [SupportAnswer.unsure]: SUPPORT_STATUS_UNKNOWN,
-} as const satisfies Record<SupportAnswer, string>
+} as const satisfies Record<SupportAnswer, SupportStatusRollup>
 
-export type SupportStatusRollup = (typeof SUPPORT_ANSWER_ROLLUP)[SupportAnswer]
+export type { SupportStatusRollup }
