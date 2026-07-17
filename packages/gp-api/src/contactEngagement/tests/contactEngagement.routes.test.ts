@@ -1,7 +1,9 @@
 import { useTestService } from '@/test-service'
 import {
   Campaign,
+  DoorKnockOutcome,
   OutreachType,
+  SupportAnswer,
   VoterOutreachAttributionSource,
 } from '../../generated/prisma'
 import { FeaturesService } from '@/features/services/features.service'
@@ -35,153 +37,221 @@ describe('ContactEngagement routes', () => {
     ).mockResolvedValue(true)
   })
 
-  describe('GET /contact-engagement/:id/activities (campaign context)', () => {
-    it('returns the campaign outreach activities for a voter, newest first', async () => {
-      await service.prisma.voterOutreachActivity.createMany({
-        data: [
-          {
-            campaignId: campaign.id,
-            lalVoterId,
-            outreachType: OutreachType.doorKnocking,
-            attributionSource: VoterOutreachAttributionSource.recipient,
-            occurredAt: new Date('2026-01-10T10:00:00Z'),
-          },
-          {
-            campaignId: campaign.id,
-            lalVoterId,
-            outreachType: OutreachType.text,
-            attributionSource: VoterOutreachAttributionSource.segmentDerived,
-            occurredAt: new Date('2026-02-20T10:00:00Z'),
-          },
-        ],
+  describe('GET /contact-engagement/:id/activities (campaign context - Win)', () => {
+    it('unions door knocks, texts, robocalls, notes, and legacy outreach rows when lalVoterId is given, newest first', async () => {
+      const personId = 'person-win-1'
+
+      await service.prisma.contactInteractionRobocall.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          voicemailLeftAt: new Date('2026-01-04T10:05:00Z'),
+          manual: false,
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          supportAnswer: SupportAnswer.supporter,
+          note: 'Great chat on the porch',
+          manual: true,
+        },
+      })
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-06T10:00:00Z'),
+          respondedAt: new Date('2026-01-06T11:00:00Z'),
+          manual: false,
+        },
+      })
+      await service.prisma.contactNote.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          body: 'Follow up before the primary',
+          createdAt: new Date('2026-01-07T10:00:00Z'),
+        },
+      })
+      await service.prisma.voterOutreachActivity.create({
+        data: {
+          campaignId: campaign.id,
+          lalVoterId,
+          outreachType: OutreachType.text,
+          attributionSource: VoterOutreachAttributionSource.segmentDerived,
+          occurredAt: new Date('2026-01-08T10:00:00Z'),
+        },
       })
 
       const result = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
+        `/v1/contact-engagement/${personId}/activities`,
+        {
+          params: { lalVoterId },
+          headers: { 'x-organization-slug': campaignOrgSlug },
+        },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
+        ConstituentActivityType.OUTREACH,
+        ConstituentActivityType.NOTE,
+        ConstituentActivityType.TEXT,
+        ConstituentActivityType.DOOR_KNOCK,
+        ConstituentActivityType.ROBOCALL,
+      ])
+
+      const [outreach, note, text, doorKnock, robocall] = result.data.results
+
+      expect(outreach.data).toMatchObject({
+        outreachType: OutreachType.text,
+        attributionSource: VoterOutreachAttributionSource.segmentDerived,
+      })
+      expect(note.data).toMatchObject({
+        body: 'Follow up before the primary',
+      })
+      expect(text.data).toMatchObject({
+        respondedAt: '2026-01-06T11:00:00.000Z',
+        optedOutAt: null,
+        manual: false,
+        outreachId: null,
+      })
+      expect(doorKnock.data).toMatchObject({
+        outcome: DoorKnockOutcome.answered,
+        supportAnswer: SupportAnswer.supporter,
+        note: 'Great chat on the porch',
+        manual: true,
+      })
+      expect(robocall.data).toMatchObject({
+        answeredAt: null,
+        voicemailLeftAt: '2026-01-04T10:05:00.000Z',
+        outreachId: null,
+      })
+    })
+
+    it('omits legacy outreach rows when lalVoterId is not given, without erroring', async () => {
+      const personId = 'person-win-2'
+
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: DoorKnockOutcome.not_home,
+          manual: true,
+        },
+      })
+      await service.prisma.voterOutreachActivity.create({
+        data: {
+          campaignId: campaign.id,
+          lalVoterId: 'LAL-VOTER-2',
+          outreachType: OutreachType.doorKnocking,
+          attributionSource: VoterOutreachAttributionSource.recipient,
+          occurredAt: new Date('2026-01-06T10:00:00Z'),
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
         { headers: { 'x-organization-slug': campaignOrgSlug } },
       )
 
       expect(result.status).toBe(200)
-      expect(result.data.results).toHaveLength(2)
+      expect(result.data.results).toHaveLength(1)
       expect(result.data.results[0]).toMatchObject({
-        type: ConstituentActivityType.OUTREACH,
-        date: '2026-02-20T10:00:00.000Z',
+        type: ConstituentActivityType.DOOR_KNOCK,
+      })
+    })
+
+    it('paginates the union without duplicates or gaps (cursor walk, page size 2)', async () => {
+      const personId = 'person-win-cursor'
+      const cursorLalVoterId = 'LAL-CURSOR-1'
+
+      await service.prisma.contactInteractionRobocall.create({
         data: {
-          outreachType: OutreachType.text,
-          attributionSource: VoterOutreachAttributionSource.segmentDerived,
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-01T10:00:00Z'),
+          manual: false,
         },
       })
-      expect(result.data.results[1]).toMatchObject({
-        type: ConstituentActivityType.OUTREACH,
-        date: '2026-01-10T10:00:00.000Z',
-        data: { outreachType: OutreachType.doorKnocking },
-      })
-    })
-
-    it('pages forward with the activityId cursor', async () => {
-      await service.prisma.voterOutreachActivity.createMany({
-        data: [
-          {
-            campaignId: campaign.id,
-            lalVoterId,
-            outreachType: OutreachType.doorKnocking,
-            attributionSource: VoterOutreachAttributionSource.recipient,
-            occurredAt: new Date('2026-01-10T10:00:00Z'),
-          },
-          {
-            campaignId: campaign.id,
-            lalVoterId,
-            outreachType: OutreachType.phoneBanking,
-            attributionSource: VoterOutreachAttributionSource.segmentDerived,
-            occurredAt: new Date('2026-02-15T10:00:00Z'),
-          },
-          {
-            campaignId: campaign.id,
-            lalVoterId,
-            outreachType: OutreachType.text,
-            attributionSource: VoterOutreachAttributionSource.segmentDerived,
-            occurredAt: new Date('2026-03-20T10:00:00Z'),
-          },
-        ],
-      })
-
-      const page1 = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
-        {
-          params: { take: 2 },
-          headers: { 'x-organization-slug': campaignOrgSlug },
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-02T10:00:00Z'),
+          outcome: DoorKnockOutcome.refused_to_engage,
+          manual: true,
         },
-      )
-
-      expect(page1.status).toBe(200)
-      expect(page1.data.results).toHaveLength(2)
-      expect(page1.data.results[0].date).toBe('2026-03-20T10:00:00.000Z')
-      expect(page1.data.results[1].date).toBe('2026-02-15T10:00:00.000Z')
-      expect(page1.data.nextCursor).not.toBeNull()
-
-      const page2 = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
-        {
-          params: { take: 2, after: page1.data.nextCursor },
-          headers: { 'x-organization-slug': campaignOrgSlug },
+      })
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-03T10:00:00Z'),
+          manual: false,
         },
-      )
-
-      expect(page2.status).toBe(200)
-      expect(page2.data.results).toHaveLength(1)
-      expect(page2.data.results[0].date).toBe('2026-01-10T10:00:00.000Z')
-      expect(page2.data.nextCursor).toBeNull()
-    })
-
-    it('returns an empty page for a stale cursor instead of looping', async () => {
+      })
+      await service.prisma.contactNote.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          body: 'Cursor walk note',
+          createdAt: new Date('2026-01-04T10:00:00Z'),
+        },
+      })
       await service.prisma.voterOutreachActivity.create({
         data: {
           campaignId: campaign.id,
-          lalVoterId,
+          lalVoterId: cursorLalVoterId,
           outreachType: OutreachType.doorKnocking,
           attributionSource: VoterOutreachAttributionSource.recipient,
-          occurredAt: new Date('2026-01-10T10:00:00Z'),
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
         },
       })
 
-      const result = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
-        {
-          params: { after: '999999' },
-          headers: { 'x-organization-slug': campaignOrgSlug },
-        },
-      )
+      const seenTypes: string[] = []
+      let after: string | undefined
+      let pages = 0
 
-      expect(result.status).toBe(200)
-      expect(result.data.results).toEqual([])
-      expect(result.data.nextCursor).toBeNull()
-    })
+      do {
+        const page = await service.client.get(
+          `/v1/contact-engagement/${personId}/activities`,
+          {
+            params: {
+              take: 2,
+              lalVoterId: cursorLalVoterId,
+              ...(after ? { after } : {}),
+            },
+            headers: { 'x-organization-slug': campaignOrgSlug },
+          },
+        )
+        expect(page.status).toBe(200)
+        seenTypes.push(
+          ...page.data.results.map((r: { type: string }) => r.type),
+        )
+        after = page.data.nextCursor ?? undefined
+        pages += 1
+      } while (after && pages < 10)
 
-    it('returns an empty page for a non-numeric cursor instead of 500ing', async () => {
-      await service.prisma.voterOutreachActivity.create({
-        data: {
-          campaignId: campaign.id,
-          lalVoterId,
-          outreachType: OutreachType.doorKnocking,
-          attributionSource: VoterOutreachAttributionSource.recipient,
-          occurredAt: new Date('2026-01-10T10:00:00Z'),
-        },
-      })
+      expect(pages).toBe(3)
+      expect(seenTypes).toEqual([
+        ConstituentActivityType.OUTREACH,
+        ConstituentActivityType.NOTE,
+        ConstituentActivityType.TEXT,
+        ConstituentActivityType.DOOR_KNOCK,
+        ConstituentActivityType.ROBOCALL,
+      ])
+      // No duplicates across pages.
+      expect(new Set(seenTypes).size).toBe(seenTypes.length)
+    }, 10000)
 
-      const result = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
-        {
-          params: { after: 'not-a-number' },
-          headers: { 'x-organization-slug': campaignOrgSlug },
-        },
-      )
-
-      expect(result.status).toBe(200)
-      expect(result.data.results).toEqual([])
-      expect(result.data.nextCursor).toBeNull()
-    })
-
-    it('does not return another campaign activities for the same voter', async () => {
+    it('does not return another org/campaign interactions, notes, or outreach rows', async () => {
+      const personId = 'person-win-isolated'
       const otherOrgSlug = `campaign-other-${Date.now()}`
       await service.prisma.organization.create({
         data: { slug: otherOrgSlug, ownerId: service.user.id },
@@ -191,6 +261,22 @@ describe('ContactEngagement routes', () => {
           userId: service.user.id,
           slug: `other-campaign-${Date.now()}`,
           organizationSlug: otherOrgSlug,
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: otherOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          manual: true,
+        },
+      })
+      await service.prisma.contactNote.create({
+        data: {
+          organizationSlug: otherOrgSlug,
+          personId,
+          body: 'Belongs to the other org',
         },
       })
       await service.prisma.voterOutreachActivity.create({
@@ -204,8 +290,11 @@ describe('ContactEngagement routes', () => {
       })
 
       const result = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
-        { headers: { 'x-organization-slug': campaignOrgSlug } },
+        `/v1/contact-engagement/${personId}/activities`,
+        {
+          params: { lalVoterId },
+          headers: { 'x-organization-slug': campaignOrgSlug },
+        },
       )
 
       expect(result.status).toBe(200)
@@ -219,7 +308,7 @@ describe('ContactEngagement routes', () => {
       ).mockResolvedValue(false)
 
       const result = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
+        `/v1/contact-engagement/person-flag-off/activities`,
         { headers: { 'x-organization-slug': campaignOrgSlug } },
       )
 
@@ -247,7 +336,7 @@ describe('ContactEngagement routes', () => {
       })
 
       const result = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
+        '/v1/contact-engagement/person-foreign/activities',
         { headers: { 'x-organization-slug': otherOrgSlug } },
       )
 
@@ -256,14 +345,14 @@ describe('ContactEngagement routes', () => {
 
     it('rejects with 404 when the X-Organization-Slug header is absent', async () => {
       const result = await service.client.get(
-        `/v1/contact-engagement/${lalVoterId}/activities`,
+        '/v1/contact-engagement/person-no-header/activities',
       )
 
       expect(result.status).toBe(404)
     })
   })
 
-  describe('GET /contact-engagement/:id/activities (elected office context)', () => {
+  describe('GET /contact-engagement/:id/activities (elected office context - Serve)', () => {
     it('returns poll interactions for the elected office, unchanged', async () => {
       const eoOrgSlug = `eo-${Date.now()}`
       await service.prisma.organization.create({
@@ -307,6 +396,127 @@ describe('ContactEngagement routes', () => {
         type: ConstituentActivityType.POLL_INTERACTIONS,
         data: { pollId: poll.id, pollTitle: 'Community Survey' },
       })
+    })
+
+    it('unions poll interactions with door knocks, texts, robocalls, and notes, newest first', async () => {
+      const eoOrgSlug = `eo-union-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: eoOrgSlug, ownerId: service.user.id },
+      })
+      const electedOffice = await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          campaignId: campaign.id,
+          organizationSlug: eoOrgSlug,
+        },
+      })
+      const poll = await service.prisma.poll.create({
+        data: {
+          name: 'Neighborhood Survey',
+          messageContent: 'How are things?',
+          targetAudienceSize: 100,
+          scheduledDate: new Date('2026-01-01T00:00:00Z'),
+          estimatedCompletionDate: new Date('2026-01-05T00:00:00Z'),
+          electedOfficeId: electedOffice.id,
+        },
+      })
+      const personId = 'person-serve-union'
+
+      await service.prisma.pollIndividualMessage.create({
+        data: {
+          id: `pim-union-${Date.now()}`,
+          personId,
+          electedOfficeId: electedOffice.id,
+          pollId: poll.id,
+          sentAt: new Date('2026-01-08T10:00:00Z'),
+        },
+      })
+      await service.prisma.contactNote.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          personId,
+          body: 'Constituent follow-up',
+          createdAt: new Date('2026-01-07T10:00:00Z'),
+        },
+      })
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-06T10:00:00Z'),
+          manual: false,
+        },
+      })
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          supportAnswer: SupportAnswer.unsure,
+          manual: true,
+        },
+      })
+      await service.prisma.contactInteractionRobocall.create({
+        data: {
+          organizationSlug: eoOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-04T10:00:00Z'),
+          manual: false,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': eoOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
+        ConstituentActivityType.POLL_INTERACTIONS,
+        ConstituentActivityType.NOTE,
+        ConstituentActivityType.TEXT,
+        ConstituentActivityType.DOOR_KNOCK,
+        ConstituentActivityType.ROBOCALL,
+      ])
+    })
+
+    it('does not return another org interactions or notes', async () => {
+      const eoOrgSlug = `eo-isolated-${Date.now()}`
+      await service.prisma.organization.create({
+        data: { slug: eoOrgSlug, ownerId: service.user.id },
+      })
+      await service.prisma.electedOffice.create({
+        data: {
+          userId: service.user.id,
+          campaignId: campaign.id,
+          organizationSlug: eoOrgSlug,
+        },
+      })
+      const personId = 'person-serve-isolated'
+
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          manual: true,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        { headers: { 'x-organization-slug': eoOrgSlug } },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results).toEqual([])
+      // Sanity: the row exists, just under a different org.
+      const rows = await service.prisma.contactInteractionDoorKnock.findMany({
+        where: { organizationSlug: campaignOrgSlug, personId },
+      })
+      expect(rows).toHaveLength(1)
     })
   })
 

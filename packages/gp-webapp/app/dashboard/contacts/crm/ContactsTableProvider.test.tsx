@@ -162,7 +162,7 @@ describe('ContactsTableProvider — engagement :id selection', () => {
       },
     })
 
-  it('passes person.lalVoterId (not person.id) for the Win activities branch', async () => {
+  it('passes personId as :id and lalVoterId as a query param for the Win activities branch', async () => {
     mockPathname = '/dashboard/contacts/p_1'
     mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
@@ -177,17 +177,20 @@ describe('ContactsTableProvider — engagement :id selection', () => {
     })
 
     let capturedId: string | undefined
+    let capturedLalVoterId: string | undefined
     api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
       capturedId = request.params.id
+      capturedLalVoterId = request.query.lalVoterId
       return { status: 200, data: { nextCursor: null, results: [] } }
     })
 
     renderProvider()
 
-    await waitFor(() => expect(capturedId).toBe('lal_1'))
+    await waitFor(() => expect(capturedId).toBe('p_1'))
+    expect(capturedLalVoterId).toBe('lal_1')
   })
 
-  it('passes person.id for the Serve (elected office) activities branch', async () => {
+  it('passes person.id and no lalVoterId for the Serve (elected office) activities branch', async () => {
     mockPathname = '/dashboard/contacts/p_1'
     mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
     mockContactsList()
@@ -201,17 +204,20 @@ describe('ContactsTableProvider — engagement :id selection', () => {
     })
 
     let capturedId: string | undefined
+    let capturedLalVoterId: string | undefined
     api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
       capturedId = request.params.id
+      capturedLalVoterId = request.query.lalVoterId
       return { status: 200, data: { nextCursor: null, results: [] } }
     })
 
     renderProvider()
 
     await waitFor(() => expect(capturedId).toBe('p_1'))
+    expect(capturedLalVoterId).toBeUndefined()
   })
 
-  it('never fires the Win-keyed lalVoterId request for an elected official while the flag is on (loading-window guard)', async () => {
+  it('never sends the Win-keyed lalVoterId query param for an elected official while the flag is on (loading-window guard)', async () => {
     mockPathname = '/dashboard/contacts/p_1'
     mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
@@ -219,7 +225,7 @@ describe('ContactsTableProvider — engagement :id selection', () => {
     // lalVoterId) settles first, recreating the loading window where
     // `electedOffice` is still undefined for a Serve user. Without the
     // isElectedOfficeLoading guard, isWinContext would be true here and a
-    // lal_1 request would fire against the wrong endpoint.
+    // lal_1 query param would leak onto the Serve request.
     api.mock('GET /v1/elected-office/current', async () => {
       await new Promise((resolve) => setTimeout(resolve, 50))
       return { status: 200, data: electedOfficeFixture }
@@ -230,15 +236,17 @@ describe('ContactsTableProvider — engagement :id selection', () => {
     })
 
     const capturedIds: string[] = []
+    const capturedLalVoterIds: (string | undefined)[] = []
     api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
       capturedIds.push(request.params.id)
+      capturedLalVoterIds.push(request.query.lalVoterId)
       return { status: 200, data: { nextCursor: null, results: [] } }
     })
 
     renderProvider()
 
     await waitFor(() => expect(capturedIds).toContain('p_1'))
-    expect(capturedIds).not.toContain('lal_1')
+    expect(capturedLalVoterIds).not.toContain('lal_1')
   })
 })
 

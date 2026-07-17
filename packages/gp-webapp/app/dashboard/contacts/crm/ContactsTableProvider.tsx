@@ -264,33 +264,36 @@ export const ContactsTableProvider = ({
     enabled: Boolean(currentlySelectedPersonId),
   })
 
-  // The campaign engagement endpoint keys activities on the durable lalVoterId
-  // for Win, but on person.id for the Serve/elected-office path (task 12
-  // contract). lalVoterId comes from the person fetch, so the query waits on it
-  // before firing. isWinContext (from useWinVoterContext) reads false until the
-  // elected-office load settles, so it can't briefly mistake a Serve user for
-  // Win and fire against the wrong endpoint. PersonOverlay's activity feed reads
-  // this from context rather than recomputing.
-  const activitiesEngagementId = isWinContext
-    ? (personQuery.data?.lalVoterId ?? null)
-    : currentlySelectedPersonId
+  // The contact-engagement endpoint keys activities on personId for both
+  // Win and Serve (ENG-10695 — supersedes the old task 12 contract where :id
+  // was the durable lalVoterId for campaigns). Win additionally passes
+  // lalVoterId, sourced from the person fetch, to bring the legacy
+  // VoterOutreachActivity rows into the union during the sunset; omitting it
+  // (e.g. while personQuery is still loading, or people-api is down) is not an
+  // error — the query still fires off personId alone and just misses the
+  // legacy rows until lalVoterId resolves and the key changes.
+  const winLalVoterId = isWinContext
+    ? (personQuery.data?.lalVoterId ?? undefined)
+    : undefined
 
   const activitiesInfiniteQuery = useInfiniteQuery({
     queryKey: [
       'contact-engagement',
       'activities',
       orgSlug,
-      activitiesEngagementId,
+      currentlySelectedPersonId,
+      winLalVoterId,
     ],
     queryFn: ({ pageParam }) =>
       clientRequest('GET /v1/contact-engagement/:id/activities', {
-        id: activitiesEngagementId!,
+        id: currentlySelectedPersonId!,
         take: 2,
+        ...(winLalVoterId ? { lalVoterId: winLalVoterId } : {}),
         ...(pageParam ? { after: pageParam } : {}),
       }).then((res) => res.data),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    enabled: Boolean(activitiesEngagementId),
+    enabled: Boolean(currentlySelectedPersonId),
   })
 
   const customSegmentsQuery = useQuery({

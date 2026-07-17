@@ -300,6 +300,82 @@ describe('<PersonOverlay>', () => {
     )
   })
 
+  it('does not crash on ENG-10695 entry types the pre-CRM renderer does not know (skips them, keeps rendering known rows)', () => {
+    // The unified feed (ENG-10695) can return DOOR_KNOCK/TEXT/ROBOCALL/NOTE
+    // entries in the same page as OUTREACH/POLL_INTERACTIONS rows. Rendering
+    // them is task 07's job; this only proves the switch has a safe default
+    // instead of falling through to the poll branch and crashing on
+    // activity.data.pollId.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'NOTE',
+        date: '2026-05-12T00:00:00.000Z',
+        data: {
+          noteId: 'note_1',
+          body: 'Follow up next week',
+          createdAt: '2026-05-12T00:00:00.000Z',
+          updatedAt: '2026-05-12T00:00:00.000Z',
+        },
+      },
+      {
+        type: 'DOOR_KNOCK',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 'dk_1',
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          note: null,
+          manual: true,
+        },
+      },
+      {
+        type: 'TEXT',
+        date: '2026-05-10T12:00:00.000Z',
+        data: {
+          activityId: 'tx_1',
+          respondedAt: null,
+          optedOutAt: null,
+          note: null,
+          manual: false,
+          outreachId: null,
+        },
+      },
+      {
+        type: 'ROBOCALL',
+        date: '2026-05-10T06:00:00.000Z',
+        data: {
+          activityId: 'rc_1',
+          answeredAt: null,
+          voicemailLeftAt: null,
+          note: null,
+          manual: false,
+          outreachId: null,
+        },
+      },
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    expect(() => render(<PersonOverlay />)).not.toThrow()
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    // The known OUTREACH row still renders alongside the skipped new types.
+    expect(screen.getByText('Texted')).toBeInTheDocument()
+  })
+
   it('does not fire Outreach Timeline Viewed when the Win feed is empty', () => {
     setContext({
       isElectedOfficial: false,

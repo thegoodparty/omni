@@ -69,9 +69,68 @@ export type OutreachConstituentActivity = {
   }
 }
 
+export type DoorKnockOutcome = 'answered' | 'not_home' | 'refused_to_engage'
+export type SupportAnswer = 'supporter' | 'unsure' | 'non_supporter'
+
+// ContactInteraction*/ContactNote entry types (ENG-10695). Rendering these is
+// task 07's job — for now they only need to round-trip through the feed
+// without crashing the pre-CRM PersonOverlay renderer.
+export type DoorKnockConstituentActivity = {
+  type: 'DOOR_KNOCK'
+  date: string
+  data: {
+    activityId: string
+    outcome: DoorKnockOutcome
+    supportAnswer: SupportAnswer | null
+    note: string | null
+    manual: boolean
+  }
+}
+
+export type TextConstituentActivity = {
+  type: 'TEXT'
+  date: string
+  data: {
+    activityId: string
+    respondedAt: string | null
+    optedOutAt: string | null
+    note: string | null
+    manual: boolean
+    outreachId: number | null
+  }
+}
+
+export type RobocallConstituentActivity = {
+  type: 'ROBOCALL'
+  date: string
+  data: {
+    activityId: string
+    answeredAt: string | null
+    voicemailLeftAt: string | null
+    note: string | null
+    manual: boolean
+    outreachId: number | null
+  }
+}
+
+export type NoteConstituentActivity = {
+  type: 'NOTE'
+  date: string
+  data: {
+    noteId: string
+    body: string
+    createdAt: string
+    updatedAt: string
+  }
+}
+
 export type ConstituentActivity =
   | PollConstituentActivity
   | OutreachConstituentActivity
+  | DoorKnockConstituentActivity
+  | TextConstituentActivity
+  | RobocallConstituentActivity
+  | NoteConstituentActivity
 
 export type GetIndividualActivitiesResponse = {
   nextCursor: string | null
