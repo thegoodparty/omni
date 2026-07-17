@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import {
+  ArrowLeftIcon,
   Button,
-  Sheet,
-  SheetContent,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerFooter,
+  DrawerHandle,
+  DrawerHeader,
+  DrawerTitle,
   Stepper,
 } from '@styleguide'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -17,6 +20,7 @@ import { numberFormatter } from 'helpers/numberHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
+import { getContactsLabels } from '../../../shared/contactsLabels'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import {
   countSelectedFilterCategories,
@@ -213,22 +217,66 @@ export default function CreateListWizard({
   }
 
   const peopleNoun = isWinContext ? 'voters' : 'constituents'
+  const labels = getContactsLabels(isWinContext)
 
-  const buildLabel =
+  // ENG-10721 locked-prototype titles: step 1 and step 3 are mode-neutral;
+  // step 2's voter-file title carries the voter/constituent noun (via
+  // contactsLabels.ts, the one place that copy lives), the activity branch
+  // avoids the noun entirely since it isn't demographic-file specific.
+  const stepTitle =
+    step === 1
+      ? 'How do you want to build this list?'
+      : step === 3
+        ? 'Name your list'
+        : branch === 'voterFile'
+          ? labels.wizardVoterFileStepTitle
+          : 'Build a list from outreach activity'
+
+  // Step 2's footer CTA always reads "Build your list (N)" (both branches
+  // share the same slot); the muted/saturated distinction from the prototype
+  // only applies to the voter-file branch, where an empty selection is still
+  // a valid (unfiltered) submission — the activity branch's disabled state
+  // already communicates "not ready yet" via isStep2Valid.
+  const hasVoterFileSelection =
+    Object.values(demographicFilters).some(Boolean) || supportStatus.length > 0
+  const isStep2Muted = branch === 'voterFile' && !hasVoterFileSelection
+
+  const step2Label =
     isLoading || count === undefined
       ? 'Build your list'
       : `Build your list (${numberFormatter(count)})`
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="flex w-[90vw] max-w-2xl flex-col sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle>Create a new list</SheetTitle>
+    <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
+      <DrawerContent className="mx-auto w-full max-w-2xl">
+        <DrawerHandle />
+        <DrawerHeader className="gap-3 border-b border-border">
+          <div className="relative flex items-center justify-center">
+            {step > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="small"
+                onClick={handleBack}
+                className="absolute left-0 gap-1 px-2"
+              >
+                <ArrowLeftIcon className="size-4" aria-hidden />
+                Back
+              </Button>
+            )}
+            <DrawerTitle className="text-center">{stepTitle}</DrawerTitle>
+          </div>
           <Stepper currentStep={step} totalSteps={TOTAL_STEPS} />
-        </SheetHeader>
+        </DrawerHeader>
 
-        <div ref={bodyRef} className="flex-1 overflow-y-auto px-6">
-          {step === 1 && <BranchStep selected={branch} onSelect={setBranch} />}
+        <DrawerBody ref={bodyRef}>
+          {step === 1 && (
+            <BranchStep
+              selected={branch}
+              onSelect={setBranch}
+              isWinContext={isWinContext}
+            />
+          )}
           {step === 2 && branch === 'voterFile' && (
             <VoterFileStep
               filters={demographicFilters}
@@ -255,36 +303,42 @@ export default function CreateListWizard({
               peopleNoun={peopleNoun}
             />
           )}
-        </div>
+        </DrawerBody>
 
-        <SheetFooter className="flex-row items-center justify-between">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={step === 1 ? () => onOpenChange(false) : handleBack}
-          >
-            {step === 1 ? 'Cancel' : 'Back'}
-          </Button>
-          {step < 3 ? (
+        <DrawerFooter>
+          {step === 1 && (
             <Button
               type="button"
+              className="w-full"
               onClick={handleNext}
-              disabled={step === 1 ? !branch : !isStep2Valid}
+              disabled={!branch}
             >
-              Next
+              Continue
             </Button>
-          ) : (
+          )}
+          {step === 2 && (
             <Button
               type="button"
+              className={isStep2Muted ? 'w-full opacity-50' : 'w-full'}
+              onClick={handleNext}
+              disabled={!isStep2Valid}
+            >
+              {step2Label}
+            </Button>
+          )}
+          {step === 3 && (
+            <Button
+              type="button"
+              className="w-full"
               onClick={handleSubmit}
               disabled={!canSubmit}
               loading={createMutation.isPending}
             >
-              {buildLabel}
+              Save list
             </Button>
           )}
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
   )
 }
