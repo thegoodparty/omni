@@ -275,13 +275,20 @@ const pdfCheckRow = (
     .fillColor(`#${style.text}`)
     .text(style.label, pillX + padX, y0 + 3.5, { lineBreak: false })
 
+  // The pill text left the cursor by the pill; return it below the label.
   doc.fillColor('black')
-  doc
-    .font('Helvetica')
-    .fontSize(10.5)
-    .fillColor(`#${NOTE}`)
-    .text(check.note, left, afterLabelY, { width: contentW })
-  doc.fillColor('black')
+  doc.x = left
+  doc.y = afterLabelY
+
+  // Skip an empty note — text('') still advances a full line, leaving a gap.
+  if (check.note) {
+    doc
+      .font('Helvetica')
+      .fontSize(10.5)
+      .fillColor(`#${NOTE}`)
+      .text(check.note, { width: contentW })
+    doc.fillColor('black')
+  }
 
   if (check.source) {
     doc.font('Helvetica').fontSize(9.5)

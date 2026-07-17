@@ -155,6 +155,22 @@ describe('OrdinanceExportService', () => {
     expect(pdf.buffer.length).toBeGreaterThan(2000)
   })
 
+  it('renders a check with an empty note without error', async () => {
+    const emptyNote = record({
+      qualityReport: {
+        checks: [
+          { id: 'clarity', label: 'Clarity', status: 'attention', note: '' },
+        ],
+        tally: { pass: 0, flag: 0, attention: 1 },
+        stale: false,
+        ranAgainstBodyHash: 'h',
+      },
+    } as Partial<Ordinance>)
+
+    const pdf = await service.render(emptyNote, 'pdf')
+    expect(pdf.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+  })
+
   it('renders the empty-state fallbacks when there is no report or sources', async () => {
     const bare = record({
       draftSources: null,
