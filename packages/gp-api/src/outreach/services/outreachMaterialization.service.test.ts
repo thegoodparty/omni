@@ -167,7 +167,7 @@ describe('OutreachMaterializationService', () => {
     expect(await textRowsFor(outreach.id)).toHaveLength(0)
   })
 
-  it('skips materialization for doorKnocking outreach', async () => {
+  it('locks the filter but writes no rows for doorKnocking outreach', async () => {
     const { campaign, outreach, filterId } = await seedOutreach({
       slug: 'mat-doorknock',
       outreachType: OutreachType.doorKnocking,
@@ -179,9 +179,9 @@ describe('OutreachMaterializationService', () => {
     expect(findContacts).not.toHaveBeenCalled()
     expect(await textRowsFor(outreach.id)).toHaveLength(0)
     expect(await robocallRowsFor(outreach.id)).toHaveLength(0)
-    // Not-materialized channels also don't consume the lock.
+    // The lock is channel-agnostic: it records first use, not row writes.
     const filter = await filterById(filterId)
-    expect(filter.firstUsedForOutreachAt).toBeNull()
+    expect(filter.firstUsedForOutreachAt).not.toBeNull()
   })
 
   it('does nothing when the outreach has no voterFileFilterId', async () => {

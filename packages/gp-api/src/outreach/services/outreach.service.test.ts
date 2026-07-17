@@ -34,6 +34,10 @@ import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
 
 const mockOutreachCreate = vi.fn()
 const mockOutreachFindMany = vi.fn()
+const mockOutreachUpdateMany = vi.fn()
+const mockOutreachUpdate = vi.fn()
+const mockOutreachFindUniqueOrThrow = vi.fn()
+const mockGetFileBytes = vi.fn()
 
 const mockTcrFindFirstOrThrow = vi.fn()
 const mockPeerlyCreateJob = vi.fn()
@@ -94,6 +98,10 @@ describe('OutreachService', () => {
   beforeEach(async () => {
     mockOutreachCreate.mockReset()
     mockOutreachFindMany.mockReset()
+    mockOutreachUpdateMany.mockReset()
+    mockOutreachUpdate.mockReset()
+    mockOutreachFindUniqueOrThrow.mockReset()
+    mockGetFileBytes.mockReset()
     mockTcrFindFirstOrThrow.mockReset()
     mockPeerlyCreateJob.mockReset()
     mockResolveP2pJobGeography.mockReset()
@@ -114,8 +122,10 @@ describe('OutreachService', () => {
         findFirst: vi.fn(),
         findFirstOrThrow: vi.fn(),
         findUnique: vi.fn(),
-        findUniqueOrThrow: vi.fn(),
+        findUniqueOrThrow: mockOutreachFindUniqueOrThrow,
         count: vi.fn(),
+        updateMany: mockOutreachUpdateMany,
+        update: mockOutreachUpdate,
       },
     }
 
@@ -160,7 +170,7 @@ describe('OutreachService', () => {
         },
         {
           provide: S3Service,
-          useValue: { getFileBytesWithContentType: vi.fn() },
+          useValue: { getFileBytesWithContentType: mockGetFileBytes },
         },
         OutreachService,
       ],
@@ -275,6 +285,46 @@ describe('OutreachService', () => {
       )
 
       expect(result).toEqual(created)
+    })
+
+    it('hands the finalized outreach to list materialization on purchase finalize', async () => {
+      const draft = {
+        id: 42,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: null,
+        billableTextCount: null,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: mockUser },
+      }
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
+      mockGetFileBytes.mockResolvedValue({
+        bytes: Buffer.from('img'),
+        contentType: 'image/png',
+      })
+      mockPeerlyCreateJob.mockResolvedValue('job-123')
+      mockOutreachUpdate.mockResolvedValue({})
+
+      await service.finalizeOutreachPurchase(42, 1)
+
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
+        draft.campaign,
+        expect.objectContaining({ id: 42, projectId: 'job-123' }),
+      )
     })
 
     it('forwards campaignPlanDueDate from the DTO into notifySuccess', async () => {

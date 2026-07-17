@@ -49,20 +49,23 @@ export class OutreachMaterializationService {
     outreach: Outreach,
   ): Promise<void> {
     if (!outreach.voterFileFilterId) return
+
+    // Stamped before the channel guard and the row writes: the lock records
+    // "this filter drove an outreach", so channels without a
+    // ContactInteraction model (phoneBanking, socialMedia) still lock.
+    // First-write-wins, no rollback — a stamped filter with a
+    // partial/failed materialization is still correct.
+    await this.voterFileFilterService.stampFirstUsedForOutreach(
+      outreach.voterFileFilterId,
+      campaign.organizationSlug,
+    )
+
     if (!MATERIALIZABLE_OUTREACH_TYPES.has(outreach.outreachType)) return
 
     const organization = await this.organizations.findFirst({
       where: { slug: campaign.organizationSlug },
     })
     if (!organization) return
-
-    // Stamped before the row writes, first-write-wins, no rollback: a
-    // stamped filter with a partial/failed materialization is still correct
-    // — first use is a fact even if this launch's rows don't all land.
-    await this.voterFileFilterService.stampFirstUsedForOutreach(
-      outreach.voterFileFilterId,
-      campaign.organizationSlug,
-    )
 
     const segment = String(outreach.voterFileFilterId)
     const occurredAt = new Date()
