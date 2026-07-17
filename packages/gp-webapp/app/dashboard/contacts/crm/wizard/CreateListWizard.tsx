@@ -101,17 +101,20 @@ export default function CreateListWizard({
     return {}
   }, [branch, demographicFilters, supportStatus, activityConditions])
 
-  const { count, isLoading, isCapError, errorMessage } = useListWizardCount(
-    backendPayload,
-    branch !== null,
-  )
-
   const isStep2Valid =
     branch === 'voterFile'
       ? true
       : branch === 'activity'
         ? isActivityStepValid(activityConditions)
         : false
+
+  // Gate the count on a valid selection: an activity branch with no complete
+  // condition would send activityConditions: [] — the backend treats that as
+  // unfiltered and the cached total would render on the build button.
+  const { count, isLoading, isCapError, errorMessage } = useListWizardCount(
+    backendPayload,
+    branch !== null && isStep2Valid,
+  )
 
   const handleNext = () => {
     if (step === 1 && branch) setStep(2)

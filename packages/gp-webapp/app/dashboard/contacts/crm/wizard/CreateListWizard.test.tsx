@@ -190,6 +190,26 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 })
 
 describe('CreateListWizard — activity branch payload assembly', () => {
+  it('fires no count request while the activity selection is incomplete', async () => {
+    const countHandler = vi.fn(() => ({ status: 200, data: { count: 250 } }))
+    api.mock('POST /v1/contacts/count', countHandler)
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /build from outreach activity/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    // An incomplete condition serializes to activityConditions: [] — the
+    // backend would return the unfiltered total and poison the count cache.
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    expect(countHandler).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('radio', { name: 'Text' }))
+    await vi.waitFor(() => expect(countHandler).toHaveBeenCalled())
+  })
+
   it('sends two stacked conditions in the exact API shape (AC example)', async () => {
     api.mock('GET /v1/outreach', {
       status: 200,
