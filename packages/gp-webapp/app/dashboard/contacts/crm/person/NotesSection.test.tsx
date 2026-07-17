@@ -136,6 +136,30 @@ describe('<NotesSection>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows an error and keeps the edit form open when a save fails', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/contacts/:personId/notes', {
+      status: 200,
+      data: { results: [makeNote()] },
+    })
+    api.mock('PATCH /v1/contacts/notes/:noteId', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    render(<NotesSection personId={PERSON_ID} />)
+
+    await screen.findByText('Called about the lawn ordinance')
+    await user.click(screen.getByRole('button', { name: 'Edit note' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(
+      await screen.findByText(/couldn.t save your note/i),
+    ).toBeInTheDocument()
+    // The edit form stays open so the user can retry.
+    expect(screen.getByLabelText('Edit note body')).toBeInTheDocument()
+  })
+
   it('deletes a note only after confirming', async () => {
     const user = userEvent.setup()
     let notes: ContactNote[] = [makeNote()]

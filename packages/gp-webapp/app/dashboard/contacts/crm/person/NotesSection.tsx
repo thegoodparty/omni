@@ -47,6 +47,7 @@ interface NoteRowProps {
   onCancelEdit: () => void
   onSaveEdit: () => void
   isSaving: boolean
+  isSaveError: boolean
   onDelete: () => void
   isDeleting: boolean
 }
@@ -60,6 +61,7 @@ const NoteRow: React.FC<NoteRowProps> = ({
   onCancelEdit,
   onSaveEdit,
   isSaving,
+  isSaveError,
   onDelete,
   isDeleting,
 }) => {
@@ -73,6 +75,11 @@ const NoteRow: React.FC<NoteRowProps> = ({
           disabled={isSaving}
           aria-label="Edit note body"
         />
+        {isSaveError ? (
+          <p className="text-sm text-destructive">
+            Couldn&apos;t save your note. Please try again.
+          </p>
+        ) : null}
         <div className="flex gap-2 justify-end">
           <Button
             type="button"
@@ -274,6 +281,10 @@ export default function NotesSection({
                   onSaveEdit={handleSaveEdit}
                   isSaving={
                     updateMutation.isPending &&
+                    updateMutation.variables?.noteId === note.id
+                  }
+                  isSaveError={
+                    updateMutation.isError &&
                     updateMutation.variables?.noteId === note.id
                   }
                   onDelete={() => deleteMutation.mutate(note.id)}
