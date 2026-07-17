@@ -317,72 +317,76 @@ export default function DraftDetail({
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
-      <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Link
-          href="/dashboard/ordinances"
-          aria-label="Back to ordinances"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
-        >
-          <ArrowLeftIcon className="size-4" aria-hidden />
-        </Link>
-        <h1 className="text-base font-semibold text-foreground">
-          Draft details
-        </h1>
-        <div className="ml-auto flex items-center gap-3">
-          {saveState !== 'idle' ? (
-            <span
-              className={cn(
-                'text-xs',
-                saveState === 'error'
-                  ? 'text-destructive'
-                  : 'text-muted-foreground',
-              )}
-            >
-              {SAVE_LABEL[saveState]}
-            </span>
-          ) : null}
-          <Badge className={cn('rounded-full', statusMeta.pillClass)}>
-            {statusMeta.label}
-          </Badge>
-          <IconButton
-            type="button"
-            variant="outline"
-            size="small"
-            aria-label="Delete draft"
-            onClick={() => setDeleteOpen(true)}
-            className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+      <header className="border-b border-border py-3">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-6">
+          <Link
+            href="/dashboard/ordinances"
+            aria-label="Back to ordinances"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
           >
-            <Trash2Icon className="size-4" aria-hidden />
-          </IconButton>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <IconButton
-                type="button"
-                variant="outline"
-                size="small"
-                aria-label="Download draft"
-                className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+            <ArrowLeftIcon className="size-4" aria-hidden />
+          </Link>
+          <h1 className="text-base font-semibold text-foreground">
+            Draft details
+          </h1>
+          <div className="ml-auto flex items-center gap-3">
+            {saveState !== 'idle' ? (
+              <span
+                className={cn(
+                  'text-xs',
+                  saveState === 'error'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground',
+                )}
               >
-                <DownloadIcon className="size-4" aria-hidden />
-              </IconButton>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem>
-                <FileTextIcon className="size-4" aria-hidden />
-                Download as PDF
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <FileTextIcon className="size-4" aria-hidden />
-                Download as Word
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                {SAVE_LABEL[saveState]}
+              </span>
+            ) : null}
+            <IconButton
+              type="button"
+              variant="outline"
+              size="small"
+              aria-label="Delete draft"
+              onClick={() => setDeleteOpen(true)}
+              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <Trash2Icon className="size-4" aria-hidden />
+            </IconButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  aria-label="Download draft"
+                  className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <DownloadIcon className="size-4" aria-hidden />
+                </IconButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem>
+                  <FileTextIcon className="size-4" aria-hidden />
+                  Download as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <FileTextIcon className="size-4" aria-hidden />
+                  Download as Word
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl p-6">
+            <div className="mb-4 flex justify-end">
+              <Badge className={cn('rounded-full', statusMeta.pillClass)}>
+                {statusMeta.label}
+              </Badge>
+            </div>
             <h2
               ref={titleRef}
               contentEditable
