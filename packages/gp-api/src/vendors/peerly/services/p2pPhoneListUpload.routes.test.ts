@@ -122,7 +122,16 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
       outreachId: outreach.id,
     })
 
-    const post = stubPeopleApi([personPayload()])
+    const post = stubPeopleApi([
+      personPayload(),
+      // null zip: unusable for Peerly geo-targeting, must be skipped from
+      // both the CSV and the capture rows
+      personPayload({
+        id: 'p-no-zip',
+        cellPhone: '5559876543',
+        address: { city: 'Springfield', state: 'CA', zip: null },
+      }),
+    ])
     const upload = stubPeerlyUpload()
 
     const result = await service.client.post(

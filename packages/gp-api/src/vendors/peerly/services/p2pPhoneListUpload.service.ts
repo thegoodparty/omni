@@ -143,6 +143,14 @@ export class P2pPhoneListUploadService {
         // Person contract regardless, so skip a row people-api can't
         // guarantee a phone for rather than uploading an unusable CSV line.
         if (!person.cellPhone) continue
+        // Peerly needs state, city, and zip for geo-targeting; null fields
+        // produce blank CSV cells it counts as malformed leads.
+        if (
+          !person.address.state ||
+          !person.address.city ||
+          !person.address.zip
+        )
+          continue
         recipients.push({ personId: person.id, phone: person.cellPhone })
         rows.push(
           [
