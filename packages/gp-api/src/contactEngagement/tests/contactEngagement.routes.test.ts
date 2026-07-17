@@ -313,6 +313,38 @@ describe('ContactEngagement routes', () => {
       expect(new Set(seenActivityIds).size).toBe(3)
     }, 10000)
 
+    it('returns an empty page for a stale/foreign cursor instead of restarting from page 1', async () => {
+      // A cursor that matches no row in the current union — its activity was
+      // deleted between requests, or it's simply foreign/stale — must not be
+      // treated as "start over": that would re-serve page 1 forever in
+      // infinite scroll (findIndex -1 landing on startIndex 0).
+      const personId = 'person-win-stale-cursor'
+
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: new Date('2026-01-05T10:00:00Z'),
+          outcome: DoorKnockOutcome.answered,
+          manual: true,
+        },
+      })
+
+      const result = await service.client.get(
+        `/v1/contact-engagement/${personId}/activities`,
+        {
+          params: {
+            after: '2099-01-01T00:00:00.000Z|NOTE|does-not-exist',
+          },
+          headers: { 'x-organization-slug': campaignOrgSlug },
+        },
+      )
+
+      expect(result.status).toBe(200)
+      expect(result.data.results).toEqual([])
+      expect(result.data.nextCursor).toBeNull()
+    })
+
     it('does not return another org/campaign interactions, notes, or outreach rows', async () => {
       const personId = 'person-win-isolated'
       const otherOrgSlug = `campaign-other-${Date.now()}`

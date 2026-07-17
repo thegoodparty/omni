@@ -205,9 +205,19 @@ export class ContactEngagementService {
     // than just the date, so resuming lands on the exact row the previous
     // page ended on instead of the first row of a same-date tie group. It's
     // opaque to the client — round-tripped verbatim as `after`.
-    const startIndex = after
-      ? allActivities.findIndex((activity) => cursorKey(activity) === after) + 1
-      : 0
+    const afterIndex = after
+      ? allActivities.findIndex((activity) => cursorKey(activity) === after)
+      : null
+    // A cursor matching no row (its activity was deleted between requests,
+    // or it's a stale/foreign cursor) must not restart from page 1 — that
+    // would re-serve already-seen rows forever in infinite scroll. Treat a
+    // miss as "nothing more" rather than "start over".
+    const startIndex =
+      afterIndex === null
+        ? 0
+        : afterIndex === -1
+          ? allActivities.length
+          : afterIndex + 1
     const page = allActivities.slice(startIndex, startIndex + limit + 1)
     const results = page.slice(0, limit)
     const lastResult = results[results.length - 1]

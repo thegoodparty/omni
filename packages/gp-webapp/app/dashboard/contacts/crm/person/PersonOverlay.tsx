@@ -322,7 +322,14 @@ const ActivitiesContent: React.FC = () => {
     isError,
   ])
 
-  if (isError || !hasActivities) {
+  // Not gated on isError: a failed background refetch (activities already
+  // loaded from a prior successful fetch) must keep showing those rows, not
+  // blank a populated feed. First-fetch failure still lands here because
+  // hasActivities is false in that case. Not gated on hasActivities alone
+  // either: a page that happens to hold only new (unrenderable) entry types
+  // can still have a next page of real OUTREACH/POLL_INTERACTIONS rows —
+  // hiding "View more" there would permanently strand them.
+  if (!hasActivities && !hasNextPage) {
     return (
       <div className="flex flex-col items-center gap-3">
         <Image
