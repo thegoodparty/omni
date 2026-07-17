@@ -238,6 +238,7 @@ export default function NotesSection({
   }
 
   const handleStartEdit = (note: ContactNote) => {
+    updateMutation.reset()
     setEditingNoteId(note.id)
     setEditingBody(note.body)
   }

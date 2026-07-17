@@ -158,6 +158,13 @@ describe('<NotesSection>', () => {
     ).toBeInTheDocument()
     // The edit form stays open so the user can retry.
     expect(screen.getByLabelText('Edit note body')).toBeInTheDocument()
+
+    // Leaving and re-entering edit mode clears the stale error.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Edit note' }))
+    expect(
+      screen.queryByText(/couldn.t save your note/i),
+    ).not.toBeInTheDocument()
   })
 
   it('deletes a note only after confirming', async () => {
