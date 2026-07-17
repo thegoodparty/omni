@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import { Ordinance } from '../../generated/prisma'
-import { OrdinanceExportService } from './ordinanceExport.service'
+import {
+  OrdinanceExportService,
+  checkRowHeaderFits,
+} from './ordinanceExport.service'
 
 // .docx is a zip; the rendered text lives in word/document.xml, so unzip it to
 // assert the ordinance content actually landed in the document.
@@ -78,7 +81,18 @@ describe('OrdinanceExportService', () => {
     expect(xml).toContain('w:val="clear"')
   })
 
-  it('renders a long multi-page draft without stranding a check pill', async () => {
+  it('breaks a check row to a new page when its header would overflow', () => {
+    const bottom = 738
+    const pillH = 14
+    // Fits with room to spare, and exactly at the boundary (y + pill + 4).
+    expect(checkRowHeaderFits(700, pillH, bottom)).toBe(true)
+    expect(checkRowHeaderFits(720, pillH, bottom)).toBe(true)
+    // One point past the boundary must not fit, so the row starts a new page.
+    expect(checkRowHeaderFits(721, pillH, bottom)).toBe(false)
+    expect(checkRowHeaderFits(730, pillH, bottom)).toBe(false)
+  })
+
+  it('renders a long multi-page draft without throwing', async () => {
     const longBody = Array.from(
       { length: 120 },
       (_, i) => `Section ${i}. Lorem ipsum dolor sit amet, consectetur.`,

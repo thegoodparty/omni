@@ -15,6 +15,7 @@ import {
 } from 'docx'
 import {
   type OrdinanceQualityCheck,
+  type OrdinanceQualityReport,
   type OrdinanceSource,
   OrdinanceQualityReportSchema,
   OrdinanceSourceSchema,
@@ -38,18 +39,23 @@ const NOTE = '333333'
 const DIVIDER = 'E5E7EB'
 const LINK = '1155CC'
 
+type OrdinanceTally = OrdinanceQualityReport['tally']
+
 type ExportContent = {
   title: string
   bodyLines: string[]
   sources: OrdinanceSource[]
   checks: OrdinanceQualityCheck[]
+  tally: OrdinanceTally
 }
 
-const tallyOf = (checks: OrdinanceQualityCheck[]) => ({
-  pass: checks.filter((c) => c.status === 'pass').length,
-  flag: checks.filter((c) => c.status === 'flag').length,
-  attention: checks.filter((c) => c.status === 'attention').length,
-})
+const EMPTY_TALLY: OrdinanceTally = { pass: 0, flag: 0, attention: 0 }
+
+// The QC summary line, shared by both renderers so its wording can't drift.
+const tallySummary = (content: ExportContent): string =>
+  `Reviewed by ${content.checks.length} checks    ` +
+  `${content.tally.pass} pass · ${content.tally.flag} flag · ` +
+  `${content.tally.attention} attention`
 
 const sourceLabel = (source: OrdinanceSource): string =>
   source.publisher ? `${source.title} — ${source.publisher}` : source.title
@@ -62,8 +68,19 @@ const buildContent = (record: Ordinance): ExportContent => {
     bodyLines: (record.draftBody ?? '').split('\n'),
     sources: sources.success ? sources.data : [],
     checks: report.success ? report.data.checks : [],
+    // Reuse the persisted tally rather than recomputing it here.
+    tally: report.success ? report.data.tally : EMPTY_TALLY,
   }
 }
+
+// Whether a check row's header (label + pill) fits before the page's bottom
+// margin. Extracted so the page-break decision is unit-testable; the pill is
+// drawn at an absolute y, so a row that doesn't fit must start a new page.
+export const checkRowHeaderFits = (
+  currentY: number,
+  pillHeight: number,
+  bottomMargin: number,
+): boolean => currentY + pillHeight + 4 <= bottomMargin
 
 export type OrdinanceExportResult = {
   buffer: Buffer
@@ -167,15 +184,11 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
     .text('Quality report')
   doc.moveDown(0.2)
   if (content.checks.length > 0) {
-    const t = tallyOf(content.checks)
     doc
       .font('Helvetica')
       .fontSize(10)
       .fillColor(`#${MUTED}`)
-      .text(
-        `Reviewed by ${content.checks.length} checks    ` +
-          `${t.pass} pass · ${t.flag} flag · ${t.attention} attention`,
-      )
+      .text(tallySummary(content))
       .fillColor('black')
   }
   doc.moveDown(0.3)
@@ -220,7 +233,7 @@ const pdfCheckRow = (
   // label to a new page while the pill stays behind — stranding it in the old
   // page's footer. Break first when the header line won't fit.
   const bottom = doc.page.height - doc.page.margins.bottom
-  if (doc.y + pillH + 4 > bottom) doc.addPage()
+  if (!checkRowHeaderFits(doc.y, pillH, bottom)) doc.addPage()
 
   const y0 = doc.y
   // Label on the left, leaving room for the pill on the right.
@@ -331,7 +344,6 @@ const renderDocx = (content: ExportContent): Promise<Buffer> => {
         )),
   ]
 
-  const t = tallyOf(content.checks)
   const quality: Paragraph[] = [
     new Paragraph({
       text: 'Quality report',
@@ -342,12 +354,7 @@ const renderDocx = (content: ExportContent): Promise<Buffer> => {
       ? [
           new Paragraph({
             children: [
-              new TextRun({
-                text:
-                  `Reviewed by ${content.checks.length} checks    ` +
-                  `${t.pass} pass · ${t.flag} flag · ${t.attention} attention`,
-                color: MUTED,
-              }),
+              new TextRun({ text: tallySummary(content), color: MUTED }),
             ],
           }),
         ]
