@@ -91,6 +91,22 @@ describe('CrmContactsPage — mode-aware universe title', () => {
 
     expect(screen.queryByRole('heading', { level: 1 })).not.toBeInTheDocument()
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
+    // The button itself must be gated too, not just the copy below it — a
+    // click before the mode settles could open the wizard with a
+    // not-yet-resolved isWinContext (see BranchStep.tsx's own crossover fix).
+    expect(
+      screen.getByRole('button', { name: 'Create new list' }),
+    ).toBeDisabled()
+  })
+
+  it('enables "Create new list" once the Win/Serve context is ready', () => {
+    setContext({ isWinContext: true, isWinContextReady: true })
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByRole('button', { name: 'Create new list' }),
+    ).toBeEnabled()
   })
 })
 

@@ -26,13 +26,24 @@ export default function DistrictStatCard({ label }: DistrictStatCardProps) {
         <span className="text-sm font-medium text-muted-foreground">
           {label}
         </span>
-        {query.isLoading ? (
-          <div className="h-6 w-16 animate-pulse rounded bg-muted" />
+        {/* React Query v5's `isLoading` is `isPending && isFetching` — on the
+            very first synchronous render `isFetching` is still false, so
+            `isLoading` reads false too and this would briefly paint
+            numberFormatter(undefined ?? 0) = '0' before the fetch even
+            starts. `status !== 'success'` covers pending AND error, so the
+            skeleton (not a bogus zero) shows until data actually resolves;
+            the error branch below still renders "Unavailable" once
+            status flips to 'error'. Same guard ContactsStatsSection.tsx
+            uses for this identical query. */}
+        {query.status !== 'success' ? (
+          query.isError ? (
+            <span className="text-xl font-semibold">Unavailable</span>
+          ) : (
+            <div className="h-6 w-16 animate-pulse rounded bg-muted" />
+          )
         ) : (
           <span className="text-xl font-semibold">
-            {query.isError
-              ? 'Unavailable'
-              : numberFormatter(query.data?.totalConstituents ?? 0)}
+            {numberFormatter(query.data.totalConstituents)}
           </span>
         )}
       </div>

@@ -608,3 +608,59 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     expect(trackEvent).not.toHaveBeenCalled()
   })
 })
+
+describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', () => {
+  it('still completes onSuccess exactly once when the drawer closes while the create is in flight', async () => {
+    const user = userEvent.setup()
+    const onOpenChange = vi.fn()
+
+    let resolveCreate: (data: { id: number; name: string }) => void
+    const createPromise = new Promise<{ id: number; name: string }>(
+      (resolve) => {
+        resolveCreate = resolve
+      },
+    )
+    api.mock('POST /v1/voters/voter-file/filter', () =>
+      createPromise.then((data) => ({ status: 200 as const, data })),
+    )
+
+    const { rerender } = render(
+      <CreateListWizard open onOpenChange={onOpenChange} />,
+    )
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Mid-mutation list')
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
+
+    // Dismiss the drawer WHILE the create is still pending. A vaul swipe
+    // and this X-close both funnel through the same controlled
+    // onOpenChange(false) the parent owns — CreateListWizard itself never
+    // unmounts on close (CrmContactsPage always renders it, only `open`
+    // toggles), so its in-flight useMutation survives the dismiss.
+    await user.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    rerender(<CreateListWizard open={false} onOpenChange={onOpenChange} />)
+
+    resolveCreate!({ id: 555, name: 'Mid-mutation list' })
+
+    // The create DID happen server-side — onSuccess must still run exactly
+    // once: the analytics event, the navigation, and the success snackbar
+    // all fire despite the drawer no longer being visible.
+    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
+      variableCount: 0,
+      hasParty: false,
+    })
+    expect(router.push).toHaveBeenCalledTimes(1)
+    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/555')
+    expect(successSnackbar).toHaveBeenCalledTimes(1)
+  })
+})
