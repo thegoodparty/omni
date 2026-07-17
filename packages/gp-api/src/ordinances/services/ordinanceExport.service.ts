@@ -47,21 +47,28 @@ type ExportContent = {
   sources: OrdinanceSource[]
   checks: OrdinanceQualityCheck[]
   tally: OrdinanceTally
+  stale: boolean
 }
 
 const EMPTY_TALLY: OrdinanceTally = { pass: 0, flag: 0, attention: 0 }
 
 // The QC summary line, shared by both renderers so its wording can't drift.
-// Exported as a pure function so the singular/plural + counts are unit-testable
-// (both renderers embed it, and the PDF stream is compressed so its text can't
-// be asserted from the raw buffer).
+// Exported as a pure function so the singular/plural + counts + stale warning
+// are unit-testable (both renderers embed it, and the PDF stream is compressed
+// so its text can't be asserted from the raw buffer).
 export const tallySummary = (
   checkCount: number,
   tally: OrdinanceTally,
+  stale = false,
 ): string => {
   const noun = checkCount === 1 ? 'check' : 'checks'
+  // Flag a report scored against an older draft so an attorney reader knows the
+  // analysis may not reflect the current text (mirrors the app's stale banner).
+  const warning = stale
+    ? 'Results may be outdated — re-run the quality check. '
+    : ''
   return (
-    `Reviewed by ${checkCount} ${noun}    ` +
+    `${warning}Reviewed by ${checkCount} ${noun}    ` +
     `${tally.pass} pass · ${tally.flag} flag · ${tally.attention} attention`
   )
 }
@@ -79,6 +86,7 @@ const buildContent = (record: Ordinance): ExportContent => {
     checks: report.success ? report.data.checks : [],
     // Reuse the persisted tally rather than recomputing it here.
     tally: report.success ? report.data.tally : EMPTY_TALLY,
+    stale: report.success ? report.data.stale : false,
   }
 }
 
@@ -203,7 +211,7 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
       .font('Helvetica')
       .fontSize(10)
       .fillColor(`#${MUTED}`)
-      .text(tallySummary(content.checks.length, content.tally))
+      .text(tallySummary(content.checks.length, content.tally, content.stale))
       .fillColor('black')
   }
   doc.moveDown(0.3)
@@ -370,7 +378,11 @@ const renderDocx = (content: ExportContent): Promise<Buffer> => {
           new Paragraph({
             children: [
               new TextRun({
-                text: tallySummary(content.checks.length, content.tally),
+                text: tallySummary(
+                  content.checks.length,
+                  content.tally,
+                  content.stale,
+                ),
                 color: MUTED,
               }),
             ],

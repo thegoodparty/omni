@@ -91,6 +91,29 @@ describe('OrdinanceExportService', () => {
     expect(tallySummary(6, { pass: 4, flag: 1, attention: 1 })).toBe(
       'Reviewed by 6 checks    4 pass · 1 flag · 1 attention',
     )
+    // A stale report is prefixed with an outdated-results warning.
+    expect(tallySummary(6, { pass: 4, flag: 1, attention: 1 }, true)).toBe(
+      'Results may be outdated — re-run the quality check. ' +
+        'Reviewed by 6 checks    4 pass · 1 flag · 1 attention',
+    )
+  })
+
+  it('warns in the document when the quality report is stale', async () => {
+    const staleRecord = record({
+      qualityReport: {
+        checks: [
+          { id: 'authority', label: 'Authority', status: 'pass', note: 'ok' },
+        ],
+        tally: { pass: 1, flag: 0, attention: 0 },
+        stale: true,
+        ranAgainstBodyHash: 'old',
+      },
+    } as Partial<Ordinance>)
+
+    const xml = await docxText(
+      (await service.render(staleRecord, 'docx')).buffer,
+    )
+    expect(xml).toContain('Results may be outdated')
   })
 
   it('breaks a check row to a new page when its header would overflow', () => {
