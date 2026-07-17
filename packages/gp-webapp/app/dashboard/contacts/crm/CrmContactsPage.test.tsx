@@ -23,6 +23,20 @@ vi.mock('./person/PersonOverlay', () => ({
 vi.mock('./ContactTypeahead', () => ({
   ContactTypeahead: () => <div data-testid="typeahead" />,
 }))
+vi.mock('./wizard/CreateListWizard', () => ({
+  default: ({
+    open,
+    onOpenChange,
+  }: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+  }) =>
+    open ? (
+      <div data-testid="create-list-wizard">
+        <button onClick={() => onOpenChange(false)}>close wizard</button>
+      </div>
+    ) : null,
+}))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 
@@ -32,6 +46,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
   mockedUseContactsTable.mockReturnValue({
     isWinContext: true,
     isWinContextReady: true,
+    canUseProFeatures: true,
     ...overrides,
   } as ContextValue)
 }
@@ -83,18 +98,28 @@ describe('CrmContactsPage — page contents', () => {
     expect(screen.getByTestId('person-overlay')).toBeInTheDocument()
   })
 
-  it('renders an enabled "Create new list" button that does nothing when clicked', async () => {
+  it('renders an enabled "Create new list" button that opens the wizard for a pro user', async () => {
     const user = userEvent.setup()
+    setContext({ canUseProFeatures: true })
     render(<CrmContactsPage />)
 
     const button = screen.getByRole('button', { name: 'Create new list' })
     expect(button).toBeEnabled()
+    expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
 
     await user.click(button)
 
-    // Placeholder until the Voter Lists table (CRM feature 4): no navigation,
-    // no error.
     expect(router.push).not.toHaveBeenCalled()
-    expect(button).toBeInTheDocument()
+    expect(screen.getByTestId('create-list-wizard')).toBeInTheDocument()
+  })
+
+  it('never opens the wizard for a non-pro user (Pro upgrade gate reused from the legacy create flow)', async () => {
+    const user = userEvent.setup()
+    setContext({ canUseProFeatures: false })
+    render(<CrmContactsPage />)
+
+    await user.click(screen.getByRole('button', { name: 'Create new list' }))
+
+    expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
   })
 })

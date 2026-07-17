@@ -11,12 +11,23 @@ import { ContactProModalProvider } from './ContactProModal'
 import { ContactTypeahead } from './ContactTypeahead'
 import PersonOverlay from './person/PersonOverlay'
 import { useContactsTable } from './ContactsTableProvider'
+import CreateListWizard from './wizard/CreateListWizard'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
   const [showProModal, setShowProModal] = useState(false)
-  const { isWinContext, isWinContextReady } = useContactsTable()
+  const [wizardOpen, setWizardOpen] = useState(false)
+  const { isWinContext, isWinContextReady, canUseProFeatures } =
+    useContactsTable()
   const labels = getContactsLabels(isWinContext)
+
+  const handleCreateList = () => {
+    if (!canUseProFeatures) {
+      setShowProModal(true)
+      return
+    }
+    setWizardOpen(true)
+  }
 
   return (
     <ContactProModalProvider value={setShowProModal}>
@@ -32,14 +43,16 @@ export const CrmContactsPage = () => {
             <div className="w-full md:max-w-[400px]">
               <ContactTypeahead />
             </div>
-            {/* Visible no-op per the locked design: the Voter Lists table
-                (CRM feature 4) wires this up. */}
-            <Button className="shrink-0 self-start md:self-auto">
+            <Button
+              className="shrink-0 self-start md:self-auto"
+              onClick={handleCreateList}
+            >
               Create new list
             </Button>
           </div>
         </Paper>
         <PersonOverlay />
+        <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />
       </DashboardLayout>
       {campaign && (
         <ProUpgradeModal
