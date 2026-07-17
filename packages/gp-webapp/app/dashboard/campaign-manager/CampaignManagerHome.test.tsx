@@ -39,6 +39,16 @@ vi.mock('../chief-of-staff/data/use-chat-history', async (importOriginal) => ({
   useChatHistory: () => ({ data: [] }),
 }))
 
+// The story card transitively renders here too; default to an incomplete
+// story so both first-run cards are present for this smoke test.
+vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
+  useCampaignStoryComplete: vi.fn(() => ({
+    isComplete: false,
+    isLoading: false,
+    isError: false,
+  })),
+}))
+
 describe('CampaignManagerHome', () => {
   it('renders the tasks surface and campaign-manager chat entries', () => {
     render(<CampaignManagerHome firstName="Renee" />)

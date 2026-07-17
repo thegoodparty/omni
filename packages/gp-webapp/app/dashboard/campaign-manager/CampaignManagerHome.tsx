@@ -81,7 +81,12 @@ export default function CampaignManagerHome({
             </CampaignUpdateHistoryProvider>
           </VoterContactsProvider>
         </div>
-        <CampaignManagerTasks onMeetManager={() => void openManager()} />
+        {/* Phase D upgrades onPersonalize to auto-launch the story-intake chat
+            flow instead of just opening the manager chat. */}
+        <CampaignManagerTasks
+          onMeetManager={() => void openManager()}
+          onPersonalize={() => void openManager()}
+        />
       </div>
       <FooterChatBar
         firstName={firstName}
