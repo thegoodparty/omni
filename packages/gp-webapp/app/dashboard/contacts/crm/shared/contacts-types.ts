@@ -7,6 +7,8 @@ import type {
   ConstituentActivityEventType,
   DoorKnockConstituentActivity,
   GetIndividualActivitiesResponse,
+  LogContactInteractionInput,
+  LogContactInteractionResponse,
   NoteConstituentActivity,
   OutreachConstituentActivity,
   OutreachType,
@@ -14,6 +16,7 @@ import type {
   Person,
   PollConstituentActivity,
   RobocallConstituentActivity,
+  SupportStatusRollup,
   TextConstituentActivity,
   VoterOutreachAttributionSource,
 } from '@goodparty_org/contracts'
@@ -27,11 +30,16 @@ export interface SegmentResponse {
   [key: string]: unknown
 }
 
-export type { Person }
+export type { Person, SupportStatusRollup }
 
 export type ListContactsResponse = PeopleListResponse
 
 export type { ContactNote, ContactNoteInput, ContactNoteListResponse }
+
+// Manual interaction logging (ENG-10694/ENG-10698): the request/response
+// shapes for POST /v1/contacts/:personId/interactions, defined once in
+// @goodparty_org/contracts/people/LogContactInteraction.schema.
+export type { LogContactInteractionInput, LogContactInteractionResponse }
 
 export type ConstituentIssue = {
   issueTitle: string

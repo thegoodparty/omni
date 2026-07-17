@@ -23,7 +23,6 @@ import {
   LuShare2,
   LuSmile,
 } from 'react-icons/lu'
-import { format } from 'date-fns'
 import { useContactsTable } from '../ContactsTableProvider'
 import {
   ConstituentActivity,
@@ -37,21 +36,25 @@ import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useCrmEnabled } from '../../../shared/useCrmEnabled'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
 import NotesSection from './NotesSection'
+import LogInteraction from './LogInteraction'
+import {
+  DoorKnockActivityRow,
+  formatDateTime,
+  NoteActivityRow,
+  RobocallActivityRow,
+  TextActivityRow,
+} from './ActivityFeedEntry'
+import type { SupportStatusRollup } from '../shared/contacts-types'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
     .filter(Boolean)
     .map((n) => n!.trim())
     .join(' ')
-
-const formatDateTime = (dateStr: string): string => {
-  const d = new Date(dateStr)
-  return format(d, "EEEE, MMMM d, yyyy, 'at' h:mm a")
-    .replace(' AM', ' a.m.')
-    .replace(' PM', ' p.m.')
-}
 
 const ACTIVITY_EVENT_LABELS: Record<string, string> = {
   SENT: 'Sent',
@@ -85,10 +88,9 @@ const isOutreachActivity = (
 ): activity is OutreachConstituentActivity => activity.type === 'OUTREACH'
 
 // ENG-10695 unioned ContactInteraction*/ContactNote entries into the feed
-// response; this pre-CRM renderer only knew POLL_INTERACTIONS and OUTREACH,
-// so a bare `else` on non-outreach entries would treat those new types as
-// polls and crash reading activity.data.pollId. Rendering them is task 07's
-// job — until then, skip anything that isn't one of the two known types.
+// response; ENG-10698 (task 07) widened rendering to draw them via
+// ActivityFeedEntry. Gated on the CRM flag below — CRM-off keeps the interim
+// pre-CRM behavior of skipping them so the old overlay is unchanged.
 const isPollActivity = (
   activity: ConstituentActivity,
 ): activity is PollConstituentActivity => activity.type === 'POLL_INTERACTIONS'
@@ -266,17 +268,26 @@ const ActivitiesContent: React.FC = () => {
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
+  // trackExposure=false: this reads the flag to decide what to render, it
+  // isn't the CRM treatment surface (ContactsPageGate is).
+  const { enabled: crmEnabled, ready: crmReady } = useCrmEnabled()
+  const canRenderNewEntryTypes = crmReady && crmEnabled
 
-  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries, but this
-  // renderer only draws OUTREACH/POLL_INTERACTIONS rows (task 07 widens it).
-  // Counting the new types here would show the empty state as if there were
-  // renderable rows to draw (a blank feed instead of "Data not available")
-  // and could fire the outreach-adoption event for a page with nothing on
-  // screen.
-  const renderableActivities = activities.filter(
-    (activity) => isOutreachActivity(activity) || isPollActivity(activity),
-  )
-  const hasActivities = renderableActivities.length > 0
+  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries; ENG-10698
+  // widened rendering to draw them via ActivityFeedEntry, gated on the CRM
+  // flag so the pre-CRM overlay's empty-state/pagination behavior (and the
+  // Outreach Timeline Viewed event below) is unchanged when the flag is off.
+  const hasActivities = canRenderNewEntryTypes
+    ? activities.length > 0
+    : activities.some(
+        (activity) => isOutreachActivity(activity) || isPollActivity(activity),
+      )
+
+  // "Did a Win user see attributed outreach" is a narrower question than
+  // "does the feed have any rows" — scoped to legacy OUTREACH rows
+  // specifically so the CRM-widened entry types (manual door knocks, texts,
+  // notes, ...) can't inflate this pre-existing adoption metric.
+  const hasOutreachRows = activities.some(isOutreachActivity)
 
   // Fire once per opened person when the Win outreach timeline actually
   // renders rows (not while loading and not for an empty/error feed), so the
@@ -291,7 +302,7 @@ const ActivitiesContent: React.FC = () => {
       isWinContextReady &&
       isWinContext &&
       currentlySelectedPersonId &&
-      hasActivities &&
+      hasOutreachRows &&
       !isError &&
       firedForPersonRef.current !== currentlySelectedPersonId
     ) {
@@ -305,7 +316,7 @@ const ActivitiesContent: React.FC = () => {
     isWinContextReady,
     isWinContext,
     currentlySelectedPersonId,
-    hasActivities,
+    hasOutreachRows,
     isError,
   ])
 
@@ -313,9 +324,9 @@ const ActivitiesContent: React.FC = () => {
   // loaded from a prior successful fetch) must keep showing those rows, not
   // blank a populated feed. First-fetch failure still lands here because
   // hasActivities is false in that case. Not gated on hasActivities alone
-  // either: a page that happens to hold only new (unrenderable) entry types
-  // can still have a next page of real OUTREACH/POLL_INTERACTIONS rows —
-  // hiding "View more" there would permanently strand them. Not while
+  // either: a page that happens to hold only new (unrenderable, CRM-off)
+  // entry types can still have a next page of real OUTREACH/POLL_INTERACTIONS
+  // rows — hiding "View more" there would permanently strand them. Not while
   // isLoading either — the initial fetch starts with hasActivities and
   // hasNextPage both false, so without this the empty state would flash
   // before the loading skeleton ever gets a chance to render.
@@ -351,9 +362,24 @@ const ActivitiesContent: React.FC = () => {
         if (isPollActivity(activity)) {
           return <PollActivityRow key={idx} activity={activity} />
         }
-        // Rendering for the new ContactInteraction*/ContactNote entry types
-        // lands in task 07; until then, skip rather than crash.
-        return null
+        // CRM-off: keep the pre-CRM interim behavior of skipping rather than
+        // crashing on these entry types.
+        if (!canRenderNewEntryTypes) return null
+        switch (activity.type) {
+          case 'DOOR_KNOCK':
+            return <DoorKnockActivityRow key={idx} activity={activity} />
+          case 'TEXT':
+            return <TextActivityRow key={idx} activity={activity} />
+          case 'ROBOCALL':
+            return <RobocallActivityRow key={idx} activity={activity} />
+          case 'NOTE':
+            return <NoteActivityRow key={idx} activity={activity} />
+          default:
+            // Exhaustiveness guard: a new ConstituentActivityType added to
+            // the contract without a render branch here fails the build
+            // instead of silently dropping rows.
+            return activity satisfies never
+        }
       })}
       {hasNextPage ? (
         <Button
@@ -395,6 +421,14 @@ const getIncomeBucket = (income: number | null) => {
   )
 }
 
+// Buckets shown read-only in the demographics block (ENG-10698). Status is
+// derived server-side (SupportStatusService) and never set from the UI.
+const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
+  supporter: 'Supporter',
+  non_supporter: 'Non-supporter',
+  unknown: 'Support unknown',
+}
+
 const PersonContent: React.FC<{
   person: Person
   hidePoliticalParty: boolean
@@ -403,6 +437,32 @@ const PersonContent: React.FC<{
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
+  // trackExposure=false: these surfaces read the flag to decide whether to
+  // render, they aren't the CRM treatment surface (ContactsPageGate is).
+  const { enabled: crmEnabled, ready: crmReady } = useCrmEnabled()
+  const { isWin, isReady: isWinContextReady } = useWinVoterContext()
+  const showCrmSurfaces = crmReady && crmEnabled
+
+  // Fires once per person open (this component remounts per person via the
+  // `key={person.id}` on PersonContent below — a fresh person always gets a
+  // fresh `firedContactViewed` ref). Distinct from `Contacts.Viewed`, which
+  // only fires from the pre-CRM page.
+  const firedContactViewedRef = useRef(false)
+  useEffect(() => {
+    if (
+      showCrmSurfaces &&
+      isWinContextReady &&
+      !firedContactViewedRef.current
+    ) {
+      firedContactViewedRef.current = true
+      trackEvent(
+        isWin
+          ? EVENTS.VoterData.ContactViewed
+          : EVENTS.ConstituentData.ContactViewed,
+      )
+    }
+  }, [showCrmSurfaces, isWinContextReady, isWin])
+
   // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
   // Win adds the outreach timeline for campaigns (not elected officials). The
   // Win decision (flag on, not an elected official, elected-office load
@@ -469,6 +529,12 @@ const PersonContent: React.FC<{
           title="Voter Demographics"
           icon={<LuClipboardList size={24} />}
         >
+          {showCrmSurfaces ? (
+            <Field
+              label="Support Status"
+              value={SUPPORT_STATUS_LABELS[person.supportStatus ?? 'unknown']}
+            />
+          ) : null}
           <Field label="Registered Voter" value={person.registeredVoter} />
           <Field label="Voter Status" value={person.voterStatus} />
           {!hidePoliticalParty && (
@@ -498,6 +564,8 @@ const PersonContent: React.FC<{
         </InfoSection>
 
         <NotesSection personId={person.id} />
+
+        <LogInteraction personId={person.id} />
 
         {showActivityFeed ? (
           <InfoSection title="Activity Feed" icon={<LuSmile size={24} />}>

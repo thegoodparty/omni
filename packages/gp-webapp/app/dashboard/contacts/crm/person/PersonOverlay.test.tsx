@@ -5,6 +5,8 @@ import { render } from 'helpers/test-utils/render'
 import PersonOverlay from './PersonOverlay'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
+import { useCrmEnabled } from '../../../shared/useCrmEnabled'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { makePerson } from '../shared/test-fixtures'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import type {
@@ -18,6 +20,14 @@ vi.mock('../ContactsTableProvider', () => ({
 
 vi.mock('@shared/experiments/FeatureFlagsProvider', () => ({
   useFlagOn: vi.fn(),
+}))
+
+vi.mock('../../../shared/useCrmEnabled', () => ({
+  useCrmEnabled: vi.fn(),
+}))
+
+vi.mock('../../../shared/useWinVoterContext', () => ({
+  useWinVoterContext: vi.fn(),
 }))
 
 vi.mock('helpers/analyticsHelper', async (importOriginal) => {
@@ -44,8 +54,20 @@ vi.mock('./NotesSection', () => ({
   ),
 }))
 
+// LogInteraction has its own suite (LogInteraction.test.tsx) covering
+// CRM-gating, per-channel validity, submit success/failure, and analytics.
+// Same reasoning as the NotesSection stub above.
+vi.mock('./LogInteraction', () => ({
+  __esModule: true,
+  default: ({ personId }: { personId: string }) => (
+    <div data-testid="log-interaction-stub">{personId}</div>
+  ),
+}))
+
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
+const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
+const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
 
 type ContextValue = ReturnType<typeof useContactsTable>
 type SelectedPerson = ContextValue['currentlySelectedPerson']
@@ -120,6 +142,15 @@ describe('<PersonOverlay>', () => {
     mockedUseContactsTable.mockReset()
     mockedUseFlagOn.mockReset()
     mockedUseFlagOn.mockReturnValue({ ready: true, on: false })
+    mockedUseCrmEnabled.mockReset()
+    mockedUseWinVoterContext.mockReset()
+    // CRM off by default: the many pre-existing tests below assert the
+    // pre-CRM overlay's behavior and predate ENG-10698's CRM-gated surfaces
+    // (Support Status, Contact Viewed, new feed entry types) — defaulting to
+    // off keeps their assertions valid unchanged. Tests exercising the new
+    // surfaces opt in explicitly.
+    mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: false })
+    mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
     vi.mocked(trackEvent).mockClear()
   })
 
@@ -178,6 +209,14 @@ describe('<PersonOverlay>', () => {
     render(<PersonOverlay />)
 
     expect(screen.getByTestId('notes-section-stub')).toHaveTextContent('p_1')
+  })
+
+  it('mounts LogInteraction for the currently selected person', () => {
+    setContext({ selectedPersonId: 'p_1' })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByTestId('log-interaction-stub')).toHaveTextContent('p_1')
   })
 
   it('renders an error message and lets the user close the overlay when the person fetch fails', async () => {
@@ -746,5 +785,212 @@ describe('<PersonOverlay>', () => {
     expect(screen.getByText('Called')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /view more/i }))
     expect(activitiesFetchNextPage).toHaveBeenCalledTimes(1)
+  })
+
+  describe('ENG-10698 support status', () => {
+    it('hides Support Status when the CRM flag is off', () => {
+      setContext()
+
+      render(<PersonOverlay />)
+
+      expect(screen.queryByText('Support Status')).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ['supporter', 'Supporter'],
+      ['non_supporter', 'Non-supporter'],
+      ['unknown', 'Support unknown'],
+    ] as const)(
+      'shows Support Status "%s" as "%s" when the CRM flag is on',
+      (rollup, label) => {
+        mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+        setContext({
+          selectedPerson: { person: makePerson({ supportStatus: rollup }) },
+        })
+
+        render(<PersonOverlay />)
+
+        expect(screen.getByText('Support Status')).toBeInTheDocument()
+        expect(screen.getByText(label)).toBeInTheDocument()
+      },
+    )
+
+    it('shows "Support unknown" when supportStatus is absent from the response', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      // makePerson() doesn't set supportStatus (undefined by default).
+      setContext({ selectedPerson: { person: makePerson() } })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Support unknown')).toBeInTheDocument()
+    })
+  })
+
+  describe('ENG-10698 Contact Viewed', () => {
+    it('fires the Win-mode Contact Viewed event once when the CRM flag is on', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+      setContext({ selectedPersonId: 'p_7' })
+
+      render(<PersonOverlay />)
+
+      expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ContactViewed)
+      expect(
+        vi
+          .mocked(trackEvent)
+          .mock.calls.filter(
+            ([event]) => event === EVENTS.VoterData.ContactViewed,
+          ),
+      ).toHaveLength(1)
+    })
+
+    it('fires the Serve-mode Contact Viewed event when not in Win context', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
+      setContext({ selectedPersonId: 'p_8' })
+
+      render(<PersonOverlay />)
+
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.ConstituentData.ContactViewed,
+      )
+    })
+
+    it('does not fire Contact Viewed when the CRM flag is off', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: false })
+      setContext()
+
+      render(<PersonOverlay />)
+
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.VoterData.ContactViewed,
+      )
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.ConstituentData.ContactViewed,
+      )
+    })
+
+    it('does not fire Contact Viewed until the win context is ready', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: false })
+      setContext()
+
+      render(<PersonOverlay />)
+
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.VoterData.ContactViewed,
+      )
+    })
+  })
+
+  describe('ENG-10698 new feed entry types', () => {
+    const newTypeActivities: ConstituentActivity[] = [
+      {
+        type: 'DOOR_KNOCK',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 'dk_1',
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          note: 'Left a flyer',
+          manual: true,
+        },
+      },
+      {
+        type: 'TEXT',
+        date: '2026-05-10T12:00:00.000Z',
+        data: {
+          activityId: 'tx_1',
+          respondedAt: '2026-05-10T13:00:00.000Z',
+          optedOutAt: null,
+          note: null,
+          manual: false,
+          outreachId: 5,
+        },
+      },
+      {
+        type: 'ROBOCALL',
+        date: '2026-05-10T06:00:00.000Z',
+        data: {
+          activityId: 'rc_1',
+          answeredAt: null,
+          voicemailLeftAt: '2026-05-10T06:05:00.000Z',
+          note: null,
+          manual: false,
+          outreachId: null,
+        },
+      },
+      {
+        type: 'NOTE',
+        date: '2026-05-12T00:00:00.000Z',
+        data: {
+          noteId: 'note_1',
+          body: 'Follow up next week',
+          createdAt: '2026-05-12T00:00:00.000Z',
+          updatedAt: '2026-05-12T00:00:00.000Z',
+        },
+      },
+    ]
+
+    it('renders DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries (with a manual badge and note body) when the CRM flag is on', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: newTypeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText(/door knock: answered/i)).toBeInTheDocument()
+      expect(screen.getByText(/support: supporter/i)).toBeInTheDocument()
+      expect(screen.getByText('Left a flyer')).toBeInTheDocument()
+      expect(screen.getByText('Text')).toBeInTheDocument()
+      expect(screen.getByText('Robocall')).toBeInTheDocument()
+      expect(screen.getByText('Follow up next week')).toBeInTheDocument()
+      // Manual badge only on the hand-logged door knock, not the
+      // system-recorded text/robocall rows.
+      expect(screen.getAllByText('Manual')).toHaveLength(1)
+      expect(
+        screen.getByRole('link', { name: /view outreach/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('does not render new entry types when the CRM flag is off (keeps the pre-CRM skip behavior)', () => {
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: newTypeActivities },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(
+        screen.queryByText(/door knock: answered/i),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText('Follow up next week')).not.toBeInTheDocument()
+    })
+
+    it('shows real feed content (not the empty state) for a CRM-on page containing only new entry types, and does not fire Outreach Timeline Viewed', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      const noteOnly: ConstituentActivity[] = [newTypeActivities[3]!]
+      setContext({
+        isElectedOfficial: false,
+        isWinContext: true,
+        selectedPersonId: 'p_42',
+        selectedPerson: { activities: noteOnly },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
+      expect(screen.getByText('Follow up next week')).toBeInTheDocument()
+      expect(trackEvent).not.toHaveBeenCalledWith(
+        EVENTS.Contacts.OutreachTimelineViewed,
+        expect.anything(),
+      )
+    })
   })
 })

@@ -43,6 +43,8 @@ import type {
   ContactNote,
   ContactNoteInput,
   ContactNoteListResponse,
+  LogContactInteractionInput,
+  LogContactInteractionResponse,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
@@ -634,6 +636,11 @@ export type APIEndpoints = {
   'DELETE /v1/contacts/notes/:noteId': {
     Request: {}
     Response: {}
+  }
+
+  'POST /v1/contacts/:personId/interactions': {
+    Request: LogContactInteractionInput
+    Response: LogContactInteractionResponse
   }
 
   'GET /v1/contact-engagement/:id/issues': {
