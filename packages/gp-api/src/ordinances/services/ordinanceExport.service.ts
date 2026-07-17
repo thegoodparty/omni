@@ -52,10 +52,14 @@ type ExportContent = {
 const EMPTY_TALLY: OrdinanceTally = { pass: 0, flag: 0, attention: 0 }
 
 // The QC summary line, shared by both renderers so its wording can't drift.
-const tallySummary = (content: ExportContent): string =>
-  `Reviewed by ${content.checks.length} checks    ` +
-  `${content.tally.pass} pass · ${content.tally.flag} flag · ` +
-  `${content.tally.attention} attention`
+const tallySummary = (content: ExportContent): string => {
+  const n = content.checks.length
+  return (
+    `Reviewed by ${n} ${n === 1 ? 'check' : 'checks'}    ` +
+    `${content.tally.pass} pass · ${content.tally.flag} flag · ` +
+    `${content.tally.attention} attention`
+  )
+}
 
 const sourceLabel = (source: OrdinanceSource): string =>
   source.publisher ? `${source.title} — ${source.publisher}` : source.title

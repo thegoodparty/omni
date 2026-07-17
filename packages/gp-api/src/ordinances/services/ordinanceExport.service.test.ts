@@ -75,7 +75,7 @@ describe('OrdinanceExportService', () => {
     expect(xml).toContain('Authority')
     // Styled QA: tally summary + the colored status pill (light fill via a
     // `clear` shading, not a solid black one).
-    expect(xml).toContain('Reviewed by 1 checks')
+    expect(xml).toContain('Reviewed by 1 check')
     expect(xml).toContain('PASS')
     expect(xml).toContain('DCFCE7')
     expect(xml).toContain('w:val="clear"')
