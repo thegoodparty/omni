@@ -10,14 +10,6 @@ import {
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Badge,
   Button,
   Drawer,
@@ -48,6 +40,7 @@ import type {
   OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
+import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
 import { deleteOrdinance, updateOrdinance } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
@@ -583,35 +576,20 @@ export default function DraftDetail({
         </div>
       ) : null}
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this draft?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This removes the ordinance draft and its quality report from your
-              ordinances. This can&apos;t be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {deleteError ? (
-            <p className="text-sm text-destructive">{deleteError}</p>
-          ) : null}
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={deleting}
-              onClick={(e) => {
-                // Keep the dialog open through the async delete so an error can
-                // surface; navigation on success unmounts it.
-                e.preventDefault()
-                confirmDelete()
-              }}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {deleting ? 'Deleting…' : 'Delete draft'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          // Drop a prior error so it doesn't linger on the next open.
+          if (!open) setDeleteError(null)
+        }}
+        title="Delete this draft?"
+        description="This removes the ordinance draft and its quality report from your ordinances. This can't be undone."
+        confirmLabel="Delete draft"
+        confirming={deleting}
+        errorMessage={deleteError}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

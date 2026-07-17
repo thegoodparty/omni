@@ -449,6 +449,25 @@ describe('DraftDetail header actions', () => {
     )
   })
 
+  it('reverts the status pill when the change fails', async () => {
+    const user = userEvent.setup()
+    mocks.updateOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'proposed' })} />)
+
+    const trigger = screen.getByRole('button', { name: /change draft status/i })
+    await user.click(trigger)
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { status: 'in_review' },
+      ),
+    )
+    // The optimistic pick reverts to the original status after the save fails.
+    await waitFor(() => expect(trigger).toHaveTextContent(/proposed/i))
+  })
+
   it('deletes the draft after confirming and returns to the list', async () => {
     render(<DraftDetail ordinance={makeOrdinance()} />)
 

@@ -1,6 +1,5 @@
 'use client'
 
-import { LoaderCircle } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@styleguide'
+import { LoaderCircleIcon } from '@styleguide/components/ui/icons'
 
 interface Props {
   open: boolean
@@ -36,11 +36,10 @@ interface Props {
 }
 
 /**
- * Local confirm dialog for cycler delete actions. Thin wrapper around the
- * styleguide AlertDialog primitive — keeps the per-surface confirm flow
- * declarative without duplicating header/footer markup three times. Bumps
- * z-index above the host Drawer (z-50) so the dialog stacks correctly when
- * the surface is open.
+ * Shared confirm-delete dialog. Thin wrapper around the styleguide AlertDialog
+ * primitive so per-surface confirm-with-inline-error flows stay declarative
+ * without duplicating header/footer markup. Bumps z-index above a host Drawer
+ * (z-50) so the dialog stacks correctly when opened from inside one.
  */
 export function ConfirmDeleteDialog({
   open,
@@ -88,7 +87,7 @@ export function ConfirmDeleteDialog({
             data-loading={confirming}
           >
             {confirming ? (
-              <LoaderCircle className="size-4 animate-spin" aria-hidden />
+              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
             ) : null}
             {confirmLabel}
           </AlertDialogAction>
