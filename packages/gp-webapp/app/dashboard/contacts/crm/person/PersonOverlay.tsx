@@ -540,6 +540,7 @@ export default function PersonOverlay(): React.JSX.Element {
           ) : (
             person && (
               <PersonContent
+                key={person.id}
                 person={person}
                 hidePoliticalParty={isElectedOfficial}
                 showWinActivities={isWinContext}
