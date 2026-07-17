@@ -87,6 +87,26 @@ describe('OrdinanceQualityReportService', () => {
     expect(report.ranAgainstBodyHash).toBe(qualityReportInputHash(draft))
   })
 
+  it('changes the hash when graded research fields change', () => {
+    const base = record()
+    // The rubric grades against these prior-step fields, so a change to any of
+    // them must invalidate a stored report.
+    expect(qualityReportInputHash(record({ authority: 'a finding' }))).not.toBe(
+      qualityReportInputHash(base),
+    )
+    expect(
+      qualityReportInputHash(record({ existingLaw: 'chapter 12' })),
+    ).not.toBe(qualityReportInputHash(base))
+    expect(
+      qualityReportInputHash(record({ comparables: 'edgewater 2022' })),
+    ).not.toBe(qualityReportInputHash(base))
+    expect(
+      qualityReportInputHash(
+        record({ clarifyAnswers: [{ questionId: 'q', answer: 'a' }] }),
+      ),
+    ).not.toBe(qualityReportInputHash(base))
+  })
+
   it('coerces the userId to the string the LLM options expect', async () => {
     const jsonCompletion = vi.fn().mockResolvedValue(fullResponse)
 

@@ -72,14 +72,35 @@ const normalizeSource = (
   }
 }
 
-// Hash the full text the report is graded against (title + body), so a
-// title-only edit also marks the report stale. Used both when stamping a fresh
-// report and when deriving staleness on read, so the two must stay identical.
+// Hash every input the report is graded against so any change to them marks the
+// report stale — not just the draft, but the prior-step research the rubric
+// leans on (authority, current law, comparables, clarify answers). Used both
+// when stamping a fresh report and when deriving staleness on read, so the two
+// must stay identical.
 export const qualityReportInputHash = (
-  record: Pick<Ordinance, 'draftTitle' | 'draftBody'>,
+  record: Pick<
+    Ordinance,
+    | 'draftTitle'
+    | 'draftBody'
+    | 'authority'
+    | 'existingLaw'
+    | 'comparables'
+    | 'clarifyAnswers'
+  >,
 ): string =>
   createHash('sha256')
-    .update(`${record.draftTitle ?? ''}\n${record.draftBody ?? ''}`)
+    .update(
+      [
+        record.draftTitle ?? '',
+        record.draftBody ?? '',
+        record.authority != null ? JSON.stringify(record.authority) : '',
+        record.existingLaw != null ? JSON.stringify(record.existingLaw) : '',
+        record.comparables != null ? JSON.stringify(record.comparables) : '',
+        record.clarifyAnswers != null
+          ? JSON.stringify(record.clarifyAnswers)
+          : '',
+      ].join('\n'),
+    )
     .digest('hex')
 
 const QC_SYSTEM_PROMPT = [
