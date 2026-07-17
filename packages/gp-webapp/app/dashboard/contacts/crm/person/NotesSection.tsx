@@ -13,8 +13,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
   Button,
-  FileTextIcon,
   IconButton,
+  NotebookPenIcon,
   PencilIcon,
   Textarea,
   Trash2Icon,
@@ -31,12 +31,69 @@ import type { ContactNote } from '../shared/contacts-types'
 // field can't accept input the API will reject.
 const NOTE_BODY_MAX_LENGTH = 10_000
 
+const NOTE_PLACEHOLDER = 'What do you want to remember about this contact?'
+
 const formatNoteDate = (dateStr: string): string =>
-  format(new Date(dateStr), 'MMM d, yyyy h:mm a')
+  format(new Date(dateStr), 'MMM d, yyyy, h:mm a')
 
 interface NotesSectionProps {
   personId: string
 }
+
+const NoteEditor: React.FC<{
+  value: string
+  onChange: (value: string) => void
+  onSave: () => void
+  onCancel: () => void
+  saveLabel: string
+  isSaving: boolean
+  isSaveError: boolean
+  textareaLabel: string
+}> = ({
+  value,
+  onChange,
+  onSave,
+  onCancel,
+  saveLabel,
+  isSaving,
+  isSaveError,
+  textareaLabel,
+}) => (
+  <div className="flex flex-col gap-2">
+    <Textarea
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      maxLength={NOTE_BODY_MAX_LENGTH}
+      placeholder={NOTE_PLACEHOLDER}
+      disabled={isSaving}
+      aria-label={textareaLabel}
+      autoFocus
+    />
+    {isSaveError ? (
+      <p className="text-sm text-destructive">
+        Couldn&apos;t save your note. Please try again.
+      </p>
+    ) : null}
+    <Button
+      type="button"
+      className="w-full"
+      onClick={onSave}
+      disabled={isSaving || value.trim().length === 0}
+      loading={isSaving}
+    >
+      {saveLabel}
+    </Button>
+    <Button
+      type="button"
+      variant="outline"
+      className="w-full"
+      onClick={onCancel}
+      disabled={isSaving}
+    >
+      Cancel
+    </Button>
+  </div>
+)
 
 interface NoteRowProps {
   note: ContactNote
@@ -69,45 +126,26 @@ const NoteRow: React.FC<NoteRowProps> = ({
 }) => {
   if (isEditing) {
     return (
-      <div className="flex flex-col gap-2 border-b border-border pb-4">
-        <Textarea
-          value={editingBody}
-          onChange={(e) => onEditingBodyChange(e.target.value)}
-          maxLength={NOTE_BODY_MAX_LENGTH}
-          disabled={isSaving}
-          aria-label="Edit note body"
-        />
-        {isSaveError ? (
-          <p className="text-sm text-destructive">
-            Couldn&apos;t save your note. Please try again.
-          </p>
-        ) : null}
-        <div className="flex gap-2 justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCancelEdit}
-            disabled={isSaving}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={onSaveEdit}
-            disabled={isSaving || editingBody.trim().length === 0}
-            loading={isSaving}
-          >
-            Save
-          </Button>
-        </div>
-      </div>
+      <NoteEditor
+        value={editingBody}
+        onChange={onEditingBodyChange}
+        onSave={onSaveEdit}
+        onCancel={onCancelEdit}
+        saveLabel="Save changes"
+        isSaving={isSaving}
+        isSaveError={isSaveError}
+        textareaLabel="Edit note body"
+      />
     )
   }
 
   return (
-    <div className="flex flex-col gap-2 border-b border-border pb-4">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm whitespace-pre-wrap">{note.body}</p>
+    <div className="flex flex-col gap-2">
+      <p className="text-sm whitespace-pre-wrap">{note.body}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {formatNoteDate(note.updatedAt)}
+        </p>
         <div className="flex gap-1 shrink-0">
           <IconButton
             type="button"
@@ -126,6 +164,7 @@ const NoteRow: React.FC<NoteRowProps> = ({
                 size="small"
                 aria-label="Delete note"
                 disabled={isDeleting}
+                className="text-destructive hover:text-destructive"
               >
                 <Trash2Icon size={16} />
               </IconButton>
@@ -151,9 +190,6 @@ const NoteRow: React.FC<NoteRowProps> = ({
           </AlertDialog>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground">
-        {formatNoteDate(note.updatedAt)}
-      </p>
       {isDeleteError ? (
         <p className="text-sm text-destructive">
           Couldn&apos;t delete your note. Please try again.
@@ -173,6 +209,7 @@ export default function NotesSection({
   const { isWin, isReady: isWinContextReady } = useWinVoterContext()
   const queryClient = useQueryClient()
 
+  const [isComposing, setIsComposing] = useState(false)
   const [draft, setDraft] = useState('')
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editingBody, setEditingBody] = useState('')
@@ -196,9 +233,9 @@ export default function NotesSection({
     queryClient.invalidateQueries({
       queryKey: ['contact-notes', orgSlug, personId],
     })
-    // Notes will appear in the person activity feed once ENG-10695 lands.
-    // Partial key match (no exact:true) invalidates the feed regardless of
-    // which engagement id the provider keyed it on for this person.
+    // Notes also appear in the person activity feed. Partial key match (no
+    // exact:true) invalidates the feed regardless of which engagement id the
+    // provider keyed it on for this person.
     queryClient.invalidateQueries({
       queryKey: ['contact-engagement', 'activities'],
     })
@@ -212,6 +249,7 @@ export default function NotesSection({
       }),
     onSuccess: () => {
       setDraft('')
+      setIsComposing(false)
       invalidateAfterWrite()
       if (isWinContextReady) {
         trackEvent(
@@ -266,6 +304,17 @@ export default function NotesSection({
     createMutation.mutate(body)
   }
 
+  const handleStartCompose = () => {
+    createMutation.reset()
+    setIsComposing(true)
+  }
+
+  const handleCancelCompose = () => {
+    createMutation.reset()
+    setDraft('')
+    setIsComposing(false)
+  }
+
   const handleStartEdit = (note: ContactNote) => {
     updateMutation.reset()
     setEditingNoteId(note.id)
@@ -279,7 +328,7 @@ export default function NotesSection({
   }
 
   return (
-    <InfoSection title="Notes" icon={<FileTextIcon size={24} />}>
+    <InfoSection title="Notes" icon={<NotebookPenIcon size={24} />}>
       {notesQuery.isLoading ? (
         <div className="flex flex-col gap-2">
           {[1, 2].map((i) => (
@@ -292,66 +341,59 @@ export default function NotesSection({
         </p>
       ) : (
         <>
-          {notes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No notes yet. Add a note to keep track of details about this
-              person.
-            </p>
-          ) : (
-            <div className="flex flex-col gap-4">
+          {notes.length > 0 ? (
+            <ul className="flex flex-col divide-y divide-border [&>li]:pt-4 [&>li:first-child]:pt-0 [&>li]:pb-4 [&>li:last-child]:pb-0">
               {notes.map((note) => (
-                <NoteRow
-                  key={note.id}
-                  note={note}
-                  isEditing={editingNoteId === note.id}
-                  editingBody={editingBody}
-                  onEditingBodyChange={setEditingBody}
-                  onStartEdit={() => handleStartEdit(note)}
-                  onCancelEdit={() => setEditingNoteId(null)}
-                  onSaveEdit={handleSaveEdit}
-                  isSaving={
-                    updateMutation.isPending &&
-                    updateMutation.variables?.noteId === note.id
-                  }
-                  isSaveError={
-                    updateMutation.isError &&
-                    updateMutation.variables?.noteId === note.id
-                  }
-                  onDelete={() => deleteMutation.mutate(note.id)}
-                  isDeleting={
-                    deleteMutation.isPending &&
-                    deleteMutation.variables === note.id
-                  }
-                  isDeleteError={deleteErrorNoteIds.has(note.id)}
-                />
+                <li key={note.id}>
+                  <NoteRow
+                    note={note}
+                    isEditing={editingNoteId === note.id}
+                    editingBody={editingBody}
+                    onEditingBodyChange={setEditingBody}
+                    onStartEdit={() => handleStartEdit(note)}
+                    onCancelEdit={() => setEditingNoteId(null)}
+                    onSaveEdit={handleSaveEdit}
+                    isSaving={
+                      updateMutation.isPending &&
+                      updateMutation.variables?.noteId === note.id
+                    }
+                    isSaveError={
+                      updateMutation.isError &&
+                      updateMutation.variables?.noteId === note.id
+                    }
+                    onDelete={() => deleteMutation.mutate(note.id)}
+                    isDeleting={
+                      deleteMutation.isPending &&
+                      deleteMutation.variables === note.id
+                    }
+                    isDeleteError={deleteErrorNoteIds.has(note.id)}
+                  />
+                </li>
               ))}
-            </div>
-          )}
+            </ul>
+          ) : null}
 
-          <div className="flex flex-col gap-2">
-            <Textarea
+          {isComposing ? (
+            <NoteEditor
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              maxLength={NOTE_BODY_MAX_LENGTH}
-              placeholder="Add a note about this person"
-              disabled={createMutation.isPending}
-              aria-label="Add a note"
+              onChange={setDraft}
+              onSave={handleAddNote}
+              onCancel={handleCancelCompose}
+              saveLabel="Save note"
+              isSaving={createMutation.isPending}
+              isSaveError={createMutation.isError}
+              textareaLabel="Add a note"
             />
-            {createMutation.isError ? (
-              <p className="text-sm text-destructive">
-                Couldn&apos;t save your note. Please try again.
-              </p>
-            ) : null}
+          ) : (
             <Button
               type="button"
-              onClick={handleAddNote}
-              disabled={createMutation.isPending || draft.trim().length === 0}
-              loading={createMutation.isPending}
-              className="self-start"
+              className="w-full"
+              onClick={handleStartCompose}
             >
+              <NotebookPenIcon size={16} />
               Add a note
             </Button>
-          </div>
+          )}
         </>
       )}
     </InfoSection>

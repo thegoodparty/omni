@@ -80,7 +80,7 @@ describe('<NotesSection>', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('shows the empty state, then adding a note replaces it with the list', async () => {
+  it('opens the compose form from Add a note and saves a new note', async () => {
     const user = userEvent.setup()
     let notes: ContactNote[] = []
     api.mock('GET /v1/contacts/:personId/notes', () => ({
@@ -95,14 +95,55 @@ describe('<NotesSection>', () => {
 
     render(<NotesSection personId={PERSON_ID} />)
 
-    expect(await screen.findByText(/no notes yet/i)).toBeInTheDocument()
+    // Collapsed state: just the Add a note affordance, no textarea.
+    await user.click(await screen.findByRole('button', { name: 'Add a note' }))
+
+    // Compose state replaces the Add button; Save is disabled until text.
+    expect(
+      screen.queryByRole('button', { name: 'Add a note' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save note' })).toBeDisabled()
 
     await user.type(screen.getByLabelText('Add a note'), 'Follow up next week')
-    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
 
     expect(await screen.findByText('Follow up next week')).toBeInTheDocument()
-    expect(screen.queryByText(/no notes yet/i)).not.toBeInTheDocument()
-    // The input clears after a successful save.
+    // Compose closes after a successful save; the Add affordance returns.
+    expect(screen.queryByLabelText('Add a note')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Add a note' }),
+    ).toBeInTheDocument()
+  })
+
+  it('cancelling compose discards the draft and any stale error', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/contacts/:personId/notes', {
+      status: 200,
+      data: { results: [] },
+    })
+    api.mock('POST /v1/contacts/:personId/notes', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    render(<NotesSection personId={PERSON_ID} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Add a note' }))
+    await user.type(screen.getByLabelText('Add a note'), 'doomed draft')
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
+
+    // Failure keeps the compose form open with an error.
+    expect(
+      await screen.findByText(/couldn.t save your note/i),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Add a note')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+
+    expect(
+      screen.queryByText(/couldn.t save your note/i),
+    ).not.toBeInTheDocument()
     expect(screen.getByLabelText('Add a note')).toHaveValue('')
   })
 
@@ -128,7 +169,7 @@ describe('<NotesSection>', () => {
     const editField = screen.getByLabelText('Edit note body')
     await user.clear(editField)
     await user.type(editField, 'Updated note body')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     expect(await screen.findByText('Updated note body')).toBeInTheDocument()
     expect(
@@ -177,7 +218,7 @@ describe('<NotesSection>', () => {
 
     await screen.findByText('Called about the lawn ordinance')
     await user.click(screen.getByRole('button', { name: 'Edit note' }))
-    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await user.click(screen.getByRole('button', { name: 'Save changes' }))
 
     expect(
       await screen.findByText(/couldn.t save your note/i),
@@ -243,10 +284,10 @@ describe('<NotesSection>', () => {
     })
 
     render(<NotesSection personId={PERSON_ID} />)
-    await screen.findByText(/no notes yet/i)
 
+    await user.click(await screen.findByRole('button', { name: 'Add a note' }))
     await user.type(screen.getByLabelText('Add a note'), 'A new note')
-    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
 
     await screen.findByText('A new note')
     expect(trackEvent).toHaveBeenCalledTimes(1)
@@ -268,10 +309,10 @@ describe('<NotesSection>', () => {
     })
 
     render(<NotesSection personId={PERSON_ID} />)
-    await screen.findByText(/no notes yet/i)
 
+    await user.click(await screen.findByRole('button', { name: 'Add a note' }))
     await user.type(screen.getByLabelText('Add a note'), 'A new note')
-    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
 
     await screen.findByText('A new note')
     expect(trackEvent).toHaveBeenCalledTimes(1)
@@ -290,10 +331,10 @@ describe('<NotesSection>', () => {
     })
 
     render(<NotesSection personId={PERSON_ID} />)
-    await screen.findByText(/no notes yet/i)
 
+    await user.click(await screen.findByRole('button', { name: 'Add a note' }))
     await user.type(screen.getByLabelText('Add a note'), 'A new note')
-    await user.click(screen.getByRole('button', { name: 'Add a note' }))
+    await user.click(screen.getByRole('button', { name: 'Save note' }))
 
     await waitFor(() =>
       expect(screen.getByText(/couldn.t save your note/i)).toBeInTheDocument(),

@@ -40,7 +40,6 @@ import { useCrmEnabled } from '../../../shared/useCrmEnabled'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { InfoSection } from './InfoSection'
 import NotesSection from './NotesSection'
-import LogInteraction from './LogInteraction'
 import {
   DoorKnockActivityRow,
   formatDateTime,
@@ -484,6 +483,8 @@ const PersonContent: React.FC<{
       </h2>
       <p className="text-xl font-semibold mb-6">{details}</p>
       <div className="flex flex-col gap-6">
+        <NotesSection personId={person.id} />
+
         {showActivitiesAndIssues ? (
           <InfoSection title="Top Issues" icon={<LuFrown size={24} />}>
             <TopIssuesContent />
@@ -565,10 +566,6 @@ const PersonContent: React.FC<{
           <Field label="Language" value={person.language} />
           <Field label="Ethnicity Group" value={person.ethnicityGroup} />
         </InfoSection>
-
-        <NotesSection personId={person.id} />
-
-        <LogInteraction personId={person.id} />
 
         {showActivityFeed ? (
           <InfoSection title="Activity Feed" icon={<LuSmile size={24} />}>
