@@ -18,6 +18,10 @@ import { Readable } from 'node:stream'
 import { lastValueFrom } from 'rxjs'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
 import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteraction.types'
+import {
+  ActivityConditionResolutionService,
+  type IdFilterResolution,
+} from 'src/contactInteraction/services/activityConditionResolution.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
@@ -78,6 +82,7 @@ export class ContactsService {
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly features: FeaturesService,
     private readonly supportStatusService: SupportStatusService,
+    private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -302,7 +307,10 @@ export class ContactsService {
       }
     }
 
-    const filters = await this.segmentToFilters(segment, organization)
+    const { filters, empty } = await this.segmentToFilters(
+      segment,
+      organization,
+    )
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
@@ -314,9 +322,32 @@ export class ContactsService {
     const response = await this.withOrgDistrictResolution(
       organization,
       (params) =>
-        fetchPeople(params, filters, groupByHousehold, effectiveSearch),
+        empty
+          ? Promise.resolve(this.emptyPeopleListResponse(resultsPerPage, page))
+          : fetchPeople(params, filters, groupByHousehold, effectiveSearch),
     )
     return this.stripPartyFromList(organization, response)
+  }
+
+  // The activity-condition/support-status resolution engine can compose to
+  // an empty person-id set (a real, expected outcome — e.g. a condition that
+  // matches nobody yet). people-api's `id` filter requires min(1), so this
+  // short-circuits to a zero-result page rather than sending `id: { in: [] }`.
+  private emptyPeopleListResponse(
+    resultsPerPage: number,
+    page: number,
+  ): PeopleListResponse {
+    return {
+      pagination: {
+        totalResults: 0,
+        currentPage: page,
+        pageSize: resultsPerPage,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: page > 1,
+      },
+      people: [],
+    }
   }
 
   // Live matching-voter count for the in-progress (unsaved) filter set the
@@ -334,8 +365,20 @@ export class ContactsService {
       )
     }
 
-    const filters = convertVoterFileFilterToFilters(filterInput)
-    this.assertNoPartyFilterForElectedOffice(organization, filters)
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    if (idResolution.kind === 'empty') {
+      return this.withOrgDistrictResolution(organization, async () => 0)
+    }
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
     // The builder counts the filter set plus any active free-text search so the
     // number matches the list it would save (ENG-10517/10518).
     const search = filterInput.search || undefined
@@ -529,24 +572,7 @@ export class ContactsService {
       // the JSON error blob as `contacts.csv`). All earlier failures
       // (`isProAccess`, district resolution, axios POST) still produce a
       // structured 4xx/5xx because nothing has been written to the wire yet.
-      res.raw.setHeader('Content-Type', 'text/csv')
-      res.raw.setHeader(
-        'Content-Disposition',
-        'attachment; filename="contacts.csv"',
-      )
-      // Cookie handshake the Download.tsx client polls for. The browser
-      // commits cookies from a download response, so its appearance is the
-      // signal that "the server has actually started streaming" and lets the
-      // client clear its preparing-state spinner ahead of the 15s fallback.
-      // `Secure` is fine for localhost too: Chrome/Firefox/Safari all treat
-      // localhost as a secure context for cookie purposes.
-      res.raw.setHeader(
-        'Set-Cookie',
-        `gp_download=${randomUUID()}; Path=/; Max-Age=30; SameSite=Lax; Secure`,
-      )
-      if (!res.raw.headersSent) {
-        res.raw.flushHeaders()
-      }
+      this.setDownloadResponseHeaders(res)
 
       return new Promise<void>((resolve) => {
         let settled = false
@@ -598,15 +624,52 @@ export class ContactsService {
       })
     }
 
-    const filters = await this.segmentToFilters(segment, organization)
+    const { filters, empty } = await this.segmentToFilters(
+      segment,
+      organization,
+    )
     this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     const excludeColumns = this.hasElectedOfficeAccess(organization)
       ? [PARTY_DOWNLOAD_COLUMN]
       : undefined
     return this.withOrgDistrictResolution(organization, (params) =>
-      downloadPeople(params, filters, groupByHousehold, excludeColumns),
+      empty
+        ? this.emptyDownload(res)
+        : downloadPeople(params, filters, groupByHousehold, excludeColumns),
     )
+  }
+
+  // Shared with the empty-set short circuit below so the two paths can't
+  // drift on the download headers/cookie contract.
+  private setDownloadResponseHeaders(res: FastifyReply): void {
+    res.raw.setHeader('Content-Type', 'text/csv')
+    res.raw.setHeader(
+      'Content-Disposition',
+      'attachment; filename="contacts.csv"',
+    )
+    // Cookie handshake the Download.tsx client polls for. The browser
+    // commits cookies from a download response, so its appearance is the
+    // signal that "the server has actually started streaming" and lets the
+    // client clear its preparing-state spinner ahead of the 15s fallback.
+    // `Secure` is fine for localhost too: Chrome/Firefox/Safari all treat
+    // localhost as a secure context for cookie purposes.
+    res.raw.setHeader(
+      'Set-Cookie',
+      `gp_download=${randomUUID()}; Path=/; Max-Age=30; SameSite=Lax; Secure`,
+    )
+    if (!res.raw.headersSent) {
+      res.raw.flushHeaders()
+    }
+  }
+
+  // Same rationale as emptyPeopleListResponse: an empty resolved id set means
+  // zero matching people, without a people-api call that would otherwise 400
+  // on `id: { in: [] }`. Ships the same headers/cookie contract as a real
+  // download, just with no rows.
+  private async emptyDownload(res: FastifyReply): Promise<void> {
+    this.setDownloadResponseHeaders(res)
+    res.raw.end()
   }
 
   async getDistrictStats(organization: Organization) {
@@ -693,21 +756,48 @@ export class ContactsService {
     return this.cachedToken
   }
 
+  // Built-in segments never carry activity conditions or a support-status
+  // filter, so they skip the resolution engine entirely — no extra query, and
+  // the FilterObject they return is byte-identical to before this feature.
   private async segmentToFilters(
     segment: string | undefined,
     organization: Organization,
-  ): Promise<FilterObject> {
+  ): Promise<{ filters: FilterObject; empty: boolean }> {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
-    if (builtInFilters) return builtInFilters
+    if (builtInFilters) return { filters: builtInFilters, empty: false }
 
     const customSegment =
       await this.voterFileFilterService.findByIdAndOrganizationSlug(
         parseInt(resolvedSegment),
         organization.slug,
       )
+    if (!customSegment) return { filters: {}, empty: false }
 
-    return customSegment ? convertVoterFileFilterToFilters(customSegment) : {}
+    const baseFilters = convertVoterFileFilterToFilters(customSegment)
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: customSegment.activityConditions,
+        supportStatus: customSegment.supportStatus,
+      },
+    )
+    if (idResolution.kind === 'empty') {
+      return { filters: baseFilters, empty: true }
+    }
+    return {
+      filters: this.mergeIdFilter(baseFilters, idResolution),
+      empty: false,
+    }
+  }
+
+  private mergeIdFilter(
+    filters: FilterObject,
+    resolution: IdFilterResolution,
+  ): FilterObject {
+    return resolution.kind === 'filter'
+      ? { ...filters, id: resolution.idFilter }
+      : filters
   }
 
   // A saved list created from a search result set stores its search term.

@@ -3,14 +3,19 @@ import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
 import { FeaturesService } from '@/features/services/features.service'
 import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilter.utils'
+import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
+import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
+import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import {
+  DoorKnockOutcome,
   OutreachStatus,
   OutreachType,
+  SupportAnswer,
   VoterFileFilter,
 } from '../../generated/prisma'
 import { Readable } from 'node:stream'
 import { of } from 'rxjs'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
 
@@ -498,6 +503,309 @@ describe('activity conditions and supportStatus on a segment', () => {
   })
 })
 
+// End-to-end coverage of the resolution engine (ENG-10704) through the real
+// /v1/contacts routes: seeded interaction rows -> a saved segment carrying
+// activityConditions/supportStatus -> the outgoing people-api `filters.id`
+// payload. The people-api HTTP call is mocked (this suite doesn't run
+// people-api); the set composition itself is asserted here via the outgoing
+// request, and unit-tested exhaustively in
+// activityConditionResolution.service.test.ts.
+describe('resolution engine: list/count/download honor conditions + supportStatus', () => {
+  const stubDistrict = () =>
+    vi
+      .spyOn(service.app.get(ElectionsService), 'getDistrict')
+      .mockResolvedValue({
+        id: DISTRICT_ID,
+        state: 'CA',
+        L2DistrictType: 'County',
+        L2DistrictName: 'Test County',
+        projectedTurnout: null,
+      })
+
+  const stubPeopleApi = (totalResults = 0) =>
+    vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
+      url: string,
+    ) =>
+      url.includes('/download')
+        ? of({ data: Readable.from(['lalVoterId\n']) })
+        : of({
+            data: { people: [], pagination: { totalResults } },
+          })) as never)
+
+  beforeEach(async () => {
+    await seedWinCampaign()
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(true)
+    stubDistrict()
+  })
+
+  const outgoingFiltersFor = (
+    post: ReturnType<typeof stubPeopleApi>,
+    pathSuffix: string,
+  ) => {
+    const call = post.mock.calls.find((call) =>
+      String(call[0]).endsWith(pathSuffix),
+    )
+    return (call?.[1] as { filters: Record<string, unknown> }).filters
+  }
+
+  it('a single condition (text, specific outreach, no_response) resolves the exact seeded people on list/count/download', async () => {
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { organizationSlug: WIN_SLUG },
+    })
+    const outreach = await seedCompletedOutreach(
+      campaign.id,
+      WIN_SLUG,
+      OutreachType.text,
+    )
+    const texts = service.app.get(ContactInteractionTextService)
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-no-response',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+    })
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-responded',
+      occurredAt: new Date(),
+      outreachId: outreach.id,
+      respondedAt: new Date(),
+    })
+
+    const segment = await service.prisma.voterFileFilter.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        name: 'No response',
+        activityConditions: {
+          create: [
+            {
+              outreachType: OutreachType.text,
+              outreachId: outreach.id,
+              actions: ['no_response'],
+            },
+          ],
+        },
+      },
+    })
+
+    const post = stubPeopleApi()
+
+    const list = await service.client.get(
+      `/v1/contacts?segment=${segment.id}`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+    expect(list.status).toBe(200)
+    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
+      id: { in: ['p-no-response'] },
+    })
+
+    const count = await service.client.post(
+      '/v1/contacts/count',
+      {
+        activityConditions: [
+          {
+            outreachType: 'text',
+            outreachId: outreach.id,
+            actions: ['no_response'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+    expect(count.status).toBe(201)
+    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
+      id: { in: ['p-no-response'] },
+    })
+
+    const download = await service.client.get(
+      `/v1/contacts/download?segment=${segment.id}`,
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+    expect(download.status).toBe(200)
+    expect(outgoingFiltersFor(post, '/v1/people/download')).toEqual({
+      id: { in: ['p-no-response'] },
+    })
+  })
+
+  it('two conditions AND: only people present in both sets return', async () => {
+    const campaign = await service.prisma.campaign.findFirstOrThrow({
+      where: { organizationSlug: WIN_SLUG },
+    })
+    const textOutreach = await seedCompletedOutreach(
+      campaign.id,
+      WIN_SLUG,
+      OutreachType.text,
+    )
+    const robocallOutreach = await seedCompletedOutreach(
+      campaign.id,
+      WIN_SLUG,
+      OutreachType.robocall,
+    )
+    const texts = service.app.get(ContactInteractionTextService)
+    const robocalls = service.app.get(ContactInteractionRobocallService)
+
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-both',
+      occurredAt: new Date(),
+      outreachId: textOutreach.id,
+      respondedAt: new Date(),
+    })
+    await texts.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-text-only',
+      occurredAt: new Date(),
+      outreachId: textOutreach.id,
+      respondedAt: new Date(),
+    })
+    await robocalls.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-both',
+      occurredAt: new Date(),
+      outreachId: robocallOutreach.id,
+      answeredAt: new Date(),
+    })
+
+    const post = stubPeopleApi()
+
+    const count = await service.client.post(
+      '/v1/contacts/count',
+      {
+        activityConditions: [
+          {
+            outreachType: 'text',
+            outreachId: textOutreach.id,
+            actions: ['responded'],
+          },
+          {
+            outreachType: 'robocall',
+            outreachId: robocallOutreach.id,
+            actions: ['answered'],
+          },
+        ],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(count.status).toBe(201)
+    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
+      id: { in: ['p-both'] },
+    })
+  })
+
+  it('supportStatus: [supporter] resolves exactly the people whose latest door-knock support answer is supporter', async () => {
+    const doorKnocks = service.app.get(ContactInteractionDoorKnockService)
+    await doorKnocks.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-supporter',
+      occurredAt: new Date(),
+      outcome: DoorKnockOutcome.answered,
+      supportAnswer: SupportAnswer.supporter,
+      manual: true,
+    })
+    await doorKnocks.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-non-supporter',
+      occurredAt: new Date(),
+      outcome: DoorKnockOutcome.answered,
+      supportAnswer: SupportAnswer.non_supporter,
+      manual: true,
+    })
+
+    const post = stubPeopleApi()
+
+    const count = await service.client.post(
+      '/v1/contacts/count',
+      { supportStatus: ['supporter'] },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(count.status).toBe(201)
+    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
+      id: { in: ['p-supporter'] },
+    })
+  })
+
+  it('supportStatus including unknown resolves the notIn complement of supporters/non-supporters', async () => {
+    const doorKnocks = service.app.get(ContactInteractionDoorKnockService)
+    await doorKnocks.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-supporter',
+      occurredAt: new Date(),
+      outcome: DoorKnockOutcome.answered,
+      supportAnswer: SupportAnswer.supporter,
+      manual: true,
+    })
+    await doorKnocks.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-non-supporter',
+      occurredAt: new Date(),
+      outcome: DoorKnockOutcome.answered,
+      supportAnswer: SupportAnswer.non_supporter,
+      manual: true,
+    })
+
+    const post = stubPeopleApi()
+
+    const count = await service.client.post(
+      '/v1/contacts/count',
+      { supportStatus: ['unknown'] },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(count.status).toBe(201)
+    const filters = outgoingFiltersFor(post, '/v1/people') as {
+      id: { notIn: string[] }
+    }
+    expect(filters.id.notIn.sort()).toEqual(['p-non-supporter', 'p-supporter'])
+  })
+
+  it('composes a support-status filter with a demographic filter (AND) through people-api', async () => {
+    const doorKnocks = service.app.get(ContactInteractionDoorKnockService)
+    await doorKnocks.create({
+      organizationSlug: WIN_SLUG,
+      personId: 'p-supporter',
+      occurredAt: new Date(),
+      outcome: DoorKnockOutcome.answered,
+      supportAnswer: SupportAnswer.supporter,
+      manual: true,
+    })
+
+    const post = stubPeopleApi()
+
+    const count = await service.client.post(
+      '/v1/contacts/count',
+      { supportStatus: ['supporter'], partyDemocrat: true },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(count.status).toBe(201)
+    expect(outgoingFiltersFor(post, '/v1/people')).toEqual({
+      politicalParty: { eq: 'Democratic' },
+      id: { in: ['p-supporter'] },
+    })
+  })
+
+  it('short-circuits to zero results without calling people-api when a condition matches nobody', async () => {
+    const post = stubPeopleApi()
+
+    const count = await service.client.post(
+      '/v1/contacts/count',
+      {
+        activityConditions: [{ outreachType: 'text', actions: ['responded'] }],
+      },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(count.status).toBe(201)
+    expect(count.data.count).toBe(0)
+    expect(post).not.toHaveBeenCalled()
+  })
+})
+
 describe('locking a segment already used for outreach', () => {
   it('returns 409 on PUT and DELETE once firstUsedForOutreachAt is set', async () => {
     await seedWinCampaign()
@@ -616,6 +924,11 @@ describe('count + download for a saved segment', () => {
       }),
       expect.any(Object),
     )
+    // A segment with no activityConditions/supportStatus never sends an `id`
+    // key — the resolution engine must be byte-identical to pre-ENG-10704
+    // behavior when neither is set.
+    const body = post.mock.calls[0]?.[1] as { filters: Record<string, unknown> }
+    expect(body.filters).not.toHaveProperty('id')
   })
 
   it('downloads a saved segment scoped to the campaign district incl. party', async () => {

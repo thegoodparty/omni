@@ -80,6 +80,9 @@ describe('ContactsService', () => {
     let mockSupportStatusService: {
       statusForPeople: ReturnType<typeof vi.fn>
     }
+    let mockActivityConditionResolutionService: {
+      resolveIdFilter: ReturnType<typeof vi.fn>
+    }
 
     beforeEach(() => {
       mockHttpService = {
@@ -118,6 +121,9 @@ describe('ContactsService', () => {
       mockSupportStatusService = {
         statusForPeople: vi.fn().mockResolvedValue(new Map()),
       }
+      mockActivityConditionResolutionService = {
+        resolveIdFilter: vi.fn().mockResolvedValue({ kind: 'none' }),
+      }
 
       service = new ContactsService(
         mockHttpService as never,
@@ -128,6 +134,7 @@ describe('ContactsService', () => {
         voterFileDownloadAccess,
         mockFeaturesService as never,
         mockSupportStatusService as never,
+        mockActivityConditionResolutionService as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
@@ -1475,6 +1482,169 @@ describe('ContactsService', () => {
           response: { errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE },
         })
         expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+    })
+
+    // Wiring-level coverage (mocked resolution service) — the resolution
+    // engine's own set-composition math is covered end-to-end in
+    // activityConditionResolution.service.test.ts. This block only asserts
+    // that findContacts/countContacts/downloadContacts honor whatever the
+    // resolution service returns.
+    describe('activity-condition/support-status resolution wiring (ENG-10704)', () => {
+      const customSegment = { id: 42, name: 'Custom list' } as VoterFileFilter
+
+      it('findContacts short-circuits to an empty page without calling people-api', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          customSegment,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'empty' },
+        )
+
+        const result = await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '42' },
+          org,
+        )
+
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+        expect(result.people).toEqual([])
+        expect(result.pagination).toEqual({
+          totalResults: 0,
+          currentPage: 1,
+          pageSize: 10,
+          totalPages: 0,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        })
+      })
+
+      it('findContacts merges a resolved id filter into the people-api request', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          customSegment,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'filter', idFilter: { in: ['p-1', 'p-2'] } },
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: {} } }),
+        )
+
+        await service.findContacts(
+          { resultsPerPage: 10, page: 1, search: undefined, segment: '42' },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              id: { in: ['p-1', 'p-2'] },
+            }),
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('countContacts returns 0 without calling people-api when the resolution is empty', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'empty' },
+        )
+
+        const count = await service.countContacts(
+          {
+            activityConditions: [
+              {
+                outreachType: 'text',
+                outreachId: null,
+                actions: ['responded'],
+              },
+            ],
+          },
+          org,
+        )
+
+        expect(count).toBe(0)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('countContacts merges a resolved id filter into the outgoing filters', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'filter', idFilter: { notIn: ['p-3'] } },
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 7 } } }),
+        )
+
+        const count = await service.countContacts(
+          { supportStatus: ['unknown'] },
+          org,
+        )
+
+        expect(count).toBe(7)
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: { id: { notIn: ['p-3'] } },
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('downloadContacts writes an empty CSV response without calling people-api when the resolution is empty', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          customSegment,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'empty' },
+        )
+        const setHeader = vi.fn()
+        const flushHeaders = vi.fn()
+        const end = vi.fn()
+        const res = {
+          raw: {
+            headersSent: false,
+            setHeader,
+            flushHeaders,
+            end,
+            on: vi.fn(),
+          },
+        } as never
+
+        await service.downloadContacts({ segment: '42' }, res, org)
+
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+        expect(setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv')
+        expect(setHeader).toHaveBeenCalledWith(
+          'Content-Disposition',
+          'attachment; filename="contacts.csv"',
+        )
+        expect(flushHeaders).toHaveBeenCalledTimes(1)
+        expect(end).toHaveBeenCalledTimes(1)
       })
     })
   })
