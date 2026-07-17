@@ -1,12 +1,13 @@
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { ContactNoteModule } from '@/contactNote/contactNote.module'
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { CampaignsModule } from 'src/campaigns/campaigns.module'
-import { ContactInteractionModule } from 'src/contactInteraction/contactInteraction.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
 import { VotersModule } from 'src/voters/voters.module'
+import { ContactInteractionsController } from './contactInteractions.controller'
 import { ContactNotesController } from './contactNotes.controller'
 import { ContactsController } from './contacts.controller'
 import { ContactsService } from './services/contacts.service'
@@ -22,7 +23,11 @@ import { ContactsService } from './services/contacts.service'
     ContactInteractionModule,
     ContactNoteModule,
   ],
-  controllers: [ContactsController, ContactNotesController],
+  controllers: [
+    ContactsController,
+    ContactNotesController,
+    ContactInteractionsController,
+  ],
   providers: [ContactsService],
   exports: [ContactsService],
 })
