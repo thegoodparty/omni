@@ -35,6 +35,9 @@ vi.mock('./ContactTypeahead', () => ({
 vi.mock('./wizard/CreateListWizard', () => ({
   default: () => null,
 }))
+vi.mock('./DistrictStatCard', () => ({
+  default: () => <div data-testid="district-stat" />,
+}))
 vi.mock('../[[...attr]]/components/ContactSearch', () => ({
   ContactSearch: () => <div data-testid="search" />,
 }))

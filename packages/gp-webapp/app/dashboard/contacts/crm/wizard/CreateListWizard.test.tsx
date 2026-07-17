@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -42,6 +42,12 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
   } as ContextValue)
 }
 
+// ENG-10721 (bottom-drawer/pill-toggle prototype parity): the voter-file
+// branch's checkbox rows became ToggleGroup pills, whose accessible name is
+// just the option's own label text (no more sibling-text lookup needed).
+const pillForOption = (label: string): HTMLElement =>
+  screen.getByRole('button', { name: label })
+
 beforeEach(() => {
   api.reset()
   vi.clearAllMocks()
@@ -59,15 +65,17 @@ beforeEach(() => {
 })
 
 describe('CreateListWizard — step navigation', () => {
-  it('disables Next on step 1 until a branch is chosen', async () => {
+  it('disables Continue on step 1 until a branch is chosen', async () => {
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
-    const next = screen.getByRole('button', { name: 'Next' })
+    const next = screen.getByRole('button', { name: 'Continue' })
     expect(next).toBeDisabled()
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
     expect(next).toBeEnabled()
   })
@@ -77,34 +85,38 @@ describe('CreateListWizard — step navigation', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      screen.getByRole('heading', { name: /general information/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Filters' })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     ).toBeInTheDocument()
   })
 
-  it('advances to the activity step 2 and disables Next until every row has a channel', async () => {
+  it('advances to the activity step 2 and disables the step-2 CTA until every row has a channel', async () => {
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from outreach activity/i }),
+      screen.getByRole('radio', {
+        name: /build my list using outreach activity/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    const next = screen.getByRole('button', { name: 'Next' })
-    expect(next).toBeDisabled()
+    const cta = screen.getByRole('button', { name: /build your list/i })
+    expect(cta).toBeDisabled()
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    expect(next).toBeEnabled()
+    expect(cta).toBeEnabled()
   })
 
   it('resets all state when reopened after being cancelled', async () => {
@@ -115,15 +127,19 @@ describe('CreateListWizard — step navigation', () => {
     )
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     rerender(<CreateListWizard open={false} onOpenChange={onOpenChange} />)
     rerender(<CreateListWizard open onOpenChange={onOpenChange} />)
 
     expect(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     ).toBeInTheDocument()
   })
 })
@@ -141,27 +157,21 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     render(<CreateListWizard open onOpenChange={onOpenChange} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // Mirrors FiltersSheet.test.tsx's checkboxForOption helper: the label is
-    // a sibling of the checkbox (not a wrapping <label>), so find the row
-    // then the checkbox within it.
-    const checkboxForOption = (label: string): HTMLElement => {
-      const labelNode = screen.getByText(new RegExp(`^${label}$`, 'i'))
-      const row = labelNode.parentElement
-      if (!row) throw new Error(`row for ${label} not found`)
-      return within(row).getByRole('checkbox')
-    }
+    await user.click(pillForOption('Female'))
+    await user.click(pillForOption('Democrat'))
+    await user.click(pillForOption('Supporter'))
 
-    await user.click(checkboxForOption('Female'))
-    await user.click(checkboxForOption('Democrat'))
-    await user.click(checkboxForOption('Supporter'))
-
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -183,13 +193,61 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       screen.queryByRole('heading', { name: /political party/i }),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows "Clear filters" only once a pill is selected, and clearing resets the payload', async () => {
+    const user = userEvent.setup()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 999, name: 'Cleared list' } }
+    })
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      screen.queryByRole('button', { name: 'Clear filters' }),
+    ).not.toBeInTheDocument()
+
+    const femalePill = pillForOption('Female')
+    await user.click(femalePill)
+    expect(femalePill).toHaveAttribute('data-state', 'on')
+    expect(
+      screen.getByRole('button', { name: 'Clear filters' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    expect(femalePill).toHaveAttribute('data-state', 'off')
+    expect(
+      screen.queryByRole('button', { name: 'Clear filters' }),
+    ).not.toBeInTheDocument()
+
+    // The cleared state actually reaches the submit payload, not just the UI.
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Cleared list')
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({ genderFemale: false })
   })
 })
 
@@ -204,9 +262,11 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from outreach activity/i }),
+      screen.getByRole('radio', {
+        name: /build my list using outreach activity/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // An incomplete condition serializes to activityConditions: [] — the
     // backend would return the unfiltered total and poison the count cache.
@@ -240,9 +300,11 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from outreach activity/i }),
+      screen.getByRole('radio', {
+        name: /build my list using outreach activity/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Condition 1: text · GOTV blast · no response
     await user.click(screen.getByRole('radio', { name: 'Text' }))
@@ -258,11 +320,11 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     await user.click(doorKnockRadios[doorKnockRadios.length - 1]!)
     await user.click(screen.getByText('Support: Yes'))
 
-    const next = screen.getByRole('button', { name: 'Next' })
-    expect(next).toBeEnabled()
-    await user.click(next)
+    const cta = screen.getByRole('button', { name: /build your list/i })
+    expect(cta).toBeEnabled()
+    await user.click(cta)
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -280,20 +342,24 @@ describe('CreateListWizard — activity branch payload assembly', () => {
   })
 })
 
-describe('CreateListWizard — running total + build button', () => {
-  it('shows the debounced count and reads it on the build button', async () => {
+describe('CreateListWizard — running total + CTA', () => {
+  it('shows the debounced count on the step-2 CTA and in the step-3 count sentence', async () => {
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(
-      await screen.findByRole('button', { name: /build your list \(250\)/i }),
-    ).toBeInTheDocument()
+    const cta = await screen.findByRole('button', {
+      name: /build your list \(250\)/i,
+    })
+    expect(cta).toBeInTheDocument()
+
+    await user.click(cta)
     expect(await screen.findByText(/250 voters match/i)).toBeInTheDocument()
   })
 
@@ -308,19 +374,21 @@ describe('CreateListWizard — running total + build button', () => {
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Build your list' }),
+    )
 
     expect(await screen.findByText(/too many people/i)).toBeInTheDocument()
     // The build button must still be usable once named — the cap is
     // guidance, not a hard submit-block (the create endpoint doesn't
     // resolve/cap at save time).
     await user.type(screen.getByLabelText(/list name/i), 'Huge list')
-    expect(
-      screen.getByRole('button', { name: /build your list/i }),
-    ).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled()
   })
 })
 
@@ -336,14 +404,16 @@ describe('CreateListWizard — error handling', () => {
     render(<CreateListWizard open onOpenChange={onOpenChange} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.type(screen.getByLabelText(/list name/i), 'Broken list')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(
       await screen.findByRole('button', { name: /build your list/i }),
     )
+    await user.type(screen.getByLabelText(/list name/i), 'Broken list')
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
@@ -352,13 +422,6 @@ describe('CreateListWizard — error handling', () => {
 })
 
 describe('CreateListWizard — ENG-10709 List Created / Activity List Created analytics', () => {
-  const checkboxForOption = (label: string): HTMLElement => {
-    const labelNode = screen.getByText(new RegExp(`^${label}$`, 'i'))
-    const row = labelNode.parentElement
-    if (!row) throw new Error(`row for ${label} not found`)
-    return within(row).getByRole('checkbox')
-  }
-
   it('fires the Win-mode List Created event once with variableCount + hasParty on a successful voter-file create', async () => {
     api.mock('POST /v1/voters/voter-file/filter', {
       status: 200,
@@ -369,19 +432,23 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // gender (1 category) + political_party (1 category) + supportStatus
     // (counts as 1) = variableCount 3.
-    await user.click(checkboxForOption('Female'))
-    await user.click(checkboxForOption('Democrat'))
-    await user.click(checkboxForOption('Supporter'))
+    await user.click(pillForOption('Female'))
+    await user.click(pillForOption('Democrat'))
+    await user.click(pillForOption('Supporter'))
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
@@ -401,18 +468,22 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the constituent file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    await user.click(checkboxForOption('Female'))
+    await user.click(pillForOption('Female'))
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
     await user.type(
       screen.getByLabelText(/list name/i),
       'Reachable constituents',
     )
-    await user.click(screen.getByRole('button', { name: /build your list/i }))
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
     expect(trackEvent).toHaveBeenCalledWith(
@@ -445,18 +516,20 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from outreach activity/i }),
+      screen.getByRole('radio', {
+        name: /build my list using outreach activity/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
     await user.click(await screen.findByRole('combobox'))
     await user.click(await screen.findByText('GOTV blast'))
     await user.click(screen.getByText('No Response'))
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
     await user.click(screen.getByRole('button', { name: /build your list/i }))
+    await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
     expect(trackEvent).toHaveBeenCalledWith(
@@ -487,9 +560,11 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from outreach activity/i }),
+      screen.getByRole('radio', {
+        name: /build my list using outreach activity/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     // Condition 1: text · GOTV blast · no response
     await user.click(screen.getByRole('radio', { name: 'Text' }))
@@ -505,9 +580,9 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(doorKnockRadios[doorKnockRadios.length - 1]!)
     await user.click(screen.getByText('Support: Yes'))
 
-    await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
     await user.click(screen.getByRole('button', { name: /build your list/i }))
+    await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
     expect(trackEvent).toHaveBeenCalledWith(
@@ -519,14 +594,16 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
   })
 
-  it('never fires on wizard abandon (Cancel before completing)', async () => {
+  it('never fires analytics on wizard abandon (closed via X before completing)', async () => {
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
     await user.click(
-      screen.getByRole('radio', { name: /build from the voter file/i }),
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
     )
-    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    await user.click(screen.getByRole('button', { name: 'Close' }))
 
     expect(trackEvent).not.toHaveBeenCalled()
   })

@@ -1,8 +1,8 @@
 'use client'
 
-import { Checkbox } from '@styleguide'
-import Body2 from '@shared/typography/Body2'
+import { Button, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import { PILL_TOGGLE_ITEM_CLASSNAME } from '../shared/constants'
 import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import type { VoterFileFilters } from '../shared/voterFileFilterTransform.util'
@@ -15,9 +15,11 @@ interface VoterFileStepProps {
   isElectedOfficial: boolean
 }
 
-// Step 2 of the voter-file branch: the legacy FiltersSheet's filter groups,
-// ported (not forked — filters.config.ts is shared data, not duplicated
-// logic) plus the new Support Status section (ENG-10708).
+// Step 2 of the voter-file branch (ENG-10721 locked-prototype parity): pill
+// toggles over the same filters.config.ts sections/options FiltersSheet and
+// the original checkbox rendering used — the filter dimensions and the
+// backend payload shape (voterFileFilterTransform.util.ts) are unchanged,
+// only the control chrome is new.
 export default function VoterFileStep({
   filters,
   onFiltersChange,
@@ -36,78 +38,102 @@ export default function VoterFileStep({
       }))
     : filterSections
 
-  const handleCheckedChange = (checked: boolean, key: string) => {
-    onFiltersChange({ ...filters, [key]: checked })
-  }
+  const selectedOptionsForField = (
+    options: Array<{ key: string; label: string }>,
+  ): string[] =>
+    options.filter((option) => filters[option.key]).map((option) => option.key)
 
-  const handleSelectAll = (options: Array<{ key: string; label: string }>) => {
+  const handleFieldValueChange = (
+    options: Array<{ key: string; label: string }>,
+    values: string[],
+  ) => {
+    const selected = new Set(values)
     const updated = { ...filters }
     options.forEach((option) => {
-      updated[option.key] = true
+      updated[option.key] = selected.has(option.key)
     })
     onFiltersChange(updated)
   }
 
-  const toggleSupportStatus = (
-    value: SupportStatusRollup,
-    checked: boolean,
-  ) => {
-    onSupportStatusChange(
-      checked
-        ? [...supportStatus, value]
-        : supportStatus.filter((existing) => existing !== value),
-    )
+  const hasAnySelection =
+    Object.values(filters).some(Boolean) || supportStatus.length > 0
+
+  const handleClearFilters = () => {
+    onFiltersChange({})
+    onSupportStatusChange([])
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Filters</h3>
+        {hasAnySelection && (
+          <Button
+            type="button"
+            variant="link"
+            size="small"
+            className="h-auto border-none p-0 text-xs"
+            onClick={handleClearFilters}
+          >
+            Clear filters
+          </Button>
+        )}
+      </div>
+
       {displaySections.map((section) => (
-        <div key={section.title}>
-          <h3 className="text-xl lg:text-2xl font-semibold">{section.title}</h3>
+        <div key={section.title} className="flex flex-col gap-4">
           {section.fields.map((field) => (
-            <div key={field.key} className="mt-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-medium text-gray-600">
-                  {field.label}
-                </h4>
-                <div
-                  className="text-xs font-semibold cursor-pointer text-blue-500"
-                  onClick={() => handleSelectAll(field.options)}
-                >
-                  Select All
-                </div>
-              </div>
-              {field.options.map((option) => (
-                <div key={option.key} className="mt-2 flex items-center">
-                  <Checkbox
-                    checked={filters[option.key] ?? false}
-                    onCheckedChange={(checked) =>
-                      handleCheckedChange(checked === true, option.key)
-                    }
-                  />
-                  <Body2 className="font-medium ml-2">{option.label}</Body2>
-                </div>
-              ))}
+            <div key={field.key} className="flex flex-col gap-2">
+              <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {field.label}
+              </h4>
+              <ToggleGroup
+                type="multiple"
+                value={selectedOptionsForField(field.options)}
+                onValueChange={(values) =>
+                  handleFieldValueChange(field.options, values)
+                }
+                aria-label={field.label}
+                className="flex flex-wrap gap-2"
+              >
+                {field.options.map((option) => (
+                  <ToggleGroupItem
+                    key={option.key}
+                    value={option.key}
+                    className={PILL_TOGGLE_ITEM_CLASSNAME}
+                  >
+                    {option.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
             </div>
           ))}
         </div>
       ))}
 
-      <div>
-        <h3 className="text-xl lg:text-2xl font-semibold">Support Status</h3>
-        <div className="mt-4">
+      <div className="flex flex-col gap-2">
+        <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Support Status
+        </h4>
+        <ToggleGroup
+          type="multiple"
+          value={supportStatus}
+          onValueChange={(values) =>
+            onSupportStatusChange(values as SupportStatusRollup[])
+          }
+          aria-label="Support Status"
+          className="flex flex-wrap gap-2"
+        >
           {SUPPORT_STATUS_OPTIONS.map((option) => (
-            <div key={option.value} className="mt-2 flex items-center">
-              <Checkbox
-                checked={supportStatus.includes(option.value)}
-                onCheckedChange={(checked) =>
-                  toggleSupportStatus(option.value, checked === true)
-                }
-              />
-              <Body2 className="font-medium ml-2">{option.label}</Body2>
-            </div>
+            <ToggleGroupItem
+              key={option.value}
+              value={option.value}
+              className={PILL_TOGGLE_ITEM_CLASSNAME}
+            >
+              {option.label}
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
     </div>
   )

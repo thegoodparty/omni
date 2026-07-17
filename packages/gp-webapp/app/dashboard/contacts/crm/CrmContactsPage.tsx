@@ -12,7 +12,8 @@ import { ContactTypeahead } from './ContactTypeahead'
 import PersonOverlay from './person/PersonOverlay'
 import { useContactsTable } from './ContactsTableProvider'
 import CreateListWizard from './wizard/CreateListWizard'
-import ListsTable from './lists/ListsTable'
+import DistrictStatCard from './DistrictStatCard'
+import ListsIndex from './lists/ListsIndex'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -34,13 +35,8 @@ export const CrmContactsPage = () => {
     <ContactProModalProvider value={setShowProModal}>
       <DashboardLayout>
         <Paper className="h-full">
-          {/* Hold the mode copy until the Win/Serve context settles:
-              isWinContext reads false until then, so rendering early would
-              flash the Serve noun to a Win user (ENG-10448). */}
-          {isWinContextReady && (
-            <h1 className="text-3xl font-semibold">{labels.universeTitle}</h1>
-          )}
-          <div className="mt-6 flex w-full flex-col gap-4 md:flex-row md:items-center">
+          {/* Top bar: search + primary create action, right-aligned on desktop. */}
+          <div className="flex w-full flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="w-full md:max-w-[400px]">
               <ContactTypeahead />
             </div>
@@ -51,7 +47,31 @@ export const CrmContactsPage = () => {
               Create new list
             </Button>
           </div>
-          <ListsTable />
+
+          {/* Hold ALL mode copy (heading, stat label, and the lists section's
+              Voter/Constituent heading) until the Win/Serve context settles:
+              isWinContext reads false until then, so rendering any of it
+              early would flash the Serve noun to a Win user (ENG-10448) —
+              ListsIndex reads contactsLabels too, so it needs the same gate
+              the H1/stat card already had. No district-name subtitle here
+              (ticket's "if district info is available" clause): ContactsStats
+              only carries an opaque districtId, no human-readable district
+              name is available anywhere in the frontend today, so there is
+              nothing presentable to show. */}
+          {isWinContextReady && (
+            <>
+              <div className="mx-auto mt-8 flex w-full max-w-3xl flex-col items-center gap-4 text-center">
+                <h1 className="text-3xl font-semibold">
+                  {labels.universeTitle}
+                </h1>
+                <DistrictStatCard label={labels.districtTotalLabel} />
+              </div>
+
+              <div className="mx-auto mt-8 w-full max-w-5xl">
+                <ListsIndex />
+              </div>
+            </>
+          )}
         </Paper>
         <PersonOverlay />
         <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />

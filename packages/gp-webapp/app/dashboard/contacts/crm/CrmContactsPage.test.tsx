@@ -37,6 +37,9 @@ vi.mock('./wizard/CreateListWizard', () => ({
       </div>
     ) : null,
 }))
+vi.mock('./DistrictStatCard', () => ({
+  default: () => <div data-testid="district-stat" />,
+}))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 
