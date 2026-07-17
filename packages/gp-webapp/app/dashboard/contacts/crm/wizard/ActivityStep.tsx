@@ -20,6 +20,7 @@ import { useOrganization } from '@shared/organization-picker'
 import { clientRequest } from 'gpApi/typed-request'
 import type { ActivityConditionAction } from '@goodparty_org/contracts'
 import { useContactsTable } from '../ContactsTableProvider'
+import { PILL_TOGGLE_ITEM_CLASSNAME } from '../shared/constants'
 import {
   ACTIVITY_CONDITION_CHANNEL_ACTIONS,
   ACTIVITY_CONDITION_ACTION_LABELS,
@@ -207,18 +208,18 @@ export default function ActivityStep({
               <Label>Channel</Label>
               <ToggleGroup
                 type="single"
-                variant="outline"
                 value={condition.outreachType}
                 onValueChange={(value) =>
                   value && handleChannelChange(condition.key, value)
                 }
                 aria-label="Channel"
+                className="flex flex-wrap gap-2"
               >
                 {ACTIVITY_CONDITION_CHANNELS.map((channel) => (
                   <ToggleGroupItem
                     key={channel.value}
                     value={channel.value}
-                    className="gap-1.5"
+                    className={`${PILL_TOGGLE_ITEM_CLASSNAME} gap-1.5`}
                   >
                     {channel.icon}
                     {channel.label}
@@ -268,15 +269,19 @@ export default function ActivityStep({
                 <Label>Outcome (optional)</Label>
                 <ToggleGroup
                   type="multiple"
-                  variant="outline"
                   value={condition.actions}
                   onValueChange={(values) =>
                     handleActionsChange(condition.key, values)
                   }
                   aria-label="Outcome"
+                  className="flex flex-wrap gap-2"
                 >
                   {outcomeOptions.map((action) => (
-                    <ToggleGroupItem key={action} value={action}>
+                    <ToggleGroupItem
+                      key={action}
+                      value={action}
+                      className={PILL_TOGGLE_ITEM_CLASSNAME}
+                    >
                       {ACTIVITY_CONDITION_ACTION_LABELS[action]}
                     </ToggleGroupItem>
                   ))}

@@ -99,9 +99,18 @@ import { dirname, join, relative } from 'node:path'
 // (client-side CRM-flag redirect), RenameListDialog, and DeleteListDialog
 // (dialog state + mutations) are all genuinely interactive and can't render
 // on the server.
+// 2026-07-17: 555 -> 557 for the ENG-10721 locked-prototype presentation
+// refactor (no behavior change). ListsTable.tsx (a client component) was
+// deleted and replaced by two new ones: ListsIndex.tsx (reads the
+// useContactsTable() context hook) and ListCard.tsx (per-card useState for
+// the rename/delete dialogs + a react-query row fetch) — net +1. Plus a new
+// DistrictStatCard.tsx (a react-query read of the stats endpoint) — net +1.
+// All three are genuinely interactive/data-fetching and can't render on the
+// server; CrmContactsPage.tsx and the wizard step files were edited in place
+// (no new client files there).
 // ENG-10711: -1 — LogInteraction.tsx removed (manual logging cut to match the
 // lovable person-record design).
-const BASELINE = 554
+const BASELINE = 556
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

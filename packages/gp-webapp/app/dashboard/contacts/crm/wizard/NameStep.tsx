@@ -16,7 +16,11 @@ interface NameStepProps {
 }
 
 // Step 3: name the list, see the live running total (ENG-10517 pattern reused
-// via useListWizardCount), and (in the parent's footer) build it.
+// via useListWizardCount), and (in the parent's footer) build it. Copy locked
+// by the ENG-10721 prototype: the count sentence and name field share one
+// line ("N voters match. Give this list a name so you can find it later."),
+// with a live char-count counter under the input (RenameListDialog.tsx
+// precedent — trimmed length, same as its Save-gate).
 export default function NameStep({
   name,
   onNameChange,
@@ -31,11 +35,21 @@ export default function NameStep({
     : isCounting
       ? 'Counting…'
       : count !== undefined
-        ? `${numberFormatter(count)} ${peopleNoun} match`
+        ? `${numberFormatter(count)} ${peopleNoun} match. Give this list a name so you can find it later.`
         : null
+
+  const trimmedName = name.trim()
 
   return (
     <div className="flex flex-col gap-4">
+      {countMessage && (
+        <Body2
+          className={isCapError ? 'text-destructive' : 'text-foreground'}
+          aria-live="polite"
+        >
+          {countMessage}
+        </Body2>
+      )}
       <div className="flex flex-col gap-2">
         <Label htmlFor="list-wizard-name">List name</Label>
         <Input
@@ -45,17 +59,12 @@ export default function NameStep({
             onNameChange(e.target.value.slice(0, MAX_SEGMENT_NAME_LENGTH))
           }
           maxLength={MAX_SEGMENT_NAME_LENGTH}
-          placeholder="Name your list"
+          placeholder="Name this list"
         />
+        <p className="text-xs text-muted-foreground">
+          {trimmedName.length}/{MAX_SEGMENT_NAME_LENGTH}
+        </p>
       </div>
-      {countMessage && (
-        <Body2
-          className={isCapError ? 'text-destructive' : 'text-muted-foreground'}
-          aria-live="polite"
-        >
-          {countMessage}
-        </Body2>
-      )}
     </div>
   )
 }
