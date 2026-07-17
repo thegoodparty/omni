@@ -92,8 +92,17 @@ interface Props {
   composerRef?: RefObject<HTMLInputElement | null>
 }
 
-/** A starter chip: a label plus the behavior fired when it is tapped. */
-export type ChatSuggestion = { label: string; onSelect: () => void }
+/**
+ * A starter chip. `kickoff` fires an on-demand hidden send of that string
+ * (through the body's own `send`, no user bubble); otherwise `onSelect` runs.
+ * `description` renders a secondary line beneath the label.
+ */
+export type ChatSuggestion = {
+  label: string
+  description?: string
+  onSelect?: () => void
+  kickoff?: string
+}
 
 type ChatItem =
   | { kind: 'user'; id: string; content: string }
@@ -841,6 +850,19 @@ export default function ChiefOfStaffChatBody({
     send,
   ])
 
+  // A chip with `kickoff` fires an on-demand hidden send of that string;
+  // otherwise it defers to the chip's own `onSelect`.
+  const onSuggestionClick = useCallback(
+    (s: ChatSuggestion) => {
+      if (s.kickoff) {
+        void send(s.kickoff, { hidden: true })
+        return
+      }
+      s.onSelect?.()
+    },
+    [send],
+  )
+
   const onSend = useCallback(async () => {
     const sent = await sendContent(composer)
     if (sent) setComposer('')
@@ -1016,8 +1038,21 @@ export default function ChiefOfStaffChatBody({
                 shape="pill"
                 className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
               >
-                <button type="button" disabled={busy} onClick={s.onSelect}>
-                  {s.label}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onSuggestionClick(s)}
+                >
+                  {s.description ? (
+                    <span className="flex flex-col items-start gap-0.5 text-left">
+                      <span>{s.label}</span>
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {s.description}
+                      </span>
+                    </span>
+                  ) : (
+                    s.label
+                  )}
                 </button>
               </Badge>
             ))}

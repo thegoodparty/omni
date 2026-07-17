@@ -409,6 +409,118 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
   })
 
+  it('renders a suggestion description as a secondary line, and label-only when absent', async () => {
+    listConversationsMock.mockResolvedValue([])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          {
+            label: 'Draft a fundraising email',
+            description: 'A short pitch for your next event',
+            onSelect: vi.fn(),
+          },
+          { label: 'Plain chip', onSelect: vi.fn() },
+        ]}
+      />,
+    )
+
+    await screen.findByRole('button', { name: /Draft a fundraising email/ })
+    expect(screen.getByText('Draft a fundraising email')).toBeInTheDocument()
+    expect(
+      screen.getByText('A short pitch for your next event'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Plain chip' }),
+    ).toBeInTheDocument()
+  })
+
+  it('fires a hidden kickoff send when a suggestion with `kickoff` is clicked', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_kick' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kicked off reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[
+          { label: 'Start my story', kickoff: '__story_kickoff__' },
+        ]}
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Start my story' })
+    await user.click(chip)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '__story_kickoff__' }),
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Kicked off reply.')).toBeInTheDocument(),
+    )
+    // The kickoff content is hidden — no user bubble for it in the transcript.
+    expect(screen.queryByText('__story_kickoff__')).not.toBeInTheDocument()
+  })
+
+  it('calls onSelect and does not send when a suggestion has no kickoff', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    const onSelect = vi.fn()
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        suggestions={[{ label: 'Just select', onSelect }]}
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Just select' })
+    await user.click(chip)
+
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(streamMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('DEFAULT: built-in chips still render label-only and visibly send on click (regression)', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'On it.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    const chip = await screen.findByRole('button', {
+      name: "What's most urgent this week?",
+    })
+    // Label-only: no extra secondary-line text node beyond the label itself.
+    expect(chip.textContent).toBe("What's most urgent this week?")
+
+    await user.click(chip)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "What's most urgent this week?" }),
+      ),
+    )
+    expect(
+      screen.getByText("What's most urgent this week?"),
+    ).toBeInTheDocument()
+  })
+
   it('focuses the composer when a suggestion requests it via composerRef', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
