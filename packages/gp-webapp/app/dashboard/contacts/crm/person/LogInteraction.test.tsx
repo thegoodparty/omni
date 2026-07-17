@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { format } from 'date-fns'
 import userEvent from '@testing-library/user-event'
 import { render, testQueryClient } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -236,6 +237,32 @@ describe('<LogInteraction>', () => {
     await user.click(screen.getByRole('radio', { name: 'Answered' }))
     fireEvent.change(screen.getByLabelText('Date'), {
       target: { value: '' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Log Interaction' }))
+
+    await waitFor(() => expect(receivedBodies).toHaveLength(1))
+    expect(receivedBodies[0]).not.toHaveProperty('occurredAt')
+  })
+
+  it('omits occurredAt when the date field is explicitly set to today', async () => {
+    const user = userEvent.setup()
+    const receivedBodies: unknown[] = []
+    api.mock('POST /v1/contacts/:personId/interactions', ({ body }) => {
+      receivedBodies.push(body)
+      return {
+        status: 200,
+        data: makeLoggedResponse(
+          body as Partial<LogContactInteractionResponse>,
+        ),
+      }
+    })
+
+    render(<LogInteraction personId={PERSON_ID} />)
+
+    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
+    await user.click(screen.getByRole('radio', { name: 'Answered' }))
+    fireEvent.change(screen.getByLabelText('Date'), {
+      target: { value: format(new Date(), 'yyyy-MM-dd') },
     })
     await user.click(screen.getByRole('button', { name: 'Log Interaction' }))
 

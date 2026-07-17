@@ -52,13 +52,19 @@ export const DoorKnockActivityRow: React.FC<{
   <div className="flex flex-col gap-1 mb-3">
     <div className="flex items-center gap-2">
       <p className="text-sm font-semibold text-foreground">
-        Door Knock: {DOOR_KNOCK_OUTCOME_LABELS[activity.data.outcome]}
+        {/* Responses aren't Zod-parsed client-side — an enum value newer
+            than this build must render as itself, not a blank. */}
+        Door Knock:{' '}
+        {DOOR_KNOCK_OUTCOME_LABELS[activity.data.outcome] ??
+          activity.data.outcome}
       </p>
       {activity.data.manual ? <ManualBadge /> : null}
     </div>
     {activity.data.supportAnswer ? (
       <p className="text-sm font-normal text-muted-foreground">
-        Support: {SUPPORT_ANSWER_LABELS[activity.data.supportAnswer]}
+        Support:{' '}
+        {SUPPORT_ANSWER_LABELS[activity.data.supportAnswer] ??
+          activity.data.supportAnswer}
       </p>
     ) : null}
     <ActivityNote note={activity.data.note} />
