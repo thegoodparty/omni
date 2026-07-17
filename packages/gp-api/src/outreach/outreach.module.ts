@@ -17,6 +17,7 @@ import { VotersModule } from '../voters/voters.module'
 import { OutreachController } from './outreach.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachAttributionService } from './services/outreachAttribution.service'
+import { OutreachCompletionService } from './services/outreachCompletion.service'
 import { OutreachService } from './services/outreach.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
@@ -45,6 +46,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
   controllers: [OutreachController],
   providers: [
     OutreachService,
+    OutreachCompletionService,
     OutreachNotificationService,
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
