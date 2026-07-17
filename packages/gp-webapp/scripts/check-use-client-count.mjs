@@ -84,6 +84,8 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: +1 for QualityReport — the ordinance draft quality-report section
 // generates/re-runs and manages loading/error state, so it must be a client
 // component.
+// ENG-10711: -1 — LogInteraction.tsx removed (manual logging cut to match the
+// lovable person-record design).
 // 2026-07-17: 545 -> 550 for the ENG-10708 list creation wizard
 // (crm/wizard/): CreateListWizard (dialog/step state + create mutation),
 // BranchStep (controlled RadioGroup), VoterFileStep (checkbox filter state),
@@ -106,7 +108,9 @@ import { dirname, join, relative } from 'node:path'
 // All three are genuinely interactive/data-fetching and can't render on the
 // server; CrmContactsPage.tsx and the wizard step files were edited in place
 // (no new client files there).
-const BASELINE = 557
+// ENG-10711: -1 — LogInteraction.tsx removed (manual logging cut to match the
+// lovable person-record design).
+const BASELINE = 556
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

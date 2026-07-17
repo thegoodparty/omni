@@ -410,14 +410,10 @@ export const EVENTS = {
     // create (never on failure/edit/delete). Same product-specific naming
     // exception as ContactSearched above.
     NoteAdded: 'Constituent Data - Note Added',
-    // ENG-10698: person-record surfaces. ContactViewed fires once per record
-    // open (CRM flag on) — distinct from `Contacts.Viewed`
-    // ('Contacts - Contacts Viewed'), which only fires from the pre-CRM page.
-    // ContactLogged fires once per successful manual interaction log, with
-    // { channel, outcome, supportAnswer } (supportAnswer present only for
-    // doorKnock logs, same properties as the Win variant below).
+    // ENG-10698: fires once per record open (CRM flag on) — distinct from
+    // `Contacts.Viewed` ('Contacts - Contacts Viewed'), which only fires from
+    // the pre-CRM page.
     ContactViewed: 'Constituent Data - Contact Viewed',
-    ContactLogged: 'Constituent Data - Contact Logged',
     // ENG-10709: crm/wizard's two create branches + the list-detail download
     // seam. Same product-specific naming exception as the events above.
     // ListCreated fires once per successful voter-file-branch create with
@@ -434,7 +430,6 @@ export const EVENTS = {
     ContactSearched: 'Voter Data - Contact Searched',
     NoteAdded: 'Voter Data - Note Added',
     ContactViewed: 'Voter Data - Contact Viewed',
-    ContactLogged: 'Voter Data - Contact Logged',
     // ENG-10709: see the ConstituentData variants above for the full seam
     // description — Win-only difference is ListCreated's hasParty property.
     ListCreated: 'Voter Data - List Created',

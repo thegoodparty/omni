@@ -46,6 +46,7 @@ export {
   GripVertical as GripVerticalIcon,
   Info as InfoIcon,
   LayoutDashboard as LayoutDashboardIcon,
+  NotebookPen as NotebookPenIcon,
   Link2 as Link2Icon,
   Loader2 as Loader2Icon,
   LoaderCircle as LoaderCircleIcon,

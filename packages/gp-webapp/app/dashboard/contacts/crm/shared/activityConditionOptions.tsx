@@ -7,9 +7,8 @@ import type {
 import { DoorOpenIcon, MessageSquareMoreIcon, PhoneIcon } from '@styleguide'
 
 // Channels the list-wizard activity branch exposes (ENG-10708 locked design,
-// 2026-07-16 revision). Mirrors the manual interaction-logging channel set in
-// crm/person/LogInteraction.tsx — p2p shares text's model but isn't offered
-// as its own channel here.
+// 2026-07-16 revision). Mirrors the ContactInteraction* channel models —
+// p2p shares text's model but isn't offered as its own channel here.
 export type ActivityConditionChannel = Extract<
   OutreachType,
   'text' | 'doorKnocking' | 'robocall'

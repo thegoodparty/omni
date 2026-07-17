@@ -54,16 +54,6 @@ vi.mock('./NotesSection', () => ({
   ),
 }))
 
-// LogInteraction has its own suite (LogInteraction.test.tsx) covering
-// CRM-gating, per-channel validity, submit success/failure, and analytics.
-// Same reasoning as the NotesSection stub above.
-vi.mock('./LogInteraction', () => ({
-  __esModule: true,
-  default: ({ personId }: { personId: string }) => (
-    <div data-testid="log-interaction-stub">{personId}</div>
-  ),
-}))
-
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
 const mockedUseCrmEnabled = vi.mocked(useCrmEnabled)
@@ -209,14 +199,6 @@ describe('<PersonOverlay>', () => {
     render(<PersonOverlay />)
 
     expect(screen.getByTestId('notes-section-stub')).toHaveTextContent('p_1')
-  })
-
-  it('mounts LogInteraction for the currently selected person', () => {
-    setContext({ selectedPersonId: 'p_1' })
-
-    render(<PersonOverlay />)
-
-    expect(screen.getByTestId('log-interaction-stub')).toHaveTextContent('p_1')
   })
 
   it('renders an error message and lets the user close the overlay when the person fetch fails', async () => {
