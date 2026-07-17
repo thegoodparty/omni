@@ -1,7 +1,11 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
+import {
+  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+  CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+} from '@goodparty_org/contracts'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -10,9 +14,10 @@ import ProUpgradeBanner from '../components/campaignManager/ProUpgradeBanner'
 import ProgressSection from '../components/campaignManager/ProgressSection'
 import FooterChatBar from '../chief-of-staff/components/chat/FooterChatBar'
 import ChiefOfStaffChatSurface from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
+import type { ChatSuggestion } from '../chief-of-staff/components/chat/ChiefOfStaffChatBody'
 import {
   CAMPAIGN_MANAGER_HISTORY_KEY,
-  CAMPAIGN_MANAGER_INTRO,
+  buildCampaignManagerIntro,
   campaignManagerChatApi,
 } from './campaignManagerChat'
 
@@ -39,6 +44,27 @@ export default function CampaignManagerHome({
   const queryClient = useQueryClient()
   const [chatOpen, setChatOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  const composerRef = useRef<HTMLInputElement | null>(null)
+
+  const suggestions: ChatSuggestion[] = [
+    {
+      label: 'Personalize your campaign',
+      description:
+        "Tell me about why you're running, and we'll help you draft your " +
+        'voter outreach plan.',
+      kickoff: CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+    },
+    {
+      label: 'Learn more about the product',
+      description: 'Get a quick tour of the product and its features.',
+      kickoff: CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+    },
+    {
+      label: 'Ask me about something else',
+      description: 'Type any question in the box below.',
+      onSelect: () => composerRef.current?.focus(),
+    },
+  ]
 
   // Resume-or-create the ongoing manager conversation, then open it by id so
   // the surface loads its transcript (starting with the seeded greeting).
@@ -105,7 +131,10 @@ export default function CampaignManagerHome({
         chatApi={campaignManagerChatApi}
         analyticsLabel="campaign-manager-chat"
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
-        defaultIntro={CAMPAIGN_MANAGER_INTRO}
+        defaultIntro={buildCampaignManagerIntro(firstName)}
+        suggestions={suggestions}
+        showSuggestionsWithGreeting
+        composerRef={composerRef}
       />
     </div>
   )
