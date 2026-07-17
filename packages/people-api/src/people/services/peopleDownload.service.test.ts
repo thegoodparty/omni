@@ -136,6 +136,57 @@ describe('PeopleDownloadService', () => {
       expect(sql).toContain(`'City_Ward' AS "electionType"`)
       expect(sql).toContain('v."LALVOTERID" AS "LALVOTERID"')
       expect(sql).toContain('v."Primary_2026" AS "Primary_2026"')
+      // The party column is exported by default — this is the fact that
+      // makes the exclusion mechanism below necessary (ENG-10696).
+      expect(sql).toContain('v."Parties_Description" AS "Parties_Description"')
+    })
+
+    // ENG-10696: the CSV is a Postgres COPY stream gp-api can't post-process,
+    // so a caller that wants a column omitted (the Serve party-visibility
+    // rule) must ask the projection itself to drop it.
+    it('omits the party column from the COPY projection when excludeColumns names it', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+          excludeColumns: ['Parties_Description'],
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      expect(sql).not.toContain('"Parties_Description"')
+      // Every other base column stays untouched.
+      expect(sql).toContain('v."LALVOTERID" AS "LALVOTERID"')
+    })
+
+    it('keeps the party column when excludeColumns is not provided', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      expect(sql).toContain('v."Parties_Description" AS "Parties_Description"')
     })
 
     it('omits the DistrictVoter join for state-only districts', async () => {

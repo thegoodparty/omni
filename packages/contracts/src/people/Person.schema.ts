@@ -1,5 +1,20 @@
 import { z } from 'zod'
 
+// Support-status rollup vocabulary shown on the person detail response
+// (ENG-10696). Single-sourced against the shipped `SupportAnswer` enum
+// (`supporter | unsure | non_supporter` storage): `supporter` and
+// `non_supporter` map 1:1, `unsure` and "no interaction history at all" both
+// roll up to `unknown`. gp-api's contactInteraction.types.ts ties its
+// SUPPORT_ANSWER_ROLLUP derivation to this schema's inferred type via
+// `satisfies`, so the two can't drift.
+export const SupportStatusRollupSchema = z.enum([
+  'supporter',
+  'non_supporter',
+  'unknown',
+])
+
+export type SupportStatusRollup = z.infer<typeof SupportStatusRollupSchema>
+
 // Residence-address columns (Voter table) that compose a physical-household
 // key for door-knocking de-duplication. Chosen as the canvassing-correct key
 // (where a door-knocker physically stands), NOT Mailing_Families_FamilyID
@@ -39,12 +54,13 @@ export const PersonSchema = z.object({
   cellPhone: z.string().nullable(),
   landline: z.string().nullable(),
   gender: z.enum(['Male', 'Female']).nullable(),
-  politicalParty: z.enum([
-    'Independent',
-    'Democratic',
-    'Republican',
-    'Other',
-  ]),
+  // Absent (not null) for `eo-` (Serve) organizations: gp-api strips this key
+  // before serializing list, detail, and typeahead responses to an elected-
+  // office org, per the server-enforced Serve party-visibility rule
+  // (ENG-10696). Win responses always carry it.
+  politicalParty: z
+    .enum(['Independent', 'Democratic', 'Republican', 'Other'])
+    .optional(),
   registeredVoter: z.enum(['Yes', 'No']),
   estimatedIncomeAmount: z.number().nullable(),
   voterStatus: z
@@ -80,6 +96,10 @@ export const PersonSchema = z.object({
   // null on the ungrouped (one-row-per-voter) path.
   householdId: z.string().nullable().optional(),
   householdSize: z.number().int().nullable().optional(),
+  // Derived, never stored (SupportStatusService). Only gp-api's person-detail
+  // response (`GET /v1/contacts/:id`) attaches this — list/typeahead rows
+  // don't carry it in the locked design (ENG-10696).
+  supportStatus: SupportStatusRollupSchema.optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>
