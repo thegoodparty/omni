@@ -17,7 +17,10 @@ import { PeerlyErrorHandlingService } from './peerlyErrorHandling.service'
 import { PeerlyHttpService } from './peerlyHttp.service'
 import { PeerlyMediaService } from './peerlyMedia.service'
 import { PeerlyScheduleService } from './peerlySchedule.service'
-import { CreateJobResponseDto } from '../schemas/peerlyP2pSms.schema'
+import {
+  CreateJobResponseDto,
+  GetJobResponseDto,
+} from '../schemas/peerlyP2pSms.schema'
 import { CreateJobParams, PeerlyJob } from '../peerly.types'
 
 interface CreateP2pJobParams {
@@ -159,6 +162,7 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         `/1to1/jobs/${jobId}`,
       )
       const { data: job } = response
+      this.peerlyHttpService.validateResponse(job, GetJobResponseDto, 'get job')
       this.logger.debug({ job }, 'Fetched P2P Job:')
       return job
     } catch (error) {

@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
+import { PeerlyJobStatus } from '../peerly.types'
 
 const createJobResponseSchema = z.object({
   id: z.string(),
@@ -21,3 +22,14 @@ const createJobResponseSchema = z.object({
 export class CreateJobResponseDto extends createZodDto(
   createJobResponseSchema,
 ) {}
+
+// The fields the outreach-completion sweep keys off of
+// (OutreachCompletionService) — validated narrowly so a malformed vendor
+// response 502s rather than silently driving a wrong status transition.
+const getJobResponseSchema = z.object({
+  id: z.string(),
+  status: z.nativeEnum(PeerlyJobStatus),
+  leads_remaining: z.number(),
+})
+
+export class GetJobResponseDto extends createZodDto(getJobResponseSchema) {}
