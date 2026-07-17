@@ -190,7 +190,7 @@ export class GeneralChatsService {
           return
         }
         // Persist the user (sentinel) turn BEFORE the canned assistant reply
-        // so history alternates user/assistant — Anthropic rejects two
+        // so history alternates user/assistant. Anthropic rejects two
         // consecutive assistant turns on the candidate's next real message.
         // The user turn dedups on clientMessageId; the assistant reply carries
         // a derived idempotency key so a retry with the same clientMessageId

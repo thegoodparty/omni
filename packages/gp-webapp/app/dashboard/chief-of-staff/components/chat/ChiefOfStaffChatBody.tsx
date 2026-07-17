@@ -91,8 +91,8 @@ interface Props {
   /** Ref to the composer input, so a caller's suggestion can focus it. */
   composerRef?: RefObject<HTMLInputElement | null>
   /**
-   * Message contents to drop from a reloaded transcript before it renders —
-   * hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
+   * Message contents to drop from a reloaded transcript before it renders.
+   * Hides persisted sentinel turns (e.g. the story-kickoff sentinel) that
    * exist only to keep the server-side history alternating. Default empty: no
    * filtering, so Chief of Staff / Community Issues / Ordinance are unchanged.
    */
