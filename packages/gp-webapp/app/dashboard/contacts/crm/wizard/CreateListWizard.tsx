@@ -1,26 +1,15 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
-import {
-  ArrowLeftIcon,
-  Button,
-  Drawer,
-  DrawerBody,
-  DrawerContent,
-  DrawerFooter,
-  DrawerHandle,
-  DrawerHeader,
-  DrawerTitle,
-  Stepper,
-} from '@styleguide'
+import { Button, DrawerTitle, Stepper } from '@styleguide'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { numberFormatter } from 'helpers/numberHelper'
 import { clientRequest } from 'gpApi/typed-request'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
+import CrmSheet from '../shared/CrmSheet'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import {
   countSelectedFilterCategories,
@@ -60,8 +49,8 @@ export default function CreateListWizard({
     isWinContext,
     isWinContextReady,
     refreshCustomSegments,
+    selectList,
   } = useContactsTable()
-  const router = useRouter()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -197,11 +186,11 @@ export default function CreateListWizard({
         console.log('Error refreshing segments after create', error),
       )
       onOpenChange(false)
-      // ENG-10707: land on the new list-detail page instead of selecting the
-      // segment in the (soon superseded) main table — refreshCustomSegments
-      // already invalidated ['custom-segments', orgSlug], so the detail page
-      // finds this list as soon as it mounts.
-      router.push(`/dashboard/contacts/lists/${response.id}`)
+      // ENG-10707/10725: land on the new list's detail sheet instead of the
+      // main table — refreshCustomSegments already invalidated
+      // ['custom-segments', orgSlug], so the sheet finds this list as soon
+      // as it opens. selectList is shallow, so the index stays mounted.
+      selectList(response.id)
     },
     onError: () => {
       errorSnackbar('Failed to create list')
@@ -219,18 +208,16 @@ export default function CreateListWizard({
   const peopleNoun = isWinContext ? 'voters' : 'constituents'
   const labels = getContactsLabels(isWinContext)
 
-  // ENG-10721 locked-prototype titles: step 1 and step 3 are mode-neutral;
-  // step 2's voter-file title carries the voter/constituent noun (via
-  // contactsLabels.ts, the one place that copy lives), the activity branch
-  // avoids the noun entirely since it isn't demographic-file specific.
+  // Lovable-locked titles (ENG-10725): step 1 and step 3 are mode-neutral;
+  // step 2 shares ONE heading across both branches — "Build a voter list" /
+  // "Build a constituent list" (via contactsLabels.ts, the one place that
+  // copy lives), matching the prototype's single step-2 title.
   const stepTitle =
     step === 1
       ? 'How do you want to build this list?'
       : step === 3
         ? 'Name your list'
-        : branch === 'voterFile'
-          ? labels.wizardVoterFileStepTitle
-          : 'Build a list from outreach activity'
+        : labels.wizardVoterFileStepTitle
 
   // Step 2's footer CTA always reads "Build your list (N)" (both branches
   // share the same slot); the muted/saturated distinction from the prototype
@@ -247,69 +234,29 @@ export default function CreateListWizard({
       : `Build your list (${numberFormatter(count)})`
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
-      <DrawerContent className="mx-auto w-full max-w-2xl">
-        <DrawerHandle />
-        <DrawerHeader className="gap-3 border-b border-border">
-          <div className="relative flex items-center justify-center">
-            {step > 1 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="small"
-                onClick={handleBack}
-                className="absolute left-0 gap-1 px-2"
-              >
-                <ArrowLeftIcon className="size-4" aria-hidden />
-                Back
-              </Button>
-            )}
-            <DrawerTitle className="text-center">{stepTitle}</DrawerTitle>
-          </div>
-          <Stepper currentStep={step} totalSteps={TOTAL_STEPS} />
-        </DrawerHeader>
-
-        <DrawerBody ref={bodyRef}>
-          {step === 1 && (
-            <BranchStep
-              selected={branch}
-              onSelect={setBranch}
-              isWinContext={isWinContext}
-            />
-          )}
-          {step === 2 && branch === 'voterFile' && (
-            <VoterFileStep
-              filters={demographicFilters}
-              onFiltersChange={setDemographicFilters}
-              supportStatus={supportStatus}
-              onSupportStatusChange={setSupportStatus}
-              isElectedOfficial={isElectedOfficial}
-            />
-          )}
-          {step === 2 && branch === 'activity' && (
-            <ActivityStep
-              conditions={activityConditions}
-              onChange={setActivityConditions}
-            />
-          )}
-          {step === 3 && (
-            <NameStep
-              name={name}
-              onNameChange={setName}
-              count={count}
-              isCounting={isLoading}
-              isCapError={isCapError}
-              countErrorMessage={errorMessage}
-              peopleNoun={peopleNoun}
-            />
-          )}
-        </DrawerBody>
-
-        <DrawerFooter>
+    <CrmSheet
+      open={open}
+      onOpenChange={onOpenChange}
+      onBack={step > 1 ? handleBack : undefined}
+      bodyRef={bodyRef}
+      header={
+        <>
+          <DrawerTitle className="text-base font-semibold">
+            {stepTitle}
+          </DrawerTitle>
+          <Stepper
+            currentStep={step}
+            totalSteps={TOTAL_STEPS}
+            labelClassName="text-xs"
+          />
+        </>
+      }
+      footer={
+        <>
           {step === 1 && (
             <Button
               type="button"
-              className="w-full"
+              className="w-full text-sm"
               onClick={handleNext}
               disabled={!branch}
             >
@@ -319,7 +266,9 @@ export default function CreateListWizard({
           {step === 2 && (
             <Button
               type="button"
-              className={isStep2Muted ? 'w-full opacity-50' : 'w-full'}
+              className={
+                isStep2Muted ? 'w-full text-sm opacity-50' : 'w-full text-sm'
+              }
               onClick={handleNext}
               disabled={!isStep2Valid}
             >
@@ -329,7 +278,7 @@ export default function CreateListWizard({
           {step === 3 && (
             <Button
               type="button"
-              className="w-full"
+              className="w-full text-sm"
               onClick={handleSubmit}
               disabled={!canSubmit}
               loading={createMutation.isPending}
@@ -337,8 +286,42 @@ export default function CreateListWizard({
               Save list
             </Button>
           )}
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+        </>
+      }
+    >
+      {step === 1 && (
+        <BranchStep
+          selected={branch}
+          onSelect={setBranch}
+          isWinContext={isWinContext}
+        />
+      )}
+      {step === 2 && branch === 'voterFile' && (
+        <VoterFileStep
+          filters={demographicFilters}
+          onFiltersChange={setDemographicFilters}
+          supportStatus={supportStatus}
+          onSupportStatusChange={setSupportStatus}
+          isElectedOfficial={isElectedOfficial}
+        />
+      )}
+      {step === 2 && branch === 'activity' && (
+        <ActivityStep
+          conditions={activityConditions}
+          onChange={setActivityConditions}
+        />
+      )}
+      {step === 3 && (
+        <NameStep
+          name={name}
+          onNameChange={setName}
+          count={count}
+          isCounting={isLoading}
+          isCapError={isCapError}
+          countErrorMessage={errorMessage}
+          peopleNoun={peopleNoun}
+        />
+      )}
+    </CrmSheet>
   )
 }

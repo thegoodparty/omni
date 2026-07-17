@@ -546,3 +546,121 @@ describe('ContactsTableProvider — shallow person selection (no route navigatio
     )
   })
 })
+
+describe('ContactsTableProvider — shallow list selection (ENG-10725)', () => {
+  // The list-detail sheet replaced the literal lists/[listId] route: selectList
+  // navigates via native pushState and the open list id derives from
+  // usePathname, exactly like selectPerson above.
+  const mockContactsList = () =>
+    api.mock('GET /v1/contacts', {
+      status: 200,
+      data: {
+        people: [],
+        pagination: {
+          totalResults: 0,
+          currentPage: 1,
+          pageSize: 20,
+          totalPages: 1,
+          hasNextPage: false,
+          hasPreviousPage: false,
+        },
+      },
+    })
+
+  const ListSelectionProbe = ({ listId }: { listId: number | null }) => {
+    const { currentlySelectedListId, currentlySelectedPersonId, selectList } =
+      useContactsTable()
+    return (
+      <div>
+        <span data-testid="selected-list-id">
+          {String(currentlySelectedListId)}
+        </span>
+        <span data-testid="selected-person-id">
+          {String(currentlySelectedPersonId)}
+        </span>
+        <button data-testid="go" onClick={() => selectList(listId)}>
+          go
+        </button>
+      </div>
+    )
+  }
+
+  const renderListSelectionProbe = (listId: number | null) =>
+    render(
+      <CampaignContext.Provider value={[null]}>
+        <ContactsTableProvider>
+          <ListSelectionProbe listId={listId} />
+        </ContactsTableProvider>
+      </CampaignContext.Provider>,
+    )
+
+  let pushStateSpy: MockInstance
+
+  beforeEach(() => {
+    mockContactsList()
+    pushStateSpy = vi.spyOn(window.history, 'pushState')
+  })
+
+  afterEach(() => {
+    pushStateSpy.mockRestore()
+  })
+
+  it('opens a list via history.pushState preserving the query string, with no router.push', async () => {
+    mockSearchParams = new URLSearchParams('segment=55')
+
+    renderListSelectionProbe(42)
+    screen.getByTestId('go').click()
+
+    await waitFor(() =>
+      expect(pushStateSpy).toHaveBeenCalledWith(
+        null,
+        '',
+        '/dashboard/contacts/lists/42?segment=55',
+      ),
+    )
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('closing (selectList(null)) returns to the base path preserving the query string', async () => {
+    mockPathname = '/dashboard/contacts/lists/42'
+    mockSearchParams = new URLSearchParams('query=smith')
+
+    renderListSelectionProbe(null)
+    screen.getByTestId('go').click()
+
+    await waitFor(() =>
+      expect(pushStateSpy).toHaveBeenCalledWith(
+        null,
+        '',
+        '/dashboard/contacts?query=smith',
+      ),
+    )
+    expect(mockPush).not.toHaveBeenCalled()
+  })
+
+  it('derives the open list id from a /lists/<id> pathname, never as a person id', () => {
+    mockPathname = '/dashboard/contacts/lists/42'
+
+    renderListSelectionProbe(null)
+
+    expect(screen.getByTestId('selected-list-id')).toHaveTextContent('42')
+    expect(screen.getByTestId('selected-person-id')).toHaveTextContent('null')
+  })
+
+  it('never reads the bare /lists segment as a person id or a list id', () => {
+    mockPathname = '/dashboard/contacts/lists'
+
+    renderListSelectionProbe(null)
+
+    expect(screen.getByTestId('selected-list-id')).toHaveTextContent('null')
+    expect(screen.getByTestId('selected-person-id')).toHaveTextContent('null')
+  })
+
+  it('reads no list selection on the base path', () => {
+    mockPathname = '/dashboard/contacts'
+
+    renderListSelectionProbe(null)
+
+    expect(screen.getByTestId('selected-list-id')).toHaveTextContent('null')
+  })
+})

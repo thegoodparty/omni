@@ -17,13 +17,12 @@ describe('buildFilterSummary — demographic-only filters', () => {
     )
   })
 
-  it('renders a clause per matched demographic field', () => {
+  it('renders a sentence-case clause per matched demographic field', () => {
     const summary = buildFilterSummary(
       baseSegment({ genderFemale: true, age18_25: true, age25_35: true }),
       false,
     )
-    expect(summary).toContain('Gender: Female')
-    expect(summary).toContain('Age: 18-25 or 25-35')
+    expect(summary).toBe('Gender Female and Age 18-25 or 25-35.')
   })
 
   it('excludes political party for an elected official (Serve never shows party)', () => {
@@ -32,7 +31,7 @@ describe('buildFilterSummary — demographic-only filters', () => {
       true,
     )
     expect(summary).not.toContain('Democrat')
-    expect(summary).not.toContain('Political Party')
+    expect(summary).not.toContain('Political party')
   })
 
   it('includes political party for a Win (non-elected-official) list', () => {
@@ -40,7 +39,7 @@ describe('buildFilterSummary — demographic-only filters', () => {
       baseSegment({ partyDemocrat: true }),
       false,
     )
-    expect(summary).toContain('Political Party: Democrat')
+    expect(summary).toBe('Political party Democrat.')
   })
 
   it('renders language codes and income ranges via their label maps', () => {
@@ -52,8 +51,8 @@ describe('buildFilterSummary — demographic-only filters', () => {
       }),
       false,
     )
-    expect(summary).toContain('Language: English or Spanish')
-    expect(summary).toContain('Household Income: Under $25k or Unknown')
+    expect(summary).toContain('Language English or Spanish')
+    expect(summary).toContain('Income ranges include Under $25k or Unknown')
   })
 
   it('renders support status via the shared label map', () => {
@@ -61,7 +60,7 @@ describe('buildFilterSummary — demographic-only filters', () => {
       baseSegment({ supportStatus: ['supporter', 'unknown'] }),
       false,
     )
-    expect(summary).toContain('Support Status: Supporter or Support Unknown')
+    expect(summary).toBe('Support status Supporter or Support Unknown.')
   })
 
   it('renders the saved search term', () => {
@@ -69,7 +68,7 @@ describe('buildFilterSummary — demographic-only filters', () => {
       baseSegment({ search: 'Main Street' }),
       false,
     )
-    expect(summary).toContain('Matching search "Main Street"')
+    expect(summary).toBe('matching search "Main Street".')
   })
 })
 
@@ -85,9 +84,11 @@ describe('buildFilterSummary — activity-only filters', () => {
       }),
       false,
     )
-    expect(summary).toContain('Text — Any text campaign')
-    expect(summary).toContain('Door Knocking — Any door knocking campaign')
-    expect(summary).toContain('Robocall — Any robocall campaign')
+    expect(summary).toContain('Text activity from any text campaign')
+    expect(summary).toContain(
+      'Door Knocking activity from any door knocking campaign',
+    )
+    expect(summary).toContain('Robocall activity from any robocall campaign')
   })
 
   it('covers every action label and a specific-campaign reference', () => {
@@ -114,31 +115,32 @@ describe('buildFilterSummary — activity-only filters', () => {
       false,
     )
     expect(summary).toContain(
-      'Text — a specific campaign (No Response, Opted Out)',
+      'Text activity from a specific campaign with outcome No Response or Opted Out',
     )
     expect(summary).toContain(
-      'Door Knocking — Any door knocking campaign (Support: Yes, Support: Unsure, Support: No)',
+      'Door Knocking activity from any door knocking campaign with outcome Support: Yes or Support: Unsure or Support: No',
     )
     expect(summary).toContain(
-      'Robocall — Any robocall campaign (Answered, Voicemail Left, No Answer)',
+      'Robocall activity from any robocall campaign with outcome Answered or Voicemail Left or No Answer',
     )
   })
 })
 
 describe('buildFilterSummary — mixed filters', () => {
-  it('joins demographic and activity clauses together', () => {
+  it('joins clauses as one comma-and sentence', () => {
     const summary = buildFilterSummary(
       baseSegment({
         age18_25: true,
         age25_35: true,
+        genderFemale: true,
         activityConditions: [
           { outreachType: 'text', outreachId: 55, actions: ['no_response'] },
         ],
       }),
       false,
     )
-    expect(summary).toContain('Age: 18-25 or 25-35')
-    expect(summary).toContain('Text — a specific campaign (No Response)')
-    expect(summary.split(' · ')).toHaveLength(2)
+    expect(summary).toBe(
+      'Gender Female, Age 18-25 or 25-35, and Text activity from a specific campaign with outcome No Response.',
+    )
   })
 })

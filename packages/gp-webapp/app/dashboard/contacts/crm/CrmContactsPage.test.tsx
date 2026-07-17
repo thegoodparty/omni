@@ -40,6 +40,25 @@ vi.mock('./wizard/CreateListWizard', () => ({
 vi.mock('./DistrictStatCard', () => ({
   default: () => <div data-testid="district-stat" />,
 }))
+vi.mock('./lists/ListsIndex', () => ({
+  default: () => <div data-testid="lists-index" />,
+}))
+vi.mock('./lists/ListDetailSheet', () => ({
+  default: ({
+    listId,
+    onClose,
+  }: {
+    listId: string | null
+    onClose: () => void
+  }) =>
+    listId ? (
+      <div data-testid="list-detail-sheet">
+        <button data-testid="close-list-detail" onClick={onClose}>
+          close
+        </button>
+      </div>
+    ) : null,
+}))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 
@@ -51,6 +70,8 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContextReady: true,
     canUseProFeatures: true,
     customSegments: [],
+    currentlySelectedListId: null,
+    selectList: vi.fn(),
     ...overrides,
   } as ContextValue)
 }
@@ -141,5 +162,25 @@ describe('CrmContactsPage — page contents', () => {
     await user.click(screen.getByRole('button', { name: 'Create new list' }))
 
     expect(screen.queryByTestId('create-list-wizard')).not.toBeInTheDocument()
+  })
+
+  it('opens the list-detail sheet from the provider list selection and closes it via selectList(null)', async () => {
+    const user = userEvent.setup()
+    const selectList = vi.fn()
+    setContext({ currentlySelectedListId: '42', selectList })
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('list-detail-sheet')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('close-list-detail'))
+
+    expect(selectList).toHaveBeenCalledWith(null)
+  })
+
+  it('renders no list-detail sheet when no list is selected', () => {
+    setContext({ currentlySelectedListId: null })
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('list-detail-sheet')).not.toBeInTheDocument()
   })
 })

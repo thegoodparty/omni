@@ -41,6 +41,8 @@ const CONTACTS_BASE_PATH = '/dashboard/contacts'
 // Derived from usePathname, not useParams: selectPerson navigates via the
 // native History API (shallow, no server round-trip), which updates
 // usePathname but never re-resolves route params.
+const LISTS_PATH_SEGMENT = 'lists'
+
 const extractPersonIdFromPathname = (
   pathname: string | null,
 ): string | null => {
@@ -53,11 +55,30 @@ const extractPersonIdFromPathname = (
   if (segments.length !== 1) return null
 
   const personId = segments[0]
+  // 'lists' is the list-detail path prefix (selectList below), not a person
+  // id — without this, /dashboard/contacts/lists would fetch person "lists".
+  if (personId === LISTS_PATH_SEGMENT) return null
   if (personId && personId.trim().length > 0) {
     return personId
   }
 
   return null
+}
+
+// ENG-10725: the list-detail sheet deep-links via
+// /dashboard/contacts/lists/<id>, navigated shallowly by selectList (same
+// History-API pattern as selectPerson, same usePathname derivation).
+const extractListIdFromPathname = (pathname: string | null): string | null => {
+  if (!pathname?.startsWith(CONTACTS_BASE_PATH)) return null
+
+  const segments = pathname
+    .slice(CONTACTS_BASE_PATH.length)
+    .split('/')
+    .filter(Boolean)
+  if (segments.length !== 2 || segments[0] !== LISTS_PATH_SEGMENT) return null
+
+  const listId = segments[1]
+  return listId && listId.trim().length > 0 ? listId : null
 }
 
 export interface CurrentlySelectedPerson {
@@ -81,6 +102,7 @@ export interface CurrentlySelectedPerson {
 interface ContactsTableState {
   filteredContacts: Person[]
   currentlySelectedPersonId: string | null
+  currentlySelectedListId: string | null
   currentlySelectedPerson: CurrentlySelectedPerson
   segments: typeof defaultSegments
   customSegments: SegmentResponse[]
@@ -104,6 +126,7 @@ interface ContactsTableActions {
   goToPage: (page: number) => void
   setPageSize: (pageSize: number) => void
   selectPerson: (personId: string | number | null) => void
+  selectList: (listId: string | number | null) => void
   selectSegment: (segment: string) => void
   searchContacts: (query: string) => void
   refreshCustomSegments: () => Promise<void>
@@ -213,6 +236,11 @@ export const ContactsTableProvider = ({
 
   const currentlySelectedPersonId = useMemo(
     () => extractPersonIdFromPathname(pathname),
+    [pathname],
+  )
+
+  const currentlySelectedListId = useMemo(
+    () => extractListIdFromPathname(pathname),
     [pathname],
   )
 
@@ -493,6 +521,27 @@ export const ContactsTableProvider = ({
     [searchParams],
   )
 
+  // Same shallow-navigation pattern as selectPerson: opening/closing the
+  // list-detail sheet keeps the index mounted while the URL stays
+  // deep-linkable (/dashboard/contacts/lists/<id> is served by the catch-all
+  // route on a hard load).
+  const selectList = useCallback(
+    (listId: string | number | null) => {
+      const currentParams = new URLSearchParams(searchParams?.toString() || '')
+      const queryString = currentParams.toString()
+        ? `?${currentParams.toString()}`
+        : ''
+
+      const path =
+        listId === null
+          ? CONTACTS_BASE_PATH
+          : `${CONTACTS_BASE_PATH}/${LISTS_PATH_SEGMENT}/${String(listId)}`
+
+      window.history.pushState(null, '', `${path}${queryString}`)
+    },
+    [searchParams],
+  )
+
   const selectSegment = useCallback(
     (segment: string) => {
       // A list saved from a search result set stores its search term; selecting
@@ -519,6 +568,7 @@ export const ContactsTableProvider = ({
   const value: ContactsTableContextValue = {
     filteredContacts,
     currentlySelectedPersonId,
+    currentlySelectedListId,
     currentlySelectedPerson,
     segments,
     customSegments,
@@ -539,6 +589,7 @@ export const ContactsTableProvider = ({
     goToPage,
     setPageSize,
     selectPerson,
+    selectList,
     selectSegment,
     searchContacts: searchContactsAction,
     refreshCustomSegments,

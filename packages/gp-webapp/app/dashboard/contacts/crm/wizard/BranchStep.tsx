@@ -26,6 +26,13 @@ export default function BranchStep({
 }: BranchStepProps) {
   const labels = getContactsLabels(isWinContext)
 
+  // Lovable-locked selected state (ENG-10725): primary border + primary/5
+  // background tint + a 2px primary/20 ring, with a check-fill indicator
+  // instead of the default radio dot, and a semibold title over the muted
+  // description.
+  const branchCardClassName =
+    'p-5 has-[[data-state=checked]]:bg-primary/5 has-[[data-state=checked]]:ring-2 has-[[data-state=checked]]:ring-primary/20'
+
   return (
     <RadioGroup
       value={selected ?? ''}
@@ -37,14 +44,18 @@ export default function BranchStep({
         value="activity"
         title="Build my list using outreach activity."
         description={labels.wizardActivityBranchDescription}
-        className="p-4"
+        className={branchCardClassName}
+        titleClassName="font-semibold"
+        indicator="check"
       />
       <RadioCardItem
         id="list-wizard-branch-voter-file"
         value="voterFile"
         title={labels.wizardVoterFileBranchTitle}
         description={labels.wizardVoterFileBranchDescription}
-        className="p-4"
+        className={branchCardClassName}
+        titleClassName="font-semibold"
+        indicator="check"
       />
     </RadioGroup>
   )

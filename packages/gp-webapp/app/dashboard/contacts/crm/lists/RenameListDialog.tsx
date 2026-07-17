@@ -27,7 +27,7 @@ interface RenameListDialogProps {
 }
 
 // Editable-name affordance for an unlocked list (locked design). A locked
-// list never shows this dialog — ListDetailPage swaps it for "Duplicate to
+// list never shows this dialog — ListDetailSheet swaps it for "Duplicate to
 // edit" once `firstUsedForOutreachAt` is set — but the PUT can still 409 if
 // outreach launches elsewhere while this dialog is open (ENG-10703 stamps
 // firstUsedForOutreachAt atomically). That race lands in the same

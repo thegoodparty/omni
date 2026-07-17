@@ -2,11 +2,13 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { Card } from '@styleguide'
+import { cn } from '@styleguide/lib/utils'
 import { numberFormatter } from 'helpers/numberHelper'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 
 interface DistrictStatCardProps {
   label: string
+  className?: string
 }
 
 // ENG-10721 (locked-prototype parity): the "Total voters/constituents in
@@ -16,16 +18,18 @@ interface DistrictStatCardProps {
 // endpoint. Split into its own component (rather than inlined in
 // CrmContactsPage) so page-level tests that don't care about this fetch can
 // mock it away, matching how ContactTypeahead/PersonOverlay/CreateListWizard
-// are already mocked there.
-export default function DistrictStatCard({ label }: DistrictStatCardProps) {
+// are already mocked there. Restyled to the Lovable full-column-width row
+// card (label left, value right) in ENG-10725.
+export default function DistrictStatCard({
+  label,
+  className,
+}: DistrictStatCardProps) {
   const query = useQuery(districtStatsQueryOptions)
 
   return (
-    <Card className="w-full max-w-sm p-4">
-      <div className="flex items-center justify-between gap-4">
-        <span className="text-sm font-medium text-muted-foreground">
-          {label}
-        </span>
+    <Card className={cn('w-full gap-0 rounded-lg py-0', className)}>
+      <div className="flex items-center justify-between gap-4 px-4 py-3">
+        <span className="text-sm font-normal">{label}</span>
         {/* React Query v5's `isLoading` is `isPending && isFetching` — on the
             very first synchronous render `isFetching` is still false, so
             `isLoading` reads false too and this would briefly paint
@@ -37,12 +41,12 @@ export default function DistrictStatCard({ label }: DistrictStatCardProps) {
             uses for this identical query. */}
         {query.status !== 'success' ? (
           query.isError ? (
-            <span className="text-xl font-semibold">Unavailable</span>
+            <span className="text-lg font-semibold">Unavailable</span>
           ) : (
             <div className="h-6 w-16 animate-pulse rounded bg-muted" />
           )
         ) : (
-          <span className="text-xl font-semibold">
+          <span className="text-lg font-semibold">
             {numberFormatter(query.data.totalConstituents)}
           </span>
         )}

@@ -1,10 +1,10 @@
-import { useRouter } from 'next/navigation'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { trimCustomSegmentName } from '../shared/segments.util'
 import type { SegmentResponse } from '../shared/contacts-types'
+import { useContactsTable } from '../ContactsTableProvider'
 
 // "List-from-list is filter composition at creation time" (locked design):
 // duplicate reposts the segment's own demographic/activity criteria as a new
@@ -16,7 +16,7 @@ import type { SegmentResponse } from '../shared/contacts-types'
 // { outreachType, outreachId, actions } (its own id/voterFileFilterId are
 // server-only too).
 export const useDuplicateList = () => {
-  const router = useRouter()
+  const { selectList } = useContactsTable()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
@@ -60,7 +60,8 @@ export const useDuplicateList = () => {
       await queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
       })
-      router.push(`/dashboard/contacts/lists/${response.id}`)
+      // Shallow (ENG-10725): opens the copy's detail sheet over the index.
+      selectList(response.id)
     },
     onError: () => {
       errorSnackbar('Failed to duplicate list')

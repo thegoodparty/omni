@@ -3,7 +3,6 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
-import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CreateListWizard from './CreateListWizard'
@@ -31,6 +30,7 @@ type ContextValue = ReturnType<typeof useContactsTable>
 const refreshCustomSegments = vi.fn().mockResolvedValue(undefined)
 const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
+const selectList = vi.fn()
 
 const setContext = (overrides: Partial<ContextValue> = {}) => {
   mockedUseContactsTable.mockReturnValue({
@@ -38,6 +38,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContext: true,
     isWinContextReady: true,
     refreshCustomSegments,
+    selectList,
     ...overrides,
   } as ContextValue)
 }
@@ -98,6 +99,48 @@ describe('CreateListWizard — step navigation', () => {
       screen.getByRole('radio', {
         name: /build my list using the voter file/i,
       }),
+    ).toBeInTheDocument()
+  })
+
+  it('shares one mode-aware step-2 heading across both branches (Win)', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      screen.getByRole('heading', { name: 'Build a voter list' }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using outreach activity/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      screen.getByRole('heading', { name: 'Build a voter list' }),
+    ).toBeInTheDocument()
+  })
+
+  it('uses the constituent step-2 heading for an elected official (Serve)', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the constituent file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(
+      screen.getByRole('heading', { name: 'Build a constituent list' }),
     ).toBeInTheDocument()
   })
 
@@ -183,7 +226,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(sentBody).not.toHaveProperty('activityConditions')
 
     await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
-    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/101')
+    expect(selectList).toHaveBeenCalledWith(101)
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
@@ -306,10 +349,11 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // Condition 1: text · GOTV blast · no response
+    // Condition 1: text · GOTV blast · no response (outcomes live behind the
+    // "Filter on activity" progressive reveal since ENG-10725)
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    await user.click(await screen.findByRole('combobox'))
-    await user.click(await screen.findByText('GOTV blast'))
+    await user.click(await screen.findByRole('radio', { name: 'GOTV blast' }))
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('No Response'))
 
     // Condition 2: door knocking · any · support yes
@@ -318,6 +362,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
       name: 'Door Knocking',
     })
     await user.click(doorKnockRadios[doorKnockRadios.length - 1]!)
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Support: Yes'))
 
     const cta = screen.getByRole('button', { name: /build your list/i })
@@ -523,8 +568,8 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    await user.click(await screen.findByRole('combobox'))
-    await user.click(await screen.findByText('GOTV blast'))
+    await user.click(await screen.findByRole('radio', { name: 'GOTV blast' }))
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('No Response'))
 
     await user.click(screen.getByRole('button', { name: /build your list/i }))
@@ -568,8 +613,8 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     // Condition 1: text · GOTV blast · no response
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    await user.click(await screen.findByRole('combobox'))
-    await user.click(await screen.findByText('GOTV blast'))
+    await user.click(await screen.findByRole('radio', { name: 'GOTV blast' }))
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('No Response'))
 
     // Condition 2: door knocking · any · support yes
@@ -578,6 +623,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       name: 'Door Knocking',
     })
     await user.click(doorKnockRadios[doorKnockRadios.length - 1]!)
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Support: Yes'))
 
     await user.click(screen.getByRole('button', { name: /build your list/i }))
@@ -659,8 +705,8 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
       variableCount: 0,
       hasParty: false,
     })
-    expect(router.push).toHaveBeenCalledTimes(1)
-    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/555')
+    expect(selectList).toHaveBeenCalledTimes(1)
+    expect(selectList).toHaveBeenCalledWith(555)
     expect(successSnackbar).toHaveBeenCalledTimes(1)
   })
 })

@@ -4,28 +4,18 @@ import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
-import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
-import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { useContactsTable } from '../ContactsTableProvider'
 import { useContactsDownload } from '../shared/useContactsDownload'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
-import ListDetailPage from './ListDetailPage'
+import ListDetailSheet from './ListDetailSheet'
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
-vi.mock('@shared/hooks/useCampaign', () => ({
-  useCampaign: () => [{ isPro: true }],
-}))
-vi.mock('@shared/hooks/useElectedOffice', () => ({
-  useElectedOffice: () => ({ data: null }),
-}))
-vi.mock('../../../shared/useWinVoterContext', () => ({
-  useWinVoterContext: vi.fn(),
-}))
-vi.mock('../../../shared/DashboardLayout', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+vi.mock('../ContactsTableProvider', () => ({
+  useContactsTable: vi.fn(),
 }))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
@@ -44,12 +34,12 @@ vi.mock('../shared/useContactsDownload', () => ({
 }))
 // The real DropdownMenuItem depends on Radix context provided by its
 // DropdownMenu/DropdownMenuContent ancestors (createContextScope) and throws
-// without them — so the "More actions" menu's Delete trigger is mocked down
-// to plain elements (same approach as MoreMenu.test.tsx) rather than driving
-// Radix's floating-ui positioning, which nothing else in this test suite
-// exercises. Everything else in the barrel (Dialog, AlertDialog, Button, …)
-// stays real, so RenameListDialog/DeleteListDialog's own interactions are
-// exercised for real.
+// without them — so the kebab menu's Delete trigger is mocked down to plain
+// elements (same approach as MoreMenu.test.tsx) rather than driving Radix's
+// floating-ui positioning, which nothing else in this test suite exercises.
+// Everything else in the barrel (Drawer, Dialog, AlertDialog, Button, …)
+// stays real, so the sheet + RenameListDialog/DeleteListDialog interactions
+// are exercised for real.
 vi.mock('@styleguide', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>()
   return {
@@ -81,14 +71,28 @@ vi.mock('@styleguide', async (importOriginal) => {
 
 // Stable mock references (not a fresh vi.fn() per useSnackbar() call) — both
 // useContactsDownload and useDuplicateList call useSnackbar() independently
-// from inside ListDetailPage, so the test needs one shared instance to
-// assert against regardless of which internal hook fired it.
+// from inside the sheet, so the test needs one shared instance to assert
+// against regardless of which internal hook fired it.
 const mockedUseSnackbar = vi.mocked(useSnackbar)
-const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
+const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseContactsDownload = vi.mocked(useContactsDownload)
 const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
 const downloadFn = vi.fn()
+const selectList = vi.fn()
+
+type ContextValue = ReturnType<typeof useContactsTable>
+
+const setContext = (overrides: Partial<ContextValue> = {}) => {
+  mockedUseContactsTable.mockReturnValue({
+    canUseProFeatures: true,
+    isElectedOfficial: false,
+    isWinContext: true,
+    isWinContextReady: true,
+    selectList,
+    ...overrides,
+  } as ContextValue)
+}
 
 const emptyDetailResponse = {
   demographics: { people: 100, avgAge: 42, avgIncome: 65000 },
@@ -111,7 +115,7 @@ beforeEach(() => {
     errorSnackbar,
     displaySnackbar: vi.fn(),
   })
-  mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+  setContext()
   mockedUseContactsDownload.mockReturnValue({
     download: downloadFn,
     isPreparing: false,
@@ -122,14 +126,83 @@ beforeEach(() => {
   })
 })
 
-describe('ListDetailPage — locked-state affordance (firstUsedForOutreachAt)', () => {
+describe('ListDetailSheet — Lovable stat tiles', () => {
+  it('rounds the average age to an integer and formats income', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        demographics: { people: 100, avgAge: 52.782, avgIncome: 65000.4 },
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('53')).toBeInTheDocument()
+    expect(screen.queryByText('52.782')).not.toBeInTheDocument()
+    expect(screen.getByText('$65,000')).toBeInTheDocument()
+  })
+
+  it('renders the outreach-history table columns and the empty state', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        outreachHistory: [
+          {
+            id: 9,
+            name: 'GOTV blast',
+            outreachType: 'text',
+            status: 'completed',
+            date: new Date('2026-06-22T00:00:00.000Z'),
+          },
+        ],
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('GOTV blast')).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Date' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Name' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Channel' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No outreach yet.')).not.toBeInTheDocument()
+  })
+
+  it('shows the empty outreach sentence when there are no rows', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('No outreach yet.')).toBeInTheDocument()
+  })
+})
+
+describe('ListDetailSheet — locked-state affordance (firstUsedForOutreachAt)', () => {
   it('shows a Rename affordance for an unlocked list', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [{ id: 42, name: 'GOTV text list' }],
     })
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     expect(
       await screen.findByRole('button', { name: 'Rename list' }),
@@ -151,7 +224,7 @@ describe('ListDetailPage — locked-state affordance (firstUsedForOutreachAt)', 
       ],
     })
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     expect(
       await screen.findByRole('button', { name: /duplicate to edit/i }),
@@ -162,7 +235,7 @@ describe('ListDetailPage — locked-state affordance (firstUsedForOutreachAt)', 
   })
 })
 
-describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
+describe('ListDetailSheet — RenameListDialog (unlocked list)', () => {
   const unlockedSegment = { id: 42, name: 'GOTV text list' }
 
   it('rename success: PUT 200 -> success snackbar, segments invalidated, dialog closes', async () => {
@@ -177,7 +250,7 @@ describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByRole('button', { name: 'Rename list' }))
     await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
     const countBeforeSave = filtersCallCount
@@ -193,7 +266,9 @@ describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
     await vi.waitFor(() =>
       expect(filtersCallCount).toBeGreaterThan(countBeforeSave),
     )
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    // The sheet itself is a Radix dialog, so assert on the rename form
+    // specifically rather than role='dialog'.
+    expect(screen.queryByLabelText('List name')).not.toBeInTheDocument()
     expect(errorSnackbar).not.toHaveBeenCalled()
   })
 
@@ -216,7 +291,7 @@ describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
     )
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByRole('button', { name: 'Rename list' }))
     await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
     const countBeforeSave = filtersCallCount
@@ -231,7 +306,7 @@ describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
     await vi.waitFor(() =>
       expect(filtersCallCount).toBeGreaterThan(countBeforeSave),
     )
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('List name')).not.toBeInTheDocument()
     expect(errorSnackbar).not.toHaveBeenCalledWith('Failed to rename list')
   })
 
@@ -246,21 +321,21 @@ describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByRole('button', { name: 'Rename list' }))
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await vi.waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith('Failed to rename list'),
     )
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('List name')).toBeInTheDocument()
   })
 })
 
-describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
+describe('ListDetailSheet — DeleteListDialog (unlocked list)', () => {
   const unlockedSegment = { id: 42, name: 'GOTV text list' }
 
-  it('delete success: DELETE 200 -> success snackbar + router.push to the index', async () => {
+  it('delete success: DELETE 200 -> success snackbar + shallow selectList(null) back to the index', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [unlockedSegment],
@@ -271,7 +346,7 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByTestId('list-detail-delete-trigger'))
     const alertDialog = await screen.findByRole('alertdialog')
     await user.click(
@@ -281,17 +356,14 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
     await vi.waitFor(() =>
       expect(successSnackbar).toHaveBeenCalledWith('List deleted'),
     )
-    await vi.waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts'),
-    )
+    await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(null))
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
-  it('delete raced 409: locked-message error snackbar, invalidate, dialog closes, no navigation', async () => {
-    let filtersCallCount = 0
-    api.mock('GET /v1/voters/voter-file/filters', () => {
-      filtersCallCount += 1
-      return { status: 200, data: [unlockedSegment] }
+  it('delete raced 409: locked-message error snackbar, dialog closes, no navigation', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
     })
     mswServer.use(
       http.delete('/api/v1/voters/voter-file/filter/:id', () =>
@@ -303,10 +375,8 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
     )
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByTestId('list-detail-delete-trigger'))
-    await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
-    const countBeforeDelete = filtersCallCount
     const alertDialog = await screen.findByRole('alertdialog')
     await user.click(
       within(alertDialog).getByRole('button', { name: 'Delete' }),
@@ -317,11 +387,8 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
         autoHideDuration: 6000,
       }),
     )
-    await vi.waitFor(() =>
-      expect(filtersCallCount).toBeGreaterThan(countBeforeDelete),
-    )
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
-    expect(router.push).not.toHaveBeenCalled()
+    expect(selectList).not.toHaveBeenCalled()
   })
 
   it('delete generic 500: error snackbar, dialog stays open, no navigation', async () => {
@@ -335,7 +402,7 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await user.click(await screen.findByTestId('list-detail-delete-trigger'))
     const alertDialog = await screen.findByRole('alertdialog')
     await user.click(
@@ -346,18 +413,18 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
       expect(errorSnackbar).toHaveBeenCalledWith('Failed to delete list'),
     )
     expect(screen.getByRole('alertdialog')).toBeInTheDocument()
-    expect(router.push).not.toHaveBeenCalled()
+    expect(selectList).not.toHaveBeenCalled()
   })
 })
 
-describe('ListDetailPage — "Duplicate to edit" (the sole edit path for a locked list)', () => {
+describe('ListDetailSheet — "Duplicate to edit" (the sole edit path for a locked list)', () => {
   const lockedSegment = {
     id: 42,
     name: 'GOTV text list',
     firstUsedForOutreachAt: '2026-07-01T00:00:00.000Z',
   }
 
-  it('posts a copy and navigates to the new list on success', async () => {
+  it('posts a copy and opens the new list on success', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [lockedSegment],
@@ -372,15 +439,13 @@ describe('ListDetailPage — "Duplicate to edit" (the sole edit path for a locke
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     await user.click(
       await screen.findByRole('button', { name: /duplicate to edit/i }),
     )
 
-    await vi.waitFor(() =>
-      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/555'),
-    )
+    await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(555))
     expect(sentBody).toMatchObject({ name: 'GOTV text list (copy)' })
     expect(successSnackbar).toHaveBeenCalledWith('List duplicated')
     expect(errorSnackbar).not.toHaveBeenCalled()
@@ -397,7 +462,7 @@ describe('ListDetailPage — "Duplicate to edit" (the sole edit path for a locke
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     await user.click(
       await screen.findByRole('button', { name: /duplicate to edit/i }),
@@ -406,40 +471,46 @@ describe('ListDetailPage — "Duplicate to edit" (the sole edit path for a locke
     await vi.waitFor(() =>
       expect(errorSnackbar).toHaveBeenCalledWith('Failed to duplicate list'),
     )
-    expect(router.push).not.toHaveBeenCalled()
+    expect(selectList).not.toHaveBeenCalled()
   })
 })
 
-describe('ListDetailPage — not-found state', () => {
+describe('ListDetailSheet — not-found and error states', () => {
   it('renders a not-found message when no saved list matches the URL id', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
       data: [{ id: 99, name: 'Some other list' }],
     })
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     expect(await screen.findByText(/couldn.t be found/i)).toBeInTheDocument()
   })
-})
 
-describe('ListDetailPage — segments-fetch error state', () => {
   it('renders a retry-able error message, not the not-found copy, when the filters fetch fails', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 500,
       data: { message: 'server exploded' },
     })
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
     expect(
       await screen.findByText(/couldn.t load this list/i),
     ).toBeInTheDocument()
     expect(screen.queryByText(/may have been deleted/i)).not.toBeInTheDocument()
   })
+
+  it('renders nothing when no list is selected (sheet closed)', () => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+
+    render(<ListDetailSheet listId={null} onClose={vi.fn()} />)
+
+    expect(screen.queryByText('List details')).not.toBeInTheDocument()
+  })
 })
 
-describe('ListDetailPage — ENG-10709 List Exported analytics', () => {
+describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
   const unlockedSegment = { id: 42, name: 'GOTV text list' }
 
   beforeEach(() => {
@@ -450,20 +521,21 @@ describe('ListDetailPage — ENG-10709 List Exported analytics', () => {
   })
 
   it('fires the Win-mode event with listSize only once the download confirms success, not at click time', async () => {
-    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
     let confirm: (() => void) | undefined
     downloadFn.mockImplementation((_segment, _props, onDownloadConfirmed) => {
       confirm = onDownloadConfirmed
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
-    // listSize now requires the demographics query to have resolved (a
-    // click before it resolves must not emit a listSize-less event) — wait
-    // on avgAge's "42" as a unique signal that GET /list-detail landed,
-    // since the people count "100" also matches reachability grid cells.
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    // listSize requires the demographics query to have resolved (a click
+    // before it resolves must not emit a listSize-less event) — wait on
+    // avgAge's "42" as a unique signal that GET /list-detail landed, since
+    // the people count "100" also matches reachability grid cells.
     await screen.findByText('42')
-    await user.click(await screen.findByRole('button', { name: 'Download' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Download list' }),
+    )
 
     expect(downloadFn).toHaveBeenCalledWith(
       '42',
@@ -481,16 +553,18 @@ describe('ListDetailPage — ENG-10709 List Exported analytics', () => {
   })
 
   it('fires the Serve-mode event on confirmed success', async () => {
-    mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
+    setContext({ isWinContext: false, isElectedOfficial: true })
     let confirm: (() => void) | undefined
     downloadFn.mockImplementation((_segment, _props, onDownloadConfirmed) => {
       confirm = onDownloadConfirmed
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await screen.findByText('42')
-    await user.click(await screen.findByRole('button', { name: 'Download' }))
+    await user.click(
+      await screen.findByRole('button', { name: 'Download list' }),
+    )
     confirm?.()
 
     expect(trackEvent).toHaveBeenCalledTimes(1)
@@ -498,20 +572,6 @@ describe('ListDetailPage — ENG-10709 List Exported analytics', () => {
       EVENTS.ConstituentData.ListExported,
       { listSize: 100 },
     )
-  })
-
-  it('never fires when the download hook never confirms (fallback/failure path)', async () => {
-    downloadFn.mockImplementation(() => {
-      // The 15s-fallback and error paths inside useContactsDownload never
-      // invoke onDownloadConfirmed — simulated here by simply not calling it.
-    })
-    const user = userEvent.setup()
-
-    render(<ListDetailPage listId="42" />)
-    await screen.findByText('42')
-    await user.click(await screen.findByRole('button', { name: 'Download' }))
-
-    expect(trackEvent).not.toHaveBeenCalled()
   })
 
   it('does not fire when the download confirms before the demographics count is known', async () => {
@@ -528,9 +588,27 @@ describe('ListDetailPage — ENG-10709 List Exported analytics', () => {
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
-    await user.click(await screen.findByRole('button', { name: 'Download' }))
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Download list' }),
+    )
     confirm?.()
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('never fires when the download hook never confirms (fallback/failure path)', async () => {
+    downloadFn.mockImplementation(() => {
+      // The 15s-fallback and error paths inside useContactsDownload never
+      // invoke onDownloadConfirmed — simulated here by simply not calling it.
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await screen.findByText('42')
+    await user.click(
+      await screen.findByRole('button', { name: 'Download list' }),
+    )
 
     expect(trackEvent).not.toHaveBeenCalled()
   })
@@ -542,10 +620,10 @@ describe('ListDetailPage — ENG-10709 List Exported analytics', () => {
     })
     const user = userEvent.setup()
 
-    render(<ListDetailPage listId="42" />)
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
     await screen.findByText('42')
     const downloadButton = await screen.findByRole('button', {
-      name: 'Download',
+      name: 'Download list',
     })
     await user.click(downloadButton)
     await user.click(downloadButton)

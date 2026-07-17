@@ -61,8 +61,8 @@ beforeEach(() => {
   api.reset()
 })
 
-describe('ActivityStep — campaign picker filtering (completed + channel)', () => {
-  it('offers only completed outreaches of the selected channel', async () => {
+describe('ActivityStep — campaign chip row (completed + channel)', () => {
+  it('offers only completed outreaches of the selected channel, with "Any campaign" selected by default', async () => {
     setWinContext(true)
     api.mock('GET /v1/outreach', {
       status: 200,
@@ -92,27 +92,23 @@ describe('ActivityStep — campaign picker filtering (completed + channel)', () 
     render(<ActivityStepHarness />)
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    // The trigger already shows "Any text campaign" as the default selected
-    // value before opening — assert that first, then open the listbox to
-    // check which specific outreaches are offered alongside it.
-    expect(screen.getByText('Any text campaign')).toBeInTheDocument()
-    await user.click(await screen.findByRole('combobox'))
 
+    const anyCampaign = await screen.findByRole('radio', {
+      name: 'Any campaign',
+    })
+    expect(anyCampaign).toHaveAttribute('data-state', 'on')
     expect(
-      await screen.findByRole('option', { name: 'GOTV blast' }),
+      await screen.findByRole('radio', { name: 'GOTV blast' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('option', { name: 'Not yet sent' }),
+      screen.queryByRole('radio', { name: 'Not yet sent' }),
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole('option', { name: 'Robo reminder' }),
+      screen.queryByRole('radio', { name: 'Robo reminder' }),
     ).not.toBeInTheDocument()
-    expect(
-      screen.getByRole('option', { name: 'Any text campaign' }),
-    ).toBeInTheDocument()
   })
 
-  it('hides the specific-campaign select entirely for door-knocking rows', async () => {
+  it('hides the campaign row entirely for door-knocking rows', async () => {
     setWinContext(true)
     api.mock('GET /v1/outreach', { status: 200, data: [] })
     const user = userEvent.setup()
@@ -121,11 +117,12 @@ describe('ActivityStep — campaign picker filtering (completed + channel)', () 
 
     await user.click(screen.getByRole('radio', { name: 'Door Knocking' }))
 
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
-    expect(screen.getByText('Answered')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('radio', { name: 'Any campaign' }),
+    ).not.toBeInTheDocument()
   })
 
-  it('skips the GET /outreach fetch entirely in Serve mode and renders an empty picker', async () => {
+  it('skips the GET /outreach fetch entirely in Serve mode and still renders "Any campaign"', async () => {
     setWinContext(false)
     const outreachRequest = vi.fn()
     api.mock('GET /v1/outreach', () => {
@@ -137,10 +134,9 @@ describe('ActivityStep — campaign picker filtering (completed + channel)', () 
     render(<ActivityStepHarness />)
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    await user.click(await screen.findByRole('combobox'))
 
     expect(
-      await screen.findByRole('option', { name: 'Any text campaign' }),
+      await screen.findByRole('radio', { name: 'Any campaign' }),
     ).toBeInTheDocument()
     expect(outreachRequest).not.toHaveBeenCalled()
   })
@@ -156,8 +152,8 @@ describe('ActivityStep — campaign picker filtering (completed + channel)', () 
     render(<ActivityStepHarness />)
 
     await user.click(screen.getByRole('radio', { name: 'Text' }))
-    await user.click(await screen.findByRole('combobox'))
-    await user.click(await screen.findByText('GOTV blast'))
+    await user.click(await screen.findByRole('radio', { name: 'GOTV blast' }))
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
     await user.click(screen.getByText('Responded'))
 
     expect(lastConditions[0]?.outreachId).toBe(7)
@@ -171,8 +167,10 @@ describe('ActivityStep — campaign picker filtering (completed + channel)', () 
     expect(lastConditions[0]?.outreachName).toBeNull()
     expect(lastConditions[0]?.actions).toEqual([])
   })
+})
 
-  it("shows only the channel's outcome vocabulary and the empty-selection helper text", async () => {
+describe('ActivityStep — progressive outcome reveal', () => {
+  it('hides outcomes behind "Filter on activity" and reveals the channel vocabulary on click', async () => {
     setWinContext(true)
     api.mock('GET /v1/outreach', { status: 200, data: [] })
     const user = userEvent.setup()
@@ -181,13 +179,57 @@ describe('ActivityStep — campaign picker filtering (completed + channel)', () 
 
     await user.click(screen.getByRole('radio', { name: 'Robocall' }))
 
+    expect(screen.queryByText('Answered')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
+
     expect(screen.getByText('Answered')).toBeInTheDocument()
     expect(screen.getByText('Voicemail Left')).toBeInTheDocument()
     expect(screen.getByText('No Answer')).toBeInTheDocument()
     expect(screen.queryByText('Not Home')).not.toBeInTheDocument()
+  })
+
+  it('clears the outcome selection and re-hides the row via the remove-activity trash', async () => {
+    setWinContext(true)
+    api.mock('GET /v1/outreach', { status: 200, data: [] })
+    const user = userEvent.setup()
+
+    render(<ActivityStepHarness />)
+
+    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
+    await user.click(screen.getByRole('button', { name: 'Filter on activity' }))
+    await user.click(screen.getByText('Answered'))
+    expect(lastConditions[0]?.actions).toEqual(['answered'])
+
+    await user.click(
+      screen.getByRole('button', { name: 'Remove activity filter' }),
+    )
+
+    expect(lastConditions[0]?.actions).toEqual([])
+    expect(screen.queryByText('Answered')).not.toBeInTheDocument()
     expect(
-      screen.getByText(/everyone reached through this outreach/i),
+      screen.getByRole('button', { name: 'Filter on activity' }),
     ).toBeInTheDocument()
+  })
+
+  it('disables the remove-condition trash when only one condition exists and resets via Clear filters', async () => {
+    setWinContext(true)
+    api.mock('GET /v1/outreach', { status: 200, data: [] })
+    const user = userEvent.setup()
+
+    render(<ActivityStepHarness />)
+
+    expect(
+      screen.getByRole('button', { name: 'Remove condition 1' }),
+    ).toBeDisabled()
+
+    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
+    expect(lastConditions[0]?.outreachType).toBe('robocall')
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+    expect(lastConditions).toHaveLength(1)
+    expect(lastConditions[0]?.outreachType).toBe('')
   })
 })
 
