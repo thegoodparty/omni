@@ -373,6 +373,7 @@ describe('buildVoterFiltersSql', () => {
 
       expect(sqlStr).toContain('Residence_Addresses_AddressLine')
       expect(sqlStr).toContain('IS NOT NULL')
+      expect(sqlStr).toContain("!= ''")
     })
 
     it('emits an IS NULL OR empty check for false', () => {
@@ -389,6 +390,7 @@ describe('buildVoterFiltersSql', () => {
 
       expect(sqlStr).toContain('Residence_Addresses_AddressLine')
       expect(sqlStr).toContain('IS NULL')
+      expect(sqlStr).toContain("= ''")
     })
   })
 })
