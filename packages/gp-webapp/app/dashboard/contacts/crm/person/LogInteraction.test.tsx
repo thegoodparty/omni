@@ -243,6 +243,35 @@ describe('<LogInteraction>', () => {
     expect(receivedBodies[0]).not.toHaveProperty('occurredAt')
   })
 
+  it('sends occurredAt as local noon of a backdated log', async () => {
+    const user = userEvent.setup()
+    const receivedBodies: unknown[] = []
+    api.mock('POST /v1/contacts/:personId/interactions', ({ body }) => {
+      receivedBodies.push(body)
+      return {
+        status: 200,
+        data: makeLoggedResponse(
+          body as Partial<LogContactInteractionResponse>,
+        ),
+      }
+    })
+
+    render(<LogInteraction personId={PERSON_ID} />)
+
+    await user.click(screen.getByRole('radio', { name: 'Robocall' }))
+    await user.click(screen.getByRole('radio', { name: 'Answered' }))
+    fireEvent.change(screen.getByLabelText('Date'), {
+      target: { value: '2026-07-01' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Log Interaction' }))
+
+    await waitFor(() => expect(receivedBodies).toHaveLength(1))
+    const body = receivedBodies[0] as { occurredAt: string }
+    // Dates serialize to ISO on the wire; local noon keeps the calendar day
+    // stable across every real-world timezone offset.
+    expect(body.occurredAt).toBe(new Date('2026-07-01T12:00:00').toISOString())
+  })
+
   it('fires the Serve Contact Logged event with the same properties as Win', async () => {
     mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
     const user = userEvent.setup()
