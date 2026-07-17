@@ -278,7 +278,9 @@ export default function ListDetailPage({ listId }: ListDetailPageProps) {
         />
 
         <InfoSection title="Outreach History" icon={<HistoryIcon size={20} />}>
-          {detailQuery.isError ? (
+          {detailQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">—</p>
+          ) : detailQuery.isError ? (
             <p className="text-sm text-muted-foreground">
               Outreach history is unavailable right now.
             </p>
