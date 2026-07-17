@@ -304,4 +304,22 @@ export class VoterFileFilterService extends createPrismaBase(
       }
     }
   }
+
+  // First-write-wins claim: the `IS NULL` guard makes concurrent callers race
+  // safely (exactly one `updateMany` matches the row) with no read-then-write.
+  // Deliberately no rollback path — once a filter has been used for outreach,
+  // that fact is permanent even if the triggering send later fails, so the
+  // lock (and the 409 `assertNotLocked` reads) must never clear. Returns the
+  // number of rows this call actually claimed (0 or 1) so callers/tests can
+  // observe who won a concurrent race.
+  async stampFirstUsedForOutreach(
+    id: number,
+    organizationSlug: string,
+  ): Promise<number> {
+    const { count } = await this.model.updateMany({
+      where: { id, organizationSlug, firstUsedForOutreachAt: null },
+      data: { firstUsedForOutreachAt: new Date() },
+    })
+    return count
+  }
 }

@@ -28,6 +28,7 @@ import {
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
 import { OutreachAttributionService } from './outreachAttribution.service'
+import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 
 export type { P2pJobGeographyResult } from '../util/campaignGeography.util'
@@ -49,6 +50,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly notificationService: OutreachNotificationService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly attributionService: OutreachAttributionService,
+    private readonly materializationService: OutreachMaterializationService,
     private readonly s3: S3Service,
   ) {
     super()
@@ -269,6 +271,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       )
       await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
       await this.tryRecordSegmentAttribution(user, campaign, outreach)
+      await this.tryMaterializeOutreach(campaign, outreach)
       return outreach
     }
 
@@ -279,6 +282,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     )
     await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
     await this.tryRecordSegmentAttribution(user, campaign, outreach)
+    await this.tryMaterializeOutreach(campaign, outreach)
     return outreach
   }
 
@@ -380,6 +384,7 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
     await this.tryRecordSegmentAttribution(user, campaign, finalized)
+    await this.tryMaterializeOutreach(campaign, finalized)
   }
 
   /**
@@ -496,6 +501,29 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       this.logger.error(
         { err, outreachId: outreach.id, campaignId: campaign.id },
         'Segment-derived outreach attribution failed',
+      )
+    }
+  }
+
+  // Materializes the outreach's resolved saved filter into per-recipient
+  // ContactInteraction<channel> rows and locks the filter. Best-effort like
+  // tryRecordSegmentAttribution: the rows are the audit trail, but a
+  // materialization failure must not fail the outreach that was already
+  // persisted.
+  private async tryMaterializeOutreach(
+    campaign: Campaign,
+    outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
+  ) {
+    try {
+      await this.materializationService.materializeOutreach(campaign, outreach)
+    } catch (err) {
+      this.logger.error(
+        {
+          err,
+          outreachId: outreach.id,
+          filterId: outreach.voterFileFilterId,
+        },
+        'Outreach list materialization failed',
       )
     }
   }

@@ -1,6 +1,7 @@
 import { HttpModule } from '@nestjs/axios'
 import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
+import { ContactInteractionModule } from '@/contactInteraction/contactInteraction.module'
 import { AiModule } from 'src/ai/ai.module'
 import { EmailModule } from 'src/email/email.module'
 import { PurchaseType } from 'src/payments/purchase.types'
@@ -18,6 +19,7 @@ import { OutreachController } from './outreach.controller'
 import { OutreachNotificationInterceptor } from './interceptors/outreachNotification.interceptor'
 import { OutreachAttributionService } from './services/outreachAttribution.service'
 import { OutreachCompletionService } from './services/outreachCompletion.service'
+import { OutreachMaterializationService } from './services/outreachMaterialization.service'
 import { OutreachService } from './services/outreach.service'
 import { OutreachNotificationService } from './services/outreachNotification.service'
 import { OutreachPurchaseHandlerService } from './services/outreachPurchase.service'
@@ -42,6 +44,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     forwardRef(() => ContactsModule),
     OrganizationsModule,
     VoterOutreachActivityModule,
+    ContactInteractionModule,
   ],
   controllers: [OutreachController],
   providers: [
@@ -51,6 +54,7 @@ import { OutreachPurchaseHandlerService } from './services/outreachPurchase.serv
     OutreachNotificationInterceptor,
     OutreachPurchaseHandlerService,
     OutreachAttributionService,
+    OutreachMaterializationService,
   ],
   exports: [OutreachService, OutreachPurchaseHandlerService],
 })

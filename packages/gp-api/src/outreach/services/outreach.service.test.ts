@@ -28,6 +28,7 @@ import type {
 } from '../util/campaignGeography.util'
 import type { CreateOutreachSchema } from '../schemas/createOutreachSchema'
 import { OutreachAttributionService } from './outreachAttribution.service'
+import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 import { OutreachService, type P2pOutreachImageInput } from './outreach.service'
 
@@ -41,6 +42,7 @@ const mockNotifySuccess = vi.fn()
 const mockFindVoterFileFilter = vi.fn()
 const mockFilterAccessCheck = vi.fn()
 const mockRecordSegmentAttribution = vi.fn()
+const mockMaterializeOutreach = vi.fn()
 
 vi.mock('../util/campaignGeography.util', () => ({
   resolveP2pJobGeography: (
@@ -102,6 +104,8 @@ describe('OutreachService', () => {
     mockFilterAccessCheck.mockResolvedValue(undefined)
     mockRecordSegmentAttribution.mockReset()
     mockRecordSegmentAttribution.mockResolvedValue(undefined)
+    mockMaterializeOutreach.mockReset()
+    mockMaterializeOutreach.mockResolvedValue(undefined)
 
     const mockPrismaService = {
       outreach: {
@@ -146,6 +150,12 @@ describe('OutreachService', () => {
           provide: OutreachAttributionService,
           useValue: {
             recordSegmentAttribution: mockRecordSegmentAttribution,
+          },
+        },
+        {
+          provide: OutreachMaterializationService,
+          useValue: {
+            materializeOutreach: mockMaterializeOutreach,
           },
         },
         {
@@ -221,6 +231,40 @@ describe('OutreachService', () => {
       mockRecordSegmentAttribution.mockRejectedValue(
         new Error('people api down'),
       )
+
+      const result = await service.create(
+        mockUser,
+        mockCampaign,
+        baseCreateDto,
+        undefined,
+        undefined,
+      )
+
+      expect(result).toEqual(created)
+    })
+
+    it('hands the created outreach to list materialization', async () => {
+      const created = { id: 9, ...baseCreateDto, voterFileFilter: null }
+      mockOutreachCreate.mockResolvedValue(created)
+
+      await service.create(
+        mockUser,
+        mockCampaign,
+        baseCreateDto,
+        undefined,
+        undefined,
+      )
+
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
+        mockCampaign,
+        created,
+      )
+    })
+
+    it('still returns the outreach when materialization throws', async () => {
+      const created = { id: 10, ...baseCreateDto, voterFileFilter: null }
+      mockOutreachCreate.mockResolvedValue(created)
+      mockMaterializeOutreach.mockRejectedValue(new Error('people api down'))
 
       const result = await service.create(
         mockUser,
@@ -383,6 +427,11 @@ describe('OutreachService', () => {
       // P2P also records per-voter attribution (the texting/P2P write path).
       expect(mockRecordSegmentAttribution).toHaveBeenCalledWith(
         mockUser,
+        mockCampaign,
+        created,
+      )
+      // ...and materializes the resolved filter into interaction rows.
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
         mockCampaign,
         created,
       )
