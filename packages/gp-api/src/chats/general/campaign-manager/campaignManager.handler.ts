@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import { differenceInCalendarWeeks, parseISO } from 'date-fns'
+import { CAMPAIGN_MANAGER_START_STORY_SENTINEL } from '@goodparty_org/contracts'
 import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { LlmTool } from '@/llm/services/llm.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
@@ -41,14 +42,19 @@ export const CAMPAIGN_MANAGER_MODELS = [
 // The scripted opener, persisted as the conversation's first assistant message
 // so the agent keeps its own greeting in context on later turns. Mirrors the
 // client-played CAMPAIGN_MANAGER_INTRO in gp-webapp (kept in sync by hand; it is
-// display copy, not a cross-service contract).
-export const CAMPAIGN_MANAGER_GREETING = [
-  "Hi, I'm your campaign manager.",
-  'I keep an eye on your plan and tell you the two or three things that ' +
-    'matter most this week, and what to do about them.',
-  'Ask me what to do next, or tell me what just happened and I will help ' +
-    'you handle it.',
-].join('\n\n')
+// display copy, not a cross-service contract). First-name aware: falls back to
+// a no-name variant when the candidate's first name isn't resolved.
+export const buildCampaignManagerGreeting = (
+  firstName?: string | null,
+): string =>
+  [
+    firstName
+      ? `Hi ${firstName}, I'm your Campaign Manager.`
+      : "Hi, I'm your Campaign Manager.",
+    "I can help you do things like understand your community's biggest " +
+      'priorities, draft voter outreach, or prepare for upcoming events.',
+    'How can I help today?',
+  ].join('\n\n')
 
 // The next-question prompt per story field, in the Story page's wording.
 const STORY_QUESTION_PROMPTS: Record<StoryField, string> = {
@@ -181,21 +187,20 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     return { conversationId: created.id, created: true }
   }
 
-  // Seed the story-intake opener when the Campaign Story is unfinished (so the
-  // manager greets and asks its first question on open); otherwise the standard
-  // greeting. Best-effort: any lookup miss falls back to the standard greeting.
+  // Always seeds the general greeting (Campaign Story intake now runs on
+  // demand via the kickoff sentinel, not at conversation creation). First-name
+  // aware when the campaign's owning user resolves. Best-effort: any lookup
+  // miss falls back to the no-name greeting rather than throwing.
   private async resolveGreeting(
     organizationSlug: string | null,
   ): Promise<string> {
-    if (!organizationSlug || !this.storyIntake) return CAMPAIGN_MANAGER_GREETING
+    if (!organizationSlug) return buildCampaignManagerGreeting()
     const campaign = await this.campaigns.findFirst({
       where: { organizationSlug },
+      include: { user: true },
     })
-    if (!campaign) return CAMPAIGN_MANAGER_GREETING
-    const story = await this.storyIntake.read(campaign.id)
-    return story.complete
-      ? CAMPAIGN_MANAGER_GREETING
-      : buildStoryGreeting(story)
+    if (!campaign) return buildCampaignManagerGreeting()
+    return buildCampaignManagerGreeting(campaign.user?.firstName)
   }
 
   async loadContext(
@@ -335,5 +340,23 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     }
 
     return tools
+  }
+
+  // Kicks off Campaign Story intake without a model round-trip when the
+  // client sends the reserved sentinel (e.g. "Get started" on a fresh
+  // conversation). Returns null for any other message, which runs the normal
+  // LLM turn.
+  maybeCannedReply(
+    userMessage: string,
+    ctx: CampaignManagerContext,
+  ): string | null {
+    if (userMessage.trim() !== CAMPAIGN_MANAGER_START_STORY_SENTINEL) {
+      return null
+    }
+    if (!ctx.story) return null
+    return ctx.story.complete
+      ? 'Your Campaign Story is all set. Tell me what you would like to ' +
+          'change and I can help you refine it.'
+      : buildStoryGreeting(ctx.story)
   }
 }

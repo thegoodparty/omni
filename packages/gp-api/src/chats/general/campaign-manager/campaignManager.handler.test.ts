@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { CAMPAIGN_MANAGER_START_STORY_SENTINEL } from '@goodparty_org/contracts'
 import { ChatScope } from '../../../generated/prisma'
 import type { CampaignsService } from '@/campaigns/services/campaigns.service'
 import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
@@ -6,6 +7,7 @@ import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { WIN_CONSTITUENT_TABLES } from './services/constituentDataScope'
 import type { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
+  buildCampaignManagerGreeting,
   buildStoryGreeting,
   CampaignManagerHandler,
 } from './campaignManager.handler'
@@ -113,6 +115,19 @@ describe('CampaignManagerHandler.buildTools — campaign story tool', () => {
   })
 })
 
+describe('buildCampaignManagerGreeting', () => {
+  it('interpolates the first name when present', () => {
+    const greeting = buildCampaignManagerGreeting('Dana')
+    expect(greeting).toContain("Hi Dana, I'm your Campaign Manager.")
+    expect(greeting).toContain('How can I help today?')
+  })
+
+  it('falls back to the no-name variant when absent', () => {
+    const greeting = buildCampaignManagerGreeting()
+    expect(greeting).toContain("Hi, I'm your Campaign Manager.")
+  })
+})
+
 describe('buildStoryGreeting', () => {
   const story = (missing: StoryState['missing']): StoryState => ({
     why: null,
@@ -196,5 +211,107 @@ describe('CampaignManagerHandler.resolveConversation — single ongoing thread',
     expect(res).toEqual({ conversationId: 'new-1', created: true })
     expect(createScopedConversation).toHaveBeenCalledOnce()
     expect(appendMessage).toHaveBeenCalledOnce()
+  })
+
+  it('seeds the general greeting even when the Campaign Story is incomplete', async () => {
+    const findLatestByScope = vi.fn().mockResolvedValue(null)
+    const createScopedConversation = vi.fn().mockResolvedValue({ id: 'new-2' })
+    const appendMessage = vi.fn().mockResolvedValue(undefined)
+    const findFirst = vi
+      .fn()
+      .mockResolvedValue({ id: 1, user: { firstName: 'Dana' } })
+    const read = vi.fn().mockResolvedValue({
+      why: null,
+      background: null,
+      positions: [],
+      complete: false,
+      missing: ['why', 'background', 'positions'],
+    } satisfies StoryState)
+    const handler = new CampaignManagerHandler(
+      {
+        findLatestByScope,
+        createScopedConversation,
+      } as unknown as GeneralChatStoreService,
+      { findFirst } as unknown as CampaignsService,
+      { appendMessage } as unknown as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      { read } as unknown as CampaignStoryIntakeService,
+    )
+
+    await handler.resolveConversation(params, 42)
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { organizationSlug: 'org-slug' },
+      include: { user: true },
+    })
+    expect(appendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: buildCampaignManagerGreeting('Dana'),
+      }),
+    )
+  })
+})
+
+describe('CampaignManagerHandler.maybeCannedReply', () => {
+  const buildHandler = (): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+    )
+
+  const incompleteStory: StoryState = {
+    why: null,
+    background: null,
+    positions: [],
+    complete: false,
+    missing: ['why', 'background', 'positions'],
+  }
+
+  const completeStory: StoryState = {
+    why: 'why',
+    background: 'background',
+    positions: [{ title: 'a' }, { title: 'b' }],
+    complete: true,
+    missing: [],
+  }
+
+  it('returns the story-intake opener when the sentinel arrives mid-intake', () => {
+    const reply = buildHandler().maybeCannedReply(
+      CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+      ctxWith({ story: incompleteStory }),
+    )
+    expect(reply).toBe(buildStoryGreeting(incompleteStory))
+  })
+
+  it('returns the canned "already complete" line when the story is done', () => {
+    const reply = buildHandler().maybeCannedReply(
+      CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+      ctxWith({ story: completeStory }),
+    )
+    expect(reply).toBe(
+      'Your Campaign Story is all set. Tell me what you would like to ' +
+        'change and I can help you refine it.',
+    )
+  })
+
+  it('returns null for a non-sentinel message', () => {
+    const reply = buildHandler().maybeCannedReply(
+      'hello',
+      ctxWith({ story: incompleteStory }),
+    )
+    expect(reply).toBeNull()
+  })
+
+  it('returns null when the sentinel arrives with no story loaded', () => {
+    const reply = buildHandler().maybeCannedReply(
+      CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+      ctxWith({ story: null }),
+    )
+    expect(reply).toBeNull()
   })
 })
