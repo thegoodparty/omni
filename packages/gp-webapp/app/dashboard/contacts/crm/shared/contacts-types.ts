@@ -23,9 +23,9 @@ import type {
   TextConstituentActivity,
   VoterOutreachAttributionSource,
 } from '@goodparty_org/contracts'
-// Type-only import from a sibling module that itself imports SupportStatusRollup
-// from this file — safe as a `type` import (erased at compile time, no runtime
-// cycle). Keeps the activity-condition shape defined once (ENG-10708).
+// Keeps the activity-condition shape defined once (ENG-10708); the sibling
+// pulls its contract types from @goodparty_org/contracts directly so this
+// import stays one-directional (madge circular check).
 import type { ActivityConditionInput } from './activityConditionOptions'
 
 export interface SegmentResponse {
