@@ -62,6 +62,9 @@ export {
   type OrdinanceSeedType,
   ORDINANCE_SEED_TYPE_VALUES,
   OrdinanceSeedTypeSchema,
+  type ActivityConditionAction,
+  ACTIVITY_CONDITION_ACTION_VALUES,
+  ActivityConditionActionSchema,
 } from './generated/enums'
 
 export {
