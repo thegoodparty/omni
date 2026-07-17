@@ -746,23 +746,28 @@ describe('ActivityConditionResolutionService', () => {
   })
 
   describe('the 100k cap', () => {
-    it('throws BadRequestException when the resolved "in" set exceeds the cap', async () => {
-      const org = await seedOrganization('org-over-cap')
-      // A single INSERT ... SELECT is far cheaper than materializing 100k+
-      // rows client-side; only person_id needs to vary per row.
-      await service.prisma.$executeRaw`
+    // Seeding + resolving 100k rows can exceed the 5s default on CI runners.
+    it(
+      'throws BadRequestException when the resolved "in" set exceeds the cap',
+      { timeout: 30_000 },
+      async () => {
+        const org = await seedOrganization('org-over-cap')
+        // A single INSERT ... SELECT is far cheaper than materializing 100k+
+        // rows client-side; only person_id needs to vary per row.
+        await service.prisma.$executeRaw`
         INSERT INTO contact_interaction_text (id, organization_slug, person_id, occurred_at)
         SELECT gen_random_uuid()::text, ${org}, 'cap-person-' || gen_series, now()
         FROM generate_series(1, 100001) AS gen_series
       `
 
-      await expect(
-        resolution.resolveIdFilter(org, {
-          activityConditions: [
-            { outreachType: 'text', outreachId: null, actions: [] },
-          ],
-        }),
-      ).rejects.toThrow(BadRequestException)
-    })
+        await expect(
+          resolution.resolveIdFilter(org, {
+            activityConditions: [
+              { outreachType: 'text', outreachId: null, actions: [] },
+            ],
+          }),
+        ).rejects.toThrow(BadRequestException)
+      },
+    )
   })
 })
