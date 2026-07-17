@@ -293,6 +293,25 @@ export class VoterFileFilterService extends createPrismaBase(
     }
   }
 
+  // Outreach history for a list-detail page (ENG-10706). Reads the Outreach
+  // table directly via `_prisma` (same pattern as validateActivityConditions
+  // above) rather than pulling in OutreachModule, which already imports
+  // ContactsModule (forwardRef) — a back-edge here would create a genuine
+  // module cycle.
+  findOutreachesByVoterFileFilterId(voterFileFilterId: number) {
+    return this._prisma.outreach.findMany({
+      where: { voterFileFilterId },
+      orderBy: { date: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        outreachType: true,
+        status: true,
+        date: true,
+      },
+    })
+  }
+
   async filterAccessCheck(organizationSlug: string): Promise<void> {
     if (organizationSlug.startsWith('campaign-')) {
       const campaign = await this._prisma.campaign.findFirst({

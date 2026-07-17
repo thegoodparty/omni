@@ -6,6 +6,7 @@ import {
   Post,
   Query,
   Res,
+  UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
 import { Organization, User } from '../generated/prisma'
@@ -14,8 +15,14 @@ import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
+import {
+  ListDetailContactsDTO,
+  listDetailResponseSchema,
+} from './schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -25,6 +32,7 @@ import { ContactsService } from './services/contacts.service'
 @Controller('contacts')
 @UseOrganization()
 @UsePipes(ZodValidationPipe)
+@UseInterceptors(ZodResponseInterceptor)
 export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
 
@@ -76,6 +84,17 @@ export class ContactsController {
       organization,
     )
     return { count }
+  }
+
+  @Get('list-detail')
+  @ResponseSchema(listDetailResponseSchema)
+  async getListDetail(
+    @Query() dto: ListDetailContactsDTO,
+    @ReqOrganization() organization: Organization,
+    @ReqUser() user: User,
+  ) {
+    await this.contactsService.assertContactsAccess(organization, user)
+    return this.contactsService.getListDetail(dto, organization)
   }
 
   @Get(':id')

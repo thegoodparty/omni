@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aggregatesSchema,
   downloadPeopleSchema,
   getPersonQuerySchema,
   listPeopleSchema,
@@ -232,5 +233,27 @@ describe('people query schemas', () => {
       operator: 'is',
       value: 'null',
     })
+  })
+
+  it('accepts districtId + filters on the aggregates request', () => {
+    const parsed = aggregatesSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: { id: { in: [PERSON_ID] }, hasCellPhone: true },
+    })
+
+    expect(parsed.districtId).toBe(DISTRICT_ID)
+    expect(parsed.filters.filterOperators.id).toEqual({
+      operator: 'in',
+      values: [PERSON_ID],
+      includeNull: false,
+    })
+    expect(parsed.filters.filterOperators.hasCellPhone).toEqual({
+      operator: 'is',
+      value: 'not_null',
+    })
+  })
+
+  it('rejects the aggregates request without a districtId', () => {
+    expect(() => aggregatesSchema.parse({ filters: {} })).toThrow()
   })
 })

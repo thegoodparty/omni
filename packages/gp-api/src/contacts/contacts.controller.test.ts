@@ -186,7 +186,11 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
   const gatedEndpoints: Array<{
     name: string
     path: string
-    serviceMethod: 'downloadContacts' | 'getDistrictStats' | 'findPerson'
+    serviceMethod:
+      | 'downloadContacts'
+      | 'getDistrictStats'
+      | 'findPerson'
+      | 'getListDetail'
   }> = [
     {
       name: 'download',
@@ -202,6 +206,11 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
       name: 'get by id',
       path: `/v1/contacts/${SOME_UUID}`,
       serviceMethod: 'findPerson',
+    },
+    {
+      name: 'list-detail',
+      path: '/v1/contacts/list-detail?segment=1',
+      serviceMethod: 'getListDetail',
     },
   ]
 
@@ -280,5 +289,44 @@ describe('GET /v1/contacts authz + win-voter-data gating', () => {
 
     expect(result.status).toBe(403)
     expect(countContacts).not.toHaveBeenCalled()
+  })
+
+  it('returns the list-detail demographics/reachability/history payload (ENG-10706)', async () => {
+    await seedOrgWithCampaign({
+      slug: WIN_SLUG,
+      ownerId: service.user.id,
+      isPro: true,
+    })
+    vi.spyOn(
+      service.app.get(FeaturesService),
+      'isFeatureEnabled',
+    ).mockResolvedValue(true)
+    const payload: Awaited<ReturnType<ContactsService['getListDetail']>> = {
+      demographics: { people: 100, avgAge: 42, avgIncome: 55000 },
+      reachability: {
+        sms: 60,
+        robocall: 60,
+        phoneBanking: 60,
+        doorKnocking: 30,
+        email: null,
+        metaAds: null,
+      },
+      outreachHistory: [],
+    }
+    const getListDetail = vi
+      .spyOn(service.app.get(ContactsService), 'getListDetail')
+      .mockResolvedValue(payload)
+
+    const result = await service.client.get(
+      '/v1/contacts/list-detail?segment=42',
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(200)
+    expect(result.data).toEqual(payload)
+    expect(getListDetail).toHaveBeenCalledWith(
+      expect.objectContaining({ segment: 42 }),
+      expect.objectContaining({ slug: WIN_SLUG }),
+    )
   })
 })

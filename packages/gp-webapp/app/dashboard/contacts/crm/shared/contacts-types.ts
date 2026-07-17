@@ -11,6 +11,7 @@ import type {
   LogContactInteractionResponse,
   NoteConstituentActivity,
   OutreachConstituentActivity,
+  OutreachStatus,
   OutreachType,
   PeopleListResponse,
   Person,
@@ -76,3 +77,34 @@ export type {
 // local names (outreachType/attributionSource render labels key off these).
 export type OutreachChannel = OutreachType
 export type OutreachAttributionSource = VoterOutreachAttributionSource
+
+// GET /v1/contacts/list-detail (ENG-10706): demographics + reachable-by-channel
+// counts + outreach history for one saved list, consumed by the list-detail
+// page (task 08). email/metaAds are always null — no eligibility data source
+// exists for either channel, so the UI renders them as unavailable, never 0.
+export type ListDetailReachability = {
+  sms: number
+  robocall: number
+  phoneBanking: number
+  doorKnocking: number
+  email: null
+  metaAds: null
+}
+
+export type ListDetailOutreachHistoryEntry = {
+  id: number
+  name: string | null
+  outreachType: OutreachType
+  status: OutreachStatus | null
+  date: string | null
+}
+
+export type ListDetailContactsResponse = {
+  demographics: {
+    people: number
+    avgAge: number | null
+    avgIncome: number | null
+  }
+  reachability: ListDetailReachability
+  outreachHistory: ListDetailOutreachHistoryEntry[]
+}
