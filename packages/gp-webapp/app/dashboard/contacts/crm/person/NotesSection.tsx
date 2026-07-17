@@ -224,8 +224,12 @@ export default function NotesSection({
   const updateMutation = useMutation({
     mutationFn: ({ noteId, body }: { noteId: string; body: string }) =>
       clientRequest('PATCH /v1/contacts/notes/:noteId', { noteId, body }),
-    onSuccess: () => {
-      setEditingNoteId(null)
+    onSuccess: (_data, variables) => {
+      // Only close the editor the completed save belongs to — note A's
+      // in-flight response must not close an editor since opened on note B.
+      setEditingNoteId((current) =>
+        current === variables.noteId ? null : current,
+      )
       invalidateAfterWrite()
     },
   })
