@@ -94,7 +94,10 @@ site, and vice versa.
   (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which shows the why
   (from the website bio) + background (from the story) and the issues (from
   the website query), an "Open your campaign manager" / "Edit in campaign
-  manager" link to `/dashboard`, and a confirm modal before generating.
+  manager" link to `/dashboard?personalize=1` (a deep link `CampaignManagerHome`
+  consumes to open the manager and auto-launch the story-intake chat flow,
+  same as the manager home's own story card), and a confirm modal before
+  generating.
   Whether a plan already exists (including one the **campaign manager chat**
   kicked off) is decided by `campaign-plan/page.tsx` (`GET
   /v1/campaignStrategy/mine/exists`) and threaded through

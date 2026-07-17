@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
@@ -42,9 +43,18 @@ export default function CampaignManagerHome({
   firstName,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const [chatOpen, setChatOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
+  // One-shot hidden kickoff sent once the resolved conversation loads (see
+  // ChiefOfStaffChatBody's pendingKickoff effect). Cleared on close so a later
+  // plain reopen (e.g. the meet card) never replays it.
+  const [pendingKickoff, setPendingKickoff] = useState<string | undefined>(
+    undefined,
+  )
   const composerRef = useRef<HTMLInputElement | null>(null)
+  const personalizeDeepLinkFiredRef = useRef(false)
 
   const suggestions: ChatSuggestion[] = [
     {
@@ -96,6 +106,26 @@ export default function CampaignManagerHome({
     setChatOpen(true)
   }, [])
 
+  // Opens the manager and queues the hidden story-intake sentinel so it fires
+  // once the resolved conversation loads. Shared by the story card, the
+  // personalize deep link, and (indirectly) both plan-tab gate links.
+  const startStory = useCallback(() => {
+    setPendingKickoff(CAMPAIGN_MANAGER_START_STORY_SENTINEL)
+    void openManager()
+  }, [openManager])
+
+  // Deep link: the plan-tab story gate links to `/dashboard?personalize=1` so
+  // "Open"/"Edit in campaign manager" starts the same story flow as the
+  // manager home's own card. Ref-guarded so it only ever fires once per
+  // mount; clears the param via replace so a refresh doesn't refire it.
+  useEffect(() => {
+    if (personalizeDeepLinkFiredRef.current) return
+    if (searchParams?.get('personalize') !== '1') return
+    personalizeDeepLinkFiredRef.current = true
+    startStory()
+    router.replace('/dashboard')
+  }, [searchParams, router, startStory])
+
   return (
     <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">
       <div className="pb-40">
@@ -107,11 +137,12 @@ export default function CampaignManagerHome({
             </CampaignUpdateHistoryProvider>
           </VoterContactsProvider>
         </div>
-        {/* Phase D upgrades onPersonalize to auto-launch the story-intake chat
-            flow instead of just opening the manager chat. */}
+        {/* onPersonalize opens the manager and auto-launches the story-intake
+            chat flow (the hidden story sentinel), same as the deep link the
+            plan-tab gate links use. */}
         <CampaignManagerTasks
           onMeetManager={() => void openManager()}
-          onPersonalize={() => void openManager()}
+          onPersonalize={startStory}
         />
       </div>
       <FooterChatBar
@@ -124,7 +155,12 @@ export default function CampaignManagerHome({
       />
       <ChiefOfStaffChatSurface
         open={chatOpen}
-        onOpenChange={setChatOpen}
+        onOpenChange={(next) => {
+          setChatOpen(next)
+          // Clear the one-shot kickoff on close: a later plain reopen (the
+          // meet card, the footer bar) must never replay the story sentinel.
+          if (!next) setPendingKickoff(undefined)
+        }}
         initialConversationId={conversationId}
         title="Campaign manager"
         subtitle="Always on, focused on your week"
@@ -134,6 +170,7 @@ export default function CampaignManagerHome({
         defaultIntro={buildCampaignManagerIntro(firstName)}
         suggestions={suggestions}
         showSuggestionsWithGreeting
+        pendingKickoff={pendingKickoff}
         composerRef={composerRef}
       />
     </div>

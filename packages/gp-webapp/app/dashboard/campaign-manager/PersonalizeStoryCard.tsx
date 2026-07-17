@@ -29,8 +29,8 @@ export default function PersonalizeStoryCard({
           outreach plan to match.
         </p>
       </div>
-      {/* Phase D upgrades onPersonalize to open the manager AND auto-launch the
-          story intake chat flow; for now it opens the manager chat. */}
+      {/* onPersonalize opens the manager AND auto-launches the story intake
+          chat flow (see CampaignManagerHome's startStory). */}
       <Button className="self-start" onClick={onPersonalize}>
         Personalize your campaign
       </Button>

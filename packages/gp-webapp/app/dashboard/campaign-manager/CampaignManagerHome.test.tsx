@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
@@ -8,7 +8,53 @@ import {
 } from '@goodparty_org/contracts'
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import type { ChatStreamEvent } from '../chief-of-staff/data/contracts'
+import type ChiefOfStaffChatSurfaceComponent from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
 import CampaignManagerHome from './CampaignManagerHome'
+
+type SurfaceProps = React.ComponentProps<
+  typeof ChiefOfStaffChatSurfaceComponent
+>
+
+// The `personalize=1` deep link (from the plan-tab story gate) drives this
+// home's own useSearchParams/useRouter effect, so this file supplies its own
+// mock (overriding vitest.setup.ts's bare useRouter/usePathname one) — same
+// pattern as OutreachComposeDeepLink.test.tsx.
+let mockSearchParams = new URLSearchParams()
+const mockRouterReplace = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: mockRouterReplace }),
+  usePathname: () => '/dashboard',
+  useSearchParams: () => mockSearchParams,
+}))
+
+const surfacePropsMock = vi.fn<(props: SurfaceProps) => void>()
+
+// Wrap the real surface so the pendingKickoff-lifecycle tests can assert on
+// the prop it receives directly, while every other test in this file still
+// exercises the real chat body underneath (unchanged rendering/behavior).
+vi.mock(
+  '../chief-of-staff/components/chat/ChiefOfStaffChatSurface',
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import('../chief-of-staff/components/chat/ChiefOfStaffChatSurface')
+      >()
+    return {
+      ...actual,
+      default: (props: SurfaceProps) => {
+        surfacePropsMock(props)
+        return <actual.default {...props} />
+      },
+    }
+  },
+)
+
+const latestSurfaceProps = (): SurfaceProps => {
+  const call = surfacePropsMock.mock.calls.at(-1)
+  if (!call) throw new Error('ChiefOfStaffChatSurface never rendered')
+  return call[0]
+}
 
 vi.mock(
   '../campaign-plan/components/campaignStrategy/useTrackerTasks',
@@ -83,6 +129,9 @@ beforeEach(() => {
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()
+  mockSearchParams = new URLSearchParams()
+  mockRouterReplace.mockReset()
+  surfacePropsMock.mockClear()
 })
 
 // Opens the manager chat onto its seeded greeting: clicking "meet your
@@ -215,5 +264,109 @@ describe('CampaignManagerHome', () => {
 
     expect(screen.getByLabelText(/ask a question/i)).toHaveFocus()
     expect(streamMessageMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('CampaignManagerHome story auto-launch', () => {
+  it('starts the story flow (opens + hidden sentinel kickoff) when the story card is clicked', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Tell me your why.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    const user = userEvent.setup()
+    render(<CampaignManagerHome firstName="Renee" />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Personalize your campaign' }),
+    )
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+        }),
+      ),
+    )
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(latestSurfaceProps().pendingKickoff).toBe(
+      CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+    )
+  })
+
+  it('opens the manager without a kickoff via the meet card', async () => {
+    await openOnSeededGreeting()
+
+    expect(latestSurfaceProps().open).toBe(true)
+    expect(latestSurfaceProps().pendingKickoff).toBeUndefined()
+    expect(streamMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('clears pendingKickoff when the chat closes', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Tell me your why.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    const user = userEvent.setup()
+    render(<CampaignManagerHome firstName="Renee" />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Personalize your campaign' }),
+    )
+    await waitFor(() =>
+      expect(latestSurfaceProps().pendingKickoff).toBe(
+        CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+      ),
+    )
+
+    act(() => {
+      latestSurfaceProps().onOpenChange(false)
+    })
+
+    await waitFor(() => expect(latestSurfaceProps().open).toBe(false))
+    expect(latestSurfaceProps().pendingKickoff).toBeUndefined()
+  })
+
+  it('fires the story kickoff once from the personalize=1 deep link, then clears the param', async () => {
+    mockSearchParams = new URLSearchParams('personalize=1')
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Tell me your why.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    const { rerender } = render(<CampaignManagerHome firstName="Renee" />)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+        }),
+      ),
+    )
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(mockRouterReplace).toHaveBeenCalledWith('/dashboard')
+
+    // A later re-render (e.g. a sibling state update) must not refire it.
+    rerender(<CampaignManagerHome firstName="Renee" />)
+    expect(createMock).toHaveBeenCalledTimes(1)
+    expect(streamMessageMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not auto-launch the story flow without the personalize deep link', () => {
+    render(<CampaignManagerHome firstName="Renee" />)
+
+    expect(createMock).not.toHaveBeenCalled()
+    expect(mockRouterReplace).not.toHaveBeenCalled()
   })
 })

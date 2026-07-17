@@ -68,7 +68,7 @@ describe('CampaignPlanStoryGate', () => {
     const link = await screen.findByRole('link', {
       name: 'Open your campaign manager',
     })
-    expect(link).toHaveAttribute('href', '/dashboard')
+    expect(link).toHaveAttribute('href', '/dashboard?personalize=1')
     expect(
       screen.queryByRole('button', { name: /Generate my Campaign Plan/ }),
     ).not.toBeInTheDocument()
@@ -103,7 +103,7 @@ describe('CampaignPlanStoryGate', () => {
     expect(screen.getByText('Fix the roads')).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Edit in campaign manager' }),
-    ).toHaveAttribute('href', '/dashboard')
+    ).toHaveAttribute('href', '/dashboard?personalize=1')
   })
 
   it('renders issue descriptions without dropping text after an HTML entity', async () => {
