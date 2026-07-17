@@ -16,6 +16,7 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
   OrdinanceListResponseSchema,
+  OrdinanceQualityRunSchema,
   OrdinanceSchema,
 } from '@goodparty_org/contracts'
 import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
@@ -88,13 +89,23 @@ export class OrdinanceFlowController {
 
   @Post(':slug/quality-report')
   @UseElectedOffice()
-  @HttpCode(HttpStatus.CREATED)
-  @ResponseSchema(OrdinanceSchema)
-  async generateQualityReport(
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ResponseSchema(OrdinanceQualityRunSchema)
+  async startQualityReport(
     @ReqElectedOffice() electedOffice: ElectedOffice,
     @Param() { slug }: OrdinanceSlugParamDto,
   ) {
-    return this.ordinances.generateQualityReport(electedOffice, slug)
+    return this.ordinances.startQualityReport(electedOffice, slug)
+  }
+
+  @Get(':slug/quality-report')
+  @UseElectedOffice()
+  @ResponseSchema(OrdinanceQualityRunSchema)
+  async getQualityRun(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.getQualityRun(electedOffice, slug)
   }
 
   @Get(':slug/export')

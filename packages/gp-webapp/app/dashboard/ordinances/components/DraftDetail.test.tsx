@@ -8,7 +8,8 @@ import DraftDetail from './DraftDetail'
 
 const mocks = vi.hoisted(() => ({
   updateOrdinance: vi.fn(),
-  generateQualityReport: vi.fn(),
+  startQualityReport: vi.fn(),
+  fetchQualityRun: vi.fn(),
   deleteOrdinance: vi.fn(),
   downloadOrdinanceExport: vi.fn(),
   draftChatProps: {
@@ -18,7 +19,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
-  generateQualityReport: mocks.generateQualityReport,
+  startQualityReport: mocks.startQualityReport,
+  fetchQualityRun: mocks.fetchQualityRun,
   deleteOrdinance: mocks.deleteOrdinance,
   downloadOrdinanceExport: mocks.downloadOrdinanceExport,
 }))
@@ -43,6 +45,7 @@ const makeOrdinance = (overrides: Partial<Ordinance> = {}): Ordinance =>
     goalText: 'Add camera guardrails',
     draftBody: 'Original body.',
     draftSources: null,
+    qualityRunStatus: 'idle',
     ...overrides,
   }) as unknown as Ordinance
 
@@ -307,10 +310,14 @@ describe('DraftDetail quality report flush', () => {
   beforeEach(() => {
     mocks.updateOrdinance.mockReset()
     mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
-    mocks.generateQualityReport.mockReset()
-    mocks.generateQualityReport.mockResolvedValue(
-      makeOrdinance({ qualityReport: sampleReport } as Partial<Ordinance>),
-    )
+    mocks.startQualityReport.mockReset()
+    mocks.startQualityReport.mockResolvedValue({
+      status: 'done',
+      report: sampleReport,
+      error: null,
+      startedAt: null,
+    })
+    mocks.fetchQualityRun.mockReset()
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -328,8 +335,9 @@ describe('DraftDetail quality report flush', () => {
       'public-safety-cameras',
       { draftBody: 'flushed edit' },
     )
-    expect(mocks.generateQualityReport).toHaveBeenCalledWith(
+    expect(mocks.startQualityReport).toHaveBeenCalledWith(
       'public-safety-cameras',
+      { signal: expect.any(AbortSignal) },
     )
   })
 
@@ -344,7 +352,7 @@ describe('DraftDetail quality report flush', () => {
     expect(
       await screen.findByText(/could not run the quality checks/i),
     ).toBeVisible()
-    expect(mocks.generateQualityReport).not.toHaveBeenCalled()
+    expect(mocks.startQualityReport).not.toHaveBeenCalled()
   })
 
   it('recovers on a later run after a failed flush save instead of dead-ending', async () => {
@@ -359,16 +367,40 @@ describe('DraftDetail quality report flush', () => {
     expect(
       await screen.findByText(/could not run the quality checks/i),
     ).toBeVisible()
-    expect(mocks.generateQualityReport).not.toHaveBeenCalled()
+    expect(mocks.startQualityReport).not.toHaveBeenCalled()
 
     // The next run re-saves the current text (network recovered) and proceeds,
     // rather than dead-ending on the stale failure flag.
     fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
 
     expect(await screen.findByText(/reviewed by/i)).toBeVisible()
-    expect(mocks.generateQualityReport).toHaveBeenCalledWith(
+    expect(mocks.startQualityReport).toHaveBeenCalledWith(
       'public-safety-cameras',
+      { signal: expect.any(AbortSignal) },
     )
+  })
+
+  it('resumes a running quality check from the ordinance run status', () => {
+    mocks.fetchQualityRun.mockResolvedValue({
+      status: 'running',
+      report: sampleReport,
+      error: null,
+      startedAt: '2026-07-01T00:00:00.000Z',
+    })
+
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityReport: sampleReport,
+          qualityRunStatus: 'running',
+        } as Partial<Ordinance>)}
+      />,
+    )
+
+    // The check kicked off before this mount (reload mid-run), so the report
+    // section opens directly in its loading state without a click.
+    expect(screen.getByText(/reviewing the draft/i)).toBeVisible()
+    expect(mocks.startQualityReport).not.toHaveBeenCalled()
   })
 
   it('shows the stale banner after an edit', () => {

@@ -485,6 +485,7 @@ export default function DraftDetail({
             <QualityReport
               slug={ordinance.slug}
               initialReport={ordinance.qualityReport}
+              initialRunStatus={ordinance.qualityRunStatus}
               draftDirty={draftDirty}
               onBeforeRun={flushPendingSaves}
               onReran={() => {

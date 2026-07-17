@@ -29,6 +29,15 @@ model Ordinance {
   draftTitle String? @map("draft_title")
   draftBody  String? @map("draft_body") @db.Text
 
+  // Async quality-report run state. The QC LLM review takes 30-90s, so POST
+  // /quality-report claims a run here and returns immediately; a background
+  // task writes the result and the client polls GET /quality-report. Status is
+  // the raw claim ('running' | 'done' | 'error', null = never ran async);
+  // staleness/interruption is derived on read from startedAt, never stored.
+  qualityRunStatus    String?   @map("quality_run_status")
+  qualityRunStartedAt DateTime? @map("quality_run_started_at")
+  qualityRunError     String?   @map("quality_run_error")
+
   lastViewedStep String? @map("last_viewed_step")
 
   createdAt DateTime  @default(now()) @map("created_at")

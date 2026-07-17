@@ -13,6 +13,7 @@ import {
   type OrdinanceClarifyAnswer,
   type OrdinanceListResponse,
   type OrdinanceQualityReport,
+  type OrdinanceQualityRun,
   type OrdinanceStatusCounts,
   type UpdateOrdinanceRequest,
   OrdinanceClarifyAnswersSchema,
@@ -33,6 +34,17 @@ import {
 } from './ordinanceQualityReport.service'
 
 const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
+
+// A 'running' claim older than this is an interrupted run (the server died
+// mid-run and the background writer never came back), not a live one.
+const STALE_RUN_MS = 10 * 60_000
+
+const INTERRUPTED_RUN_MESSAGE =
+  'The last run was interrupted. Please try again.'
+
+// Served verbatim to end users; raw provider errors can embed API-key,
+// billing, or model detail, so only this fixed string is ever persisted.
+const QUALITY_RUN_ERROR_MESSAGE = 'Quality check failed. Please try again.'
 
 @Injectable()
 export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
@@ -177,13 +189,14 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     })
   }
 
-  // Generate (or re-run) the six-check quality report against the current
-  // draft. Synchronous: one structured LLM call grounded in the draft and the
-  // prior-step artifacts. Persists the report and returns the ordinance.
-  async generateQualityReport(
+  // Start (or join) a background quality-report run. The LLM review takes
+  // 30-90s, past proxy/serverless cutoffs, so this claims the run, kicks it
+  // off without awaiting, and returns immediately; clients poll getQualityRun
+  // until the status leaves 'running'.
+  async startQualityReport(
     electedOffice: ElectedOffice,
     slug: string,
-  ): Promise<OrdinanceResponse> {
+  ): Promise<OrdinanceQualityRun> {
     await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     if ((existing.draftBody ?? '').trim().length === 0) {
@@ -191,23 +204,115 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         'Cannot run quality checks on an empty draft',
       )
     }
-    // Idempotency: if a report already exists for the current draft text, return
-    // it instead of spending another LLM call. Makes a re-click or retry on an
-    // unchanged draft free, and collapses the common double-run to one call. A
-    // malformed blob is stale/null and correctly falls through to regenerate.
+    const currentRun = this.toQualityRun(existing)
+    if (currentRun.status === 'running') {
+      return currentRun
+    }
+    // Idempotency: if a report already exists for the current draft text,
+    // return it as an already-done run instead of spending another LLM call.
+    // Makes a re-click or retry on an unchanged draft free. A malformed blob
+    // is stale/null and correctly falls through to regenerate.
     const current = this.qualityReportWithStaleness(existing)
     if (current && !current.stale) {
-      return this.toResponse(existing)
+      return {
+        status: 'done',
+        report: current,
+        error: null,
+        startedAt: existing.qualityRunStartedAt?.toISOString() ?? null,
+      }
     }
-    const report = await this.qualityReports.generate(
-      existing,
-      electedOffice.userId,
-    )
-    const record = await this.model.update({
-      where: { id: existing.id },
-      data: { qualityReport: report },
+    // Atomic claim: only one concurrent POST flips the row to 'running'. A
+    // stale startedAt lets a fresh request reclaim an interrupted run.
+    const claimedAt = new Date()
+    const claimed = await this.model.updateMany({
+      where: {
+        id: existing.id,
+        // findOwnedOrThrow already filters deletedAt, but a DELETE landing in
+        // the read→claim window must not let this start a paid run on a
+        // tombstoned row.
+        deletedAt: null,
+        OR: [
+          { qualityRunStatus: null },
+          { qualityRunStatus: { not: 'running' } },
+          { qualityRunStartedAt: { lt: new Date(Date.now() - STALE_RUN_MS) } },
+          // `lt` never matches NULL, so a 'running' row with no startedAt
+          // could otherwise never be reclaimed.
+          { qualityRunStatus: 'running', qualityRunStartedAt: null },
+        ],
+      },
+      data: {
+        qualityRunStatus: 'running',
+        qualityRunStartedAt: claimedAt,
+        qualityRunError: null,
+      },
     })
-    return this.toResponse(record)
+    if (claimed.count === 0) {
+      return this.toQualityRun(await this.findOwnedOrThrow(electedOffice, slug))
+    }
+    void this.runQualityReport(existing, electedOffice.userId, claimedAt)
+    return {
+      status: 'running',
+      report: current,
+      error: null,
+      startedAt: claimedAt.toISOString(),
+    }
+  }
+
+  async getQualityRun(
+    electedOffice: ElectedOffice,
+    slug: string,
+  ): Promise<OrdinanceQualityRun> {
+    // No feature-flag check here: this sits in the client's 2s polling loop
+    // and assertEnabled costs a remote Amplitude evaluation plus a user SELECT
+    // per poll. The scoped findFirst is the access boundary; the flag gates
+    // run creation (POST), not run-state reads.
+    return this.toQualityRun(
+      await this.findOwnedForRunOrThrow(electedOffice, slug),
+    )
+  }
+
+  // Runs after the HTTP response; must never throw (an unhandled rejection
+  // here would take down the process). The startedAt-equals-claimedAt guard on
+  // both writes means a superseded zombie run can never clobber a newer claim.
+  private async runQualityReport(
+    record: Ordinance,
+    userId: number,
+    claimedAt: Date,
+  ): Promise<void> {
+    try {
+      const report = await this.qualityReports.generate(record, userId)
+      await this.model.updateMany({
+        where: { id: record.id, qualityRunStartedAt: claimedAt },
+        data: {
+          qualityReport: report,
+          qualityRunStatus: 'done',
+          qualityRunError: null,
+        },
+      })
+    } catch (err) {
+      this.logger.error(
+        { ordinanceId: record.id, error: err },
+        'ordinance quality run failed',
+      )
+      try {
+        await this.model.updateMany({
+          where: { id: record.id, qualityRunStartedAt: claimedAt },
+          data: {
+            qualityRunStatus: 'error',
+            qualityRunError: QUALITY_RUN_ERROR_MESSAGE,
+          },
+        })
+      } catch (persistErr) {
+        // Nothing may escape this void'd method — an unhandled rejection here
+        // kills the process. Losing the terminal write is acceptable: the
+        // read path heals a >10-minute-old 'running' row to a retryable
+        // error.
+        this.logger.error(
+          { ordinanceId: record.id, error: persistErr },
+          'quality run failed to persist terminal state',
+        )
+      }
+    }
   }
 
   private async findOwnedOrThrow(
@@ -216,6 +321,23 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   ): Promise<Ordinance> {
     const record = await this.model.findFirst({
       where: { slug, electedOfficeId: electedOffice.id, deletedAt: null },
+    })
+    if (!record) {
+      throw new NotFoundException('Ordinance not found')
+    }
+    return record
+  }
+
+  // Poll-path read: skips the unbounded research/scratchpad blobs the run
+  // envelope never uses, so the client's 2s polling loop doesn't drag them
+  // out of Postgres on every tick.
+  private async findOwnedForRunOrThrow(
+    electedOffice: ElectedOffice,
+    slug: string,
+  ): Promise<Omit<Ordinance, 'research' | 'scratchpad'>> {
+    const record = await this.model.findFirst({
+      where: { slug, electedOfficeId: electedOffice.id, deletedAt: null },
+      omit: { research: true, scratchpad: true },
     })
     if (!record) {
       throw new NotFoundException('Ordinance not found')
@@ -233,10 +355,45 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     }
   }
 
+  // Derive the run envelope from the raw claim columns. `report` always
+  // carries the last completed report (staleness-derived) so a failed or
+  // in-flight re-run never costs the client the previous result.
+  private toQualityRun(
+    record: Omit<Ordinance, 'research' | 'scratchpad'>,
+  ): OrdinanceQualityRun {
+    const report = this.qualityReportWithStaleness(record)
+    const startedAt = record.qualityRunStartedAt?.toISOString() ?? null
+    if (record.qualityRunStatus === 'running') {
+      const fresh =
+        record.qualityRunStartedAt !== null &&
+        Date.now() - record.qualityRunStartedAt.getTime() < STALE_RUN_MS
+      return fresh
+        ? { status: 'running', report, error: null, startedAt }
+        : { status: 'error', report, error: INTERRUPTED_RUN_MESSAGE, startedAt }
+    }
+    if (record.qualityRunStatus === 'error') {
+      return {
+        status: 'error',
+        report,
+        error: record.qualityRunError ?? 'Quality check failed',
+        startedAt,
+      }
+    }
+    // A null column with a stored report is a run that predates the async
+    // columns; it still reads as done.
+    if (record.qualityRunStatus === 'done' || report !== null) {
+      return { status: 'done', report, error: null, startedAt }
+    }
+    return { status: 'idle', report, error: null, startedAt }
+  }
+
   private toResponse(record: Ordinance): OrdinanceResponse {
     return OrdinanceSchema.parse({
       ...record,
       qualityReport: this.qualityReportWithStaleness(record),
+      // The spread leaves the raw claim column (string | null) here; the
+      // schema requires the derived enum, so this must override after it.
+      qualityRunStatus: this.toQualityRun(record).status,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
     })
@@ -246,7 +403,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   // current draft body, so an edit marks the report stale without a write on
   // every keystroke. A malformed stored report reads as no report.
   private qualityReportWithStaleness(
-    record: Ordinance,
+    record: Omit<Ordinance, 'research' | 'scratchpad'>,
   ): OrdinanceQualityReport | null {
     const parsed = OrdinanceQualityReportSchema.safeParse(record.qualityReport)
     if (!parsed.success) {

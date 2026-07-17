@@ -60,6 +60,38 @@ const mockQcLlm = () =>
     .spyOn(service.app.get(LlmService), 'jsonCompletion')
     .mockResolvedValue(qcModelOutput)
 
+// A hand-rolled deferred so a test can hold the model call open and observe
+// the 'running' state before deciding when (and how) the run finishes.
+const deferQcLlm = () => {
+  let resolve!: (value: typeof qcModelOutput) => void
+  let reject!: (err: Error) => void
+  const promise = new Promise<typeof qcModelOutput>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  const spy = vi
+    .spyOn(service.app.get(LlmService), 'jsonCompletion')
+    .mockImplementation(() => promise)
+  return { spy, resolve, reject }
+}
+
+const getRun = (slug: string, header: ReturnType<typeof orgHeader>) =>
+  service.client.get(`/v1/ordinances/${slug}/quality-report`, header)
+
+const waitForRunStatus = (
+  slug: string,
+  header: ReturnType<typeof orgHeader>,
+  status: 'done' | 'error',
+) =>
+  vi.waitFor(
+    async () => {
+      const res = await getRun(slug, header)
+      expect(res.data.status).toBe(status)
+      return res
+    },
+    { timeout: 5000, interval: 100 },
+  )
+
 describe('Ordinances endpoints', () => {
   it('creates, lists, reads, updates, and soft-deletes an ordinance', async () => {
     const orgSlug = 'eo-ordinances-crud'
@@ -298,11 +330,143 @@ describe('Ordinances endpoints', () => {
     expect(res.status).toBe(400)
   })
 
-  it('generates and returns a quality report', async () => {
+  it('accepts a run, reports running, then reaches done via polling', async () => {
     const orgSlug = 'eo-ordinances-qc-happy'
     await seedElectedOffice(orgSlug)
     const header = orgHeader(orgSlug)
     const slug = await seedDraftOrdinance(header)
+
+    const before = await service.client.get(`/v1/ordinances/${slug}`, header)
+    expect(before.data.qualityRunStatus).toBe('idle')
+
+    const { spy, resolve } = deferQcLlm()
+    try {
+      const accepted = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      // 202 with the run envelope lands before the model call resolves.
+      expect(accepted.status).toBe(202)
+      expect(accepted.data.status).toBe('running')
+      expect(accepted.data.error).toBeNull()
+      expect(typeof accepted.data.startedAt).toBe('string')
+
+      const inFlight = await getRun(slug, header)
+      expect(inFlight.status).toBe(200)
+      expect(inFlight.data.status).toBe('running')
+
+      const during = await service.client.get(`/v1/ordinances/${slug}`, header)
+      expect(during.data.qualityRunStatus).toBe('running')
+
+      resolve(qcModelOutput)
+      const done = await waitForRunStatus(slug, header, 'done')
+      expect(done.data.report.checks).toHaveLength(6)
+      expect(done.data.report.tally).toEqual({
+        pass: 5,
+        flag: 1,
+        attention: 0,
+      })
+      expect(done.data.report.stale).toBe(false)
+      expect(done.data.error).toBeNull()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('joins an in-flight run instead of starting a second one', async () => {
+    const orgSlug = 'eo-ordinances-qc-join'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+
+    const { spy, resolve } = deferQcLlm()
+    try {
+      const first = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(first.status).toBe(202)
+      expect(first.data.status).toBe('running')
+
+      const second = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(second.status).toBe(202)
+      expect(second.data.status).toBe('running')
+      expect(spy).toHaveBeenCalledTimes(1)
+
+      resolve(qcModelOutput)
+      await waitForRunStatus(slug, header, 'done')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('surfaces a failed run and keeps the previous report', async () => {
+    const orgSlug = 'eo-ordinances-qc-fail'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+
+    const spy = mockQcLlm()
+    try {
+      await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      await waitForRunStatus(slug, header, 'done')
+
+      await service.client.patch(
+        `/v1/ordinances/${slug}`,
+        { draftBody: 'Section 34.21 Canopy goal of ninety percent by 2040.' },
+        header,
+      )
+      spy.mockRejectedValue(new Error('model exploded'))
+      const rerun = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(rerun.status).toBe(202)
+      expect(rerun.data.status).toBe('running')
+
+      const failed = await waitForRunStatus(slug, header, 'error')
+      // Provider errors can embed key/billing/model detail; the API must
+      // serve a fixed generic message, never the raw error.
+      expect(failed.data.error).toBe('Quality check failed. Please try again.')
+      // The failed re-run must not cost the previously stored report.
+      expect(failed.data.report.checks).toHaveLength(6)
+      expect(failed.data.report.stale).toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('heals an interrupted run to error and allows a fresh claim', async () => {
+    const orgSlug = 'eo-ordinances-qc-interrupted'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+    await service.prisma.ordinance.update({
+      where: { slug },
+      data: {
+        qualityRunStatus: 'running',
+        qualityRunStartedAt: new Date(Date.now() - 11 * 60_000),
+      },
+    })
+
+    const healed = await getRun(slug, header)
+    expect(healed.status).toBe(200)
+    expect(healed.data.status).toBe('error')
+    expect(healed.data.error).toBe(
+      'The last run was interrupted. Please try again.',
+    )
+
     const spy = mockQcLlm()
     try {
       const res = await service.client.post(
@@ -310,17 +474,142 @@ describe('Ordinances endpoints', () => {
         {},
         header,
       )
-      expect(res.status).toBe(201)
-      expect(res.data.qualityReport.checks).toHaveLength(6)
-      expect(res.data.qualityReport.tally).toEqual({
-        pass: 5,
-        flag: 1,
-        attention: 0,
-      })
-      expect(res.data.qualityReport.stale).toBe(false)
+      expect(res.status).toBe(202)
+      expect(res.data.status).toBe('running')
+      expect(spy).toHaveBeenCalledTimes(1)
+      await waitForRunStatus(slug, header, 'done')
     } finally {
       spy.mockRestore()
     }
+  })
+
+  it('reclaims a wedged running run that has no startedAt', async () => {
+    const orgSlug = 'eo-ordinances-qc-wedged'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+    // A row can end up 'running' with no startedAt (e.g. a partial manual
+    // write). `lt` never matches NULL, so without a dedicated claim branch no
+    // retry could ever reclaim it.
+    await service.prisma.ordinance.update({
+      where: { slug },
+      data: { qualityRunStatus: 'running', qualityRunStartedAt: null },
+    })
+
+    const healed = await getRun(slug, header)
+    expect(healed.data.status).toBe('error')
+    expect(healed.data.error).toBe(
+      'The last run was interrupted. Please try again.',
+    )
+
+    const spy = mockQcLlm()
+    try {
+      const res = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(res.status).toBe(202)
+      expect(res.data.status).toBe('running')
+      await waitForRunStatus(slug, header, 'done')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('discards a stale run finishing after a newer claim took over', async () => {
+    const orgSlug = 'eo-ordinances-qc-zombie'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+
+    let resolveA!: (value: typeof qcModelOutput) => void
+    let resolveB!: (value: typeof qcModelOutput) => void
+    const runA = new Promise<typeof qcModelOutput>((res) => {
+      resolveA = res
+    })
+    const runB = new Promise<typeof qcModelOutput>((res) => {
+      resolveB = res
+    })
+    const spy = vi
+      .spyOn(service.app.get(LlmService), 'jsonCompletion')
+      .mockImplementationOnce(() => runA)
+      .mockImplementationOnce(() => runB)
+    try {
+      const first = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(first.data.status).toBe('running')
+
+      // Age run A's claim past the staleness window so a second POST reclaims
+      // the row while A's model call is still in flight.
+      await service.prisma.ordinance.update({
+        where: { slug },
+        data: { qualityRunStartedAt: new Date(Date.now() - 11 * 60_000) },
+      })
+      const second = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(second.data.status).toBe('running')
+      expect(spy).toHaveBeenCalledTimes(2)
+
+      resolveA(qcModelOutput)
+      await new Promise((res) => setTimeout(res, 150))
+      // A finished against a claim it no longer owns; the startedAt guard on
+      // the terminal writes must discard it, leaving B's run in charge.
+      const during = await getRun(slug, header)
+      expect(during.data.status).toBe('running')
+
+      resolveB(qcModelOutput)
+      await waitForRunStatus(slug, header, 'done')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('keeps serving when the terminal-state write fails', async () => {
+    const orgSlug = 'eo-ordinances-qc-db-down'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+
+    const { spy, resolve } = deferQcLlm()
+    try {
+      const accepted = await service.client.post(
+        `/v1/ordinances/${slug}/quality-report`,
+        {},
+        header,
+      )
+      expect(accepted.data.status).toBe('running')
+
+      // service.prisma is the PrismaService instance the service's this.model
+      // reads from, and Prisma caches model delegates per client, so this spy
+      // intercepts the runner's writes.
+      const updateManySpy = vi
+        .spyOn(service.prisma.ordinance, 'updateMany')
+        .mockRejectedValue(new Error('db down'))
+      try {
+        resolve(qcModelOutput)
+        // The done-write fails, then the error-write fails too; the runner
+        // must swallow both instead of surfacing an unhandled rejection.
+        await vi.waitFor(() => expect(updateManySpy).toHaveBeenCalledTimes(2))
+      } finally {
+        updateManySpy.mockRestore()
+      }
+    } finally {
+      spy.mockRestore()
+    }
+
+    // The terminal write was lost — the accepted degraded outcome. The row
+    // stays 'running' until the read-side staleness heal, and the API still
+    // serves.
+    const after = await getRun(slug, header)
+    expect(after.status).toBe(200)
+    expect(after.data.status).toBe('running')
   })
 
   it('persists the generated report for a later read', async () => {
@@ -335,9 +624,11 @@ describe('Ordinances endpoints', () => {
         {},
         header,
       )
+      await waitForRunStatus(slug, header, 'done')
       const detail = await service.client.get(`/v1/ordinances/${slug}`, header)
       expect(detail.data.qualityReport.checks).toHaveLength(6)
       expect(detail.data.qualityReport.stale).toBe(false)
+      expect(detail.data.qualityRunStatus).toBe('done')
     } finally {
       spy.mockRestore()
     }
@@ -368,20 +659,25 @@ describe('Ordinances endpoints', () => {
         {},
         header,
       )
+      expect(first.status).toBe(202)
+      await waitForRunStatus(slug, header, 'done')
+
       const second = await service.client.post(
         `/v1/ordinances/${slug}/quality-report`,
         {},
         header,
       )
-      expect(first.status).toBe(201)
-      expect(second.status).toBe(201)
-      // The second call was served from the stored report, not a fresh model
-      // call.
+      expect(second.status).toBe(202)
+      // The second call was served from the stored report as an already-done
+      // run, not a fresh model call.
+      expect(second.data.status).toBe('done')
+      expect(second.data.report.tally).toEqual({
+        pass: 5,
+        flag: 1,
+        attention: 0,
+      })
+      expect(second.data.report.stale).toBe(false)
       expect(spy).toHaveBeenCalledTimes(1)
-      expect(second.data.qualityReport.tally).toEqual(
-        first.data.qualityReport.tally,
-      )
-      expect(second.data.qualityReport.stale).toBe(false)
     } finally {
       spy.mockRestore()
     }
@@ -399,16 +695,19 @@ describe('Ordinances endpoints', () => {
         {},
         header,
       )
+      await waitForRunStatus(slug, header, 'done')
       await service.client.patch(
         `/v1/ordinances/${slug}`,
         { draftBody: 'Section 34.21 Canopy goal of sixty percent by 2040.' },
         header,
       )
-      await service.client.post(
+      const rerun = await service.client.post(
         `/v1/ordinances/${slug}/quality-report`,
         {},
         header,
       )
+      expect(rerun.data.status).toBe('running')
+      await waitForRunStatus(slug, header, 'done')
       expect(spy).toHaveBeenCalledTimes(2)
     } finally {
       spy.mockRestore()
@@ -467,12 +766,13 @@ describe('Ordinances endpoints', () => {
     const slug = await seedDraftOrdinance(header)
     const spy = mockQcLlm()
     try {
-      const ran = await service.client.post(
+      await service.client.post(
         `/v1/ordinances/${slug}/quality-report`,
         {},
         header,
       )
-      expect(ran.data.qualityReport.stale).toBe(false)
+      const ran = await waitForRunStatus(slug, header, 'done')
+      expect(ran.data.report.stale).toBe(false)
 
       // Editing the draft body changes the hashed input, so the stored report
       // reads as stale without a re-run.

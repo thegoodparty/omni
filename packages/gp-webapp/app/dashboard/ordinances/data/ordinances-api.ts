@@ -10,6 +10,7 @@ import type {
   CreateOrdinanceRequest,
   Ordinance,
   OrdinanceExportFormat,
+  OrdinanceQualityRun,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
@@ -75,12 +76,29 @@ export async function createOrdinance(
   return data
 }
 
-// Generate (or re-run) the draft's six-check quality report. Returns the
-// updated ordinance with the fresh report.
-export async function generateQualityReport(slug: string): Promise<Ordinance> {
+// Start (or join) the async six-check quality run. Returns the run's current
+// state immediately — 'running' means poll fetchQualityRun until it settles,
+// 'done' means the server already had a fresh report and no run was started.
+export async function startQualityReport(
+  slug: string,
+  opts?: { signal?: AbortSignal },
+): Promise<OrdinanceQualityRun> {
   const { data } = await clientRequest(
     'POST /v1/ordinances/:slug/quality-report',
     { slug },
+    opts?.signal ? { signal: opts.signal } : undefined,
+  )
+  return data
+}
+
+export async function fetchQualityRun(
+  slug: string,
+  opts?: { signal?: AbortSignal },
+): Promise<OrdinanceQualityRun> {
+  const { data } = await clientRequest(
+    'GET /v1/ordinances/:slug/quality-report',
+    { slug },
+    opts?.signal ? { signal: opts.signal } : undefined,
   )
   return data
 }

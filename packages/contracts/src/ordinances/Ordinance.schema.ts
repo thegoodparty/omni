@@ -216,6 +216,33 @@ export type OrdinanceQualityReport = z.infer<
 >
 export type OrdinanceQualityCheckStatus = OrdinanceQualityCheck['status']
 
+// Async quality-report run. The QC LLM review takes 30-90s, so POST
+// /v1/ordinances/:slug/quality-report starts (or joins) a background run and
+// returns this immediately; the client polls the matching GET until `status`
+// leaves 'running'. Statuses: 'idle' = never ran and nothing stored,
+// 'running' = a run is in flight, 'done' = `report` holds the latest result,
+// 'error' = the last run failed (message in `error`; an interrupted run —
+// e.g. a server restart mid-run — surfaces here too). `report` carries the
+// last completed report even alongside 'running'/'error' so a failed re-run
+// never costs the client the previous result.
+export const OrdinanceQualityRunStatusSchema = z.enum([
+  'idle',
+  'running',
+  'done',
+  'error',
+])
+export type OrdinanceQualityRunStatus = z.infer<
+  typeof OrdinanceQualityRunStatusSchema
+>
+
+export const OrdinanceQualityRunSchema = z.object({
+  status: OrdinanceQualityRunStatusSchema,
+  report: OrdinanceQualityReportSchema.nullable(),
+  error: z.string().nullable(),
+  startedAt: z.string().nullable(),
+})
+export type OrdinanceQualityRun = z.infer<typeof OrdinanceQualityRunSchema>
+
 export const OrdinanceResearchChapterSchema = z.object({
   label: z.string(),
   text: z.string(),
@@ -287,6 +314,9 @@ export const OrdinanceSchema = z.object({
   draftBody: z.string().nullable(),
   draftSources: z.array(OrdinanceSourceSchema).nullable(),
   qualityReport: OrdinanceQualityReportSchema.nullable(),
+  // Derived run status (same healing as the GET endpoint), so the draft page
+  // can resume polling an in-flight run on mount without an extra fetch.
+  qualityRunStatus: OrdinanceQualityRunStatusSchema,
   research: OrdinanceResearchSchema.nullable(),
   scratchpad: OrdinanceScratchpadSchema.nullable(),
   lastViewedStep: z.string().nullable(),
