@@ -1,7 +1,8 @@
 import { NotFoundException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ChatScope } from '../../../generated/prisma'
+import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import type { ChatStreamChunk } from '@/chats/services/chatStream.service'
+import type { ChatStoreService } from '@/chats/services/chatStore.prisma'
 import { GeneralChatsService } from './general-chats.service'
 import { ChatScopeRegistry } from './chatScopeRegistry.service'
 import { GeneralChatStoreService } from './generalChatStore.prisma'
@@ -43,6 +44,14 @@ const buildStore = (
     setTitleIfUnset: vi.fn(() => Promise.resolve()),
     ...overrides,
   }) as unknown as GeneralChatStoreService
+
+const buildChatStore = (
+  overrides: Partial<ChatStoreService> = {},
+): ChatStoreService =>
+  ({
+    appendMessage: vi.fn(() => Promise.resolve({ id: 'assistant-msg-1' })),
+    ...overrides,
+  }) as unknown as ChatStoreService
 
 const collect = async (
   iterable: AsyncIterable<ChatStreamChunk>,
@@ -275,5 +284,95 @@ describe('GeneralChatsService', () => {
         retryable: false,
       },
     ])
+  })
+
+  it(
+    'answers a canned reply from the handler without calling the LLM ' +
+      'or auto-titling',
+    async () => {
+      handler = buildHandler({
+        maybeCannedReply: vi.fn((userMessage: string) =>
+          userMessage === '__kickoff__' ? 'Welcome aboard!' : null,
+        ),
+      })
+      store = buildStore({
+        findOwnedConversation: vi.fn(() =>
+          Promise.resolve({ id: 'c1', title: null }),
+        ) as never,
+      })
+      const chatStore = buildChatStore()
+      const chatStream = { stream: vi.fn() }
+      const service = new GeneralChatsService(
+        buildRegistry(handler),
+        store,
+        chatStore,
+        chatStream as never,
+      )
+      const chunks = await collect(
+        service.sendMessage({
+          conversationId: 'c1',
+          scope: SCOPE,
+          userId: USER_ID,
+          organizationSlug: ORG,
+          userMessage: '__kickoff__',
+          clientMessageId: 'client-1',
+        }),
+      )
+      expect(chunks).toEqual([
+        { type: 'text', delta: 'Welcome aboard!' },
+        { type: 'done', assistantMessageId: 'assistant-msg-1' },
+      ])
+      expect(chatStore.appendMessage).toHaveBeenCalledWith({
+        conversationId: 'c1',
+        role: ChatMessageRole.assistant,
+        content: 'Welcome aboard!',
+        clientMessageId: 'client-1',
+      })
+      expect(chatStream.stream).not.toHaveBeenCalled()
+      expect(store.setTitleIfUnset).not.toHaveBeenCalled()
+    },
+  )
+
+  it('runs the normal LLM turn when maybeCannedReply returns null', async () => {
+    handler = buildHandler({
+      maybeCannedReply: vi.fn(() => null),
+    })
+    store = buildStore({
+      findOwnedConversation: vi.fn(() =>
+        Promise.resolve({ id: 'c1', title: null }),
+      ) as never,
+    })
+    const chatStore = buildChatStore()
+    const chatStream = {
+      stream: vi.fn(() => ({
+        [Symbol.asyncIterator]: async function* () {
+          yield { type: 'text', delta: 'hi' } as ChatStreamChunk
+          yield { type: 'done' } as ChatStreamChunk
+        },
+      })),
+    }
+    const service = new GeneralChatsService(
+      buildRegistry(handler),
+      store,
+      chatStore,
+      chatStream as never,
+    )
+    const chunks = await collect(
+      service.sendMessage({
+        conversationId: 'c1',
+        scope: SCOPE,
+        userId: USER_ID,
+        organizationSlug: ORG,
+        userMessage: 'a normal question',
+      }),
+    )
+    expect(handler.maybeCannedReply).toHaveBeenCalled()
+    expect(chatStream.stream).toHaveBeenCalled()
+    expect(chatStore.appendMessage).not.toHaveBeenCalled()
+    expect(chunks.map((c) => c.type)).toEqual(['text', 'done'])
+    expect(store.setTitleIfUnset).toHaveBeenCalledWith(
+      'c1',
+      'a normal question',
+    )
   })
 })

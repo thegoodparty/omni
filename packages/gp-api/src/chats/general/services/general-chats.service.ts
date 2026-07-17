@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { ChatScope } from '../../../generated/prisma'
+import { ChatMessageRole, ChatScope } from '../../../generated/prisma'
 import {
   ChatMessageWithSegments,
   ChatStoreService,
@@ -176,6 +176,23 @@ export class GeneralChatsService {
         return
       }
 
+      const ctx = await handler.loadContext(args.conversationId, args.userId)
+
+      const canned = handler.maybeCannedReply?.(args.userMessage, ctx) ?? null
+      if (canned !== null) {
+        const saved = await self.chatStore.appendMessage({
+          conversationId: args.conversationId,
+          role: ChatMessageRole.assistant,
+          content: canned,
+          ...(args.clientMessageId && {
+            clientMessageId: args.clientMessageId,
+          }),
+        })
+        yield { type: 'text', delta: canned }
+        yield { type: 'done', assistantMessageId: saved.id }
+        return
+      }
+
       if (conversation.title === null) {
         await self.store.setTitleIfUnset(
           args.conversationId,
@@ -183,7 +200,6 @@ export class GeneralChatsService {
         )
       }
 
-      const ctx = await handler.loadContext(args.conversationId, args.userId)
       const systemPrompt = handler.buildSystemPrompt(ctx)
       const tools = handler.buildTools(ctx)
 
