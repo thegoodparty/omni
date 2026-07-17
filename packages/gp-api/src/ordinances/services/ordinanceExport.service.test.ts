@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import JSZip from 'jszip'
 import { Ordinance } from '../../generated/prisma'
 import { OrdinanceExportService } from './ordinanceExport.service'
+
+// .docx is a zip; the rendered text lives in word/document.xml, so unzip it to
+// assert the ordinance content actually landed in the document.
+const docxText = async (buffer: Buffer): Promise<string> => {
+  const zip = await JSZip.loadAsync(buffer)
+  return (await zip.file('word/document.xml')?.async('string')) ?? ''
+}
 
 const record = (overrides: Partial<Ordinance> = {}): Ordinance =>
   ({
@@ -45,17 +53,26 @@ describe('OrdinanceExportService', () => {
     expect(result.buffer.length).toBeGreaterThan(500)
   })
 
-  it('renders a valid Word document', async () => {
+  it('renders a valid Word document with the draft, sources, and QA', async () => {
     const result = await service.render(record(), 'docx')
 
     expect(result.contentType).toContain('wordprocessingml.document')
     expect(result.filename).toBe('tree-canopy.docx')
     // .docx is a zip; zip files start with the PK magic marker.
     expect(result.buffer.subarray(0, 2).toString('ascii')).toBe('PK')
-    expect(result.buffer.length).toBeGreaterThan(500)
+
+    const xml = await docxText(result.buffer)
+    // Title + body land in the document.
+    expect(xml).toContain('Draft amendment to Chapter 34')
+    expect(xml).toContain('Canopy goal')
+    // The attorney reference section: sources + quality checks.
+    expect(xml).toContain('Sources')
+    expect(xml).toContain('Or. Rev. Stat. § 227.215')
+    expect(xml).toContain('Quality report')
+    expect(xml).toContain('Authority')
   })
 
-  it('renders without a quality report or sources', async () => {
+  it('renders the empty-state fallbacks when there is no report or sources', async () => {
     const bare = record({
       draftSources: null,
       qualityReport: null,
@@ -65,6 +82,8 @@ describe('OrdinanceExportService', () => {
     const docx = await service.render(bare, 'docx')
 
     expect(pdf.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
-    expect(docx.buffer.subarray(0, 2).toString('ascii')).toBe('PK')
+    const xml = await docxText(docx.buffer)
+    expect(xml).toContain('No sources cited.')
+    expect(xml).toContain('No quality report was generated.')
   })
 })

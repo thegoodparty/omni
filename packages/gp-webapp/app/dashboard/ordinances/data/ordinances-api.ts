@@ -9,11 +9,12 @@ import {
 import type {
   CreateOrdinanceRequest,
   Ordinance,
+  OrdinanceExportFormat,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 
-export type OrdinanceExportFormat = 'pdf' | 'docx'
+export type { OrdinanceExportFormat }
 
 // Download the exported draft (PDF/Word). The endpoint streams a binary file, so
 // this bypasses the JSON typed client: fetch through the /api proxy with the org
