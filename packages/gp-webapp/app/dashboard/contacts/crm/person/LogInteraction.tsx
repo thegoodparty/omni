@@ -98,12 +98,17 @@ export default function LogInteraction({
   const { isWin, isReady: isWinContextReady } = useWinVoterContext()
   const queryClient = useQueryClient()
 
-  const [todayInputValue] = useState(() => format(new Date(), 'yyyy-MM-dd'))
+  // Computed per render, not state: a session left open past midnight must
+  // keep the date input's max (and the "unchanged default" check) on the
+  // actual current day.
+  const todayInputValue = format(new Date(), 'yyyy-MM-dd')
   const [channel, setChannel] = useState<Channel | ''>('')
   const [outcome, setOutcome] = useState('')
   const [supportAnswer, setSupportAnswer] = useState('')
   const [note, setNote] = useState('')
-  const [occurredAtInput, setOccurredAtInput] = useState(todayInputValue)
+  const [occurredAtInput, setOccurredAtInput] = useState(() =>
+    format(new Date(), 'yyyy-MM-dd'),
+  )
 
   const shouldRender = ready && enabled
 
@@ -134,9 +139,12 @@ export default function LogInteraction({
             : EVENTS.ConstituentData.ContactLogged,
           {
             channel: variables.channel,
-            outcome: variables.outcome ?? null,
-            ...(variables.channel === 'doorKnock'
-              ? { supportAnswer: variables.supportAnswer ?? null }
+            ...(variables.outcome !== undefined
+              ? { outcome: variables.outcome }
+              : {}),
+            ...(variables.channel === 'doorKnock' &&
+            variables.supportAnswer !== undefined
+              ? { supportAnswer: variables.supportAnswer }
               : {}),
           },
         )
