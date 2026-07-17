@@ -10,7 +10,13 @@ import { zCoerceDate } from '../shared/Date.schema'
 const TextOutcomeSchema = z.enum(['responded', 'opted_out'])
 const RobocallOutcomeSchema = z.enum(['answered', 'voicemail_left'])
 
-const NoteSchema = z.string().min(1).max(10_000).optional()
+// A controlled HTML/React input emits '' (not undefined) for a cleared
+// field, so an empty string is treated as "no note" rather than a 400.
+const NoteSchema = z
+  .string()
+  .max(10_000)
+  .optional()
+  .transform((v) => (v === '' ? undefined : v))
 
 // occurredAt defaults to now when omitted (applied by the caller, not here,
 // per the repo's date-fns convention for "now").

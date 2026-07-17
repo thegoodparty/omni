@@ -3,7 +3,9 @@ import { ContactsService } from '@/contacts/services/contacts.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
 import { FeaturesService } from '@/features/services/features.service'
 import { SupportStatusService } from '@/contactInteraction/services/supportStatus.service'
+import { HttpService } from '@nestjs/axios'
 import { NotFoundException } from '@nestjs/common'
+import { of } from 'rxjs'
 import { describe, expect, it, vi } from 'vitest'
 
 const service = useTestService()
@@ -28,9 +30,9 @@ const seedWinOrg = async (opts: {
   })
 }
 
-const seedEoOrg = (slug: string) =>
+const seedEoOrg = (slug: string, overrideDistrictId?: string) =>
   service.prisma.organization.create({
-    data: { slug, ownerId: service.user.id },
+    data: { slug, ownerId: service.user.id, overrideDistrictId },
   })
 
 const enableVoterData = () =>
@@ -232,6 +234,35 @@ describe('Contact interactions routes', () => {
     }, 15_000)
   })
 
+  describe('empty note', () => {
+    // A controlled HTML/React input emits '' (not undefined) for a cleared
+    // field. NoteSchema coerces '' to undefined so this is accepted, not a
+    // 400, and the row's note column stays null rather than storing ''.
+    it('note: "" is accepted and persists as a null note', async () => {
+      const slug = `win-pro-note-empty-${Date.now()}`
+      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
+      enableVoterData()
+      const headers = { [ORG_SLUG_HEADER]: slug }
+      const personId = 'person-note-empty'
+      mockPersonFound(personId)
+
+      const result = await service.client.post(
+        interactionsPath(personId),
+        { channel: 'doorKnock', outcome: 'not_home', note: '' },
+        { headers },
+      )
+
+      expect(result.status).toBe(201)
+      expect(result.data.note).toBeNull()
+
+      const row =
+        await service.prisma.contactInteractionDoorKnock.findUniqueOrThrow({
+          where: { id: result.data.id },
+        })
+      expect(row.note).toBeNull()
+    }, 15_000)
+  })
+
   describe('cross-channel invalid payloads', () => {
     it.each([
       {
@@ -284,14 +315,22 @@ describe('Contact interactions routes', () => {
   })
 
   describe('eo- org', () => {
+    // Unlike the Win happy-path tests above, this exercises the REAL
+    // findPerson -> withOrgDistrictResolution path (only the people-api HTTP
+    // call is mocked, same as contactsPersonDetail.test.ts) so the district
+    // resolution an eo- org actually goes through in production is proven
+    // here, not stubbed away.
     it('accepts a manually logged interaction', async () => {
       const slug = `eo-${Date.now()}`
-      await seedEoOrg(slug)
+      const personId = 'person-1'
+      await seedEoOrg(slug, 'district-eo-interactions-uuid')
       const headers = { [ORG_SLUG_HEADER]: slug }
-      mockPersonFound('person-1')
+      vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
+        of({ data: { id: personId, firstName: 'Jane' } }) as never,
+      )
 
       const result = await service.client.post(
-        interactionsPath('person-1'),
+        interactionsPath(personId),
         { channel: 'doorKnock', outcome: 'refused_to_engage' },
         { headers },
       )
