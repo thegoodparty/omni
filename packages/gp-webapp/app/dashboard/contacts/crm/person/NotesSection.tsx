@@ -50,6 +50,7 @@ interface NoteRowProps {
   isSaveError: boolean
   onDelete: () => void
   isDeleting: boolean
+  isDeleteError: boolean
 }
 
 const NoteRow: React.FC<NoteRowProps> = ({
@@ -64,6 +65,7 @@ const NoteRow: React.FC<NoteRowProps> = ({
   isSaveError,
   onDelete,
   isDeleting,
+  isDeleteError,
 }) => {
   if (isEditing) {
     return (
@@ -150,8 +152,13 @@ const NoteRow: React.FC<NoteRowProps> = ({
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
-        {formatNoteDate(note.createdAt)}
+        {formatNoteDate(note.updatedAt)}
       </p>
+      {isDeleteError ? (
+        <p className="text-sm text-destructive">
+          Couldn&apos;t delete your note. Please try again.
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -180,7 +187,9 @@ export default function NotesSection({
       clientRequest('GET /v1/contacts/:personId/notes', { personId }).then(
         (res) => res.data.results,
       ),
-    enabled: shouldRender,
+    // !!orgSlug: before the org resolves, a fetch would land under an
+    // undefined-slug cache key that post-write invalidations never hit.
+    enabled: shouldRender && !!orgSlug,
   })
 
   const invalidateAfterWrite = () => {
@@ -291,6 +300,10 @@ export default function NotesSection({
                   onDelete={() => deleteMutation.mutate(note.id)}
                   isDeleting={
                     deleteMutation.isPending &&
+                    deleteMutation.variables === note.id
+                  }
+                  isDeleteError={
+                    deleteMutation.isError &&
                     deleteMutation.variables === note.id
                   }
                 />

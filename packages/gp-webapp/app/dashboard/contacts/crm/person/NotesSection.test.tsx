@@ -136,6 +136,32 @@ describe('<NotesSection>', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('shows an error and keeps the note listed when a delete fails', async () => {
+    const user = userEvent.setup()
+    api.mock('GET /v1/contacts/:personId/notes', {
+      status: 200,
+      data: { results: [makeNote()] },
+    })
+    api.mock('DELETE /v1/contacts/notes/:noteId', {
+      status: 500,
+      data: { message: 'boom' },
+    })
+
+    render(<NotesSection personId={PERSON_ID} />)
+
+    await screen.findByText('Called about the lawn ordinance')
+    await user.click(screen.getByRole('button', { name: 'Delete note' }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
+
+    expect(
+      await screen.findByText(/couldn.t delete your note/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Called about the lawn ordinance'),
+    ).toBeInTheDocument()
+  })
+
   it('shows an error and keeps the edit form open when a save fails', async () => {
     const user = userEvent.setup()
     api.mock('GET /v1/contacts/:personId/notes', {
