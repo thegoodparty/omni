@@ -30,6 +30,32 @@ import {
 
 type PollIndividualMessageWithPoll = PollIndividualMessage & { poll: Poll }
 
+// Every union variant carries a per-type id under a different field name.
+// This is the tiebreak for same-timestamp rows (e.g. two Win outreach
+// attributions from a date-only picker land on the exact same midnight
+// occurredAt) — without it, sorting/cursoring on date alone treats same-day
+// rows as interchangeable and the cursor can resume on the wrong one.
+const activityId = (activity: ConstituentActivity): string => {
+  switch (activity.type) {
+    case ConstituentActivityType.POLL_INTERACTIONS:
+      return activity.data.pollId
+    case ConstituentActivityType.NOTE:
+      return activity.data.noteId
+    case ConstituentActivityType.OUTREACH:
+      return String(activity.data.activityId)
+    case ConstituentActivityType.DOOR_KNOCK:
+    case ConstituentActivityType.TEXT:
+    case ConstituentActivityType.ROBOCALL:
+      return activity.data.activityId
+  }
+}
+
+// Opaque to the client — round-tripped verbatim as the `after` param. Encodes
+// enough of the sort key to resume exactly where the previous page ended,
+// even when multiple rows share the same date.
+const cursorKey = (activity: ConstituentActivity): string =>
+  `${activity.date}|${activity.type}|${activityId(activity)}`
+
 @Injectable()
 export class ContactEngagementService {
   constructor(
@@ -55,15 +81,24 @@ export class ContactEngagementService {
     } = input
     const limit = take ?? 20
 
+    // The id tiebreak is applied in the merge sort below; this orderBy keeps
+    // each source's own fetch order stable/deterministic across requests.
+    const interactionOrderBy = [
+      { occurredAt: Prisma.SortOrder.desc },
+      { id: Prisma.SortOrder.desc },
+    ]
     const [doorKnocks, texts, robocalls, notes] = await Promise.all([
       this.contactInteractionDoorKnock.findMany({
         where: { organizationSlug, personId },
+        orderBy: interactionOrderBy,
       }),
       this.contactInteractionText.findMany({
         where: { organizationSlug, personId },
+        orderBy: interactionOrderBy,
       }),
       this.contactInteractionRobocall.findMany({
         where: { organizationSlug, personId },
+        orderBy: interactionOrderBy,
       }),
       this.contactNote.listForPerson(organizationSlug, personId),
     ])
@@ -155,20 +190,29 @@ export class ContactEngagementService {
       ...robocallActivities,
       ...noteActivities,
     ]
-    allActivities.sort((a, b) =>
-      compareDesc(parseISO(a.date), parseISO(b.date)),
-    )
+    // date desc, then type/id as an explicit tiebreak — same-day Win outreach
+    // attributions (occurredAt from a date-only picker) can be byte-identical,
+    // and sorting on date alone leaves their relative order undefined, which
+    // breaks the cursor below.
+    allActivities.sort((a, b) => {
+      const dateOrder = compareDesc(parseISO(a.date), parseISO(b.date))
+      if (dateOrder !== 0) return dateOrder
+      if (a.type !== b.type) return a.type.localeCompare(b.type)
+      return activityId(a).localeCompare(activityId(b))
+    })
 
-    // The cursor is the sort key itself (the ISO date string of the previous
-    // page's last row) rather than a per-type id — the union has no id shared
-    // across heterogeneous entry types.
+    // The cursor is a composite of the full sort key (date, type, id) rather
+    // than just the date, so resuming lands on the exact row the previous
+    // page ended on instead of the first row of a same-date tie group. It's
+    // opaque to the client — round-tripped verbatim as `after`.
     const startIndex = after
-      ? allActivities.findIndex((activity) => activity.date === after) + 1
+      ? allActivities.findIndex((activity) => cursorKey(activity) === after) + 1
       : 0
     const page = allActivities.slice(startIndex, startIndex + limit + 1)
     const results = page.slice(0, limit)
+    const lastResult = results[results.length - 1]
     const nextCursor =
-      page.length > limit ? (results[results.length - 1]?.date ?? null) : null
+      page.length > limit && lastResult ? cursorKey(lastResult) : null
 
     return { nextCursor, results }
   }

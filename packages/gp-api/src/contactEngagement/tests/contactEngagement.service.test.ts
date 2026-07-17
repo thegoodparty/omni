@@ -396,8 +396,9 @@ describe('ContactEngagementService', () => {
       const inputWithAfter = {
         ...baseInput,
         take: 1,
-        // Cursor is the previous page's last row's sort key (its date).
-        after: '2025-01-20T10:00:00.000Z',
+        // Cursor is the previous page's last row's composite sort key
+        // (date|type|id), not the bare date.
+        after: '2025-01-20T10:00:00.000Z|POLL_INTERACTIONS|poll-1',
       }
 
       const result = await service.getIndividualActivities(inputWithAfter)
@@ -467,7 +468,9 @@ describe('ContactEngagementService', () => {
       const inputWithTake = { ...baseInput, take: 2 }
       const result = await service.getIndividualActivities(inputWithTake)
 
-      expect(result.nextCursor).toBe('2025-01-15T12:00:00.000Z')
+      expect(result.nextCursor).toBe(
+        '2025-01-15T12:00:00.000Z|POLL_INTERACTIONS|poll-2',
+      )
       expect(result.results).toHaveLength(2)
     })
 
@@ -627,18 +630,22 @@ describe('ContactEngagementService', () => {
 
       const result = await service.getIndividualActivities(campaignInput)
 
+      const expectedOrderBy = [{ occurredAt: 'desc' }, { id: 'desc' }]
       expect(
         mockContactInteractionDoorKnockService.findMany,
       ).toHaveBeenCalledWith({
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
+        orderBy: expectedOrderBy,
       })
       expect(mockContactInteractionTextService.findMany).toHaveBeenCalledWith({
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
+        orderBy: expectedOrderBy,
       })
       expect(
         mockContactInteractionRobocallService.findMany,
       ).toHaveBeenCalledWith({
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
+        orderBy: expectedOrderBy,
       })
       expect(mockContactNoteService.listForPerson).toHaveBeenCalledWith(
         'campaign-org-1',

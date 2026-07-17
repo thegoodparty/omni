@@ -376,6 +376,50 @@ describe('<PersonOverlay>', () => {
     expect(screen.getByText('Texted')).toBeInTheDocument()
   })
 
+  it('shows the empty state (not a blank feed) and does not fire Outreach Timeline Viewed when a page has only ENG-10695 entry types', () => {
+    // A page containing only DOOR_KNOCK/TEXT/ROBOCALL/NOTE rows has nothing
+    // this renderer can draw (task 07 widens it) — it must read as "Data not
+    // available", not as a real, contentless feed, and must not count as a
+    // seen outreach timeline for the adoption event.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'NOTE',
+        date: '2026-05-12T00:00:00.000Z',
+        data: {
+          noteId: 'note_1',
+          body: 'Follow up next week',
+          createdAt: '2026-05-12T00:00:00.000Z',
+          updatedAt: '2026-05-12T00:00:00.000Z',
+        },
+      },
+      {
+        type: 'DOOR_KNOCK',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 'dk_1',
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          note: null,
+          manual: true,
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Data not available.')).toBeInTheDocument()
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
   it('does not fire Outreach Timeline Viewed when the Win feed is empty', () => {
     setContext({
       isElectedOfficial: false,

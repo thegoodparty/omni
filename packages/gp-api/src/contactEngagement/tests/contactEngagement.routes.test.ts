@@ -250,6 +250,69 @@ describe('ContactEngagement routes', () => {
       expect(new Set(seenTypes).size).toBe(seenTypes.length)
     }, 10000)
 
+    it('terminates without duplicates or drops when 3+ rows share one occurredAt (same-day tie group)', async () => {
+      // Win outreach attribution sets occurredAt from a date-only picker, so
+      // same-day rows can carry a byte-identical midnight timestamp. A cursor
+      // keyed on date alone would resume on the first row of the tie group
+      // every time — infinite "View more" loop, re-served duplicates, older
+      // rows never reached. This asserts the walk actually terminates.
+      const personId = 'person-win-tie'
+      const tieOccurredAt = new Date('2026-03-01T00:00:00Z')
+
+      await service.prisma.contactInteractionDoorKnock.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: tieOccurredAt,
+          outcome: DoorKnockOutcome.answered,
+          manual: true,
+        },
+      })
+      await service.prisma.contactInteractionText.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: tieOccurredAt,
+          manual: false,
+        },
+      })
+      await service.prisma.contactInteractionRobocall.create({
+        data: {
+          organizationSlug: campaignOrgSlug,
+          personId,
+          occurredAt: tieOccurredAt,
+          manual: false,
+        },
+      })
+
+      const seenActivityIds: string[] = []
+      let after: string | undefined
+      let pages = 0
+
+      do {
+        const page = await service.client.get(
+          `/v1/contact-engagement/${personId}/activities`,
+          {
+            params: { take: 2, ...(after ? { after } : {}) },
+            headers: { 'x-organization-slug': campaignOrgSlug },
+          },
+        )
+        expect(page.status).toBe(200)
+        seenActivityIds.push(
+          ...page.data.results.map(
+            (r: { data: { activityId: string } }) => r.data.activityId,
+          ),
+        )
+        after = page.data.nextCursor ?? undefined
+        pages += 1
+      } while (after && pages < 10)
+
+      expect(pages).toBe(2)
+      expect(seenActivityIds).toHaveLength(3)
+      // No duplicates and nothing dropped.
+      expect(new Set(seenActivityIds).size).toBe(3)
+    }, 10000)
+
     it('does not return another org/campaign interactions, notes, or outreach rows', async () => {
       const personId = 'person-win-isolated'
       const otherOrgSlug = `campaign-other-${Date.now()}`

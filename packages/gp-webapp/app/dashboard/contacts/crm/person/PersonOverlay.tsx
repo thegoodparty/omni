@@ -280,7 +280,16 @@ const ActivitiesContent: React.FC = () => {
     isWinContextReady,
   } = useContactsTable()
 
-  const hasActivities = activities.length > 0
+  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries, but this
+  // renderer only draws OUTREACH/POLL_INTERACTIONS rows (task 07 widens it).
+  // Counting the new types here would show the empty state as if there were
+  // renderable rows to draw (a blank feed instead of "Data not available")
+  // and could fire the outreach-adoption event for a page with nothing on
+  // screen.
+  const renderableActivities = activities.filter(
+    (activity) => isOutreachActivity(activity) || isPollActivity(activity),
+  )
+  const hasActivities = renderableActivities.length > 0
 
   // Fire once per opened person when the Win outreach timeline actually
   // renders rows (not while loading and not for an empty/error feed), so the
@@ -313,7 +322,7 @@ const ActivitiesContent: React.FC = () => {
     isError,
   ])
 
-  if (isError || activities.length === 0) {
+  if (isError || !hasActivities) {
     return (
       <div className="flex flex-col items-center gap-3">
         <Image
