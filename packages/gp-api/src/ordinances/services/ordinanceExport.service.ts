@@ -85,8 +85,11 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
   const doc = new PDFDocument({ size: 'LETTER', margin: 54 })
   const chunks: Buffer[] = []
   doc.on('data', (chunk: Buffer) => chunks.push(chunk))
-  const done = new Promise<Buffer>((resolve) => {
+  const done = new Promise<Buffer>((resolve, reject) => {
     doc.on('end', () => resolve(Buffer.concat(chunks)))
+    // Without this, a pdfkit error would leave the promise pending and hang the
+    // request until timeout (matches briefingPdf.renderer.ts).
+    doc.on('error', reject)
   })
 
   doc.font('Helvetica-Bold').fontSize(18).fillColor('black')
