@@ -26,6 +26,30 @@ speech, and voter messaging.
 So a why or issue authored here shows up on the Pro-upgrade flow and the public
 site, and vice versa.
 
+## Pro-upgrade sync (no build needed)
+
+The Pro-upgrade candidate profile asks for the "why" and policy priorities too,
+which raised a concern about re-asking. It already syncs, because both surfaces
+use the same storage and read path, so no backfill migration or prefill wiring
+is needed:
+
+- **why (bio) and issues:** the Pro candidate-profile step
+  (`profile/texting-compliance/candidate-profile/useCandidateProfileForm.ts`)
+  saves via `saveAboutFields({ bio, issues })` and seeds its form from
+  `getUserWebsite()` (`Website.content.about.bio` / `.issues`), the identical
+  fields the story cards write and read. A value entered in either surface
+  pre-fills the other automatically, in both directions. Existing Pro users
+  therefore already have their why and issues in the story.
+- **background:** story-only (`campaign_story` table). The Pro flow never
+  collects, stores, reads, or pre-fills it (its only `campaigns/mine/story`
+  reference is the stateless `story/rewrite` AI endpoint in `PolicyForm.tsx`,
+  not the background field), and by design it has no background field. So there
+  is nothing to backfill or pre-fill for background; a candidate still answers
+  it in onboarding or the campaign manager.
+
+Net: the only field unique to the story is `background`; everything Pro shares
+already round-trips through `Website.content.about`.
+
 ## Key files
 
 | File | Role |
