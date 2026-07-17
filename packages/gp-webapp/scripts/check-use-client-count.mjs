@@ -83,7 +83,10 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: 543 -> 542 for deleting the standalone campaign-story route:
 // removed page.tsx and its orphaned client component CampaignStoryPage.tsx now
 // that onboarding and the plan-tab gate compose the cards directly.
-const BASELINE = 542
+// 2026-07-17: 542 -> 543 for PersonalizeStoryCard, the manager-home story card:
+// it must be a client component because it reads useCampaignStoryComplete (a
+// React Query hook) to decide whether to render.
+const BASELINE = 543
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
