@@ -152,9 +152,10 @@ export default function CreateListWizard({
 
   const peopleNoun = isWinContext ? 'voters' : 'constituents'
 
-  const buildLabel = isLoading
-    ? 'Build your list'
-    : `Build your list (${numberFormatter(count ?? 0)})`
+  const buildLabel =
+    isLoading || count === undefined
+      ? 'Build your list'
+      : `Build your list (${numberFormatter(count)})`
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
