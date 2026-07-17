@@ -31,6 +31,7 @@ import {
   OutreachChannel,
   OutreachConstituentActivity,
   Person,
+  PollConstituentActivity,
 } from '../shared/contacts-types'
 import { isNotNil } from 'es-toolkit'
 import { ReactNode, useEffect, useRef } from 'react'
@@ -82,6 +83,15 @@ const isOutreachActivity = (
   activity: ConstituentActivity,
 ): activity is OutreachConstituentActivity => activity.type === 'OUTREACH'
 
+// ENG-10695 unioned ContactInteraction*/ContactNote entries into the feed
+// response; this pre-CRM renderer only knew POLL_INTERACTIONS and OUTREACH,
+// so a bare `else` on non-outreach entries would treat those new types as
+// polls and crash reading activity.data.pollId. Rendering them is task 07's
+// job — until then, skip anything that isn't one of the two known types.
+const isPollActivity = (
+  activity: ConstituentActivity,
+): activity is PollConstituentActivity => activity.type === 'POLL_INTERACTIONS'
+
 const OutreachActivityRow: React.FC<{
   activity: OutreachConstituentActivity
 }> = ({ activity }) => (
@@ -101,6 +111,64 @@ const OutreachActivityRow: React.FC<{
       <p className="text-sm font-normal text-muted-foreground">
         {formatDateTime(activity.date)}
       </p>
+    ) : null}
+  </div>
+)
+
+const PollActivityRow: React.FC<{ activity: PollConstituentActivity }> = ({
+  activity,
+}) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <Link
+      className="font-medium text-info underline mb-2"
+      href={`/dashboard/polls/${activity.data.pollId}`}
+      target="_blank"
+    >
+      {activity.data.pollTitle}
+    </Link>
+    {activity.data.events?.length ? (
+      <div className="mt-1 flex flex-col text-sm font-normal text-muted-foreground">
+        {activity.data.events.map((evt, i) => {
+          return (
+            <div key={i} className="flex flex-col">
+              <div className="flex items-center gap-2">
+                {evt.type === 'SENT' && (
+                  <LuCircleCheck
+                    size={16}
+                    className="shrink-0 text-foreground"
+                  />
+                )}
+                {evt.type === 'RESPONDED' && (
+                  <LuMessageSquareMore
+                    size={16}
+                    className="shrink-0 text-foreground"
+                  />
+                )}
+                {evt.type === 'OPTED_OUT' && (
+                  <LuCircleX size={16} className="shrink-0 text-foreground" />
+                )}
+
+                <p className="text-sm font-semibold text-foreground">
+                  {ACTIVITY_EVENT_LABELS[evt.type] ?? evt.type}
+                </p>
+              </div>
+
+              <div className="flex gap-2 h-7">
+                <div className="flex items-center gap-2">
+                  <div className="flex w-4 shrink-0 justify-center">
+                    {i < activity.data.events.length - 1 ? (
+                      <div className="h-5 w-px bg-border my-1" />
+                    ) : null}
+                  </div>
+                </div>
+                <p className="text-sm font-normal text-muted-foreground justify-self-start">
+                  {evt.date ? formatDateTime(evt.date) : ''}
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     ) : null}
   </div>
 )
@@ -212,7 +280,16 @@ const ActivitiesContent: React.FC = () => {
     isWinContextReady,
   } = useContactsTable()
 
-  const hasActivities = activities.length > 0
+  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries, but this
+  // renderer only draws OUTREACH/POLL_INTERACTIONS rows (task 07 widens it).
+  // Counting the new types here would show the empty state as if there were
+  // renderable rows to draw (a blank feed instead of "Data not available")
+  // and could fire the outreach-adoption event for a page with nothing on
+  // screen.
+  const renderableActivities = activities.filter(
+    (activity) => isOutreachActivity(activity) || isPollActivity(activity),
+  )
+  const hasActivities = renderableActivities.length > 0
 
   // Fire once per opened person when the Win outreach timeline actually
   // renders rows (not while loading and not for an empty/error feed), so the
@@ -245,7 +322,17 @@ const ActivitiesContent: React.FC = () => {
     isError,
   ])
 
-  if (isError || activities.length === 0) {
+  // Not gated on isError: a failed background refetch (activities already
+  // loaded from a prior successful fetch) must keep showing those rows, not
+  // blank a populated feed. First-fetch failure still lands here because
+  // hasActivities is false in that case. Not gated on hasActivities alone
+  // either: a page that happens to hold only new (unrenderable) entry types
+  // can still have a next page of real OUTREACH/POLL_INTERACTIONS rows —
+  // hiding "View more" there would permanently strand them. Not while
+  // isLoading either — the initial fetch starts with hasActivities and
+  // hasNextPage both false, so without this the empty state would flash
+  // before the loading skeleton ever gets a chance to render.
+  if (!isLoading && !hasActivities && !hasNextPage) {
     return (
       <div className="flex flex-col items-center gap-3">
         <Image
@@ -270,68 +357,17 @@ const ActivitiesContent: React.FC = () => {
   }
   return (
     <div className="flex flex-col gap-3">
-      {activities.map((activity, idx) =>
-        isOutreachActivity(activity) ? (
-          <OutreachActivityRow key={idx} activity={activity} />
-        ) : (
-          <div key={idx} className="flex flex-col gap-1 mb-3">
-            <Link
-              className="font-medium text-info underline mb-2"
-              href={`/dashboard/polls/${activity.data.pollId}`}
-              target="_blank"
-            >
-              {activity.data.pollTitle}
-            </Link>
-            {activity.data.events?.length ? (
-              <div className="mt-1 flex flex-col text-sm font-normal text-muted-foreground">
-                {activity.data.events.map((evt, i) => {
-                  return (
-                    <div key={i} className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        {evt.type === 'SENT' && (
-                          <LuCircleCheck
-                            size={16}
-                            className="shrink-0 text-foreground"
-                          />
-                        )}
-                        {evt.type === 'RESPONDED' && (
-                          <LuMessageSquareMore
-                            size={16}
-                            className="shrink-0 text-foreground"
-                          />
-                        )}
-                        {evt.type === 'OPTED_OUT' && (
-                          <LuCircleX
-                            size={16}
-                            className="shrink-0 text-foreground"
-                          />
-                        )}
-
-                        <p className="text-sm font-semibold text-foreground">
-                          {ACTIVITY_EVENT_LABELS[evt.type] ?? evt.type}
-                        </p>
-                      </div>
-
-                      <div className="flex gap-2 h-7">
-                        <div className="flex items-center gap-2">
-                          <div className="flex w-4 shrink-0 justify-center">
-                            {i < activity.data.events.length - 1 ? (
-                              <div className="h-5 w-px bg-border my-1" />
-                            ) : null}
-                          </div>
-                        </div>
-                        <p className="text-sm font-normal text-muted-foreground justify-self-start">
-                          {evt.date ? formatDateTime(evt.date) : ''}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : null}
-          </div>
-        ),
-      )}
+      {activities.map((activity, idx) => {
+        if (isOutreachActivity(activity)) {
+          return <OutreachActivityRow key={idx} activity={activity} />
+        }
+        if (isPollActivity(activity)) {
+          return <PollActivityRow key={idx} activity={activity} />
+        }
+        // Rendering for the new ContactInteraction*/ContactNote entry types
+        // lands in task 07; until then, skip rather than crash.
+        return null
+      })}
       {hasNextPage ? (
         <Button
           type="button"

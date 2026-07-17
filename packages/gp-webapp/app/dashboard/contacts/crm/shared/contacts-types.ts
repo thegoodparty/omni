@@ -1,4 +1,19 @@
-import type { Person, PeopleListResponse } from '@goodparty_org/contracts'
+import type {
+  ConstituentActivity,
+  ConstituentActivityEvent,
+  ConstituentActivityEventType,
+  DoorKnockConstituentActivity,
+  GetIndividualActivitiesResponse,
+  NoteConstituentActivity,
+  OutreachConstituentActivity,
+  OutreachType,
+  PeopleListResponse,
+  Person,
+  PollConstituentActivity,
+  RobocallConstituentActivity,
+  TextConstituentActivity,
+  VoterOutreachAttributionSource,
+} from '@goodparty_org/contracts'
 
 export interface SegmentResponse {
   id: number
@@ -26,54 +41,25 @@ export type GetConstituentIssuesResponse = {
   results: ConstituentIssue[]
 }
 
-export type ConstituentActivityEventType = 'SENT' | 'RESPONDED' | 'OPTED_OUT'
-
-export type ConstituentActivityEvent = {
-  type: ConstituentActivityEventType
-  date: string
+// The unified activity-feed shape (all variants, the discriminant enums, the
+// response envelope) is the cross-service contract for
+// GET /v1/contact-engagement/:id/activities, defined once in
+// @goodparty_org/contracts/people/ContactActivity.schema and re-exported here
+// so the many existing imports across this feature don't all need to change.
+export type {
+  ConstituentActivity,
+  ConstituentActivityEvent,
+  ConstituentActivityEventType,
+  DoorKnockConstituentActivity,
+  GetIndividualActivitiesResponse,
+  NoteConstituentActivity,
+  OutreachConstituentActivity,
+  PollConstituentActivity,
+  RobocallConstituentActivity,
+  TextConstituentActivity,
 }
 
-// Serve poll-interaction activity (elected office context). The literal
-// matches gp-api's ConstituentActivityType.POLL_INTERACTIONS so this and
-// OutreachConstituentActivity form a discriminated union on `type`.
-export type PollConstituentActivity = {
-  type: 'POLL_INTERACTIONS'
-  date: string
-  data: {
-    pollId: string
-    pollTitle: string
-    events: ConstituentActivityEvent[]
-  }
-}
-
-// Win outreach activity, mapped from VoterOutreachActivity by gp-api's campaign
-// branch. attributionSource lets the timeline label send-time vs per-recipient
-// attribution honestly (recipient for door knocking, segmentDerived otherwise).
-export type OutreachChannel =
-  | 'text'
-  | 'doorKnocking'
-  | 'phoneBanking'
-  | 'socialMedia'
-  | 'robocall'
-  | 'p2p'
-
-export type OutreachAttributionSource = 'recipient' | 'segmentDerived'
-
-export type OutreachConstituentActivity = {
-  type: 'OUTREACH'
-  date: string
-  data: {
-    activityId: number
-    outreachType: OutreachChannel
-    attributionSource: OutreachAttributionSource
-  }
-}
-
-export type ConstituentActivity =
-  | PollConstituentActivity
-  | OutreachConstituentActivity
-
-export type GetIndividualActivitiesResponse = {
-  nextCursor: string | null
-  results: ConstituentActivity[]
-}
+// OutreachConstituentActivity's data fields, aliased to their historical
+// local names (outreachType/attributionSource render labels key off these).
+export type OutreachChannel = OutreachType
+export type OutreachAttributionSource = VoterOutreachAttributionSource

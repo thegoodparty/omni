@@ -300,6 +300,182 @@ describe('<PersonOverlay>', () => {
     )
   })
 
+  it('does not crash on ENG-10695 entry types the pre-CRM renderer does not know (skips them, keeps rendering known rows)', () => {
+    // The unified feed (ENG-10695) can return DOOR_KNOCK/TEXT/ROBOCALL/NOTE
+    // entries in the same page as OUTREACH/POLL_INTERACTIONS rows. Rendering
+    // them is task 07's job; this only proves the switch has a safe default
+    // instead of falling through to the poll branch and crashing on
+    // activity.data.pollId.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'NOTE',
+        date: '2026-05-12T00:00:00.000Z',
+        data: {
+          noteId: 'note_1',
+          body: 'Follow up next week',
+          createdAt: '2026-05-12T00:00:00.000Z',
+          updatedAt: '2026-05-12T00:00:00.000Z',
+        },
+      },
+      {
+        type: 'DOOR_KNOCK',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 'dk_1',
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          note: null,
+          manual: true,
+        },
+      },
+      {
+        type: 'TEXT',
+        date: '2026-05-10T12:00:00.000Z',
+        data: {
+          activityId: 'tx_1',
+          respondedAt: null,
+          optedOutAt: null,
+          note: null,
+          manual: false,
+          outreachId: null,
+        },
+      },
+      {
+        type: 'ROBOCALL',
+        date: '2026-05-10T06:00:00.000Z',
+        data: {
+          activityId: 'rc_1',
+          answeredAt: null,
+          voicemailLeftAt: null,
+          note: null,
+          manual: false,
+          outreachId: null,
+        },
+      },
+      {
+        type: 'OUTREACH',
+        date: '2026-05-10T00:00:00.000Z',
+        data: {
+          activityId: 1,
+          outreachType: 'text',
+          attributionSource: 'segmentDerived',
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    expect(() => render(<PersonOverlay />)).not.toThrow()
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    // The known OUTREACH row still renders alongside the skipped new types.
+    expect(screen.getByText('Texted')).toBeInTheDocument()
+  })
+
+  it('shows the activities loading skeleton, not the empty state, on the first fetch', () => {
+    // First fetch: hasActivities and hasNextPage both start false, same as
+    // the true empty case. Without an isLoading guard, "Data not available."
+    // would flash before the skeleton (or the real feed) ever gets a chance
+    // to render.
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { isLoadingActivities: true },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
+  })
+
+  it('shows the empty state (not a blank feed) and does not fire Outreach Timeline Viewed when a page has only ENG-10695 entry types', () => {
+    // A page containing only DOOR_KNOCK/TEXT/ROBOCALL/NOTE rows has nothing
+    // this renderer can draw (task 07 widens it) — it must read as "Data not
+    // available", not as a real, contentless feed, and must not count as a
+    // seen outreach timeline for the adoption event.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'NOTE',
+        date: '2026-05-12T00:00:00.000Z',
+        data: {
+          noteId: 'note_1',
+          body: 'Follow up next week',
+          createdAt: '2026-05-12T00:00:00.000Z',
+          updatedAt: '2026-05-12T00:00:00.000Z',
+        },
+      },
+      {
+        type: 'DOOR_KNOCK',
+        date: '2026-05-11T00:00:00.000Z',
+        data: {
+          activityId: 'dk_1',
+          outcome: 'answered',
+          supportAnswer: 'supporter',
+          note: null,
+          manual: true,
+        },
+      },
+    ]
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { activities },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Data not available.')).toBeInTheDocument()
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      EVENTS.Contacts.OutreachTimelineViewed,
+      expect.anything(),
+    )
+  })
+
+  it('shows "View more" instead of the empty state when a page of only ENG-10695 entry types still has a next page', () => {
+    // Same all-new-types page as above, but with a next page available.
+    // Older OUTREACH/POLL_INTERACTIONS rows can still be behind it — the
+    // empty state must not swallow the pagination affordance and strand them.
+    const activities: ConstituentActivity[] = [
+      {
+        type: 'NOTE',
+        date: '2026-05-12T00:00:00.000Z',
+        data: {
+          noteId: 'note_1',
+          body: 'Follow up next week',
+          createdAt: '2026-05-12T00:00:00.000Z',
+          updatedAt: '2026-05-12T00:00:00.000Z',
+        },
+      },
+    ]
+    const activitiesFetchNextPage = vi.fn()
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: {
+        activities,
+        activitiesHasNextPage: true,
+        activitiesFetchNextPage,
+      },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /view more/i }),
+    ).toBeInTheDocument()
+  })
+
   it('does not fire Outreach Timeline Viewed when the Win feed is empty', () => {
     setContext({
       isElectedOfficial: false,
@@ -316,11 +492,12 @@ describe('<PersonOverlay>', () => {
     )
   })
 
-  it('does not fire Outreach Timeline Viewed when the feed errors with stale rows', () => {
+  it('keeps rendering stale rows (not the empty state) on a failed background refetch, but does not fire Outreach Timeline Viewed', () => {
     // useInfiniteQuery keeps prior successful data on a failed refetch, so
-    // activities can be non-empty while isErrorActivities is true. The overlay
-    // renders the error state (not the timeline), so the adoption event must
-    // not fire as if the user saw real outreach.
+    // activities can be non-empty while isErrorActivities is true. A failed
+    // background refetch must not blank an already-populated feed — the
+    // renderer keeps showing the stale rows — but the adoption event still
+    // must not fire while isError is true.
     const activities: ConstituentActivity[] = [
       {
         type: 'OUTREACH',
@@ -341,6 +518,8 @@ describe('<PersonOverlay>', () => {
 
     render(<PersonOverlay />)
 
+    expect(screen.getByText('Texted')).toBeInTheDocument()
+    expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
     expect(trackEvent).not.toHaveBeenCalledWith(
       EVENTS.Contacts.OutreachTimelineViewed,
       expect.anything(),

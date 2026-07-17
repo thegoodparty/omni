@@ -39,9 +39,10 @@ import type { SupportStatusRollup } from '@goodparty_org/contracts'
  *    in `services/`, registered in `ContactInteractionModule`, whose writes
  *    enforce the idempotency key at the DB (upsert on the unique, or
  *    `createMany` with `skipDuplicates`) — never read-then-write.
- * 7. A feed-render variant for the channel, registered with the activity
- *    feed (feature 3 owns that registry; until it lands this is a named
- *    obligation, not code).
+ * 7. A feed-mapping branch for the channel in
+ *    `ContactEngagementService.getIndividualActivities` (feature 3,
+ *    `src/contactEngagement/`), plus a matching `ConstituentActivity` variant
+ *    in `contactEngagement.types.ts`.
  * 8. Filter conditions must be able to resolve the table into person-id sets
  *    with plain SQL (`SELECT person_id FROM contact_interaction_<channel>
  *    WHERE organization_slug = ... AND <channel predicates>`), so keep

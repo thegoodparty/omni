@@ -621,7 +621,7 @@ export type APIEndpoints = {
     Response: GetConstituentIssuesResponse
   }
   'GET /v1/contact-engagement/:id/activities': {
-    Request: { take?: number; after?: string }
+    Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
   }
 
