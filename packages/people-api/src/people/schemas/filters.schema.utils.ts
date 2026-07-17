@@ -26,7 +26,9 @@ const rangeConditionSchema = z.object({
 // ID filter is a separate surface from createEnumFilterSchema: it takes an id
 // set (in/notIn), not eq/is, and caps the array (the first array-length cap
 // in the grammar — id sets can arrive from arbitrarily large upstream
-// resolutions, unlike samplePeopleSchema.excludeIds).
+// resolutions, unlike samplePeopleSchema.excludeIds). 100k is safe only
+// because buildIdFilter binds the set as a single array parameter; per-value
+// binding would hit PostgreSQL's 65,535 bind-parameter limit.
 const MAX_ID_FILTER_VALUES = 100_000
 
 export const createIdFilterSchema = () => {

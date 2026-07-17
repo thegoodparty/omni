@@ -323,6 +323,26 @@ describe('buildVoterFiltersSql', () => {
       expect(sqlStr).toContain('::uuid[]')
     })
 
+    it('binds the whole id set as one array parameter, not one per id', () => {
+      const ids = [
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333',
+      ]
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: { operator: 'in', values: ids },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+
+      expect(result?.values).toHaveLength(1)
+      expect(result?.values[0]).toEqual(ids)
+    })
+
     it('combines with a demographic filter via AND', () => {
       const filterData: FilterData = {
         filters: ['id', 'gender'],

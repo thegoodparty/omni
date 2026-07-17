@@ -324,9 +324,9 @@ const buildHasAddressFilter = (
 }
 
 // Person-id sets resolved upstream in gp-api (activity conditions, derived
-// support status) — bound as a single ::uuid[] parameter, never
-// interpolated per-value, so an arbitrarily large id set stays one bind
-// param rather than N.
+// support status) — the whole set is bound as ONE array parameter (the
+// `sample.service.ts` hashBuckets pattern), never one param per id, so the
+// 100k schema cap stays clear of PostgreSQL's 65,535 bind-parameter limit.
 const buildIdFilter = (op: FilterOperator | undefined): Prisma.Sql | null => {
   if (!op) return null
   if (
@@ -335,10 +335,9 @@ const buildIdFilter = (op: FilterOperator | undefined): Prisma.Sql | null => {
     op.values.length > 0
   ) {
     const ids = op.values as string[]
-    const idsArray = Prisma.sql`ARRAY[${Prisma.join(ids)}]::uuid[]`
     return op.operator === 'in'
-      ? Prisma.sql`v."id" = ANY(${idsArray})`
-      : Prisma.sql`v."id" != ALL(${idsArray})`
+      ? Prisma.sql`v."id" = ANY(${ids}::uuid[])`
+      : Prisma.sql`v."id" != ALL(${ids}::uuid[])`
   }
   return null
 }
