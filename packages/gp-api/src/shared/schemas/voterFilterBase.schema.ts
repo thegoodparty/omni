@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { SupportStatusRollupSchema } from '@goodparty_org/contracts'
+import { activityConditionSchema } from './activityCondition.schema'
 
 /**
  * Base schema containing all voter filter fields used across different contexts
@@ -67,4 +69,6 @@ export const voterFilterBaseSchema = z.object({
   // persisted filter row stores null when no search was saved, and the FE
   // round-trips the whole row back into this schema (e.g. POST /p2p/phone-list).
   search: z.string().nullish(),
+  supportStatus: z.array(SupportStatusRollupSchema).optional(),
+  activityConditions: z.array(activityConditionSchema).optional(),
 })
