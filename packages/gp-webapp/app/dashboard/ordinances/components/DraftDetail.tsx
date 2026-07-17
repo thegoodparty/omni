@@ -34,6 +34,8 @@ import {
 } from '@styleguide'
 import {
   ArrowLeftIcon,
+  CheckIcon,
+  ChevronDownIcon,
   DownloadIcon,
   FileTextIcon,
   FlagIcon,
@@ -43,14 +45,20 @@ import {
 import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import type {
   Ordinance,
+  OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
 import ChatPill from '../../shared/ai-chat/ChatPill'
 import { deleteOrdinance, updateOrdinance } from '../data/ordinances-api'
-import { ORDINANCE_STATUS_META } from '../data/statuses'
+import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
 import DraftChat from './DraftChat'
 import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
+
+// The statuses the user can set from the draft-detail pill. `in_progress` is the
+// pre-draft state, so it isn't offered once a draft exists (matches Lovable).
+const SELECTABLE_STATUSES: readonly OrdinanceStatus[] =
+  ORDINANCE_STATUS_ORDER.filter((s) => s !== 'in_progress')
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -104,6 +112,7 @@ export default function DraftDetail({
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
 
   const router = useRouter()
 
@@ -119,9 +128,21 @@ export default function DraftDetail({
     }
   }
 
+  // Optimistically reflect the picked status; revert if the save fails.
+  const changeStatus = async (next: OrdinanceStatus): Promise<void> => {
+    if (next === status) return
+    const prev = status
+    setStatus(next)
+    try {
+      await updateOrdinance(ordinance.slug, { status: next })
+    } catch {
+      setStatus(prev)
+    }
+  }
+
   const title =
     ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance'
-  const statusMeta = ORDINANCE_STATUS_META[ordinance.status]
+  const statusMeta = ORDINANCE_STATUS_META[status]
   const sources = ordinance.draftSources ?? []
 
   // Uncontrolled contentEditable fields: seed once on mount so typing never
@@ -383,9 +404,45 @@ export default function DraftDetail({
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl p-6">
             <div className="mb-4 flex justify-end">
-              <Badge className={cn('rounded-full', statusMeta.pillClass)}>
-                {statusMeta.label}
-              </Badge>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    aria-label="Change draft status"
+                    className={cn(
+                      'h-auto gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                      statusMeta.pillClass,
+                    )}
+                  >
+                    {statusMeta.label}
+                    <ChevronDownIcon className="size-3.5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {SELECTABLE_STATUSES.map((s) => {
+                    const meta = ORDINANCE_STATUS_META[s]
+                    return (
+                      <DropdownMenuItem
+                        key={s}
+                        onSelect={() => changeStatus(s)}
+                        className="gap-3"
+                      >
+                        <Badge className={cn('rounded-full', meta.pillClass)}>
+                          {meta.label}
+                        </Badge>
+                        {s === status ? (
+                          <CheckIcon
+                            className="ml-auto size-4 text-foreground"
+                            aria-hidden
+                          />
+                        ) : null}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <h2
               ref={titleRef}

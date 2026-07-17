@@ -426,6 +426,29 @@ describe('DraftDetail header actions', () => {
     expect(screen.getByText(/download as word/i)).toBeVisible()
   })
 
+  it('changes the status from the status dropdown', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'draft' })} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /change draft status/i }),
+    )
+
+    // in_progress is the pre-draft state and is never offered manually.
+    expect(
+      screen.queryByRole('menuitem', { name: /in progress/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { status: 'in_review' },
+      ),
+    )
+  })
+
   it('deletes the draft after confirming and returns to the list', async () => {
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
