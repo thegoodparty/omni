@@ -52,12 +52,17 @@ type ExportContent = {
 const EMPTY_TALLY: OrdinanceTally = { pass: 0, flag: 0, attention: 0 }
 
 // The QC summary line, shared by both renderers so its wording can't drift.
-const tallySummary = (content: ExportContent): string => {
-  const n = content.checks.length
+// Exported as a pure function so the singular/plural + counts are unit-testable
+// (both renderers embed it, and the PDF stream is compressed so its text can't
+// be asserted from the raw buffer).
+export const tallySummary = (
+  checkCount: number,
+  tally: OrdinanceTally,
+): string => {
+  const noun = checkCount === 1 ? 'check' : 'checks'
   return (
-    `Reviewed by ${n} ${n === 1 ? 'check' : 'checks'}    ` +
-    `${content.tally.pass} pass · ${content.tally.flag} flag · ` +
-    `${content.tally.attention} attention`
+    `Reviewed by ${checkCount} ${noun}    ` +
+    `${tally.pass} pass · ${tally.flag} flag · ${tally.attention} attention`
   )
 }
 
@@ -192,7 +197,7 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
       .font('Helvetica')
       .fontSize(10)
       .fillColor(`#${MUTED}`)
-      .text(tallySummary(content))
+      .text(tallySummary(content.checks.length, content.tally))
       .fillColor('black')
   }
   doc.moveDown(0.3)
@@ -358,7 +363,10 @@ const renderDocx = (content: ExportContent): Promise<Buffer> => {
       ? [
           new Paragraph({
             children: [
-              new TextRun({ text: tallySummary(content), color: MUTED }),
+              new TextRun({
+                text: tallySummary(content.checks.length, content.tally),
+                color: MUTED,
+              }),
             ],
           }),
         ]

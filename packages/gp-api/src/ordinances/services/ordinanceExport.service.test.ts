@@ -4,6 +4,7 @@ import { Ordinance } from '../../generated/prisma'
 import {
   OrdinanceExportService,
   checkRowHeaderFits,
+  tallySummary,
 } from './ordinanceExport.service'
 
 // .docx is a zip; the rendered text lives in word/document.xml, so unzip it to
@@ -79,6 +80,17 @@ describe('OrdinanceExportService', () => {
     expect(xml).toContain('PASS')
     expect(xml).toContain('DCFCE7')
     expect(xml).toContain('w:val="clear"')
+  })
+
+  it('formats the tally summary with singular/plural checks', () => {
+    // Both renderers embed this string; the PDF stream is compressed so it
+    // can't be asserted from the raw buffer — test the shared function directly.
+    expect(tallySummary(1, { pass: 1, flag: 0, attention: 0 })).toBe(
+      'Reviewed by 1 check    1 pass · 0 flag · 0 attention',
+    )
+    expect(tallySummary(6, { pass: 4, flag: 1, attention: 1 })).toBe(
+      'Reviewed by 6 checks    4 pass · 1 flag · 1 attention',
+    )
   })
 
   it('breaks a check row to a new page when its header would overflow', () => {
