@@ -48,15 +48,29 @@ const interactionsPath = (personId: string) =>
 // resolvable district on the org. Stubbed at the service layer — same
 // pattern as contacts.controller.test.ts's gatedEndpoints — instead of wiring
 // overrideDistrictId + a real HttpService response on every test.
-const mockPersonFound = (personId: string) =>
-  vi
+//
+// vitest's `clearMocks: true` only clears call history between tests, not
+// the mock implementation — so this spy (module-scoped: vi.spyOn returns the
+// SAME mock on repeat calls against the same method) stays wired to
+// whichever mockResolvedValue/mockRejectedValue a prior test last set unless
+// a test explicitly restores it. Tracked here so the eo- org test — which
+// needs the REAL findPerson implementation, not this stub — can restore it
+// without vi.restoreAllMocks() (that also unwinds useTestService's auth spy).
+let findPersonSpy: ReturnType<typeof vi.spyOn> | undefined
+
+const mockPersonFound = (personId: string) => {
+  findPersonSpy = vi
     .spyOn(service.app.get(ContactsService), 'findPerson')
     .mockResolvedValue({ id: personId } as PersonOutput)
+  return findPersonSpy
+}
 
-const mockPersonNotFound = () =>
-  vi
+const mockPersonNotFound = () => {
+  findPersonSpy = vi
     .spyOn(service.app.get(ContactsService), 'findPerson')
     .mockRejectedValue(new NotFoundException('Person not found'))
+  return findPersonSpy
+}
 
 describe('Contact interactions routes', () => {
   describe('happy path per channel', () => {
@@ -327,15 +341,22 @@ describe('Contact interactions routes', () => {
     // findPerson -> withOrgDistrictResolution path (only the people-api HTTP
     // call is mocked, same as contactsPersonDetail.test.ts) so the district
     // resolution an eo- org actually goes through in production is proven
-    // here, not stubbed away.
+    // here, not stubbed away. A prior test's mockPersonFound/mockPersonNotFound
+    // leaves findPerson permanently stubbed (clearMocks only clears call
+    // history, not implementation), so restore it here — mockRestore, never
+    // vi.restoreAllMocks(), which would also unwind the test harness's auth
+    // spy and start returning 401s.
     it('accepts a manually logged interaction', async () => {
+      findPersonSpy?.mockRestore()
       const slug = `eo-${Date.now()}`
       const personId = 'person-1'
       await seedEoOrg(slug, 'district-eo-interactions-uuid')
       const headers = { [ORG_SLUG_HEADER]: slug }
-      vi.spyOn(service.app.get(HttpService), 'get').mockReturnValue(
-        of({ data: { id: personId, firstName: 'Jane' } }) as never,
-      )
+      const httpGet = vi
+        .spyOn(service.app.get(HttpService), 'get')
+        .mockReturnValue(
+          of({ data: { id: personId, firstName: 'Jane' } }) as never,
+        )
 
       const result = await service.client.post(
         interactionsPath(personId),
@@ -345,6 +366,9 @@ describe('Contact interactions routes', () => {
 
       expect(result.status).toBe(201)
       expect(result.data.channel).toBe('doorKnock')
+      // Proves the real findPerson -> people-api round trip actually ran,
+      // rather than this test silently passing against a stale stub.
+      expect(httpGet).toHaveBeenCalled()
     }, 15_000)
   })
 
