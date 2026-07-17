@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useMutation } from '@tanstack/react-query'
 import {
   Button,
@@ -47,12 +48,9 @@ export default function CreateListWizard({
   open,
   onOpenChange,
 }: CreateListWizardProps) {
-  const {
-    isElectedOfficial,
-    isWinContext,
-    refreshCustomSegments,
-    selectSegment,
-  } = useContactsTable()
+  const { isElectedOfficial, isWinContext, refreshCustomSegments } =
+    useContactsTable()
+  const router = useRouter()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
 
@@ -133,9 +131,18 @@ export default function CreateListWizard({
       ),
     onSuccess: async (response) => {
       successSnackbar('List created successfully')
-      await refreshCustomSegments()
-      selectSegment(response.id.toString())
+      // A failed cache refresh must not strand the sheet open after the
+      // create itself succeeded (React Query doesn't catch onSuccess throws;
+      // DeleteSegment guards the same call).
+      await refreshCustomSegments().catch((error) =>
+        console.log('Error refreshing segments after create', error),
+      )
       onOpenChange(false)
+      // ENG-10707: land on the new list-detail page instead of selecting the
+      // segment in the (soon superseded) main table — refreshCustomSegments
+      // already invalidated ['custom-segments', orgSlug], so the detail page
+      // finds this list as soon as it mounts.
+      router.push(`/dashboard/contacts/lists/${response.id}`)
     },
     onError: () => {
       errorSnackbar('Failed to create list')

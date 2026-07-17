@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 import type {
   ActivityConditionAction,
   OutreachType,
+  SupportStatusRollup,
 } from '@goodparty_org/contracts'
 import { DoorOpenIcon, MessageSquareMoreIcon, PhoneIcon } from '@styleguide'
-import type { SupportStatusRollup } from './contacts-types'
 
 // Channels the list-wizard activity branch exposes (ENG-10708 locked design,
 // 2026-07-16 revision). Mirrors the manual interaction-logging channel set in
