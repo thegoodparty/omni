@@ -41,7 +41,7 @@ export default function CrmSheet({
   return (
     <Drawer open={open} onOpenChange={onOpenChange} direction="bottom">
       <DrawerContent
-        className="h-[calc(100dvh-4rem)] w-full data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-none data-[vaul-drawer-direction=bottom]:rounded-t-[10px]"
+        className="h-[calc(100dvh-4rem)] w-full data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)] data-[vaul-drawer-direction=bottom]:rounded-t-[10px]"
         closeClassName="top-2 right-2 size-10"
       >
         <DrawerHandle />

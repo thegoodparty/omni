@@ -190,7 +190,10 @@ export default function CreateListWizard({
       // main table — refreshCustomSegments already invalidated
       // ['custom-segments', orgSlug], so the sheet finds this list as soon
       // as it opens. selectList is shallow, so the index stays mounted.
-      selectList(response.id)
+      // Deferred so wizardOpen(false) commits before the detail sheet opens:
+      // pushState updates usePathname outside the React batch, which could
+      // otherwise render a frame with both full-screen drawers stacked.
+      setTimeout(() => selectList(response.id), 0)
     },
     onError: () => {
       errorSnackbar('Failed to create list')

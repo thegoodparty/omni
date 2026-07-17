@@ -226,7 +226,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(sentBody).not.toHaveProperty('activityConditions')
 
     await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
-    expect(selectList).toHaveBeenCalledWith(101)
+    await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(101))
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
@@ -705,8 +705,8 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
       variableCount: 0,
       hasParty: false,
     })
+    await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(555))
     expect(selectList).toHaveBeenCalledTimes(1)
-    expect(selectList).toHaveBeenCalledWith(555)
     expect(successSnackbar).toHaveBeenCalledTimes(1)
   })
 })
