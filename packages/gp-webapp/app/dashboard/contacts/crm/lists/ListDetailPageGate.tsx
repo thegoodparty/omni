@@ -38,9 +38,14 @@ export default function ListDetailPageGate({
   }
 
   // Settled and disabled: the redirect effect above is already firing —
-  // render nothing while it takes effect.
+  // keep the loading UI visible while navigation completes so the user
+  // never sees a blank layout.
   if (!enabled) {
-    return null
+    return (
+      <DashboardLayout>
+        <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+      </DashboardLayout>
+    )
   }
 
   return <ListDetailPage listId={listId} />
