@@ -281,6 +281,14 @@ describe('Contact interactions routes', () => {
         name: 'doorKnock without outcome',
         body: { channel: 'doorKnock', supportAnswer: 'supporter' },
       },
+      {
+        name: 'future occurredAt',
+        body: {
+          channel: 'doorKnock',
+          outcome: 'answered',
+          occurredAt: new Date(Date.now() + 86_400_000).toISOString(),
+        },
+      },
     ])('rejects $name with 400', async ({ body }) => {
       const slug = `win-pro-invalid-${Date.now()}-${Math.random()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })

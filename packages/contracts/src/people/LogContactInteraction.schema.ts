@@ -20,7 +20,13 @@ const NoteSchema = z
 
 // occurredAt defaults to now when omitted (applied by the caller, not here,
 // per the repo's date-fns convention for "now").
-const OccurredAtSchema = zCoerceDate().optional()
+// Future dates would win the latest-answer-wins support-status derivation
+// until they pass, silently overriding real interactions.
+const OccurredAtSchema = zCoerceDate()
+  .refine((d) => d <= new Date(), {
+    message: 'occurredAt cannot be in the future',
+  })
+  .optional()
 
 // .strict() on every branch: a plain z.object() silently strips unknown
 // keys, which would let `supportAnswer` ride along on a text/robocall
