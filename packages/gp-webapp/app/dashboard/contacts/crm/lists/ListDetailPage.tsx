@@ -218,6 +218,7 @@ export default function ListDetailPage({ listId }: ListDetailPageProps) {
                 {!isLocked && (
                   <DropdownMenuItem
                     variant="destructive"
+                    data-testid="list-detail-delete-trigger"
                     onClick={() => setDeleteOpen(true)}
                   >
                     <Trash2Icon />

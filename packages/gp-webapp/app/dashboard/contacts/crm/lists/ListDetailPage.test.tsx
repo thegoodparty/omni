@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { render } from 'helpers/test-utils/render'
-import { api } from 'helpers/test-utils/api-mocking'
+import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import ListDetailPage from './ListDetailPage'
@@ -25,6 +26,42 @@ vi.mock('../../../shared/DashboardLayout', () => ({
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
 }))
+// The real DropdownMenuItem depends on Radix context provided by its
+// DropdownMenu/DropdownMenuContent ancestors (createContextScope) and throws
+// without them — so the "More actions" menu's Delete trigger is mocked down
+// to plain elements (same approach as MoreMenu.test.tsx) rather than driving
+// Radix's floating-ui positioning, which nothing else in this test suite
+// exercises. Everything else in the barrel (Dialog, AlertDialog, Button, …)
+// stays real, so RenameListDialog/DeleteListDialog's own interactions are
+// exercised for real.
+vi.mock('@styleguide', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>()
+  return {
+    ...actual,
+    DropdownMenu: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    DropdownMenuContent: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    DropdownMenuItem: ({
+      children,
+      onClick,
+      'data-testid': dataTestId,
+    }: {
+      children: React.ReactNode
+      onClick?: () => void
+      'data-testid'?: string
+    }) => (
+      <button data-testid={dataTestId} onClick={onClick}>
+        {children}
+      </button>
+    ),
+  }
+})
 
 // Stable mock references (not a fresh vi.fn() per useSnackbar() call) — both
 // useContactsDownload and useDuplicateList call useSnackbar() independently
@@ -33,6 +70,11 @@ vi.mock('helpers/useSnackbar', () => ({
 const mockedUseSnackbar = vi.mocked(useSnackbar)
 const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
+
+// Must match RenameListDialog.tsx/DeleteListDialog.tsx's LOCKED_MESSAGE
+// exactly — both fire this same copy on a raced 409.
+const LOCKED_MESSAGE =
+  'This list was just used for outreach and is now locked — duplicate it to make changes.'
 
 const emptyDetailResponse = {
   demographics: { people: 100, avgAge: 42, avgIncome: 65000 },
@@ -98,6 +140,194 @@ describe('ListDetailPage — locked-state affordance (firstUsedForOutreachAt)', 
     expect(
       screen.queryByRole('button', { name: 'Rename list' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
+  const unlockedSegment = { id: 42, name: 'GOTV text list' }
+
+  it('rename success: PUT 200 -> success snackbar, segments invalidated, dialog closes', async () => {
+    let filtersCallCount = 0
+    api.mock('GET /v1/voters/voter-file/filters', () => {
+      filtersCallCount += 1
+      return { status: 200, data: [unlockedSegment] }
+    })
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: { id: 42, name: 'New Name' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
+    await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
+    const countBeforeSave = filtersCallCount
+
+    const input = screen.getByLabelText('List name')
+    await user.clear(input)
+    await user.type(input, 'New Name')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await vi.waitFor(() =>
+      expect(successSnackbar).toHaveBeenCalledWith('List renamed'),
+    )
+    await vi.waitFor(() =>
+      expect(filtersCallCount).toBeGreaterThan(countBeforeSave),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(errorSnackbar).not.toHaveBeenCalled()
+  })
+
+  it('rename raced 409: locked-message error snackbar, invalidate, dialog closes, no generic failure toast', async () => {
+    let filtersCallCount = 0
+    api.mock('GET /v1/voters/voter-file/filters', () => {
+      filtersCallCount += 1
+      return { status: 200, data: [unlockedSegment] }
+    })
+    // api.mock's typed status union doesn't include 409 (the ticket's
+    // documented locking edge case), so this exercises the raw mswServer
+    // with an explicit HttpResponse instead of widening that union.
+    mswServer.use(
+      http.put('/api/v1/voters/voter-file/filter/:id', () =>
+        HttpResponse.json(
+          { statusCode: 409, message: LOCKED_MESSAGE, error: 'Conflict' },
+          { status: 409 },
+        ),
+      ),
+    )
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
+    await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
+    const countBeforeSave = filtersCallCount
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_MESSAGE, {
+        autoHideDuration: 6000,
+      }),
+    )
+    await vi.waitFor(() =>
+      expect(filtersCallCount).toBeGreaterThan(countBeforeSave),
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(errorSnackbar).not.toHaveBeenCalledWith('Failed to rename list')
+  })
+
+  it('rename generic 500: error snackbar, dialog stays open', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 500,
+      data: { message: 'server exploded' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith('Failed to rename list'),
+    )
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+})
+
+describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
+  const unlockedSegment = { id: 42, name: 'GOTV text list' }
+
+  it('delete success: DELETE 200 -> success snackbar + router.push to the index', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: {},
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await user.click(await screen.findByTestId('list-detail-delete-trigger'))
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    await vi.waitFor(() =>
+      expect(successSnackbar).toHaveBeenCalledWith('List deleted'),
+    )
+    await vi.waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith('/dashboard/contacts'),
+    )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  it('delete raced 409: locked-message error snackbar, invalidate, dialog closes, no navigation', async () => {
+    let filtersCallCount = 0
+    api.mock('GET /v1/voters/voter-file/filters', () => {
+      filtersCallCount += 1
+      return { status: 200, data: [unlockedSegment] }
+    })
+    mswServer.use(
+      http.delete('/api/v1/voters/voter-file/filter/:id', () =>
+        HttpResponse.json(
+          { statusCode: 409, message: LOCKED_MESSAGE, error: 'Conflict' },
+          { status: 409 },
+        ),
+      ),
+    )
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await user.click(await screen.findByTestId('list-detail-delete-trigger'))
+    await vi.waitFor(() => expect(filtersCallCount).toBeGreaterThanOrEqual(1))
+    const countBeforeDelete = filtersCallCount
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_MESSAGE, {
+        autoHideDuration: 6000,
+      }),
+    )
+    await vi.waitFor(() =>
+      expect(filtersCallCount).toBeGreaterThan(countBeforeDelete),
+    )
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('delete generic 500: error snackbar, dialog stays open, no navigation', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', {
+      status: 500,
+      data: { message: 'server exploded' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await user.click(await screen.findByTestId('list-detail-delete-trigger'))
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith('Failed to delete list'),
+    )
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument()
+    expect(router.push).not.toHaveBeenCalled()
   })
 })
 

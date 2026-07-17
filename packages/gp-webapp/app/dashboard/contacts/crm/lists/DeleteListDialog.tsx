@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type MouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
@@ -45,7 +45,16 @@ export default function DeleteListDialog({
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const handleDelete = async (): Promise<void> => {
+  // AlertDialogAction is a Radix DialogPrimitive.Close under the hood — a
+  // click always closes the dialog unless the handler calls
+  // preventDefault() synchronously (Radix checks event.defaultPrevented
+  // right after the click, it doesn't await this async handler). Without
+  // this, a generic (non-409) delete failure would still visually close the
+  // confirm dialog out from under the user before the error toast lands.
+  const handleDelete = async (
+    event: MouseEvent<HTMLButtonElement>,
+  ): Promise<void> => {
+    event.preventDefault()
     setIsDeleting(true)
     try {
       await clientRequest('DELETE /v1/voters/voter-file/filter/:id', {
