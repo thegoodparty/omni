@@ -84,7 +84,13 @@ import { dirname, join, relative } from 'node:path'
 // 2026-07-16: +1 for QualityReport — the ordinance draft quality-report section
 // generates/re-runs and manages loading/error state, so it must be a client
 // component.
-const BASELINE = 545
+// 2026-07-17: 545 -> 550 for the ENG-10708 list creation wizard
+// (crm/wizard/): CreateListWizard (dialog/step state + create mutation),
+// BranchStep (controlled RadioGroup), VoterFileStep (checkbox filter state),
+// ActivityStep (stacked condition rows + a react-query outreach fetch), and
+// NameStep (name input) are all genuinely interactive and can't render on
+// the server.
+const BASELINE = 550
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

@@ -46,7 +46,9 @@ import type {
   ContactNoteListResponse,
   LogContactInteractionInput,
   LogContactInteractionResponse,
+  SupportStatusRollup,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
@@ -589,11 +591,19 @@ export type APIEndpoints = {
   }
 
   'POST /v1/voters/voter-file/filter': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'PUT /v1/voters/voter-file/filter/:id': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'GET /v1/voters/voter-file/filters': {
@@ -619,7 +629,10 @@ export type APIEndpoints = {
     Response: Person
   }
   'POST /v1/contacts/count': {
-    Request: Record<string, unknown>
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: { count: number }
   }
   'GET /v1/contacts/download': {

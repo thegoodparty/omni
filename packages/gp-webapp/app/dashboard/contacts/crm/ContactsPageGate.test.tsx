@@ -32,6 +32,9 @@ vi.mock('./person/PersonOverlay', () => ({ default: () => null }))
 vi.mock('./ContactTypeahead', () => ({
   ContactTypeahead: () => <div data-testid="typeahead" />,
 }))
+vi.mock('./wizard/CreateListWizard', () => ({
+  default: () => null,
+}))
 vi.mock('../[[...attr]]/components/ContactSearch', () => ({
   ContactSearch: () => <div data-testid="search" />,
 }))
