@@ -253,6 +253,10 @@ export default function ChiefOfStaffChatBody({
     analyticsLabel,
   })
   const [error, setError] = useState<ErrorState | null>(null)
+  // True once anything has been sent this session (visible OR hidden). Gates the
+  // with-greeting starter chips off after a hidden kickoff (which adds no user
+  // turn). State, so it re-renders; resets naturally on remount / new chat.
+  const [hasSent, setHasSent] = useState(false)
   const [creating, setCreating] = useState(false)
   const [sending, setSending] = useState(false)
   const [introProgress, setIntroProgress] = useState(0)
@@ -267,7 +271,11 @@ export default function ChiefOfStaffChatBody({
   } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
-  const kickedOffRef = useRef(false)
+  // Tracks the pendingKickoff value that has already fired, not just a boolean:
+  // the parent clears pendingKickoff on close and re-sets the same sentinel on
+  // reopen, and the body stays mounted, so a value-based guard (reset when the
+  // kickoff clears) lets that second open fire again instead of dropping it.
+  const kickedOffRef = useRef<string | undefined>(undefined)
   const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
@@ -779,6 +787,7 @@ export default function ChiefOfStaffChatBody({
       if (!trimmed) return false
       if (sendingRef.current || creatingRef.current) return false
       sendingRef.current = true
+      setHasSent(true)
       const clientMessageId = newClientMessageId()
       // A send during a reveal drain commits the previous assistant message
       // first so the transcript stays ordered.
@@ -823,14 +832,13 @@ export default function ChiefOfStaffChatBody({
     [suggestions, sendContent],
   )
 
-  // Whether the transcript already has a real user turn. Gates the
-  // showSuggestionsWithGreeting chips: a resumed conversation (history loaded
-  // from a prior send) should not show starter chips again, only a freshly
-  // seeded greeting that the user hasn't replied to yet.
-  const hasUserTurn = useMemo(
-    () => history.some((h) => h.kind === 'user'),
-    [history],
-  )
+  // The with-greeting chips show only while the conversation is pristine:
+  // nothing sent this session and the transcript is at most the single seeded
+  // greeting (still playing back, or just committed). A hidden kickoff sets
+  // hasSent with no user turn, and a resumed conversation with a prior reply
+  // has more than one message, so both correctly hide the chips.
+  const isPristineGreeting =
+    !hasSent && history.length + (playback?.items.length ?? 0) <= 1
 
   // Fire the one-shot kickoff once the surface is open and any load/create has
   // settled, so it appends to the resolved conversation rather than racing a
@@ -843,12 +851,18 @@ export default function ChiefOfStaffChatBody({
   // conversation) until the resumed id is settled. The ref guards a re-render
   // from re-firing it.
   useEffect(() => {
-    if (!active || !pendingKickoff || kickedOffRef.current) return
+    // Reset on clear so a later re-set to the same sentinel (close then reopen)
+    // counts as a fresh kickoff.
+    if (!pendingKickoff) {
+      kickedOffRef.current = undefined
+      return
+    }
+    if (!active || kickedOffRef.current === pendingKickoff) return
     if (creating || creatingRef.current) return
     if (conversationIdOverride && conversationId !== conversationIdOverride) {
       return
     }
-    kickedOffRef.current = true
+    kickedOffRef.current = pendingKickoff
     void send(pendingKickoff, { hidden: true })
   }, [
     active,
@@ -1036,7 +1050,7 @@ export default function ChiefOfStaffChatBody({
       </div>
 
       {((history.length === 0 && !playback) ||
-        (showSuggestionsWithGreeting && !hasUserTurn)) &&
+        (showSuggestionsWithGreeting && isPristineGreeting)) &&
         streaming === null &&
         !error && (
           <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">

@@ -133,10 +133,11 @@ const advancePastManualOfficeEntry = async (): Promise<void> => {
 }
 
 beforeEach(() => {
-  // Matches the pre-mock default (no FeatureFlagsProvider in these tests, so
-  // the context default resolves to ready:false/enabled:false) so every
-  // existing test keeps seeing the flag off unless it opts in.
-  setCampaignStoryFlag(false, false)
+  // Flag resolved (ready) but story cohort off by default, so every existing
+  // test keeps seeing the story step omitted while Continue stays enabled
+  // (canContinue now gates on campaignStoryReady). Tests opt into the cohort
+  // by calling setCampaignStoryFlag(true, true) themselves.
+  setCampaignStoryFlag(true, false)
   mockTrackEvent.mockClear()
 })
 
@@ -556,6 +557,75 @@ describe('new onboarding flow shell', () => {
       ([event]) => event === EVENTS.OnboardingV2.CampaignStorySkipped,
     )
     expect(skippedCalls).toHaveLength(1)
+  })
+
+  it('labels the pledge button "Agree & Continue" for the campaign-story cohort', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+
+    // On the (incomplete) story step, skip to the pledge.
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    // Story comes before the pledge and submit routes to the Campaign Manager,
+    // so the old "Let's Create Your Story" copy is gone.
+    expect(
+      screen.getByRole('button', { name: 'Agree & Continue' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: "Let's Create Your Story" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the flag-off pledge label "Agree & Create My Plan"', async () => {
+    setCampaignStoryFlag(true, false)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    // Story step is omitted when the flag is off, so this lands on the pledge.
+    await advancePastManualOfficeEntry()
+
+    expect(
+      await screen.findByText('Take our pledge to get your campaign plan'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Agree & Create My Plan' }),
+    ).toBeInTheDocument()
+  })
+
+  it('blocks Continue until the campaign-story flag is ready', () => {
+    setCampaignStoryFlag(false, false)
+    const { rerender } = renderFlow()
+
+    // Flag not yet resolved: advancing could skip the story step, so hold.
+    expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled()
+
+    setCampaignStoryFlag(true, false)
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <OnboardingFlow />
+      </QueryClientProvider>,
+    )
+
+    expect(screen.getByRole('button', { name: /continue/i })).toBeEnabled()
   })
 
   it('fires CampaignStoryCompleted and generation once when a prior skip is followed by completion', async () => {

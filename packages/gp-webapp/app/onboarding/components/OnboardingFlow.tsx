@@ -427,6 +427,10 @@ export default function OnboardingFlow({
     !isSavingOffice &&
     !isP2vBlocking &&
     !isOfficeHydrationBlocking &&
+    // Hold Continue until the story flag resolves so effectiveSteps is stable
+    // (story step present) before the candidate can advance past it — otherwise
+    // a slow flag load drops the step and they never see it.
+    campaignStoryReady &&
     pledgeFlagsReady
 
   const handleP2vLoadingChange = useCallback((loading: boolean) => {
@@ -1156,7 +1160,7 @@ export default function OnboardingFlow({
                 : 'Continue'
               : activeStep.id === 'pledge'
                 ? campaignStoryEnabled
-                  ? "Let's Create Your Story"
+                  ? 'Agree & Continue'
                   : 'Agree & Create My Plan'
                 : 'Complete'}
           </Button>

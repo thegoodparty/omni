@@ -454,6 +454,136 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
   })
 
+  it('re-fires the kickoff when pendingKickoff is cleared then re-set to the same value (close/reopen)', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_k' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    const { rerender } = render(
+      <ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />,
+    )
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+
+    // Parent clears the kickoff on close (surface still mounted)...
+    rerender(<ChiefOfStaffChatBody active={false} />)
+    // ...then re-opens with the SAME sentinel on the still-mounted body.
+    rerender(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
+
+    // The kickoff fires a second time — the story flow can restart.
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('does not fire the kickoff twice on a re-render that keeps pendingKickoff set', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_k' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    const { rerender } = render(
+      <ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />,
+    )
+
+    await waitFor(() => expect(streamMessageMock).toHaveBeenCalledTimes(1))
+
+    // A re-render with the same value must not re-fire it.
+    rerender(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
+    await waitFor(() =>
+      expect(screen.getByText('Kickoff reply.')).toBeInTheDocument(),
+    )
+    expect(streamMessageMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the with-greeting chips after a hidden kickoff send (no user turn)', async () => {
+    const user = userEvent.setup()
+    createMock.mockResolvedValue({ conversationId: 'conv_greet' })
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_greet',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+    ])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Tell me your why.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_greet"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Personalize', kickoff: '__kick__' }]}
+      />,
+    )
+
+    // The chip renders alongside the seeded greeting...
+    const chip = await screen.findByRole('button', { name: 'Personalize' })
+    await user.click(chip)
+
+    // ...the hidden kickoff streams its reply (no user bubble)...
+    await waitFor(() =>
+      expect(screen.getByText('Tell me your why.')).toBeInTheDocument(),
+    )
+    // ...and the chips are gone even though there is still no user turn.
+    expect(
+      screen.queryByRole('button', { name: 'Personalize' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not show with-greeting chips when resuming a conversation that already has a kickoff reply (assistant-only, no user turn)', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_prior',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_prior',
+        role: 'assistant',
+        content: 'Here is what I found for your week.',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_prior"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Personalize', kickoff: '__kick__' }]}
+      />,
+    )
+
+    // The prior kickoff reply loads (assistant messages, no user turn)...
+    await waitFor(() =>
+      expect(
+        screen.getByText('Here is what I found for your week.'),
+      ).toBeInTheDocument(),
+    )
+    // ...and the starter chips do not re-appear.
+    expect(
+      screen.queryByRole('button', { name: 'Personalize' }),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders a suggestion description as a secondary line, and label-only when absent', async () => {
     listConversationsMock.mockResolvedValue([])
 
