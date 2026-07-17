@@ -114,6 +114,9 @@ export default function DraftDetail({
     setDeleteError(null)
     try {
       await deleteOrdinance(ordinance.slug)
+      // router.push doesn't synchronously unmount, so close the dialog now — a
+      // lingering confirming=true would otherwise lock it open during the nav.
+      setDeleteOpen(false)
       router.push('/dashboard/ordinances')
     } catch {
       setDeleting(false)
