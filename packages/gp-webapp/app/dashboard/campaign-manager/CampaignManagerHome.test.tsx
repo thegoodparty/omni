@@ -17,7 +17,7 @@ type SurfaceProps = React.ComponentProps<
 
 // The `personalize=1` deep link (from the plan-tab story gate) drives this
 // home's own useSearchParams/useRouter effect, so this file supplies its own
-// mock (overriding vitest.setup.ts's bare useRouter/usePathname one) — same
+// mock (overriding vitest.setup.ts's bare useRouter/usePathname one), same
 // pattern as OutreachComposeDeepLink.test.tsx.
 let mockSearchParams = new URLSearchParams()
 const mockRouterReplace = vi.fn()
@@ -222,7 +222,7 @@ describe('CampaignManagerHome', () => {
         }),
       ),
     )
-    // The kickoff prompt is hidden — no user bubble shows the sentinel text.
+    // The kickoff prompt is hidden, no user bubble shows the sentinel text.
     expect(
       screen.queryByText(CAMPAIGN_MANAGER_START_STORY_SENTINEL),
     ).not.toBeInTheDocument()

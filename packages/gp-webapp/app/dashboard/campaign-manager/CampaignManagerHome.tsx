@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
@@ -44,6 +44,7 @@ export default function CampaignManagerHome({
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const [chatOpen, setChatOpen] = useState(false)
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -121,10 +122,13 @@ export default function CampaignManagerHome({
   useEffect(() => {
     if (personalizeDeepLinkFiredRef.current) return
     if (searchParams?.get('personalize') !== '1') return
+    // pathname is only null under the pages/ router compat typing; this
+    // component only ever renders under the app router, where it's a string.
+    if (!pathname) return
     personalizeDeepLinkFiredRef.current = true
     startStory()
-    router.replace('/dashboard')
-  }, [searchParams, router, startStory])
+    router.replace(pathname)
+  }, [searchParams, router, pathname, startStory])
 
   return (
     <div className="flex min-h-screen flex-col bg-muted pb-20 lg:pb-12">

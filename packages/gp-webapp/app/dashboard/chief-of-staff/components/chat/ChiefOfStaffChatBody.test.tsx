@@ -278,13 +278,58 @@ describe('<ChiefOfStaffChatBody>', () => {
     )
 
     // The seeded greeting types in (playback) and the custom chip renders
-    // alongside it — the default gate would hide chips while playback runs.
+    // alongside it (the default gate would hide chips while playback runs).
     await waitFor(() =>
       expect(screen.getByText(/^Welcome back/)).toBeInTheDocument(),
     )
     const chip = await screen.findByRole('button', { name: 'Tell my story' })
     await user.click(chip)
     expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not render suggestions with a greeting once the transcript has a real user turn (resumed conversation)', async () => {
+    const onSelect = vi.fn()
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_resume',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_resume',
+        role: 'user',
+        content: 'earlier question',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+      {
+        id: 'm3',
+        conversationId: 'conv_resume',
+        role: 'assistant',
+        content: 'earlier answer',
+        createdAt: '2026-07-01T00:00:02.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_resume"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Tell my story', onSelect }]}
+      />,
+    )
+
+    // The resumed transcript loads (already has a real user turn)...
+    await waitFor(() =>
+      expect(screen.getByText('earlier answer')).toBeInTheDocument(),
+    )
+    // ...and the chips do not render, unlike the freshly-seeded-greeting case.
+    expect(
+      screen.queryByRole('button', { name: 'Tell my story' }),
+    ).not.toBeInTheDocument()
   })
 
   it('renders the default suggestions only on an empty transcript and sends the label text on click', async () => {
@@ -344,13 +389,13 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() =>
       expect(screen.getByText('Canned kickoff reply.')).toBeInTheDocument(),
     )
-    // The kickoff message is hidden — no user bubble for it in the transcript.
+    // The kickoff message is hidden, no user bubble for it in the transcript.
     expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
   })
 
   it('fires the kickoff into an override conversation without minting a new one', async () => {
     // A fresh create is mocked so that, if the kickoff wrongly raced the load,
-    // it would mint this id — the assertions below prove it does not.
+    // it would mint this id, the assertions below prove it does not.
     createMock.mockResolvedValue({ conversationId: 'conv_new' })
     listMessagesMock.mockResolvedValue([
       {
@@ -467,7 +512,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     await waitFor(() =>
       expect(screen.getByText('Kicked off reply.')).toBeInTheDocument(),
     )
-    // The kickoff content is hidden — no user bubble for it in the transcript.
+    // The kickoff content is hidden, no user bubble for it in the transcript.
     expect(screen.queryByText('__story_kickoff__')).not.toBeInTheDocument()
   })
 

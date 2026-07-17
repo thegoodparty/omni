@@ -184,6 +184,9 @@ export class GeneralChatsService {
           conversationId: args.conversationId,
           role: ChatMessageRole.assistant,
           content: canned,
+          // No user row is written on this path, so clientMessageId here
+          // idempotency-keys the retried send: appendMessageIdempotent dedups
+          // a resend of the same canned reply.
           ...(args.clientMessageId && {
             clientMessageId: args.clientMessageId,
           }),

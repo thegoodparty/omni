@@ -823,6 +823,15 @@ export default function ChiefOfStaffChatBody({
     [suggestions, sendContent],
   )
 
+  // Whether the transcript already has a real user turn. Gates the
+  // showSuggestionsWithGreeting chips: a resumed conversation (history loaded
+  // from a prior send) should not show starter chips again, only a freshly
+  // seeded greeting that the user hasn't replied to yet.
+  const hasUserTurn = useMemo(
+    () => history.some((h) => h.kind === 'user'),
+    [history],
+  )
+
   // Fire the one-shot kickoff once the surface is open and any load/create has
   // settled, so it appends to the resolved conversation rather than racing a
   // fresh create. `creating`/`creatingRef` gate on an in-flight load or create.
@@ -1026,7 +1035,8 @@ export default function ChiefOfStaffChatBody({
         )}
       </div>
 
-      {((history.length === 0 && !playback) || showSuggestionsWithGreeting) &&
+      {((history.length === 0 && !playback) ||
+        (showSuggestionsWithGreeting && !hasUserTurn)) &&
         streaming === null &&
         !error && (
           <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
