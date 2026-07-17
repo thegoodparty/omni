@@ -87,6 +87,13 @@ export const convertVoterFileFilterToFilters = (
     'registeredVoterTrue',
     'registeredVoterFalse',
     'registeredVoterUnknown',
+    // Resolved by the activity-condition/support-status resolution engine
+    // (CRM feature 4 task 05), not this generic key->filter loop — an
+    // activityConditions array of objects or a supportStatus string array
+    // would otherwise fall into the generic `else` branch below and produce
+    // a meaningless FilterObject entry.
+    'activityConditions',
+    'supportStatus',
   ])
 
   const fieldsHandledSeparately = new Set([
