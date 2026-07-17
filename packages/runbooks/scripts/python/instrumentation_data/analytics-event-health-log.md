@@ -11,8 +11,8 @@ anomaly-flagged -> dormant, with the first appearance of a divergence visible. S
 | --- | --- | --- | --- |
 | active | `retired_date` empty | fired in 30d | healthy |
 | dormant | empty | quiet 30d | code still present but stopped firing; still intended? |
-| deprecating | set | quiet, within 30d window | being retired; in the holding window |
-| orphaned_firing | set | still firing | code removed but events still arrive; escalate |
+| deprecating | set | last fire on/before `retired_date`, within 30d window | being retired; in the holding window (includes fresh retirees whose pre-retirement traffic still sits in the 30d count) |
+| orphaned_firing | set | last fire *after* `retired_date` (+ grace) | code removed but events still arrive; escalate |
 | retired | set | quiet 30d+ | cleanly retired |
 | code_unknown | no provenance row | any | auto-tracked or brand-new; anomaly-watched only |
 | instrumented_never_observed | present, not retired | never seen | possible broken instrumentation |
