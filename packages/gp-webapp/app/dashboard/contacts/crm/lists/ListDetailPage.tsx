@@ -210,6 +210,7 @@ export default function ListDetailPage({ listId }: ListDetailPageProps) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
+                  disabled={duplicateMutation.isPending}
                   onClick={() => duplicateMutation.mutate(segment)}
                 >
                   <CopyIcon />
