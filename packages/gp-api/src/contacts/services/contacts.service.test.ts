@@ -1574,7 +1574,7 @@ describe('ContactsService', () => {
         ])
       })
 
-      it('runs base/cellphone/address aggregate calls in parallel and maps reachability channels', async () => {
+      it('runs base/cellphone/landline/address aggregate calls in parallel and maps reachability channels', async () => {
         const org = makeOrganization({
           slug: 'campaign-1',
           overrideDistrictId: OVERRIDE_DISTRICT_ID,
@@ -1589,6 +1589,9 @@ describe('ContactsService', () => {
         mockHttpService.post
           .mockReturnValueOnce(aggregatesResponse(100, 42, 55000))
           .mockReturnValueOnce(aggregatesResponse(60))
+          // Distinct from the cellphone count so a phoneBanking/sms mix-up
+          // (both reading the same mocked value) would fail this assertion.
+          .mockReturnValueOnce(aggregatesResponse(45))
           .mockReturnValueOnce(aggregatesResponse(30))
 
         const result = await service.getListDetail({ segment: 42 }, org)
@@ -1601,19 +1604,22 @@ describe('ContactsService', () => {
         expect(result.reachability).toEqual({
           sms: 60,
           robocall: 60,
-          phoneBanking: 60,
+          // phoneBanking mirrors segmentsToFiltersMap.const.ts: landline-only,
+          // not the cellphone count sms/robocall use.
+          phoneBanking: 45,
           doorKnocking: 30,
           email: null,
           metaAds: null,
         })
 
-        expect(mockHttpService.post).toHaveBeenCalledTimes(3)
+        expect(mockHttpService.post).toHaveBeenCalledTimes(4)
         const bodies = mockHttpService.post.mock.calls.map(
           (call) => call[1] as { filters: Record<string, unknown> },
         )
         expect(bodies[0]?.filters).toEqual({})
         expect(bodies[1]?.filters).toEqual({ hasCellPhone: true })
-        expect(bodies[2]?.filters).toEqual({ hasAddress: true })
+        expect(bodies[2]?.filters).toEqual({ hasLandline: true })
+        expect(bodies[3]?.filters).toEqual({ hasAddress: true })
       })
 
       it('merges a resolved activity-condition id filter into every outgoing aggregate call', async () => {

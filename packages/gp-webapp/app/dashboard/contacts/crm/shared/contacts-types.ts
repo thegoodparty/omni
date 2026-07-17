@@ -7,11 +7,13 @@ import type {
   ConstituentActivityEventType,
   DoorKnockConstituentActivity,
   GetIndividualActivitiesResponse,
+  ListDetailContactsResponse,
+  ListDetailOutreachHistoryEntry,
+  ListDetailReachability,
   LogContactInteractionInput,
   LogContactInteractionResponse,
   NoteConstituentActivity,
   OutreachConstituentActivity,
-  OutreachStatus,
   OutreachType,
   PeopleListResponse,
   Person,
@@ -80,31 +82,11 @@ export type OutreachAttributionSource = VoterOutreachAttributionSource
 
 // GET /v1/contacts/list-detail (ENG-10706): demographics + reachable-by-channel
 // counts + outreach history for one saved list, consumed by the list-detail
-// page (task 08). email/metaAds are always null — no eligibility data source
-// exists for either channel, so the UI renders them as unavailable, never 0.
-export type ListDetailReachability = {
-  sms: number
-  robocall: number
-  phoneBanking: number
-  doorKnocking: number
-  email: null
-  metaAds: null
-}
-
-export type ListDetailOutreachHistoryEntry = {
-  id: number
-  name: string | null
-  outreachType: OutreachType
-  status: OutreachStatus | null
-  date: string | null
-}
-
-export type ListDetailContactsResponse = {
-  demographics: {
-    people: number
-    avgAge: number | null
-    avgIncome: number | null
-  }
-  reachability: ListDetailReachability
-  outreachHistory: ListDetailOutreachHistoryEntry[]
+// page (task 08). Defined once in
+// @goodparty_org/contracts/people/ListDetailContacts.schema and re-exported
+// here so this feature's imports don't all need to change.
+export type {
+  ListDetailContactsResponse,
+  ListDetailOutreachHistoryEntry,
+  ListDetailReachability,
 }

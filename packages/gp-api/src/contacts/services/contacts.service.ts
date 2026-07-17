@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import type { ListDetailContactsResponse } from '@goodparty_org/contracts'
 import { Organization, User } from '../../generated/prisma'
 import { FeaturesService } from 'src/features/services/features.service'
 import { isAxiosError } from 'axios'
@@ -33,10 +34,7 @@ import {
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
-import {
-  ListDetailContactsDTO,
-  ListDetailContactsResponse,
-} from '../schemas/listDetailContacts.schema'
+import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -476,21 +474,28 @@ export class ContactsService {
 
     const filters = this.mergeIdFilter(baseFilters, idResolution)
 
-    const [base, cellphone, address] = await this.withOrgDistrictResolution(
-      organization,
-      (districtParams) =>
+    const [base, cellphone, landline, address] =
+      await this.withOrgDistrictResolution(organization, (districtParams) =>
         Promise.all([
           this.fetchPeopleAggregates(districtParams, filters),
           this.fetchPeopleAggregates(districtParams, {
             ...filters,
             hasCellPhone: true,
           }),
+          // phoneBanking mirrors the built-in channel map
+          // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
+          // phones — the legacy raw-SQL export's phoneBanking population is
+          // landline-only.
+          this.fetchPeopleAggregates(districtParams, {
+            ...filters,
+            hasLandline: true,
+          }),
           this.fetchPeopleAggregates(districtParams, {
             ...filters,
             hasAddress: true,
           }),
         ]),
-    )
+      )
 
     return {
       demographics: {
@@ -501,7 +506,7 @@ export class ContactsService {
       reachability: {
         sms: cellphone.count,
         robocall: cellphone.count,
-        phoneBanking: cellphone.count,
+        phoneBanking: landline.count,
         doorKnocking: address.count,
         email: null,
         metaAds: null,

@@ -120,6 +120,17 @@ export {
   type LogContactInteractionResponse,
 } from './people/LogContactInteraction.schema'
 
+export {
+  ListDetailDemographicsSchema,
+  type ListDetailDemographics,
+  ListDetailReachabilitySchema,
+  type ListDetailReachability,
+  ListDetailOutreachHistoryEntrySchema,
+  type ListDetailOutreachHistoryEntry,
+  ListDetailContactsResponseSchema,
+  type ListDetailContactsResponse,
+} from './people/ListDetailContacts.schema'
+
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
 export { ZipSchema } from './shared/Zip.schema'

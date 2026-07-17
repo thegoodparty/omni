@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
+import { ListDetailContactsResponseSchema } from '@goodparty_org/contracts'
 import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -19,10 +20,7 @@ import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
-import {
-  ListDetailContactsDTO,
-  listDetailResponseSchema,
-} from './schemas/listDetailContacts.schema'
+import { ListDetailContactsDTO } from './schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -87,7 +85,7 @@ export class ContactsController {
   }
 
   @Get('list-detail')
-  @ResponseSchema(listDetailResponseSchema)
+  @ResponseSchema(ListDetailContactsResponseSchema)
   async getListDetail(
     @Query() dto: ListDetailContactsDTO,
     @ReqOrganization() organization: Organization,
