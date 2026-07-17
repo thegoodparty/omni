@@ -415,6 +415,51 @@ describe('Ordinances endpoints', () => {
     }
   })
 
+  it('exports the draft as a downloadable PDF', async () => {
+    const orgSlug = 'eo-ordinances-export-pdf'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+
+    const res = await service.client.get(
+      `/v1/ordinances/${slug}/export?format=pdf`,
+      { ...header, responseType: 'arraybuffer' },
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('application/pdf')
+    expect(res.headers['content-disposition']).toContain('attachment')
+    expect(Buffer.from(res.data).subarray(0, 5).toString('ascii')).toBe('%PDF-')
+  })
+
+  it('exports the draft as a downloadable Word document', async () => {
+    const orgSlug = 'eo-ordinances-export-docx'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+
+    const res = await service.client.get(
+      `/v1/ordinances/${slug}/export?format=docx`,
+      { ...header, responseType: 'arraybuffer' },
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('wordprocessingml.document')
+    expect(res.headers['content-disposition']).toContain('attachment')
+    expect(Buffer.from(res.data).subarray(0, 2).toString('ascii')).toBe('PK')
+  })
+
+  it('rejects an unknown export format', async () => {
+    const orgSlug = 'eo-ordinances-export-bad'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const slug = await seedDraftOrdinance(header)
+
+    const res = await service.client.get(
+      `/v1/ordinances/${slug}/export?format=txt`,
+      header,
+    )
+    expect(res.status).toBe(400)
+  })
+
   it('marks a stored report stale after the draft changes', async () => {
     const orgSlug = 'eo-ordinances-qc-stale'
     await seedElectedOffice(orgSlug)

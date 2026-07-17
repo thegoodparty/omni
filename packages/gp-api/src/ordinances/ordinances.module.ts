@@ -8,6 +8,7 @@ import { ElectedOfficeModule } from '@/electedOffice/electedOffice.module'
 import { OrdinancesController } from './ordinances.controller'
 import { OrdinanceFlowController } from './controllers/ordinanceFlow.controller'
 import { OrdinancesService } from './services/ordinances.service'
+import { OrdinanceExportService } from './services/ordinanceExport.service'
 import { OrdinanceCodePersistService } from './services/ordinanceCodePersist.service'
 import { OrdinanceCodeReadService } from './services/ordinanceCodeRead.service'
 import { OrdinanceDispatchService } from './services/ordinanceDispatch.service'
@@ -25,6 +26,7 @@ import { OrdinanceQualityReportService } from './services/ordinanceQualityReport
   controllers: [OrdinancesController, OrdinanceFlowController],
   providers: [
     OrdinancesService,
+    OrdinanceExportService,
     OrdinanceCodePersistService,
     OrdinanceCodeReadService,
     OrdinanceDispatchService,

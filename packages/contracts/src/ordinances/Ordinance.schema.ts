@@ -350,3 +350,8 @@ export const UpdateOrdinanceRequestSchema = z
 export type UpdateOrdinanceRequest = z.infer<
   typeof UpdateOrdinanceRequestSchema
 >
+
+// Formats the ordinance draft can be exported as. Crosses the service boundary
+// (the `format` query param), so it lives here as the single source of truth.
+export const ORDINANCE_EXPORT_FORMATS = ['pdf', 'docx'] as const
+export type OrdinanceExportFormat = (typeof ORDINANCE_EXPORT_FORMATS)[number]

@@ -42,7 +42,12 @@ import type {
 } from '@goodparty_org/contracts'
 import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
-import { deleteOrdinance, updateOrdinance } from '../data/ordinances-api'
+import {
+  deleteOrdinance,
+  downloadOrdinanceExport,
+  updateOrdinance,
+  type OrdinanceExportFormat,
+} from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
 import DraftChat from './DraftChat'
 import QualityReport from './QualityReport'
@@ -106,8 +111,18 @@ export default function DraftDetail({
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const router = useRouter()
+
+  const handleExport = async (format: OrdinanceExportFormat): Promise<void> => {
+    setExportError(null)
+    try {
+      await downloadOrdinanceExport(ordinance.slug, format)
+    } catch {
+      setExportError('Could not export the draft. Please try again.')
+    }
+  }
 
   const confirmDelete = async (): Promise<void> => {
     setDeleting(true)
@@ -384,11 +399,11 @@ export default function DraftDetail({
                 </IconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleExport('pdf')}>
                   <FileTextIcon className="size-4" aria-hidden />
                   Download as PDF
                 </DropdownMenuItem>
-                <DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleExport('docx')}>
                   <FileTextIcon className="size-4" aria-hidden />
                   Download as Word
                 </DropdownMenuItem>
@@ -397,6 +412,12 @@ export default function DraftDetail({
           </div>
         </div>
       </header>
+
+      {exportError ? (
+        <div className="mx-auto w-full max-w-3xl px-6 pt-2">
+          <p className="text-sm text-destructive">{exportError}</p>
+        </div>
+      ) : null}
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
