@@ -762,8 +762,8 @@ export default function ChiefOfStaffChatBody({
 
   // The shared send path. `hidden` skips the optimistic user bubble so a
   // kickoff message streams a reply without showing the prompt that triggered
-  // it (the server hides it / returns a canned reply); everything else — the
-  // reveal-drain commit, the mid-playback flush, the stream — is identical.
+  // it (the server hides it / returns a canned reply); everything else (the
+  // reveal-drain commit, the mid-playback flush, the stream) is identical.
   const send = useCallback(
     async (content: string, options?: { hidden?: boolean }) => {
       const trimmed = content.trim()
@@ -815,14 +815,31 @@ export default function ChiefOfStaffChatBody({
   )
 
   // Fire the one-shot kickoff once the surface is open and any load/create has
-  // settled (so it appends to the resolved conversation rather than racing a
-  // fresh create). The ref guards against a re-render re-firing it.
+  // settled, so it appends to the resolved conversation rather than racing a
+  // fresh create. `creating`/`creatingRef` gate on an in-flight load or create.
+  // With an override, also hold until that conversation's id has actually been
+  // applied: `loadExisting` sets `conversationId` and `creating` in the same
+  // synchronous pass this effect runs in, so reading `creating` alone is stale
+  // on that first pass, but `conversationId` is still null then too, so the
+  // override guard keeps the kickoff from firing (and minting a fresh
+  // conversation) until the resumed id is settled. The ref guards a re-render
+  // from re-firing it.
   useEffect(() => {
     if (!active || !pendingKickoff || kickedOffRef.current) return
-    if (creating) return
+    if (creating || creatingRef.current) return
+    if (conversationIdOverride && conversationId !== conversationIdOverride) {
+      return
+    }
     kickedOffRef.current = true
     void send(pendingKickoff, { hidden: true })
-  }, [active, pendingKickoff, creating, send])
+  }, [
+    active,
+    pendingKickoff,
+    creating,
+    conversationId,
+    conversationIdOverride,
+    send,
+  ])
 
   const onSend = useCallback(async () => {
     const sent = await sendContent(composer)

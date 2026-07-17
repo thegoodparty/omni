@@ -348,6 +348,67 @@ describe('<ChiefOfStaffChatBody>', () => {
     expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
   })
 
+  it('fires the kickoff into an override conversation without minting a new one', async () => {
+    // A fresh create is mocked so that, if the kickoff wrongly raced the load,
+    // it would mint this id — the assertions below prove it does not.
+    createMock.mockResolvedValue({ conversationId: 'conv_new' })
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_resume',
+        role: 'user',
+        content: 'earlier question',
+        createdAt: '2026-07-10T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_resume',
+        role: 'assistant',
+        content: 'earlier answer',
+        createdAt: '2026-07-10T00:00:01.000Z',
+      },
+    ])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Kickoff into the resumed chat.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_resume"
+        pendingKickoff="__kickoff__"
+      />,
+    )
+
+    // The resumed transcript loads first...
+    await waitFor(() =>
+      expect(screen.getByText('earlier answer')).toBeInTheDocument(),
+    )
+    // ...and the kickoff streams its reply.
+    await waitFor(() =>
+      expect(
+        screen.getByText('Kickoff into the resumed chat.'),
+      ).toBeInTheDocument(),
+    )
+
+    // It never minted a fresh conversation for the override.
+    expect(createMock).not.toHaveBeenCalled()
+    // The kickoff targeted the resumed conversation, not a new one.
+    expect(streamMessageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conv_resume',
+        content: '__kickoff__',
+      }),
+    )
+    // It fired exactly once (not re-fired on re-render).
+    expect(streamMessageMock).toHaveBeenCalledTimes(1)
+    // The hidden kickoff prompt is not shown.
+    expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
+  })
+
   it('focuses the composer when a suggestion requests it via composerRef', async () => {
     const user = userEvent.setup()
     listConversationsMock.mockResolvedValue([])
