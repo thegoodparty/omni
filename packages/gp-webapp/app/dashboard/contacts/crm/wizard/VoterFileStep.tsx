@@ -2,7 +2,11 @@
 
 import { Button, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import filterSections from '../../[[...attr]]/components/configs/filters.config'
-import { PILL_TOGGLE_ITEM_CLASSNAME } from '../shared/constants'
+import {
+  FILTER_GROUP_LABEL_CLASSNAME,
+  PILL_TOGGLE_ITEM_CLASSNAME,
+} from '../shared/constants'
+import { sentenceCase } from '../shared/labels.util'
 import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import type { VoterFileFilters } from '../shared/voterFileFilterTransform.util'
@@ -84,8 +88,8 @@ export default function VoterFileStep({
         <div key={section.title} className="flex flex-col gap-4">
           {section.fields.map((field) => (
             <div key={field.key} className="flex flex-col gap-2">
-              <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {field.label}
+              <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>
+                {sentenceCase(field.label)}
               </h4>
               <ToggleGroup
                 type="multiple"
@@ -112,9 +116,7 @@ export default function VoterFileStep({
       ))}
 
       <div className="flex flex-col gap-2">
-        <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Support Status
-        </h4>
+        <h4 className={FILTER_GROUP_LABEL_CLASSNAME}>Support status</h4>
         <ToggleGroup
           type="multiple"
           value={supportStatus}

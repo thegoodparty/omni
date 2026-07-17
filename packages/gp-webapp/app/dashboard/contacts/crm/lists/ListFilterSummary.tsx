@@ -1,4 +1,3 @@
-import { ListChecksIcon } from '@styleguide'
 import filterSections from '../../[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
 import {
@@ -7,7 +6,8 @@ import {
   SUPPORT_STATUS_OPTIONS,
 } from '../shared/activityConditionOptions'
 import type { SegmentResponse } from '../shared/contacts-types'
-import { InfoSection } from '../person/InfoSection'
+import { sentenceCase } from '../shared/labels.util'
+import { SectionLabel } from './ListDetailSection'
 
 // Reverse of LANGUAGE_KEY_TO_CODE (languageEnglish -> en), built from the
 // same single-source filters.config.ts labels + voterFileFilterTransform's
@@ -34,13 +34,22 @@ const INCOME_UNKNOWN_LABEL =
 
 const isTrue = (value: unknown): value is true => value === true
 
+// The Lovable summary reads as one plain sentence ("Age 18-25 or 35-50,
+// Income ranges include Under $50k, and Support status Supporter."), so the
+// clauses join with commas and a final "and" instead of the old
+// "Label: value · Label: value" key-value chain.
+const joinAsSentence = (clauses: string[]): string => {
+  if (clauses.length === 1) return `${clauses[0]}.`
+  if (clauses.length === 2) return `${clauses[0]} and ${clauses[1]}.`
+  return `${clauses.slice(0, -1).join(', ')}, and ${clauses[clauses.length - 1]}.`
+}
+
 // Human-readable summary of a saved list's demographic + activity criteria
-// (locked design: "People aged 18-35 who were in 'GOTV text blast' and
-// didn't respond"). Built entirely from the segment response plus the
-// existing shared label maps (filters.config.ts, activityConditionOptions.tsx)
-// so it cannot drift from the wizard that produced the criteria (task 09).
-// Pure + synchronous by design — no outreach-name lookup — so it's cheap to
-// unit test per clause combination.
+// (Lovable-locked sentence style, ENG-10725). Built entirely from the
+// segment response plus the existing shared label maps (filters.config.ts,
+// activityConditionOptions.tsx) so it cannot drift from the wizard that
+// produced the criteria. Pure + synchronous by design — no outreach-name
+// lookup — so it's cheap to unit test per clause combination.
 export const buildFilterSummary = (
   segment: SegmentResponse,
   isElectedOfficial: boolean,
@@ -59,7 +68,7 @@ export const buildFilterSummary = (
       )
       if (matched.length > 0) {
         clauses.push(
-          `${field.label}: ${matched.map((option) => option.label).join(' or ')}`,
+          `${sentenceCase(field.label)} ${matched.map((option) => option.label).join(' or ')}`,
         )
       }
     }
@@ -72,7 +81,7 @@ export const buildFilterSummary = (
     const labels = languageCodes.map(
       (code) => CODE_TO_LANGUAGE_LABEL[code] ?? code,
     )
-    clauses.push(`Language: ${labels.join(' or ')}`)
+    clauses.push(`Language ${labels.join(' or ')}`)
   }
 
   const incomeRanges = Array.isArray(segment.incomeRanges)
@@ -84,7 +93,7 @@ export const buildFilterSummary = (
       ...incomeRanges,
       ...(incomeUnknown ? [INCOME_UNKNOWN_LABEL] : []),
     ]
-    clauses.push(`Household Income: ${labels.join(' or ')}`)
+    clauses.push(`Income ranges include ${labels.join(' or ')}`)
   }
 
   const supportStatus = Array.isArray(segment.supportStatus)
@@ -96,11 +105,11 @@ export const buildFilterSummary = (
         SUPPORT_STATUS_OPTIONS.find((option) => option.value === value)
           ?.label ?? value,
     )
-    clauses.push(`Support Status: ${labels.join(' or ')}`)
+    clauses.push(`Support status ${labels.join(' or ')}`)
   }
 
   if (typeof segment.search === 'string' && segment.search.trim()) {
-    clauses.push(`Matching search "${segment.search.trim()}"`)
+    clauses.push(`matching search "${segment.search.trim()}"`)
   }
 
   const activityConditions = Array.isArray(segment.activityConditions)
@@ -114,20 +123,25 @@ export const buildFilterSummary = (
     const campaignPhrase =
       condition.outreachId != null
         ? 'a specific campaign'
-        : (channelMeta?.anyLabel ?? `any ${channelLabel} campaign`)
+        : (channelMeta?.anyLabel.toLowerCase() ??
+          `any ${channelLabel} campaign`)
     const actionLabels = (condition.actions ?? []).map(
       (action) => ACTIVITY_CONDITION_ACTION_LABELS[action] ?? action,
     )
     const outcomePhrase =
-      actionLabels.length > 0 ? ` (${actionLabels.join(', ')})` : ''
-    clauses.push(`${channelLabel} — ${campaignPhrase}${outcomePhrase}`)
+      actionLabels.length > 0
+        ? ` with outcome ${actionLabels.join(' or ')}`
+        : ''
+    clauses.push(
+      `${channelLabel} activity from ${campaignPhrase}${outcomePhrase}`,
+    )
   }
 
   if (clauses.length === 0) {
     return 'Everyone in your file — no filters applied.'
   }
 
-  return clauses.join(' · ')
+  return joinAsSentence(clauses)
 }
 
 interface ListFilterSummaryProps {
@@ -142,8 +156,9 @@ export default function ListFilterSummary({
   const summary = buildFilterSummary(segment, isElectedOfficial)
 
   return (
-    <InfoSection title="List Filters" icon={<ListChecksIcon size={20} />}>
+    <div className="flex flex-col gap-2">
+      <SectionLabel>List filters</SectionLabel>
       <p className="text-sm text-muted-foreground">{summary}</p>
-    </InfoSection>
+    </div>
   )
 }

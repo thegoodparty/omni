@@ -20,6 +20,12 @@ export interface ContactsLabels {
   districtTotalLabel: string
   listsSectionTitle: string
   listsSectionSubtitle: string
+  // ENG-10725 (Lovable pixel parity): the sentence under the universe h1,
+  // split around the bolded location span the page interpolates, and the
+  // "All voters"/"All constituents" pseudo-row at the top of the lists index.
+  universeSubtitleBefore: string
+  universeSubtitleAfter: string
+  allContactsTitle: string
   // crm/wizard/CreateListWizard.tsx's step-2 voter-file-branch title.
   wizardVoterFileStepTitle: string
   // crm/wizard/BranchStep.tsx's step-1 radio cards. The activity branch's
@@ -43,6 +49,9 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         listsSectionTitle: 'Voter Lists',
         listsSectionSubtitle:
           'Voter lists are segments you can create for targeted outreach',
+        universeSubtitleBefore: 'Find voters in ',
+        universeSubtitleAfter: ' likely to move your race and then reach them.',
+        allContactsTitle: 'All voters',
         wizardVoterFileStepTitle: 'Build a voter list',
         wizardVoterFileBranchTitle: 'Build my list using the voter file.',
         wizardVoterFileBranchDescription:
@@ -62,6 +71,9 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         listsSectionTitle: 'Constituent Lists',
         listsSectionSubtitle:
           'Constituent lists are segments you can create for targeted outreach',
+        universeSubtitleBefore: 'Constituents in ',
+        universeSubtitleAfter: ' that you represent.',
+        allContactsTitle: 'All constituents',
         wizardVoterFileStepTitle: 'Build a constituent list',
         wizardVoterFileBranchTitle: 'Build my list using the constituent file.',
         wizardVoterFileBranchDescription:

@@ -35,6 +35,12 @@ vi.mock('./ContactTypeahead', () => ({
 vi.mock('./wizard/CreateListWizard', () => ({
   default: () => null,
 }))
+vi.mock('./lists/ListsIndex', () => ({
+  default: () => <div data-testid="lists-index" />,
+}))
+vi.mock('./lists/ListDetailSheet', () => ({
+  default: () => null,
+}))
 vi.mock('./DistrictStatCard', () => ({
   default: () => <div data-testid="district-stat" />,
 }))
@@ -68,6 +74,8 @@ beforeEach(() => {
     isWinContext: true,
     isWinContextReady: true,
     customSegments: [],
+    currentlySelectedListId: null,
+    selectList: vi.fn(),
   } as unknown as ContextValue)
 })
 

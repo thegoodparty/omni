@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, type MouseEvent } from 'react'
-import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { FetchError } from 'ofetch'
 import {
@@ -19,6 +18,7 @@ import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
+import { useContactsTable } from '../ContactsTableProvider'
 
 interface DeleteListDialogProps {
   segment: SegmentResponse
@@ -37,7 +37,7 @@ export default function DeleteListDialog({
   open,
   onOpenChange,
 }: DeleteListDialogProps) {
-  const router = useRouter()
+  const { selectList } = useContactsTable()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
@@ -63,7 +63,10 @@ export default function DeleteListDialog({
       })
       successSnackbar('List deleted')
       onOpenChange(false)
-      router.push('/dashboard/contacts')
+      // Shallow (ENG-10725): the detail surface is a sheet over the index
+      // now, so leaving the deleted list's /lists/<id> URL must not remount
+      // the page through the loading boundary.
+      selectList(null)
     } catch (error) {
       if (error instanceof FetchError && error.status === 409) {
         errorSnackbar(LOCKED_LIST_MESSAGE, { autoHideDuration: 6000 })

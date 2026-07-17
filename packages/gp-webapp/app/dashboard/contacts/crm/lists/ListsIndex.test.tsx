@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
-import { router } from 'helpers/test-utils/router-mocking'
+import { api } from 'helpers/test-utils/api-mocking'
 import ListsIndex from './ListsIndex'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useListRowDetail } from './useListRowDetail'
@@ -23,7 +23,7 @@ vi.mock('@shared/organization-picker', () => ({
 // Each ListCard mounts RenameListDialog/DeleteListDialog unconditionally
 // (closed by default) — both call useSnackbar()/useOrganization() on every
 // render regardless of `open`, so both need a mock here even though no test
-// in this file exercises the dialogs' submit paths (ListDetailPage.test.tsx
+// in this file exercises the dialogs' submit paths (ListDetailSheet.test.tsx
 // already covers those).
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({
@@ -37,18 +37,37 @@ const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseListRowDetail = vi.mocked(useListRowDetail)
 const mockedUseDuplicateList = vi.mocked(useDuplicateList)
 
+const selectList = vi.fn()
+
 const setContext = (
   overrides: Partial<ReturnType<typeof useContactsTable>> = {},
 ) => {
   mockedUseContactsTable.mockReturnValue({
     customSegments: [],
     isWinContext: true,
+    selectList,
     ...overrides,
   } as unknown as ReturnType<typeof useContactsTable>)
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  api.mock('GET /v1/contacts/stats', {
+    status: 200,
+    data: {
+      districtId: 'district-1',
+      computedAt: '2026-07-17T00:00:00.000Z',
+      totalConstituents: 85696,
+      totalConstituentsWithCellPhone: 60000,
+      buckets: {
+        age: [],
+        homeowner: [],
+        education: [],
+        presenceOfChildren: [],
+        estimatedIncomeRange: [],
+      },
+    },
+  })
   mockedUseListRowDetail.mockReturnValue({
     peopleCount: 250,
     lastOutreach: undefined,
@@ -83,8 +102,32 @@ describe('ListsIndex — empty state', () => {
   })
 })
 
-describe('ListsIndex — Details navigates to the detail page', () => {
-  it('navigates to /dashboard/contacts/lists/:id when Details is clicked', async () => {
+describe('ListsIndex — the "All voters" universe row', () => {
+  it('renders the universe row first with the district total and no Details action', async () => {
+    setContext({ customSegments: [] })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('All voters')).toBeInTheDocument()
+    expect(await screen.findByText('85,696')).toBeInTheDocument()
+    // No saved-segment id exists for the unfiltered universe, so the row
+    // offers Send outreach only.
+    expect(
+      screen.queryByRole('button', { name: 'Details' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('reads "All constituents" in Serve mode', () => {
+    setContext({ isWinContext: false })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('All constituents')).toBeInTheDocument()
+  })
+})
+
+describe('ListsIndex — Details opens the detail sheet', () => {
+  it('selects the list (shallow sheet navigation) when Details is clicked', async () => {
     setContext({
       customSegments: [{ id: 42, name: 'GOTV text list' }],
     })
@@ -94,7 +137,7 @@ describe('ListsIndex — Details navigates to the detail page', () => {
 
     await user.click(screen.getAllByRole('button', { name: 'Details' })[0]!)
 
-    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/42')
+    expect(selectList).toHaveBeenCalledWith(42)
   })
 })
 

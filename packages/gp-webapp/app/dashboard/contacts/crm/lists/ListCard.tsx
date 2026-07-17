@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import {
   Button,
   Card,
@@ -15,9 +14,11 @@ import {
   MoreHorizontalIcon,
   PencilIcon,
   Trash2Icon,
+  UserIcon,
 } from '@styleguide'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type { SegmentResponse } from '../shared/contacts-types'
+import { useContactsTable } from '../ContactsTableProvider'
 import { useDuplicateList } from './useDuplicateList'
 import { useListRowDetail } from './useListRowDetail'
 import RenameListDialog from './RenameListDialog'
@@ -27,14 +28,15 @@ interface ListCardProps {
   segment: SegmentResponse
 }
 
-// One card in the ENG-10721 lists-index grid — replaces the ListsTable row.
-// Rename/Duplicate/Delete now live behind this card's kebab menu instead of
-// the list-detail page's "More actions" dropdown; the dialogs and mutation
-// hooks themselves (RenameListDialog, DeleteListDialog, useDuplicateList) are
-// unchanged and stay shared with ListDetailPage.tsx, which keeps its own
-// copies for the same actions when a user is already on the detail page.
+// One full-width row in the lists index (ENG-10725 Lovable parity: rows in
+// the 560px column, not a card grid). Rename/Duplicate/Delete live behind
+// the kebab menu; the dialogs and mutation hooks (RenameListDialog,
+// DeleteListDialog, useDuplicateList) stay shared with ListDetailSheet.
+// "Details" opens the list-detail sheet via the provider's shallow
+// selectList navigation — not a router.push — so the index stays mounted
+// underneath.
 export default function ListCard({ segment }: ListCardProps) {
-  const router = useRouter()
+  const { selectList } = useContactsTable()
   const { peopleCount, lastOutreach, isLoading, isError } = useListRowDetail(
     segment.id,
   )
@@ -44,14 +46,19 @@ export default function ListCard({ segment }: ListCardProps) {
   const isLocked = Boolean(segment.firstUsedForOutreachAt)
 
   return (
-    <Card className="flex flex-col gap-3 p-4">
+    <Card className="w-full gap-2 rounded-2xl p-4 shadow-xs">
       <div className="flex items-start justify-between gap-2">
         <h3 className="text-base font-semibold">
           {segment.name || 'Untitled list'}
         </h3>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="small" aria-label="List options">
+            <Button
+              variant="ghost"
+              size="small"
+              aria-label="List options"
+              className="size-8 p-0"
+            >
               <MoreHorizontalIcon className="size-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -93,7 +100,7 @@ export default function ListCard({ segment }: ListCardProps) {
         </DropdownMenu>
       </div>
 
-      <p className="text-sm text-muted-foreground">
+      <p className="text-[13px] text-muted-foreground">
         {isLoading
           ? 'Loading…'
           : isError
@@ -103,25 +110,28 @@ export default function ListCard({ segment }: ListCardProps) {
               : 'No outreach yet'}
       </p>
 
-      <p className="text-2xl font-semibold">
-        {isLoading
-          ? '—'
-          : isError
-            ? 'Unavailable'
-            : (peopleCount?.toLocaleString() ?? '—')}
-      </p>
-
-      <div className="mt-2 flex items-center gap-2">
-        <Button
-          variant="outline"
-          className="flex-1"
-          onClick={() => router.push(`/dashboard/contacts/lists/${segment.id}`)}
-        >
-          Details
-        </Button>
-        <Button variant="outline" className="flex-1" asChild>
-          <Link href="/dashboard/outreach">Send outreach</Link>
-        </Button>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <UserIcon className="size-3.5" aria-hidden />
+          {isLoading
+            ? '—'
+            : isError
+              ? 'Unavailable'
+              : (peopleCount?.toLocaleString() ?? '—')}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="small"
+            className="h-8 px-3 text-xs text-primary hover:bg-primary/5"
+            onClick={() => selectList(segment.id)}
+          >
+            Details
+          </Button>
+          <Button size="small" className="h-8 px-3.5 text-xs" asChild>
+            <Link href="/dashboard/outreach">Send outreach</Link>
+          </Button>
+        </div>
       </div>
 
       <RenameListDialog

@@ -99,6 +99,7 @@ function setContext({
   const ctx: ContextValue = {
     filteredContacts: [],
     currentlySelectedPersonId: selectedPersonId,
+    currentlySelectedListId: null,
     currentlySelectedPerson,
     segments: [],
     customSegments: [],
@@ -119,6 +120,7 @@ function setContext({
     goToPage: vi.fn(),
     setPageSize: vi.fn(),
     selectPerson,
+    selectList: vi.fn(),
     selectSegment: vi.fn(),
     searchContacts: vi.fn(),
     refreshCustomSegments: vi.fn().mockResolvedValue(undefined),
