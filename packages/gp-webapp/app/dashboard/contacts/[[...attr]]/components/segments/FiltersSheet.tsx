@@ -20,6 +20,9 @@ import { type SegmentResponse } from '../../../crm/shared/contacts-types'
 import {
   INCOME_KEY_TO_RANGE,
   LANGUAGE_KEY_TO_CODE,
+  transformVoterFileFiltersForBackend,
+  type VoterFileFilters,
+  type VoterFileBackendFilters,
 } from '../../../crm/shared/voterFileFilterTransform.util'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { useContactsTable } from '../../../crm/ContactsTableProvider'
@@ -34,15 +37,8 @@ import {
 
 type SheetMode = (typeof SHEET_MODES)[keyof typeof SHEET_MODES]
 
-interface Filters {
-  [key: string]: boolean
-}
-
-interface BackendFilters extends Record<string, unknown> {
-  languageCodes?: string[]
-  incomeRanges?: string[]
-  incomeUnknown?: boolean
-}
+type Filters = VoterFileFilters
+type BackendFilters = VoterFileBackendFilters
 
 interface FiltersSheetProps {
   open: boolean
@@ -98,30 +94,6 @@ const transformFiltersFromBackend = (backend: BackendFilters): Filters => {
   return result
 }
 
-const transformFiltersForBackend = (filters: Filters): BackendFilters => {
-  const result: BackendFilters = {}
-
-  for (const key of ALL_FILTER_OPTION_KEYS) {
-    if (LANGUAGE_KEYS.has(key) || INCOME_KEYS.has(key)) continue
-    result[key] = !!filters[key]
-  }
-
-  const languageCodes: string[] = []
-  for (const [key, code] of Object.entries(LANGUAGE_KEY_TO_CODE)) {
-    if (filters[key]) languageCodes.push(code)
-  }
-  result.languageCodes = languageCodes
-
-  const incomeRanges: string[] = []
-  for (const [key, range] of Object.entries(INCOME_KEY_TO_RANGE)) {
-    if (filters[key]) incomeRanges.push(range)
-  }
-  result.incomeRanges = incomeRanges
-  result.incomeUnknown = !!filters.incomeUnknown
-
-  return result
-}
-
 // True when a backend filter payload selects anything (a true flag, a
 // non-empty array, or a search). Reads the debounced payload so the count
 // query's enabled gate and its sent payload stay in lockstep.
@@ -168,7 +140,7 @@ export default function Filters({
   // save, including any active search the create flow carries (ENG-10517).
   const countPayload = useMemo(
     () => ({
-      ...transformFiltersForBackend(filters),
+      ...transformVoterFileFiltersForBackend(filters),
       ...(createSearch ? { search: createSearch } : {}),
     }),
     [filters, createSearch],
@@ -309,7 +281,7 @@ export default function Filters({
     }
     saveMutation.mutate({
       name: segmentName.trim(),
-      ...transformFiltersForBackend(filters),
+      ...transformVoterFileFiltersForBackend(filters),
       ...(createSearch ? { search: createSearch } : {}),
     })
   }
@@ -322,7 +294,7 @@ export default function Filters({
     updateMutation.mutate({
       id: editSegment.id,
       name: segmentName.trim(),
-      ...transformFiltersForBackend(filters),
+      ...transformVoterFileFiltersForBackend(filters),
     })
   }
 
