@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Badge, Button, cn } from '@styleguide'
 import {
   ChevronRightIcon,
@@ -15,9 +15,11 @@ import type {
   OrdinanceQualityCheck,
   OrdinanceQualityCheckStatus,
   OrdinanceQualityReport,
+  OrdinanceQualityRun,
+  OrdinanceQualityRunStatus,
 } from '@goodparty_org/contracts'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
-import { generateQualityReport } from '../data/ordinances-api'
+import { fetchQualityRun, startQualityReport } from '../data/ordinances-api'
 import SourceLine from './SourceLine'
 
 type StatusMeta = {
@@ -84,6 +86,31 @@ const runErrorMessage = (err: unknown): string => {
     'Could not run the quality checks. Please try again.'
   )
 }
+
+// The quality run is asynchronous server-side: POST returns 202 with the run's
+// state and the client polls GET until it leaves 'running'. There is no client
+// hard stop — the server heals an interrupted run to 'error' after 10 minutes,
+// which ends the poll.
+const POLL_MS = 2_000
+const POLL_SLOW_AFTER_MS = 180_000
+const POLL_SLOW_MS = 10_000
+// Transient poll failures (flaky network) don't kill an otherwise-live run;
+// only this many consecutive failures surface an error.
+const MAX_POLL_FAILURES = 3
+const SLOW_NOTE = 'Still working. This is taking longer than usual.'
+
+const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 
 function Check({
   check,
@@ -161,6 +188,7 @@ function Check({
 export default function QualityReport({
   slug,
   initialReport,
+  initialRunStatus,
   draftDirty,
   onReran,
   onDiscussFinding,
@@ -168,6 +196,10 @@ export default function QualityReport({
 }: {
   slug: string
   initialReport: OrdinanceQualityReport | null
+  // The run's server-side status at load time. 'running' means a check kicked
+  // off before this mount (a reload or navigation mid-run) — resume polling
+  // instead of asking the user to click again.
+  initialRunStatus: OrdinanceQualityRunStatus
   draftDirty: boolean
   onReran: () => void
   onDiscussFinding: (check: OrdinanceQualityCheck) => void
@@ -176,36 +208,99 @@ export default function QualityReport({
   onBeforeRun?: () => Promise<void>
 }): React.JSX.Element {
   const [report, setReport] = useState(initialReport)
-  const [running, setRunning] = useState(false)
+  const [running, setRunning] = useState(initialRunStatus === 'running')
+  const [slow, setSlow] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  // On a terminal run state: commit the fresh report, or surface the error
+  // while keeping whatever report was already on screen (a failed re-run never
+  // costs the previous results).
+  const settle = (run: OrdinanceQualityRun): void => {
+    if (run.status === 'done' && run.report) {
+      setReport(run.report)
+      setRunning(false)
+      onReran()
+      return
+    }
+    setError(
+      run.status === 'error'
+        ? (run.error ?? 'Could not run the quality checks. Please try again.')
+        : report
+          ? 'The re-run did not return an updated report, so the one below' +
+            ' is unchanged. Please try again.'
+          : 'The quality report was not returned. Please try again.',
+    )
+    setRunning(false)
+  }
+
+  // Poll until the run leaves 'running', then settle it. Passing null as
+  // `first` starts polling blind (the resume-on-mount path).
+  const watch = async (
+    signal: AbortSignal,
+    first: OrdinanceQualityRun | null,
+  ): Promise<void> => {
+    let current = first
+    let failures = 0
+    const startedAt = Date.now()
+    while (!current || current.status === 'running') {
+      const slowNow = Date.now() - startedAt >= POLL_SLOW_AFTER_MS
+      if (slowNow) setSlow(true)
+      await sleep(slowNow ? POLL_SLOW_MS : POLL_MS, signal)
+      if (signal.aborted) return
+      try {
+        current = await fetchQualityRun(slug, { signal })
+        failures = 0
+      } catch (err) {
+        if (signal.aborted) return
+        failures += 1
+        if (failures > MAX_POLL_FAILURES) throw err
+      }
+    }
+    if (signal.aborted) return
+    settle(current)
+  }
 
   const run = async (): Promise<void> => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setRunning(true)
+    setSlow(false)
     setError(null)
     try {
       await onBeforeRun?.()
-      const updated = await generateQualityReport(slug)
-      // A 2xx with a null report shouldn't happen (the endpoint always saves
-      // one). If it does, keep any report already on screen rather than wiping
-      // the user's visible results, and say so plainly so the shown report and
-      // the error don't read as contradictory.
-      if (!updated.qualityReport) {
-        setError(
-          report
-            ? 'The re-run did not return an updated report, so the one below' +
-                ' is unchanged. Please try again.'
-            : 'The quality report was not returned. Please try again.',
-        )
+      const started = await startQualityReport(slug, {
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
+      if (started.status !== 'running') {
+        settle(started)
         return
       }
-      setReport(updated.qualityReport)
-      onReran()
+      await watch(controller.signal, started)
     } catch (err) {
+      if (controller.signal.aborted) return
       setError(runErrorMessage(err))
-    } finally {
       setRunning(false)
     }
   }
+
+  useEffect(() => {
+    if (initialRunStatus === 'running') {
+      const controller = new AbortController()
+      abortRef.current = controller
+      void watch(controller.signal, null).catch((err) => {
+        if (controller.signal.aborted) return
+        setError(runErrorMessage(err))
+        setRunning(false)
+      })
+    }
+    return () => abortRef.current?.abort()
+    // Mount-only: resume tracking a run that started before this mount, and
+    // abort whatever run is in flight when the component unmounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   if (!report) {
     return (
@@ -218,6 +313,9 @@ export default function QualityReport({
           needs work.
         </p>
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {running && slow ? (
+          <p className="text-sm text-muted-foreground">{SLOW_NOTE}</p>
+        ) : null}
         <Button
           type="button"
           onClick={run}
@@ -244,13 +342,17 @@ export default function QualityReport({
           <h3 className="text-base font-semibold text-foreground">
             Reviewed by {report.checks.length} checks
           </h3>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusPill status="pass">{report.tally.pass} pass</StatusPill>
-            <StatusPill status="flag">{report.tally.flag} flag</StatusPill>
-            <StatusPill status="attention">
-              {report.tally.attention} attention
-            </StatusPill>
-          </div>
+          {/* Hide the stale tally while a re-run is in flight — the loading
+              state below stands in for the results being redone. */}
+          {running ? null : (
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusPill status="pass">{report.tally.pass} pass</StatusPill>
+              <StatusPill status="flag">{report.tally.flag} flag</StatusPill>
+              <StatusPill status="attention">
+                {report.tally.attention} attention
+              </StatusPill>
+            </div>
+          )}
         </div>
         <Button
           type="button"
@@ -270,23 +372,40 @@ export default function QualityReport({
         </Button>
       </div>
 
-      {stale ? (
-        <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-dark">
-          The draft changed since this report ran. Re-run to refresh it.
-        </p>
-      ) : null}
+      {running ? (
+        // Replace the stale cards with a loading state so re-running never
+        // leaves the previous results on screen as if they were current.
+        <div
+          role="status"
+          className="flex flex-col gap-2 rounded-lg border border-border px-4 py-6 text-sm text-muted-foreground"
+        >
+          <span className="flex items-center gap-2">
+            <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
+            Reviewing the draft…
+          </span>
+          {slow ? <span>{SLOW_NOTE}</span> : null}
+        </div>
+      ) : (
+        <>
+          {stale ? (
+            <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-dark">
+              The draft changed since this report ran. Re-run to refresh it.
+            </p>
+          ) : null}
 
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <div className="divide-y divide-border rounded-lg border border-border">
-        {report.checks.map((check) => (
-          <Check
-            key={check.id}
-            check={check}
-            onDiscuss={() => onDiscussFinding(check)}
-          />
-        ))}
-      </div>
+          <div className="divide-y divide-border rounded-lg border border-border">
+            {report.checks.map((check) => (
+              <Check
+                key={check.id}
+                check={check}
+                onDiscuss={() => onDiscussFinding(check)}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
