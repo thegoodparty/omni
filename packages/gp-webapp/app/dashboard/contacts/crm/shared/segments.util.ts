@@ -37,7 +37,7 @@ export const filterOnlyTrueValues = (
   return Object.keys(filters).filter((key) => filters[key] === true)
 }
 
-export const MAX_SEGMENT_NAME_LENGTH = 20
+export const MAX_SEGMENT_NAME_LENGTH = 40
 
 export const trimCustomSegmentName = (name: string): string => {
   if (!name || typeof name !== 'string') {

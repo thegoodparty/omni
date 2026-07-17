@@ -3,11 +3,7 @@
 import { Input, Label } from '@styleguide'
 import Body2 from '@shared/typography/Body2'
 import { numberFormatter } from 'helpers/numberHelper'
-
-// Wizard-specific cap (ENG-10708), distinct from the legacy FiltersSheet's
-// MAX_SEGMENT_NAME_LENGTH (20, crm/shared/segments.util.ts) — that constant
-// stays untouched so the legacy create/edit flow's cap doesn't change.
-export const MAX_LIST_NAME_LENGTH = 40
+import { MAX_SEGMENT_NAME_LENGTH } from '../shared/segments.util'
 
 interface NameStepProps {
   name: string
@@ -46,9 +42,9 @@ export default function NameStep({
           id="list-wizard-name"
           value={name}
           onChange={(e) =>
-            onNameChange(e.target.value.slice(0, MAX_LIST_NAME_LENGTH))
+            onNameChange(e.target.value.slice(0, MAX_SEGMENT_NAME_LENGTH))
           }
-          maxLength={MAX_LIST_NAME_LENGTH}
+          maxLength={MAX_SEGMENT_NAME_LENGTH}
           placeholder="Name your list"
         />
       </div>
