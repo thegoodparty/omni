@@ -79,10 +79,12 @@ import { dirname, join, relative } from 'node:path'
 // ENG-10697: NotesSection.tsx is a new client component (useState +
 // react-query mutations for the person-record notes CRUD) — genuinely
 // interactive, can't render on the server.
+// ENG-10698: LogInteraction.tsx is genuinely stateful (form state, a
+// mutation, per-field validation) and can't be a server component.
 // 2026-07-16: +1 for QualityReport — the ordinance draft quality-report section
 // generates/re-runs and manages loading/error state, so it must be a client
 // component.
-const BASELINE = 544
+const BASELINE = 545
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

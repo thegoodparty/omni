@@ -103,4 +103,6 @@ export {
   OctagonAlert as OctagonAlertIcon,
   ShieldCheck as ShieldCheckIcon,
   History as HistoryIcon,
+  DoorOpen as DoorOpenIcon,
+  MessageSquareMore as MessageSquareMoreIcon,
 } from 'lucide-react'

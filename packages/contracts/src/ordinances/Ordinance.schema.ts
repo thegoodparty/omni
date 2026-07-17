@@ -214,8 +214,7 @@ export const OrdinanceQualityReportSchema = z.object({
 export type OrdinanceQualityReport = z.infer<
   typeof OrdinanceQualityReportSchema
 >
-export type OrdinanceQualityCheckStatus =
-  OrdinanceQualityCheck['status']
+export type OrdinanceQualityCheckStatus = OrdinanceQualityCheck['status']
 
 export const OrdinanceResearchChapterSchema = z.object({
   label: z.string(),
