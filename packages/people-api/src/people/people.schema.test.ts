@@ -148,4 +148,89 @@ describe('people query schemas', () => {
     })
     expect(parsed.districtId).toBe(DISTRICT_ID)
   })
+
+  const PERSON_ID = '11111111-1111-1111-1111-111111111111'
+
+  it('accepts an id.in filter', () => {
+    const parsed = listPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: { id: { in: [PERSON_ID] } },
+    })
+
+    expect(parsed.filters.filterOperators.id).toEqual({
+      operator: 'in',
+      values: [PERSON_ID],
+      includeNull: false,
+    })
+  })
+
+  it('accepts an id.notIn filter', () => {
+    const parsed = listPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: { id: { notIn: [PERSON_ID] } },
+    })
+
+    expect(parsed.filters.filterOperators.id).toEqual({
+      operator: 'notIn',
+      values: [PERSON_ID],
+    })
+  })
+
+  it('rejects id.in and id.notIn specified together', () => {
+    expect(() =>
+      listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: { id: { in: [PERSON_ID], notIn: [PERSON_ID] } },
+      }),
+    ).toThrow()
+  })
+
+  it('rejects an empty id filter object', () => {
+    expect(() =>
+      listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: { id: {} },
+      }),
+    ).toThrow()
+  })
+
+  it('rejects an id filter array over the 100,000 cap', () => {
+    const tooMany = Array.from({ length: 100_001 }, () => PERSON_ID)
+
+    expect(() =>
+      listPeopleSchema.parse({
+        districtId: DISTRICT_ID,
+        filters: { id: { in: tooMany } },
+      }),
+    ).toThrow()
+  })
+
+  it('accepts a hasAddress filter', () => {
+    const parsed = listPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: { hasAddress: true },
+    })
+
+    expect(parsed.filters.filterOperators.hasAddress).toEqual({
+      operator: 'is',
+      value: 'not_null',
+    })
+  })
+
+  it('accepts id and hasAddress filters on the download query (shared schema)', () => {
+    const parsed = downloadPeopleSchema.parse({
+      districtId: DISTRICT_ID,
+      filters: { id: { in: [PERSON_ID] }, hasAddress: false },
+    })
+
+    expect(parsed.filters.filterOperators.id).toEqual({
+      operator: 'in',
+      values: [PERSON_ID],
+      includeNull: false,
+    })
+    expect(parsed.filters.filterOperators.hasAddress).toEqual({
+      operator: 'is',
+      value: 'null',
+    })
+  })
 })
