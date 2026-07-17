@@ -24,6 +24,7 @@ This module does not store the voter file itself — L2 is the source of truth. 
 - **`L2_DATA_KEY` is required at boot** (`voters.service.ts` throws on missing env). Don't add lazy fallbacks.
 - **Voter file downloads are gated** through `VoterFileDownloadAccessService` (in `src/shared/services/`) — it checks campaign tier + entitlement. Don't bypass it from new endpoints.
 - Filters are scoped to a campaign via `@UseCampaign()` + `@ReqCampaign()` — same pattern as the rest of the campaign-scoped surface.
+- **A filter locks on first outreach launch.** `VoterFileFilterService.stampFirstUsedForOutreach` does an atomic `updateMany WHERE id = ... AND first_used_for_outreach_at IS NULL` (first-write-wins, never rolled back). `assertNotLocked` reads that column to 409 PUT/DELETE once it's set. The stamp is called from `OutreachMaterializationService` (`src/outreach/services/outreachMaterialization.service.ts`) at outreach launch, alongside writing per-person `ContactInteraction<channel>` rows for the resolved filter — see that module for the materialization flow.
 
 ## Gotchas
 
