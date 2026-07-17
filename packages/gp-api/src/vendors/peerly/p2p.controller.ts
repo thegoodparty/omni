@@ -15,7 +15,7 @@ import { FastifyReply } from 'fastify'
 import { Campaign } from '../../generated/prisma'
 import { ReqCampaign } from '../../campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '../../campaigns/decorators/UseCampaign.decorator'
-import { OrganizationsService } from '../../organizations/services/organizations.service'
+import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 import { PhoneListState } from './peerly.types'
 import {
@@ -32,8 +32,8 @@ import { PinoLogger } from 'nestjs-pino'
 export class P2pController {
   constructor(
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
+    private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly p2pPhoneListUploadService: P2pPhoneListUploadService,
-    private readonly organizationsService: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pController.name)
@@ -79,6 +79,11 @@ export class P2pController {
       const detailsResponse =
         await this.peerlyPhoneListService.getPhoneListDetails(listId)
 
+      // First-seen-ready stamp: guarded on peerlyListId IS NULL inside the
+      // capture service, so a repeat poll after the first success is a
+      // no-op rather than a re-write.
+      await this.peerlyPhoneListCapture.stampPeerlyListId(token, listId)
+
       return {
         phoneListId: listId,
         leadsLoaded: detailsResponse.leads_loaded,
@@ -100,15 +105,9 @@ export class P2pController {
     @Body() request: P2pPhoneListRequestSchema,
   ): Promise<P2pPhoneListResponseSchema> {
     try {
-      const district = campaign.organizationSlug
-        ? await this.organizationsService.getDistrictForOrgSlug(
-            campaign.organizationSlug,
-          )
-        : null
       const { token } = await this.p2pPhoneListUploadService.uploadPhoneList(
         campaign,
         request,
-        district,
       )
 
       return { token }

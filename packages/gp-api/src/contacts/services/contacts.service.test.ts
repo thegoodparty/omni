@@ -1487,6 +1487,131 @@ describe('ContactsService', () => {
       })
     })
 
+    describe('findContactsForFilter (Peerly phone-list capture, ENG-10728)', () => {
+      it('throws when the organization is not pro', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+        await expect(
+          service.findContactsForFilter(
+            { partyDemocrat: true },
+            { resultsPerPage: 1000, page: 1 },
+            org,
+          ),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('pages through people-api with the requested resultsPerPage/page', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockHttpService.post.mockReturnValue(
+          of({
+            data: {
+              people: [{ id: 'p-1', cellPhone: '5551234567' }],
+              pagination: { totalResults: 1, hasNextPage: false },
+            },
+          }),
+        )
+
+        const result = await service.findContactsForFilter(
+          { partyDemocrat: true },
+          { resultsPerPage: 1000, page: 2 },
+          org,
+        )
+
+        expect(result.people).toHaveLength(1)
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            resultsPerPage: 1000,
+            page: 2,
+            filters: { politicalParty: { eq: 'Democratic' } },
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('short-circuits to an empty page without calling people-api when the activity-condition resolution is empty', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'empty' },
+        )
+
+        const result = await service.findContactsForFilter(
+          {
+            activityConditions: [
+              {
+                outreachType: 'text',
+                outreachId: null,
+                actions: ['responded'],
+              },
+            ],
+          },
+          { resultsPerPage: 1000, page: 1 },
+          org,
+        )
+
+        expect(result.people).toEqual([])
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      it('merges a resolved id filter into the outgoing people-api filters', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'filter', idFilter: { in: ['p-1', 'p-2'] } },
+        )
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 0 } } }),
+        )
+
+        await service.findContactsForFilter(
+          { supportStatus: ['supporter'] },
+          { resultsPerPage: 1000, page: 1 },
+          org,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            filters: { id: { in: ['p-1', 'p-2'] } },
+          }),
+          expect.any(Object),
+        )
+      })
+
+      it('rejects a party filter for an elected-office organization', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+
+        await expect(
+          service.findContactsForFilter(
+            { partyDemocrat: true },
+            { resultsPerPage: 1000, page: 1 },
+            org,
+          ),
+        ).rejects.toThrow(BadRequestException)
+        expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+    })
+
     describe('getListDetail (list-detail demographics/reachability, ENG-10706)', () => {
       const savedFilter = {
         id: 42,

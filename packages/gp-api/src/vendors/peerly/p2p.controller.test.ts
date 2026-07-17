@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { P2pController } from './p2p.controller'
 import { PhoneListState } from './peerly.types'
 import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service'
+import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 
 const mockCampaign: Campaign = {
@@ -49,8 +50,8 @@ describe('P2pController', () => {
   let mockP2pPhoneListUploadService: {
     uploadPhoneList: ReturnType<typeof vi.fn>
   }
-  let mockOrganizationsService: {
-    getDistrictForOrgSlug: ReturnType<typeof vi.fn>
+  let mockPeerlyPhoneListCapture: {
+    stampPeerlyListId: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
 
@@ -62,14 +63,14 @@ describe('P2pController', () => {
     mockP2pPhoneListUploadService = {
       uploadPhoneList: vi.fn(),
     }
-    mockOrganizationsService = {
-      getDistrictForOrgSlug: vi.fn().mockResolvedValue(null),
+    mockPeerlyPhoneListCapture = {
+      stampPeerlyListId: vi.fn().mockResolvedValue(undefined),
     }
     mockRes = createMockReply()
     controller = new P2pController(
       mockPeerlyPhoneListService as unknown as PeerlyPhoneListService,
+      mockPeerlyPhoneListCapture as unknown as PeerlyPhoneListCaptureService,
       mockP2pPhoneListUploadService as unknown as P2pPhoneListUploadService,
-      mockOrganizationsService as never,
       createMockLogger(),
     )
   })
@@ -218,6 +219,10 @@ describe('P2pController', () => {
       expect(
         mockPeerlyPhoneListService.getPhoneListDetails,
       ).toHaveBeenCalledWith(123)
+      expect(mockPeerlyPhoneListCapture.stampPeerlyListId).toHaveBeenCalledWith(
+        'test-token',
+        123,
+      )
     })
   })
 

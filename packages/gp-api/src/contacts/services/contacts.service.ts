@@ -416,6 +416,77 @@ export class ContactsService {
     return this.withOrgDistrictResolution(organization, fetchCount)
   }
 
+  // Ad-hoc filter set, paged full-row export. The Peerly phone-list capture
+  // path (ENG-10728) resolves its request through the same
+  // activityConditions/supportStatus/search engine as list/count instead of
+  // the legacy voter-DB export, so an activity-built list's send can no
+  // longer include people the filter excludes. Channel-specific overrides
+  // (e.g. forcing hasCellPhone for SMS) are the caller's concern, not this
+  // shared resolution's — pass them already merged into filterInput.
+  async findContactsForFilter(
+    filterInput: CountContactsDTO,
+    pagination: { resultsPerPage: number; page: number },
+    organization: Organization,
+  ): Promise<PeopleListResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Filtering voter data is only available for pro campaigns',
+      )
+    }
+
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    if (idResolution.kind === 'empty') {
+      return this.emptyPeopleListResponse(
+        pagination.resultsPerPage,
+        pagination.page,
+      )
+    }
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
+
+    const fetchPeoplePage = async (districtParams: { districtId: string }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people`,
+            {
+              ...districtParams,
+              resultsPerPage: pagination.resultsPerPage,
+              page: pagination.page,
+              filters,
+              search,
+              groupByHousehold: false,
+            },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return response.data as PeopleListResponse
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to fetch from people API')
+        throw new BadGatewayException('Failed to fetch from people API')
+      }
+    }
+
+    const response = await this.withOrgDistrictResolution(
+      organization,
+      fetchPeoplePage,
+    )
+    return this.stripPartyFromList(organization, response)
+  }
+
   // Demographics + reachable-by-channel counts + outreach history for a
   // saved list's detail page (ENG-10706). Unlike countContacts (an unsaved,
   // in-progress filter set), segment here is always a persisted
