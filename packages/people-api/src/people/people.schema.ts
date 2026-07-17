@@ -7,6 +7,7 @@ import { createZodDto } from 'nestjs-zod'
 import { z } from 'zod'
 
 import { filtersSchema } from './schemas/filters.schema'
+import { EXCLUDABLE_VOTER_COLUMNS } from './people.select'
 
 const withDistrictInput = <T extends z.ZodRawShape>(shape: T) =>
   z.object({ districtId: z.guid() }).extend(shape)
@@ -50,6 +51,12 @@ export const downloadPeopleSchema = withDistrictInput({
   // Mirror the list endpoint: door-knocking exports one row per physical
   // household so the CSV matches the on-screen de-duplicated list.
   groupByHousehold: z.coerce.boolean().optional().default(false),
+  // Column-exclusion escape hatch for the caller's own visibility rules
+  // (ENG-10696: gp-api sends this for `eo-` orgs to drop the party column).
+  // The CSV is a Postgres COPY stream gp-api can't post-process, so the
+  // projection itself must exclude it. Bounded to a known-safe enum — never
+  // an arbitrary caller-supplied column name reaching raw SQL.
+  excludeColumns: z.array(z.enum(EXCLUDABLE_VOTER_COLUMNS)).optional(),
 })
 
 export class DownloadPeopleDTO extends createZodDto(downloadPeopleSchema) {}
