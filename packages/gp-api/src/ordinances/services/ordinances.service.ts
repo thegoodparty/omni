@@ -29,17 +29,6 @@ import {
 
 const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
 
-// Lifecycle order; a PATCH may advance an ordinance's status but never regress
-// it (matches the saveDraft guard, which only advances from in_progress).
-const STATUS_ORDER = [
-  'in_progress',
-  'draft',
-  'in_review',
-  'proposed',
-  'passed',
-  'repealed',
-] as const
-
 @Injectable()
 export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   constructor(
@@ -108,15 +97,6 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   ): Promise<OrdinanceResponse> {
     await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
-    if (
-      dto.status !== undefined &&
-      STATUS_ORDER.indexOf(dto.status) < STATUS_ORDER.indexOf(existing.status)
-    ) {
-      throw new ForbiddenException(
-        `Cannot downgrade ordinance status from '${existing.status}' ` +
-          `to '${dto.status}'`,
-      )
-    }
     const record = await this.model.update({
       where: { id: existing.id },
       data: {

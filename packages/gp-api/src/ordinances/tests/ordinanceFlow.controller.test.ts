@@ -178,8 +178,8 @@ describe('Ordinances endpoints', () => {
     expect(res.status).toBe(400)
   })
 
-  it('refuses to downgrade an ordinance status', async () => {
-    const orgSlug = 'eo-ordinances-downgrade'
+  it('allows changing status in either direction', async () => {
+    const orgSlug = 'eo-ordinances-status-change'
     await seedElectedOffice(orgSlug)
     const header = orgHeader(orgSlug)
     const created = await service.client.post(
@@ -193,14 +193,16 @@ describe('Ordinances endpoints', () => {
       { status: 'proposed' },
       header,
     )
+    // Moving a status backward is allowed so a user can correct a wrong pick.
     const res = await service.client.patch(
       `/v1/ordinances/${slug}`,
-      { status: 'in_progress' },
+      { status: 'in_review' },
       header,
     )
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(200)
+    expect(res.data.status).toBe('in_review')
     const after = await service.client.get(`/v1/ordinances/${slug}`, header)
-    expect(after.data.status).toBe('proposed')
+    expect(after.data.status).toBe('in_review')
   })
 
   it('persists a clarify answer by questionId', async () => {

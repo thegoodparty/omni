@@ -1,12 +1,15 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { screen, fireEvent, act, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { router } from 'helpers/test-utils/router-mocking'
 import type { Ordinance } from '@goodparty_org/contracts'
 import DraftDetail from './DraftDetail'
 
 const mocks = vi.hoisted(() => ({
   updateOrdinance: vi.fn(),
   generateQualityReport: vi.fn(),
+  deleteOrdinance: vi.fn(),
   draftChatProps: {
     current: null as { seedText?: string; seedNonce?: number } | null,
   },
@@ -15,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
   generateQualityReport: mocks.generateQualityReport,
+  deleteOrdinance: mocks.deleteOrdinance,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
@@ -397,5 +401,102 @@ describe('DraftDetail quality report flush', () => {
     await waitFor(() =>
       expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument(),
     )
+  })
+})
+
+describe('DraftDetail header actions', () => {
+  beforeEach(() => {
+    mocks.updateOrdinance.mockReset()
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.deleteOrdinance.mockReset()
+    mocks.deleteOrdinance.mockResolvedValue(undefined)
+    router.push?.mockReset?.()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('offers PDF and Word options in the download menu', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+
+    expect(await screen.findByText(/download as pdf/i)).toBeVisible()
+    expect(screen.getByText(/download as word/i)).toBeVisible()
+  })
+
+  it('changes the status from the status dropdown', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'draft' })} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /change draft status/i }),
+    )
+
+    // in_progress is the pre-draft state and is never offered manually.
+    expect(
+      screen.queryByRole('menuitem', { name: /in progress/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { status: 'in_review' },
+      ),
+    )
+  })
+
+  it('reverts the status pill when the change fails', async () => {
+    const user = userEvent.setup()
+    mocks.updateOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'proposed' })} />)
+
+    const trigger = screen.getByRole('button', { name: /change draft status/i })
+    await user.click(trigger)
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { status: 'in_review' },
+      ),
+    )
+    // The optimistic pick reverts to the original status after the save fails.
+    await waitFor(() => expect(trigger).toHaveTextContent(/proposed/i))
+  })
+
+  it('deletes the draft after confirming and returns to the list', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    await waitFor(() =>
+      expect(mocks.deleteOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+      ),
+    )
+    expect(router.push).toHaveBeenCalledWith('/dashboard/ordinances')
+  })
+
+  it('surfaces an error and stays open when the delete fails', async () => {
+    mocks.deleteOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    expect(await screen.findByText(/could not delete the draft/i)).toBeVisible()
+    expect(router.push).not.toHaveBeenCalled()
   })
 })

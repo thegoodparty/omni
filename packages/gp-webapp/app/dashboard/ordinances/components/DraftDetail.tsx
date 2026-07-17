@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Badge,
   Button,
@@ -16,25 +17,41 @@ import {
   DrawerDescription,
   DrawerHeader,
   DrawerTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   IconButton,
   cn,
 } from '@styleguide'
 import {
   ArrowLeftIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  DownloadIcon,
+  FileTextIcon,
   FlagIcon,
   SparklesIcon,
+  Trash2Icon,
 } from '@styleguide/components/ui/icons'
 import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import type {
   Ordinance,
+  OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
+import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
-import { updateOrdinance } from '../data/ordinances-api'
-import { ORDINANCE_STATUS_META } from '../data/statuses'
+import { deleteOrdinance, updateOrdinance } from '../data/ordinances-api'
+import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
 import DraftChat from './DraftChat'
 import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
+
+// The statuses the user can set from the draft-detail pill. `in_progress` is the
+// pre-draft state, so it isn't offered once a draft exists (matches Lovable).
+const SELECTABLE_STATUSES: readonly OrdinanceStatus[] =
+  ORDINANCE_STATUS_ORDER.filter((s) => s !== 'in_progress')
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -85,10 +102,45 @@ export default function DraftDetail({
   // same passage re-seeds even when the text is identical.
   const [chatSeed, setChatSeed] = useState('')
   const [seedNonce, setSeedNonce] = useState(0)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
+
+  const router = useRouter()
+
+  const confirmDelete = async (): Promise<void> => {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteOrdinance(ordinance.slug)
+      // router.push doesn't synchronously unmount, so reset here — a lingering
+      // deleting/open would otherwise lock the dialog in a spinner (or re-open
+      // locked) during the nav window.
+      setDeleting(false)
+      setDeleteOpen(false)
+      router.push('/dashboard/ordinances')
+    } catch {
+      setDeleting(false)
+      setDeleteError('Could not delete the draft. Please try again.')
+    }
+  }
+
+  // Optimistically reflect the picked status; revert if the save fails.
+  const changeStatus = async (next: OrdinanceStatus): Promise<void> => {
+    if (next === status) return
+    const prev = status
+    setStatus(next)
+    try {
+      await updateOrdinance(ordinance.slug, { status: next })
+    } catch {
+      setStatus(prev)
+    }
+  }
 
   const title =
     ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance'
-  const statusMeta = ORDINANCE_STATUS_META[ordinance.status]
+  const statusMeta = ORDINANCE_STATUS_META[status]
   const sources = ordinance.draftSources ?? []
 
   // Uncontrolled contentEditable fields: seed once on mount so typing never
@@ -284,39 +336,112 @@ export default function DraftDetail({
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
-      <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Link
-          href="/dashboard/ordinances"
-          aria-label="Back to ordinances"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
-        >
-          <ArrowLeftIcon className="size-4" aria-hidden />
-        </Link>
-        <h1 className="text-base font-semibold text-foreground">
-          Draft details
-        </h1>
-        <div className="ml-auto flex items-center gap-3">
-          {saveState !== 'idle' ? (
-            <span
-              className={cn(
-                'text-xs',
-                saveState === 'error'
-                  ? 'text-destructive'
-                  : 'text-muted-foreground',
-              )}
+      <header className="border-b border-border py-3">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-6">
+          <Link
+            href="/dashboard/ordinances"
+            aria-label="Back to ordinances"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
+          >
+            <ArrowLeftIcon className="size-4" aria-hidden />
+          </Link>
+          <h1 className="text-base font-semibold text-foreground">
+            Draft details
+          </h1>
+          <div className="ml-auto flex items-center gap-3">
+            {saveState !== 'idle' ? (
+              <span
+                className={cn(
+                  'text-xs',
+                  saveState === 'error'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground',
+                )}
+              >
+                {SAVE_LABEL[saveState]}
+              </span>
+            ) : null}
+            <IconButton
+              type="button"
+              variant="outline"
+              size="small"
+              aria-label="Delete draft"
+              onClick={() => setDeleteOpen(true)}
+              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
             >
-              {SAVE_LABEL[saveState]}
-            </span>
-          ) : null}
-          <Badge className={cn('rounded-full', statusMeta.pillClass)}>
-            {statusMeta.label}
-          </Badge>
+              <Trash2Icon className="size-4" aria-hidden />
+            </IconButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  aria-label="Download draft"
+                  className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <DownloadIcon className="size-4" aria-hidden />
+                </IconButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem>
+                  <FileTextIcon className="size-4" aria-hidden />
+                  Download as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <FileTextIcon className="size-4" aria-hidden />
+                  Download as Word
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl p-6">
+            <div className="mb-4 flex justify-end">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    aria-label="Change draft status"
+                    className={cn(
+                      'h-auto gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                      statusMeta.pillClass,
+                    )}
+                  >
+                    {statusMeta.label}
+                    <ChevronDownIcon className="size-3.5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {SELECTABLE_STATUSES.map((s) => {
+                    const meta = ORDINANCE_STATUS_META[s]
+                    return (
+                      <DropdownMenuItem
+                        key={s}
+                        onSelect={() => changeStatus(s)}
+                        className="gap-3"
+                      >
+                        <Badge className={cn('rounded-full', meta.pillClass)}>
+                          {meta.label}
+                        </Badge>
+                        {s === status ? (
+                          <CheckIcon
+                            className="ml-auto size-4 text-foreground"
+                            aria-hidden
+                          />
+                        ) : null}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
             <h2
               ref={titleRef}
               contentEditable
@@ -455,6 +580,21 @@ export default function DraftDetail({
           </Button>
         </div>
       ) : null}
+
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          // Drop a prior error so it doesn't linger on the next open.
+          if (!open) setDeleteError(null)
+        }}
+        title="Delete this draft?"
+        description="This removes the ordinance draft and its quality report from your ordinances. This can't be undone."
+        confirmLabel="Delete draft"
+        confirming={deleting}
+        errorMessage={deleteError}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

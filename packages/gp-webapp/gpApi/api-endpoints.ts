@@ -492,6 +492,11 @@ export type APIEndpoints = {
     Response: Ordinance
   }
 
+  'DELETE /v1/ordinances/:slug': {
+    Request: {}
+    Response: void
+  }
+
   'POST /v1/ordinances/:slug/clarify-answers': {
     Request: SaveOrdinanceClarifyAnswerRequest
     Response: Ordinance
