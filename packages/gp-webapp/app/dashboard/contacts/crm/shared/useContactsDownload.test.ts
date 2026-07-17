@@ -104,6 +104,60 @@ describe('useContactsDownload', () => {
     )
   })
 
+  it('ENG-10709: onDownloadConfirmed fires exactly once, only on the cookie-confirmed success branch', () => {
+    mockedGetCookie.mockReturnValue(false)
+    const onDownloadConfirmed = vi.fn()
+    const { result } = renderHook(() =>
+      useContactsDownload({ canUseProFeatures: true }),
+    )
+
+    act(() => {
+      result.current.download('42', {}, onDownloadConfirmed)
+    })
+    expect(onDownloadConfirmed).not.toHaveBeenCalled()
+
+    mockedGetCookie.mockReturnValue('fresh-token')
+    act(() => {
+      vi.advanceTimersByTime(250)
+    })
+
+    expect(onDownloadConfirmed).toHaveBeenCalledTimes(1)
+  })
+
+  it('ENG-10709: onDownloadConfirmed never fires on the 15s fallback path', () => {
+    mockedGetCookie.mockReturnValue(false)
+    const onDownloadConfirmed = vi.fn()
+    const { result } = renderHook(() =>
+      useContactsDownload({ canUseProFeatures: true }),
+    )
+
+    act(() => {
+      result.current.download('42', {}, onDownloadConfirmed)
+    })
+    act(() => {
+      vi.advanceTimersByTime(15000)
+    })
+
+    expect(onDownloadConfirmed).not.toHaveBeenCalled()
+  })
+
+  it('ENG-10709: a caller that omits onDownloadConfirmed (legacy Download.tsx) does not error on success', () => {
+    mockedGetCookie.mockReturnValue(false)
+    const { result } = renderHook(() =>
+      useContactsDownload({ canUseProFeatures: true }),
+    )
+
+    act(() => {
+      result.current.download('42', {})
+    })
+    mockedGetCookie.mockReturnValue('fresh-token')
+    expect(() => {
+      act(() => {
+        vi.advanceTimersByTime(250)
+      })
+    }).not.toThrow()
+  })
+
   it('stale-cookie guard: a pre-existing cookie value does not clear the spinner instantly', () => {
     // A stale cookie from a previous download is already present when this
     // one starts. The poll must not treat "cookie present" alone as success —

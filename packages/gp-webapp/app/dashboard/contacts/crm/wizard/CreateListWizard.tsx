@@ -15,9 +15,12 @@ import {
 import { useSnackbar } from 'helpers/useSnackbar'
 import { numberFormatter } from 'helpers/numberHelper'
 import { clientRequest } from 'gpApi/typed-request'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import {
+  countSelectedFilterCategories,
+  hasPartyFilterSelection,
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
 } from '../shared/voterFileFilterTransform.util'
@@ -48,8 +51,12 @@ export default function CreateListWizard({
   open,
   onOpenChange,
 }: CreateListWizardProps) {
-  const { isElectedOfficial, isWinContext, refreshCustomSegments } =
-    useContactsTable()
+  const {
+    isElectedOfficial,
+    isWinContext,
+    isWinContextReady,
+    refreshCustomSegments,
+  } = useContactsTable()
   const router = useRouter()
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -131,6 +138,54 @@ export default function CreateListWizard({
       ),
     onSuccess: async (response) => {
       successSnackbar('List created successfully')
+      // ENG-10709: fire exactly once per successful create, never on a
+      // failed create or wizard abandon (createMutation.onError below has no
+      // matching trackEvent). Gated on isWinContextReady like the other
+      // product-specific events in this surface, so a not-yet-settled mode
+      // can't emit the wrong variant.
+      if (isWinContextReady) {
+        if (branch === 'voterFile') {
+          const variableCount =
+            countSelectedFilterCategories(demographicFilters) +
+            (supportStatus.length > 0 ? 1 : 0)
+          trackEvent(
+            isWinContext
+              ? EVENTS.VoterData.ListCreated
+              : EVENTS.ConstituentData.ListCreated,
+            {
+              variableCount,
+              ...(isWinContext
+                ? { hasParty: hasPartyFilterSelection(demographicFilters) }
+                : {}),
+            },
+          )
+        } else if (branch === 'activity') {
+          // Filtered defensively (isStep2Valid already guarantees every row
+          // has a channel by submit time) so a stray blank row can't produce
+          // an 'any' entry that didn't come from a real condition.
+          const validConditions = activityConditions.filter(
+            (condition) => condition.outreachType !== '',
+          )
+          const sourceCampaign = validConditions.length
+            ? validConditions
+                .map((condition) => condition.outreachName ?? 'any')
+                .join(', ')
+            : 'any'
+          // Array, not a joined string: Amplitude/HubSpot property
+          // definitions allow a scalar-array custom property, and this event
+          // doesn't drive a HubSpot email (see instrument-analytics-event
+          // skill's flatten-for-email rule), so no flattening is needed here.
+          const actionFilter = Array.from(
+            new Set(validConditions.flatMap((condition) => condition.actions)),
+          )
+          trackEvent(
+            isWinContext
+              ? EVENTS.VoterData.ActivityListCreated
+              : EVENTS.ConstituentData.ActivityListCreated,
+            { sourceCampaign, actionFilter },
+          )
+        }
+      }
       // A failed cache refresh must not strand the sheet open after the
       // create itself succeeded (React Query doesn't catch onSuccess throws;
       // DeleteSegment guards the same call).

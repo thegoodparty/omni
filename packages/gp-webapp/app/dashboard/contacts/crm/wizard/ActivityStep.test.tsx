@@ -161,12 +161,14 @@ describe('ActivityStep — campaign picker filtering (completed + channel)', () 
     await user.click(screen.getByText('Responded'))
 
     expect(lastConditions[0]?.outreachId).toBe(7)
+    expect(lastConditions[0]?.outreachName).toBe('GOTV blast')
     expect(lastConditions[0]?.actions).toEqual(['responded'])
 
     await user.click(screen.getByRole('radio', { name: 'Robocall' }))
 
     expect(lastConditions[0]?.outreachType).toBe('robocall')
     expect(lastConditions[0]?.outreachId).toBeNull()
+    expect(lastConditions[0]?.outreachName).toBeNull()
     expect(lastConditions[0]?.actions).toEqual([])
   })
 
@@ -196,13 +198,21 @@ describe('toActivityConditionPayload / isActivityStepValid', () => {
         key: 'a',
         outreachType: 'text',
         outreachId: 5,
+        outreachName: 'GOTV blast',
         actions: ['no_response'],
       },
-      { key: 'b', outreachType: '', outreachId: null, actions: [] },
+      {
+        key: 'b',
+        outreachType: '',
+        outreachId: null,
+        outreachName: null,
+        actions: [],
+      },
       {
         key: 'c',
         outreachType: 'doorKnocking',
         outreachId: null,
+        outreachName: null,
         actions: ['support_yes'],
       },
     ]
@@ -221,12 +231,24 @@ describe('toActivityConditionPayload / isActivityStepValid', () => {
     expect(isActivityStepValid([])).toBe(false)
     expect(
       isActivityStepValid([
-        { key: 'a', outreachType: '', outreachId: null, actions: [] },
+        {
+          key: 'a',
+          outreachType: '',
+          outreachId: null,
+          outreachName: null,
+          actions: [],
+        },
       ]),
     ).toBe(false)
     expect(
       isActivityStepValid([
-        { key: 'a', outreachType: 'text', outreachId: null, actions: [] },
+        {
+          key: 'a',
+          outreachType: 'text',
+          outreachId: null,
+          outreachName: null,
+          actions: [],
+        },
       ]),
     ).toBe(true)
   })

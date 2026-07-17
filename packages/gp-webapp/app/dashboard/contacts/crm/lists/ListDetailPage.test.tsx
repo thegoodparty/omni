@@ -6,6 +6,9 @@ import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { useContactsDownload } from '../shared/useContactsDownload'
 import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import ListDetailPage from './ListDetailPage'
 
@@ -19,13 +22,25 @@ vi.mock('@shared/hooks/useElectedOffice', () => ({
   useElectedOffice: () => ({ data: null }),
 }))
 vi.mock('../../../shared/useWinVoterContext', () => ({
-  useWinVoterContext: () => ({ isWin: true, isReady: true }),
+  useWinVoterContext: vi.fn(),
 }))
 vi.mock('../../../shared/DashboardLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
+// Mocked so the ENG-10709 analytics tests can invoke the cookie-poll success
+// callback synchronously, without re-driving useContactsDownload's own
+// timer/cookie mechanics — those are already covered by
+// useContactsDownload.test.ts. Other describe blocks in this file never
+// click Download, so this has no effect on them.
+vi.mock('../shared/useContactsDownload', () => ({
+  useContactsDownload: vi.fn(),
 }))
 // The real DropdownMenuItem depends on Radix context provided by its
 // DropdownMenu/DropdownMenuContent ancestors (createContextScope) and throws
@@ -69,8 +84,11 @@ vi.mock('@styleguide', async (importOriginal) => {
 // from inside ListDetailPage, so the test needs one shared instance to
 // assert against regardless of which internal hook fired it.
 const mockedUseSnackbar = vi.mocked(useSnackbar)
+const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
+const mockedUseContactsDownload = vi.mocked(useContactsDownload)
 const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
+const downloadFn = vi.fn()
 
 const emptyDetailResponse = {
   demographics: { people: 100, avgAge: 42, avgIncome: 65000 },
@@ -92,6 +110,11 @@ beforeEach(() => {
     successSnackbar,
     errorSnackbar,
     displaySnackbar: vi.fn(),
+  })
+  mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+  mockedUseContactsDownload.mockReturnValue({
+    download: downloadFn,
+    isPreparing: false,
   })
   api.mock('GET /v1/contacts/list-detail', {
     status: 200,
@@ -413,5 +436,122 @@ describe('ListDetailPage — segments-fetch error state', () => {
       await screen.findByText(/couldn.t load this list/i),
     ).toBeInTheDocument()
     expect(screen.queryByText(/may have been deleted/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('ListDetailPage — ENG-10709 List Exported analytics', () => {
+  const unlockedSegment = { id: 42, name: 'GOTV text list' }
+
+  beforeEach(() => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+  })
+
+  it('fires the Win-mode event with listSize only once the download confirms success, not at click time', async () => {
+    mockedUseWinVoterContext.mockReturnValue({ isWin: true, isReady: true })
+    let confirm: (() => void) | undefined
+    downloadFn.mockImplementation((_segment, _props, onDownloadConfirmed) => {
+      confirm = onDownloadConfirmed
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    // listSize now requires the demographics query to have resolved (a
+    // click before it resolves must not emit a listSize-less event) — wait
+    // on avgAge's "42" as a unique signal that GET /list-detail landed,
+    // since the people count "100" also matches reachability grid cells.
+    await screen.findByText('42')
+    await user.click(await screen.findByRole('button', { name: 'Download' }))
+
+    expect(downloadFn).toHaveBeenCalledWith(
+      '42',
+      { context: 'win' },
+      expect.any(Function),
+    )
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    confirm?.()
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListExported, {
+      listSize: 100,
+    })
+  })
+
+  it('fires the Serve-mode event on confirmed success', async () => {
+    mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
+    let confirm: (() => void) | undefined
+    downloadFn.mockImplementation((_segment, _props, onDownloadConfirmed) => {
+      confirm = onDownloadConfirmed
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await screen.findByText('42')
+    await user.click(await screen.findByRole('button', { name: 'Download' }))
+    confirm?.()
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ConstituentData.ListExported,
+      { listSize: 100 },
+    )
+  })
+
+  it('never fires when the download hook never confirms (fallback/failure path)', async () => {
+    downloadFn.mockImplementation(() => {
+      // The 15s-fallback and error paths inside useContactsDownload never
+      // invoke onDownloadConfirmed — simulated here by simply not calling it.
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await screen.findByText('42')
+    await user.click(await screen.findByRole('button', { name: 'Download' }))
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not fire when the download confirms before the demographics count is known', async () => {
+    // Overrides the beforeEach mock with one that never resolves, so
+    // detailQuery.data stays undefined through the whole test — simulating a
+    // confirm that lands before GET /v1/contacts/list-detail returns.
+    api.mock(
+      'GET /v1/contacts/list-detail',
+      () => new Promise<never>(() => undefined),
+    )
+    let confirm: (() => void) | undefined
+    downloadFn.mockImplementation((_segment, _props, onDownloadConfirmed) => {
+      confirm = onDownloadConfirmed
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await user.click(await screen.findByRole('button', { name: 'Download' }))
+    confirm?.()
+
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+
+  it('does not fire twice for two separate downloads that both confirm', async () => {
+    const confirms: Array<() => void> = []
+    downloadFn.mockImplementation((_segment, _props, onDownloadConfirmed) => {
+      if (onDownloadConfirmed) confirms.push(onDownloadConfirmed)
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailPage listId="42" />)
+    await screen.findByText('42')
+    const downloadButton = await screen.findByRole('button', {
+      name: 'Download',
+    })
+    await user.click(downloadButton)
+    await user.click(downloadButton)
+
+    confirms.forEach((confirm) => confirm())
+
+    expect(trackEvent).toHaveBeenCalledTimes(2)
   })
 })

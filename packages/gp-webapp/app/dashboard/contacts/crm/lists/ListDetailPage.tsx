@@ -24,6 +24,7 @@ import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useWinVoterContext } from '../../../shared/useWinVoterContext'
 import { getContactsLabels } from '../../../shared/contactsLabels'
 import DashboardLayout from '../../../shared/DashboardLayout'
@@ -50,7 +51,8 @@ export default function ListDetailPage({ listId }: ListDetailPageProps) {
   const orgSlug = useOrganization()?.slug
   const [campaign] = useCampaign()
   const { data: electedOffice } = useElectedOffice()
-  const { isWin: isWinContext } = useWinVoterContext()
+  const { isWin: isWinContext, isReady: isWinContextReady } =
+    useWinVoterContext()
   const isElectedOfficial = Boolean(electedOffice)
   const canUseProFeatures = Boolean(campaign?.isPro) || isElectedOfficial
   const labels = getContactsLabels(isWinContext)
@@ -191,7 +193,29 @@ export default function ListDetailPage({ listId }: ListDetailPageProps) {
             <Button
               variant="outline"
               onClick={() =>
-                download(listId, { context: isWinContext ? 'win' : 'serve' })
+                download(
+                  listId,
+                  { context: isWinContext ? 'win' : 'serve' },
+                  () => {
+                    // ENG-10709: fires only from the cookie-confirmed
+                    // success branch inside useContactsDownload — never on
+                    // the ambiguous 15s-fallback path or a failed download.
+                    // Gated on isWinContextReady like the other
+                    // product-specific events in this surface. Also gated on
+                    // the demographics count being known — a click that
+                    // lands before GET /v1/contacts/list-detail resolves
+                    // must not emit a listSize-less event.
+                    const listSize = detailQuery.data?.demographics.people
+                    if (isWinContextReady && listSize !== undefined) {
+                      trackEvent(
+                        isWinContext
+                          ? EVENTS.VoterData.ListExported
+                          : EVENTS.ConstituentData.ListExported,
+                        { listSize },
+                      )
+                    }
+                  },
+                )
               }
               loading={isPreparing}
             >

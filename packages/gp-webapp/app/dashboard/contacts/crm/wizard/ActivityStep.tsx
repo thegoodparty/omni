@@ -33,6 +33,12 @@ export interface WizardActivityCondition {
   key: string
   outreachType: ActivityConditionChannel | ''
   outreachId: number | null
+  // Display name of the selected outreach, resolved at selection time from
+  // the same completed-outreaches list the picker renders from. Not sent to
+  // the backend (toActivityConditionPayload below excludes it) — it exists
+  // only so the wizard's onSuccess handler can build the ENG-10709
+  // `sourceCampaign` analytics property without a second outreaches fetch.
+  outreachName: string | null
   actions: ActivityConditionAction[]
 }
 
@@ -41,6 +47,7 @@ export const blankActivityCondition = (): WizardActivityCondition => ({
   key: `condition-${conditionKeySeq++}`,
   outreachType: '',
   outreachId: null,
+  outreachName: null,
   actions: [],
 })
 
@@ -54,6 +61,16 @@ export const toActivityConditionPayload = (
       outreachId: condition.outreachId,
       actions: condition.actions,
     }))
+
+// Single source for the "no display name on the record" fallback — used both
+// by the campaign SelectItem's render and by handleCampaignChange's
+// ENG-10709 outreachName resolution, so the two can't drift on the fallback
+// chain.
+export const outreachDisplayName = (outreach: {
+  id: number
+  name?: string | null
+  title?: string | null
+}): string => outreach.name || outreach.title || `Outreach #${outreach.id}`
 
 export const isActivityStepValid = (
   conditions: WizardActivityCondition[],
@@ -117,13 +134,27 @@ export default function ActivityStep({
     updateCondition(key, {
       outreachType: value as ActivityConditionChannel,
       outreachId: null,
+      outreachName: null,
       actions: [],
     })
   }
 
-  const handleCampaignChange = (key: string, value: string) => {
+  const handleCampaignChange = (
+    key: string,
+    value: string,
+    channel: ActivityConditionChannel,
+  ) => {
+    if (value === ANY_CAMPAIGN_VALUE) {
+      updateCondition(key, { outreachId: null, outreachName: null })
+      return
+    }
+    const outreachId = Number(value)
+    const outreach = completedOutreachesForChannel(channel).find(
+      (candidate) => candidate.id === outreachId,
+    )
     updateCondition(key, {
-      outreachId: value === ANY_CAMPAIGN_VALUE ? null : Number(value),
+      outreachId,
+      outreachName: outreachDisplayName(outreach ?? { id: outreachId }),
     })
   }
 
@@ -206,7 +237,11 @@ export default function ActivityStep({
                       : ANY_CAMPAIGN_VALUE
                   }
                   onValueChange={(value) =>
-                    handleCampaignChange(condition.key, value)
+                    handleCampaignChange(
+                      condition.key,
+                      value,
+                      condition.outreachType as ActivityConditionChannel,
+                    )
                   }
                 >
                   <SelectTrigger className="w-full">
@@ -220,9 +255,7 @@ export default function ActivityStep({
                       condition.outreachType as ActivityConditionChannel,
                     ).map((outreach) => (
                       <SelectItem key={outreach.id} value={String(outreach.id)}>
-                        {outreach.name ||
-                          outreach.title ||
-                          `Outreach #${outreach.id}`}
+                        {outreachDisplayName(outreach)}
                       </SelectItem>
                     ))}
                   </SelectContent>
