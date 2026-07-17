@@ -3,7 +3,9 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import CreateListWizard from './CreateListWizard'
 import { useContactsTable } from '../ContactsTableProvider'
 
@@ -16,6 +18,10 @@ vi.mock('helpers/useSnackbar', () => ({
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'test-org' }),
 }))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
+}))
 
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseSnackbar = vi.mocked(useSnackbar)
@@ -23,7 +29,6 @@ const mockedUseSnackbar = vi.mocked(useSnackbar)
 type ContextValue = ReturnType<typeof useContactsTable>
 
 const refreshCustomSegments = vi.fn().mockResolvedValue(undefined)
-const selectSegment = vi.fn()
 const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
 
@@ -33,15 +38,14 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContext: true,
     isWinContextReady: true,
     refreshCustomSegments,
-    selectSegment,
     ...overrides,
   } as ContextValue)
 }
 
 beforeEach(() => {
   api.reset()
+  vi.clearAllMocks()
   refreshCustomSegments.mockClear()
-  selectSegment.mockClear()
   successSnackbar.mockClear()
   errorSnackbar.mockClear()
   mockedUseSnackbar.mockReturnValue({
@@ -169,7 +173,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(sentBody).not.toHaveProperty('activityConditions')
 
     await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
-    expect(selectSegment).toHaveBeenCalledWith('101')
+    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/101')
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
@@ -343,5 +347,187 @@ describe('CreateListWizard — error handling', () => {
 
     await vi.waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(trackEvent).not.toHaveBeenCalled()
+  })
+})
+
+describe('CreateListWizard — ENG-10709 List Created / Activity List Created analytics', () => {
+  const checkboxForOption = (label: string): HTMLElement => {
+    const labelNode = screen.getByText(new RegExp(`^${label}$`, 'i'))
+    const row = labelNode.parentElement
+    if (!row) throw new Error(`row for ${label} not found`)
+    return within(row).getByRole('checkbox')
+  }
+
+  it('fires the Win-mode List Created event once with variableCount + hasParty on a successful voter-file create', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 101, name: 'Likely Dem women' },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /build from the voter file/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    // gender (1 category) + political_party (1 category) + supportStatus
+    // (counts as 1) = variableCount 3.
+    await user.click(checkboxForOption('Female'))
+    await user.click(checkboxForOption('Democrat'))
+    await user.click(checkboxForOption('Supporter'))
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
+    await user.click(screen.getByRole('button', { name: /build your list/i }))
+
+    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
+      variableCount: 3,
+      hasParty: true,
+    })
+  })
+
+  it('fires the Serve-mode List Created event without a hasParty property', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 102, name: 'Reachable constituents' },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /build from the voter file/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    await user.click(checkboxForOption('Female'))
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(
+      screen.getByLabelText(/list name/i),
+      'Reachable constituents',
+    )
+    await user.click(screen.getByRole('button', { name: /build your list/i }))
+
+    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.ConstituentData.ListCreated,
+      { variableCount: 1 },
+    )
+    const [, properties] = vi.mocked(trackEvent).mock.calls[0]!
+    expect(properties).not.toHaveProperty('hasParty')
+  })
+
+  it('fires the Win-mode Activity List Created event with sourceCampaign + actionFilter for a single condition', async () => {
+    api.mock('GET /v1/outreach', {
+      status: 200,
+      data: [
+        {
+          id: 55,
+          campaignId: 1,
+          outreachType: 'text',
+          status: 'completed',
+          name: 'GOTV blast',
+        },
+      ],
+    })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 202, name: 'Texted GOTV blast' },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /build from outreach activity/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    await user.click(screen.getByRole('radio', { name: 'Text' }))
+    await user.click(await screen.findByRole('combobox'))
+    await user.click(await screen.findByText('GOTV blast'))
+    await user.click(screen.getByText('No Response'))
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
+    await user.click(screen.getByRole('button', { name: /build your list/i }))
+
+    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.ActivityListCreated,
+      { sourceCampaign: 'GOTV blast', actionFilter: ['no_response'] },
+    )
+  })
+
+  it('joins sourceCampaign and dedupes actionFilter across two stacked conditions', async () => {
+    api.mock('GET /v1/outreach', {
+      status: 200,
+      data: [
+        {
+          id: 55,
+          campaignId: 1,
+          outreachType: 'text',
+          status: 'completed',
+          name: 'GOTV blast',
+        },
+      ],
+    })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 203, name: 'Text + door knock' },
+    })
+    const user = userEvent.setup()
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /build from outreach activity/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    // Condition 1: text · GOTV blast · no response
+    await user.click(screen.getByRole('radio', { name: 'Text' }))
+    await user.click(await screen.findByRole('combobox'))
+    await user.click(await screen.findByText('GOTV blast'))
+    await user.click(screen.getByText('No Response'))
+
+    // Condition 2: door knocking · any · support yes
+    await user.click(screen.getByRole('button', { name: 'Add condition' }))
+    const doorKnockRadios = screen.getAllByRole('radio', {
+      name: 'Door Knocking',
+    })
+    await user.click(doorKnockRadios[doorKnockRadios.length - 1]!)
+    await user.click(screen.getByText('Support: Yes'))
+
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
+    await user.click(screen.getByRole('button', { name: /build your list/i }))
+
+    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.ActivityListCreated,
+      {
+        sourceCampaign: 'GOTV blast, any',
+        actionFilter: ['no_response', 'support_yes'],
+      },
+    )
+  })
+
+  it('never fires on wizard abandon (Cancel before completing)', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', { name: /build from the voter file/i }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(trackEvent).not.toHaveBeenCalled()
   })
 })

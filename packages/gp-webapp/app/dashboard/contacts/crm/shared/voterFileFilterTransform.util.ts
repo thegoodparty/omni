@@ -42,6 +42,28 @@ const ALL_FILTER_OPTION_KEYS = filterSections.flatMap((section) =>
   section.fields.flatMap((field) => field.options.map((opt) => opt.key)),
 )
 
+const ALL_FILTER_FIELDS = filterSections.flatMap((section) => section.fields)
+const PARTY_FIELD = ALL_FILTER_FIELDS.find(
+  (field) => field.key === 'political_party',
+)
+
+// ENG-10709: `variableCount` for the wizard's List Created event — the number
+// of filter categories (each `field` in filters.config.ts) with at least one
+// selected option. Single source with the wizard so a future filters.config
+// change can't silently drift the two.
+export const countSelectedFilterCategories = (
+  filters: VoterFileFilters,
+): number =>
+  ALL_FILTER_FIELDS.filter((field) =>
+    field.options.some((option) => filters[option.key]),
+  ).length
+
+// `hasParty` — Win-only property on List Created. Serve never renders the
+// Political Party section (VoterFileStep strips it for isElectedOfficial),
+// so this always evaluates false there.
+export const hasPartyFilterSelection = (filters: VoterFileFilters): boolean =>
+  PARTY_FIELD?.options.some((option) => filters[option.key]) ?? false
+
 export const transformVoterFileFiltersForBackend = (
   filters: VoterFileFilters,
 ): VoterFileBackendFilters => {

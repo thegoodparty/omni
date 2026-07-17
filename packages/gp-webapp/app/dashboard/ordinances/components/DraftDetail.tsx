@@ -336,19 +336,6 @@ export default function DraftDetail({
               onInput={onBodyInput}
               className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
             />
-            {sources.length > 0 ? (
-              <div className="mt-8 border-t border-border pt-4">
-                <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  Sources
-                </h3>
-                <div className="flex flex-col gap-2">
-                  {sources.map((source, i) => (
-                    <SourceLine key={`${source.id}-${i}`} source={source} />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
             <QualityReport
               slug={ordinance.slug}
               initialReport={ordinance.qualityReport}
@@ -375,6 +362,19 @@ export default function DraftDetail({
                 openChat(`About the "${check.label}" check: ${check.note}\n\n`)
               }
             />
+
+            {sources.length > 0 ? (
+              <div className="mt-8 border-t border-border pt-4">
+                <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Sources
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {sources.map((source, i) => (
+                    <SourceLine key={`${source.id}-${i}`} source={source} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 

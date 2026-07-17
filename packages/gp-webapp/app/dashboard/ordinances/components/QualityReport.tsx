@@ -123,7 +123,7 @@ function Check({
 
       <p
         className={cn(
-          'mt-2 text-sm text-foreground',
+          'mt-2 text-xs text-foreground',
           open ? 'whitespace-pre-wrap' : 'line-clamp-1',
         )}
       >

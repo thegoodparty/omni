@@ -15,22 +15,22 @@ import {
   LuCircleX,
   LuClipboardList,
   LuContact,
-  LuDoorOpen,
   LuFolderOpen,
   LuFrown,
   LuMessageSquareMore,
-  LuPhone,
-  LuShare2,
   LuSmile,
 } from 'react-icons/lu'
 import { useContactsTable } from '../ContactsTableProvider'
 import {
   ConstituentActivity,
-  OutreachChannel,
   OutreachConstituentActivity,
   Person,
   PollConstituentActivity,
 } from '../shared/contacts-types'
+import {
+  OUTREACH_CHANNEL_ICONS,
+  OUTREACH_CHANNEL_LABELS,
+} from '../shared/outreachChannelLabels'
 import { isNotNil } from 'es-toolkit'
 import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
@@ -59,27 +59,6 @@ const ACTIVITY_EVENT_LABELS: Record<string, string> = {
   SENT: 'Sent',
   RESPONDED: 'Responded',
   OPTED_OUT: 'Opted Out',
-}
-
-// Honest send-time labels per channel. v1 outreach attribution is send-time
-// (segmentDerived) for everything except door knocking (per-recipient), so the
-// label says what we did, not what was delivered.
-const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
-  text: 'Texted',
-  p2p: 'Texted',
-  doorKnocking: 'Knocked',
-  phoneBanking: 'Called',
-  robocall: 'Called',
-  socialMedia: 'Digital',
-}
-
-const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> = {
-  text: <LuMessageSquareMore size={16} className="shrink-0 text-foreground" />,
-  p2p: <LuMessageSquareMore size={16} className="shrink-0 text-foreground" />,
-  doorKnocking: <LuDoorOpen size={16} className="shrink-0 text-foreground" />,
-  phoneBanking: <LuPhone size={16} className="shrink-0 text-foreground" />,
-  robocall: <LuPhone size={16} className="shrink-0 text-foreground" />,
-  socialMedia: <LuShare2 size={16} className="shrink-0 text-foreground" />,
 }
 
 const isOutreachActivity = (
