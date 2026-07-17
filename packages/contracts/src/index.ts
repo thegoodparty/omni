@@ -74,6 +74,13 @@ export {
   type ContactNoteListResponse,
 } from './people/ContactNote.schema'
 
+export {
+  LogContactInteractionInputSchema,
+  type LogContactInteractionInput,
+  LogContactInteractionResponseSchema,
+  type LogContactInteractionResponse,
+} from './people/LogContactInteraction.schema'
+
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
 export { ZipSchema } from './shared/Zip.schema'
