@@ -259,9 +259,11 @@ def classify_status(
     # Code removed. "Still firing" (orphaned) requires firing AFTER retirement, not merely a
     # nonzero 30-day count: that window straddles the retirement date, so pre-retirement traffic
     # would false-alarm every fresh retiree with prior volume as orphaned for up to 30 days
-    # (DATA-2140). Gate on last_seen past retirement + a grace window for deploy/pipeline lag.
-    fired_after_retirement = (
-        last_seen_date is not None and last_seen_date > retired_date + timedelta(days=ORPHAN_GRACE_DAYS)
+    # (DATA-2140). Gate on last_seen past retirement + a grace window for deploy/pipeline lag. A
+    # missing last_seen (Databricks catalog data gap) is ambiguous, so fall back to firing_recent
+    # rather than hiding a genuine orphan behind a null date.
+    fired_after_retirement = last_seen_date is None or (
+        last_seen_date > retired_date + timedelta(days=ORPHAN_GRACE_DAYS)
     )
     if firing_recent and fired_after_retirement:
         return "orphaned_firing"
@@ -281,12 +283,12 @@ def divergence(
         return "declared in-use but code removed + quiet"
     if gpmeta["intent"] == "not_in_use" and firing_recent:
         # "Still firing" must mean fired AFTER the not-in-use declaration, not merely a nonzero
-        # 30-day count straddling that date (the same trap as orphaned_firing, DATA-2140). When the
-        # declaration carries no date we cannot verify temporally, so fall back to firing_recent.
+        # 30-day count straddling that date (the same trap as orphaned_firing, DATA-2140). A missing
+        # declaration date, or a missing last_seen (Databricks data gap), is ambiguous — fall back to
+        # the firing_recent signal rather than hiding a genuine divergence behind a null date.
         intent_date = to_date(gpmeta.get("intent_date"))
-        if intent_date is None or (
-            last_seen_date is not None
-            and last_seen_date > intent_date + timedelta(days=ORPHAN_GRACE_DAYS)
+        if intent_date is None or last_seen_date is None or (
+            last_seen_date > intent_date + timedelta(days=ORPHAN_GRACE_DAYS)
         ):
             return "declared not-in-use but still firing"
     return None

@@ -179,6 +179,10 @@ def test_classify_status_branches():
     assert _classify(retired_date=None, firing_recent=False) == "dormant"
     # code removed + firing after retirement -> orphaned
     assert _classify(retired_date=date(2026, 6, 1), firing_recent=True, last_seen_date=date(2026, 6, 24)) == "orphaned_firing"
+    # code removed + firing but last_seen missing (data gap) -> ambiguous, fall back to firing -> orphaned
+    assert _classify(retired_date=date(2026, 6, 1), firing_recent=True, last_seen_date=None) == "orphaned_firing"
+    # code removed + last_seen missing but NOT firing -> still quiet, deprecating/retired
+    assert _classify(retired_date=date(2026, 6, 20), firing_recent=False, last_seen_date=None) == "deprecating"
     # code removed, within 30d holding window, quiet -> deprecating
     assert _classify(retired_date=date(2026, 6, 20), firing_recent=False, last_seen_date=date(2026, 6, 19)) == "deprecating"
     # code removed, past the window, quiet -> retired
@@ -241,6 +245,8 @@ def test_divergence_not_in_use_requires_firing_after_declaration():
     assert eh.divergence(
         dated, "active", True, last_seen_date=date(2026, 6, 20) + timedelta(days=eh.ORPHAN_GRACE_DAYS)
     ) is None
+    # last_seen missing (data gap) with a declaration date -> ambiguous, fall back to firing_recent
+    assert eh.divergence(dated, "active", True, last_seen_date=None).endswith("still firing")
     # no declaration date -> cannot verify temporally, fall back to firing_recent
     undated = {"intent": "not_in_use", "intent_date": None, "supersession": None}
     assert eh.divergence(undated, "active", True, last_seen_date=date(2026, 6, 10)).endswith("still firing")
