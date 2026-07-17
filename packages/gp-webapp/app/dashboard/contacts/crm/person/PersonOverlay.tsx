@@ -377,8 +377,11 @@ const ActivitiesContent: React.FC = () => {
           default:
             // Exhaustiveness guard: a new ConstituentActivityType added to
             // the contract without a render branch here fails the build
-            // instead of silently dropping rows.
-            return activity satisfies never
+            // instead of silently dropping rows. satisfies erases at runtime,
+            // so an unknown server type must still return null, not the raw
+            // object (React would throw on an object child).
+            void (activity satisfies never)
+            return null
         }
       })}
       {hasNextPage ? (

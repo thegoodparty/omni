@@ -494,6 +494,11 @@ export type APIEndpoints = {
     Response: Ordinance
   }
 
+  'POST /v1/ordinances/:slug/quality-report': {
+    Request: {}
+    Response: Ordinance
+  }
+
   'GET /v1/contacts/stats': {
     Request: {}
     Response: ContactsStats

@@ -33,6 +33,7 @@ import ChatPill from '../../shared/ai-chat/ChatPill'
 import { updateOrdinance } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META } from '../data/statuses'
 import DraftChat from './DraftChat'
+import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
 
 const AUTOSAVE_DELAY_MS = 800
@@ -62,12 +63,23 @@ export default function DraftDetail({
 }): React.JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
   const queuedRef = useRef<UpdateOrdinanceRequest | null>(null)
+  // The in-flight save's promise, so a flush can await the chain to settle.
+  const savingPromiseRef = useRef<Promise<void> | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
+  // Whether the most recently settled save failed, set synchronously in save()'s
+  // then/catch. A ref (not saveState) because it must be read reliably inside
+  // flushPendingSaves right after the save promise settles — saveState's ref
+  // mirror only updates on React's deferred re-render, which is too late here.
+  const lastSaveFailedRef = useRef(false)
   const [selection, setSelection] = useState<Selection | null>(null)
+  // True once the draft is edited this session, so the quality report can show
+  // a stale banner without refetching. Cleared when a fresh report is run.
+  const [draftDirty, setDraftDirty] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   // The composer seed for the chat drawer, plus a nonce so re-highlighting the
   // same passage re-seeds even when the text is identical.
@@ -101,29 +113,76 @@ export default function DraftDetail({
       }
       savingRef.current = true
       setSaveState('saving')
-      updateOrdinance(ordinance.slug, update)
-        .then(() => setSaveState('saved'))
+      savingPromiseRef.current = updateOrdinance(ordinance.slug, update)
+        .then(() => {
+          setSaveState('saved')
+          lastSaveFailedRef.current = false
+        })
         .catch(() => {
           // Drop the queued edit on failure so the error state stays visible (a
           // queued retry would immediately flip back to 'saving') and we don't
           // spin an unbounded retry loop; the next edit re-triggers a save.
           setSaveState('error')
+          lastSaveFailedRef.current = true
           queuedRef.current = null
         })
         .finally(() => {
           savingRef.current = false
           const queued = queuedRef.current
           queuedRef.current = null
-          if (queued && Object.keys(queued).length > 0) save(queued)
+          if (queued && Object.keys(queued).length > 0) {
+            save(queued)
+          } else {
+            savingPromiseRef.current = null
+          }
         })
     },
     [ordinance.slug],
   )
 
+  // Fire any pending debounced edits immediately and resolve once the save
+  // chain (including a queued follow-up) has fully settled. Run before
+  // generating the quality report so the LLM grades the latest saved text.
+  const flushPendingSaves = useCallback(async (): Promise<void> => {
+    const update: UpdateOrdinanceRequest = {}
+    if (bodyTimerRef.current) {
+      clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = null
+      const body = bodyRef.current?.innerText ?? ''
+      if (body.trim().length > 0) update.draftBody = body
+    }
+    if (titleTimerRef.current) {
+      clearTimeout(titleTimerRef.current)
+      titleTimerRef.current = null
+      const next = titleRef.current?.innerText.trim() ?? ''
+      if (next.length > 0) update.draftTitle = next
+    }
+    // If a prior save failed, the DB is stale and there may be no pending timer
+    // to re-drive it. Re-send the current editor text so a run recovers from a
+    // transient failure instead of dead-ending (we don't know which field
+    // failed, so persist both).
+    if (lastSaveFailedRef.current) {
+      const body = bodyRef.current?.innerText ?? ''
+      if (body.trim().length > 0) update.draftBody = body
+      const next = titleRef.current?.innerText.trim() ?? ''
+      if (next.length > 0) update.draftTitle = next
+    }
+    if (Object.keys(update).length > 0) save(update)
+    while (savingRef.current && savingPromiseRef.current) {
+      await savingPromiseRef.current
+    }
+    // Only abort if the draft still isn't saved after the attempt above — the
+    // report would otherwise be graded against stale text.
+    if (lastSaveFailedRef.current) {
+      throw new Error('Draft could not be saved before running quality checks')
+    }
+  }, [save])
+
   // Read innerText only when typing pauses, not on every keystroke (each read
   // forces a synchronous layout reflow). Empty fields are skipped: the contract
   // requires draftTitle/draftBody be non-empty, so gp-api 400s on ''.
   const onBodyInput = useCallback((): void => {
+    setDraftDirty(true)
     if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     bodyTimerRef.current = setTimeout(() => {
       bodyTimerRef.current = null
@@ -133,6 +192,7 @@ export default function DraftDetail({
   }, [save])
 
   const onTitleInput = useCallback((): void => {
+    setDraftDirty(true)
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
     titleTimerRef.current = setTimeout(() => {
       titleTimerRef.current = null
@@ -199,7 +259,7 @@ export default function DraftDetail({
         updatePosition()
       })
     }
-    const scrollContainer = bodyRef.current?.parentElement ?? null
+    const scrollContainer = scrollRef.current
     document.addEventListener('selectionchange', updatePosition)
     scrollContainer?.addEventListener('scroll', onScroll)
     return () => {
@@ -255,38 +315,67 @@ export default function DraftDetail({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto p-6">
-          <h2
-            ref={titleRef}
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-label="Ordinance draft title"
-            onInput={onTitleInput}
-            className="mb-4 text-xl font-bold text-foreground outline-none"
-          />
-          <div
-            ref={bodyRef}
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-multiline="true"
-            aria-label="Ordinance draft body"
-            onInput={onBodyInput}
-            className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
-          />
-          {sources.length > 0 ? (
-            <div className="mt-8 border-t border-border pt-4">
-              <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Sources
-              </h3>
-              <div className="flex flex-col gap-2">
-                {sources.map((source, i) => (
-                  <SourceLine key={`${source.id}-${i}`} source={source} />
-                ))}
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl p-6">
+            <h2
+              ref={titleRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-label="Ordinance draft title"
+              onInput={onTitleInput}
+              className="mb-4 text-xl font-bold text-foreground outline-none"
+            />
+            <div
+              ref={bodyRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              aria-label="Ordinance draft body"
+              onInput={onBodyInput}
+              className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
+            />
+            {sources.length > 0 ? (
+              <div className="mt-8 border-t border-border pt-4">
+                <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Sources
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {sources.map((source, i) => (
+                    <SourceLine key={`${source.id}-${i}`} source={source} />
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : null}
+            ) : null}
+
+            <QualityReport
+              slug={ordinance.slug}
+              initialReport={ordinance.qualityReport}
+              draftDirty={draftDirty}
+              onBeforeRun={flushPendingSaves}
+              onReran={() => {
+                // Only clear the stale banner once the draft is safely
+                // persisted: not while a save is in flight, not if the last
+                // save failed, and not while an edit typed during the run is
+                // still waiting on its debounce timer. All synchronous, so this
+                // is reliable regardless of React's deferred re-render timing.
+                const editPending =
+                  bodyTimerRef.current !== null ||
+                  titleTimerRef.current !== null
+                if (
+                  !savingRef.current &&
+                  !lastSaveFailedRef.current &&
+                  !editPending
+                ) {
+                  setDraftDirty(false)
+                }
+              }}
+              onDiscussFinding={(check) =>
+                openChat(`About the "${check.label}" check: ${check.note}\n\n`)
+              }
+            />
+          </div>
         </div>
 
         <div className="sticky bottom-0 z-10 border-t border-border bg-background">

@@ -199,6 +199,8 @@ export const OrdinanceQualityCheckSchema = z.object({
   note: z.string(),
   source: OrdinanceSourceSchema.optional(),
 })
+export type OrdinanceQualityCheck = z.infer<typeof OrdinanceQualityCheckSchema>
+
 export const OrdinanceQualityReportSchema = z.object({
   checks: z.array(OrdinanceQualityCheckSchema),
   tally: z.object({
@@ -209,6 +211,10 @@ export const OrdinanceQualityReportSchema = z.object({
   stale: z.boolean(),
   ranAgainstBodyHash: z.string(),
 })
+export type OrdinanceQualityReport = z.infer<
+  typeof OrdinanceQualityReportSchema
+>
+export type OrdinanceQualityCheckStatus = OrdinanceQualityCheck['status']
 
 export const OrdinanceResearchChapterSchema = z.object({
   label: z.string(),
