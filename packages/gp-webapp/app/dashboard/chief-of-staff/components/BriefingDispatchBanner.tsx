@@ -53,11 +53,12 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
     )
     pollAttempts.current += 1
     if (meeting?.hasBriefing || pollAttempts.current >= MAX_POLL_ATTEMPTS) {
-      if (meeting?.hasBriefing) {
-        void queryClient.invalidateQueries({
-          queryKey: ['chief-of-staff', 'cards'],
-        })
-      }
+      // Invalidate on both paths (ready and timeout): a briefing that lands
+      // near the ceiling still generated cards, and useDashboardCards has no
+      // refetchInterval, so without this they stay hidden until a reload.
+      void queryClient.invalidateQueries({
+        queryKey: ['chief-of-staff', 'cards'],
+      })
       pollAttempts.current = 0
       setPendingMeetingDate(null)
     }
