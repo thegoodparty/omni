@@ -1,11 +1,12 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent, act } from '@testing-library/react'
+import { screen, fireEvent, act, waitFor } from '@testing-library/react'
 import type { Ordinance } from '@goodparty_org/contracts'
 import DraftDetail from './DraftDetail'
 
 const mocks = vi.hoisted(() => ({
   updateOrdinance: vi.fn(),
+  generateQualityReport: vi.fn(),
   draftChatProps: {
     current: null as { seedText?: string; seedNonce?: number } | null,
   },
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
+  generateQualityReport: mocks.generateQualityReport,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
@@ -283,5 +285,117 @@ describe('DraftDetail selection toolbar', () => {
       'I think there\'s a problem with this passage: "a 30-day retention limit"\n\n',
     )
     expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
+  })
+})
+
+const sampleReport = {
+  checks: [{ id: 'authority', label: 'Authority', status: 'pass', note: 'ok' }],
+  tally: { pass: 1, flag: 0, attention: 0 },
+  stale: false,
+  ranAgainstBodyHash: 'hash-1',
+}
+
+// Real timers here: clicking Run flushes (and clears) the debounce timer
+// synchronously, so these exercise the flush/stale wiring without a fake clock.
+describe('DraftDetail quality report flush', () => {
+  beforeEach(() => {
+    mocks.updateOrdinance.mockReset()
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.generateQualityReport.mockReset()
+    mocks.generateQualityReport.mockResolvedValue(
+      makeOrdinance({ qualityReport: sampleReport } as Partial<Ordinance>),
+    )
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('flushes a pending edit before generating the report', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('flushed edit')
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(await screen.findByText(/reviewed by/i)).toBeVisible()
+    // The pending edit was saved (with its latest text) before the run.
+    expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      { draftBody: 'flushed edit' },
+    )
+    expect(mocks.generateQualityReport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+    )
+  })
+
+  it('aborts the run and does not generate when the flush save fails', async () => {
+    mocks.updateOrdinance.mockRejectedValue(new Error('save failed'))
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('edit that fails to save')
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(
+      await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
+    expect(mocks.generateQualityReport).not.toHaveBeenCalled()
+  })
+
+  it('recovers on a later run after a failed flush save instead of dead-ending', async () => {
+    mocks.updateOrdinance.mockRejectedValueOnce(new Error('blip'))
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('edited during a blip')
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    // First run aborts because the flush save failed.
+    expect(
+      await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
+    expect(mocks.generateQualityReport).not.toHaveBeenCalled()
+
+    // The next run re-saves the current text (network recovered) and proceeds,
+    // rather than dead-ending on the stale failure flag.
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(await screen.findByText(/reviewed by/i)).toBeVisible()
+    expect(mocks.generateQualityReport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+    )
+  })
+
+  it('shows the stale banner after an edit', () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityReport: sampleReport,
+        } as Partial<Ordinance>)}
+      />,
+    )
+
+    expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
+
+    editBody('a new edit')
+    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+  })
+
+  it('clears the stale banner after a successful re-run', async () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityReport: { ...sampleReport, stale: true },
+        } as Partial<Ordinance>)}
+      />,
+    )
+
+    // Starts stale (server-reported).
+    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
+
+    await waitFor(() =>
+      expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument(),
+    )
   })
 })

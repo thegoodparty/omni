@@ -83,6 +83,17 @@ export class OrdinanceFlowController {
     return this.ordinances.appendClarifyAnswer(electedOffice, slug, body)
   }
 
+  @Post(':slug/quality-report')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.CREATED)
+  @ResponseSchema(OrdinanceSchema)
+  async generateQualityReport(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.generateQualityReport(electedOffice, slug)
+  }
+
   @Patch(':slug')
   @UseElectedOffice()
   @ResponseSchema(OrdinanceSchema)

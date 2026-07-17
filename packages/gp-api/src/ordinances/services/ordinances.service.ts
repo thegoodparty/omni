@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -11,14 +12,20 @@ import {
   type Ordinance as OrdinanceResponse,
   type OrdinanceClarifyAnswer,
   type OrdinanceListResponse,
+  type OrdinanceQualityReport,
   type OrdinanceStatusCounts,
   type UpdateOrdinanceRequest,
   OrdinanceClarifyAnswersSchema,
   OrdinanceListResponseSchema,
+  OrdinanceQualityReportSchema,
   OrdinanceSchema,
   OrdinanceSummarySchema,
 } from '@goodparty_org/contracts'
 import { ElectedOffice, Ordinance, Prisma } from '../../generated/prisma'
+import {
+  OrdinanceQualityReportService,
+  qualityReportInputHash,
+} from './ordinanceQualityReport.service'
 
 const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
 
@@ -35,7 +42,10 @@ const STATUS_ORDER = [
 
 @Injectable()
 export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
-  constructor(private readonly features: FeaturesService) {
+  constructor(
+    private readonly features: FeaturesService,
+    private readonly qualityReports: OrdinanceQualityReportService,
+  ) {
     super()
   }
 
@@ -169,6 +179,39 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     })
   }
 
+  // Generate (or re-run) the six-check quality report against the current
+  // draft. Synchronous: one structured LLM call grounded in the draft and the
+  // prior-step artifacts. Persists the report and returns the ordinance.
+  async generateQualityReport(
+    electedOffice: ElectedOffice,
+    slug: string,
+  ): Promise<OrdinanceResponse> {
+    await this.assertEnabled(electedOffice.userId)
+    const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    if ((existing.draftBody ?? '').trim().length === 0) {
+      throw new BadRequestException(
+        'Cannot run quality checks on an empty draft',
+      )
+    }
+    // Idempotency: if a report already exists for the current draft text, return
+    // it instead of spending another LLM call. Makes a re-click or retry on an
+    // unchanged draft free, and collapses the common double-run to one call. A
+    // malformed blob is stale/null and correctly falls through to regenerate.
+    const current = this.qualityReportWithStaleness(existing)
+    if (current && !current.stale) {
+      return this.toResponse(existing)
+    }
+    const report = await this.qualityReports.generate(
+      existing,
+      electedOffice.userId,
+    )
+    const record = await this.model.update({
+      where: { id: existing.id },
+      data: { qualityReport: report },
+    })
+    return this.toResponse(record)
+  }
+
   private async findOwnedOrThrow(
     electedOffice: ElectedOffice,
     slug: string,
@@ -195,9 +238,35 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   private toResponse(record: Ordinance): OrdinanceResponse {
     return OrdinanceSchema.parse({
       ...record,
+      qualityReport: this.qualityReportWithStaleness(record),
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
     })
+  }
+
+  // Derive `stale` on read by comparing the hash the report ran against to the
+  // current draft body, so an edit marks the report stale without a write on
+  // every keystroke. A malformed stored report reads as no report.
+  private qualityReportWithStaleness(
+    record: Ordinance,
+  ): OrdinanceQualityReport | null {
+    const parsed = OrdinanceQualityReportSchema.safeParse(record.qualityReport)
+    if (!parsed.success) {
+      // A null blob is just "no report yet". A non-null blob that fails to
+      // parse is malformed stored data (e.g. a schema change) — log it so it
+      // isn't silently indistinguishable from never-generated.
+      if (record.qualityReport !== null) {
+        this.logger.error(
+          { ordinanceId: record.id, error: parsed.error },
+          'qualityReport failed schema parse; treating as no report',
+        )
+      }
+      return null
+    }
+    return {
+      ...parsed.data,
+      stale: parsed.data.ranAgainstBodyHash !== qualityReportInputHash(record),
+    }
   }
 
   private toSummary(record: Ordinance) {

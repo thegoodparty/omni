@@ -33,6 +33,16 @@ export async function createOrdinance(
   return data
 }
 
+// Generate (or re-run) the draft's six-check quality report. Returns the
+// updated ordinance with the fresh report.
+export async function generateQualityReport(slug: string): Promise<Ordinance> {
+  const { data } = await clientRequest(
+    'POST /v1/ordinances/:slug/quality-report',
+    { slug },
+  )
+  return data
+}
+
 // Persist a clarify answer directly (the client is the source of truth), keyed
 // by the widget's own questionId. Returns the updated ordinance so the caller
 // can refresh its recorded answers.
