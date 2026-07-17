@@ -11,7 +11,7 @@ import {
   PollIndividualMessageSender,
   Prisma,
 } from '../generated/prisma'
-import { compareDesc, parseISO } from 'date-fns'
+import { compareDesc, isValid, parseISO } from 'date-fns'
 import { IndividualActivityInput } from './contactEngagement.schema'
 import {
   ConstituentActivity,
@@ -81,40 +81,159 @@ export class ContactEngagementService {
     } = input
     const limit = take ?? 20
 
-    // The id tiebreak is applied in the merge sort below; this orderBy keeps
-    // each source's own fetch order stable/deterministic across requests.
-    const interactionOrderBy = [
+    // Cursor is `${date}|${type}|${id}`; only the date component bounds the
+    // per-source fetches below. A garbage/foreign cursor whose date half
+    // doesn't parse falls back to the page-1 window (cursorDate: null) —
+    // the composite `findIndex` below then correctly finds no match and
+    // returns an empty page, rather than handing an Invalid Date to Prisma.
+    const cursorDatePart = after?.split('|')[0]
+    const parsedCursorDate = cursorDatePart ? parseISO(cursorDatePart) : null
+    const cursorDate =
+      parsedCursorDate && isValid(parsedCursorDate) ? parsedCursorDate : null
+
+    const orderBy = [
       { occurredAt: Prisma.SortOrder.desc },
       { id: Prisma.SortOrder.desc },
     ]
+    const noteOrderBy = [
+      { createdAt: Prisma.SortOrder.desc },
+      { id: Prisma.SortOrder.desc },
+    ]
+
+    // Bounds a union source to the window this page can actually need: with
+    // no cursor (page 1), a source's own top `limit + 1` rows — in a merge
+    // of sorted sources, a row ranked inside the global top N can't be
+    // ranked past N within its own source. Resuming past a cursor, the same
+    // argument applies to each source's remaining (not-yet-shown) rows, so
+    // `fetchBefore` asks for `occurredAt < cursorDate` bounded the same way.
+    // The cursor can sit inside a same-instant tie group though, so
+    // `fetchAtCursor` (occurredAt = cursorDate) is unbounded — a person's
+    // same-instant row count is naturally small, and the full group has to
+    // be present for the merge sort/cursor to place rows on the correct
+    // side of it.
+    const fetchWindow = async <Row>(
+      fetchBefore: (take: number) => Promise<Row[]>,
+      fetchAtCursor: (() => Promise<Row[]>) | null,
+    ): Promise<Row[]> => {
+      if (!fetchAtCursor) {
+        return fetchBefore(limit + 1)
+      }
+      const [before, atCursor] = await Promise.all([
+        fetchBefore(limit + 1),
+        fetchAtCursor(),
+      ])
+      return [...before, ...atCursor]
+    }
+
     const [doorKnocks, texts, robocalls, notes] = await Promise.all([
-      this.contactInteractionDoorKnock.findMany({
-        where: { organizationSlug, personId },
-        orderBy: interactionOrderBy,
-      }),
-      this.contactInteractionText.findMany({
-        where: { organizationSlug, personId },
-        orderBy: interactionOrderBy,
-      }),
-      this.contactInteractionRobocall.findMany({
-        where: { organizationSlug, personId },
-        orderBy: interactionOrderBy,
-      }),
-      this.contactNote.listForPerson(organizationSlug, personId),
+      fetchWindow(
+        (windowTake) =>
+          this.contactInteractionDoorKnock.findMany({
+            where: {
+              organizationSlug,
+              personId,
+              ...(cursorDate ? { occurredAt: { lt: cursorDate } } : {}),
+            },
+            orderBy,
+            take: windowTake,
+          }),
+        cursorDate
+          ? () =>
+              this.contactInteractionDoorKnock.findMany({
+                where: { organizationSlug, personId, occurredAt: cursorDate },
+                orderBy,
+              })
+          : null,
+      ),
+      fetchWindow(
+        (windowTake) =>
+          this.contactInteractionText.findMany({
+            where: {
+              organizationSlug,
+              personId,
+              ...(cursorDate ? { occurredAt: { lt: cursorDate } } : {}),
+            },
+            orderBy,
+            take: windowTake,
+          }),
+        cursorDate
+          ? () =>
+              this.contactInteractionText.findMany({
+                where: { organizationSlug, personId, occurredAt: cursorDate },
+                orderBy,
+              })
+          : null,
+      ),
+      fetchWindow(
+        (windowTake) =>
+          this.contactInteractionRobocall.findMany({
+            where: {
+              organizationSlug,
+              personId,
+              ...(cursorDate ? { occurredAt: { lt: cursorDate } } : {}),
+            },
+            orderBy,
+            take: windowTake,
+          }),
+        cursorDate
+          ? () =>
+              this.contactInteractionRobocall.findMany({
+                where: { organizationSlug, personId, occurredAt: cursorDate },
+                orderBy,
+              })
+          : null,
+      ),
+      fetchWindow(
+        (windowTake) =>
+          this.contactNote.findMany({
+            where: {
+              organizationSlug,
+              personId,
+              ...(cursorDate ? { createdAt: { lt: cursorDate } } : {}),
+            },
+            orderBy: noteOrderBy,
+            take: windowTake,
+          }),
+        cursorDate
+          ? () =>
+              this.contactNote.findMany({
+                where: { organizationSlug, personId, createdAt: cursorDate },
+                orderBy: noteOrderBy,
+              })
+          : null,
+      ),
     ])
 
     // Poll interactions only exist in the Serve (elected office) context.
     // Legacy outreach rows only join the union for Win, and only when the
     // client passes the durable lalVoterId (the sunset-compatibility path —
-    // omitting it is not an error, it just means no legacy rows).
+    // omitting it is not an error, it just means no legacy rows). Poll
+    // grouping fetches every message unbounded, but its output is one row
+    // per distinct poll — bounded by how many polls this person has ever
+    // been sent, not by message volume, so it doesn't need this windowing.
     const pollActivities = electedOfficeId
       ? await this.getPollActivities(electedOfficeId, personId)
       : []
     const outreachActivities =
       lalVoterId && campaignId !== undefined
-        ? await this.voterOutreachActivity.getActivityForVoter(
-            campaignId,
-            lalVoterId,
+        ? await fetchWindow(
+            (windowTake) =>
+              this.voterOutreachActivity.findMany({
+                where: {
+                  campaignId,
+                  lalVoterId,
+                  ...(cursorDate ? { occurredAt: { lt: cursorDate } } : {}),
+                },
+                orderBy,
+                take: windowTake,
+              }),
+            cursorDate
+              ? () =>
+                  this.voterOutreachActivity.findMany({
+                    where: { campaignId, lalVoterId, occurredAt: cursorDate },
+                    orderBy,
+                  })
+              : null,
           )
         : []
 
@@ -198,6 +317,13 @@ export class ContactEngagementService {
       const dateOrder = compareDesc(parseISO(a.date), parseISO(b.date))
       if (dateOrder !== 0) return dateOrder
       if (a.type !== b.type) return a.type.localeCompare(b.type)
+      // OUTREACH ids are VoterOutreachActivity's numeric autoincrement id;
+      // string-comparing them ('10' < '9') disagrees with the DB's numeric
+      // id-desc order and desyncs the cursor from a tie group that straddles
+      // a page boundary.
+      if (a.type === ConstituentActivityType.OUTREACH) {
+        return Number(activityId(b)) - Number(activityId(a))
+      }
       return activityId(a).localeCompare(activityId(b))
     })
 

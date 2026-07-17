@@ -328,8 +328,11 @@ const ActivitiesContent: React.FC = () => {
   // hasActivities is false in that case. Not gated on hasActivities alone
   // either: a page that happens to hold only new (unrenderable) entry types
   // can still have a next page of real OUTREACH/POLL_INTERACTIONS rows —
-  // hiding "View more" there would permanently strand them.
-  if (!hasActivities && !hasNextPage) {
+  // hiding "View more" there would permanently strand them. Not while
+  // isLoading either — the initial fetch starts with hasActivities and
+  // hasNextPage both false, so without this the empty state would flash
+  // before the loading skeleton ever gets a chance to render.
+  if (!isLoading && !hasActivities && !hasNextPage) {
     return (
       <div className="flex flex-col items-center gap-3">
         <Image

@@ -35,9 +35,11 @@ describe('ContactEngagementService', () => {
     }
     let mockContactNoteService: {
       listForPerson: ReturnType<typeof vi.fn>
+      findMany: ReturnType<typeof vi.fn>
     }
     let mockVoterOutreachActivityService: {
       getActivityForVoter: ReturnType<typeof vi.fn>
+      findMany: ReturnType<typeof vi.fn>
     }
 
     beforeEach(() => {
@@ -55,9 +57,11 @@ describe('ContactEngagementService', () => {
       }
       mockContactNoteService = {
         listForPerson: vi.fn().mockResolvedValue([]),
+        findMany: vi.fn().mockResolvedValue([]),
       }
       mockVoterOutreachActivityService = {
         getActivityForVoter: vi.fn().mockResolvedValue([]),
+        findMany: vi.fn().mockResolvedValue([]),
       }
 
       // Direct instantiation (not the mock-object-plus-prototype-bind style
@@ -528,7 +532,7 @@ describe('ContactEngagementService', () => {
     })
 
     it('unions in legacy VoterOutreachActivity rows only when lalVoterId is given', async () => {
-      mockVoterOutreachActivityService.getActivityForVoter.mockResolvedValue([
+      mockVoterOutreachActivityService.findMany.mockResolvedValue([
         {
           id: 2,
           occurredAt: new Date('2026-02-20T10:00:00Z'),
@@ -547,9 +551,11 @@ describe('ContactEngagementService', () => {
 
       const result = await service.getIndividualActivities(campaignInput)
 
-      expect(
-        mockVoterOutreachActivityService.getActivityForVoter,
-      ).toHaveBeenCalledWith(7, 'LAL-1')
+      expect(mockVoterOutreachActivityService.findMany).toHaveBeenCalledWith({
+        where: { campaignId: 7, lalVoterId: 'LAL-1' },
+        orderBy: [{ occurredAt: 'desc' }, { id: 'desc' }],
+        take: 21,
+      })
       expect(result.results).toEqual([
         {
           type: ConstituentActivityType.OUTREACH,
@@ -573,9 +579,7 @@ describe('ContactEngagementService', () => {
 
       const result = await service.getIndividualActivities(campaignInput)
 
-      expect(
-        mockVoterOutreachActivityService.getActivityForVoter,
-      ).not.toHaveBeenCalled()
+      expect(mockVoterOutreachActivityService.findMany).not.toHaveBeenCalled()
       expect(result.results).toEqual([])
     })
 
@@ -612,7 +616,7 @@ describe('ContactEngagementService', () => {
           outreachId: 56,
         },
       ])
-      mockContactNoteService.listForPerson.mockResolvedValue([
+      mockContactNoteService.findMany.mockResolvedValue([
         {
           id: 'note-1',
           body: 'Follow up next week',
@@ -636,21 +640,25 @@ describe('ContactEngagementService', () => {
       ).toHaveBeenCalledWith({
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
         orderBy: expectedOrderBy,
+        take: 21,
       })
       expect(mockContactInteractionTextService.findMany).toHaveBeenCalledWith({
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
         orderBy: expectedOrderBy,
+        take: 21,
       })
       expect(
         mockContactInteractionRobocallService.findMany,
       ).toHaveBeenCalledWith({
         where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
         orderBy: expectedOrderBy,
+        take: 21,
       })
-      expect(mockContactNoteService.listForPerson).toHaveBeenCalledWith(
-        'campaign-org-1',
-        'person-123',
-      )
+      expect(mockContactNoteService.findMany).toHaveBeenCalledWith({
+        where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 21,
+      })
 
       // Newest (note) first, oldest (door knock) last.
       expect(result.results).toEqual([

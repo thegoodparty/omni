@@ -268,10 +268,22 @@ export const ContactsTableProvider = ({
   // Win and Serve (ENG-10695 — supersedes the old task 12 contract where :id
   // was the durable lalVoterId for campaigns). Win additionally passes
   // lalVoterId, sourced from the person fetch, to bring the legacy
-  // VoterOutreachActivity rows into the union during the sunset; omitting it
-  // (e.g. while personQuery is still loading, or people-api is down) is not an
-  // error — the query still fires off personId alone and just misses the
-  // legacy rows until lalVoterId resolves and the key changes.
+  // VoterOutreachActivity rows into the union during the sunset. lalVoterId
+  // is part of the query key, so if it fired early (isWinContext still
+  // false during the win-voter-context loading window) with lalVoterId
+  // undefined and then flipped once both isWinContext and personQuery
+  // resolved, the key change would discard any pages the user already paged
+  // into. `enabled` therefore waits for isWinContextReady before evaluating
+  // Win vs Serve at all — on mount, isWinContextReady is false regardless of
+  // context, and `enabled` must not default to true then, or the query fires
+  // once on the stale initial render before either query has a chance to
+  // settle. Once ready: Serve fires immediately (never depended on
+  // personQuery); Win additionally waits for personQuery to settle
+  // (isFetched — success OR error, not just "has data") before firing. This
+  // is a wait-for-settle, not a hard success gate — when personQuery errors
+  // (e.g. people-api is down), isFetched still goes true, so the feed
+  // proceeds with lalVoterId undefined (new-model union only, no legacy
+  // rows) rather than deadlocking.
   const winLalVoterId = isWinContext
     ? (personQuery.data?.lalVoterId ?? undefined)
     : undefined
@@ -293,7 +305,10 @@ export const ContactsTableProvider = ({
       }).then((res) => res.data),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    enabled: Boolean(currentlySelectedPersonId),
+    enabled:
+      Boolean(currentlySelectedPersonId) &&
+      isWinContextReady &&
+      (!isWinContext || personQuery.isFetched),
   })
 
   const customSegmentsQuery = useQuery({

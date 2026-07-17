@@ -250,7 +250,7 @@ describe('ContactEngagement routes', () => {
       expect(new Set(seenTypes).size).toBe(seenTypes.length)
     }, 10000)
 
-    it('terminates without duplicates or drops when 3+ rows share one occurredAt (same-day tie group)', async () => {
+    it('terminates without duplicates or drops when 3+ rows share one occurredAt, including numeric OUTREACH id ordering (same-day tie group)', async () => {
       // Win outreach attribution sets occurredAt from a date-only picker, so
       // same-day rows can carry a byte-identical midnight timestamp. A cursor
       // keyed on date alone would resume on the first row of the tie group
@@ -258,6 +258,7 @@ describe('ContactEngagement routes', () => {
       // rows never reached. This asserts the walk actually terminates.
       const personId = 'person-win-tie'
       const tieOccurredAt = new Date('2026-03-01T00:00:00Z')
+      const tieLalVoterId = 'LAL-TIE-1'
 
       await service.prisma.contactInteractionDoorKnock.create({
         data: {
@@ -284,8 +285,95 @@ describe('ContactEngagement routes', () => {
           manual: false,
         },
       })
+      // Explicit (not auto-increment-assigned) ids so the numeric-vs-string
+      // divergence is guaranteed: '10' and '100' both sort before '9' as
+      // strings, but the DB (and the fix) order them 100, 10, 9.
+      for (const id of [9, 10, 100]) {
+        await service.prisma.voterOutreachActivity.create({
+          data: {
+            id,
+            campaignId: campaign.id,
+            lalVoterId: tieLalVoterId,
+            outreachType: OutreachType.text,
+            attributionSource: VoterOutreachAttributionSource.segmentDerived,
+            occurredAt: tieOccurredAt,
+          },
+        })
+      }
 
-      const seenActivityIds: string[] = []
+      const seen: { type: string; activityId: string | number }[] = []
+      let after: string | undefined
+      let pages = 0
+
+      do {
+        const page = await service.client.get(
+          `/v1/contact-engagement/${personId}/activities`,
+          {
+            params: {
+              take: 2,
+              lalVoterId: tieLalVoterId,
+              ...(after ? { after } : {}),
+            },
+            headers: { 'x-organization-slug': campaignOrgSlug },
+          },
+        )
+        expect(page.status).toBe(200)
+        seen.push(
+          ...page.data.results.map(
+            (r: { type: string; data: { activityId: string | number } }) => ({
+              type: r.type,
+              activityId: r.data.activityId,
+            }),
+          ),
+        )
+        after = page.data.nextCursor ?? undefined
+        pages += 1
+      } while (after && pages < 10)
+
+      expect(pages).toBe(3)
+      expect(seen.map((s) => s.type)).toEqual([
+        ConstituentActivityType.DOOR_KNOCK,
+        ConstituentActivityType.OUTREACH,
+        ConstituentActivityType.OUTREACH,
+        ConstituentActivityType.OUTREACH,
+        ConstituentActivityType.ROBOCALL,
+        ConstituentActivityType.TEXT,
+      ])
+      // Numeric-descending order (100, 10, 9) — a string tiebreak would give
+      // [10, 100, 9] instead.
+      const outreachIds = seen
+        .filter((s) => s.type === ConstituentActivityType.OUTREACH)
+        .map((s) => s.activityId)
+      expect(outreachIds).toEqual([100, 10, 9])
+      // No duplicates and nothing dropped.
+      expect(seen).toHaveLength(6)
+      expect(new Set(seen.map((s) => `${s.type}:${s.activityId}`)).size).toBe(6)
+    }, 10000)
+
+    it('does not truncate a feed where one source has far more rows than the page size', async () => {
+      // Each per-source fetch is bounded to `take: limit + 1` rows (a person's
+      // feed can otherwise be unbounded — e.g. years of door-knock attempts).
+      // This walks deep enough (page size 2, 7 rows) that page 3+ only works
+      // if the bounded "before cursorDate" re-fetch on each page correctly
+      // finds the next window instead of silently truncating after page 1.
+      const personId = 'person-win-deep-page'
+      const rowCount = 7
+
+      for (let day = 1; day <= rowCount; day++) {
+        await service.prisma.contactInteractionDoorKnock.create({
+          data: {
+            organizationSlug: campaignOrgSlug,
+            personId,
+            occurredAt: new Date(
+              `2026-01-${String(day).padStart(2, '0')}T10:00:00Z`,
+            ),
+            outcome: DoorKnockOutcome.answered,
+            manual: true,
+          },
+        })
+      }
+
+      const seenIds: string[] = []
       let after: string | undefined
       let pages = 0
 
@@ -298,7 +386,7 @@ describe('ContactEngagement routes', () => {
           },
         )
         expect(page.status).toBe(200)
-        seenActivityIds.push(
+        seenIds.push(
           ...page.data.results.map(
             (r: { data: { activityId: string } }) => r.data.activityId,
           ),
@@ -307,10 +395,10 @@ describe('ContactEngagement routes', () => {
         pages += 1
       } while (after && pages < 10)
 
-      expect(pages).toBe(2)
-      expect(seenActivityIds).toHaveLength(3)
+      expect(pages).toBe(4)
+      expect(seenIds).toHaveLength(rowCount)
       // No duplicates and nothing dropped.
-      expect(new Set(seenActivityIds).size).toBe(3)
+      expect(new Set(seenIds).size).toBe(rowCount)
     }, 10000)
 
     it('returns an empty page for a stale/foreign cursor instead of restarting from page 1', async () => {

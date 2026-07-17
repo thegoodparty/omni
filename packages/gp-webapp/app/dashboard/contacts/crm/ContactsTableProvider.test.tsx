@@ -18,6 +18,7 @@ import {
 } from './ContactsTableProvider'
 import { makePerson } from './shared/test-fixtures'
 import type { ElectedOffice } from 'gpApi/api-endpoints'
+import type { Person } from './shared/contacts-types'
 
 const electedOfficeFixture: ElectedOffice = {
   id: 'eo_1',
@@ -247,6 +248,78 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
     await waitFor(() => expect(capturedIds).toContain('p_1'))
     expect(capturedLalVoterIds).not.toContain('lal_1')
+  })
+
+  it('waits for personQuery to settle before firing the Win activities request, so lalVoterId resolving mid-session cannot discard paged-in pages', async () => {
+    mockPathname = '/dashboard/contacts/p_1'
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
+    mockContactsList()
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'not found' },
+    })
+
+    let resolvePerson: (() => void) | undefined
+    api.mock('GET /v1/contacts/:id', () => {
+      return new Promise<{ status: 200; data: Person }>((resolve) => {
+        resolvePerson = () =>
+          resolve({
+            status: 200,
+            data: makePerson({ id: 'p_1', lalVoterId: 'lal_1' }),
+          })
+      })
+    })
+
+    const capturedRequests: { id: string; lalVoterId?: string }[] = []
+    api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
+      capturedRequests.push({
+        id: request.params.id,
+        lalVoterId: request.query.lalVoterId,
+      })
+      return { status: 200, data: { nextCursor: null, results: [] } }
+    })
+
+    renderProvider()
+
+    // The person fetch is in flight and deliberately unresolved — the
+    // activities request must not fire yet (it would otherwise fire with
+    // lalVoterId undefined, then re-fire under a new key once resolved).
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(capturedRequests).toHaveLength(0)
+
+    resolvePerson?.()
+
+    await waitFor(() => expect(capturedRequests).toHaveLength(1))
+    expect(capturedRequests[0]).toEqual({ id: 'p_1', lalVoterId: 'lal_1' })
+  })
+
+  it('proceeds without lalVoterId once personQuery settles to an error, instead of deadlocking the feed', async () => {
+    mockPathname = '/dashboard/contacts/p_1'
+    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
+    mockContactsList()
+    api.mock('GET /v1/elected-office/current', {
+      status: 404,
+      data: { message: 'not found' },
+    })
+    // Simulates people-api being unavailable: the person fetch settles to an
+    // error rather than never resolving.
+    api.mock('GET /v1/contacts/:id', {
+      status: 500,
+      data: { message: 'people-api unavailable' },
+    })
+
+    let capturedId: string | undefined
+    let capturedLalVoterId: string | undefined
+    api.mock('GET /v1/contact-engagement/:id/activities', (request) => {
+      capturedId = request.params.id
+      capturedLalVoterId = request.query.lalVoterId
+      return { status: 200, data: { nextCursor: null, results: [] } }
+    })
+
+    renderProvider()
+
+    await waitFor(() => expect(capturedId).toBe('p_1'))
+    expect(capturedLalVoterId).toBeUndefined()
   })
 })
 

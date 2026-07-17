@@ -376,6 +376,26 @@ describe('<PersonOverlay>', () => {
     expect(screen.getByText('Texted')).toBeInTheDocument()
   })
 
+  it('shows the activities loading skeleton, not the empty state, on the first fetch', () => {
+    // First fetch: hasActivities and hasNextPage both start false, same as
+    // the true empty case. Without an isLoading guard, "Data not available."
+    // would flash before the skeleton (or the real feed) ever gets a chance
+    // to render.
+    setContext({
+      isElectedOfficial: false,
+      isWinContext: true,
+      selectedPersonId: 'p_42',
+      selectedPerson: { isLoadingActivities: true },
+    })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByText('Activity Feed')).toBeInTheDocument()
+    expect(screen.queryByText('Data not available.')).not.toBeInTheDocument()
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
+  })
+
   it('shows the empty state (not a blank feed) and does not fire Outreach Timeline Viewed when a page has only ENG-10695 entry types', () => {
     // A page containing only DOOR_KNOCK/TEXT/ROBOCALL/NOTE rows has nothing
     // this renderer can draw (task 07 widens it) — it must read as "Data not
