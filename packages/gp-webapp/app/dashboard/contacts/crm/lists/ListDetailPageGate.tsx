@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCrmEnabled } from '../../../shared/useCrmEnabled'
+import DashboardLayout from '../../../shared/DashboardLayout'
 import ListDetailPage from './ListDetailPage'
 
 interface ListDetailPageGateProps {
@@ -25,7 +26,20 @@ export default function ListDetailPageGate({
     }
   }, [ready, enabled, router])
 
-  if (!ready || !enabled) {
+  // Still settling: there's no loading.tsx for this route, so without this
+  // the user would sit on a blank page (no layout, no spinner) until the
+  // Win/Serve mode + flag reads resolve.
+  if (!ready) {
+    return (
+      <DashboardLayout>
+        <p className="p-6 text-sm text-muted-foreground">Loading…</p>
+      </DashboardLayout>
+    )
+  }
+
+  // Settled and disabled: the redirect effect above is already firing —
+  // render nothing while it takes effect.
+  if (!enabled) {
     return null
   }
 

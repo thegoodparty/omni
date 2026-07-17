@@ -17,10 +17,8 @@ import {
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import type { SegmentResponse } from '../shared/contacts-types'
-
-const LOCKED_MESSAGE =
-  'This list was just used for outreach and is now locked — duplicate it to make changes.'
 
 interface DeleteListDialogProps {
   segment: SegmentResponse
@@ -68,7 +66,7 @@ export default function DeleteListDialog({
       router.push('/dashboard/contacts')
     } catch (error) {
       if (error instanceof FetchError && error.status === 409) {
-        errorSnackbar(LOCKED_MESSAGE, { autoHideDuration: 6000 })
+        errorSnackbar(LOCKED_LIST_MESSAGE, { autoHideDuration: 6000 })
         await queryClient.invalidateQueries({
           queryKey: ['custom-segments', orgSlug],
         })

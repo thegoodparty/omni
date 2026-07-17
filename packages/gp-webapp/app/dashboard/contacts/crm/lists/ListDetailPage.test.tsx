@@ -6,6 +6,7 @@ import { render } from 'helpers/test-utils/render'
 import { api, mswServer } from 'helpers/test-utils/api-mocking'
 import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
+import { LOCKED_LIST_MESSAGE } from '../shared/constants'
 import ListDetailPage from './ListDetailPage'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -70,11 +71,6 @@ vi.mock('@styleguide', async (importOriginal) => {
 const mockedUseSnackbar = vi.mocked(useSnackbar)
 const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
-
-// Must match RenameListDialog.tsx/DeleteListDialog.tsx's LOCKED_MESSAGE
-// exactly — both fire this same copy on a raced 409.
-const LOCKED_MESSAGE =
-  'This list was just used for outreach and is now locked — duplicate it to make changes.'
 
 const emptyDetailResponse = {
   demographics: { people: 100, avgAge: 42, avgIncome: 65000 },
@@ -190,7 +186,7 @@ describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
     mswServer.use(
       http.put('/api/v1/voters/voter-file/filter/:id', () =>
         HttpResponse.json(
-          { statusCode: 409, message: LOCKED_MESSAGE, error: 'Conflict' },
+          { statusCode: 409, message: LOCKED_LIST_MESSAGE, error: 'Conflict' },
           { status: 409 },
         ),
       ),
@@ -205,7 +201,7 @@ describe('ListDetailPage — RenameListDialog (unlocked list)', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
 
     await vi.waitFor(() =>
-      expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_MESSAGE, {
+      expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_LIST_MESSAGE, {
         autoHideDuration: 6000,
       }),
     )
@@ -277,7 +273,7 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
     mswServer.use(
       http.delete('/api/v1/voters/voter-file/filter/:id', () =>
         HttpResponse.json(
-          { statusCode: 409, message: LOCKED_MESSAGE, error: 'Conflict' },
+          { statusCode: 409, message: LOCKED_LIST_MESSAGE, error: 'Conflict' },
           { status: 409 },
         ),
       ),
@@ -294,7 +290,7 @@ describe('ListDetailPage — DeleteListDialog (unlocked list)', () => {
     )
 
     await vi.waitFor(() =>
-      expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_MESSAGE, {
+      expect(errorSnackbar).toHaveBeenCalledWith(LOCKED_LIST_MESSAGE, {
         autoHideDuration: 6000,
       }),
     )
