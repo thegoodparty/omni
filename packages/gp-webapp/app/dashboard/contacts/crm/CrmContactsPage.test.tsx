@@ -47,6 +47,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContext: true,
     isWinContextReady: true,
     canUseProFeatures: true,
+    customSegments: [],
     ...overrides,
   } as ContextValue)
 }

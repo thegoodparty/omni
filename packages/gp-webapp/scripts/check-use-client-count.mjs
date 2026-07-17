@@ -90,7 +90,14 @@ import { dirname, join, relative } from 'node:path'
 // ActivityStep (stacked condition rows + a react-query outreach fetch), and
 // NameStep (name input) are all genuinely interactive and can't render on
 // the server.
-const BASELINE = 550
+// 2026-07-17: 550 -> 555 for the ENG-10707 lists index + list-detail surface
+// (crm/lists/): ListsTable (per-row react-query fetch + row-click
+// navigation), ListDetailPage (multiple react-query reads, a rename/
+// duplicate/delete flow, and the download poll), ListDetailPageGate
+// (client-side CRM-flag redirect), RenameListDialog, and DeleteListDialog
+// (dialog state + mutations) are all genuinely interactive and can't render
+// on the server.
+const BASELINE = 555
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

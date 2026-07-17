@@ -12,6 +12,7 @@ import { ContactTypeahead } from './ContactTypeahead'
 import PersonOverlay from './person/PersonOverlay'
 import { useContactsTable } from './ContactsTableProvider'
 import CreateListWizard from './wizard/CreateListWizard'
+import ListsTable from './lists/ListsTable'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -50,6 +51,7 @@ export const CrmContactsPage = () => {
               Create new list
             </Button>
           </div>
+          <ListsTable />
         </Paper>
         <PersonOverlay />
         <CreateListWizard open={wizardOpen} onOpenChange={setWizardOpen} />

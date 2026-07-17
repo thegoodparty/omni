@@ -23,6 +23,10 @@ import type {
   TextConstituentActivity,
   VoterOutreachAttributionSource,
 } from '@goodparty_org/contracts'
+// Type-only import from a sibling module that itself imports SupportStatusRollup
+// from this file — safe as a `type` import (erased at compile time, no runtime
+// cycle). Keeps the activity-condition shape defined once (ENG-10708).
+import type { ActivityConditionInput } from './activityConditionOptions'
 
 export interface SegmentResponse {
   id: number
@@ -30,6 +34,13 @@ export interface SegmentResponse {
   // Free-text search term persisted when a list is saved directly from a
   // contacts search result set (ENG-10518); absent for filter-only lists.
   search?: string | null
+  voterCount?: number
+  // ENG-10703: activity/support criteria persisted on the saved list, and the
+  // atomic first-use stamp that locks it from further edits (ENG-10707 reads
+  // this to swap rename/delete for "duplicate to edit").
+  activityConditions?: ActivityConditionInput[]
+  supportStatus?: SupportStatusRollup[]
+  firstUsedForOutreachAt?: string | null
   [key: string]: unknown
 }
 

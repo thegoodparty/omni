@@ -64,7 +64,8 @@ beforeEach(() => {
     isVoterDataUnavailable: false,
     isWinContext: true,
     isWinContextReady: true,
-  } as ContextValue)
+    customSegments: [],
+  } as unknown as ContextValue)
 })
 
 describe('ContactsPageGate — whole-page CRM gate', () => {

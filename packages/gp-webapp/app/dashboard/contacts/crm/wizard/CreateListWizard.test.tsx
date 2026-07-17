@@ -3,6 +3,7 @@ import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { router } from 'helpers/test-utils/router-mocking'
 import { useSnackbar } from 'helpers/useSnackbar'
 import CreateListWizard from './CreateListWizard'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -23,7 +24,6 @@ const mockedUseSnackbar = vi.mocked(useSnackbar)
 type ContextValue = ReturnType<typeof useContactsTable>
 
 const refreshCustomSegments = vi.fn().mockResolvedValue(undefined)
-const selectSegment = vi.fn()
 const successSnackbar = vi.fn()
 const errorSnackbar = vi.fn()
 
@@ -33,15 +33,14 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
     isWinContext: true,
     isWinContextReady: true,
     refreshCustomSegments,
-    selectSegment,
     ...overrides,
   } as ContextValue)
 }
 
 beforeEach(() => {
   api.reset()
+  vi.clearAllMocks()
   refreshCustomSegments.mockClear()
-  selectSegment.mockClear()
   successSnackbar.mockClear()
   errorSnackbar.mockClear()
   mockedUseSnackbar.mockReturnValue({
@@ -169,7 +168,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(sentBody).not.toHaveProperty('activityConditions')
 
     await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
-    expect(selectSegment).toHaveBeenCalledWith('101')
+    expect(router.push).toHaveBeenCalledWith('/dashboard/contacts/lists/101')
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
