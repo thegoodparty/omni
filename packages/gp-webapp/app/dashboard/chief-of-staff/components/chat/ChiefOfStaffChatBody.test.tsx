@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createRef } from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
@@ -252,5 +253,122 @@ describe('<ChiefOfStaffChatBody>', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument()
+  })
+
+  it('renders custom suggestions alongside a seeded greeting when showSuggestionsWithGreeting is set', async () => {
+    const user = userEvent.setup()
+    const onSelect = vi.fn()
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_greet',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_greet"
+        showSuggestionsWithGreeting
+        suggestions={[{ label: 'Tell my story', onSelect }]}
+      />,
+    )
+
+    // The seeded greeting types in (playback) and the custom chip renders
+    // alongside it — the default gate would hide chips while playback runs.
+    await waitFor(() =>
+      expect(screen.getByText(/^Welcome back/)).toBeInTheDocument(),
+    )
+    const chip = await screen.findByRole('button', { name: 'Tell my story' })
+    await user.click(chip)
+    expect(onSelect).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the default suggestions only on an empty transcript and sends the label text on click', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'On it.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active />)
+
+    const chip = await screen.findByRole('button', {
+      name: "What's most urgent this week?",
+    })
+    await user.click(chip)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: "What's most urgent this week?" }),
+      ),
+    )
+    // The clicked label becomes a real user message (default send behavior)...
+    expect(
+      screen.getByText("What's most urgent this week?"),
+    ).toBeInTheDocument()
+    // ...and the chips no longer render once the transcript is non-empty.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', {
+          name: "What's most urgent this week?",
+        }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  it('kicks off a hidden send that streams a reply without adding a user bubble', async () => {
+    listConversationsMock.mockResolvedValue([])
+    createMock.mockResolvedValue({ conversationId: 'conv_k' })
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Canned kickoff reply.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+
+    render(<ChiefOfStaffChatBody active pendingKickoff="__kickoff__" />)
+
+    await waitFor(() =>
+      expect(streamMessageMock).toHaveBeenCalledWith(
+        expect.objectContaining({ content: '__kickoff__' }),
+      ),
+    )
+    await waitFor(() =>
+      expect(screen.getByText('Canned kickoff reply.')).toBeInTheDocument(),
+    )
+    // The kickoff message is hidden — no user bubble for it in the transcript.
+    expect(screen.queryByText('__kickoff__')).not.toBeInTheDocument()
+  })
+
+  it('focuses the composer when a suggestion requests it via composerRef', async () => {
+    const user = userEvent.setup()
+    listConversationsMock.mockResolvedValue([])
+    const composerRef = createRef<HTMLInputElement>()
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        composerRef={composerRef}
+        suggestions={[
+          {
+            label: 'Focus composer',
+            onSelect: () => composerRef.current?.focus(),
+          },
+        ]}
+      />,
+    )
+
+    const chip = await screen.findByRole('button', { name: 'Focus composer' })
+    expect(screen.getByLabelText(/ask a question/i)).not.toHaveFocus()
+    await user.click(chip)
+    expect(screen.getByLabelText(/ask a question/i)).toHaveFocus()
   })
 })

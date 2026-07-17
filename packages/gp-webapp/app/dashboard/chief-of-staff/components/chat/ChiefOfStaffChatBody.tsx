@@ -1,6 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -64,7 +71,29 @@ interface Props {
   historyKey?: readonly unknown[]
   /** Default intro played on the first chat when no `opener` is given. */
   defaultIntro?: string[]
+  /**
+   * Starter chips. Each carries its own behavior via `onSelect`. Omit to get
+   * the Chief of Staff defaults (send the chip's label as a message).
+   */
+  suggestions?: ChatSuggestion[]
+  /**
+   * Render the starter chips alongside a seeded/played greeting, not only on
+   * an empty transcript. Defaults to false, so CoS/Community Issues still show
+   * chips only before the first turn.
+   */
+  showSuggestionsWithGreeting?: boolean
+  /**
+   * One-shot kickoff: send this message once on open through the normal stream
+   * path but WITHOUT an optimistic user bubble (the server hides it / returns
+   * a canned reply). Consumed once per mount.
+   */
+  pendingKickoff?: string
+  /** Ref to the composer input, so a caller's suggestion can focus it. */
+  composerRef?: RefObject<HTMLInputElement | null>
 }
+
+/** A starter chip: a label plus the behavior fired when it is tapped. */
+export type ChatSuggestion = { label: string; onSelect: () => void }
 
 type ChatItem =
   | { kind: 'user'; id: string; content: string }
@@ -196,6 +225,10 @@ export default function ChiefOfStaffChatBody({
   analyticsLabel = 'chief-of-staff-chat',
   historyKey = HISTORY_KEY,
   defaultIntro = COS_INTRO_MESSAGES,
+  suggestions,
+  showSuggestionsWithGreeting = false,
+  pendingKickoff,
+  composerRef,
 }: Props): React.JSX.Element {
   const queryClient = useQueryClient()
   const [conversationId, setConversationId] = useState<string | null>(null)
@@ -225,6 +258,7 @@ export default function ChiefOfStaffChatBody({
   } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
+  const kickedOffRef = useRef(false)
   const loadRequestedRef = useRef(false)
   const creatingRef = useRef(false)
   const sendingRef = useRef(false)
@@ -726,8 +760,12 @@ export default function ChiefOfStaffChatBody({
     [conversationId, ensureConversationId, runStream],
   )
 
-  const sendContent = useCallback(
-    async (content: string) => {
+  // The shared send path. `hidden` skips the optimistic user bubble so a
+  // kickoff message streams a reply without showing the prompt that triggered
+  // it (the server hides it / returns a canned reply); everything else — the
+  // reveal-drain commit, the mid-playback flush, the stream — is identical.
+  const send = useCallback(
+    async (content: string, options?: { hidden?: boolean }) => {
       const trimmed = content.trim()
       if (!trimmed) return false
       if (sendingRef.current || creatingRef.current) return false
@@ -747,15 +785,44 @@ export default function ChiefOfStaffChatBody({
           prev.length === 0 ? [...pending.items, ...prev] : prev,
         )
       }
-      setHistory((prev) => [
-        ...prev,
-        { kind: 'user', id: `local_${clientMessageId}`, content: trimmed },
-      ])
+      if (!options?.hidden) {
+        setHistory((prev) => [
+          ...prev,
+          { kind: 'user', id: `local_${clientMessageId}`, content: trimmed },
+        ])
+      }
       await executeUserTurn(trimmed, clientMessageId)
       return true
     },
     [executeUserTurn],
   )
+
+  const sendContent = useCallback(
+    (content: string) => send(content, { hidden: false }),
+    [send],
+  )
+
+  // Starter chips: the caller's list, or the CoS defaults that send the chip's
+  // own label as a message (byte-for-byte the prior hardwired behavior).
+  const effectiveSuggestions = useMemo<ChatSuggestion[]>(
+    () =>
+      suggestions ??
+      CHAT_SUGGESTIONS.map((label) => ({
+        label,
+        onSelect: () => void sendContent(label),
+      })),
+    [suggestions, sendContent],
+  )
+
+  // Fire the one-shot kickoff once the surface is open and any load/create has
+  // settled (so it appends to the resolved conversation rather than racing a
+  // fresh create). The ref guards against a re-render re-firing it.
+  useEffect(() => {
+    if (!active || !pendingKickoff || kickedOffRef.current) return
+    if (creating) return
+    kickedOffRef.current = true
+    void send(pendingKickoff, { hidden: true })
+  }, [active, pendingKickoff, creating, send])
 
   const onSend = useCallback(async () => {
     const sent = await sendContent(composer)
@@ -920,27 +987,25 @@ export default function ChiefOfStaffChatBody({
         )}
       </div>
 
-      {history.length === 0 && streaming === null && !error && !playback && (
-        <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
-          {CHAT_SUGGESTIONS.map((s) => (
-            <Badge
-              key={s}
-              asChild
-              variant="soft"
-              shape="pill"
-              className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
-            >
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void sendContent(s)}
+      {((history.length === 0 && !playback) || showSuggestionsWithGreeting) &&
+        streaming === null &&
+        !error && (
+          <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
+            {effectiveSuggestions.map((s) => (
+              <Badge
+                key={s.label}
+                asChild
+                variant="soft"
+                shape="pill"
+                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
               >
-                {s}
-              </button>
-            </Badge>
-          ))}
-        </div>
-      )}
+                <button type="button" disabled={busy} onClick={s.onSelect}>
+                  {s.label}
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
 
       <div className="border-t border-border px-3 py-3">
         <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
@@ -953,6 +1018,7 @@ export default function ChiefOfStaffChatBody({
               />
             )}
             <Input
+              ref={composerRef}
               value={composer}
               onChange={(e) => setComposer(e.target.value)}
               onKeyDown={(e) => {
