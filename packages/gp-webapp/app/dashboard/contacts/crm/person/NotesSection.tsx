@@ -59,7 +59,7 @@ const NoteEditor: React.FC<{
   isSaveError,
   textareaLabel,
 }) => (
-  <div className="flex flex-col gap-2">
+  <div className="flex w-full flex-col gap-2">
     <Textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -140,7 +140,7 @@ const NoteRow: React.FC<NoteRowProps> = ({
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex w-full flex-col gap-2">
       <p className="text-sm whitespace-pre-wrap">{note.body}</p>
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
