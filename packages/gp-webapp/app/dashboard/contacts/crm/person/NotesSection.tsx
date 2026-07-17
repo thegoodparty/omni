@@ -230,10 +230,26 @@ export default function NotesSection({
     },
   })
 
+  // Keyed by note id: a shared mutation's isError/variables only reflect the
+  // latest call, which would swallow an earlier delete's failure when two
+  // deletes overlap.
+  const [deleteErrorNoteIds, setDeleteErrorNoteIds] = useState<Set<string>>(
+    new Set(),
+  )
   const deleteMutation = useMutation({
     mutationFn: (noteId: string) =>
       clientRequest('DELETE /v1/contacts/notes/:noteId', { noteId }),
+    onMutate: (noteId) => {
+      setDeleteErrorNoteIds((ids) => {
+        const next = new Set(ids)
+        next.delete(noteId)
+        return next
+      })
+    },
     onSuccess: invalidateAfterWrite,
+    onError: (_error, noteId) => {
+      setDeleteErrorNoteIds((ids) => new Set(ids).add(noteId))
+    },
   })
 
   if (!shouldRender) return null
@@ -302,10 +318,7 @@ export default function NotesSection({
                     deleteMutation.isPending &&
                     deleteMutation.variables === note.id
                   }
-                  isDeleteError={
-                    deleteMutation.isError &&
-                    deleteMutation.variables === note.id
-                  }
+                  isDeleteError={deleteErrorNoteIds.has(note.id)}
                 />
               ))}
             </div>
