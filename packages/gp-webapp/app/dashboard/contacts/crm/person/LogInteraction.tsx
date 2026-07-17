@@ -191,7 +191,9 @@ export default function LogInteraction({
     }
     return {
       channel: 'text',
-      outcome: outcome === NO_OUTCOME ? undefined : 'responded',
+      // Radix ToggleGroup deselect emits '' — only an explicit 'responded'
+      // selection may persist a responded outcome.
+      outcome: outcome === 'responded' ? 'responded' : undefined,
       note: notePayload,
       occurredAt: occurredAtPayload,
     }

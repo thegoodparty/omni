@@ -191,6 +191,32 @@ describe('<LogInteraction>', () => {
     })
   })
 
+  it('sends no outcome when the text outcome toggle is deselected', async () => {
+    const user = userEvent.setup()
+    const receivedBodies: unknown[] = []
+    api.mock('POST /v1/contacts/:personId/interactions', ({ body }) => {
+      receivedBodies.push(body)
+      return {
+        status: 200,
+        data: makeLoggedResponse(
+          body as Partial<LogContactInteractionResponse>,
+        ),
+      }
+    })
+
+    render(<LogInteraction personId={PERSON_ID} />)
+
+    await user.click(screen.getByRole('radio', { name: 'Text' }))
+    // Radix ToggleGroup deselect: clicking the pressed pill emits '' — the
+    // payload must not fabricate a 'responded' outcome from that state.
+    await user.click(screen.getByRole('radio', { name: 'No Outcome' }))
+    await user.click(screen.getByRole('button', { name: 'Log Interaction' }))
+
+    await waitFor(() => expect(receivedBodies).toHaveLength(1))
+    expect(receivedBodies[0]).toMatchObject({ channel: 'text' })
+    expect(receivedBodies[0]).not.toHaveProperty('outcome')
+  })
+
   it('omits occurredAt (defers to the server default of "now") when the date field is cleared', async () => {
     const user = userEvent.setup()
     const receivedBodies: unknown[] = []
