@@ -1,4 +1,10 @@
-import type { Person, PeopleListResponse } from '@goodparty_org/contracts'
+import type {
+  Person,
+  PeopleListResponse,
+  ContactNote,
+  ContactNoteInput,
+  ContactNoteListResponse,
+} from '@goodparty_org/contracts'
 
 export interface SegmentResponse {
   id: number
@@ -12,6 +18,8 @@ export interface SegmentResponse {
 export type { Person }
 
 export type ListContactsResponse = PeopleListResponse
+
+export type { ContactNote, ContactNoteInput, ContactNoteListResponse }
 
 export type ConstituentIssue = {
   issueTitle: string
