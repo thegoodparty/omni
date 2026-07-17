@@ -46,6 +46,15 @@ export type BaseSelectedField = (typeof VOTER_SELECT_COLUMNS)[number]
 
 export type ExtraSelectedField = Exclude<keyof Voter, BaseSelectedField>
 
+// Columns a caller may ask the download COPY to omit from its projection
+// (ENG-10696: the Serve party-visibility rule). `satisfies` pins this to an
+// actual base-select column so a typo can't silently become a no-op filter.
+export const EXCLUDABLE_VOTER_COLUMNS = [
+  'Parties_Description',
+] as const satisfies readonly BaseSelectedField[]
+
+export type ExcludableVoterColumn = (typeof EXCLUDABLE_VOTER_COLUMNS)[number]
+
 export function buildVoterSelectSql(
   extraFields: ExtraSelectedField[] = [],
   computedColumns: Prisma.Sql[] = [],

@@ -17,6 +17,8 @@ import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { lastValueFrom } from 'rxjs'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteraction.types'
+import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
@@ -50,6 +52,12 @@ const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
 
+// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entry for the party column
+// (people.select.ts). The CSV download is a Postgres COPY stream gp-api
+// cannot post-process, so an `eo-` org's download asks people-api to drop
+// this column from the projection instead (ENG-10696).
+const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
+
 if (!PEOPLE_API_URL) {
   throw new Error('Please set PEOPLE_API_URL in your .env')
 }
@@ -69,6 +77,7 @@ export class ContactsService {
     private readonly organizations: OrganizationsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly features: FeaturesService,
+    private readonly supportStatusService: SupportStatusService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -101,6 +110,50 @@ export class ContactsService {
 
   private hasElectedOfficeAccess(organization: Organization): boolean {
     return organization.slug.startsWith('eo-')
+  }
+
+  // Single choke point for the server-enforced Serve party-visibility rule
+  // (ENG-10696): findContacts (list + typeahead) and findPerson (detail) both
+  // route every people-api row through this before it reaches the response.
+  private stripPartyIfElectedOffice(
+    organization: Organization,
+    person: PersonOutput,
+  ): PersonOutput {
+    if (!this.hasElectedOfficeAccess(organization)) return person
+    const stripped = { ...person }
+    delete stripped.politicalParty
+    return stripped
+  }
+
+  private stripPartyFromList(
+    organization: Organization,
+    response: PeopleListResponse,
+  ): PeopleListResponse {
+    if (!this.hasElectedOfficeAccess(organization)) return response
+    return {
+      ...response,
+      people: response.people.map((person) =>
+        this.stripPartyIfElectedOffice(organization, person),
+      ),
+    }
+  }
+
+  // Rejects a party filter/segment before the people-api call rather than
+  // stripping party rows after the fact — list, count, and download all
+  // resolve their request into a FilterObject before calling out, so this one
+  // check covers all three (ENG-10696).
+  private assertNoPartyFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (
+      this.hasElectedOfficeAccess(organization) &&
+      'politicalParty' in filters
+    ) {
+      throw new BadRequestException(
+        'Political party filtering is not available for this organization',
+      )
+    }
   }
 
   private async isProAccess(organization: Organization): Promise<boolean> {
@@ -250,6 +303,7 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
     // request itself carries no live search, re-apply the saved list's stored
@@ -257,9 +311,12 @@ export class ContactsService {
     // live search the user typed always wins over the stored one.
     const effectiveSearch =
       search || (await this.segmentToSearch(segment, organization))
-    return this.withOrgDistrictResolution(organization, (params) =>
-      fetchPeople(params, filters, groupByHousehold, effectiveSearch),
+    const response = await this.withOrgDistrictResolution(
+      organization,
+      (params) =>
+        fetchPeople(params, filters, groupByHousehold, effectiveSearch),
     )
+    return this.stripPartyFromList(organization, response)
   }
 
   // Live matching-voter count for the in-progress (unsaved) filter set the
@@ -278,6 +335,7 @@ export class ContactsService {
     }
 
     const filters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
     // The builder counts the filter set plus any active free-text search so the
     // number matches the list it would save (ENG-10517/10518).
     const search = filterInput.search || undefined
@@ -411,7 +469,18 @@ export class ContactsService {
       }
     }
 
-    return this.withOrgDistrictResolution(organization, fetchPerson)
+    const person = await this.withOrgDistrictResolution(
+      organization,
+      fetchPerson,
+    )
+    const statuses = await this.supportStatusService.statusForPeople(
+      organization.slug,
+      [person.id],
+    )
+    return {
+      ...this.stripPartyIfElectedOffice(organization, person),
+      supportStatus: statuses.get(person.id) ?? SUPPORT_STATUS_UNKNOWN,
+    }
   }
 
   async downloadContacts(
@@ -427,13 +496,14 @@ export class ContactsService {
       districtParams: { districtId: string },
       filters: FilterObject,
       groupByHousehold: boolean,
+      excludeColumns: string[] | undefined,
     ) => {
       let response: { data: Readable }
       try {
         response = await lastValueFrom(
           this.httpService.post<Readable>(
             `${PEOPLE_API_URL}/v1/people/download`,
-            { ...districtParams, filters, groupByHousehold },
+            { ...districtParams, filters, groupByHousehold, excludeColumns },
             {
               headers: {
                 Authorization: `Bearer ${this.getValidS2SToken()}`,
@@ -529,9 +599,13 @@ export class ContactsService {
     }
 
     const filters = await this.segmentToFilters(segment, organization)
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
+    const excludeColumns = this.hasElectedOfficeAccess(organization)
+      ? [PARTY_DOWNLOAD_COLUMN]
+      : undefined
     return this.withOrgDistrictResolution(organization, (params) =>
-      downloadPeople(params, filters, groupByHousehold),
+      downloadPeople(params, filters, groupByHousehold, excludeColumns),
     )
   }
 

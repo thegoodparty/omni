@@ -264,33 +264,51 @@ export const ContactsTableProvider = ({
     enabled: Boolean(currentlySelectedPersonId),
   })
 
-  // The campaign engagement endpoint keys activities on the durable lalVoterId
-  // for Win, but on person.id for the Serve/elected-office path (task 12
-  // contract). lalVoterId comes from the person fetch, so the query waits on it
-  // before firing. isWinContext (from useWinVoterContext) reads false until the
-  // elected-office load settles, so it can't briefly mistake a Serve user for
-  // Win and fire against the wrong endpoint. PersonOverlay's activity feed reads
-  // this from context rather than recomputing.
-  const activitiesEngagementId = isWinContext
-    ? (personQuery.data?.lalVoterId ?? null)
-    : currentlySelectedPersonId
+  // The contact-engagement endpoint keys activities on personId for both
+  // Win and Serve (ENG-10695 — supersedes the old task 12 contract where :id
+  // was the durable lalVoterId for campaigns). Win additionally passes
+  // lalVoterId, sourced from the person fetch, to bring the legacy
+  // VoterOutreachActivity rows into the union during the sunset. lalVoterId
+  // is part of the query key, so if it fired early (isWinContext still
+  // false during the win-voter-context loading window) with lalVoterId
+  // undefined and then flipped once both isWinContext and personQuery
+  // resolved, the key change would discard any pages the user already paged
+  // into. `enabled` therefore waits for isWinContextReady before evaluating
+  // Win vs Serve at all — on mount, isWinContextReady is false regardless of
+  // context, and `enabled` must not default to true then, or the query fires
+  // once on the stale initial render before either query has a chance to
+  // settle. Once ready: Serve fires immediately (never depended on
+  // personQuery); Win additionally waits for personQuery to settle
+  // (isFetched — success OR error, not just "has data") before firing. This
+  // is a wait-for-settle, not a hard success gate — when personQuery errors
+  // (e.g. people-api is down), isFetched still goes true, so the feed
+  // proceeds with lalVoterId undefined (new-model union only, no legacy
+  // rows) rather than deadlocking.
+  const winLalVoterId = isWinContext
+    ? (personQuery.data?.lalVoterId ?? undefined)
+    : undefined
 
   const activitiesInfiniteQuery = useInfiniteQuery({
     queryKey: [
       'contact-engagement',
       'activities',
       orgSlug,
-      activitiesEngagementId,
+      currentlySelectedPersonId,
+      winLalVoterId,
     ],
     queryFn: ({ pageParam }) =>
       clientRequest('GET /v1/contact-engagement/:id/activities', {
-        id: activitiesEngagementId!,
+        id: currentlySelectedPersonId!,
         take: 2,
+        ...(winLalVoterId ? { lalVoterId: winLalVoterId } : {}),
         ...(pageParam ? { after: pageParam } : {}),
       }).then((res) => res.data),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage?.nextCursor ?? undefined,
-    enabled: Boolean(activitiesEngagementId),
+    enabled:
+      Boolean(currentlySelectedPersonId) &&
+      isWinContextReady &&
+      (!isWinContext || personQuery.isFetched),
   })
 
   const customSegmentsQuery = useQuery({
