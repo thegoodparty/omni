@@ -2081,6 +2081,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
     resendCampaignVerifyPin: ReturnType<typeof vi.fn>
   }
   let mockModel: { findUnique: ReturnType<typeof vi.fn> }
+  let mockAnalytics: { track: ReturnType<typeof vi.fn> }
 
   const campaign = createMockCampaign({ id: 7, userId: 1 })
 
@@ -2105,6 +2106,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
       resendCampaignVerifyPin: vi.fn().mockResolvedValue(undefined),
     }
     mockModel = { findUnique: vi.fn() }
+    mockAnalytics = { track: vi.fn().mockResolvedValue(undefined) }
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -2117,10 +2119,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         { provide: QueueProducerService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
         { provide: PinoLogger, useValue: createMockLogger() },
-        {
-          provide: AnalyticsService,
-          useValue: { track: vi.fn().mockResolvedValue(undefined) },
-        },
+        { provide: AnalyticsService, useValue: mockAnalytics },
         {
           provide: SlackService,
           useValue: { errorMessage: vi.fn().mockResolvedValue('ok') },
@@ -2154,6 +2153,11 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
       ).resolves.toBeUndefined()
       expect(mockPeerly.retrieveCampaignVerifyDetails).not.toHaveBeenCalled()
       expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockAnalytics.track).toHaveBeenCalledWith(
+        campaign.userId,
+        EVENTS.Outreach.CompliancePinResent,
+        { triggered_by: 'admin' },
+      )
     })
   })
 
@@ -2187,6 +2191,7 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         ConflictException,
       )
       expect(mockPeerly.resendCampaignVerifyPin).not.toHaveBeenCalled()
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
     })
   })
 
@@ -2244,6 +2249,32 @@ describe('CampaignTcrComplianceService - resendCampaignVerifyPin', () => {
         'peerly-1',
         campaign,
       )
+      expect(mockAnalytics.track).toHaveBeenCalledWith(
+        campaign.userId,
+        EVENTS.Outreach.CompliancePinResent,
+        { triggered_by: 'admin', peerly_identity_id: 'peerly-1' },
+      )
+    })
+  })
+
+  it('does not fire the resent event when the Peerly resend call fails', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      peerlyIdentityId: 'peerly-1',
+    })
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValueOnce({
+      status: PeerlyCvVerificationStatus.APPROVED,
+      pinDelivery: null,
+    })
+    mockPeerly.resendCampaignVerifyPin.mockRejectedValueOnce(
+      new BadGatewayException('Peerly API error'),
+    )
+
+    await withEnv('prod', async () => {
+      await expect(service.resendCampaignVerifyPin(campaign)).rejects.toThrow(
+        BadGatewayException,
+      )
+      expect(mockAnalytics.track).not.toHaveBeenCalled()
     })
   })
 
