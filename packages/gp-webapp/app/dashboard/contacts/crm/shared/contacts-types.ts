@@ -1,4 +1,7 @@
 import type {
+  ContactNote,
+  ContactNoteInput,
+  ContactNoteListResponse,
   ConstituentActivity,
   ConstituentActivityEvent,
   ConstituentActivityEventType,
@@ -27,6 +30,8 @@ export interface SegmentResponse {
 export type { Person }
 
 export type ListContactsResponse = PeopleListResponse
+
+export type { ContactNote, ContactNoteInput, ContactNoteListResponse }
 
 export type ConstituentIssue = {
   issueTitle: string

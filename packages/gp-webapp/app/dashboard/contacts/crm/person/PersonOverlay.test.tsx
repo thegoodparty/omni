@@ -33,6 +33,17 @@ vi.mock('@shared/utils/Map', () => ({
   default: () => <div data-testid="mock-map" />,
 }))
 
+// NotesSection has its own suite (NotesSection.test.tsx) covering CRM-gating,
+// CRUD, and analytics. Here it would otherwise call the real useOrganization()
+// hook, which throws outside an OrganizationProvider — this file only asserts
+// PersonOverlay mounts it with the right personId.
+vi.mock('./NotesSection', () => ({
+  __esModule: true,
+  default: ({ personId }: { personId: string }) => (
+    <div data-testid="notes-section-stub">{personId}</div>
+  ),
+}))
+
 const mockedUseContactsTable = vi.mocked(useContactsTable)
 const mockedUseFlagOn = vi.mocked(useFlagOn)
 
@@ -138,7 +149,7 @@ describe('<PersonOverlay>', () => {
   })
 
   it('renders the person details and the standard info sections', () => {
-    setContext()
+    setContext({ selectedPersonId: 'p_1' })
 
     render(<PersonOverlay />)
 
@@ -159,6 +170,14 @@ describe('<PersonOverlay>', () => {
         'Demographic Information',
       ]),
     )
+  })
+
+  it('mounts NotesSection for the currently selected person', () => {
+    setContext({ selectedPersonId: 'p_1' })
+
+    render(<PersonOverlay />)
+
+    expect(screen.getByTestId('notes-section-stub')).toHaveTextContent('p_1')
   })
 
   it('renders an error message and lets the user close the overlay when the person fetch fails', async () => {

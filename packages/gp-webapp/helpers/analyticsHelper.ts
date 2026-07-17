@@ -403,9 +403,14 @@ export const EVENTS = {
   // with { resultCount }.
   ConstituentData: {
     ContactSearched: 'Constituent Data - Contact Searched',
+    // ENG-10697: person-record Notes section, fires once per successful
+    // create (never on failure/edit/delete). Same product-specific naming
+    // exception as ContactSearched above.
+    NoteAdded: 'Constituent Data - Note Added',
   },
   VoterData: {
     ContactSearched: 'Voter Data - Contact Searched',
+    NoteAdded: 'Voter Data - Note Added',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',

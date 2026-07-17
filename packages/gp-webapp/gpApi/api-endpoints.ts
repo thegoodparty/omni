@@ -40,6 +40,9 @@ import type {
   ListContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  ContactNote,
+  ContactNoteInput,
+  ContactNoteListResponse,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
@@ -614,6 +617,23 @@ export type APIEndpoints = {
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
+  }
+
+  'GET /v1/contacts/:personId/notes': {
+    Request: {}
+    Response: ContactNoteListResponse
+  }
+  'POST /v1/contacts/:personId/notes': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'PATCH /v1/contacts/notes/:noteId': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'DELETE /v1/contacts/notes/:noteId': {
+    Request: {}
+    Response: {}
   }
 
   'GET /v1/contact-engagement/:id/issues': {

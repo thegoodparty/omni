@@ -4,7 +4,6 @@ import {
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
   Sheet,
   SheetContent,
   SheetTitle,
@@ -38,6 +37,8 @@ import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { InfoSection } from './InfoSection'
+import NotesSection from './NotesSection'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -171,20 +172,6 @@ const PollActivityRow: React.FC<{ activity: PollConstituentActivity }> = ({
       </div>
     ) : null}
   </div>
-)
-
-const InfoSection: React.FC<{
-  title: string
-  icon: React.ReactNode
-  children: React.ReactNode
-}> = ({ title, icon, children }) => (
-  <Card className="p-4">
-    <div className="flex items-center justify-between">
-      <CardTitle className="text-lg font-semibold">{title}</CardTitle>
-      {icon}
-    </div>
-    <div className="flex flex-col gap-4">{children}</div>
-  </Card>
 )
 
 const Field: React.FC<{ label: string; value: ReactNode | string | null }> = ({
@@ -510,6 +497,8 @@ const PersonContent: React.FC<{
           <Field label="Ethnicity Group" value={person.ethnicityGroup} />
         </InfoSection>
 
+        <NotesSection personId={person.id} />
+
         {showActivityFeed ? (
           <InfoSection title="Activity Feed" icon={<LuSmile size={24} />}>
             <ActivitiesContent />
@@ -587,6 +576,7 @@ export default function PersonOverlay(): React.JSX.Element {
           ) : (
             person && (
               <PersonContent
+                key={person.id}
                 person={person}
                 hidePoliticalParty={isElectedOfficial}
                 showWinActivities={isWinContext}
