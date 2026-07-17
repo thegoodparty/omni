@@ -368,6 +368,11 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       data: { projectId: jobId },
     })
 
+    const finalized = { ...outreach, projectId: jobId }
+    // Materialization needs no user — a missing user record must not skip
+    // the filter lock and interaction rows for a paid launch.
+    await this.tryMaterializeOutreach(campaign, finalized)
+
     if (!user) {
       this.logger.error(
         { outreachId, campaignId: campaign.id },
@@ -376,7 +381,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       return
     }
 
-    const finalized = { ...outreach, projectId: jobId }
     await this.tryNotifySuccess(user, campaign, finalized, {
       audienceRequest: outreach.audienceRequest ?? undefined,
       campaignPlanDueDate: outreach.campaignPlanDueDate ?? undefined,
@@ -384,7 +388,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
     await this.tryRecordSegmentAttribution(user, campaign, finalized)
-    await this.tryMaterializeOutreach(campaign, finalized)
   }
 
   /**

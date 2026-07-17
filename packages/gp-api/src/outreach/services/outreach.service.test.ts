@@ -327,6 +327,47 @@ describe('OutreachService', () => {
       )
     })
 
+    it('materializes on finalize even when the campaign has no user', async () => {
+      const draft = {
+        id: 43,
+        campaignId: 1,
+        outreachType: OutreachType.p2p,
+        status: OutreachStatus.pending,
+        imageUrl: 'https://assets.goodparty.org/outreach/img.png',
+        phoneListId: 100,
+        script: 'hello voter',
+        identityId: 'ident-1',
+        title: 'P2P Title',
+        name: null,
+        didState: null,
+        didNpaSubset: null,
+        date: new Date('2025-02-01T12:00:00.000Z'),
+        audienceRequest: null,
+        campaignPlanDueDate: null,
+        textCount: null,
+        billableTextCount: null,
+        voterFileFilterId: 7,
+        voterFileFilter: null,
+        campaign: { ...mockCampaign, user: null },
+      }
+      mockOutreachUpdateMany.mockResolvedValue({ count: 1 })
+      mockOutreachFindUniqueOrThrow.mockResolvedValue(draft)
+      mockGetFileBytes.mockResolvedValue({
+        bytes: Buffer.from('img'),
+        contentType: 'image/png',
+      })
+      mockPeerlyCreateJob.mockResolvedValue('job-456')
+      mockOutreachUpdate.mockResolvedValue({})
+
+      await service.finalizeOutreachPurchase(43, 1)
+
+      expect(mockMaterializeOutreach).toHaveBeenCalledWith(
+        draft.campaign,
+        expect.objectContaining({ id: 43, projectId: 'job-456' }),
+      )
+      expect(mockNotifySuccess).not.toHaveBeenCalled()
+    })
+
     it('forwards campaignPlanDueDate from the DTO into notifySuccess', async () => {
       const dto: CreateOutreachSchema = {
         ...baseCreateDto,
