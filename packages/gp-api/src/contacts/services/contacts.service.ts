@@ -165,6 +165,16 @@ export class ContactsService {
     return campaign?.isPro ?? false
   }
 
+  // Shared pro gate for record-level contact features (e.g. notes) that hang
+  // off an individual person but, unlike findPerson, never call people-api.
+  async assertProAccess(organization: Organization): Promise<void> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'This feature is only available for pro campaigns',
+      )
+    }
+  }
+
   private async resolveDistrictInfoFromOrg(
     org: Organization,
   ): Promise<{ districtId: string | null }> {
