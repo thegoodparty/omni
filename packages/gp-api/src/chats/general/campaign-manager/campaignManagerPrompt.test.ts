@@ -28,6 +28,7 @@ const ctx = (
   constituentToolEnabled: false,
   organization: null,
   crmToolsEnabled: false,
+  savedFilterToolsEnabled: false,
   story: null,
   plan: null,
   ...over,
@@ -117,6 +118,29 @@ describe('buildCampaignManagerSystemPrompt', () => {
       ctx({ crmToolsEnabled: true, organization: null }),
     )
     expect(noOrg).not.toContain('count_contacts')
+  })
+
+  it('advertises the saved-list tool only when it is registered', () => {
+    const readOnly = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+    expect(readOnly).toContain('count_contacts')
+    expect(readOnly).not.toContain('crud_saved_filters')
+
+    const withWrites = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        savedFilterToolsEnabled: true,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+    expect(withWrites).toContain('crud_saved_filters')
+    expect(withWrites).toContain('40 characters')
+    expect(withWrites).toContain('duplicated')
+    expect(withWrites).toContain('confirm the size')
   })
 
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {

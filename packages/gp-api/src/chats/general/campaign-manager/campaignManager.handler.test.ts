@@ -15,6 +15,7 @@ import type {
   StoryState,
 } from './campaignStoryIntake.service'
 import type { ContactsService } from '@/contacts/services/contacts.service'
+import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 import type { FeaturesService } from '@/features/services/features.service'
 import type { Organization } from '../../../generated/prisma'
 
@@ -43,6 +44,7 @@ const ctxWith = (
   constituentToolEnabled: false,
   organization: null,
   crmToolsEnabled: false,
+  savedFilterToolsEnabled: false,
   story: null,
   plan: null,
   ...over,
@@ -160,6 +162,7 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
 
   const buildCrmHandler = (
     contacts?: ContactsService,
+    voterFileFilters?: VoterFileFilterService,
   ): CampaignManagerHandler =>
     new CampaignManagerHandler(
       {} as GeneralChatStoreService,
@@ -171,6 +174,7 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
       undefined,
       undefined,
       contacts,
+      voterFileFilters,
     )
 
   const CRM_ON = { organization: ORG, crmToolsEnabled: true }
@@ -198,6 +202,30 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
   it('omits both when the contacts service is not wired', () => {
     const tools = buildCrmHandler(undefined).buildTools(ctxWith(CRM_ON))
     expect(Object.keys(tools)).not.toContain('count_contacts')
+  })
+
+  const buildVoterFileFilters = (): VoterFileFilterService =>
+    ({
+      findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
+    }) as unknown as VoterFileFilterService
+
+  it('registers crud_saved_filters only with the filter service and its flag', () => {
+    const withWrites = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }))
+    expect(Object.keys(withWrites)).toContain('crud_saved_filters')
+
+    const noService = buildCrmHandler(buildContacts()).buildTools(
+      ctxWith({ ...CRM_ON, savedFilterToolsEnabled: true }),
+    )
+    expect(Object.keys(noService)).not.toContain('crud_saved_filters')
+
+    const flagOff = buildCrmHandler(
+      buildContacts(),
+      buildVoterFileFilters(),
+    ).buildTools(ctxWith(CRM_ON))
+    expect(Object.keys(flagOff)).not.toContain('crud_saved_filters')
   })
 
   const buildLoadContextHandler = (enabledFlags: string[]) => {
@@ -232,6 +260,7 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
       features,
       undefined,
       buildContacts(),
+      buildVoterFileFilters(),
     )
     return { handler, features }
   }
@@ -254,7 +283,10 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     })
     expect(ctx.organization).toEqual(ORG)
     expect(ctx.crmToolsEnabled).toBe(true)
-    expect(Object.keys(handler.buildTools(ctx))).toContain('count_contacts')
+    expect(ctx.savedFilterToolsEnabled).toBe(true)
+    const toolNames = Object.keys(handler.buildTools(ctx))
+    expect(toolNames).toContain('count_contacts')
+    expect(toolNames).toContain('crud_saved_filters')
   })
 
   // Mirrors the webapp's useCrmEnabled invariant: win-crm alone must never
@@ -265,7 +297,10 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     const ctx = await handler.loadContext('c1', 7)
 
     expect(ctx.crmToolsEnabled).toBe(false)
-    expect(Object.keys(handler.buildTools(ctx))).not.toContain('count_contacts')
+    expect(ctx.savedFilterToolsEnabled).toBe(false)
+    const toolNames = Object.keys(handler.buildTools(ctx))
+    expect(toolNames).not.toContain('count_contacts')
+    expect(toolNames).not.toContain('crud_saved_filters')
   })
 
   it('loadContext leaves the tools off when win-crm is off', async () => {

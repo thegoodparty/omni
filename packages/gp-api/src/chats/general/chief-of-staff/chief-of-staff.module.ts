@@ -13,6 +13,7 @@ import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
 import { CommunityIssuesModule } from '@/communityIssues/communityIssues.module'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { VotersModule } from '@/voters/voters.module'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import {
   CHIEF_OF_STAFF_MODELS,
@@ -58,6 +59,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     FeaturesModule,
     CommunityIssuesModule,
     ContactsModule,
+    VotersModule,
   ],
   providers: [
     ChiefOfStaffHandler,

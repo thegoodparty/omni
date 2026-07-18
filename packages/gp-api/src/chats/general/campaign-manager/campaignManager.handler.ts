@@ -36,6 +36,8 @@ import {
 } from '@/contacts/services/contacts.service'
 import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
+import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -123,6 +125,7 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   constituentToolEnabled: false,
   organization: null,
   crmToolsEnabled: false,
+  savedFilterToolsEnabled: false,
   story: null,
   plan: null,
 }
@@ -150,6 +153,8 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly storyIntake?: CampaignStoryIntakeService,
     @Optional()
     private readonly contacts?: ContactsService,
+    @Optional()
+    private readonly voterFileFilters?: VoterFileFilterService,
   ) {}
 
   // The manager is a single ongoing conversation, not one per open: resume the
@@ -281,6 +286,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       !!organization &&
       (await this.isFlagOn(userId, WIN_CRM_FLAG)) &&
       (await this.isFlagOn(userId, WIN_VOTER_DATA_FLAG_KEY))
+    // The saved-filter write tool additionally needs VoterFileFilterService;
+    // folding its presence in keeps prompt advertising and tool registration
+    // on one signal, same as crmToolsEnabled itself.
+    const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
     return {
       candidateFirstName: campaign.user?.firstName ?? null,
@@ -299,6 +308,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       constituentToolEnabled,
       organization,
       crmToolsEnabled,
+      savedFilterToolsEnabled,
       story,
       plan,
     }
@@ -380,6 +390,16 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         contacts: this.contacts,
         organization: ctx.organization,
       })
+      // Saved-filter CRUD goes through the same VoterFileFilterService paths
+      // as the voter-file routes (Pro gate, completed-outreach validation,
+      // org scoping, locked-filter conflict all inherited).
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+        tools.crud_saved_filters = buildCrudSavedFiltersTool({
+          voterFileFilters: this.voterFileFilters,
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+      }
     }
 
     return tools

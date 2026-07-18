@@ -14,6 +14,11 @@ import {
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
 
+// Exported so the assistant's saved-filter tool can recognize this exact
+// business-rule rejection (and suggest the Pro upgrade) without duplicating
+// the string.
+export const FILTER_PRO_REQUIRED_MESSAGE = 'Campaign is not pro'
+
 const ACTIVITY_CONDITIONS_INCLUDE = {
   activityConditions: true,
 } as const satisfies Prisma.VoterFileFilterInclude
@@ -319,7 +324,7 @@ export class VoterFileFilterService extends createPrismaBase(
       })
 
       if (!campaign?.isPro) {
-        throw new BadRequestException('Campaign is not pro')
+        throw new BadRequestException(FILTER_PRO_REQUIRED_MESSAGE)
       }
     }
   }

@@ -132,6 +132,15 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   structured tool errors). Registration is gated per handler on the org's CRM
   flag (`win-crm` / `serve-crm`) via `FeaturesService`, and the prompt advertises
   them only when registered.
+- **`crud_saved_filters`** — saved-filter (contact list) **write** tool shared by
+  the same two handlers under the same CRM flag gates, mirroring
+  `crud_priorities`' single-tool-with-`action` shape (`list`/`create`/`update`/
+  `delete`). It calls the same `VoterFileFilterService` paths as the
+  `voters/voter-file` filter routes, so the Win Pro gate, completed-outreach
+  validation, org scoping, and the locked-filter conflict are inherited; the
+  locked-filter 409 surfaces as a structured "duplicate it to edit" tool error.
+  Aggregate-only returns: ids, names, and counts (create counts via
+  `ContactsService.countContacts` before persisting), never person rows.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
