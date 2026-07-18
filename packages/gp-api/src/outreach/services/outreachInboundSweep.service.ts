@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { BadGatewayException, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import {
   addDays,
@@ -46,7 +46,10 @@ const PEERLY_CDR_OUTBOUND_DIRECTION = 'sent'
 // The optout column's value vocabulary is unverified (no dev job has an
 // opt-out). Anything outside these explicit falsy literals counts as an
 // opt-out, and the raw value is logged so the real vocabulary gets learned.
-const OPTOUT_FALSY_VALUES = new Set(['', '0', 'false'])
+// Vocabulary unverified (no dev job has an opt-out): cover the common
+// negations so a 'no'-encoded column can't mass-write optedOutAt before
+// the real values are learned from the logged raw flags.
+const OPTOUT_FALSY_VALUES = new Set(['', '0', 'false', 'no', 'n'])
 
 const PEERLY_REPORT_DATE_FORMAT = 'yyyy-MM-dd'
 
@@ -240,7 +243,12 @@ export class OutreachInboundSweepService extends createPrismaBase(
       cdrResult.status === 'rejected' &&
       questionResult.status === 'rejected'
     ) {
-      throw cdrResult.reason
+      // Sanitized: the raw rejection lands in the outer catch's log, and
+      // an axios error there would carry the request's auth headers.
+      throw new BadGatewayException(
+        `Both Peerly report fetches failed: ${rejectionMessage(cdrResult)}; ` +
+          rejectionMessage(questionResult),
+      )
     }
     if (cdrResult.status === 'rejected') {
       this.logger.warn(

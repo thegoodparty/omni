@@ -26,6 +26,11 @@ export interface PeerlyReportDateWindow {
 // the window to the job's lifetime (multi-year ranges 504 upstream) and
 // dedupe rows on their side. Report rows carry voter PII: never log row
 // contents, only counts.
+// Reports are fetched whole (no cursoring) and the zip path decompresses
+// in memory a second time; cap the transfer like the sibling Peerly
+// services do.
+const MAX_REPORT_SIZE = 104857600
+
 @Injectable()
 export class PeerlyJobResultsService extends PeerlyBaseConfig {
   constructor(
@@ -129,6 +134,8 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
         this.httpService.get<string>(link, {
           responseType: 'text',
           timeout: this.httpTimeoutMs,
+          maxContentLength: MAX_REPORT_SIZE,
+          maxBodyLength: MAX_REPORT_SIZE,
         }),
       )
       return response.data
@@ -149,6 +156,8 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
         this.httpService.get<ArrayBuffer>(link, {
           responseType: 'arraybuffer',
           timeout: this.httpTimeoutMs,
+          maxContentLength: MAX_REPORT_SIZE,
+          maxBodyLength: MAX_REPORT_SIZE,
         }),
       )
       return Buffer.from(response.data)

@@ -229,6 +229,11 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     fetchQuestionResponseRows.mockResolvedValue([
       optOutRow('3035550102'),
       optOutRow('3035550101', '0'),
+      // Common negations must read as NOT opted out even though the
+      // vendor vocabulary is unverified — 'no' mass-writing optedOutAt
+      // would corrupt the whole recipient list.
+      optOutRow('3035550103', 'no'),
+      optOutRow('3035550104', 'N'),
     ])
 
     await sweepService.sweepInboundEvents()
