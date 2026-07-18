@@ -55,17 +55,20 @@ export class OutreachMaterializationService {
     campaign: Campaign,
     outreach: Outreach,
   ): Promise<void> {
-    if (!outreach.voterFileFilterId) return
-
     // Stamped before the channel guard and the row writes: the lock records
     // "this filter drove an outreach", so channels without a
     // ContactInteraction model (phoneBanking, socialMedia) still lock.
     // First-write-wins, no rollback — a stamped filter with a
-    // partial/failed materialization is still correct.
-    await this.voterFileFilterService.stampFirstUsedForOutreach(
-      outreach.voterFileFilterId,
-      campaign.organizationSlug,
-    )
+    // partial/failed materialization is still correct. An outreach can
+    // carry a phone list without a saved filter (voterFileFilterId is
+    // optional on the p2p request), so the captured path below must not
+    // be gated on the filter's presence.
+    if (outreach.voterFileFilterId) {
+      await this.voterFileFilterService.stampFirstUsedForOutreach(
+        outreach.voterFileFilterId,
+        campaign.organizationSlug,
+      )
+    }
 
     if (!MATERIALIZABLE_OUTREACH_TYPES.has(outreach.outreachType)) return
 
@@ -98,11 +101,13 @@ export class OutreachMaterializationService {
       )
     }
 
+    if (!outreach.voterFileFilterId) return
     await this.materializeFromFilter(campaign, outreach, occurredAt)
   }
 
   // Returns the number of rows materialized, or null if the phone list has
-  // no capture row yet — the caller's signal to fall back to the filter.
+  // no capture row — or a capture row with zero recipients — so the caller
+  // falls back to the filter instead of silently materializing nothing.
   private async materializeFromCapture(
     campaign: Campaign,
     outreach: Outreach,
@@ -161,7 +166,7 @@ export class OutreachMaterializationService {
       }
     }
 
-    return materialized
+    return materialized === 0 ? null : materialized
   }
 
   private async materializeFromFilter(

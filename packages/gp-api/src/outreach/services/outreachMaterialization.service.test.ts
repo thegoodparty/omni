@@ -336,18 +336,44 @@ describe('OutreachMaterializationService', () => {
         .spyOn(PinoLogger.prototype, 'warn')
         .mockImplementation(() => undefined)
 
+      try {
+        await materialization.materializeOutreach(campaign, outreach)
+
+        const rows = await textRowsFor(outreach.id)
+        expect(rows.map((r) => r.personId)).toEqual(['pid-1', 'pid-2'])
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            outreachId: outreach.id,
+            phoneListId: 9999,
+          }),
+          expect.stringContaining('falling back'),
+        )
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
+    it('materializes from capture when the outreach has no saved filter', async () => {
+      const { campaign, outreach } = await seedOutreach({
+        slug: 'mat-captured-no-filter',
+        outreachType: OutreachType.p2p,
+        phoneListId: 4747,
+        withFilter: false,
+      })
+      await seedCapturedPhoneList({
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        peerlyListId: 4747,
+        voterFileFilterId: null,
+        personIds: ['cap-nf-1', 'cap-nf-2'],
+      })
+      const findContacts = vi.spyOn(contacts, 'findContacts')
+
       await materialization.materializeOutreach(campaign, outreach)
 
       const rows = await textRowsFor(outreach.id)
-      expect(rows.map((r) => r.personId)).toEqual(['pid-1', 'pid-2'])
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          outreachId: outreach.id,
-          phoneListId: 9999,
-        }),
-        expect.stringContaining('falling back'),
-      )
-      warnSpy.mockRestore()
+      expect(rows.map((r) => r.personId)).toEqual(['cap-nf-1', 'cap-nf-2'])
+      expect(findContacts).not.toHaveBeenCalled()
     })
 
     it('is idempotent on the captured source: relaunching does not duplicate rows', async () => {
