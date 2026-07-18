@@ -81,6 +81,9 @@ describe('ContactsService', () => {
     let mockSupportStatusService: {
       statusForPeople: ReturnType<typeof vi.fn>
     }
+    let mockContactInteractionTextService: {
+      latestOptOutAt: ReturnType<typeof vi.fn>
+    }
     let mockActivityConditionResolutionService: {
       resolveIdFilter: ReturnType<typeof vi.fn>
     }
@@ -123,6 +126,9 @@ describe('ContactsService', () => {
       mockSupportStatusService = {
         statusForPeople: vi.fn().mockResolvedValue(new Map()),
       }
+      mockContactInteractionTextService = {
+        latestOptOutAt: vi.fn().mockResolvedValue(null),
+      }
       mockActivityConditionResolutionService = {
         resolveIdFilter: vi.fn().mockResolvedValue({ kind: 'none' }),
       }
@@ -136,6 +142,7 @@ describe('ContactsService', () => {
         voterFileDownloadAccess,
         mockFeaturesService as never,
         mockSupportStatusService as never,
+        mockContactInteractionTextService as never,
         mockActivityConditionResolutionService as never,
         createMockLogger(),
       )
@@ -1105,6 +1112,37 @@ describe('ContactsService', () => {
           ['p1'],
         )
         expect(result.supportStatus).toBe('supporter')
+      })
+
+      it('attaches optedOutAt as the ISO string of the latest opt-out', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.get.mockReturnValue(of({ data: { id: 'p1' } }))
+        mockContactInteractionTextService.latestOptOutAt.mockResolvedValue(
+          new Date('2026-07-01T12:00:00Z'),
+        )
+
+        const result = await service.findPerson('p1', org)
+
+        expect(
+          mockContactInteractionTextService.latestOptOutAt,
+        ).toHaveBeenCalledWith('eo-mayor-1', 'p1')
+        expect(result.optedOutAt).toBe('2026-07-01T12:00:00.000Z')
+      })
+
+      it('attaches optedOutAt as null when the person never opted out', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.get.mockReturnValue(of({ data: { id: 'p1' } }))
+        mockContactInteractionTextService.latestOptOutAt.mockResolvedValue(null)
+
+        const result = await service.findPerson('p1', org)
+
+        expect(result.optedOutAt).toBeNull()
       })
 
       it('defaults to unknown when SupportStatusService has no entry for the person', async () => {

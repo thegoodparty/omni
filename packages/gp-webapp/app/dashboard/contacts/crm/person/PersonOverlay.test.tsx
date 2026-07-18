@@ -810,6 +810,60 @@ describe('<PersonOverlay>', () => {
     })
   })
 
+  describe('ENG-10732 opted in/out chip', () => {
+    it('hides the chip when the CRM flag is off', () => {
+      setContext()
+
+      render(<PersonOverlay />)
+
+      expect(screen.queryByText('Opted In')).not.toBeInTheDocument()
+      expect(screen.queryByText('Opted Out')).not.toBeInTheDocument()
+    })
+
+    it('shows "Opted In" when the CRM flag is on and optedOutAt is null', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: { person: makePerson({ optedOutAt: null }) },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Opted In')).toBeInTheDocument()
+      expect(screen.queryByText('Opted Out')).not.toBeInTheDocument()
+    })
+
+    it('shows "Opted Out" when a text interaction carries optedOutAt', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: false,
+        selectedPerson: {
+          person: makePerson({ optedOutAt: '2026-07-10T12:00:00.000Z' }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.getByText('Opted Out')).toBeInTheDocument()
+      expect(screen.queryByText('Opted In')).not.toBeInTheDocument()
+    })
+
+    it('renders no chip for Serve (elected official) records even when opted out', () => {
+      mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
+      setContext({
+        isElectedOfficial: true,
+        selectedPerson: {
+          person: makePerson({ optedOutAt: '2026-07-10T12:00:00.000Z' }),
+        },
+      })
+
+      render(<PersonOverlay />)
+
+      expect(screen.queryByText('Opted In')).not.toBeInTheDocument()
+      expect(screen.queryByText('Opted Out')).not.toBeInTheDocument()
+    })
+  })
+
   describe('ENG-10698 Contact Viewed', () => {
     it('fires the Win-mode Contact Viewed event once when the CRM flag is on', () => {
       mockedUseCrmEnabled.mockReturnValue({ ready: true, enabled: true })
