@@ -35,6 +35,7 @@ import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignS
 import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
 import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
 import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
+import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -62,6 +63,7 @@ import {
   Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
+  OrdinanceQualityLoopMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -149,6 +151,7 @@ export class QueueConsumerService {
     private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
+    private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -418,6 +421,10 @@ export class QueueConsumerService {
           await this.annotationAttachments.runOcr(attachmentId)
           return true
         })
+      case QueueType.ORDINANCE_QUALITY_LOOP:
+        return await this.ordinanceQualityLoop.handleStep(
+          OrdinanceQualityLoopMessageSchema.parse(queueMessage.data),
+        )
       default:
         this.logger.warn(
           { messageId: message.MessageId, body: message.Body },

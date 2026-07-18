@@ -38,6 +38,17 @@ model Ordinance {
   qualityRunStartedAt DateTime? @map("quality_run_started_at")
   qualityRunError     String?   @map("quality_run_error")
 
+  // Async quality-improvement loop (QC -> revise -> QC over SQS). Separate
+  // state machine from qualityRun* above: the loop mints a runId per start,
+  // steps heartbeat qualityLoopUpdatedAt, and every write is fenced on
+  // (status running + runId). Terminal statuses are write-once.
+  qualityLoopStatus    OrdinanceQualityLoopStatus? @map("quality_loop_status")
+  qualityLoopRunId     String?                     @map("quality_loop_run_id")
+  qualityLoopIteration Int                         @default(0) @map("quality_loop_iteration")
+  qualityLoopUpdatedAt DateTime?                   @map("quality_loop_updated_at")
+
+  qualityIterations OrdinanceQualityIteration[]
+
   lastViewedStep String? @map("last_viewed_step")
 
   createdAt DateTime  @default(now()) @map("created_at")
@@ -60,4 +71,16 @@ enum OrdinanceStatus {
 enum OrdinanceSeedType {
   issue
   new
+}
+
+// Not `passed` for convergence — that would collide with
+// OrdinanceStatus.passed (council passage), a different concept.
+enum OrdinanceQualityLoopStatus {
+  running
+  converged
+  stopped_max_iterations
+  stopped_not_improving
+  superseded_by_edit
+  cancelled
+  failed
 }

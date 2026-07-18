@@ -3,6 +3,8 @@ import { formatISO } from 'date-fns'
 import { z } from 'zod'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
+import { Ordinance, OrdinanceQualityLoopStatus } from '@/generated/prisma'
 import {
   OrdinanceCodeResponseSchema,
   type OrdinanceCodeResponse,
@@ -58,8 +60,19 @@ export type OrdinanceCodeSourceResult =
 export class OrdinanceFlowToolsService extends createPrismaBase(
   MODELS.Ordinance,
 ) {
-  constructor(private readonly s3: S3Service) {
+  constructor(
+    private readonly s3: S3Service,
+    private readonly qualityLoop: OrdinanceQualityLoopService,
+  ) {
     super()
+  }
+
+  // Chat-tool writes to the quality-report hash inputs invalidate a running
+  // background loop, same as the PATCH editor path.
+  private async supersedeRunningLoop(ordinance: Ordinance): Promise<void> {
+    if (ordinance.qualityLoopStatus === OrdinanceQualityLoopStatus.running) {
+      await this.qualityLoop.supersedeOnEdit(ordinance.id)
+    }
   }
 
   private async findOwned(ordinanceId: string, electedOfficeId: string) {
@@ -148,6 +161,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     authority: OrdinanceAuthority,
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.supersedeRunningLoop(o)
     await this.model.update({ where: { id: o.id }, data: { authority } })
     return { saved: true }
   }
@@ -158,6 +172,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     comparables: OrdinanceComparables,
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.supersedeRunningLoop(o)
     await this.model.update({ where: { id: o.id }, data: { comparables } })
     return { saved: true }
   }
@@ -175,7 +190,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     draft: { title: string; body: string; sources?: OrdinanceSource[] },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
-    await this.model.update({
+    const updated = await this.model.update({
       where: { id: o.id },
       data: {
         draftTitle: draft.title,
@@ -184,7 +199,23 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
         ...(draft.sources &&
           draft.sources.length > 0 && { draftSources: draft.sources }),
       },
+      include: { electedOffice: true },
     })
+    // Fire-and-forget: the chat turn must never block on or fail with the
+    // background loop. start() itself supersedes and restarts a running loop
+    // for a re-draft, and guards flag/env/status/redline internally.
+    void this.qualityLoop
+      .start({
+        ordinance: updated,
+        userId: updated.electedOffice.userId,
+        trigger: 'auto',
+      })
+      .catch((err: unknown) =>
+        this.logger.error(
+          { ordinanceId: o.id, error: err },
+          'quality loop auto-start failed after saveDraft',
+        ),
+      )
     return { saved: true }
   }
 
@@ -194,6 +225,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     law: { sourceUrl: string; chapterLabel?: string; text: string },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    await this.supersedeRunningLoop(o)
     const existingLaw = OrdinanceExistingLawSchema.parse({
       ...law,
       fetchedAt: formatISO(new Date()),

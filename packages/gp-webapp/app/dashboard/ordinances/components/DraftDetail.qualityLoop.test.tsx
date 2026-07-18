@@ -1,0 +1,509 @@
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { render } from 'helpers/test-utils/render'
+import { screen, fireEvent, act, waitFor } from '@testing-library/react'
+import type {
+  Ordinance,
+  OrdinanceQualityIterationSummary,
+  OrdinanceQualityLoop,
+  OrdinanceQualityReport,
+} from '@goodparty_org/contracts'
+import DraftDetail from './DraftDetail'
+
+const mocks = vi.hoisted(() => ({
+  updateOrdinance: vi.fn(),
+  startQualityReport: vi.fn(),
+  fetchQualityRun: vi.fn(),
+  deleteOrdinance: vi.fn(),
+  downloadOrdinanceExport: vi.fn(),
+  fetchOrdinanceBySlug: vi.fn(),
+  startQualityLoop: vi.fn(),
+  cancelQualityLoop: vi.fn(),
+  fetchQualityIterations: vi.fn(),
+  useOrdinanceQualityLoopFlag: vi.fn(),
+}))
+
+vi.mock('../data/ordinances-api', () => ({
+  updateOrdinance: mocks.updateOrdinance,
+  startQualityReport: mocks.startQualityReport,
+  fetchQualityRun: mocks.fetchQualityRun,
+  deleteOrdinance: mocks.deleteOrdinance,
+  downloadOrdinanceExport: mocks.downloadOrdinanceExport,
+  fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
+  startQualityLoop: mocks.startQualityLoop,
+  cancelQualityLoop: mocks.cancelQualityLoop,
+  fetchQualityIterations: mocks.fetchQualityIterations,
+}))
+
+vi.mock('@shared/experiments/ordinanceQualityLoopFlag', () => ({
+  useOrdinanceQualityLoopFlag: mocks.useOrdinanceQualityLoopFlag,
+}))
+
+vi.mock('./DraftChat', () => ({
+  default: () => null,
+}))
+
+const AUTOSAVE_DELAY_MS = 800
+const LOOP_POLL_MS = 5_000
+
+const loop = (
+  overrides: Partial<OrdinanceQualityLoop> = {},
+): OrdinanceQualityLoop => ({
+  status: 'running',
+  phase: 'checking',
+  passNumber: 1,
+  maxPasses: 4,
+  updatedAt: '2026-07-01T00:00:00.000Z',
+  ...overrides,
+})
+
+const report = (
+  overrides: Partial<OrdinanceQualityReport> = {},
+): OrdinanceQualityReport => ({
+  checks: [
+    {
+      id: 'legal_conflict',
+      label: 'Legal conflict',
+      status: 'flag',
+      note: 'Conflicts with Chapter 12.',
+    },
+    {
+      id: 'completeness',
+      label: 'Completeness',
+      status: 'attention',
+      note: 'Add an effective date.',
+    },
+  ],
+  tally: { pass: 4, flag: 1, attention: 1 },
+  stale: false,
+  ranAgainstBodyHash: 'hash-1',
+  ...overrides,
+})
+
+const passingReport = report({
+  checks: [
+    {
+      id: 'completeness',
+      label: 'Completeness',
+      status: 'attention',
+      note: 'Add an effective date.',
+    },
+    {
+      id: 'clarity',
+      label: 'Clarity',
+      status: 'attention',
+      note: 'Define "recording".',
+    },
+  ],
+  tally: { pass: 4, flag: 0, attention: 2 },
+  ranAgainstBodyHash: 'hash-2',
+})
+
+const makeOrdinance = (overrides: Partial<Ordinance> = {}): Ordinance =>
+  ({
+    id: 'ord-1',
+    slug: 'public-safety-cameras',
+    status: 'draft',
+    draftTitle: 'Draft amendment to Chapter 12',
+    goalText: 'Add camera guardrails',
+    draftBody: 'Original body.',
+    draftSources: null,
+    qualityReport: null,
+    qualityRunStatus: 'idle',
+    qualityLoop: null,
+    ...overrides,
+  }) as unknown as Ordinance
+
+const iteration = (
+  overrides: Partial<OrdinanceQualityIterationSummary> = {},
+): OrdinanceQualityIterationSummary => ({
+  iteration: 0,
+  flaggedCheckIds: ['legal_conflict'],
+  report: report(),
+  draftTitle: 'Original title',
+  draftBody: 'Original body.',
+  revisedTitle: 'Improved title',
+  revisedBody: 'Improved body.',
+  revisionNotes: [
+    { checkId: 'legal_conflict', note: 'Removed the conflicting clause.' },
+  ],
+  createdAt: '2026-07-01T00:00:00.000Z',
+  ...overrides,
+})
+
+const bodyEditor = (): HTMLElement =>
+  screen.getByRole('textbox', { name: 'Ordinance draft body' })
+const titleEditor = (): HTMLElement =>
+  screen.getByRole('textbox', { name: 'Ordinance draft title' })
+
+beforeEach(() => {
+  mocks.updateOrdinance.mockReset()
+  mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+  mocks.startQualityReport.mockReset()
+  mocks.fetchQualityRun.mockReset()
+  mocks.deleteOrdinance.mockReset()
+  mocks.downloadOrdinanceExport.mockReset()
+  mocks.fetchOrdinanceBySlug.mockReset()
+  mocks.startQualityLoop.mockReset()
+  mocks.cancelQualityLoop.mockReset()
+  mocks.fetchQualityIterations.mockReset()
+  mocks.fetchQualityIterations.mockResolvedValue({
+    loopRunId: 'run-1',
+    iterations: [],
+  })
+  mocks.useOrdinanceQualityLoopFlag.mockReset()
+  mocks.useOrdinanceQualityLoopFlag.mockReturnValue({
+    ready: true,
+    enabled: true,
+  })
+})
+
+describe('DraftDetail quality loop polling', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('polls every 5s while running and settles into the converged outcome', async () => {
+    mocks.fetchOrdinanceBySlug
+      .mockResolvedValueOnce(
+        makeOrdinance({
+          qualityLoop: loop({ phase: 'revising', passNumber: 1 }),
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeOrdinance({
+          qualityLoop: loop({ status: 'converged', phase: null }),
+          qualityReport: passingReport,
+          draftTitle: 'Improved title',
+          draftBody: 'Improved body.',
+        }),
+      )
+    mocks.fetchQualityIterations.mockResolvedValue({
+      loopRunId: 'run-1',
+      iterations: [iteration()],
+    })
+
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityLoop: loop(),
+          qualityReport: report(),
+        })}
+      />,
+    )
+
+    expect(screen.getByText('Checking your draft (pass 1 of 4)')).toBeVisible()
+    expect(mocks.fetchOrdinanceBySlug).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LOOP_POLL_MS)
+    })
+    expect(mocks.fetchOrdinanceBySlug).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/rewriting flagged sections/i)).toBeVisible()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LOOP_POLL_MS)
+    })
+    expect(mocks.fetchOrdinanceBySlug).toHaveBeenCalledTimes(2)
+
+    // Terminal: the banner is gone, the outcome line is honest about the
+    // remaining attention items, and the history is fetched.
+    expect(
+      screen.queryByText(/rewriting flagged sections/i),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText('No blocking problems — 2 items worth a look'),
+    ).toBeVisible()
+    expect(mocks.fetchQualityIterations).toHaveBeenCalledWith(
+      'public-safety-cameras',
+    )
+
+    // The editor unlocked and was re-seeded with the revised draft.
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
+    expect(bodyEditor().innerText).toBe('Improved body.')
+    expect(titleEditor().innerText).toBe('Improved title')
+
+    // Polling stopped with the loop.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LOOP_POLL_MS * 3)
+    })
+    expect(mocks.fetchOrdinanceBySlug).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-seeds the editor from the server on every running tick', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({
+        qualityLoop: loop({ passNumber: 2 }),
+        draftBody: 'Mid-loop revised body.',
+      }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LOOP_POLL_MS)
+    })
+
+    expect(screen.getByText('Checking your draft (pass 2 of 4)')).toBeVisible()
+    expect(bodyEditor().innerText).toBe('Mid-loop revised body.')
+  })
+
+  it('locks the editor and mutes autosave while the loop runs', async () => {
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
+    expect(bodyEditor()).toHaveAttribute('aria-readonly', 'true')
+    expect(titleEditor()).toHaveAttribute('contenteditable', 'false')
+    expect(titleEditor()).toHaveAttribute('aria-readonly', 'true')
+
+    // Even if an input event slips through, no autosave PATCH goes out.
+    bodyEditor().innerText = 'a sneaky edit'
+    fireEvent.input(bodyEditor())
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS * 2)
+    })
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+
+    // The chat entry point is replaced by the explanatory note.
+    expect(
+      screen.getByText(
+        'Improvements are running — stop them to edit or discuss',
+      ),
+    ).toBeVisible()
+    expect(
+      screen.queryByText('Ask about this draft...'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the stopped_* outcome copy with the remaining flag count', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({
+        qualityLoop: loop({ status: 'stopped_not_improving', phase: null }),
+        qualityReport: report(),
+      }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LOOP_POLL_MS)
+    })
+
+    expect(
+      screen.getByText(
+        'Kept your strongest version — 1 check still needs your attention',
+      ),
+    ).toBeVisible()
+  })
+})
+
+describe('DraftDetail selection toolbar while the loop runs', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('never shows the selection toolbar while the loop runs', () => {
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+
+    const body = bodyEditor()
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      rangeCount: 1,
+      getRangeAt: () => ({
+        commonAncestorContainer: body,
+        getBoundingClientRect: () => ({
+          top: 120,
+          left: 40,
+          width: 60,
+          height: 16,
+        }),
+      }),
+      toString: () => 'a 30-day retention limit',
+      removeAllRanges: vi.fn(),
+    } as unknown as Selection)
+    fireEvent(document, new Event('selectionchange'))
+
+    expect(
+      screen.queryByRole('toolbar', { name: 'Selection actions' }),
+    ).not.toBeInTheDocument()
+  })
+})
+
+describe('DraftDetail quality loop stop and edit', () => {
+  it('cancels the loop and unlocks the editor', async () => {
+    mocks.cancelQualityLoop.mockResolvedValue(
+      makeOrdinance({
+        qualityLoop: loop({ status: 'cancelled', phase: null }),
+        qualityReport: report(),
+      }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /stop and edit/i }))
+
+    await waitFor(() =>
+      expect(mocks.cancelQualityLoop).toHaveBeenCalledWith(
+        'public-safety-cameras',
+      ),
+    )
+    await waitFor(() =>
+      expect(bodyEditor()).toHaveAttribute('contenteditable', 'true'),
+    )
+    expect(screen.queryByText(/checking your draft/i)).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Improvements stopped — your draft is ready to edit.'),
+    ).toBeVisible()
+  })
+
+  it('surfaces an error and stays locked when the cancel fails', async () => {
+    mocks.cancelQualityLoop.mockRejectedValue(new Error('nope'))
+
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /stop and edit/i }))
+
+    expect(
+      await screen.findByText(/could not stop the improvements/i),
+    ).toBeVisible()
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
+  })
+})
+
+describe('DraftDetail quality loop focus re-check', () => {
+  it('re-checks the loop state on window focus and locks when one is running', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({ qualityLoop: loop() }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    expect(screen.queryByText(/checking your draft/i)).not.toBeInTheDocument()
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
+
+    fireEvent(window, new Event('focus'))
+
+    expect(
+      await screen.findByText('Checking your draft (pass 1 of 4)'),
+    ).toBeVisible()
+    expect(mocks.fetchOrdinanceBySlug).toHaveBeenCalledTimes(1)
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
+  })
+
+  it('leaves the editor alone when the focus re-check finds no running loop', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(makeOrdinance())
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent(window, new Event('focus'))
+    await waitFor(() =>
+      expect(mocks.fetchOrdinanceBySlug).toHaveBeenCalledTimes(1),
+    )
+
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
+    expect(screen.queryByText(/checking your draft/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('DraftDetail what changed panel', () => {
+  const settleToCancelled = async (): Promise<void> => {
+    mocks.cancelQualityLoop.mockResolvedValue(
+      makeOrdinance({
+        qualityLoop: loop({ status: 'cancelled', phase: null }),
+        qualityReport: report(),
+      }),
+    )
+    mocks.fetchQualityIterations.mockResolvedValue({
+      loopRunId: 'run-1',
+      iterations: [iteration()],
+    })
+
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+    fireEvent.click(screen.getByRole('button', { name: /stop and edit/i }))
+    await screen.findByText(
+      'Improvements stopped — your draft is ready to edit.',
+    )
+  }
+
+  it('lists each pass with its revision notes and before/after texts', async () => {
+    await settleToCancelled()
+
+    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
+
+    expect(
+      await screen.findByText('Removed the conflicting clause.'),
+    ).toBeVisible()
+    // The note carries the flagged check's label (from the iteration report).
+    expect(screen.getByText('Legal conflict:')).toBeVisible()
+
+    // Before/after texts expand on demand.
+    fireEvent.click(
+      screen.getByRole('button', { name: /show before and after/i }),
+    )
+    expect(screen.getByText('Original body.')).toBeVisible()
+    expect(screen.getByText('Improved body.')).toBeVisible()
+  })
+
+  it('restores the original draft from iteration 0 and re-seeds the editor', async () => {
+    mocks.updateOrdinance.mockResolvedValue(
+      makeOrdinance({
+        draftTitle: 'Original title',
+        draftBody: 'Original body.',
+      }),
+    )
+    await settleToCancelled()
+
+    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore original draft/i }),
+    )
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { draftTitle: 'Original title', draftBody: 'Original body.' },
+      ),
+    )
+    await waitFor(() => expect(bodyEditor().innerText).toBe('Original body.'))
+    expect(titleEditor().innerText).toBe('Original title')
+  })
+})
+
+describe('DraftDetail quality loop entry point', () => {
+  it('starts the loop from the Check & improve draft button when flagged in', async () => {
+    mocks.startQualityLoop.mockResolvedValue(
+      makeOrdinance({ qualityLoop: loop() }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /check & improve draft/i }),
+    )
+
+    expect(
+      await screen.findByText('Checking your draft (pass 1 of 4)'),
+    ).toBeVisible()
+    expect(mocks.startQualityLoop).toHaveBeenCalledWith('public-safety-cameras')
+    expect(mocks.startQualityReport).not.toHaveBeenCalled()
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
+  })
+
+  it('keeps the manual run button when the flag is off', () => {
+    mocks.useOrdinanceQualityLoopFlag.mockReturnValue({
+      ready: true,
+      enabled: false,
+    })
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    expect(
+      screen.getByRole('button', { name: /run quality checks/i }),
+    ).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: /check & improve draft/i }),
+    ).not.toBeInTheDocument()
+  })
+})

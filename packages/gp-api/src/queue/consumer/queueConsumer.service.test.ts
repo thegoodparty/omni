@@ -9,6 +9,7 @@ import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/race
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
+import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
@@ -232,6 +233,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -932,6 +934,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1124,6 +1127,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1291,6 +1295,10 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
+          provide: OrdinanceQualityLoopService,
+          useValue: { handleStep: vi.fn() },
+        },
+        {
           provide: AnnotationAttachmentService,
           useValue: { runOcr: vi.fn() },
         },
@@ -1353,6 +1361,52 @@ describe('QueueConsumerService - message type routing', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
+  })
+
+  it('routes ordinanceQualityLoop messages to the loop handler', async () => {
+    const loop = module.get(OrdinanceQualityLoopService)
+    const handleSpy = vi.spyOn(loop, 'handleStep').mockResolvedValue(true)
+    const data = {
+      ordinanceId: 'ord-1',
+      loopRunId: 'run-1',
+      iteration: 0,
+      phase: 'qc',
+      expectedInputHash: 'hash-1',
+      attempt: 1,
+    }
+
+    const result = await service.processMessage({
+      MessageId: 'msg-quality-loop',
+      Body: JSON.stringify({
+        type: QueueType.ORDINANCE_QUALITY_LOOP,
+        data,
+      }),
+    })
+
+    expect(result).toBe(true)
+    expect(handleSpy).toHaveBeenCalledWith(data)
+  })
+
+  it('propagates a requeue signal from the loop handler', async () => {
+    const loop = module.get(OrdinanceQualityLoopService)
+    vi.spyOn(loop, 'handleStep').mockResolvedValue(false)
+
+    const result = await service.processMessage({
+      MessageId: 'msg-quality-loop-requeue',
+      Body: JSON.stringify({
+        type: QueueType.ORDINANCE_QUALITY_LOOP,
+        data: {
+          ordinanceId: 'ord-1',
+          loopRunId: 'run-1',
+          iteration: 1,
+          phase: 'revise',
+          expectedInputHash: 'hash-2',
+          attempt: 1,
+        },
+      }),
+    })
+
+    expect(result).toBe(false)
   })
 
   it('routes weeklyTasksDigest messages to the handler', async () => {
@@ -1658,6 +1712,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
         {
           provide: OrdinanceCodePersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
+        },
+        {
+          provide: OrdinanceQualityLoopService,
+          useValue: { handleStep: vi.fn() },
         },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
         { provide: PinoLogger, useValue: createMockLogger() },

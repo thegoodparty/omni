@@ -10,6 +10,7 @@ import type {
   CreateOrdinanceRequest,
   Ordinance,
   OrdinanceExportFormat,
+  OrdinanceQualityIterationsResponse,
   OrdinanceQualityRun,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
@@ -99,6 +100,37 @@ export async function fetchQualityRun(
     'GET /v1/ordinances/:slug/quality-report',
     { slug },
     opts?.signal ? { signal: opts.signal } : undefined,
+  )
+  return data
+}
+
+// Start the background quality-improvement loop (flag-gated). 202 with the
+// updated ordinance whose qualityLoop is 'running'; the draft page polls
+// fetchOrdinanceBySlug until the loop settles. 409 when a loop or a manual
+// quality run is already active.
+export async function startQualityLoop(slug: string): Promise<Ordinance> {
+  const { data } = await clientRequest(
+    'POST /v1/ordinances/:slug/quality-loop',
+    { slug },
+  )
+  return data
+}
+
+export async function cancelQualityLoop(slug: string): Promise<Ordinance> {
+  const { data } = await clientRequest(
+    'DELETE /v1/ordinances/:slug/quality-loop',
+    { slug },
+  )
+  return data
+}
+
+// The latest loop run's per-pass history — the "what changed" panel's data.
+export async function fetchQualityIterations(
+  slug: string,
+): Promise<OrdinanceQualityIterationsResponse> {
+  const { data } = await clientRequest(
+    'GET /v1/ordinances/:slug/quality-iterations',
+    { slug },
   )
   return data
 }

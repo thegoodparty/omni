@@ -193,6 +193,9 @@ export default function QualityReport({
   onReran,
   onDiscussFinding,
   onBeforeRun,
+  loopEnabled,
+  loopRunning,
+  onStartLoop,
 }: {
   slug: string
   initialReport: OrdinanceQualityReport | null
@@ -206,6 +209,13 @@ export default function QualityReport({
   // Flush any pending draft edits (awaited) before the report is generated, so
   // the LLM grades the just-saved text rather than the stale DB copy.
   onBeforeRun?: () => Promise<void>
+  // Flag-gated background improvement loop. When enabled, the run buttons
+  // start the loop (via onStartLoop, owned by DraftDetail) instead of the
+  // manual claim-and-poll run; while the loop runs they are disabled (the
+  // server 409s a manual run anyway).
+  loopEnabled?: boolean
+  loopRunning?: boolean
+  onStartLoop?: () => Promise<void>
 }): React.JSX.Element {
   const [report, setReport] = useState(initialReport)
   const [running, setRunning] = useState(initialRunStatus === 'running')
@@ -286,6 +296,15 @@ export default function QualityReport({
     }
   }
 
+  const startLoop = async (): Promise<void> => {
+    setError(null)
+    try {
+      await onStartLoop?.()
+    } catch (err) {
+      setError(runErrorMessage(err))
+    }
+  }
+
   useEffect(() => {
     if (initialRunStatus === 'running') {
       const controller = new AbortController()
@@ -318,8 +337,8 @@ export default function QualityReport({
         ) : null}
         <Button
           type="button"
-          onClick={run}
-          disabled={running}
+          onClick={loopEnabled ? startLoop : run}
+          disabled={running || loopRunning}
           className="gap-2 rounded-full text-sm"
         >
           {running ? (
@@ -327,7 +346,11 @@ export default function QualityReport({
           ) : (
             <SparklesIcon className="size-4" aria-hidden />
           )}
-          {running ? 'Reviewing…' : 'Run quality checks'}
+          {running
+            ? 'Reviewing…'
+            : loopEnabled
+              ? 'Check & improve draft'
+              : 'Run quality checks'}
         </Button>
       </div>
     )
@@ -358,17 +381,21 @@ export default function QualityReport({
           type="button"
           variant="outline"
           size="small"
-          onClick={run}
-          disabled={running}
-          aria-label="Re-run quality checks"
+          onClick={loopEnabled ? startLoop : run}
+          disabled={running || loopRunning}
+          aria-label={
+            loopEnabled ? 'Check & improve draft' : 'Re-run quality checks'
+          }
           className="ml-auto gap-1.5 rounded-full text-sm"
         >
           {running ? (
             <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden />
+          ) : loopEnabled ? (
+            <SparklesIcon className="size-3.5" aria-hidden />
           ) : (
             <RefreshIcon className="size-3.5" aria-hidden />
           )}
-          Re-run
+          {loopEnabled ? 'Check & improve' : 'Re-run'}
         </Button>
       </div>
 
