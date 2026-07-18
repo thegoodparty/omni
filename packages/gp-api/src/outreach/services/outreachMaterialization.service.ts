@@ -18,9 +18,8 @@ const MATERIALIZABLE_OUTREACH_TYPES = new Set<OutreachType>([
   OutreachType.robocall,
 ])
 
-// Mirrors OutreachAttributionService's paging: resolve the segment a page at
-// a time so a large filter never loads whole into memory, and cap the total
-// materialized in one launch.
+// Resolve the segment a page at a time so a large filter never loads whole
+// into memory, and cap the total materialized in one launch.
 const SEGMENT_PAGE_SIZE = 1000
 const MAX_MATERIALIZED_VOTERS = 100_000
 
