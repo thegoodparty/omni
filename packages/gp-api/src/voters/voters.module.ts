@@ -1,5 +1,5 @@
 import { HttpModule } from '@nestjs/axios'
-import { Module } from '@nestjs/common'
+import { forwardRef, Module } from '@nestjs/common'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
 import { SlackModule } from 'src/vendors/slack/slack.module'
@@ -16,7 +16,9 @@ import { VoterFileService } from './voterFile/voterFile.service'
     ClerkModule,
     HttpModule,
     OrganizationsModule,
-    PeerlyModule,
+    // PeerlyModule -> VotersModule (VoterFileFilterService) closes a cycle
+    // with this import; both edges need forwardRef
+    forwardRef(() => PeerlyModule),
     SlackModule,
     ElectedOfficeModule,
   ],

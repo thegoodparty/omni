@@ -1,5 +1,9 @@
 import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
-import { BadGatewayException, ConflictException } from '@nestjs/common'
+import {
+  BadGatewayException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common'
 import { FastifyReply } from 'fastify'
 import { Campaign } from '../../generated/prisma'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -52,6 +56,7 @@ describe('P2pController', () => {
   }
   let mockPeerlyPhoneListCapture: {
     stampPeerlyListId: ReturnType<typeof vi.fn>
+    findFirst: ReturnType<typeof vi.fn>
   }
   let mockRes: FastifyReply
 
@@ -65,6 +70,7 @@ describe('P2pController', () => {
     }
     mockPeerlyPhoneListCapture = {
       stampPeerlyListId: vi.fn().mockResolvedValue(undefined),
+      findFirst: vi.fn().mockResolvedValue({ id: 1 }),
     }
     mockRes = createMockReply()
     controller = new P2pController(
@@ -82,6 +88,7 @@ describe('P2pController', () => {
       ).mockResolvedValue(null)
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -100,6 +107,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -119,6 +127,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -137,6 +146,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -155,10 +165,10 @@ describe('P2pController', () => {
       })
 
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toMatchObject({
         message: 'Phone list is active but no list_id was returned',
       })
@@ -170,10 +180,10 @@ describe('P2pController', () => {
       ).mockRejectedValue(new Error('Unexpected failure'))
 
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toThrow(BadGatewayException)
       await expect(
-        controller.checkPhoneListStatus('test-token', mockRes),
+        controller.checkPhoneListStatus(mockCampaign, 'test-token', mockRes),
       ).rejects.toMatchObject({
         message: 'Failed to check phone list status.',
       })
@@ -210,6 +220,7 @@ describe('P2pController', () => {
       })
 
       const result = await controller.checkPhoneListStatus(
+        mockCampaign,
         'test-token',
         mockRes,
       )
@@ -223,6 +234,24 @@ describe('P2pController', () => {
         'test-token',
         123,
       )
+    })
+
+    it('404s a token the campaign does not own, before touching Peerly', async () => {
+      vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue(null)
+
+      await expect(
+        controller.checkPhoneListStatus(mockCampaign, 'foreign-token', mockRes),
+      ).rejects.toThrow(NotFoundException)
+
+      expect(mockPeerlyPhoneListCapture.findFirst).toHaveBeenCalledWith({
+        where: { token: 'foreign-token', campaignId: mockCampaign.id },
+      })
+      expect(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).not.toHaveBeenCalled()
+      expect(
+        mockPeerlyPhoneListCapture.stampPeerlyListId,
+      ).not.toHaveBeenCalled()
     })
   })
 

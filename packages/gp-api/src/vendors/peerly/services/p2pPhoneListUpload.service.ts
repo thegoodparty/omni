@@ -8,6 +8,7 @@ import { OrganizationsService } from '../../../organizations/services/organizati
 import { P2pPhoneListRequestSchema } from '../schemas/p2pPhoneListRequest.schema'
 import { PeerlyPhoneListCaptureService } from './peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './peerlyPhoneList.service'
+import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Mirrors outreachMaterialization.service.ts's paging shape. Not shared as an
 // export — each contacts-pipeline consumer keeps its own copy (see that
@@ -27,6 +28,7 @@ export class P2pPhoneListUploadService {
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
     private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly tcrComplianceService: CampaignTcrComplianceService,
+    private readonly voterFileFilterService: VoterFileFilterService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pPhoneListUploadService.name)
@@ -53,6 +55,17 @@ export class P2pPhoneListUploadService {
     })
     if (!organization) {
       throw new BadRequestException('Organization not found for campaign')
+    }
+
+    if (filterInput.voterFileFilterId) {
+      const filter =
+        await this.voterFileFilterService.findByIdAndOrganizationSlug(
+          filterInput.voterFileFilterId,
+          campaign.organizationSlug,
+        )
+      if (!filter) {
+        throw new BadRequestException('Voter file filter not found')
+      }
     }
 
     let phoneList: { csvBuffer: Buffer; recipients: PhoneListRecipient[] }
@@ -130,14 +143,6 @@ export class P2pPhoneListUploadService {
           organization,
         )
 
-      if (pagination.totalResults > MAX_PHONE_LIST_RECIPIENTS) {
-        throw new BadRequestException(
-          `This filter matches ${pagination.totalResults} people with a ` +
-            `cell phone, over the ${MAX_PHONE_LIST_RECIPIENTS} phone-list ` +
-            `limit — narrow the filter and try again.`,
-        )
-      }
-
       for (const person of people) {
         // hasCellPhone: true is forced above; cellPhone is nullable on the
         // Person contract regardless, so skip a row people-api can't
@@ -163,6 +168,17 @@ export class P2pPhoneListUploadService {
           ]
             .map(csvEscape)
             .join(','),
+        )
+      }
+
+      // The cap counts uploadable rows, not the raw filter match — people
+      // skipped above for a missing phone or address don't use up the
+      // budget. Checked per page so an oversized filter stops paging as
+      // soon as it exceeds the cap instead of resolving millions of rows.
+      if (recipients.length > MAX_PHONE_LIST_RECIPIENTS) {
+        throw new BadRequestException(
+          `This filter matches over the ${MAX_PHONE_LIST_RECIPIENTS} ` +
+            `phone-list limit — narrow the filter and try again.`,
         )
       }
 

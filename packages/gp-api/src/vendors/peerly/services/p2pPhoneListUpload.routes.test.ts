@@ -230,6 +230,28 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     expect(post).not.toHaveBeenCalled()
     expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
   })
+
+  it('rejects a voterFileFilterId owned by another organization', async () => {
+    await seedWinCampaign()
+    await service.prisma.organization.create({
+      data: { slug: 'other-org-p2p', ownerId: service.user.id },
+    })
+    const foreignFilter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: 'other-org-p2p', name: 'Not yours' },
+    })
+    const post = stubPeopleApi([personPayload()])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Cross-org list', voterFileFilterId: foreignFilter.id },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+    expect(post).not.toHaveBeenCalled()
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+  })
 })
 
 describe('GET /v1/p2p/phone-list/:token/status (ENG-10728 peerlyListId stamping)', () => {

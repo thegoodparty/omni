@@ -17,9 +17,15 @@ export const neutralizeCsvFormula = (value: string): string =>
  * embedded quote) when it contains a comma, quote, or newline. Without this a
  * comma in a name/address cell silently shifts every column after it.
  */
+// A '+'/'-'-prefixed value of only digits and phone punctuation (an E.164
+// phone, a negative number) can't call a function or reference a cell, so
+// neutralizing it would only corrupt real data (phones become "'+1555...").
+const INERT_NUMERIC = /^[+-][\d\s()./-]+$/
+
 export const csvEscape = (value: PersonOutput[keyof PersonOutput]): string => {
   if (value === null || value === undefined) return ''
-  const str = String(value)
+  const raw = String(value)
+  const str = INERT_NUMERIC.test(raw) ? raw : neutralizeCsvFormula(raw)
   const mustQuote = /[",\n]/.test(str)
   const escaped = str.replace(/"/g, '""')
   return mustQuote ? `"${escaped}"` : escaped

@@ -5,6 +5,7 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  NotFoundException,
   Param,
   Post,
   Res,
@@ -42,11 +43,21 @@ export class P2pController {
   @Get('phone-list/:token/status')
   @UseCampaign()
   async checkPhoneListStatus(
+    @ReqCampaign() campaign: Campaign,
     @Param('token') token: string,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<
     CheckPhoneListStatusResponseDto | CheckPhoneListStatusAcceptedResponseDto
   > {
+    // The token is client-supplied: without this ownership check any
+    // authenticated campaign could poll (and stamp) another campaign's
+    // phone list. Outside the try so the 404 isn't rewritten to a 502.
+    const capturedList = await this.peerlyPhoneListCapture.findFirst({
+      where: { token, campaignId: campaign.id },
+    })
+    if (!capturedList) {
+      throw new NotFoundException('Phone list not found')
+    }
     try {
       const statusResponse =
         await this.peerlyPhoneListService.checkPhoneListStatus(token)
