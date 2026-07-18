@@ -1,4 +1,5 @@
 import { format } from 'date-fns'
+import type { Organization } from '../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import type { StrategicLandscapeResult } from '@/campaignStrategy/schemas/strategicLandscape.schema'
 import type { StoryState } from './campaignStoryIntake.service'
@@ -21,6 +22,12 @@ export interface CampaignManagerContext {
   // on the provider being configured and the per-user rollout flag.
   districtFilters: MandatoryFilter[] | null
   constituentToolEnabled: boolean
+  // The full org row for the CRM contact tools (null when no organization
+  // resolved). Bound into the tools so counts run in the campaign's context.
+  organization: Organization | null
+  // True only when the win-crm flag is on AND the contacts service is
+  // injected, so the prompt block below and tool registration can't diverge.
+  crmToolsEnabled: boolean
   // Current Campaign Story answers + which are still missing (null when no
   // campaign resolved). Drives the intake in the system prompt.
   story: StoryState | null
@@ -115,6 +122,21 @@ const dataBlock = (ctx: CampaignManagerContext): string | null =>
       'that party data is off-limits.'
     : null
 
+// Advertised only when the CRM contact tools are actually registered
+// (crmToolsEnabled folds in flag + service + org), so the prompt never
+// promises a tool the model can't call.
+const crmToolsBlock = (ctx: CampaignManagerContext): string | null =>
+  ctx.crmToolsEnabled && ctx.organization
+    ? 'You can explore the voter file in aggregate: call ' +
+      'describe_filter_dimensions to see every filterable dimension and its ' +
+      'allowed values, then count_contacts to count the voters matching a ' +
+      'filter. Always describe before your first count, and only use ' +
+      'dimensions and values the describe call returned. Counts are ' +
+      'aggregate only; never claim to identify or list an individual voter. ' +
+      'If count_contacts returns an error about Pro access, tell the ' +
+      'candidate that filtering voter data requires the Pro upgrade.'
+    : null
+
 // The three Campaign Story questions, phrased in the same words the Story page
 // uses (why = WHY_RUNNING_PROMPT, background = CAMPAIGN_STORY_SECTIONS, positions
 // = the "Your Policies" editor).
@@ -170,6 +192,7 @@ export const buildCampaignManagerSystemPrompt = (
     planBlock(ctx),
     tasksBlock(ctx),
     dataBlock(ctx),
+    crmToolsBlock(ctx),
     GUARDRAILS,
   ]
     .filter((b): b is string => b !== null)

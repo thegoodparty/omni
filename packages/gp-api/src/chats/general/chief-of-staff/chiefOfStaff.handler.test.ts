@@ -12,6 +12,8 @@ import { DistrictResolverService } from '@/chats/briefing-chats/services/distric
 import { InMemoryDatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
 import { FeaturesService } from '@/features/services/features.service'
 import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
+import type { Organization } from '../../../generated/prisma'
+import type { ContactsService } from '@/contacts/services/contacts.service'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -69,6 +71,7 @@ describe('ChiefOfStaffHandler', () => {
           conversationId: 'c1',
           electedOfficeId: 'office-1',
           organizationSlug: ORG,
+          organization: { slug: ORG } as Organization,
           userFirstName: 'Jordan',
           userLastName: 'Lee',
           officeTitle: 'Council Member',
@@ -78,6 +81,7 @@ describe('ChiefOfStaffHandler', () => {
           anchor: null,
           districtFilters: null,
           constituentToolEnabled: false,
+          crmToolsEnabled: false,
         }),
       ),
     } as unknown as ChiefOfStaffContextService
@@ -433,6 +437,103 @@ describe('ChiefOfStaffHandler', () => {
       expect(Object.keys(handler.buildTools(ctx))).not.toContain(
         'read_community_issues',
       )
+    })
+  })
+
+  describe('CRM contact tools (serve-crm gating)', () => {
+    const buildContacts = (): ContactsService =>
+      ({
+        getFilterDimensions: vi.fn(() => []),
+        countContacts: vi.fn(),
+      }) as unknown as ContactsService
+
+    const buildCrmHandler = (deps: {
+      features?: FeaturesService
+      contacts?: ContactsService
+    }) =>
+      new ChiefOfStaffHandler(
+        store,
+        context,
+        buildBriefings(),
+        port,
+        [],
+        undefined,
+        undefined,
+        deps.features,
+        undefined,
+        deps.contacts,
+      )
+
+    it('registers both tools when contacts service present and serve-crm on', async () => {
+      const features = buildFeatures(true)
+      const handler = buildCrmHandler({ features, contacts: buildContacts() })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(true)
+      expect(features.isFeatureEnabled).toHaveBeenCalledWith({
+        user: USER_ID,
+        feature: 'serve-crm',
+      })
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).toContain('describe_filter_dimensions')
+      expect(toolNames).toContain('count_contacts')
+    })
+
+    it('omits both tools when the serve-crm flag is off', async () => {
+      const handler = buildCrmHandler({
+        features: buildFeatures(false),
+        contacts: buildContacts(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(false)
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).not.toContain('describe_filter_dimensions')
+      expect(toolNames).not.toContain('count_contacts')
+    })
+
+    it('omits both tools (and never hits Amplitude) without the contacts service', async () => {
+      const features = buildFeatures(true)
+      const handler = buildCrmHandler({ features })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(false)
+      expect(features.isFeatureEnabled).not.toHaveBeenCalled()
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'count_contacts',
+      )
+    })
+
+    it('keeps the chat working (tools off) when the flag service throws', async () => {
+      const handler = buildCrmHandler({
+        features: buildThrowingFeatures(),
+        contacts: buildContacts(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(ctx.crmToolsEnabled).toBe(false)
+      expect(Object.keys(handler.buildTools(ctx))).not.toContain(
+        'count_contacts',
+      )
+    })
+
+    it('advertises the tools and rules in the prompt only when registered', async () => {
+      const onHandler = buildCrmHandler({
+        features: buildFeatures(true),
+        contacts: buildContacts(),
+      })
+      const onPrompt = onHandler.buildSystemPrompt(
+        await onHandler.loadContext('c1', USER_ID),
+      )
+      expect(onPrompt).toContain('count_contacts')
+      expect(onPrompt).toContain('describe_filter_dimensions')
+      expect(onPrompt).toContain('CONTACT LIST RULES')
+
+      const offHandler = buildCrmHandler({
+        features: buildFeatures(false),
+        contacts: buildContacts(),
+      })
+      const offPrompt = offHandler.buildSystemPrompt(
+        await offHandler.loadContext('c1', USER_ID),
+      )
+      expect(offPrompt).not.toContain('count_contacts')
+      expect(offPrompt).not.toContain('CONTACT LIST RULES')
     })
   })
 })

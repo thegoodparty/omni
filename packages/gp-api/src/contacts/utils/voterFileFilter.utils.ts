@@ -70,6 +70,40 @@ const addIncludeNull = (filter: FilterValue): FilterValue => {
   return { ...filter, _includeNull: true }
 }
 
+// Audience boolean -> people-api voterStatus value. Exported so the
+// filter-dimensions catalog (filterDimensions.catalog.ts) enumerates the same
+// vocabulary this conversion sends, instead of restating it.
+export const AUDIENCE_VOTER_STATUS_VALUES = [
+  { field: 'audienceSuperVoters', value: 'Super' },
+  { field: 'audienceLikelyVoters', value: 'Likely' },
+  { field: 'audienceUnreliableVoters', value: 'Unreliable' },
+  { field: 'audienceUnlikelyVoters', value: 'Unlikely' },
+  { field: 'audienceFirstTimeVoters', value: 'First Time' },
+  { field: 'audienceUnknown', value: 'Unknown' },
+] as const
+
+// languageCodes entry -> the people-api language filter value (also the
+// human-readable label the catalog shows for that code).
+export const LANGUAGE_CODE_TO_LABEL: Record<string, string> = {
+  en: 'English',
+  es: 'Spanish',
+  other: 'Other',
+}
+
+// The only incomeRanges strings the conversion below understands; anything
+// else is silently dropped, so the catalog advertises exactly these keys.
+export const INCOME_RANGE_MAPPING: Record<string, NumericRange> = {
+  'Under $25k': { min: 0, max: 24999 },
+  '$25k - $35k': { min: 25000, max: 34999 },
+  '$35k - $50k': { min: 35000, max: 49999 },
+  '$50k - $75k': { min: 50000, max: 74999 },
+  '$75k - $100k': { min: 75000, max: 99999 },
+  '$100k - $125k': { min: 100000, max: 124999 },
+  '$125k - $150k': { min: 125000, max: 149999 },
+  '$150k - $200k': { min: 150000, max: 199999 },
+  '$200k+': { min: 200000, max: null },
+}
+
 // Accepts a full persisted VoterFileFilter (saved-segment path) or the
 // unsaved, partial filter set the live count sends (ENG-10517). Only the filter
 // fields are read; missing ones are treated as unset, exactly like false/empty.
@@ -162,11 +196,7 @@ export const convertVoterFileFilterToFilters = (
       filters[key] = true
     } else if (Array.isArray(value) && value.length > 0) {
       if (key === 'languageCodes') {
-        const filterMap: Record<string, string> = {
-          en: 'English',
-          es: 'Spanish',
-          other: 'Other',
-        }
+        const filterMap = LANGUAGE_CODE_TO_LABEL
         const normalizedLanguages: string[] = value
           .map((lang: string) => filterMap[lang])
           .filter((lang): lang is string => Boolean(lang))
@@ -188,13 +218,9 @@ export const convertVoterFileFilterToFilters = (
   }
 
   if (!filters['voterStatus']) {
-    const voterStatusValues: string[] = []
-    if (segment.audienceSuperVoters) voterStatusValues.push('Super')
-    if (segment.audienceLikelyVoters) voterStatusValues.push('Likely')
-    if (segment.audienceUnreliableVoters) voterStatusValues.push('Unreliable')
-    if (segment.audienceUnlikelyVoters) voterStatusValues.push('Unlikely')
-    if (segment.audienceFirstTimeVoters) voterStatusValues.push('First Time')
-    if (segment.audienceUnknown) voterStatusValues.push('Unknown')
+    const voterStatusValues: string[] = AUDIENCE_VOTER_STATUS_VALUES.filter(
+      ({ field }) => segment[field],
+    ).map(({ value }) => value)
     if (voterStatusValues.length > 0) {
       filters['voterStatus'] =
         voterStatusValues.length === 1
@@ -381,22 +407,10 @@ export const convertVoterFileFilterToFilters = (
         : { in: homeownerValues }
   }
 
-  const incomeRangeMapping: Record<string, NumericRange> = {
-    'Under $25k': { min: 0, max: 24999 },
-    '$25k - $35k': { min: 25000, max: 34999 },
-    '$35k - $50k': { min: 35000, max: 49999 },
-    '$50k - $75k': { min: 50000, max: 74999 },
-    '$75k - $100k': { min: 75000, max: 99999 },
-    '$100k - $125k': { min: 100000, max: 124999 },
-    '$125k - $150k': { min: 125000, max: 149999 },
-    '$150k - $200k': { min: 150000, max: 199999 },
-    '$200k+': { min: 200000, max: null },
-  }
-
   const incomeRanges: NumericRange[] = []
   if (segment.incomeRanges && Array.isArray(segment.incomeRanges)) {
     for (const rangeStr of segment.incomeRanges) {
-      const range = incomeRangeMapping[rangeStr]
+      const range = INCOME_RANGE_MAPPING[rangeStr]
       if (range) {
         incomeRanges.push(range)
       }

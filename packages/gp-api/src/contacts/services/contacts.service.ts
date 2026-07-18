@@ -50,11 +50,17 @@ import {
   convertVoterFileFilterToFilters,
   type FilterObject,
 } from '../utils/voterFileFilter.utils'
+import {
+  FILTER_DIMENSIONS,
+  type FilterDimension,
+} from '../filterDimensions.catalog'
 import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
-const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
+// Exported so the campaign-manager chat handler can mirror the webapp's CRM
+// gate (useCrmEnabled): a Win surface needs win-voter-data AND win-crm.
+export const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 
 // The default, unfiltered view. It (and the district stats) are visible to any
 // Win campaign with the flag on, pro or not. A non-pro candidate sees the real
@@ -62,6 +68,12 @@ const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 // PII (see previewContacts.utils) — before being upsold. Search, custom/named
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
+
+// The pro gate message shared by every filter-resolution path. Exported so
+// the assistant's count_contacts tool can recognize the rejection and suggest
+// the Pro upgrade without restating the string.
+export const PRO_FILTERING_REQUIRED_MESSAGE =
+  'Filtering voter data is only available for pro campaigns'
 
 // Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entry for the party column
 // (people.select.ts). The CSV download is a Postgres COPY stream gp-api
@@ -134,6 +146,18 @@ export class ContactsService {
 
   private hasElectedOfficeAccess(organization: Organization): boolean {
     return organization.slug.startsWith('eo-')
+  }
+
+  // The filter vocabulary the AI assistant may describe and validate against,
+  // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
+  // (party), mirroring assertNoPartyFilterForElectedOffice on the read side.
+  getFilterDimensions(organization: Organization): FilterDimension[] {
+    const excludedMode = this.hasElectedOfficeAccess(organization)
+      ? 'win'
+      : 'serve'
+    return FILTER_DIMENSIONS.filter(
+      (dimension) => dimension.modes !== excludedMode,
+    )
   }
 
   // Single choke point for the server-enforced Serve party-visibility rule
@@ -379,9 +403,7 @@ export class ContactsService {
     organization: Organization,
   ): Promise<number> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
-        'Filtering voter data is only available for pro campaigns',
-      )
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
@@ -447,9 +469,7 @@ export class ContactsService {
     organization: Organization,
   ): Promise<PeopleListResponse> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
-        'Filtering voter data is only available for pro campaigns',
-      )
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const baseFilters = convertVoterFileFilterToFilters(filterInput)
@@ -516,9 +536,7 @@ export class ContactsService {
     organization: Organization,
   ): Promise<ListDetailContactsResponse> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
-        'Filtering voter data is only available for pro campaigns',
-      )
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
     const filter =
