@@ -236,6 +236,30 @@ describe('P2pController', () => {
       )
     })
 
+    it('still returns the ready status when the stamp write fails', async () => {
+      vi.mocked(
+        mockPeerlyPhoneListService.checkPhoneListStatus,
+      ).mockResolvedValue({
+        Data: { list_state: PhoneListState.ACTIVE, list_id: 123 },
+      })
+      vi.mocked(
+        mockPeerlyPhoneListService.getPhoneListDetails,
+      ).mockResolvedValue({
+        leads_loaded: 500,
+      })
+      vi.mocked(mockPeerlyPhoneListCapture.stampPeerlyListId).mockRejectedValue(
+        new Error('db hiccup'),
+      )
+
+      const result = await controller.checkPhoneListStatus(
+        mockCampaign,
+        'test-token',
+        mockRes,
+      )
+
+      expect(result).toEqual({ phoneListId: 123, leadsLoaded: 500 })
+    })
+
     it('404s a token the campaign does not own, before touching Peerly', async () => {
       vi.mocked(mockPeerlyPhoneListCapture.findFirst).mockResolvedValue(null)
 

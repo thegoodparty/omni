@@ -92,8 +92,17 @@ export class P2pController {
 
       // First-seen-ready stamp: guarded on peerlyListId IS NULL inside the
       // capture service, so a repeat poll after the first success is a
-      // no-op rather than a re-write.
-      await this.peerlyPhoneListCapture.stampPeerlyListId(token, listId)
+      // no-op rather than a re-write. A stamp failure must not 502 the
+      // successful poll — an unstamped capture row degrades to the
+      // materialization fallback, which is the designed behavior.
+      await this.peerlyPhoneListCapture
+        .stampPeerlyListId(token, listId)
+        .catch((err: Error) =>
+          this.logger.warn(
+            { err, token, listId },
+            'Failed to stamp peerlyListId; capture row stays unstamped',
+          ),
+        )
 
       return {
         phoneListId: listId,
