@@ -105,6 +105,15 @@ export class OutreachMaterializationService {
           'capture shipped, or the capture write failed); falling back ' +
           'to filter resolution',
       )
+      // Both sources exhausted: a silent zero-row launch would look like
+      // success. Throw so tryMaterializeOutreach error-logs it instead.
+      if (!outreach.voterFileFilterId) {
+        throw new Error(
+          `Outreach ${outreach.id}: phone list ${outreach.phoneListId} ` +
+            'has no captured recipients and no voterFileFilterId to ' +
+            'fall back to — cannot materialize',
+        )
+      }
     }
 
     if (!outreach.voterFileFilterId) return

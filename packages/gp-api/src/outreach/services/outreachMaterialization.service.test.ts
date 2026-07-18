@@ -384,6 +384,27 @@ describe('OutreachMaterializationService', () => {
       ])
     })
 
+    it('throws when the phone list has no capture rows and no filter exists to fall back to', async () => {
+      const { campaign, outreach } = await seedOutreach({
+        slug: 'mat-no-capture-no-filter',
+        outreachType: OutreachType.p2p,
+        phoneListId: 8888,
+        withFilter: false,
+      })
+      const warnSpy = vi
+        .spyOn(PinoLogger.prototype, 'warn')
+        .mockImplementation(() => undefined)
+
+      try {
+        await expect(
+          materialization.materializeOutreach(campaign, outreach),
+        ).rejects.toThrow('cannot materialize')
+        expect(await textRowsFor(outreach.id)).toEqual([])
+      } finally {
+        warnSpy.mockRestore()
+      }
+    })
+
     it('materializes from capture when the outreach has no saved filter', async () => {
       const { campaign, outreach } = await seedOutreach({
         slug: 'mat-captured-no-filter',
