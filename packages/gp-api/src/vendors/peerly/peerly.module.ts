@@ -16,6 +16,7 @@ import { P2pPhoneListUploadService } from './services/p2pPhoneListUpload.service
 import { PeerlyErrorHandlingService } from './services/peerlyErrorHandling.service'
 import { PeerlyHttpService } from './services/peerlyHttp.service'
 import { PeerlyIdentityService } from './services/peerlyIdentity.service'
+import { PeerlyJobResultsService } from './services/peerlyJobResults.service'
 import { PeerlyMediaService } from './services/peerlyMedia.service'
 import { PeerlyP2pJobService } from './services/peerlyP2pJob.service'
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
@@ -48,6 +49,7 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     PeerlyScheduleService,
     P2pPhoneListUploadService,
     PeerlyP2pJobService,
+    PeerlyJobResultsService,
   ],
   exports: [
     PeerlyIdentityService,
@@ -55,6 +57,7 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
     PeerlyPhoneListCaptureService,
     PeerlyMediaService,
     PeerlyP2pJobService,
+    PeerlyJobResultsService,
   ],
 })
 export class PeerlyModule {}

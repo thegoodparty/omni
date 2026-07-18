@@ -63,4 +63,16 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       take: params.take,
     })
   }
+
+  // The inbound sweep matches vendor-reported phones against the whole
+  // captured list at once; lists are bounded by the upload cap, so one
+  // unpaged read is fine.
+  findRecipientsWithPhones(
+    peerlyPhoneListId: string,
+  ): Promise<{ personId: string; phone: string }[]> {
+    return this.client.peerlyPhoneListRecipient.findMany({
+      where: { peerlyPhoneListId },
+      select: { personId: true, phone: true },
+    })
+  }
 }

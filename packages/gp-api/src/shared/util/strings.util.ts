@@ -101,3 +101,15 @@ export function normalizePhoneNumber(phoneNumber: string): string {
   }
   return `+1${cleaned}`
 }
+
+// Comparison key for matching phones across sources that disagree on shape:
+// Peerly reports carry `16255550100`, the voter file may carry E.164 or
+// formatted numbers. Reduces to the bare 10 digits, or null when the input
+// can't resolve to a US number (unlike normalizePhoneNumber, which throws —
+// vendor report rows must be skippable, not fatal).
+export const phoneDigitsKey = (phone: string): string | null => {
+  const digits = phone.replace(/\D/g, '')
+  const tenDigits =
+    digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
+  return tenDigits.length === 10 ? tenDigits : null
+}
