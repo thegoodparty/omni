@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { Campaign, Organization, User } from '../../../generated/prisma'
+import { Campaign, Organization } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import {
   ContactsFilterResolutionInput,
@@ -46,7 +46,6 @@ export class P2pPhoneListUploadService {
 
   async uploadPhoneList(
     campaign: Campaign,
-    user: User,
     request: P2pPhoneListRequestSchema,
   ): Promise<{ token: string; listName: string }> {
     const { name: listName, ...filterInput } = request
@@ -68,10 +67,11 @@ export class P2pPhoneListUploadService {
       throw new BadRequestException('Organization not found for campaign')
     }
 
-    // The phone list now reads voter PII through the contacts pipeline, so
-    // it sits behind the same win-voter-data gate as every other contacts
-    // surface.
-    await this.contactsService.assertContactsAccess(organization, user)
+    // Texting is a Pro feature that predates and is independent of the CRM
+    // win-voter-data rollout — it does not gate on assertContactsAccess like
+    // the rest of the contacts pipeline. PII exposure stays bounded by the
+    // Pro gate (isProAccess, enforced inside findContactsForFilter below).
+    // Product decision (Tomer, 2026-07-18): ENG-10741.
 
     let resolvedFilterInput: ContactsFilterResolutionInput = filterInput
     if (filterInput.voterFileFilterId) {

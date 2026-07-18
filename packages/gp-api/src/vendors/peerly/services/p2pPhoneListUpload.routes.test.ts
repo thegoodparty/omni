@@ -273,21 +273,28 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     ).toMatchObject({ voterFileFilterId: savedFilter.id })
   })
 
-  it('403s when the win-voter-data flag is off for the user', async () => {
-    await seedWinCampaign()
+  it('succeeds with the win-voter-data flag off for the user (ENG-10741: texting is independent of the CRM rollout)', async () => {
+    const campaign = await seedWinCampaign()
     stubVoterDataFlag(false)
     const post = stubPeopleApi([personPayload()])
-    stubPeerlyUpload()
+    const upload = stubPeerlyUpload()
 
     const result = await service.client.post(
       '/v1/p2p/phone-list',
-      { name: 'Gated list' },
+      { name: 'Ungated list' },
       { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
     )
 
-    expect(result.status).toBe(403)
-    expect(post).not.toHaveBeenCalled()
-    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+    expect(result.status).toBe(201)
+    expect(post).toHaveBeenCalled()
+    expect(upload).toHaveBeenCalled()
+    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
+      where: { token: 'peerly-upload-token' },
+    })
+    expect(capturedList).toMatchObject({
+      organizationSlug: WIN_SLUG,
+      campaignId: campaign.id,
+    })
   })
 
   it('400s when no contact is uploadable instead of sending an empty CSV', async () => {
