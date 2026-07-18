@@ -226,6 +226,24 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
       await screen.findByRole('heading', { name: 'Constituent list details' }),
     ).toBeInTheDocument()
   })
+
+  it('suppresses the details heading until isWinContextReady settles', async () => {
+    setContext({ isWinContextReady: false })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await screen.findByText('GOTV text list')
+    expect(
+      screen.queryByRole('heading', { name: 'Voter list details' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Constituent list details' }),
+    ).not.toBeInTheDocument()
+  })
 })
 
 describe('ListDetailSheet — locked-state affordance (firstUsedForOutreachAt)', () => {

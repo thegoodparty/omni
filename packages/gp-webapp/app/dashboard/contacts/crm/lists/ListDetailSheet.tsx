@@ -153,14 +153,13 @@ export default function ListDetailSheet({
       }}
       header={
         <div className="flex items-start justify-between gap-2">
-          <div className="flex flex-col gap-0.5">
-            <DrawerTitle className="text-base font-semibold">
-              {segment ? segment.name || 'Untitled list' : 'List details'}
-            </DrawerTitle>
-            <p className="text-sm font-normal text-muted-foreground">
-              List details
-            </p>
-          </div>
+          {/* The prototype's sheet header carries only the list name — the
+              body's "Voter/Constituent list details" h2 is the section
+              heading. 'List details' remains only as the neutral title for
+              the no-segment (loading/missing) states. */}
+          <DrawerTitle className="text-base font-semibold">
+            {segment ? segment.name || 'Untitled list' : 'List details'}
+          </DrawerTitle>
           {segment && (
             <div className="flex items-center gap-1">
               {isLocked ? (
