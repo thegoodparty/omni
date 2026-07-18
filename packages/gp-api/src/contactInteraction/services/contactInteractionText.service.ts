@@ -20,4 +20,21 @@ export class ContactInteractionTextService extends createPrismaBase(
   ) {
     return this.model.createMany({ data, skipDuplicates: true })
   }
+
+  // Opted-in/out chip on the person record (ENG-10732): the org-scoped max
+  // optedOutAt across every text interaction for this person, or null if
+  // they've never opted out. Filtered on (organizationSlug, personId), the
+  // prefix of the existing @@index([organizationSlug, personId, occurredAt])
+  // — per-person cardinality is low enough that a narrower index isn't
+  // warranted.
+  async latestOptOutAt(
+    organizationSlug: string,
+    personId: string,
+  ): Promise<Date | null> {
+    const result = await this.model.aggregate({
+      where: { organizationSlug, personId },
+      _max: { optedOutAt: true },
+    })
+    return result._max.optedOutAt
+  }
 }

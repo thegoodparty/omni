@@ -23,6 +23,7 @@ import {
   ActivityConditionResolutionService,
   type IdFilterResolution,
 } from 'src/contactInteraction/services/activityConditionResolution.service'
+import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
 import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
@@ -99,6 +100,7 @@ export class ContactsService {
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly features: FeaturesService,
     private readonly supportStatusService: SupportStatusService,
+    private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly logger: PinoLogger,
   ) {
@@ -730,13 +732,17 @@ export class ContactsService {
       organization,
       fetchPerson,
     )
-    const statuses = await this.supportStatusService.statusForPeople(
-      organization.slug,
-      [person.id],
-    )
+    const [statuses, optedOutAt] = await Promise.all([
+      this.supportStatusService.statusForPeople(organization.slug, [person.id]),
+      this.contactInteractionTextService.latestOptOutAt(
+        organization.slug,
+        person.id,
+      ),
+    ])
     return {
       ...this.stripPartyIfElectedOffice(organization, person),
       supportStatus: statuses.get(person.id) ?? SUPPORT_STATUS_UNKNOWN,
+      optedOutAt: optedOutAt ? optedOutAt.toISOString() : null,
     }
   }
 

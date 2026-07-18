@@ -9,7 +9,10 @@ import {
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import { ListDetailContactsResponseSchema } from '@goodparty_org/contracts'
+import {
+  ListDetailContactsResponseSchema,
+  PersonSchema,
+} from '@goodparty_org/contracts'
 import { Organization, User } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
 import { ZodValidationPipe } from 'nestjs-zod'
@@ -96,6 +99,7 @@ export class ContactsController {
   }
 
   @Get(':id')
+  @ResponseSchema(PersonSchema)
   async getContact(
     @Param() params: GetPersonParamsDTO,
     @ReqOrganization() organization: Organization,

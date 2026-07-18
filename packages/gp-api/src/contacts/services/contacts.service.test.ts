@@ -81,6 +81,9 @@ describe('ContactsService', () => {
     let mockSupportStatusService: {
       statusForPeople: ReturnType<typeof vi.fn>
     }
+    let mockContactInteractionTextService: {
+      latestOptOutAt: ReturnType<typeof vi.fn>
+    }
     let mockActivityConditionResolutionService: {
       resolveIdFilter: ReturnType<typeof vi.fn>
     }
@@ -123,6 +126,9 @@ describe('ContactsService', () => {
       mockSupportStatusService = {
         statusForPeople: vi.fn().mockResolvedValue(new Map()),
       }
+      mockContactInteractionTextService = {
+        latestOptOutAt: vi.fn().mockResolvedValue(null),
+      }
       mockActivityConditionResolutionService = {
         resolveIdFilter: vi.fn().mockResolvedValue({ kind: 'none' }),
       }
@@ -136,6 +142,7 @@ describe('ContactsService', () => {
         voterFileDownloadAccess,
         mockFeaturesService as never,
         mockSupportStatusService as never,
+        mockContactInteractionTextService as never,
         mockActivityConditionResolutionService as never,
         createMockLogger(),
       )

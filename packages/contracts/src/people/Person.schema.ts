@@ -103,6 +103,14 @@ export const PersonSchema = z.object({
   // response (`GET /v1/contacts/:id`) attaches this — list/typeahead rows
   // don't carry it in the locked design (ENG-10696).
   supportStatus: SupportStatusRollupSchema.optional(),
+  // Derived, never stored (ContactInteractionTextService). Only gp-api's
+  // person-detail response (`GET /v1/contacts/:id`) attaches this — same
+  // detail-only scope as supportStatus above. ISO timestamp of the most
+  // recent `optedOutAt` across the org's ContactInteractionText rows for
+  // this person, or null if they've never opted out. A timestamp (not a
+  // boolean) so the UI can show recency later without a contract change
+  // (ENG-10732).
+  optedOutAt: z.string().nullable().optional(),
 })
 
 export type Person = z.infer<typeof PersonSchema>

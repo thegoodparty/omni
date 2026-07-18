@@ -1,5 +1,6 @@
 'use client'
 import {
+  Badge,
   Button,
   Card,
   CardContent,
@@ -410,6 +411,26 @@ const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
   unknown: 'Support unknown',
 }
 
+// Header chip (ENG-10732): Opted Out when any of the org's text interactions
+// for this person carries optedOutAt (server-derived,
+// ContactInteractionTextService), Opted In otherwise. Not conflated with
+// Support Status above — an opted-out person can still be a supporter.
+const OptedInChip: React.FC<{ optedOutAt: string | null }> = ({
+  optedOutAt,
+}) => (
+  <Badge
+    variant="outline"
+    shape="pill"
+    className={
+      optedOutAt
+        ? 'border-destructive/40 bg-destructive/10 text-destructive-dark'
+        : 'border-success/40 bg-success/10 text-success-dark'
+    }
+  >
+    {optedOutAt ? 'Opted Out' : 'Opted In'}
+  </Badge>
+)
+
 const PersonContent: React.FC<{
   person: Person
   hidePoliticalParty: boolean
@@ -455,11 +476,20 @@ const PersonContent: React.FC<{
     .filter(isNotNil)
     .join(', ')
 
+  // Serve (elected-office) orgs have no texting and therefore no opt-out
+  // data — hidePoliticalParty is the same Serve signal the party field above
+  // already gates on (isElectedOfficial, ENG-10696), so the chip reuses it
+  // rather than threading a second identical prop (ENG-10732).
+  const showOptedInChip = showCrmSurfaces && !hidePoliticalParty
+
   return (
     <div>
-      <h2 className="text-3xl font-semibold pt-4 pb-2">
-        {formatPersonName(person)}
-      </h2>
+      <div className="flex items-center gap-2 pt-4 pb-2">
+        <h2 className="text-3xl font-semibold">{formatPersonName(person)}</h2>
+        {showOptedInChip ? (
+          <OptedInChip optedOutAt={person.optedOutAt ?? null} />
+        ) : null}
+      </div>
       <p className="text-xl font-semibold mb-6">{details}</p>
       <div className="flex flex-col gap-6">
         <NotesSection personId={person.id} />
