@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button, Input, Textarea } from '@styleguide'
@@ -8,11 +8,56 @@ import { XMarkIcon } from '@styleguide/components/ui/icons'
 import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import { createOrdinance } from '../data/ordinances-api'
 
-// Chat-styled intake (not a real chat): an assistant intro frames the two
-// fields. Captures a goal and an optional existing-ordinance link, creates the
-// record, and drops into the guided flow at the Clarify step.
+const INTRO =
+  'Before we kick off the guided flow, tell me a bit about what you have in' +
+  ' mind.\n\nIf there’s an existing ordinance you’re hoping to update, share' +
+  ' the link. Then let me know what you’re trying to accomplish.'
+
+// ~2 chars per 16ms frame ≈ 125 chars/sec — a deliberate chat type-out.
+const TYPE_STEP = 2
+const TYPE_MS = 16
+
+const usePrefersReducedMotion = (): boolean => {
+  const [reduced, setReduced] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setReduced(mq.matches)
+    const onChange = (): void => setReduced(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return reduced
+}
+
+// Type `text` out one step at a time (skipped entirely when the user prefers
+// reduced motion). Returns the revealed slice and whether it has finished.
+const useTypewriter = (text: string): { shown: string; done: boolean } => {
+  const reduced = usePrefersReducedMotion()
+  const [count, setCount] = useState(0)
+  useEffect(() => {
+    if (reduced) {
+      setCount(text.length)
+      return
+    }
+    setCount(0)
+    let n = 0
+    const id = setInterval(() => {
+      n = Math.min(text.length, n + TYPE_STEP)
+      setCount(n)
+      if (n >= text.length) clearInterval(id)
+    }, TYPE_MS)
+    return () => clearInterval(id)
+  }, [text, reduced])
+  return { shown: text.slice(0, count), done: count >= text.length }
+}
+
+// Chat-styled intake (not a real chat): an assistant intro types in like a chat
+// turn, then reveals the two fields. Captures a goal and an optional
+// existing-ordinance link, creates the record, and drops into the guided flow
+// at the Clarify step.
 export default function NewOrdinanceForm(): React.JSX.Element {
   const router = useRouter()
+  const { shown: intro, done: introDone } = useTypewriter(INTRO)
   const [goalText, setGoalText] = useState('')
   const [sourceLink, setSourceLink] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -66,59 +111,64 @@ export default function NewOrdinanceForm(): React.JSX.Element {
             <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <AiIcon className="size-4" aria-hidden />
             </div>
-            <div className="rounded-2xl bg-muted px-4 py-3 text-sm text-foreground">
-              <p>
-                Before we kick off the guided flow, tell me a bit about what you
-                have in mind.
-              </p>
-              <p className="mt-2">
-                If there&apos;s an existing ordinance you&apos;re hoping to
-                update, share the link. Then let me know what you&apos;re trying
-                to accomplish.
-              </p>
+            <div
+              aria-live="polite"
+              className="rounded-2xl bg-muted px-4 py-3 text-sm whitespace-pre-wrap text-foreground"
+            >
+              {intro}
+              {introDone ? null : (
+                <span
+                  aria-hidden
+                  className="ml-0.5 inline-block h-4 w-px translate-y-0.5 animate-pulse bg-foreground/70 align-middle"
+                />
+              )}
             </div>
           </div>
 
-          <div className="flex flex-col gap-4 pl-11">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-foreground">
-                Link to the ordinance you want to update{' '}
-                <span className="text-muted-foreground">(optional)</span>
-              </span>
-              <Input
-                type="url"
-                value={sourceLink}
-                onChange={(e) => setSourceLink(e.target.value)}
-                placeholder="https://"
-                disabled={submitting}
-              />
-            </label>
+          {introDone ? (
+            <div className="flex animate-in flex-col gap-4 pl-11 fade-in-0 slide-in-from-bottom">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">
+                  Link to the ordinance you want to update{' '}
+                  <span className="text-muted-foreground">(optional)</span>
+                </span>
+                <Input
+                  type="url"
+                  value={sourceLink}
+                  onChange={(e) => setSourceLink(e.target.value)}
+                  placeholder="https://"
+                  disabled={submitting}
+                />
+              </label>
 
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium text-foreground">
-                What are you hoping to accomplish?
-              </span>
-              <Textarea
-                value={goalText}
-                onChange={(e) => setGoalText(e.target.value)}
-                placeholder="Describe the change you want to make and who it helps."
-                rows={4}
-                disabled={submitting}
-              />
-            </label>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-foreground">
+                  What are you hoping to accomplish?
+                </span>
+                <Textarea
+                  value={goalText}
+                  onChange={(e) => setGoalText(e.target.value)}
+                  placeholder="Describe the change you want to make and who it helps."
+                  rows={4}
+                  disabled={submitting}
+                />
+              </label>
 
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
+              {error ? (
+                <p className="text-sm text-destructive">{error}</p>
+              ) : null}
 
-            <div className="flex justify-end">
-              <Button
-                type="submit"
-                disabled={submitting || goalText.trim().length === 0}
-                className="rounded-full"
-              >
-                Start guided flow
-              </Button>
+              <div className="flex justify-end">
+                <Button
+                  type="submit"
+                  disabled={submitting || goalText.trim().length === 0}
+                  className="rounded-full"
+                >
+                  Start guided flow
+                </Button>
+              </div>
             </div>
-          </div>
+          ) : null}
         </form>
       </div>
     </div>

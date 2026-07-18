@@ -1,6 +1,6 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { router } from 'helpers/test-utils/router-mocking'
 import NewOrdinanceForm from './NewOrdinanceForm'
 
@@ -10,6 +10,21 @@ vi.mock('../data/ordinances-api', () => ({
   createOrdinance: mocks.createOrdinance,
 }))
 
+// Control the intro type-out animation via the reduced-motion query: reduce
+// skips it so the form is present immediately.
+const mockMatchMedia = (reduce: boolean): void => {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: reduce,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  }))
+}
+
 const goalField = () => screen.getByPlaceholderText(/describe the change/i)
 const startButton = () =>
   screen.getByRole('button', { name: /start guided flow/i })
@@ -18,6 +33,11 @@ describe('NewOrdinanceForm', () => {
   beforeEach(() => {
     mocks.createOrdinance.mockReset()
     router.push?.mockReset?.()
+    mockMatchMedia(true)
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   it('disables Start until an accomplishment is entered', () => {
@@ -27,6 +47,26 @@ describe('NewOrdinanceForm', () => {
 
     fireEvent.change(goalField(), { target: { value: 'Limit noise' } })
     expect(startButton()).toBeEnabled()
+  })
+
+  it('types the intro in, then reveals the form (motion enabled)', () => {
+    mockMatchMedia(false)
+    vi.useFakeTimers()
+
+    render(<NewOrdinanceForm />)
+
+    // The form is hidden while the intro is still typing out.
+    expect(
+      screen.queryByPlaceholderText(/describe the change/i),
+    ).not.toBeInTheDocument()
+
+    // Once the type-out finishes, the fields appear.
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(
+      screen.getByPlaceholderText(/describe the change/i),
+    ).toBeInTheDocument()
   })
 
   it('sends the goal and link to createOrdinance', async () => {
