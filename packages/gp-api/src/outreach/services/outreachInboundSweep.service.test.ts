@@ -257,6 +257,24 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     }
   })
 
+  it('stores midnight when a Peerly timestamp is date-only (yyyy-MM-dd)', async () => {
+    const outreach = await createSweepableOutreach()
+    fetchCdrRows.mockResolvedValue([
+      { ...replyRow('13035550101'), Timestamp: '2026-07-17' },
+    ])
+    fetchQuestionResponseRows.mockResolvedValue([
+      { ...optOutRow('3035550102'), date: '2026-07-16' },
+    ])
+
+    await sweepService.sweepInboundEvents()
+
+    const person1 = await findInteraction(outreach.id, 'person-1')
+    expect(person1.respondedAt).toEqual(new Date('2026-07-17T00:00:00'))
+
+    const person2 = await findInteraction(outreach.id, 'person-2')
+    expect(person2.optedOutAt).toEqual(new Date('2026-07-16T00:00:00'))
+  })
+
   it('does not move respondedAt when it is already set (first reply wins)', async () => {
     const firstReplyAt = new Date('2026-07-01T00:00:00Z')
     const outreach = await createSweepableOutreach()
