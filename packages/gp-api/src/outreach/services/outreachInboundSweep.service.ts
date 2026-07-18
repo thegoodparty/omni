@@ -207,11 +207,11 @@ export class OutreachInboundSweepService extends createPrismaBase(
     // Padded a day on each side: Peerly evaluates the range in its account
     // timezone while these timestamps are server-local, and a boundary
     // mismatch would silently drop the job's first or last day of events.
+    // Anchor on the scheduled send date when it exists — a backdated
+    // outreach's replies can predate the row's createdAt.
+    const sendAnchor = outreach.date ?? outreach.createdAt
     const window: PeerlyReportDateWindow = {
-      startDate: format(
-        subDays(outreach.createdAt, 1),
-        PEERLY_REPORT_DATE_FORMAT,
-      ),
+      startDate: format(subDays(sendAnchor, 1), PEERLY_REPORT_DATE_FORMAT),
       endDate: format(addDays(now, 1), PEERLY_REPORT_DATE_FORMAT),
     }
     const cdrRows = await this.peerlyJobResults.fetchCdrRows(jobId, window)
@@ -310,9 +310,18 @@ export class OutreachInboundSweepService extends createPrismaBase(
     now: Date,
     counters: SweepCounters,
   ): Promise<void> {
+    // Export order is undefined, so dedupe keeps the EARLIEST-timestamped
+    // event per id — respondedAt is first-write-permanent downstream, and
+    // a later reply's timestamp must not win over the actual first reply.
     const eventsById = new Map<string, InboundEvent>()
     for (const event of events) {
-      if (!eventsById.has(event.sourceEventId)) {
+      const existing = eventsById.get(event.sourceEventId)
+      if (
+        !existing ||
+        (event.eventTimestamp !== undefined &&
+          (existing.eventTimestamp === undefined ||
+            event.eventTimestamp < existing.eventTimestamp))
+      ) {
         eventsById.set(event.sourceEventId, event)
       }
     }

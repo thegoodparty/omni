@@ -99,6 +99,20 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       )
       throw new BadGatewayException(`Failed to fetch Peerly ${context} link`)
     }
+    // SSRF guard: the link is vendor-supplied and fetched server-side, so a
+    // compromised Peerly response must not steer requests at the instance
+    // metadata service or internal hosts. Reports live on GCS/S3 only.
+    const { hostname } = new URL(data.link)
+    const allowed =
+      hostname === 'storage.googleapis.com' ||
+      hostname.endsWith('.amazonaws.com')
+    if (!allowed) {
+      this.logger.error(
+        { hostname },
+        `Peerly ${context} link points to unexpected host`,
+      )
+      throw new BadGatewayException(`Unexpected host in Peerly ${context} link`)
+    }
     return data.link
   }
 

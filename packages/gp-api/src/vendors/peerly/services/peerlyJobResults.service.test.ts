@@ -204,6 +204,15 @@ describe('PeerlyJobResultsService', () => {
       expect(mockDownloadHttp.get).not.toHaveBeenCalled()
     })
 
+    it('rejects a report link on a non-GCS/S3 host without fetching it', async () => {
+      mockReportLink('http://169.254.169.254/latest/meta-data/')
+
+      await expect(
+        peerlyResultsService.fetchCdrRows(JOB_ID, WINDOW),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+      expect(mockDownloadHttp.get).not.toHaveBeenCalled()
+    })
+
     it('throws a BadGatewayException when the report download fails', async () => {
       mockReportLink('https://storage.googleapis.com/cdr-reports-v2/x.csv')
       mockDownloadHttp.get.mockReturnValue(
