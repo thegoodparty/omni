@@ -27,6 +27,16 @@ const sseBody = [
 ].join('\n\n')
 
 test.describe('CRM assistant bar', () => {
+  // The production build registers the Serwist service worker (app/layout.tsx
+  // -> public/sw.js), and same-origin GETs matched by its runtime caching are
+  // fetched from INSIDE the worker — page.route never sees them (documented
+  // Playwright limitation), so the transcript-GET stub silently leaked to the
+  // real gp-api (404 on the fake conversation id -> drawer error state) once
+  // the worker controlled the page. POSTs don't match the worker's caching,
+  // which is why only the GET stub broke. Block service workers so every stub
+  // intercepts deterministically.
+  test.use({ serviceWorkers: 'block' })
+
   test('flag-on: bar visible, accepts input, streams a stubbed turn', async ({
     page,
   }) => {
