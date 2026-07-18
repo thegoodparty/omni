@@ -193,6 +193,39 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
 
     expect(await screen.findByText('No outreach yet.')).toBeInTheDocument()
   })
+
+  it('renders the mode-aware details heading and sentence-cased channel labels', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Voter list details' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { name: 'Outreach history' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    expect(screen.getByText('Door knocking')).toBeInTheDocument()
+    expect(screen.getByText('Meta ads')).toBeInTheDocument()
+  })
+
+  it('reads "Constituent list details" in Serve mode', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Constituent list details' }),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('ListDetailSheet — locked-state affordance (firstUsedForOutreachAt)', () => {

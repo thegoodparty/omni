@@ -5,7 +5,10 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
   Button,
+  CalendarIcon,
+  ClockIcon,
   CopyIcon,
+  DollarSignIcon,
   DownloadIcon,
   DrawerTitle,
   DropdownMenu,
@@ -13,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   LockIcon,
+  MessageSquareIcon,
   MoreHorizontalIcon,
   PencilIcon,
   Table,
@@ -22,11 +26,13 @@ import {
   TableHeader,
   TableRow,
   Trash2Icon,
+  UsersRoundIcon,
 } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
+import { getContactsLabels } from '../../../shared/contactsLabels'
 import { findCustomSegment } from '../shared/segments.util'
 import { useContactsDownload } from '../shared/useContactsDownload'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -49,9 +55,10 @@ interface ListDetailSheetProps {
 // wizard uses, opened over the lists index — no route change; the
 // /dashboard/contacts/lists/<id> URL stays deep-linkable through the
 // provider's shallow selectList + the catch-all route. Replaces the
-// standalone ListDetailPage. Sections: filter-summary sentence, borderless
-// demographics tiles, reachable-by-channel tiles, and an outreach-history
-// table, with Download + Send outreach pinned to the sheet footer.
+// standalone ListDetailPage. Sections: filter-summary sentence, bordered
+// icon demographics tiles, reachable-by-channel tiles, and an
+// outreach-history table, with Download + Send outreach pinned to the sheet
+// footer.
 export default function ListDetailSheet({
   listId,
   onClose,
@@ -108,6 +115,8 @@ export default function ListDetailSheet({
   const isLocked = Boolean(segment?.firstUsedForOutreachAt)
 
   const duplicateMutation = useDuplicateList()
+
+  const labels = getContactsLabels(isWinContext)
 
   const demographics = detailQuery.data?.demographics
   const lastOutreach = detailQuery.data?.outreachHistory[0]
@@ -249,6 +258,8 @@ export default function ListDetailSheet({
         </p>
       ) : (
         <div className="flex flex-col gap-6">
+          <h2 className="text-base font-semibold">{labels.listDetailsTitle}</h2>
+
           <ListFilterSummary
             segment={segment}
             isElectedOfficial={isElectedOfficial}
@@ -256,12 +267,14 @@ export default function ListDetailSheet({
 
           <div className="flex flex-col gap-2">
             <SectionLabel>List demographics</SectionLabel>
-            <dl className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3">
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <StatTile
+                icon={<UsersRoundIcon size={16} className="shrink-0" />}
                 label="People"
                 value={statValue(demographics?.people.toLocaleString())}
               />
               <StatTile
+                icon={<CalendarIcon size={16} className="shrink-0" />}
                 label="Avg age"
                 value={statValue(
                   demographics?.avgAge != null
@@ -272,6 +285,7 @@ export default function ListDetailSheet({
                 )}
               />
               <StatTile
+                icon={<DollarSignIcon size={16} className="shrink-0" />}
                 label="Avg income"
                 value={statValue(
                   demographics?.avgIncome != null
@@ -282,6 +296,7 @@ export default function ListDetailSheet({
                 )}
               />
               <StatTile
+                icon={<ClockIcon size={16} className="shrink-0" />}
                 label="Last outreach"
                 value={statValue(
                   detailQuery.data
@@ -292,6 +307,7 @@ export default function ListDetailSheet({
                 )}
               />
               <StatTile
+                icon={<MessageSquareIcon size={16} className="shrink-0" />}
                 label="Last method"
                 value={statValue(
                   detailQuery.data
@@ -310,7 +326,7 @@ export default function ListDetailSheet({
           />
 
           <div className="flex flex-col gap-2">
-            <SectionLabel>Outreach history</SectionLabel>
+            <h2 className="text-base font-semibold">Outreach history</h2>
             <p className="text-sm text-muted-foreground">
               Every campaign you&apos;ve sent, most recent first.
             </p>
