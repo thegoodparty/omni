@@ -325,7 +325,7 @@ describe('OutreachMaterializationService', () => {
     })
 
     it('falls back to filter resolution and logs a warning when the phone list has no captured recipients', async () => {
-      const { campaign, outreach } = await seedOutreach({
+      const { campaign, outreach, filterId } = await seedOutreach({
         slug: 'mat-no-capture',
         phoneListId: 9999,
       })
@@ -348,6 +348,8 @@ describe('OutreachMaterializationService', () => {
           }),
           expect.stringContaining('falling back'),
         )
+        const filter = await filterById(filterId)
+        expect(filter.firstUsedForOutreachAt).not.toBeNull()
       } finally {
         warnSpy.mockRestore()
       }
