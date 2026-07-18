@@ -103,6 +103,7 @@ export default function NewOrdinanceForm(): React.JSX.Element {
       setError(
         'Could not create the ordinance. Check your input and try again.',
       )
+    } finally {
       setSubmitting(false)
     }
   }
