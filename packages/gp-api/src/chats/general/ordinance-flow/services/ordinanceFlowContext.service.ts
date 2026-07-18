@@ -74,6 +74,20 @@ export class OrdinanceFlowContextService extends createPrismaBase(
       conversation.organizationSlug ?? '',
     )
 
+    // Base jurisdiction from the code-sourcing agent's verified municipality.
+    // The handler overrides it with the L2 district resolution when that
+    // resolves, but many orgs (no positionId, no L2 district) never resolve —
+    // without this fallback the authority step has to ask the user what city
+    // and state the ordinance is for. codeFound: true only — on found:false
+    // (NOT_FOUND/AMBIGUOUS) place/state echo the search input, not a verified
+    // page, and a wrong jurisdiction is worse than asking.
+    const codeRecord = await this.client.ordinanceCodeRecord.findFirst({
+      where: {
+        organizationSlug: electedOffice.organizationSlug,
+        codeFound: true,
+      },
+    })
+
     return {
       conversationId,
       ordinanceId: ordinance.id,
@@ -81,7 +95,9 @@ export class OrdinanceFlowContextService extends createPrismaBase(
       step: anchor.step,
       organizationSlug: electedOffice.organizationSlug,
       officeTitle: electedOffice.organization.customPositionName,
-      jurisdiction: null,
+      jurisdiction: codeRecord
+        ? `${codeRecord.place}, ${codeRecord.state}`
+        : null,
       seedType: ordinance.seedType,
       issueSlug: ordinance.issueSlug,
       goalText: ordinance.goalText,
