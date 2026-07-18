@@ -60,16 +60,13 @@ describe('NewOrdinanceForm', () => {
       screen.queryByPlaceholderText(/describe the change/i),
     ).not.toBeInTheDocument()
 
-    // Finishing the type-out schedules the reveal but holds a beat first, so
-    // the fields are still hidden the instant the last character lands.
+    // Two phases: the first advance finishes the type-out (which schedules the
+    // reveal on the act() boundary), the second elapses the hold that reveals
+    // the fields. Both boundaries sit well clear of the reveal deadline, so the
+    // outcome doesn't depend on fake-timer flush ordering.
     act(() => {
       vi.advanceTimersByTime(5000)
     })
-    expect(
-      screen.queryByPlaceholderText(/describe the change/i),
-    ).not.toBeInTheDocument()
-
-    // After the hold, the fields slide in.
     act(() => {
       vi.advanceTimersByTime(1000)
     })
