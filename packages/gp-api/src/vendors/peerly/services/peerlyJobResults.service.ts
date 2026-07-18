@@ -154,12 +154,12 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       )
     }
     const entries = Object.values(zip.files).filter((entry) => !entry.dir)
-    const csvEntry =
-      entries.find((entry) => entry.name.toLowerCase().endsWith('.csv')) ??
-      entries[0]
+    const csvEntry = entries.find((entry) =>
+      entry.name.toLowerCase().endsWith('.csv'),
+    )
     if (!csvEntry) {
       throw new BadGatewayException(
-        `Peerly ${context} zip archive contains no files`,
+        `Peerly ${context} zip archive contains no .csv entry`,
       )
     }
     return csvEntry.async('string')

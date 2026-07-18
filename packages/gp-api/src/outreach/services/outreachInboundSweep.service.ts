@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, format, isBefore, subDays } from 'date-fns'
+import { addDays, format, isBefore, isValid, parse, subDays } from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { phoneDigitsKey } from 'src/shared/util/strings.util'
 import { Outreach, OutreachType } from '../../generated/prisma'
@@ -49,6 +49,20 @@ interface InboundEvent {
   sourceEventId: string
   personIds: string[]
   eventType: InboundTextEventType
+  eventTimestamp?: Date
+}
+
+// Report timestamps read 'YYYY-MM-DD HH:MM:SS' (or date-only) with no
+// offset, and the timezone is unverified (ENG-10727) — parse as
+// server-local time as the best available approximation. Anything
+// unparseable falls back to the sweep's wall-clock at the call site.
+const REPORT_TIMESTAMP_FORMATS = ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd']
+const parseReportTimestamp = (value: string): Date | undefined => {
+  for (const timestampFormat of REPORT_TIMESTAMP_FORMATS) {
+    const parsed = parse(value.trim(), timestampFormat, new Date())
+    if (isValid(parsed)) return parsed
+  }
+  return undefined
 }
 
 interface SweepCounters {
@@ -252,6 +266,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
         sourceEventId: `peerly:${jobId}:${phoneKey}:reply`,
         personIds,
         eventType: 'reply',
+        eventTimestamp: parseReportTimestamp(row.Timestamp),
       })
     }
     return events
@@ -283,6 +298,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
         sourceEventId: `peerly:${jobId}:${phoneKey}:optout`,
         personIds,
         eventType: 'optout',
+        eventTimestamp: parseReportTimestamp(row.date),
       })
     }
     return events
@@ -319,7 +335,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
         personIds: event.personIds,
         eventType: event.eventType,
         sourceEventId: event.sourceEventId,
-        observedAt: now,
+        observedAt: event.eventTimestamp ?? now,
       })
       if (outcome === 'applied') {
         if (event.eventType === 'reply') {

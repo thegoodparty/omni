@@ -234,7 +234,7 @@ describe('OutreachInboundSweepService.sweepInboundEvents', () => {
     await sweepService.sweepInboundEvents()
 
     const person1 = await findInteraction(outreach.id, 'person-1')
-    expect(person1.respondedAt).not.toBeNull()
+    expect(person1.respondedAt).toEqual(new Date('2026-07-17T10:23:46'))
     expect(person1.optedOutAt).toBeNull()
     expect(person1.sourceEventId).toBe(`peerly:${JOB_ID}:3035550101:reply`)
 
