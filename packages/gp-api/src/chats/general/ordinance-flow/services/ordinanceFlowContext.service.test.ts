@@ -5,7 +5,9 @@ import { OrdinanceFlowContextService } from './ordinanceFlowContext.service'
 
 const service = useTestService()
 
-const seed = async (opts: { codeRecord?: boolean } = {}) => {
+const seed = async (
+  opts: { codeRecord?: boolean; codeFound?: boolean } = {},
+) => {
   const user = await service.prisma.user.create({
     data: {
       email: `ctx-${Math.random().toString(36).slice(2, 10)}@goodparty.org`,
@@ -25,8 +27,8 @@ const seed = async (opts: { codeRecord?: boolean } = {}) => {
     await service.prisma.ordinanceCodeRecord.create({
       data: {
         organizationSlug: slug,
-        codeFound: true,
-        dataQuality: 'OK',
+        codeFound: opts.codeFound ?? true,
+        dataQuality: opts.codeFound === false ? 'NOT_FOUND' : 'OK',
         confidence: 'HIGH',
         hostType: 'MUNICODE',
         url: 'https://library.municode.com/nc/hendersonville',
@@ -63,6 +65,17 @@ describe('OrdinanceFlowContextService jurisdiction', () => {
       .get(OrdinanceFlowContextService)
       .load(conversationId, userId)
     expect(ctx.jurisdiction).toBe('Hendersonville, NC')
+  })
+
+  it('leaves jurisdiction null when the code record is codeFound:false', async () => {
+    const { userId, conversationId } = await seed({
+      codeRecord: true,
+      codeFound: false,
+    })
+    const ctx = await service.app
+      .get(OrdinanceFlowContextService)
+      .load(conversationId, userId)
+    expect(ctx.jurisdiction).toBeNull()
   })
 
   it('leaves jurisdiction null when no code record exists', async () => {
