@@ -74,7 +74,13 @@ export class OutreachMaterializationService {
 
     const occurredAt = new Date()
 
-    if (outreach.phoneListId) {
+    // Capture rows only exist for p2p/text phone lists; a robocall that
+    // arrives with a phoneListId (the schema doesn't reject the combination)
+    // must keep resolving the filter per the feature-5 contract.
+    if (
+      outreach.phoneListId &&
+      outreach.outreachType !== OutreachType.robocall
+    ) {
       const materialized = await this.materializeFromCapture(
         campaign,
         outreach,

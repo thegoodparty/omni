@@ -353,6 +353,35 @@ describe('OutreachMaterializationService', () => {
       }
     })
 
+    it('robocall with a phoneListId still resolves the filter, never capture', async () => {
+      const { campaign, outreach } = await seedOutreach({
+        slug: 'mat-robocall-phonelist',
+        outreachType: OutreachType.robocall,
+        phoneListId: 4646,
+      })
+      await seedCapturedPhoneList({
+        organizationSlug: campaign.organizationSlug,
+        campaignId: campaign.id,
+        peerlyListId: 4646,
+        voterFileFilterId: null,
+        personIds: ['cap-rc-1'],
+      })
+      vi.spyOn(contacts, 'findContacts').mockResolvedValue(
+        peoplePage(['filter-rc-1', 'filter-rc-2']),
+      )
+
+      await materialization.materializeOutreach(campaign, outreach)
+
+      const rows = await service.prisma.contactInteractionRobocall.findMany({
+        where: { outreachId: outreach.id },
+        orderBy: { personId: 'asc' },
+      })
+      expect(rows.map((r) => r.personId)).toEqual([
+        'filter-rc-1',
+        'filter-rc-2',
+      ])
+    })
+
     it('materializes from capture when the outreach has no saved filter', async () => {
       const { campaign, outreach } = await seedOutreach({
         slug: 'mat-captured-no-filter',
