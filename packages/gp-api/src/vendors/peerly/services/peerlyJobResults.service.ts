@@ -175,10 +175,10 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       )
     }
     const entries = Object.values(zip.files).filter((entry) => !entry.dir)
-    const csvEntries = entries.filter((entry) =>
+    const [csvEntry, ...extraCsvEntries] = entries.filter((entry) =>
       entry.name.toLowerCase().endsWith('.csv'),
     )
-    if (csvEntries.length === 0) {
+    if (!csvEntry) {
       throw new BadGatewayException(
         `Peerly ${context} zip archive contains no .csv entry`,
       )
@@ -186,16 +186,18 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
     // Entry order is unspecified by the zip format: with two CSVs there is
     // no way to know which is the data file, and guessing risks silently
     // ingesting a manifest.
-    if (csvEntries.length > 1) {
+    if (extraCsvEntries.length > 0) {
       this.logger.error(
-        { files: csvEntries.map((entry) => entry.name) },
+        {
+          files: [csvEntry, ...extraCsvEntries].map((entry) => entry.name),
+        },
         `Peerly ${context} zip archive contains multiple .csv entries`,
       )
       throw new BadGatewayException(
         `Peerly ${context} zip archive contains multiple .csv entries`,
       )
     }
-    return csvEntries[0].async('string')
+    return csvEntry.async('string')
   }
 
   private parseRows<Schema extends z.ZodTypeAny>(
