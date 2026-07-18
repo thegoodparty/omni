@@ -187,6 +187,25 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).not.toContain('CURRENT LAW RULES')
   })
 
+  it('routes follow-up and confirmation questions through the widget', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'clarify' }),
+      toolNames: [
+        'read_ordinance',
+        'save_note',
+        'web_search',
+        'ask_clarify_question',
+        'save_synthesis',
+        'offer_next_step',
+      ],
+    })
+    expect(prompt).toContain(
+      'Follow-ups, confirmations, and disambiguations are still questions',
+    )
+    expect(prompt).toContain('Never ask for a decision in prose')
+    expect(prompt).toContain('defers to your judgment')
+  })
+
   it('never mentions the removed get_current_code tool', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),
