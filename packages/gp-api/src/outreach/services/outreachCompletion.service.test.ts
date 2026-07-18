@@ -1,6 +1,8 @@
 import { BadGatewayException } from '@nestjs/common'
+import { addDays, format, subDays } from 'date-fns'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
+import { DateFormats } from '@/shared/util/date.util'
 import { PeerlyP2pJobService } from '@/vendors/peerly/services/peerlyP2pJob.service'
 import { PeerlyJob, PeerlyJobStatus } from '@/vendors/peerly/peerly.types'
 import {
@@ -17,16 +19,26 @@ const getJob = vi.fn<(jobId: string) => Promise<PeerlyJob>>()
 
 const DEFAULT_PROJECT_ID = 'peerly-job'
 
+// The completion predicate compares a job's `end_date` against the real
+// wall-clock date (`sweepOutreachCompletions` sources `now` itself), so these
+// fixtures are relative to today rather than fixed calendar dates.
+const PAST_END_DATE = format(subDays(new Date(), 1), DateFormats.isoDate)
+const TODAY_END_DATE = format(new Date(), DateFormats.isoDate)
+const FUTURE_END_DATE = format(addDays(new Date(), 1), DateFormats.isoDate)
+
 let campaign: Campaign
 let completionService: OutreachCompletionService
 
 const buildJob = (
-  overrides: Partial<Pick<PeerlyJob, 'status' | 'leads_remaining'>>,
+  overrides: Partial<
+    Pick<PeerlyJob, 'status' | 'leads_remaining' | 'end_date'>
+  >,
 ): PeerlyJob =>
   ({
     id: DEFAULT_PROJECT_ID,
     status: PeerlyJobStatus.ACTIVE,
     leads_remaining: 10,
+    end_date: FUTURE_END_DATE,
     ...overrides,
   }) as PeerlyJob
 
@@ -81,18 +93,80 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(updated.status).toBe(OutreachStatus.in_progress)
   })
 
-  it('moves an in_progress outreach to completed when the Peerly job is finished', async () => {
+  it('moves an in_progress outreach to completed once end_date is strictly in the past, regardless of leads_remaining', async () => {
     const outreach = await createOutreach({
       status: OutreachStatus.in_progress,
     })
     getJob.mockResolvedValue(
-      buildJob({ status: PeerlyJobStatus.ACTIVE, leads_remaining: 0 }),
+      buildJob({
+        status: PeerlyJobStatus.ACTIVE,
+        leads_remaining: 500,
+        end_date: PAST_END_DATE,
+      }),
     )
 
     await completionService.sweepOutreachCompletions()
 
     const updated = await findOutreach(outreach.id)
     expect(updated.status).toBe(OutreachStatus.completed)
+  })
+
+  // Peerly has no terminal-success status: finished jobs read PAUSED
+  // (ENG-10727). PAUSED past its window must complete, or every finished
+  // send would sit in_progress forever.
+  it('moves a PAUSED job with a past end_date to completed', async () => {
+    const outreach = await createOutreach({
+      status: OutreachStatus.in_progress,
+    })
+    getJob.mockResolvedValue(
+      buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        leads_remaining: 500,
+        end_date: PAST_END_DATE,
+      }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.completed)
+  })
+
+  it.each([
+    ['today', TODAY_END_DATE],
+    ['in the future', FUTURE_END_DATE],
+  ])(
+    'does not complete a job whose end_date is %s, even with leads_remaining 0',
+    async (_label, endDate) => {
+      const outreach = await createOutreach({ status: OutreachStatus.pending })
+      getJob.mockResolvedValue(
+        buildJob({
+          status: PeerlyJobStatus.ACTIVE,
+          leads_remaining: 0,
+          end_date: endDate,
+        }),
+      )
+
+      await completionService.sweepOutreachCompletions()
+
+      const updated = await findOutreach(outreach.id)
+      expect(updated.status).toBe(OutreachStatus.in_progress)
+    },
+  )
+
+  it('does not ratchet a pending outreach to completed when the job is still pending, even past its end_date', async () => {
+    // Reproduces the pre-fix ratchet bug: a fresh job can be polled while
+    // still PENDING (not yet loaded by a Peerly agent) with an end_date the
+    // scheduler has already passed. The pending branch must win.
+    const outreach = await createOutreach({ status: OutreachStatus.pending })
+    getJob.mockResolvedValue(
+      buildJob({ status: PeerlyJobStatus.PENDING, end_date: PAST_END_DATE }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.pending)
   })
 
   it('treats a null status the same as pending (picked up + advanced)', async () => {

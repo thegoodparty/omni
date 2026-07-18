@@ -162,9 +162,17 @@ export class PeerlyP2pJobService extends PeerlyBaseConfig {
         `/1to1/jobs/${jobId}`,
       )
       const { data: job } = response
-      this.peerlyHttpService.validateResponse(job, GetJobResponseDto, 'get job')
+      // The schema is a deliberate subset of PeerlyJob (the sweep's fields),
+      // so the validated result is merged over the raw job rather than
+      // replacing it — callers keep the full shape, the guarded fields keep
+      // the parsed values.
+      const validated = this.peerlyHttpService.validateResponse(
+        job,
+        GetJobResponseDto,
+        'get job',
+      )
       this.logger.debug({ job }, 'Fetched P2P Job:')
-      return job
+      return { ...job, ...validated }
     } catch (error) {
       this.logger.error({ error }, P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)
       throw new BadGatewayException(P2P_ERROR_MESSAGES.RETRIEVE_JOB_FAILED)

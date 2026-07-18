@@ -30,6 +30,10 @@ const getJobResponseSchema = z.object({
   id: z.string(),
   status: z.nativeEnum(PeerlyJobStatus),
   leads_remaining: z.number(),
+  // The completion predicate (ENG-10739) is end_date-past; a missing or
+  // malformed end_date must 502 the poll, not silently parse to Invalid
+  // Date and pin the outreach in_progress forever.
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 })
 
 export class GetJobResponseDto extends createZodDto(getJobResponseSchema) {}

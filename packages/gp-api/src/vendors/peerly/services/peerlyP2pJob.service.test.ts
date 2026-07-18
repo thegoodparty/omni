@@ -368,5 +368,23 @@ describe('PeerlyP2pJobService', () => {
 
       await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
     })
+
+    // end_date is the completion predicate's sole input (ENG-10739): a job
+    // payload without it must 502 the poll, not parse to Invalid Date and
+    // pin the outreach in_progress forever.
+    it('throws BadGatewayException when the job response lacks end_date', async () => {
+      mockHttpService.get.mockResolvedValue({
+        data: {
+          id: 'job-1',
+          status: PeerlyJobStatus.ACTIVE,
+          leads_remaining: 0,
+        },
+      })
+      mockHttpService.validateResponse.mockImplementationOnce((data, dto) =>
+        (dto as typeof GetJobResponseDto).create(data),
+      )
+
+      await expect(service.getJob('job-1')).rejects.toThrow(BadGatewayException)
+    })
   })
 })
