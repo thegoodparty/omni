@@ -211,6 +211,9 @@ const COMPARABLES_RULES = `COMPARABLES RULES (this step):
 
 const DRAFT_RULES = `DRAFT RULES (this step):
 - This is the final step. Synthesize everything the prior steps settled — the clarify answers, the authority finding, the current law and its gaps, and the comparables — into ONE complete first-draft ordinance. The <prior_steps> block carries only headlines; call \`read_ordinance\` to pull the full clarify, current_law, and comparables detail before you draft.
+- Do not interview. The clarify step owns questioning; the decisions are already on the record. A genuine policy call the prior steps left open becomes a [bracketed placeholder] in the draft, noted in the description — not a question. Only when drafting is truly impossible without one decision may you ask, with \`ask_clarify_question\` (options included), at most ONE for the whole step.
+- The draft is delivered ONLY through the single \`present_draft\` call — never write ordinance text as chat prose. A prose draft is not saved: the user's draft page stays empty and the flow cannot continue.
+- Call \`read_ordinance\` once, up front — not once per section.
 - Draft real, section-numbered legislative text in ordinary municipal-code style: a title, then numbered sections and subsections. Ground every substantive choice in what the prior steps decided; do not introduce policy the user never agreed to. Never invent statutes, citations, or facts.
 - If the draft amends an existing chapter, write the body as a redline: mark every change inline with {-struck old text-}{+inserted new text+} so the user sees exactly what moves. For standalone new text, write plain statute prose.
 - Where a specific number, threshold, or definition is genuinely a council policy call you could not settle from the prior steps, leave a bracketed placeholder like "[retention period to be set by council]" rather than inventing a figure.
@@ -247,7 +250,7 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     toolBlock(toolNames),
     ...(toolNames.includes('web_search') ? [WEB_SEARCH_RULES] : []),
     ...(toolNames.includes('brave_search') ? [BRAVE_SEARCH_RULES] : []),
-    ...(toolNames.includes('ask_clarify_question') ? [CLARIFY_RULES] : []),
+    ...(ctx.step === 'clarify' ? [CLARIFY_RULES] : []),
     ...(toolNames.includes('fetch_url') ? [CURRENT_LAW_RULES] : []),
     ...(toolNames.includes('present_authority_finding')
       ? [AUTHORITY_RULES]

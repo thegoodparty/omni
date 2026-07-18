@@ -206,6 +206,23 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('defers to your judgment')
   })
 
+  it('keeps the clarify rulebook off the draft step and forbids interviewing', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'draft' }),
+      toolNames: [
+        'read_ordinance',
+        'save_note',
+        'web_search',
+        'ask_clarify_question',
+        'present_draft',
+      ],
+    })
+    expect(prompt).not.toContain('CLARIFY RULES')
+    expect(prompt).toContain('Do not interview')
+    expect(prompt).toContain('at most ONE')
+    expect(prompt).toContain('never write ordinance text as chat prose')
+  })
+
   it('never mentions the removed get_current_code tool', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),
