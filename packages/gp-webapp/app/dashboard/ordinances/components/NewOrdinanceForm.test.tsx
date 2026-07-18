@@ -29,7 +29,7 @@ describe('NewOrdinanceForm', () => {
     expect(startButton()).toBeEnabled()
   })
 
-  it('creates the ordinance with the link and enters the guided flow', async () => {
+  it('sends the goal and link to createOrdinance', async () => {
     mocks.createOrdinance.mockResolvedValue({ slug: 'late-night-noise' })
     render(<NewOrdinanceForm />)
 
@@ -48,9 +48,43 @@ describe('NewOrdinanceForm', () => {
         sourceLink: 'https://city.gov/ord/12',
       }),
     )
-    expect(router.push).toHaveBeenCalledWith(
-      '/dashboard/ordinances/solve/late-night-noise/clarify',
+  })
+
+  it('navigates to the clarify step for the new slug', async () => {
+    mocks.createOrdinance.mockResolvedValue({ slug: 'late-night-noise' })
+    render(<NewOrdinanceForm />)
+
+    fireEvent.change(goalField(), {
+      target: { value: 'Limit late-night noise' },
+    })
+    fireEvent.click(startButton())
+
+    await waitFor(() =>
+      expect(router.push).toHaveBeenCalledWith(
+        '/dashboard/ordinances/solve/late-night-noise/clarify',
+      ),
     )
+  })
+
+  it('disables the form while the request is in flight', async () => {
+    let resolveCreate: ((value: { slug: string }) => void) | undefined
+    mocks.createOrdinance.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveCreate = resolve
+        }),
+    )
+    render(<NewOrdinanceForm />)
+
+    fireEvent.change(goalField(), { target: { value: 'Do a thing' } })
+    fireEvent.click(startButton())
+
+    await waitFor(() => expect(startButton()).toBeDisabled())
+    expect(goalField()).toBeDisabled()
+    expect(screen.getByPlaceholderText('https://')).toBeDisabled()
+
+    // Settle so the pending state update doesn't leak into the next test.
+    resolveCreate?.({ slug: 'x' })
   })
 
   it('omits an empty link from the request', async () => {
