@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
+import { FeaturesService } from '@/features/services/features.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -99,9 +100,15 @@ const stubPeerlyUpload = (token = 'peerly-upload-token') =>
     .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
     .mockResolvedValue(token)
 
+const stubVoterDataFlag = (enabled = true) =>
+  vi
+    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
+    .mockResolvedValue(enabled)
+
 describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => {
   beforeEach(() => {
     stubDistrict()
+    stubVoterDataFlag()
   })
 
   it('resolves activityConditions through the contacts pipeline and captures exactly the CSV rows', async () => {
@@ -264,6 +271,23 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
         where: { token: 'peerly-upload-token' },
       }),
     ).toMatchObject({ voterFileFilterId: savedFilter.id })
+  })
+
+  it('403s when the win-voter-data flag is off for the user', async () => {
+    await seedWinCampaign()
+    stubVoterDataFlag(false)
+    const post = stubPeopleApi([personPayload()])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Gated list' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(403)
+    expect(post).not.toHaveBeenCalled()
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
   })
 
   it('400s when no contact is uploadable instead of sending an empty CSV', async () => {

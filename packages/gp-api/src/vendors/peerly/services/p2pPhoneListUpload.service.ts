@@ -1,6 +1,11 @@
-import { BadRequestException, HttpException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  BadRequestException,
+  HttpException,
+  Injectable,
+} from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import { Campaign, Organization } from '../../../generated/prisma'
+import { Campaign, Organization, User } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
 import {
   ContactsFilterResolutionInput,
@@ -41,6 +46,7 @@ export class P2pPhoneListUploadService {
 
   async uploadPhoneList(
     campaign: Campaign,
+    user: User,
     request: P2pPhoneListRequestSchema,
   ): Promise<{ token: string; listName: string }> {
     const { name: listName, ...filterInput } = request
@@ -61,6 +67,11 @@ export class P2pPhoneListUploadService {
     if (!organization) {
       throw new BadRequestException('Organization not found for campaign')
     }
+
+    // The phone list now reads voter PII through the contacts pipeline, so
+    // it sits behind the same win-voter-data gate as every other contacts
+    // surface.
+    await this.contactsService.assertContactsAccess(organization, user)
 
     let resolvedFilterInput: ContactsFilterResolutionInput = filterInput
     if (filterInput.voterFileFilterId) {
@@ -118,7 +129,7 @@ export class P2pPhoneListUploadService {
         { error },
         `Failed to upload phone list to Peerly for campaign ${campaign.id}:`,
       )
-      throw new BadRequestException(
+      throw new BadGatewayException(
         'Failed to upload phone list to Peerly platform',
       )
     }
