@@ -60,9 +60,18 @@ describe('NewOrdinanceForm', () => {
       screen.queryByPlaceholderText(/describe the change/i),
     ).not.toBeInTheDocument()
 
-    // Once the type-out finishes, the fields appear.
+    // Finishing the type-out schedules the reveal but holds a beat first, so
+    // the fields are still hidden the instant the last character lands.
     act(() => {
       vi.advanceTimersByTime(5000)
+    })
+    expect(
+      screen.queryByPlaceholderText(/describe the change/i),
+    ).not.toBeInTheDocument()
+
+    // After the hold, the fields slide in.
+    act(() => {
+      vi.advanceTimersByTime(1000)
     })
     expect(
       screen.getByPlaceholderText(/describe the change/i),

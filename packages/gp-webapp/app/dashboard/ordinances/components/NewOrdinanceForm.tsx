@@ -16,6 +16,9 @@ const INTRO =
 // ~2 chars per 16ms frame ≈ 125 chars/sec — a deliberate chat type-out.
 const TYPE_STEP = 2
 const TYPE_MS = 16
+// Hold a beat after the intro finishes before the form slides in, so the
+// type-out visibly lands instead of the fields appearing on the last keystroke.
+const REVEAL_MS = 500
 
 const usePrefersReducedMotion = (): boolean => {
   const [reduced, setReduced] = useState(false)
@@ -31,8 +34,10 @@ const usePrefersReducedMotion = (): boolean => {
 
 // Type `text` out one step at a time (skipped entirely when the user prefers
 // reduced motion). Returns the revealed slice and whether it has finished.
-const useTypewriter = (text: string): { shown: string; done: boolean } => {
-  const reduced = usePrefersReducedMotion()
+const useTypewriter = (
+  text: string,
+  reduced: boolean,
+): { shown: string; done: boolean } => {
   const [count, setCount] = useState(0)
   useEffect(() => {
     if (reduced) {
@@ -57,11 +62,28 @@ const useTypewriter = (text: string): { shown: string; done: boolean } => {
 // at the Clarify step.
 export default function NewOrdinanceForm(): React.JSX.Element {
   const router = useRouter()
-  const { shown: intro, done: introDone } = useTypewriter(INTRO)
+  const reduced = usePrefersReducedMotion()
+  const { shown: intro, done: introDone } = useTypewriter(INTRO, reduced)
+  const [formShown, setFormShown] = useState(false)
   const [goalText, setGoalText] = useState('')
   const [sourceLink, setSourceLink] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Reveal the fields only once the intro has typed out, after a short hold
+  // (skipped for reduced motion, where the intro is shown all at once).
+  useEffect(() => {
+    if (!introDone) {
+      setFormShown(false)
+      return
+    }
+    if (reduced) {
+      setFormShown(true)
+      return
+    }
+    const id = setTimeout(() => setFormShown(true), REVEAL_MS)
+    return () => clearTimeout(id)
+  }, [introDone, reduced])
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -125,7 +147,7 @@ export default function NewOrdinanceForm(): React.JSX.Element {
             </div>
           </div>
 
-          {introDone ? (
+          {formShown ? (
             <div className="flex animate-in flex-col gap-4 pl-11 fade-in-0 slide-in-from-bottom">
               <label className="flex flex-col gap-1.5">
                 <span className="text-sm font-medium text-foreground">
