@@ -118,6 +118,23 @@ describe('crud_saved_filters execute', () => {
     ).not.toHaveBeenCalled()
   })
 
+  it('update with no fields to change is rejected without a write', async () => {
+    const { deps, tool } = buildTool({
+      voterFileFilters: {
+        findByIdAndOrganizationSlug: vi.fn(() =>
+          Promise.resolve({ id: 4, name: 'Existing' }),
+        ) as never,
+      },
+    })
+    expect(await tool.execute({ action: 'update', id: 4 })).toEqual({
+      error:
+        'update requires at least one field to change (name or a filter field)',
+    })
+    expect(
+      deps.voterFileFilters.updateByIdAndOrganizationSlug,
+    ).not.toHaveBeenCalled()
+  })
+
   it('create counts first, then persists, and returns { id, name, count }', async () => {
     const countContacts = vi.fn(() => Promise.resolve(321))
     const create = vi.fn(() =>

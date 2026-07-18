@@ -124,10 +124,17 @@ export const buildCrudSavedFiltersTool = (deps: {
         }
       }
       if (action === 'update') {
+        const payload = { ...filter, ...(name !== undefined && { name }) }
+        if (Object.keys(payload).length === 0) {
+          return {
+            error:
+              'update requires at least one field to change (name or a filter field)',
+          }
+        }
         const updated = await voterFileFilters.updateByIdAndOrganizationSlug(
           id,
           organization.slug,
-          { ...filter, ...(name !== undefined && { name }) },
+          payload,
         )
         return { id: updated.id, name: updated.name }
       }
