@@ -231,6 +231,41 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
   })
 
+  it('resolves a voterFileFilterId through the saved segment criteria', async () => {
+    await seedWinCampaign()
+    const savedFilter = await service.prisma.voterFileFilter.create({
+      data: {
+        organizationSlug: WIN_SLUG,
+        name: 'Democrats',
+        partyDemocrat: true,
+      },
+    })
+    const post = stubPeopleApi([personPayload()])
+    stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Segment list', voterFileFilterId: savedFilter.id },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(201)
+    // The persisted segment's criteria drove resolution: the people-api
+    // request carries the saved partyDemocrat filter, not just the (empty)
+    // inline fields — plus the channel-forced hasCellPhone.
+    const peopleCall = post.mock.calls.find((call) =>
+      String(call[0]).includes('/v1/people'),
+    )
+    expect(peopleCall?.[1]).toMatchObject({
+      filters: { politicalParty: { eq: 'Democratic' }, hasCellPhone: true },
+    })
+    expect(
+      await service.prisma.peerlyPhoneList.findUnique({
+        where: { token: 'peerly-upload-token' },
+      }),
+    ).toMatchObject({ voterFileFilterId: savedFilter.id })
+  })
+
   it('rejects a voterFileFilterId owned by another organization', async () => {
     await seedWinCampaign()
     await service.prisma.organization.create({

@@ -2,7 +2,10 @@ import { BadRequestException, HttpException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import { Campaign, Organization } from '../../../generated/prisma'
 import { CampaignTcrComplianceService } from '../../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
-import { ContactsService } from '@/contacts/services/contacts.service'
+import {
+  ContactsFilterResolutionInput,
+  ContactsService,
+} from '@/contacts/services/contacts.service'
 import { csvEscape } from '@/shared/util/csv.util'
 import { OrganizationsService } from '../../../organizations/services/organizations.service'
 import { P2pPhoneListRequestSchema } from '../schemas/p2pPhoneListRequest.schema'
@@ -15,6 +18,8 @@ import { VoterFileFilterService } from '@/voters/services/voterFileFilter.servic
 // file's SEGMENT_PAGE_SIZE for the sibling constant).
 const SEGMENT_PAGE_SIZE = 1000
 const MAX_PHONE_LIST_RECIPIENTS = 100_000
+const MAX_PHONE_LIST_PAGES =
+  Math.ceil(MAX_PHONE_LIST_RECIPIENTS / SEGMENT_PAGE_SIZE) + 1
 
 const CSV_HEADER_ROW = 'first_name,last_name,lead_phone,state,city,zip'
 
@@ -57,6 +62,7 @@ export class P2pPhoneListUploadService {
       throw new BadRequestException('Organization not found for campaign')
     }
 
+    let resolvedFilterInput: ContactsFilterResolutionInput = filterInput
     if (filterInput.voterFileFilterId) {
       const filter =
         await this.voterFileFilterService.findByIdAndOrganizationSlug(
@@ -66,11 +72,16 @@ export class P2pPhoneListUploadService {
       if (!filter) {
         throw new BadRequestException('Voter file filter not found')
       }
+      // The saved segment's persisted criteria are the base and explicit
+      // inline fields override — mirroring how getListDetail resolves a
+      // persisted filter. Without this the id would be captured while the
+      // list silently ran against the whole district.
+      resolvedFilterInput = { ...filter, ...filterInput }
     }
 
     let phoneList: { csvBuffer: Buffer; recipients: PhoneListRecipient[] }
     try {
-      phoneList = await this.buildPhoneList(filterInput, organization)
+      phoneList = await this.buildPhoneList(resolvedFilterInput, organization)
     } catch (error) {
       if (error instanceof HttpException) {
         this.logger.warn(
@@ -125,7 +136,7 @@ export class P2pPhoneListUploadService {
   }
 
   private async buildPhoneList(
-    filterInput: Omit<P2pPhoneListRequestSchema, 'name'>,
+    filterInput: ContactsFilterResolutionInput,
     organization: Organization,
   ): Promise<{ csvBuffer: Buffer; recipients: PhoneListRecipient[] }> {
     const recipients: PhoneListRecipient[] = []
@@ -134,6 +145,14 @@ export class P2pPhoneListUploadService {
     let page = 1
     let hasNextPage = true
     while (hasNextPage) {
+      // The people response is a cast, not a parse — a buggy hasNextPage
+      // that never clears must not loop forever. One page past the cap is
+      // the most a valid list can need.
+      if (page > MAX_PHONE_LIST_PAGES) {
+        throw new BadRequestException(
+          `Pagination exceeded ${MAX_PHONE_LIST_PAGES} pages — aborting`,
+        )
+      }
       const { people, pagination } =
         await this.contactsService.findContactsForFilter(
           // SMS reachability belongs to the channel, not the shared filter
@@ -149,8 +168,10 @@ export class P2pPhoneListUploadService {
         // guarantee a phone for rather than uploading an unusable CSV line.
         if (!person.cellPhone) continue
         // Peerly needs state, city, and zip for geo-targeting; null fields
-        // produce blank CSV cells it counts as malformed leads.
+        // produce blank CSV cells it counts as malformed leads. The people
+        // response is a cast, not a parse, so address itself can be absent.
         if (
+          !person.address ||
           !person.address.state ||
           !person.address.city ||
           !person.address.zip

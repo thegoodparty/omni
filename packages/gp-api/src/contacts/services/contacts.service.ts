@@ -34,6 +34,9 @@ import {
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
+import type { VoterFileFilter } from '../../generated/prisma'
+import type { SupportStatusRollup } from '@goodparty_org/contracts'
+import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
@@ -70,6 +73,17 @@ if (!PEOPLE_API_URL) {
 }
 if (!PEOPLE_API_S2S_SECRET) {
   throw new Error('Please set PEOPLE_API_S2S_SECRET in your .env')
+}
+
+// What the shared filter resolution actually consumes: the request DTO, a
+// persisted VoterFileFilter row (nullable columns, relation-shaped activity
+// conditions), or a spread-merge of the two.
+export type ContactsFilterResolutionInput = Partial<
+  Omit<VoterFileFilter, 'search'>
+> & {
+  activityConditions?: ActivityCondition[]
+  supportStatus?: SupportStatusRollup[]
+  search?: string | null
 }
 
 @Injectable()
@@ -422,9 +436,11 @@ export class ContactsService {
   // the legacy voter-DB export, so an activity-built list's send can no
   // longer include people the filter excludes. Channel-specific overrides
   // (e.g. forcing hasCellPhone for SMS) are the caller's concern, not this
-  // shared resolution's — pass them already merged into filterInput.
+  // shared resolution's — pass them already merged into filterInput. The
+  // input can be the request DTO, a persisted VoterFileFilter row, or a
+  // merge of the two (nullable row columns, relation-shaped conditions).
   async findContactsForFilter(
-    filterInput: CountContactsDTO,
+    filterInput: ContactsFilterResolutionInput,
     pagination: { resultsPerPage: number; page: number },
     organization: Organization,
   ): Promise<PeopleListResponse> {
