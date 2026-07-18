@@ -34,6 +34,9 @@ import {
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
+import type { VoterFileFilter } from '../../generated/prisma'
+import type { SupportStatusRollup } from '@goodparty_org/contracts'
+import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
 import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
@@ -70,6 +73,17 @@ if (!PEOPLE_API_URL) {
 }
 if (!PEOPLE_API_S2S_SECRET) {
   throw new Error('Please set PEOPLE_API_S2S_SECRET in your .env')
+}
+
+// What the shared filter resolution actually consumes: the request DTO, a
+// persisted VoterFileFilter row (nullable columns, relation-shaped activity
+// conditions), or a spread-merge of the two.
+export type ContactsFilterResolutionInput = Partial<
+  Omit<VoterFileFilter, 'search'>
+> & {
+  activityConditions?: ActivityCondition[]
+  supportStatus?: SupportStatusRollup[]
+  search?: string | null
 }
 
 @Injectable()
@@ -414,6 +428,79 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // Ad-hoc filter set, paged full-row export. The Peerly phone-list capture
+  // path (ENG-10728) resolves its request through the same
+  // activityConditions/supportStatus/search engine as list/count instead of
+  // the legacy voter-DB export, so an activity-built list's send can no
+  // longer include people the filter excludes. Channel-specific overrides
+  // (e.g. forcing hasCellPhone for SMS) are the caller's concern, not this
+  // shared resolution's — pass them already merged into filterInput. The
+  // input can be the request DTO, a persisted VoterFileFilter row, or a
+  // merge of the two (nullable row columns, relation-shaped conditions).
+  async findContactsForFilter(
+    filterInput: ContactsFilterResolutionInput,
+    pagination: { resultsPerPage: number; page: number },
+    organization: Organization,
+  ): Promise<PeopleListResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'Filtering voter data is only available for pro campaigns',
+      )
+    }
+
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    if (idResolution.kind === 'empty') {
+      return this.emptyPeopleListResponse(
+        pagination.resultsPerPage,
+        pagination.page,
+      )
+    }
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
+
+    const fetchPeoplePage = async (districtParams: { districtId: string }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people`,
+            {
+              ...districtParams,
+              resultsPerPage: pagination.resultsPerPage,
+              page: pagination.page,
+              filters,
+              search,
+              groupByHousehold: false,
+            },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return response.data as PeopleListResponse
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to fetch from people API')
+        throw new BadGatewayException('Failed to fetch from people API')
+      }
+    }
+
+    const response = await this.withOrgDistrictResolution(
+      organization,
+      fetchPeoplePage,
+    )
+    return this.stripPartyFromList(organization, response)
   }
 
   // Demographics + reachable-by-channel counts + outreach history for a

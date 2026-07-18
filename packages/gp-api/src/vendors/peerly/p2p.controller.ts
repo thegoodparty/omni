@@ -5,6 +5,7 @@ import {
   Get,
   HttpException,
   HttpStatus,
+  NotFoundException,
   Param,
   Post,
   Res,
@@ -12,10 +13,11 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { FastifyReply } from 'fastify'
-import { Campaign } from '../../generated/prisma'
+import { Campaign, User } from '../../generated/prisma'
 import { ReqCampaign } from '../../campaigns/decorators/ReqCampaign.decorator'
+import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { UseCampaign } from '../../campaigns/decorators/UseCampaign.decorator'
-import { OrganizationsService } from '../../organizations/services/organizations.service'
+import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
 import { PhoneListState } from './peerly.types'
 import {
@@ -32,8 +34,8 @@ import { PinoLogger } from 'nestjs-pino'
 export class P2pController {
   constructor(
     private readonly peerlyPhoneListService: PeerlyPhoneListService,
+    private readonly peerlyPhoneListCapture: PeerlyPhoneListCaptureService,
     private readonly p2pPhoneListUploadService: P2pPhoneListUploadService,
-    private readonly organizationsService: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(P2pController.name)
@@ -42,11 +44,21 @@ export class P2pController {
   @Get('phone-list/:token/status')
   @UseCampaign()
   async checkPhoneListStatus(
+    @ReqCampaign() campaign: Campaign,
     @Param('token') token: string,
     @Res({ passthrough: true }) res: FastifyReply,
   ): Promise<
     CheckPhoneListStatusResponseDto | CheckPhoneListStatusAcceptedResponseDto
   > {
+    // The token is client-supplied: without this ownership check any
+    // authenticated campaign could poll (and stamp) another campaign's
+    // phone list. Outside the try so the 404 isn't rewritten to a 502.
+    const capturedList = await this.peerlyPhoneListCapture.findFirst({
+      where: { token, campaignId: campaign.id },
+    })
+    if (!capturedList) {
+      throw new NotFoundException('Phone list not found')
+    }
     try {
       const statusResponse =
         await this.peerlyPhoneListService.checkPhoneListStatus(token)
@@ -79,6 +91,20 @@ export class P2pController {
       const detailsResponse =
         await this.peerlyPhoneListService.getPhoneListDetails(listId)
 
+      // First-seen-ready stamp: guarded on peerlyListId IS NULL inside the
+      // capture service, so a repeat poll after the first success is a
+      // no-op rather than a re-write. A stamp failure must not 502 the
+      // successful poll — an unstamped capture row degrades to the
+      // materialization fallback, which is the designed behavior.
+      await this.peerlyPhoneListCapture
+        .stampPeerlyListId(token, listId)
+        .catch((err: Error) =>
+          this.logger.warn(
+            { err, token, listId },
+            'Failed to stamp peerlyListId; capture row stays unstamped',
+          ),
+        )
+
       return {
         phoneListId: listId,
         leadsLoaded: detailsResponse.leads_loaded,
@@ -97,18 +123,14 @@ export class P2pController {
   @UseCampaign()
   async uploadPhoneList(
     @ReqCampaign() campaign: Campaign,
+    @ReqUser() user: User,
     @Body() request: P2pPhoneListRequestSchema,
   ): Promise<P2pPhoneListResponseSchema> {
     try {
-      const district = campaign.organizationSlug
-        ? await this.organizationsService.getDistrictForOrgSlug(
-            campaign.organizationSlug,
-          )
-        : null
       const { token } = await this.p2pPhoneListUploadService.uploadPhoneList(
         campaign,
+        user,
         request,
-        district,
       )
 
       return { token }
