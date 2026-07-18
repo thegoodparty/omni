@@ -304,7 +304,7 @@ export class AiContentService {
           updatedAt: new Date().valueOf(),
           inputValues,
           // LLM response content is string | null — context guarantees string but type does not
-
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
           content: chatResponse as string,
         }
 
@@ -341,7 +341,7 @@ export class AiContentService {
         await this.slack.aiMessage({
           message: `updated campaign with ai. chatResponse: key: ${key}`,
           // LLM response content is string | null — context guarantees string but type does not
-
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
           error: chatResponse as string,
         })
       }

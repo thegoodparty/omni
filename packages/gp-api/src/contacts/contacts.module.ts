@@ -17,7 +17,9 @@ import { ContactsService } from './services/contacts.service'
     ClerkModule,
     HttpModule,
     forwardRef(() => CampaignsModule),
-    VotersModule,
+    // Contacts -> Voters -> Peerly -> Contacts: every cycle edge needs
+    // forwardRef
+    forwardRef(() => VotersModule),
     ElectionsModule,
     OrganizationsModule,
     ContactInteractionModule,
