@@ -111,6 +111,27 @@ describe('OutreachCompletionService.sweepOutreachCompletions', () => {
     expect(updated.status).toBe(OutreachStatus.completed)
   })
 
+  // Peerly has no terminal-success status: finished jobs read PAUSED
+  // (ENG-10727). PAUSED past its window must complete, or every finished
+  // send would sit in_progress forever.
+  it('moves a PAUSED job with a past end_date to completed', async () => {
+    const outreach = await createOutreach({
+      status: OutreachStatus.in_progress,
+    })
+    getJob.mockResolvedValue(
+      buildJob({
+        status: PeerlyJobStatus.PAUSED,
+        leads_remaining: 500,
+        end_date: PAST_END_DATE,
+      }),
+    )
+
+    await completionService.sweepOutreachCompletions()
+
+    const updated = await findOutreach(outreach.id)
+    expect(updated.status).toBe(OutreachStatus.completed)
+  })
+
   it.each([
     ['today', TODAY_END_DATE],
     ['in the future', FUTURE_END_DATE],

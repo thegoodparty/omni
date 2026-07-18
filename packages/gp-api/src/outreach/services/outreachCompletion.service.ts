@@ -50,6 +50,14 @@ const isForwardTransition = (
 // `end_date` already in the past (e.g. a stale schedule that was never
 // picked up), and that must read as pending/not-started, never ratcheted
 // straight to completed.
+//
+// `PAUSED` deliberately falls through to the temporal check: Peerly has no
+// terminal-success status — genuinely finished jobs read PAUSED
+// (ENG-10727, verified against real dev jobs), so guarding PAUSED out of
+// completion would pin every finished send in_progress forever. The cost
+// is that a job paused before ever sending also completes once its window
+// closes; distinguishing the two needs delivery evidence, which is
+// ENG-10740's CDR-truth refinement.
 export const mapPeerlyJobToOutreachStatus = (
   job: PeerlyJob,
   now: Date,
