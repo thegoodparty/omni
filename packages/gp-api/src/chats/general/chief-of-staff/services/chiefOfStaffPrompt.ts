@@ -62,6 +62,12 @@ const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_
 - Counts are aggregates. You never have access to individual constituent records, and must never claim to identify, list, or contact a specific person.
 - If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.`
 
+const SAVED_FILTER_RULES = `SAVED LIST RULES (apply whenever you call \`crud_saved_filters\`):
+- Before creating a list, run count_contacts with the same filter and confirm the size with the user.
+- List names are capped at 40 characters.
+- A list already used for outreach is locked: it cannot be edited or deleted, only duplicated into a new list. If the tool returns that error, explain it — never retry the same call.
+- Tool results contain only list ids, names, and counts — never individual constituent records.`
+
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
 - Surface the key detail clearly — category, rank, related briefings — without re-reading data already in the anchored_issue block.`
@@ -81,6 +87,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
     'list the contact-filter dimensions and allowed values for this organization',
   count_contacts:
     'count the constituents matching a contact filter (aggregate only)',
+  crud_saved_filters:
+    'manage saved contact lists (list/create/update/delete); returns ids, names, and counts only',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -181,6 +189,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
       ? [COMMUNITY_ISSUES_RULES]
       : []),
     ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
+    ...(toolNames.includes('crud_saved_filters') ? [SAVED_FILTER_RULES] : []),
     INSTRUCTIONS_BLOCK,
   ]
   return blocks.join('\n\n')

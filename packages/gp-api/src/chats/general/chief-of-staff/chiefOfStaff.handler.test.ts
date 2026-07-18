@@ -14,6 +14,7 @@ import { FeaturesService } from '@/features/services/features.service'
 import type { CommunityIssueReadPort } from './services/communityIssueRead.port'
 import type { Organization } from '../../../generated/prisma'
 import type { ContactsService } from '@/contacts/services/contacts.service'
+import type { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 const USER_ID = 7
 const ORG = 'eo-123'
@@ -450,6 +451,7 @@ describe('ChiefOfStaffHandler', () => {
     const buildCrmHandler = (deps: {
       features?: FeaturesService
       contacts?: ContactsService
+      voterFileFilters?: VoterFileFilterService
     }) =>
       new ChiefOfStaffHandler(
         store,
@@ -462,6 +464,7 @@ describe('ChiefOfStaffHandler', () => {
         deps.features,
         undefined,
         deps.contacts,
+        deps.voterFileFilters,
       )
 
     it('registers both tools when contacts service present and serve-crm on', async () => {
@@ -534,6 +537,51 @@ describe('ChiefOfStaffHandler', () => {
       )
       expect(offPrompt).not.toContain('count_contacts')
       expect(offPrompt).not.toContain('CONTACT LIST RULES')
+    })
+
+    const buildVoterFileFilters = (): VoterFileFilterService =>
+      ({
+        findByOrganizationSlug: vi.fn(() => Promise.resolve([])),
+      }) as unknown as VoterFileFilterService
+
+    it('registers crud_saved_filters under the same serve-crm gate', async () => {
+      const handler = buildCrmHandler({
+        features: buildFeatures(true),
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      expect(Object.keys(handler.buildTools(ctx))).toContain(
+        'crud_saved_filters',
+      )
+      const prompt = handler.buildSystemPrompt(ctx)
+      expect(prompt).toContain('crud_saved_filters')
+      expect(prompt).toContain('SAVED LIST RULES')
+
+      const offHandler = buildCrmHandler({
+        features: buildFeatures(false),
+        contacts: buildContacts(),
+        voterFileFilters: buildVoterFileFilters(),
+      })
+      const offCtx = await offHandler.loadContext('c1', USER_ID)
+      expect(Object.keys(offHandler.buildTools(offCtx))).not.toContain(
+        'crud_saved_filters',
+      )
+      expect(offHandler.buildSystemPrompt(offCtx)).not.toContain(
+        'crud_saved_filters',
+      )
+    })
+
+    it('keeps the read tools but omits crud without the filter service', async () => {
+      const handler = buildCrmHandler({
+        features: buildFeatures(true),
+        contacts: buildContacts(),
+      })
+      const ctx = await handler.loadContext('c1', USER_ID)
+      const toolNames = Object.keys(handler.buildTools(ctx))
+      expect(toolNames).toContain('count_contacts')
+      expect(toolNames).not.toContain('crud_saved_filters')
+      expect(handler.buildSystemPrompt(ctx)).not.toContain('crud_saved_filters')
     })
   })
 })

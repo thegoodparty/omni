@@ -39,6 +39,8 @@ import { buildReadCommunityIssuesTool } from './services/communityIssueRead.tool
 import { ContactsService } from '@/contacts/services/contacts.service'
 import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
+import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Sensitive scope: tool outputs (briefings, priorities, search results) flow
 // back into the model context, so this scope runs Anthropic-only. The registry
@@ -95,6 +97,8 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
     private readonly communityIssueRead?: CommunityIssueReadPort,
     @Optional()
     private readonly contacts?: ContactsService,
+    @Optional()
+    private readonly voterFileFilters?: VoterFileFilterService,
   ) {}
 
   async resolveConversation(
@@ -246,6 +250,17 @@ export class ChiefOfStaffHandler implements ChatScopeHandler<ChiefOfStaffContext
         contacts: this.contacts,
         organization: ctx.organization,
       })
+      // Saved-filter CRUD goes through the same VoterFileFilterService paths
+      // as the voter-file routes (completed-outreach validation, org scoping,
+      // locked-filter conflict all inherited). Registered under the same
+      // serve-crm gate; the prompt rules key off the registered tool name.
+      if (this.voterFileFilters) {
+        tools.crud_saved_filters = buildCrudSavedFiltersTool({
+          voterFileFilters: this.voterFileFilters,
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+      }
     }
 
     return tools

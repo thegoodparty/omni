@@ -11,6 +11,7 @@ import { CampaignStoryModule } from '@/campaignStory/campaignStory.module'
 import { WebsitesModule } from '@/websites/websites.module'
 import { CampaignStrategyModule } from '@/campaignStrategy/campaignStrategy.module'
 import { ContactsModule } from '@/contacts/contacts.module'
+import { VotersModule } from '@/voters/voters.module'
 import { DatabricksSqlProvider } from '@/llm/tools/databricksProvider'
 import { resolveDatabricksConnection } from '@/llm/tools/databricksConnection'
 import type { DatabricksProvider } from '@/llm/tools/queryDatabricks.tool'
@@ -60,6 +61,7 @@ const constituentDataProviderFactory = (): DatabricksProvider | null => {
     WebsitesModule,
     CampaignStrategyModule,
     ContactsModule,
+    VotersModule,
   ],
   providers: [
     CampaignManagerHandler,
