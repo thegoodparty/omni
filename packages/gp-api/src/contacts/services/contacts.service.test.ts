@@ -1114,6 +1114,37 @@ describe('ContactsService', () => {
         expect(result.supportStatus).toBe('supporter')
       })
 
+      it('attaches optedOutAt as the ISO string of the latest opt-out', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.get.mockReturnValue(of({ data: { id: 'p1' } }))
+        mockContactInteractionTextService.latestOptOutAt.mockResolvedValue(
+          new Date('2026-07-01T12:00:00Z'),
+        )
+
+        const result = await service.findPerson('p1', org)
+
+        expect(
+          mockContactInteractionTextService.latestOptOutAt,
+        ).toHaveBeenCalledWith('eo-mayor-1', 'p1')
+        expect(result.optedOutAt).toBe('2026-07-01T12:00:00.000Z')
+      })
+
+      it('attaches optedOutAt as null when the person never opted out', async () => {
+        const org = makeOrganization({
+          slug: 'eo-mayor-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockHttpService.get.mockReturnValue(of({ data: { id: 'p1' } }))
+        mockContactInteractionTextService.latestOptOutAt.mockResolvedValue(null)
+
+        const result = await service.findPerson('p1', org)
+
+        expect(result.optedOutAt).toBeNull()
+      })
+
       it('defaults to unknown when SupportStatusService has no entry for the person', async () => {
         const org = makeOrganization({
           slug: 'eo-mayor-1',
