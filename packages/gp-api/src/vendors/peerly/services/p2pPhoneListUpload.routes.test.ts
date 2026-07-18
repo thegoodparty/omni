@@ -266,6 +266,27 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
     ).toMatchObject({ voterFileFilterId: savedFilter.id })
   })
 
+  it('400s when no contact is uploadable instead of sending an empty CSV', async () => {
+    await seedWinCampaign()
+    stubPeopleApi([
+      personPayload({
+        id: 'p-no-zip',
+        address: { city: 'Springfield', state: 'CA', zip: null },
+      }),
+    ])
+    const upload = stubPeerlyUpload()
+
+    const result = await service.client.post(
+      '/v1/p2p/phone-list',
+      { name: 'Empty list' },
+      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
+    )
+
+    expect(result.status).toBe(400)
+    expect(upload).not.toHaveBeenCalled()
+    expect(await service.prisma.peerlyPhoneList.count()).toBe(0)
+  })
+
   it('rejects a voterFileFilterId owned by another organization', async () => {
     await seedWinCampaign()
     await service.prisma.organization.create({

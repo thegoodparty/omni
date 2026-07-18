@@ -99,6 +99,12 @@ export class P2pPhoneListUploadService {
       )
     }
     const { csvBuffer, recipients } = phoneList
+    if (recipients.length === 0) {
+      throw new BadRequestException(
+        'No contacts matched the filter with a valid phone number and ' +
+          'complete address — narrow the filter or check your contact data.',
+      )
+    }
 
     let token: string
     try {
