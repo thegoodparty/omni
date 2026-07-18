@@ -14,6 +14,9 @@ import type {
   CampaignStoryIntakeService,
   StoryState,
 } from './campaignStoryIntake.service'
+import type { ContactsService } from '@/contacts/services/contacts.service'
+import type { FeaturesService } from '@/features/services/features.service'
+import type { Organization } from '../../../generated/prisma'
 
 const fakeProvider = { query: vi.fn() } as unknown as DatabricksProvider
 
@@ -38,6 +41,8 @@ const ctxWith = (
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
+  organization: null,
+  crmToolsEnabled: false,
   story: null,
   plan: null,
   ...over,
@@ -141,6 +146,135 @@ describe('buildStoryGreeting', () => {
     expect(buildStoryGreeting(story(['positions']))).toContain(
       'Next, your positions',
     )
+  })
+})
+
+describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => {
+  const ORG = { slug: 'win-campaign' } as Organization
+
+  const buildContacts = (): ContactsService =>
+    ({
+      getFilterDimensions: vi.fn(() => []),
+      countContacts: vi.fn(),
+    }) as unknown as ContactsService
+
+  const buildCrmHandler = (
+    contacts?: ContactsService,
+  ): CampaignManagerHandler =>
+    new CampaignManagerHandler(
+      {} as GeneralChatStoreService,
+      {} as CampaignsService,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      contacts,
+    )
+
+  const CRM_ON = { organization: ORG, crmToolsEnabled: true }
+
+  it('registers both tools when contacts service, org, and flag are present', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(ctxWith(CRM_ON))
+    expect(Object.keys(tools)).toContain('describe_filter_dimensions')
+    expect(Object.keys(tools)).toContain('count_contacts')
+  })
+
+  it('omits both when the win-crm flag is off', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(
+      ctxWith({ ...CRM_ON, crmToolsEnabled: false }),
+    )
+    expect(Object.keys(tools)).not.toContain('count_contacts')
+  })
+
+  it('omits both when no organization resolved', () => {
+    const tools = buildCrmHandler(buildContacts()).buildTools(
+      ctxWith({ ...CRM_ON, organization: null }),
+    )
+    expect(Object.keys(tools)).not.toContain('count_contacts')
+  })
+
+  it('omits both when the contacts service is not wired', () => {
+    const tools = buildCrmHandler(undefined).buildTools(ctxWith(CRM_ON))
+    expect(Object.keys(tools)).not.toContain('count_contacts')
+  })
+
+  const buildLoadContextHandler = (enabledFlags: string[]) => {
+    const store = {
+      findFirst: vi.fn(() =>
+        Promise.resolve({ id: 'c1', organizationSlug: ORG.slug }),
+      ),
+    } as unknown as GeneralChatStoreService
+    const campaigns = {
+      client: {
+        campaign: {
+          findFirst: vi.fn(() =>
+            Promise.resolve({ id: 5, details: {}, user: null }),
+          ),
+        },
+        campaignTrackerTask: { findMany: vi.fn(() => Promise.resolve([])) },
+        organization: { findFirst: vi.fn(() => Promise.resolve(ORG)) },
+      },
+    } as unknown as CampaignsService
+    const features = {
+      isFeatureEnabled: vi.fn(({ feature }: { feature: string }) =>
+        Promise.resolve(enabledFlags.includes(feature)),
+      ),
+    } as unknown as FeaturesService
+    const handler = new CampaignManagerHandler(
+      store,
+      campaigns,
+      {} as ChatStoreService,
+      WIN_CONSTITUENT_TABLES,
+      undefined,
+      undefined,
+      features,
+      undefined,
+      buildContacts(),
+    )
+    return { handler, features }
+  }
+
+  it('loadContext enables the tools when win-crm AND win-voter-data are on', async () => {
+    const { handler, features } = buildLoadContextHandler([
+      'win-crm',
+      'win-voter-data',
+    ])
+
+    const ctx = await handler.loadContext('c1', 7)
+
+    expect(features.isFeatureEnabled).toHaveBeenCalledWith({
+      user: 7,
+      feature: 'win-crm',
+    })
+    expect(features.isFeatureEnabled).toHaveBeenCalledWith({
+      user: 7,
+      feature: 'win-voter-data',
+    })
+    expect(ctx.organization).toEqual(ORG)
+    expect(ctx.crmToolsEnabled).toBe(true)
+    expect(Object.keys(handler.buildTools(ctx))).toContain('count_contacts')
+  })
+
+  // Mirrors the webapp's useCrmEnabled invariant: win-crm alone must never
+  // enable a Win org that isn't in the win-voter-data rollout.
+  it('loadContext leaves the tools off when win-crm is on but win-voter-data is off', async () => {
+    const { handler } = buildLoadContextHandler(['win-crm'])
+
+    const ctx = await handler.loadContext('c1', 7)
+
+    expect(ctx.crmToolsEnabled).toBe(false)
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain('count_contacts')
+  })
+
+  it('loadContext leaves the tools off when win-crm is off', async () => {
+    const { handler } = buildLoadContextHandler(['win-voter-data'])
+
+    const ctx = await handler.loadContext('c1', 7)
+
+    expect(ctx.crmToolsEnabled).toBe(false)
+    expect(Object.keys(handler.buildTools(ctx))).not.toContain('count_contacts')
   })
 })
 

@@ -57,6 +57,11 @@ const CONSTITUENT_DATA_RULES = `CONSTITUENT DATA RULES (apply whenever you call 
 - Turn the 0-100 modeled scores into vivid, confident language — "a clear majority lean toward…", "narrowly split", "your under-45s break the other way." They are modeled estimates, so don't overstate precision, but be decisive about direction and what it means.
 - Always tie the finding back to the user's priorities and to a concrete next step or message frame they could use.`
 
+const CRM_TOOLS_RULES = `CONTACT LIST RULES (apply whenever you call \`describe_filter_dimensions\` or \`count_contacts\`):
+- Call describe_filter_dimensions before composing your first count_contacts filter, and only use dimension keys and values it returned — never invent one.
+- Counts are aggregates. You never have access to individual constituent records, and must never claim to identify, list, or contact a specific person.
+- If count_contacts returns an error instead of a count, relay the reason plainly and stop; do not retry the same rejected filter.`
+
 const COMMUNITY_ISSUES_RULES = `COMMUNITY ISSUES RULES (apply whenever you call \`read_community_issues\`):
 - Use it to fetch the full detail of the anchored issue or any issue the user asks about.
 - Surface the key detail clearly — category, rank, related briefings — without re-reading data already in the anchored_issue block.`
@@ -72,6 +77,10 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   describe_constituent_data:
     'list the recommended constituent breakdown dimensions before querying',
   read_community_issues: 'fetch full detail for a community issue by id',
+  describe_filter_dimensions:
+    'list the contact-filter dimensions and allowed values for this organization',
+  count_contacts:
+    'count the constituents matching a contact filter (aggregate only)',
 }
 
 const anchoredIssueBlock = (anchor: ChatAnchor): string => {
@@ -171,6 +180,7 @@ export const buildChiefOfStaffSystemPrompt = (args: {
     ...(toolNames.includes('read_community_issues')
       ? [COMMUNITY_ISSUES_RULES]
       : []),
+    ...(toolNames.includes('count_contacts') ? [CRM_TOOLS_RULES] : []),
     INSTRUCTIONS_BLOCK,
   ]
   return blocks.join('\n\n')

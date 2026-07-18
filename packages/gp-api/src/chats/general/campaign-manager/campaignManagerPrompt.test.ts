@@ -3,6 +3,7 @@ import {
   buildCampaignManagerSystemPrompt,
   CampaignManagerContext,
 } from './campaignManagerPrompt'
+import type { Organization } from '../../../generated/prisma'
 
 const ctx = (
   over: Partial<CampaignManagerContext> = {},
@@ -25,6 +26,8 @@ const ctx = (
   ],
   districtFilters: null,
   constituentToolEnabled: false,
+  organization: null,
+  crmToolsEnabled: false,
   story: null,
   plan: null,
   ...over,
@@ -92,6 +95,28 @@ describe('buildCampaignManagerSystemPrompt', () => {
     )
     expect(on).toContain('query_constituent_data')
     expect(on).toContain('describe_constituent_data')
+  })
+
+  it('advertises the CRM contact tools only when they are registered', () => {
+    const off = buildCampaignManagerSystemPrompt(ctx())
+    expect(off).not.toContain('count_contacts')
+    expect(off).not.toContain('describe_filter_dimensions')
+
+    const on = buildCampaignManagerSystemPrompt(
+      ctx({
+        crmToolsEnabled: true,
+        organization: { slug: 'win-campaign' } as Organization,
+      }),
+    )
+    expect(on).toContain('count_contacts')
+    expect(on).toContain('describe_filter_dimensions')
+    expect(on).toContain('Pro upgrade')
+
+    // Flag on but no org row resolved = tools not registered, so no block.
+    const noOrg = buildCampaignManagerSystemPrompt(
+      ctx({ crmToolsEnabled: true, organization: null }),
+    )
+    expect(noOrg).not.toContain('count_contacts')
   })
 
   it('runs the Campaign Story intake, one question at a time, when incomplete', () => {
