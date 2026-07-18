@@ -332,7 +332,10 @@ export default function ListDetailSheet({
           />
 
           <div className="flex flex-col gap-2">
-            <h2 className="text-base font-semibold">Outreach history</h2>
+            {/* h3 like the other section labels (valid heading order under
+                the DrawerTitle h2); the prototype styles this one as a
+                sentence-case heading, not an uppercase micro-label. */}
+            <h3 className="text-base font-semibold">Outreach history</h3>
             <p className="text-sm text-muted-foreground">
               Every campaign you&apos;ve sent, most recent first.
             </p>

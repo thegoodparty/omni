@@ -234,7 +234,9 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
       data: [{ id: 42, name: 'GOTV text list' }],
     })
 
-    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    const { rerender } = render(
+      <ListDetailSheet listId="42" onClose={vi.fn()} />,
+    )
 
     await screen.findByText('GOTV text list')
     expect(
@@ -243,6 +245,13 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(
       screen.queryByRole('heading', { name: 'Constituent list details' }),
     ).not.toBeInTheDocument()
+
+    setContext({ isWinContextReady: true })
+    rerender(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Voter list details' }),
+    ).toBeInTheDocument()
   })
 })
 
