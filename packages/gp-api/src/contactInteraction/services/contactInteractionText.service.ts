@@ -26,13 +26,16 @@ export class ContactInteractionTextService extends createPrismaBase(
     return this.model.createMany({ data, skipDuplicates: true })
   }
 
+  // Scoped to the outreach, not the org: two outreaches sharing a Peerly
+  // job produce identical synthetic event ids, and an org-wide screen
+  // would let the first outreach swept suppress the second's write-back.
   async findExistingSourceEventIds(
-    organizationSlug: string,
+    outreachId: number,
     sourceEventIds: string[],
   ): Promise<Set<string>> {
     if (sourceEventIds.length === 0) return new Set()
     const rows = await this.findMany({
-      where: { organizationSlug, sourceEventId: { in: sourceEventIds } },
+      where: { outreachId, sourceEventId: { in: sourceEventIds } },
       select: { sourceEventId: true },
     })
     return new Set(rows.flatMap((row) => row.sourceEventId ?? []))

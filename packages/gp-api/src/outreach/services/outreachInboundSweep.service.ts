@@ -65,6 +65,11 @@ interface InboundEvent {
 // server-local time as the best available approximation. Anything
 // unparseable falls back to the sweep's wall-clock at the call site.
 const REPORT_TIMESTAMP_FORMATS = ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd']
+// Raw rejection reasons can embed request config (auth headers); log the
+// message only.
+const rejectionMessage = (result: PromiseRejectedResult): string =>
+  result.reason instanceof Error ? result.reason.message : String(result.reason)
+
 const parseReportTimestamp = (value: string): Date | undefined => {
   for (const timestampFormat of REPORT_TIMESTAMP_FORMATS) {
     // startOfDay reference: parse fills unspecified fields from it, so a
@@ -224,11 +229,44 @@ export class OutreachInboundSweepService extends createPrismaBase(
       startDate: format(subDays(sendAnchor, 1), PEERLY_REPORT_DATE_FORMAT),
       endDate: format(addDays(now, 1), PEERLY_REPORT_DATE_FORMAT),
     }
-    const cdrRows = await this.peerlyJobResults.fetchCdrRows(jobId, window)
-    const questionRows = await this.peerlyJobResults.fetchQuestionResponseRows(
-      jobId,
-      window,
-    )
+    // The two reports hit different Peerly endpoints; one being flaky must
+    // not suppress the other's events for the cycle. Both failing is a
+    // genuine job failure and keeps the per-job containment accounting.
+    const [cdrResult, questionResult] = await Promise.allSettled([
+      this.peerlyJobResults.fetchCdrRows(jobId, window),
+      this.peerlyJobResults.fetchQuestionResponseRows(jobId, window),
+    ])
+    if (
+      cdrResult.status === 'rejected' &&
+      questionResult.status === 'rejected'
+    ) {
+      throw cdrResult.reason
+    }
+    if (cdrResult.status === 'rejected') {
+      this.logger.warn(
+        {
+          message: rejectionMessage(cdrResult),
+          outreachId: outreach.id,
+          jobId,
+        },
+        '[Outreach Inbound] CDR report fetch failed; reply events ' +
+          'skipped for this cycle',
+      )
+    }
+    if (questionResult.status === 'rejected') {
+      this.logger.warn(
+        {
+          message: rejectionMessage(questionResult),
+          outreachId: outreach.id,
+          jobId,
+        },
+        '[Outreach Inbound] question responses report fetch failed; ' +
+          'opt-out events skipped for this cycle',
+      )
+    }
+    const cdrRows = cdrResult.status === 'fulfilled' ? cdrResult.value : []
+    const questionRows =
+      questionResult.status === 'fulfilled' ? questionResult.value : []
 
     const events = [
       ...this.collectReplyEvents(jobId, cdrRows, phoneToPersonIds, counters),
@@ -340,7 +378,7 @@ export class OutreachInboundSweepService extends createPrismaBase(
     // mostly a read; the (organizationSlug, sourceEventId) unique index and
     // the null-timestamp guards in applyInboundEvent are the backstop.
     const existingIds = await this.textInteractions.findExistingSourceEventIds(
-      outreach.campaign.organizationSlug,
+      outreach.id,
       uniqueEvents.map((event) => event.sourceEventId),
     )
 

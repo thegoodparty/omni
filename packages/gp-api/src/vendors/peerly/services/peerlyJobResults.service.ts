@@ -103,9 +103,16 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
     // compromised Peerly response must not steer requests at the instance
     // metadata service or internal hosts. Reports live on GCS/S3 only.
     const { hostname } = new URL(data.link)
+    // Any AWS customer's bucket lives under *.amazonaws.com, so only
+    // S3-shaped hostnames pass: global (bucket.s3.amazonaws.com,
+    // s3.amazonaws.com) and regional (bucket.s3.us-east-1.amazonaws.com) —
+    // an over-tight guard breaking on a vendor URL-style change has burned
+    // prod fetches before.
     const allowed =
       hostname === 'storage.googleapis.com' ||
-      hostname.endsWith('.amazonaws.com')
+      hostname === 's3.amazonaws.com' ||
+      hostname.endsWith('.s3.amazonaws.com') ||
+      /\.s3[.-][a-z0-9-]+\.amazonaws\.com$/.test(hostname)
     if (!allowed) {
       this.logger.error(
         { hostname },
@@ -168,15 +175,27 @@ export class PeerlyJobResultsService extends PeerlyBaseConfig {
       )
     }
     const entries = Object.values(zip.files).filter((entry) => !entry.dir)
-    const csvEntry = entries.find((entry) =>
+    const csvEntries = entries.filter((entry) =>
       entry.name.toLowerCase().endsWith('.csv'),
     )
-    if (!csvEntry) {
+    if (csvEntries.length === 0) {
       throw new BadGatewayException(
         `Peerly ${context} zip archive contains no .csv entry`,
       )
     }
-    return csvEntry.async('string')
+    // Entry order is unspecified by the zip format: with two CSVs there is
+    // no way to know which is the data file, and guessing risks silently
+    // ingesting a manifest.
+    if (csvEntries.length > 1) {
+      this.logger.error(
+        { files: csvEntries.map((entry) => entry.name) },
+        `Peerly ${context} zip archive contains multiple .csv entries`,
+      )
+      throw new BadGatewayException(
+        `Peerly ${context} zip archive contains multiple .csv entries`,
+      )
+    }
+    return csvEntries[0].async('string')
   }
 
   private parseRows<Schema extends z.ZodTypeAny>(
