@@ -169,6 +169,11 @@ describe('OrdinanceExportService', () => {
 
     const pdf = await service.render(emptyNote, 'pdf')
     expect(pdf.buffer.subarray(0, 5).toString('ascii')).toBe('%PDF-')
+
+    // Word renders the note-less check (label + pill) without erroring.
+    const xml = await docxText((await service.render(emptyNote, 'docx')).buffer)
+    expect(xml).toContain('Clarity')
+    expect(xml).toContain('ATTENTION')
   })
 
   it('renders the empty-state fallbacks when there is no report or sources', async () => {

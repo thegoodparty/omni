@@ -342,10 +342,15 @@ const docxCheckParagraphs = (check: OrdinanceQualityCheck): Paragraph[] => {
         }),
       ],
     }),
-    new Paragraph({
-      children: [new TextRun({ text: check.note, color: NOTE })],
-    }),
   ]
+  // Skip an empty note — an empty paragraph renders as a blank gap.
+  if (check.note) {
+    paragraphs.push(
+      new Paragraph({
+        children: [new TextRun({ text: check.note, color: NOTE })],
+      }),
+    )
+  }
   if (check.source) {
     paragraphs.push(
       docxSourceLine(`source: ${sourceLabel(check.source)}`, check.source.url),
