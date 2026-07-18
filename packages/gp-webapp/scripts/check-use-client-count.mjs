@@ -110,7 +110,12 @@ import { dirname, join, relative } from 'node:path'
 // (no new client files there).
 // ENG-10711: -1 — LogInteraction.tsx removed (manual logging cut to match the
 // lovable person-record design).
-const BASELINE = 556
+// 2026-07-18: 556 -> 560 for the ENG-10737 contacts assistant bar: the four
+// new crm/assistant/ files (CrmAssistant, AssistantBar, AssistantDrawer,
+// assistantChat) hold composer/drawer state, stream SSE turns through the
+// shared agent-chat client, and invalidate react-query caches — none can be
+// server components.
+const BASELINE = 560
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
