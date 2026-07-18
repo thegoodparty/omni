@@ -140,8 +140,12 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 `VoterOutreachActivity` is deprecated: new per-person interaction write paths
 target the `ContactInteraction*` models via `ContactInteractionModule` (see
 `src/contactInteraction/contactInteraction.types.ts` for the add-a-channel
-convention). Existing segment-derived send-attribution writes remain on it
-until feature 5 of the CRM epic migrates them.
+convention). Segment-derived send-attribution writes were retired in feature 5
+of the CRM epic (ENG-10731) — the model is read-only now except for the
+deprecated eCanvasser door-knock writer (`EcanvasserAttributionService.recordActivityIdempotent`),
+which is its own removal workstream. Reads (the person activity feed's
+legacy-row branch) keep working until the sunset ends and the table/model are
+dropped.
 
 ## Module shape (enforced by `.cursor/rules/rules.mdc` Rule 7)
 

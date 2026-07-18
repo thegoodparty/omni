@@ -27,7 +27,6 @@ import {
 } from '../util/campaignGeography.util'
 import { resolveScriptContent } from '../util/resolveScriptContent.util'
 import { OutreachStepError } from '../types/outreachStepError'
-import { OutreachAttributionService } from './outreachAttribution.service'
 import { OutreachMaterializationService } from './outreachMaterialization.service'
 import { OutreachNotificationService } from './outreachNotification.service'
 
@@ -49,7 +48,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     private readonly peerlyP2pJobService: PeerlyP2pJobService,
     private readonly notificationService: OutreachNotificationService,
     private readonly voterFileFilterService: VoterFileFilterService,
-    private readonly attributionService: OutreachAttributionService,
     private readonly materializationService: OutreachMaterializationService,
     private readonly s3: S3Service,
   ) {
@@ -270,7 +268,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
         createOutreachDto.phoneListId,
       )
       await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
-      await this.tryRecordSegmentAttribution(user, campaign, outreach)
       await this.tryMaterializeOutreach(campaign, outreach)
       return outreach
     }
@@ -281,7 +278,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       imageUrl,
     )
     await this.tryNotifySuccess(user, campaign, outreach, createOutreachDto)
-    await this.tryRecordSegmentAttribution(user, campaign, outreach)
     await this.tryMaterializeOutreach(campaign, outreach)
     return outreach
   }
@@ -387,7 +383,6 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
       textCount: outreach.textCount ?? undefined,
       billableTextCount: outreach.billableTextCount ?? undefined,
     })
-    await this.tryRecordSegmentAttribution(user, campaign, finalized)
   }
 
   /**
@@ -484,35 +479,10 @@ export class OutreachService extends createPrismaBase(MODELS.Outreach) {
     }
   }
 
-  // Per-voter attribution for the channels that resolve a segment (p2p, text,
-  // phoneBanking, robocall, socialMedia; see OutreachAttributionService).
-  // Best-effort like tryNotifySuccess: a people-api hiccup or attribution
-  // failure is logged but must not fail the outreach that was already
-  // persisted. Idempotent, so a later retry is safe.
-  private async tryRecordSegmentAttribution(
-    user: User,
-    campaign: Campaign,
-    outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
-  ) {
-    try {
-      await this.attributionService.recordSegmentAttribution(
-        user,
-        campaign,
-        outreach,
-      )
-    } catch (err) {
-      this.logger.error(
-        { err, outreachId: outreach.id, campaignId: campaign.id },
-        'Segment-derived outreach attribution failed',
-      )
-    }
-  }
-
   // Materializes the outreach's resolved saved filter into per-recipient
   // ContactInteraction<channel> rows and locks the filter. Best-effort like
-  // tryRecordSegmentAttribution: the rows are the audit trail, but a
-  // materialization failure must not fail the outreach that was already
-  // persisted.
+  // tryNotifySuccess: the rows are the audit trail, but a materialization
+  // failure must not fail the outreach that was already persisted.
   private async tryMaterializeOutreach(
     campaign: Campaign,
     outreach: Awaited<ReturnType<OutreachService['createRecord']>>,
