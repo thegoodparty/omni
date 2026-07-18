@@ -7,7 +7,7 @@ interface ReachabilityGridProps {
   isError: boolean
 }
 
-// Six-channel reachability tiles (Lovable-locked borderless dt/dd tiles,
+// Six-channel reachability tiles (Lovable-locked bordered icon tiles,
 // ENG-10725). `reachability` is undefined while loading and on a failed
 // fetch — both render every tile as "Unavailable" rather than a misleading
 // 0. A channel value of `null` (email and metaAds always, per the contract —
@@ -20,12 +20,13 @@ export default function ReachabilityGrid({
   return (
     <div className="flex flex-col gap-2">
       <SectionLabel>Reachable by channel</SectionLabel>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3">
-        {REACHABILITY_CHANNELS.map(({ key, label }) => {
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        {REACHABILITY_CHANNELS.map(({ key, label, icon }) => {
           const value = isError ? undefined : reachability?.[key]
           return (
             <StatTile
               key={key}
+              icon={icon}
               label={label}
               value={
                 typeof value === 'number'

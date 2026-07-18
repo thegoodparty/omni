@@ -26,6 +26,8 @@ export interface ContactsLabels {
   universeSubtitleBefore: string
   universeSubtitleAfter: string
   allContactsTitle: string
+  // crm/lists/ListDetailSheet.tsx's content heading above the filter summary.
+  listDetailsTitle: string
   // crm/wizard/CreateListWizard.tsx's step-2 voter-file-branch title.
   wizardVoterFileStepTitle: string
   // crm/wizard/BranchStep.tsx's step-1 radio cards. The activity branch's
@@ -52,6 +54,7 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         universeSubtitleBefore: 'Find voters in ',
         universeSubtitleAfter: ' likely to move your race and then reach them.',
         allContactsTitle: 'All voters',
+        listDetailsTitle: 'Voter list details',
         wizardVoterFileStepTitle: 'Build a voter list',
         wizardVoterFileBranchTitle: 'Build my list using the voter file.',
         wizardVoterFileBranchDescription:
@@ -74,6 +77,7 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         universeSubtitleBefore: 'Constituents in ',
         universeSubtitleAfter: ' that you represent.',
         allContactsTitle: 'All constituents',
+        listDetailsTitle: 'Constituent list details',
         wizardVoterFileStepTitle: 'Build a constituent list',
         wizardVoterFileBranchTitle: 'Build my list using the constituent file.',
         wizardVoterFileBranchDescription:

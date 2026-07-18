@@ -38,6 +38,7 @@ export {
   ThumbsUp as ThumbsUpIcon,
   Copy as CopyIcon,
   Crop as CropIcon,
+  DollarSign as DollarSignIcon,
   Download as DownloadIcon,
   ExternalLink as ExternalLinkIcon,
   FileText as FileTextIcon,
