@@ -46,4 +46,21 @@ export class PeerlyPhoneListCaptureService extends createPrismaBase(
       data: { peerlyListId },
     })
   }
+
+  // Recipients live on a sibling model to the one this service extends, so
+  // they're read via `client` rather than the inherited `findMany`. Ordered
+  // by id so skip/take pagination is stable across calls (unordered
+  // findMany offers no such guarantee).
+  findRecipientsPage(
+    peerlyPhoneListId: string,
+    params: { skip: number; take: number },
+  ): Promise<{ personId: string }[]> {
+    return this.client.peerlyPhoneListRecipient.findMany({
+      where: { peerlyPhoneListId },
+      select: { personId: true },
+      orderBy: { id: 'asc' },
+      skip: params.skip,
+      take: params.take,
+    })
+  }
 }

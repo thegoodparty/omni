@@ -52,6 +52,7 @@ import { PeerlyScheduleService } from './services/peerlySchedule.service'
   exports: [
     PeerlyIdentityService,
     PeerlyPhoneListService,
+    PeerlyPhoneListCaptureService,
     PeerlyMediaService,
     PeerlyP2pJobService,
   ],
