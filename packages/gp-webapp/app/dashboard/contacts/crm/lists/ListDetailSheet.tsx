@@ -258,7 +258,14 @@ export default function ListDetailSheet({
         </p>
       ) : (
         <div className="flex flex-col gap-6">
-          <h2 className="text-base font-semibold">{labels.listDetailsTitle}</h2>
+          {/* Mode copy waits for the Win/Serve context to settle —
+              isWinContext reads false until then, so rendering early would
+              flash the Serve noun to a Win user (ENG-10448). */}
+          {isWinContextReady && (
+            <h2 className="text-base font-semibold">
+              {labels.listDetailsTitle}
+            </h2>
+          )}
 
           <ListFilterSummary
             segment={segment}
