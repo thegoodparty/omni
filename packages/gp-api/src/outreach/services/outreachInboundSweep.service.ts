@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { addDays, format, isBefore, isValid, parse, subDays } from 'date-fns'
+import {
+  addDays,
+  format,
+  isBefore,
+  isValid,
+  parse,
+  startOfDay,
+  subDays,
+} from 'date-fns'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { phoneDigitsKey } from 'src/shared/util/strings.util'
 import { Outreach, OutreachType } from '../../generated/prisma'
@@ -59,7 +67,9 @@ interface InboundEvent {
 const REPORT_TIMESTAMP_FORMATS = ['yyyy-MM-dd HH:mm:ss', 'yyyy-MM-dd']
 const parseReportTimestamp = (value: string): Date | undefined => {
   for (const timestampFormat of REPORT_TIMESTAMP_FORMATS) {
-    const parsed = parse(value.trim(), timestampFormat, new Date())
+    // startOfDay reference: parse fills unspecified fields from it, so a
+    // date-only value lands on midnight, not the cron's wall-clock.
+    const parsed = parse(value.trim(), timestampFormat, startOfDay(new Date()))
     if (isValid(parsed)) return parsed
   }
   return undefined
