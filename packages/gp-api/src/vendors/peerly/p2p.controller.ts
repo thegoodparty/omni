@@ -13,9 +13,8 @@ import {
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { FastifyReply } from 'fastify'
-import { Campaign, User } from '../../generated/prisma'
+import { Campaign } from '../../generated/prisma'
 import { ReqCampaign } from '../../campaigns/decorators/ReqCampaign.decorator'
-import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { UseCampaign } from '../../campaigns/decorators/UseCampaign.decorator'
 import { PeerlyPhoneListCaptureService } from './services/peerlyPhoneListCapture.service'
 import { PeerlyPhoneListService } from './services/peerlyPhoneList.service'
@@ -123,13 +122,11 @@ export class P2pController {
   @UseCampaign()
   async uploadPhoneList(
     @ReqCampaign() campaign: Campaign,
-    @ReqUser() user: User,
     @Body() request: P2pPhoneListRequestSchema,
   ): Promise<P2pPhoneListResponseSchema> {
     try {
       const { token } = await this.p2pPhoneListUploadService.uploadPhoneList(
         campaign,
-        user,
         request,
       )
 
