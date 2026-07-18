@@ -15,6 +15,7 @@ import CreateListWizard from './wizard/CreateListWizard'
 import DistrictStatCard from './DistrictStatCard'
 import ListsIndex from './lists/ListsIndex'
 import ListDetailSheet from './lists/ListDetailSheet'
+import CrmAssistant from './assistant/CrmAssistant'
 
 export const CrmContactsPage = () => {
   const [campaign] = useCampaign()
@@ -71,7 +72,9 @@ export const CrmContactsPage = () => {
               ListsIndex reads contactsLabels too, so it needs the same gate
               the H1/stat card already had. */}
           {isWinContextReady && (
-            <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-8">
+            // pb-24 clears the fixed assistant bar so the last list card
+            // scrolls fully above it.
+            <div className="mx-auto mt-8 flex w-full max-w-[560px] flex-col gap-8 pb-24">
               <div className="flex flex-col gap-1">
                 <h1 className="text-lg font-semibold">
                   {labels.universeTitle}
@@ -99,6 +102,7 @@ export const CrmContactsPage = () => {
           listId={currentlySelectedListId}
           onClose={() => selectList(null)}
         />
+        <CrmAssistant />
       </DashboardLayout>
       {campaign && (
         <ProUpgradeModal

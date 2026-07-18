@@ -35,6 +35,8 @@ export interface ContactsLabels {
   wizardVoterFileBranchTitle: string
   wizardVoterFileBranchDescription: string
   wizardActivityBranchDescription: string
+  // crm/assistant/CrmAssistant.tsx's conversation-drawer heading (ENG-10737).
+  assistantTitle: string
 }
 
 export const getContactsLabels = (isWin: boolean): ContactsLabels =>
@@ -61,6 +63,7 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
           'Use this option to select voters from your voter file.',
         wizardActivityBranchDescription:
           "Use this option to select voters who you've previously interacted with.",
+        assistantTitle: 'Voter list assistant',
       }
     : {
         dataTitle: CONTACTS_DATA_TITLE.serve,
@@ -84,4 +87,5 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
           'Use this option to select constituents from your constituent file.',
         wizardActivityBranchDescription:
           "Use this option to select constituents who you've previously interacted with.",
+        assistantTitle: 'Constituent list assistant',
       }

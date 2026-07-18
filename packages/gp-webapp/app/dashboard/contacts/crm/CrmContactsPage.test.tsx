@@ -40,6 +40,9 @@ vi.mock('./wizard/CreateListWizard', () => ({
 vi.mock('./DistrictStatCard', () => ({
   default: () => <div data-testid="district-stat" />,
 }))
+vi.mock('./assistant/CrmAssistant', () => ({
+  default: () => <div data-testid="crm-assistant" />,
+}))
 vi.mock('./lists/ListsIndex', () => ({
   default: () => <div data-testid="lists-index" />,
 }))
