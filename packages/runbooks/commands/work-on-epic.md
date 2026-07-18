@@ -267,6 +267,10 @@ traffic stay manageable; when a slot frees, dispatch the next ready ticket.
 - If an approved dependency later gets a forced change (rare after approval),
   merge its updated branch into the dependent's worktree and re-verify before
   shipping the dependent.
+- **Stack on at most one unmerged dependency.** If a ticket depends on several
+  approved-but-unmerged branches, don't try to combine bases — wait until all but
+  one have merged, then stack on the last outstanding branch (or just wait for
+  all to merge and base on the integration branch).
 
 For each ready ticket (skip any already in a closed/done status):
 
@@ -334,7 +338,12 @@ For each ready ticket (skip any already in a closed/done status):
 12. **When a subagent reports its ticket implemented + Verify green**, open and
     drive its PR via the repo's **PR-shipping flow** (the `ship-pr` skill in omni:
     open the PR, drive `delegate-reviewer[bot]` to `Approved.`, and every
-    required GitHub check to green). Then merge per the chosen mode:
+    required GitHub check to green). **Stacked branches wait here:** if this
+    worktree was based on a dependency's branch (Phase 3), do not open its PR
+    until every dependency has actually merged and you've merged
+    `origin/<integration-branch>` into the worktree — otherwise the PR's diff
+    includes the dependency's commits and its base is wrong. Implementation may
+    run ahead of the merge gate; the PR may not. Then merge per the chosen mode:
     - **Automated:** **enable GitHub auto-merge as a merge commit** so the PR
       merges itself the moment both gates pass:
       ```bash
@@ -366,7 +375,8 @@ For each ready ticket (skip any already in a closed/done status):
     hand-off in step 12). Use
     `gh pr view <n> --json state,mergedAt` / `gh pr checks <n>`. Polling cadence
     ~60–90s; budget generously — E2E waits on a deploy. As **each** PR reaches
-    `MERGED`:
+    `MERGED` (for a PR group, run this close-out for **every ticket in the
+    group** — each gets its status move, AC tick, and completion comment):
     - **Move its ticket to `done`** (status names are List-scoped; if `done` is
       rejected, `GET list/<list_id>` and pick the closest closed status):
       ```bash
