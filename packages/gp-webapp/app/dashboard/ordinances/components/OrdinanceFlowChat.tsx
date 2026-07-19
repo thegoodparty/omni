@@ -75,7 +75,14 @@ const GENERATING_LABELS: Record<string, string> = {
 const CLARIFY_KICKOFF =
   "Let's begin. Ask me your first clarifying question about this ordinance."
 const KICKOFFS: Record<string, string> = {
+  intro:
+    "Let's begin. Walk me through what this flow will do for this ordinance.",
   clarify: CLARIFY_KICKOFF,
+  authority:
+    "Let's begin. Check whether we have the legal authority to enact this.",
+  current_law:
+    "Let's begin. Show me what current law already does here and the gaps.",
+  comparables: "Let's begin. Show me how comparable cities handled this.",
   draft: "Let's begin. Draft the ordinance from what the prior steps settled.",
   review: "Let's begin. Give me a quick orientation to this draft.",
 }

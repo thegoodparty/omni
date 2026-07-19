@@ -133,6 +133,19 @@ describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
     expect(kickoff).not.toMatch(/clarifying question/i)
   })
 
+  it.each(['intro', 'authority', 'current_law', 'comparables'])(
+    'kicks off the %s step without a clarify-question opener',
+    async (step) => {
+      mocks.listMessages.mockResolvedValue([])
+      render(<OrdinanceFlowChat slug="public-safety-cameras" step={step} />)
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+      const kickoff = (
+        mocks.streamMessage.mock.calls[0][0] as { content: string }
+      ).content
+      expect(kickoff).not.toMatch(/clarifying question/i)
+    },
+  )
+
   it('kicks off the clarify step by inviting the first question', async () => {
     mocks.listMessages.mockResolvedValue([])
     render(<OrdinanceFlowChat slug="public-safety-cameras" step="clarify" />)
