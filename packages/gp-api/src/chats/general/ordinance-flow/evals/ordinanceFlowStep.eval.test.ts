@@ -8,7 +8,10 @@ import { HttpStatus } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
+import { LlmService } from '../../../../llm/services/llm.service'
 import { seedFromFixture } from './seedFromFixture'
+import { judgePanel } from './coldJudge'
+import { stepRubrics, type RubricStep } from './rubrics'
 
 // Real-Claude eval: boots the real app, seeds a step-entry state from a captured
 // fixture, and drives the step's opening turn through the real chat pipeline
@@ -21,6 +24,12 @@ const d = RUN ? describe : describe.skip
 
 const SCOPE = ChatScope.ordinance_flow
 const STEP_TIMEOUT_MS = 240_000
+// The judged tests add a real cold-judge panel (several small-model
+// jsonCompletion calls) on top of the driven step turn, so they need a wider
+// budget than the mechanical-only turns.
+const JUDGE_TIMEOUT_MS = 480_000
+// SCORE dims advise rather than block; a median at or above this is acceptable.
+const SCORE_THRESHOLD = 3
 
 // The hidden opener the webapp sends per step to make the agent take the first
 // turn (mirrors OrdinanceFlowChat KICKOFFS). The draft opener must instruct
@@ -122,7 +131,95 @@ const runStep = async (
   }
 }
 
+const median = (nums: number[]): number => {
+  const sorted = [...nums].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  const hi = sorted[mid] ?? 0
+  const lo = sorted[mid - 1] ?? hi
+  return sorted.length % 2 === 0 ? (lo + hi) / 2 : hi
+}
+
+// Assemble the artifact a blind judge scores: the step's short framing prose
+// plus its persisted present_* payload(s) — the same bytes the design intends
+// the UI to render. Reading the persisted payload (not the stream) keeps the
+// judge scoring what the product actually ships.
+const buildArtifact = (assistantText: string, payloadJson: string): string =>
+  [
+    'Assistant framing prose:',
+    assistantText,
+    '',
+    'Structured step payload:',
+    payloadJson,
+  ].join('\n')
+
+// Run the step's cold-judge rubric against one persisted artifact. Faithfulness
+// GATE dims hard-fail the step on a majority no-pass; SCORE dims advise — a
+// median below threshold is recorded and warned, per the gate-mechanical vs
+// advise-judge split in runbooks build-output-quality-rubric.md.
+const runJudges = async (
+  step: RubricStep,
+  artifact: string,
+  groundTruth?: string,
+): Promise<void> => {
+  const llm = service.app.get(LlmService)
+  const rubric = stepRubrics[step]
+  const fullRubric = rubric
+    .map((dim) => `- ${dim.key} (${dim.kind}): ${dim.prompt}`)
+    .join('\n')
+  for (const dim of rubric) {
+    const panel = await judgePanel(llm, {
+      rubric: fullRubric,
+      artifact,
+      dimension: dim.prompt,
+      ...(groundTruth ? { groundTruth } : {}),
+    })
+    const why = panel.verdicts.map((v) => v.reasoning).join(' | ')
+    if (dim.kind === 'gate') {
+      expect(panel.majorityPass, `gate ${step}/${dim.key}: ${why}`).toBe(true)
+      continue
+    }
+    const score = median(panel.verdicts.map((v) => v.score))
+    if (score < SCORE_THRESHOLD) {
+      console.warn(`advisory ${step}/${dim.key} scored ${score}: ${why}`)
+    }
+    expect(
+      score,
+      `advisory ${step}/${dim.key} scored ${score} (min ${SCORE_THRESHOLD})`,
+    ).toBeGreaterThanOrEqual(SCORE_THRESHOLD)
+  }
+}
+
 d('ordinance-flow step evals (real Claude)', () => {
+  // Clarify opening turn (design: ask ONE question via ask_clarify_question with
+  // 2-4 options, the question lives in the payload not prose, sequential reveal
+  // so no synthesis/offer yet). Parameter-grade, distinct, sourced options are
+  // judge dimensions.
+  it(
+    'clarify step asks one sourced, parameter-grade question',
+    async () => {
+      const { toolNames, payloadsFor, assistantText } = await runStep(
+        'bike-parking',
+        'clarify',
+      )
+
+      const questions = payloadsFor('ask_clarify_question')
+      expect(questions.length).toBeGreaterThanOrEqual(1)
+      expect(toolNames).toContain('ask_clarify_question')
+      const q = questions[0] as { options?: unknown[] }
+      expect((q.options ?? []).length).toBeGreaterThanOrEqual(2)
+      expect((q.options ?? []).length).toBeLessThanOrEqual(4)
+      const questionMarks = (assistantText.match(/\?/g) ?? []).length
+      expect(questionMarks).toBe(0)
+      assertGovernanceVoice(assistantText)
+
+      await runJudges(
+        'clarify',
+        buildArtifact(assistantText, JSON.stringify(questions[0], null, 2)),
+      )
+    },
+    JUDGE_TIMEOUT_MS,
+  )
+
   it(
     'draft step persists a draft via present_draft',
     async () => {
@@ -132,8 +229,22 @@ d('ordinance-flow step evals (real Claude)', () => {
       expect(ordinance.draftBody?.length ?? 0).toBeGreaterThan(500)
       expect(ordinance.draftTitle?.length ?? 0).toBeGreaterThan(0)
       expect(ordinance.status).toBe('draft')
+
+      await runJudges(
+        'draft',
+        [
+          `Draft title: ${ordinance.draftTitle ?? ''}`,
+          'Draft body:',
+          ordinance.draftBody ?? '',
+          '',
+          'Prior-step material the draft must trace to:',
+          `Clarify answers: ${JSON.stringify(ordinance.clarifyAnswers)}`,
+          `Current-law findings: ${JSON.stringify(ordinance.existingLaw)}`,
+          `Comparables: ${JSON.stringify(ordinance.comparables)}`,
+        ].join('\n'),
+      )
     },
-    STEP_TIMEOUT_MS,
+    JUDGE_TIMEOUT_MS,
   )
 
   it(
@@ -176,8 +287,13 @@ d('ordinance-flow step evals (real Claude)', () => {
       expect(ordinance.authority).not.toBeNull()
       expect(toolNames).toContain('offer_next_step')
       assertGovernanceVoice(assistantText)
+
+      await runJudges(
+        'authority',
+        buildArtifact(assistantText, JSON.stringify(verdicts[0], null, 2)),
+      )
     },
-    STEP_TIMEOUT_MS,
+    JUDGE_TIMEOUT_MS,
   )
 
   // Current law (design: get_code_source first, save_existing_law before
@@ -200,8 +316,23 @@ d('ordinance-flow step evals (real Claude)', () => {
       expect((summary.gaps ?? []).length).toBeGreaterThan(0)
       expect(ordinance.existingLaw).not.toBeNull()
       assertGovernanceVoice(assistantText)
+
+      await runJudges(
+        'current_law',
+        buildArtifact(
+          assistantText,
+          JSON.stringify(
+            { summary, history: payloadsFor('present_legislative_history') },
+            null,
+            2,
+          ),
+        ),
+        // The fetched chapter is the ground truth the does/gaps gate checks
+        // against — without it a blind judge can't tell grounded from invented.
+        `Fetched current law on the record: ${JSON.stringify(ordinance.existingLaw)}`,
+      )
     },
-    STEP_TIMEOUT_MS,
+    JUDGE_TIMEOUT_MS,
   )
 
   // Comparables (design: 3-5 cards, each sourced, ≥1 instructive failure, then
@@ -226,7 +357,12 @@ d('ordinance-flow step evals (real Claude)', () => {
       }
       expect(toolNames).toContain('offer_next_step')
       assertGovernanceVoice(assistantText)
+
+      await runJudges(
+        'comparables',
+        buildArtifact(assistantText, JSON.stringify(presented[0], null, 2)),
+      )
     },
-    STEP_TIMEOUT_MS,
+    JUDGE_TIMEOUT_MS,
   )
 })
