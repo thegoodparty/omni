@@ -445,6 +445,33 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
   })
 })
 
+describe('OrdinanceFlowChat next-step button', () => {
+  it('labels the advance button by flow order, ignoring the agent label', async () => {
+    // The agent-authored offer label can contradict where the button goes:
+    // on the comparables step the next step is draft, but the agent labeled the
+    // offer "Research current law". The button must read the flow-derived CTA.
+    mocks.listMessages.mockResolvedValue([
+      assistantTurn('m1', [
+        { kind: 'text', text: 'Here are the comparables.' },
+        {
+          kind: 'tool',
+          toolName: 'offer_next_step',
+          payload: { label: 'Research current law' },
+        },
+      ]),
+    ])
+
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="comparables" />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Write the first draft' }),
+    ).toBeVisible()
+    expect(screen.queryByText('Research current law')).not.toBeInTheDocument()
+  })
+})
+
 describe('OrdinanceFlowChat stalled-stream recovery', () => {
   it('reconciles with persisted history when the stream stalls without ending', async () => {
     vi.useFakeTimers()
