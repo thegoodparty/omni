@@ -133,7 +133,7 @@ describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
     expect(kickoff).not.toMatch(/clarifying question/i)
   })
 
-  it.each(['intro', 'authority', 'current_law', 'comparables'])(
+  it.each(['intro', 'authority', 'current_law', 'comparables', 'review'])(
     'kicks off the %s step without a clarify-question opener',
     async (step) => {
       mocks.listMessages.mockResolvedValue([])

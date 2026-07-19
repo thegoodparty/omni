@@ -187,6 +187,11 @@ const CLARIFY_RULES = `CLARIFY RULES (this step):
 - Adapt: ask follow-ups or run \`web_search\`/\`read_ordinance\` between questions as needed. Start with the ~3 questions that most shape the ordinance; there is no fixed count.
 - When the essentials are settled, write a short synthesis, call \`save_synthesis\` to persist it for later steps, then call \`offer_next_step\` (with a short label like "Check legal authority") to give the user a Continue button. Don't just ask in prose whether to move on, and don't over-ask.`
 
+const ASK_QUESTION_RULES = `ASK QUESTION RULES (whenever you call \`ask_clarify_question\`):
+- Put the question and its options ONLY in the \`ask_clarify_question\` call — never also as chat text; the app renders them as an interactive widget and duplicating them is wrong. Precede the call with at most ONE short one-line lead-in.
+- Offer 2-4 options. A factual option must carry a source; a pure-judgment option may omit one. Never add an "Or write your own..." option yourself, the UI adds it.
+- After the user answers, the answer is recorded for you automatically; just continue.`
+
 const CURRENT_LAW_RULES = `CURRENT LAW RULES (this step):
 - Start with \`get_code_source\` to find where the municipality's code lives, and route on its dataQuality: if it is not_found, rely on \`web_search\` and the user; if it is uncodified the record may still carry a pointer worth one \`fetch_url\` attempt before falling back to search.
 - Use \`fetch_url\` to read the most specific relevant chapters from the source url, and cite section numbers for every claim about current law.
@@ -251,6 +256,12 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     ...(toolNames.includes('web_search') ? [WEB_SEARCH_RULES] : []),
     ...(toolNames.includes('brave_search') ? [BRAVE_SEARCH_RULES] : []),
     ...(ctx.step === 'clarify' ? [CLARIFY_RULES] : []),
+    // Non-clarify steps that carry the widget (draft's one allowed
+    // question) still need its formatting contract; clarify's own
+    // rulebook already includes it.
+    ...(toolNames.includes('ask_clarify_question') && ctx.step !== 'clarify'
+      ? [ASK_QUESTION_RULES]
+      : []),
     ...(toolNames.includes('fetch_url') ? [CURRENT_LAW_RULES] : []),
     ...(toolNames.includes('present_authority_finding')
       ? [AUTHORITY_RULES]

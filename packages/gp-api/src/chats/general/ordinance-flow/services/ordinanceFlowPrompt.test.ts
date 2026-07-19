@@ -218,6 +218,8 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       ],
     })
     expect(prompt).not.toContain('CLARIFY RULES')
+    expect(prompt).toContain('ASK QUESTION RULES')
+    expect(prompt).toContain('ONLY in the \`ask_clarify_question\` call')
     expect(prompt).toContain('Do not interview')
     expect(prompt).toContain('at most ONE')
     expect(prompt).toContain('never write ordinance text as chat prose')
