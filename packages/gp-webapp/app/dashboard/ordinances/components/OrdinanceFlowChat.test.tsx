@@ -122,6 +122,27 @@ beforeEach(() => {
 })
 
 describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
+  it('kicks off the draft step with a drafting instruction, not a question request', async () => {
+    mocks.listMessages.mockResolvedValue([])
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="draft" />)
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    const kickoff = (
+      mocks.streamMessage.mock.calls[0][0] as { content: string }
+    ).content
+    expect(kickoff).toMatch(/draft/i)
+    expect(kickoff).not.toMatch(/clarifying question/i)
+  })
+
+  it('kicks off the clarify step by inviting the first question', async () => {
+    mocks.listMessages.mockResolvedValue([])
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="clarify" />)
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    const kickoff = (
+      mocks.streamMessage.mock.calls[0][0] as { content: string }
+    ).content
+    expect(kickoff).toMatch(/clarifying question/i)
+  })
+
   it('renders the authority verdict card from a persisted tool segment', async () => {
     mocks.listMessages.mockResolvedValue([
       assistantTurn('m1', [
