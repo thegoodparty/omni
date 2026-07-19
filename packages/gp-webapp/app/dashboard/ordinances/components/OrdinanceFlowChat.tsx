@@ -35,7 +35,7 @@ import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
 import {
-  ORDINANCE_STEP_LABELS,
+  ORDINANCE_NEXT_STEP_CTA,
   isOrdinanceStep,
   nextOrdinanceStep,
 } from '../data/steps'
@@ -106,13 +106,6 @@ const parseOffer = (value: unknown): OrdinanceNextStepOffer | null => {
 // True when a persisted assistant turn offered to advance to the next step.
 const hasOfferSegment = (segments: ChatMessageSegment[]): boolean =>
   segments.some((s) => s.toolName === OFFER_TOOL)
-
-const offerLabelFromSegments = (
-  segments: ChatMessageSegment[],
-): string | undefined => {
-  const segment = segments.find((s) => s.toolName === OFFER_TOOL)
-  return segment ? (parseOffer(segment.payload)?.label ?? undefined) : undefined
-}
 
 const buildAnchor = (
   ordinance: Ordinance,
@@ -479,7 +472,7 @@ export default function OrdinanceFlowChat({
                 {...(nextStep
                   ? {
                       onAdvance: goToNextStep,
-                      nextLabel: ORDINANCE_STEP_LABELS[nextStep],
+                      nextLabel: ORDINANCE_NEXT_STEP_CTA[nextStep],
                     }
                   : {})}
               />
@@ -513,8 +506,7 @@ export default function OrdinanceFlowChat({
 
           {showOffer && liveOffer && nextStep ? (
             <NextStepButton
-              label={liveOffer.label}
-              nextLabel={ORDINANCE_STEP_LABELS[nextStep]}
+              nextLabel={ORDINANCE_NEXT_STEP_CTA[nextStep]}
               onAdvance={goToNextStep}
             />
           ) : null}
@@ -542,11 +534,9 @@ export default function OrdinanceFlowChat({
 }
 
 function NextStepButton({
-  label,
   nextLabel,
   onAdvance,
 }: {
-  label?: string
   nextLabel: string
   onAdvance: () => void
 }): React.JSX.Element {
@@ -557,7 +547,7 @@ function NextStepButton({
       onClick={onAdvance}
       className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
     >
-      <span>{label ?? `Continue to ${nextLabel}`}</span>
+      <span>{nextLabel}</span>
       <ChevronRightIcon
         className="size-4 shrink-0 text-muted-foreground"
         aria-hidden
@@ -611,11 +601,7 @@ function AssistantMessage({
         ) : null}
       </AssistantRow>
       {hasOfferSegment(segments) && onAdvance && nextLabel ? (
-        <NextStepButton
-          label={offerLabelFromSegments(segments)}
-          nextLabel={nextLabel}
-          onAdvance={onAdvance}
-        />
+        <NextStepButton nextLabel={nextLabel} onAdvance={onAdvance} />
       ) : null}
     </>
   )
