@@ -127,8 +127,8 @@ describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
     render(<OrdinanceFlowChat slug="public-safety-cameras" step="draft" />)
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
     const kickoff = (
-      mocks.streamMessage.mock.calls[0][0] as { content: string }
-    ).content
+      mocks.streamMessage.mock.calls[0]?.[0] as { content: string } | undefined
+    )?.content
     expect(kickoff).toMatch(/draft/i)
     expect(kickoff).not.toMatch(/clarifying question/i)
   })
@@ -140,8 +140,10 @@ describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
       render(<OrdinanceFlowChat slug="public-safety-cameras" step={step} />)
       await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
       const kickoff = (
-        mocks.streamMessage.mock.calls[0][0] as { content: string }
-      ).content
+        mocks.streamMessage.mock.calls[0]?.[0] as
+          | { content: string }
+          | undefined
+      )?.content
       expect(kickoff).not.toMatch(/clarifying question/i)
     },
   )
@@ -151,8 +153,8 @@ describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
     render(<OrdinanceFlowChat slug="public-safety-cameras" step="clarify" />)
     await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
     const kickoff = (
-      mocks.streamMessage.mock.calls[0][0] as { content: string }
-    ).content
+      mocks.streamMessage.mock.calls[0]?.[0] as { content: string } | undefined
+    )?.content
     expect(kickoff).toMatch(/clarifying question/i)
   })
 
