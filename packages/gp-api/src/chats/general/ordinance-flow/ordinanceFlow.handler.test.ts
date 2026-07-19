@@ -96,6 +96,15 @@ describe('OrdinanceFlowHandler', () => {
       districtResolver as never,
     )
 
+  it('gives the draft step the clarify widget for its rare question', () => {
+    const names = Object.keys(
+      build().buildTools({ ...baseCtx(), step: 'draft' }),
+    )
+    expect(names).toContain('ask_clarify_question')
+    expect(names).toContain('present_draft')
+    expect(names).not.toContain('save_synthesis')
+  })
+
   it('is a sensitive, Anthropic-only scope', () => {
     const handler = build()
     expect(handler.scope).toBe(ChatScope.ordinance_flow)
@@ -364,6 +373,7 @@ describe('OrdinanceFlowHandler', () => {
       handler.buildTools({ ...baseCtx(), step: 'draft' }),
     ).sort()
     expect(names).toEqual([
+      'ask_clarify_question',
       'get_code_source',
       'present_draft',
       'read_ordinance',
