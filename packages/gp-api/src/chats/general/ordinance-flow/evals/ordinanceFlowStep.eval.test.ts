@@ -25,10 +25,27 @@ const STEP_TIMEOUT_MS = 240_000
 // The hidden opener the webapp sends per step to make the agent take the first
 // turn (mirrors OrdinanceFlowChat KICKOFFS). The draft opener must instruct
 // drafting, not questioning.
-const KICKOFFS: Record<string, string> = {
+type EvalStep =
+  | 'clarify'
+  | 'authority'
+  | 'current_law'
+  | 'comparables'
+  | 'draft'
+
+const KICKOFFS: Record<EvalStep, string> = {
   clarify:
     "Let's begin. Ask me your first clarifying question about this ordinance.",
+  authority:
+    "Let's begin. Check whether we have the legal authority to enact this.",
+  current_law:
+    "Let's begin. Show me what current law already does here and the gaps.",
+  comparables: "Let's begin. Show me how comparable cities handled this.",
   draft: "Let's begin. Draft the ordinance from what the prior steps settled.",
+}
+
+// Cross-step design invariant: governance framing, never campaign framing.
+const assertGovernanceVoice = (assistantText: string): void => {
+  expect(/\bvoters\b/i.test(assistantText)).toBe(false)
 }
 
 const service = useTestService()
@@ -47,7 +64,7 @@ const anchorFor = (ordinanceId: string, step: string) => ({
 // is the source of truth the UI and later steps depend on.
 const runStep = async (
   fixture: Parameters<typeof seedFromFixture>[2],
-  step: 'clarify' | 'draft',
+  step: EvalStep,
 ) => {
   const seeded = await seedFromFixture(
     service.prisma,
@@ -82,10 +99,12 @@ const runStep = async (
     include: { segments: true },
     orderBy: { createdAt: 'asc' },
   })
-  const toolNames = messages
-    .flatMap((m) => m.segments)
+  const segments = messages.flatMap((m) => m.segments)
+  const toolNames = segments
     .filter((s) => s.toolName !== null)
     .map((s) => s.toolName as string)
+  const payloadsFor = (tool: string): unknown[] =>
+    segments.filter((s) => s.toolName === tool).map((s) => s.payload)
   const assistantText = messages
     .filter((m) => m.role === 'assistant')
     .flatMap((m) => m.segments)
@@ -97,6 +116,7 @@ const runStep = async (
     seeded,
     ordinance,
     toolNames,
+    payloadsFor,
     assistantText,
     streamed: String(res.data),
   }
@@ -130,6 +150,82 @@ d('ordinance-flow step evals (real Claude)', () => {
       expect(clarifyCalls).toBeLessThanOrEqual(1)
       const questionMarks = (assistantText.match(/\?/g) ?? []).length
       expect(questionMarks).toBeLessThanOrEqual(1)
+      assertGovernanceVoice(assistantText)
+    },
+    STEP_TIMEOUT_MS,
+  )
+
+  // Authority (design: one verdict card, status + explanation + source, then
+  // offer next). Faithfulness of the cited statute is a judge dimension.
+  it(
+    'authority step presents one sourced verdict and offers next',
+    async () => {
+      const { toolNames, payloadsFor, ordinance, assistantText } =
+        await runStep('bike-parking', 'authority')
+
+      const verdicts = payloadsFor('present_authority_finding')
+      expect(verdicts.length).toBe(1)
+      const v = verdicts[0] as {
+        status?: string
+        explanation?: string
+        source?: unknown
+      }
+      expect(['pass', 'flag', 'attention']).toContain(v.status)
+      expect((v.explanation ?? '').length).toBeGreaterThan(40)
+      expect(v.source).toBeTruthy()
+      expect(ordinance.authority).not.toBeNull()
+      expect(toolNames).toContain('offer_next_step')
+      assertGovernanceVoice(assistantText)
+    },
+    STEP_TIMEOUT_MS,
+  )
+
+  // Current law (design: get_code_source first, save_existing_law before
+  // offering, a does/gaps summary with the chapter source).
+  it(
+    'current-law step grounds in the code source and saves findings',
+    async () => {
+      const { toolNames, payloadsFor, ordinance, assistantText } =
+        await runStep('bike-parking', 'current_law')
+
+      expect(toolNames).toContain('get_code_source')
+      expect(toolNames).toContain('present_current_law_summary')
+      expect(toolNames).toContain('save_existing_law')
+      expect(toolNames).toContain('offer_next_step')
+      const summary = payloadsFor('present_current_law_summary')[0] as {
+        does?: unknown[]
+        gaps?: unknown[]
+      }
+      expect((summary.does ?? []).length).toBeGreaterThan(0)
+      expect((summary.gaps ?? []).length).toBeGreaterThan(0)
+      expect(ordinance.existingLaw).not.toBeNull()
+      assertGovernanceVoice(assistantText)
+    },
+    STEP_TIMEOUT_MS,
+  )
+
+  // Comparables (design: 3-5 cards, each sourced, ≥1 instructive failure, then
+  // "write the first draft"). Real-jurisdiction faithfulness is a judge dim.
+  it(
+    'comparables step presents 3-5 sourced cards and offers the draft',
+    async () => {
+      const { toolNames, payloadsFor, assistantText } = await runStep(
+        'bike-parking',
+        'comparables',
+      )
+
+      const presented = payloadsFor('present_comparables')
+      expect(presented.length).toBe(1)
+      const cards =
+        (presented[0] as { comparables?: unknown[] }).comparables ?? []
+      expect(cards.length).toBeGreaterThanOrEqual(3)
+      expect(cards.length).toBeLessThanOrEqual(5)
+      for (const c of cards as { status?: string; source?: unknown }[]) {
+        expect(['passed', 'repealed', 'unknown']).toContain(c.status)
+        expect(c.source).toBeTruthy()
+      }
+      expect(toolNames).toContain('offer_next_step')
+      assertGovernanceVoice(assistantText)
     },
     STEP_TIMEOUT_MS,
   )
