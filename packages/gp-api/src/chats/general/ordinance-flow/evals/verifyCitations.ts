@@ -65,7 +65,10 @@ export const gatherVerificationEvidence = async (
     const query = context ? `${citation} ${context}` : citation
     const result = await search.search(query, 3)
     if (!result.ok) {
-      blocks.push(`- "${citation}": search unavailable (${result.reason})`)
+      blocks.push(
+        `- "${citation}": lookup failed (${result.reason}) — treat this ` +
+          'citation as unverified, not as fabricated',
+      )
       continue
     }
     anySearchSucceeded = true

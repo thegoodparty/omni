@@ -102,4 +102,29 @@ describe('gatherVerificationEvidence', () => {
 
     expect(evidence).toBeUndefined()
   })
+
+  it('marks a failed lookup as unverified-not-fabricated when others succeeded', async () => {
+    const search = fakeSearch((q) =>
+      q.startsWith('S.L. 2026-39')
+        ? ok([
+            {
+              title: 'House Bill 162 / SL 2026-39',
+              url: 'https://www.ncleg.gov/BillLookup/2025/H162',
+              description: 'Signed into law.',
+            },
+          ])
+        : ({ ok: false, reason: 'timeout' } as OrdinanceSearchResult),
+    )
+
+    const evidence = await gatherVerificationEvidence(
+      search,
+      'Relies on S.L. 2026-39 and G.S. 160D-702.',
+    )
+
+    // A transport failure next to real hits must read as no-signal for that
+    // one citation — never as "no trace found" (the fabrication signal).
+    expect(evidence).toContain('ncleg.gov')
+    expect(evidence).toContain('unverified, not as fabricated')
+    expect(evidence).not.toContain('no web results found')
+  })
 })
