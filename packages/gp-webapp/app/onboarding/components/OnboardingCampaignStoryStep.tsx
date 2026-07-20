@@ -40,7 +40,7 @@ export default function OnboardingCampaignStoryStep({
   })
   const { data: story, isError: isStoryError } = useCampaignStory()
 
-  // A fetch failure must not mount the cards with empty data — a returning
+  // A fetch failure must not mount the cards with empty data. A returning
   // candidate would see their saved story apparently lost and the footer would
   // silently latch "Skip for now". Surface the failure instead.
   const isError = isWebsiteError || isStoryError

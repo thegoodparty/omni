@@ -471,7 +471,7 @@ export default function ChiefOfStaffChatBody({
       // Drop persisted sentinel turns (e.g. the story-kickoff sentinel) so
       // they never enter history/playback or render as a raw bubble. A hidden
       // sentinel is a USER turn whose canned assistant reply immediately
-      // follows it, so also skip that reply — otherwise it reloads as an
+      // follows it, so also skip that reply. Otherwise it reloads as an
       // orphaned assistant bubble with no preceding user message. (The one-off
       // story/product greeting therefore does not render on reload, an
       // accepted cosmetic.)
