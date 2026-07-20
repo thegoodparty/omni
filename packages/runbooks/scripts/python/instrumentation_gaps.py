@@ -269,6 +269,61 @@ def parse_judge_response(resp, candidate_ids: Sequence[str]) -> dict[str, dict]:
     return {v.id: v.model_dump() for v in batch.results if v.id in allowed}
 
 
+# --- judge call + graceful wrapper (network IO layer) ------------------------
+
+
+def make_anthropic_client(api_key: str):
+    """Construct the Anthropic SDK client. Import is local so the module still imports when
+    the dependency is absent and judgment is skipped."""
+    import anthropic
+
+    return anthropic.Anthropic(api_key=api_key)
+
+
+def judge_candidates(
+    candidates: Sequence[dict], rubric: str, *, client, model: str, max_tokens: int = 4096
+) -> dict[str, dict]:
+    """One batched judgment call over the capped candidate set. Client is injected so this
+    is unit-testable without network. Forces the report_gap_verdicts tool for a validated
+    result. Mirrors qa_validate.py's AnthropicJudge."""
+    resp = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=judge_system_prompt(rubric),
+        tools=[JUDGE_TOOL],
+        tool_choice={"type": "tool", "name": JUDGE_TOOL["name"]},
+        messages=build_judge_messages(candidates),
+    )
+    return parse_judge_response(resp, [c["id"] for c in candidates])
+
+
+def run_judgment(
+    candidates: Sequence[dict],
+    *,
+    api_key: str | None,
+    model: str,
+    rubric_path: Path = DEFAULT_RUBRIC_PATH,
+    client_factory=make_anthropic_client,
+) -> tuple[dict[str, dict], str]:
+    """Graceful boundary around the judge. Never raises: returns (verdicts_by_id, status).
+    A missing key, missing rubric, SDK/network error, or bad response all degrade to an
+    empty result and a status string the digest reports — the run continues unaffected."""
+    if not candidates:
+        return {}, "no-candidates"
+    if not api_key:
+        return {}, "skipped: ANTHROPIC_API_KEY unset"
+    try:
+        rubric = load_rubric(rubric_path)
+    except FileNotFoundError:
+        return {}, "skipped: rubric unavailable"
+    try:
+        client = client_factory(api_key)
+        verdicts = judge_candidates(candidates, rubric, client=client, model=model)
+    except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
+        return {}, f"failed: {exc}"
+    return verdicts, "ok"
+
+
 # --- state + dispositions -----------------------------------------------------
 
 

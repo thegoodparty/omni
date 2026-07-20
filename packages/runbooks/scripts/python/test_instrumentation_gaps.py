@@ -401,3 +401,78 @@ def test_parse_judge_response_no_tool_use_raises():
     import pytest
     with pytest.raises(RuntimeError):
         ig.parse_judge_response(_FakeResp([]), candidate_ids=["/a"])
+
+
+class _FakeMessages:
+    def __init__(self, payload=None, raise_exc=None):
+        self._payload = payload
+        self._raise = raise_exc
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if self._raise is not None:
+            raise self._raise
+        return _FakeResp([_FakeBlock(self._payload)])
+
+
+class _FakeClient:
+    def __init__(self, payload=None, raise_exc=None):
+        self.messages = _FakeMessages(payload, raise_exc)
+
+
+_VERDICT_PAYLOAD = {
+    "results": [
+        {"id": "/a", "is_gap": True, "rubric_rule": "flow", "dashboard_question": "q",
+         "rank": 0, "reason": "r"},
+    ]
+}
+
+
+def test_judge_candidates_uses_forced_tool_and_parses():
+    client = _FakeClient(payload=_VERDICT_PAYLOAD)
+    cands = [{"id": "/a", "surface_type": "wizard_stage", "location": "a.tsx", "snippet": "x"}]
+    out = ig.judge_candidates(cands, "RUBRIC", client=client, model="claude-sonnet-5")
+    assert out["/a"]["is_gap"] is True
+    sent = client.messages.calls[0]
+    assert sent["model"] == "claude-sonnet-5"
+    assert sent["tool_choice"] == {"type": "tool", "name": "report_gap_verdicts"}
+    assert sent["system"].startswith("RUBRIC")
+
+
+def test_run_judgment_skips_without_key(tmp_path):
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
+    out, status = ig.run_judgment(cands, api_key=None, model="m", rubric_path=tmp_path / "r.md")
+    assert out == {}
+    assert "ANTHROPIC_API_KEY" in status
+
+
+def test_run_judgment_no_candidates_is_noop():
+    out, status = ig.run_judgment([], api_key="sk-ant-x", model="m")
+    assert out == {} and status == "no-candidates"
+
+
+def test_run_judgment_swallows_sdk_error(tmp_path):
+    rubric = tmp_path / "r.md"
+    rubric.write_text("RUBRIC")
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
+    boom = _FakeClient(raise_exc=RuntimeError("429 overloaded"))
+    out, status = ig.run_judgment(
+        cands, api_key="sk-ant-x", model="m", rubric_path=rubric,
+        client_factory=lambda _k: boom,
+    )
+    assert out == {}
+    assert status.startswith("failed:")
+
+
+def test_run_judgment_ok_path(tmp_path):
+    rubric = tmp_path / "r.md"
+    rubric.write_text("RUBRIC")
+    cands = [{"id": "/a", "surface_type": "wizard_stage", "location": "a.tsx", "snippet": "x"}]
+    client = _FakeClient(payload=_VERDICT_PAYLOAD)
+    out, status = ig.run_judgment(
+        cands, api_key="sk-ant-x", model="claude-sonnet-5", rubric_path=rubric,
+        client_factory=lambda _k: client,
+    )
+    assert status == "ok"
+    assert out["/a"]["rubric_rule"] == "flow"
