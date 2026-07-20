@@ -150,6 +150,23 @@ def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
     return out
 
 
+def extract_context(
+    text: str, pattern: re.Pattern[str] | None = None, max_lines: int = 40
+) -> str:
+    """A bounded code snippet for the judge to read. Windowed around the first pattern
+    match when given, else the file head. Bounded so the judge input stays small."""
+    lines = text.splitlines()
+    if pattern is not None:
+        match = pattern.search(text)
+        if match is not None:
+            hit_line = text.count("\n", 0, match.start())
+            half = max_lines // 2
+            start = max(0, hit_line - half)
+            window = lines[start : start + max_lines]
+            return "\n".join(window).strip("\n")
+    return "\n".join(lines[:max_lines]).strip("\n")
+
+
 # --- call-site diff -----------------------------------------------------------
 
 _TRACKING_RE = re.compile(r"\btrackEvent\s*\(|\bAnalyticsService\b|\.track\(")

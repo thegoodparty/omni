@@ -88,6 +88,26 @@ def test_detect_returns_nothing_for_plain_file():
     assert ig.detect_surfaces_in_file("packages/gp-webapp/helpers/x.ts", "export const x = 1\n") == []
 
 
+def test_extract_context_windows_around_match():
+    text = "\n".join(f"line{i}" for i in range(100))
+    pat = __import__("re").compile(r"line50")
+    out = ig.extract_context(text, pat, max_lines=10)
+    assert "line50" in out
+    assert out.count("\n") <= 10
+    assert "line0" not in out  # windowed, not from the top
+
+
+def test_extract_context_no_pattern_takes_head():
+    text = "\n".join(f"line{i}" for i in range(100))
+    out = ig.extract_context(text, None, max_lines=5)
+    assert out.startswith("line0")
+    assert "line50" not in out
+
+
+def test_extract_context_short_file_returns_all():
+    assert ig.extract_context("a\nb\nc", None, max_lines=40) == "a\nb\nc"
+
+
 def test_has_tracking_call():
     assert ig.has_tracking_call("trackEvent(EVENTS.Foo.Bar, {})") is True
     assert ig.has_tracking_call("this.analytics.track(userId, EVENTS.X.Y)") is True
