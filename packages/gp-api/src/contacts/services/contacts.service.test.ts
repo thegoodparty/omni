@@ -75,9 +75,6 @@ describe('ContactsService', () => {
       getDistrictAndBallotLevelForOrgSlug: ReturnType<typeof vi.fn>
     }
     let voterFileDownloadAccess: VoterFileDownloadAccessService
-    let mockFeaturesService: {
-      isFeatureEnabled: ReturnType<typeof vi.fn>
-    }
     let mockSupportStatusService: {
       statusForPeople: ReturnType<typeof vi.fn>
     }
@@ -120,9 +117,6 @@ describe('ContactsService', () => {
       } as never)
       ;(voterFileDownloadAccess as unknown as { logger: PinoLogger }).logger =
         createMockLogger()
-      mockFeaturesService = {
-        isFeatureEnabled: vi.fn().mockResolvedValue(true),
-      }
       mockSupportStatusService = {
         statusForPeople: vi.fn().mockResolvedValue(new Map()),
       }
@@ -140,7 +134,6 @@ describe('ContactsService', () => {
         mockCampaignsService as never,
         mockOrganizationsService as never,
         voterFileDownloadAccess,
-        mockFeaturesService as never,
         mockSupportStatusService as never,
         mockContactInteractionTextService as never,
         mockActivityConditionResolutionService as never,

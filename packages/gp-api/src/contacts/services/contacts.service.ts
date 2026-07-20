@@ -2,14 +2,12 @@ import { HttpService } from '@nestjs/axios'
 import {
   BadGatewayException,
   BadRequestException,
-  ForbiddenException,
   HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
 import type { ListDetailContactsResponse } from '@goodparty_org/contracts'
-import { Organization, User } from '../../generated/prisma'
-import { FeaturesService } from 'src/features/services/features.service'
+import { Organization } from '../../generated/prisma'
 import { isAxiosError } from 'axios'
 import { FastifyReply } from 'fastify'
 import jwt from 'jsonwebtoken'
@@ -58,12 +56,8 @@ import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
-// Exported so the campaign-manager chat handler can mirror the webapp's CRM
-// gate (useCrmEnabled): a Win surface needs win-voter-data AND win-crm.
-export const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
-
 // The default, unfiltered view. It (and the district stats) are visible to any
-// Win campaign with the flag on, pro or not. A non-pro candidate sees the real
+// Win campaign, pro or not. A non-pro candidate sees the real
 // district aggregates but a synthetic (fake) people preview — never real voter
 // PII (see previewContacts.utils) — before being upsold. Search, custom/named
 // segments, and download stay pro-only.
@@ -110,38 +104,12 @@ export class ContactsService {
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
-    private readonly features: FeaturesService,
     private readonly supportStatusService: SupportStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
-  }
-
-  // Authz gate for the user-facing Contacts surface. Elected-office (Serve)
-  // orgs predate the Win rollout and are not flag-gated. Win (campaign) orgs
-  // are reachable when win-voter-data is on for the user — pro and non-pro
-  // alike, so a non-pro candidate lands on the page and sees the district
-  // aggregates and a synthetic people preview. Pro is NOT gated here; it is
-  // enforced per-action instead (real people data on the base list, search and
-  // named/custom segments in findContacts, download in downloadContacts) so
-  // those surface the upgrade prompt. Ownership
-  // is enforced upstream by @UseOrganization(). Internal callers (polls, queue
-  // consumer) call the service methods directly and are intentionally not gated.
-  async assertContactsAccess(
-    organization: Organization,
-    user: User,
-  ): Promise<void> {
-    if (this.hasElectedOfficeAccess(organization)) return
-
-    const flagEnabled = await this.features.isFeatureEnabled({
-      user,
-      feature: WIN_VOTER_DATA_FLAG_KEY,
-    })
-    if (!flagEnabled) {
-      throw new ForbiddenException('Voter data access is not enabled')
-    }
   }
 
   private hasElectedOfficeAccess(organization: Organization): boolean {
