@@ -1,8 +1,11 @@
 import { expect, type Page, type Response, test } from '@playwright/test'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
+  crmSheet,
+  enableCrmFlags,
+  gotoCrmContacts,
+  typeaheadInput,
+} from 'src/helpers/crm-contacts-e2e'
 import {
   setupElectedOfficeUser,
   switchOrganization,
@@ -27,9 +30,11 @@ const isContactsListResponse = (res: Response): boolean =>
 // previewContacts.utils (ENG-10508): every person's lalVoterId is `preview-<n>`
 // and cellPhone is in the 202-555 fictional exchange. Real L2 voters never have
 // either, so these are the deterministic real-vs-synthetic distinguishers. We
-// assert on the parsed JSON response rather than the rendered cells so the
-// check is robust to the upsell blur and never reproduces a real voter record
-// in the DOM snapshot / trace (org data policy).
+// assert on the parsed JSON response rather than any rendered value so the
+// check is robust to UI churn and never reproduces a real voter record in the
+// DOM snapshot / trace (org data policy). The CRM provider still mounts the
+// base-list query on the flag-on page, so the capture pattern is unchanged
+// from the legacy spec.
 type ContactsListBody = {
   people: { lalVoterId: string; cellPhone: string | null }[]
   pagination: { totalResults: number }
@@ -46,9 +51,7 @@ const gotoContactsAndCaptureList = async (
   const listResponse = page.waitForResponse(isContactsListResponse, {
     timeout: 30000,
   })
-  await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
-  await NavigationHelper.dismissOverlays(page)
-  await expect(page).toHaveURL(/\/dashboard\/contacts/)
+  await gotoCrmContacts(page)
   return (await (await listResponse).json()) as ContactsListBody
 }
 
@@ -58,76 +61,85 @@ const gotoContactsAndCaptureList = async (
 test.describe('Contacts pro gating @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    await enableCrmFlags(page)
   })
 
   // A non-pro Win candidate must never receive real voter PII (ENG-10508 /
-  // ENG-10495 — a CSS blur is not a boundary, blurred values are copy-pastable
-  // straight out of the DOM). The base list is served as a synthetic preview
-  // and every pro action (download here) surfaces the upsell instead.
-  test('non-pro Win gets synthetic preview rows and a pro-gated download', async ({
+  // ENG-10495 — a CSS blur is not a boundary). The base list is served as a
+  // synthetic preview, and every pro action on the CRM page surfaces the
+  // upsell: the legacy pro-gated download control is gone with the member
+  // table, so the ported pro-action checks are the typeahead (focus/typing
+  // opens the modal and never fires a search) and "Create new list" (opens
+  // the modal instead of the wizard).
+  test('non-pro Win gets synthetic preview rows and pro-gated actions', async ({
     page,
   }) => {
     test.setTimeout(3 * 60 * 1000)
 
-    // A fresh launched campaign is non-pro (authenticateTestUser never upgrades
-    // it), and its campaign-<id> org is the active Win context. No elected
-    // office is created, so canUseProFeatures is false both client- and server-
-    // side (gp-api isProAccess reads campaign.isPro for a campaign org).
+    // A fresh launched campaign is non-pro (authenticateTestUser never
+    // upgrades it), and its campaign-<id> org is the active Win context. No
+    // elected office is created, so canUseProFeatures is false both client-
+    // and server-side (gp-api isProAccess reads campaign.isPro for a
+    // campaign org).
     await authenticateTestUser(page, { isolated: true })
 
     const list = await gotoContactsAndCaptureList(page)
 
     // Every served row is fabricated: synthetic lalVoterId AND 202-555 phone.
     // Asserting on all rows (not just the first) proves no real record leaked
-    // anywhere in the page, which is the exact regression ENG-10508 fixed.
+    // anywhere in the payload, which is the exact regression ENG-10508 fixed.
     expect(list.people.length).toBeGreaterThan(0)
     for (const person of list.people) {
       expect(person.lalVoterId).toMatch(SYNTHETIC_VOTER_ID)
       expect(person.cellPhone).toMatch(SYNTHETIC_PHONE)
     }
 
-    // The table still renders those rows (blurred) as an upsell cue.
-    const table = page.locator('table').first()
-    await expect(table).toBeVisible({ timeout: 20000 })
-    await expect(table.locator('tbody tr').first()).toBeVisible({
-      timeout: 25000,
-    })
-
-    // Download is pro-gated: the control renders for non-pro but clicking it
-    // opens the Pro upgrade modal and fires NO /v1/contacts/download request
-    // (Download.tsx short-circuits to showProUpgradeModal when not pro). Arm a
-    // rejected-on-timeout download waiter so a leaked request would fail the
-    // test, then assert the upsell modal instead.
-    let downloadRequested = false
-    const onDownloadRequest = (response: Response): void => {
-      if (response.url().includes('/v1/contacts/download')) {
-        downloadRequested = true
+    // Typing in the typeahead must open the Pro upgrade modal and fire NO
+    // search request (ContactTypeahead short-circuits before setting a
+    // query, so the debounced fetch never arms). Arm a response listener so
+    // a leaked search request fails the test.
+    let searchRequested = false
+    const onSearchRequest = (response: Response): void => {
+      if (
+        CONTACTS_LIST_RESPONSE.test(response.url()) &&
+        response.url().includes('search=')
+      ) {
+        searchRequested = true
       }
     }
-    page.on('response', onDownloadRequest)
+    page.on('response', onSearchRequest)
 
-    const downloadIconButton = page.getByTestId('contacts-download-button')
-    await downloadIconButton.scrollIntoViewIfNeeded()
-    await expect(downloadIconButton).toBeVisible({ timeout: 10000 })
-    await downloadIconButton.click({ force: true })
+    const input = typeaheadInput(page)
+    await expect(input).toBeVisible({ timeout: 20_000 })
+    await input.fill('smith')
 
     // The non-pro contacts upsell modal is ProUpgradeModal variant
-    // Second_NonViable (ContactsPage.tsx); its title is stable copy.
-    await expect(
-      page.getByRole('heading', { name: 'Get Pro voter data and tools' }),
-    ).toBeVisible({ timeout: 10000 })
+    // Second_NonViable (CrmContactsPage.tsx); its title is stable copy.
+    const proModalHeading = page.getByRole('heading', {
+      name: 'Get Pro voter data and tools',
+    })
+    await expect(proModalHeading).toBeVisible({ timeout: 10_000 })
+    await page.keyboard.press('Escape')
+    await expect(proModalHeading).toBeHidden({ timeout: 10_000 })
 
-    page.off('response', onDownloadRequest)
-    expect(downloadRequested).toBe(false)
+    page.off('response', onSearchRequest)
+    expect(searchRequested).toBe(false)
+
+    // "Create new list" is pro-gated the same way: the modal opens and the
+    // wizard sheet never mounts.
+    await page.getByRole('button', { name: 'Create new list' }).click()
+    await expect(proModalHeading).toBeVisible({ timeout: 10_000 })
+    await expect(crmSheet(page)).toBeHidden()
   })
 
   // The mirror case: a pro-access account is served REAL voter rows from
-  // people-api, never the synthetic preview. An elected-office (eo-) org is the
-  // deterministic pro-access context — gp-api isProAccess short-circuits true
-  // for it via hasElectedOfficeAccess, so findContacts skips the preview branch
-  // and returns real L2 people. A Win campaign's isPro can only be flipped
-  // through the Stripe upgrade webhook (no test/admin API sets it), so the eo-
-  // org is the reliable way to exercise the real-people branch in e2e.
+  // people-api, never the synthetic preview. An elected-office (eo-) org is
+  // the deterministic pro-access context — gp-api isProAccess short-circuits
+  // true for it via hasElectedOfficeAccess, so findContacts skips the preview
+  // branch and returns real L2 people. A Win campaign's isPro can only be
+  // flipped through the Stripe upgrade webhook (no test/admin API sets it),
+  // so the eo- org is the reliable way to exercise the real-people branch in
+  // e2e.
   test('pro account is served real voter rows, not the preview', async ({
     page,
   }) => {
@@ -138,9 +150,10 @@ test.describe('Contacts pro gating @dev-only', () => {
 
     const list = await gotoContactsAndCaptureList(page)
 
-    // Real rows: no fabricated lalVoterId / 202-555 phone anywhere. This is the
-    // negation of the non-pro preview's distinguishers, so a regression that
-    // re-routed a pro account through buildPreviewContacts would fail here.
+    // Real rows: no fabricated lalVoterId / 202-555 phone anywhere. This is
+    // the negation of the non-pro preview's distinguishers, so a regression
+    // that re-routed a pro account through buildPreviewContacts would fail
+    // here.
     expect(list.people.length).toBeGreaterThan(0)
     for (const person of list.people) {
       expect(person.lalVoterId).not.toMatch(SYNTHETIC_VOTER_ID)
@@ -152,7 +165,7 @@ test.describe('Contacts pro gating @dev-only', () => {
 
   // Guard against the eo- precondition silently regressing: if setup ever
   // stopped leaving a pro-access org selected, the real-rows assertion above
-  // could pass for the wrong reason. Confirm the active org is the eo- one a
+  // could pass for the wrong reason. Confirm the active org is the eo- one; a
   // campaign org would be non-pro and get the synthetic preview instead.
   test('pro real-rows precondition: active org is elected office', async ({
     page,
@@ -167,8 +180,8 @@ test.describe('Contacts pro gating @dev-only', () => {
     expect(campaignOrgName).toBeTruthy()
 
     // Switching to the campaign (non-pro) org must flip the base list back to
-    // the synthetic preview, proving the real rows above were a property of the
-    // pro-access org and not of the district's data.
+    // the synthetic preview, proving the real rows above were a property of
+    // the pro-access org and not of the district's data.
     await switchOrganization(page, campaignOrgName!)
     const campaignList = await gotoContactsAndCaptureList(page)
     expect(campaignList.people.length).toBeGreaterThan(0)
