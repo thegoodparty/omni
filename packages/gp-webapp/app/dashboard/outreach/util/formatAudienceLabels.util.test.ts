@@ -3,9 +3,10 @@ import { formatAudienceLabels } from './formatAudienceLabels.util'
 
 describe('formatAudienceLabels', () => {
   it('labels legacy age keys with their original ranges', () => {
-    expect(
-      formatAudienceLabels({ age18_25: true, age50Plus: true }),
-    ).toEqual(['18-25', '50+'])
+    expect(formatAudienceLabels({ age18_25: true, age50Plus: true })).toEqual([
+      '18-25',
+      '50+',
+    ])
   })
 
   it('labels the new exclusive age keys so CRM-built lists are not blank', () => {
