@@ -92,5 +92,5 @@ ALTER TABLE "door_knocking_stop_target" ADD CONSTRAINT "door_knocking_stop_targe
 ALTER TABLE "door_knocking_turf" ADD CONSTRAINT "door_knocking_turf_voter_file_filter_id_fkey" FOREIGN KEY ("voter_file_filter_id") REFERENCES "voter_file_filter"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "outreach" ADD CONSTRAINT "outreach_door_knocking_route_id_fkey" FOREIGN KEY ("door_knocking_route_id") REFERENCES "door_knocking_route"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "outreach" ADD CONSTRAINT "outreach_door_knocking_route_id_fkey" FOREIGN KEY ("door_knocking_route_id") REFERENCES "door_knocking_route"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
