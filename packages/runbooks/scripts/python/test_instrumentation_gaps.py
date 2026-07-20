@@ -357,3 +357,47 @@ def test_select_candidates_keeps_new_disposition():
     gaps = [{"id": "/x", "surface_type": "route", "location": "x.tsx"}]
     out = ig.select_candidates(gaps, {"/x": {"disposition": "new"}}, limit=10)
     assert [g["id"] for g in out] == ["/x"]
+
+
+class _FakeBlock:
+    def __init__(self, input_):
+        self.type = "tool_use"
+        self.input = input_
+
+
+class _FakeResp:
+    def __init__(self, content):
+        self.content = content
+
+
+def test_build_judge_messages_carries_candidates():
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": "x"}]
+    msgs = ig.build_judge_messages(cands)
+    assert msgs[0]["role"] == "user"
+    assert "/a" in msgs[0]["content"]
+
+
+def test_judge_system_prompt_includes_rubric():
+    sp = ig.judge_system_prompt("RUBRIC-BODY-MARKER")
+    assert "RUBRIC-BODY-MARKER" in sp
+
+
+def test_parse_judge_response_validates_and_filters_unknown_ids():
+    payload = {
+        "results": [
+            {"id": "/a", "is_gap": True, "rubric_rule": "flow", "dashboard_question": "q",
+             "rank": 0, "reason": "r"},
+            {"id": "/hallucinated", "is_gap": True, "rubric_rule": "x",
+             "dashboard_question": "q", "rank": 1, "reason": "r"},
+        ]
+    }
+    resp = _FakeResp([_FakeBlock(payload)])
+    out = ig.parse_judge_response(resp, candidate_ids=["/a"])
+    assert set(out) == {"/a"}
+    assert out["/a"]["is_gap"] is True
+
+
+def test_parse_judge_response_no_tool_use_raises():
+    import pytest
+    with pytest.raises(RuntimeError):
+        ig.parse_judge_response(_FakeResp([]), candidate_ids=["/a"])

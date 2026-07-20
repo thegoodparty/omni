@@ -218,6 +218,57 @@ def select_candidates(
     return eligible[:limit]
 
 
+# --- judge prompt + response parsing (pure, no network) ----------------------
+
+JUDGE_TOOL = {
+    "name": "report_gap_verdicts",
+    "description": "Return one verdict per candidate surface, applying the instrument/skip rubric.",
+    "input_schema": JudgeBatch.model_json_schema(),
+}
+
+_JUDGE_INSTRUCTIONS = (
+    "You are auditing product surfaces for missing analytics instrumentation. "
+    "The rubric above is authoritative: decide is_gap=true only when the rubric says the "
+    "surface should fire an event that it currently does not. Apply the skip list strictly "
+    "(chrome, in-page nav, main-nav destinations already covered by page views, single "
+    "toggle open/close). For each candidate name the rubric_rule that applies, the "
+    "dashboard_question the missing event would answer, a rank 0-5 (0 = highest priority, "
+    "e.g. a URL-stable multi-step flow stage; higher = lower value), and a one-line reason. "
+    "Copy each id verbatim. Return exactly one verdict per candidate via the tool."
+)
+
+
+def judge_system_prompt(rubric: str) -> str:
+    """Rubric text (single-sourced from SKILL.md) plus the fixed judging instructions."""
+    return f"{rubric}\n\n---\n\n{_JUDGE_INSTRUCTIONS}"
+
+
+def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
+    """One user turn carrying the capped candidate set as JSON for the judge to classify."""
+    payload = [
+        {
+            "id": c["id"],
+            "surface_type": c["surface_type"],
+            "location": c["location"],
+            "snippet": c.get("snippet", ""),
+        }
+        for c in candidates
+    ]
+    content = "Candidate surfaces to classify:\n\n" + json.dumps(payload, indent=2)
+    return [{"role": "user", "content": content}]
+
+
+def parse_judge_response(resp, candidate_ids: Sequence[str]) -> dict[str, dict]:
+    """Validate the tool_use block as a JudgeBatch and key verdicts by id, keeping only ids
+    that were in the input (a hallucinated id is dropped, never trusted into state)."""
+    block = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
+    if block is None:
+        raise RuntimeError("no tool_use block in judge response")
+    batch = JudgeBatch.model_validate(block.input)
+    allowed = set(candidate_ids)
+    return {v.id: v.model_dump() for v in batch.results if v.id in allowed}
+
+
 # --- state + dispositions -----------------------------------------------------
 
 
