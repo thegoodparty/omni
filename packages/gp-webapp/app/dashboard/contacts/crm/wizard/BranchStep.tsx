@@ -12,13 +12,12 @@ interface BranchStepProps {
 }
 
 // Step 1 of the wizard (ENG-10708 locked design, ENG-10721 card copy): the
-// branch chooser. Both Win and Serve get the identical two CARDS, but their
-// description text names voters/constituents — that noun must come from
-// contactsLabels.ts (never a local literal) so Win can't say "constituent"
-// and Serve can't say "voter file" (app/dashboard/contacts/CLAUDE.md's
-// naming-never-crosses-over rule). Serve is built "as if it has outreach"
-// (the activity branch's campaign picker just renders empty for Serve, see
-// ActivityStep).
+// branch chooser. Win-only since ENG-10750 (reversing the earlier "build
+// Serve as if it has outreach" stance): Serve has no outreach, so
+// CreateListWizard drops this step entirely there and opens directly on the
+// constituent-file filters. The description text still reads its noun from
+// contactsLabels.ts (never a local literal) per the
+// naming-never-crosses-over rule (app/dashboard/contacts/CLAUDE.md).
 export default function BranchStep({
   selected,
   onSelect,
