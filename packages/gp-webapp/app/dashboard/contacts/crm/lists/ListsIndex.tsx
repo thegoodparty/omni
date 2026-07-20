@@ -14,7 +14,13 @@ import ListCard from './ListCard'
 // action: GET /v1/contacts/list-detail requires a saved-segment id, so
 // there's nothing to open for the unfiltered universe (deviation noted on
 // ENG-10725).
-const AllContactsCard = ({ title }: { title: string }) => {
+const AllContactsCard = ({
+  title,
+  showSendOutreach,
+}: {
+  title: string
+  showSendOutreach: boolean
+}) => {
   const query = useQuery(districtStatsQueryOptions)
 
   return (
@@ -29,9 +35,11 @@ const AllContactsCard = ({ title }: { title: string }) => {
               : '—'
             : query.data.totalConstituents.toLocaleString()}
         </span>
-        <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-          <Link href="/dashboard/outreach">Send outreach</Link>
-        </Button>
+        {showSendOutreach && (
+          <Button size="small" className="h-8 px-3.5 text-xs" asChild>
+            <Link href="/dashboard/outreach">Send outreach</Link>
+          </Button>
+        )}
       </div>
     </Card>
   )
@@ -40,8 +48,14 @@ const AllContactsCard = ({ title }: { title: string }) => {
 // ENG-10725 (Lovable pixel parity): full-width row cards in the page's 560px
 // column — an "All voters" universe row first, then one row per saved list.
 export default function ListsIndex() {
-  const { customSegments, isWinContext } = useContactsTable()
+  const { customSegments, isWinContext, isWinContextReady } = useContactsTable()
   const labels = getContactsLabels(isWinContext)
+
+  // ENG-10749: Serve outreach is deferred, and /dashboard/outreach dead-ends
+  // for an eo- org, so the outreach affordance is Win-only. Waiting for
+  // isWinContextReady keeps the button from flashing at a Serve user while
+  // the mode resolves.
+  const showSendOutreach = isWinContextReady && isWinContext
 
   return (
     <section className="flex flex-col gap-4">
@@ -53,7 +67,10 @@ export default function ListsIndex() {
       </div>
 
       <div className="flex flex-col gap-3">
-        <AllContactsCard title={labels.allContactsTitle} />
+        <AllContactsCard
+          title={labels.allContactsTitle}
+          showSendOutreach={showSendOutreach}
+        />
         {customSegments.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             You haven&apos;t created any lists yet.

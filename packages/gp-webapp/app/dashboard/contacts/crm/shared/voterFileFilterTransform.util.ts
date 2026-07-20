@@ -1,4 +1,5 @@
 import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import type { SupportStatusRollup } from './contacts-types'
 
 // Single source of truth for the voter-file filter → backend field mapping
 // (ENG-10708): both the wizard's voter-file branch and FiltersSheet import
@@ -63,6 +64,14 @@ export const countSelectedFilterCategories = (
 // so this always evaluates false there.
 export const hasPartyFilterSelection = (filters: VoterFileFilters): boolean =>
   PARTY_FIELD?.options.some((option) => filters[option.key]) ?? false
+
+// ENG-10751: the wizard's build-CTA gate (CreateListWizard) and the "Clear
+// filters" affordance (VoterFileStep) must agree on what counts as a
+// selection — one formula so the two can't drift.
+export const hasAnyVoterFileSelection = (
+  filters: VoterFileFilters,
+  supportStatus: SupportStatusRollup[],
+): boolean => Object.values(filters).some(Boolean) || supportStatus.length > 0
 
 export const transformVoterFileFiltersForBackend = (
   filters: VoterFileFilters,
