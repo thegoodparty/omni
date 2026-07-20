@@ -64,7 +64,10 @@ extract_database_url() {
   # $1 = path to .env file. Echoes the value (no export, no side effects).
   # Handles: outer quotes (single or double), trailing inline `# comment`.
   local line val
-  line="$(grep -E '^DATABASE_URL[[:space:]]*=' "$1" | head -1 || true)"
+  # Prefer LOCAL_DATABASE_URL (the name in .env.example); fall back to
+  # DATABASE_URL for backwards compatibility.
+  line="$(grep -E '^LOCAL_DATABASE_URL[[:space:]]*=' "$1" | head -1 || true)"
+  [[ -z "$line" ]] && line="$(grep -E '^DATABASE_URL[[:space:]]*=' "$1" | head -1 || true)"
   if [[ -n "$line" ]]; then
     val="${line#*=}"
     # If the value is double-quoted, take everything up to the closing quote.
@@ -110,6 +113,10 @@ extract_pg_schema() {
   fi
 }
 
+# Accept LOCAL_DATABASE_URL (the name in .env.example) from the environment,
+# falling back to DATABASE_URL for backwards compatibility.
+DATABASE_URL="${DATABASE_URL:-${LOCAL_DATABASE_URL:-}}"
+
 if [[ -z "${DATABASE_URL:-}" ]]; then
   ENV_SRC=""
   if [[ -f ./.env ]]; then
@@ -138,8 +145,8 @@ if [[ -z "${DATABASE_URL:-}" ]]; then
 fi
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
-  echo "✗ DATABASE_URL is not set, and no .env was found (cwd, superproject, or main worktree)." >&2
-  echo "  Set it explicitly: DATABASE_URL=postgres://... $0 '...'" >&2
+  echo "✗ LOCAL_DATABASE_URL / DATABASE_URL is not set, and no .env was found (cwd, superproject, or main worktree)." >&2
+  echo "  Set it explicitly: LOCAL_DATABASE_URL=postgres://... $0 '...'" >&2
   exit 1
 fi
 
