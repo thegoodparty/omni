@@ -355,6 +355,9 @@ export default function OrdinanceFlowChat({
     messages,
     visibleSegments,
     liveClarify,
+    // The next-step offer is consumed by onEvent (never hits visibleSegments),
+    // so include it or the offer widget renders below the fold unscrolled.
+    liveOffer,
   ])
 
   if (phase === 'loading') {
