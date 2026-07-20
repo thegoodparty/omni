@@ -52,12 +52,9 @@ const gotoContactsAndCaptureList = async (
   return (await (await listResponse).json()) as ContactsListBody
 }
 
-// @dev-only: a Win (campaign) org reaches the Contacts surface only when
-// win-voter-data is on for the user, which the staged rollout enables for
-// internal/@test.goodparty.org users on the warm dev stack alone (see
-// contacts-staged-rollout.md). gp-api ContactsService.assertContactsAccess hard-
-// gates every /v1/contacts route for campaign orgs on that flag, so this can't
-// pass against an ephemeral per-PR preview. Same gate as win-contacts.spec.
+// @dev-only: pro-gating behavior on the Win Contacts surface needs the warm
+// dev stack's real district voter data and provisioned users; an ephemeral
+// per-PR preview can't guarantee either. Same gate as win-contacts.spec.
 test.describe('Contacts pro gating @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)

@@ -5,7 +5,7 @@ import Modal from '@shared/utils/Modal'
 import CustomVoterAudienceFilters, {
   AudienceFiltersState,
   AudienceFilterKey,
-} from './CustomVoterAudienceFilters'
+} from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 
 const VALID_AUDIENCE_FILTER_KEYS: Set<string> = new Set([
   'audience_superVoters',

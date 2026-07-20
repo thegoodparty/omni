@@ -129,7 +129,6 @@ const MOBILE_PAGE_TITLES: Array<[string, string]> = [
   ['/dashboard/ordinances', 'Ordinances'],
   ['/dashboard/race-opponent', 'Know Your Opponent'],
   ['/dashboard/outreach', 'Voter Outreach'],
-  ['/dashboard/voter-records', 'Voter Data'],
   // /dashboard/contacts is intentionally absent: its title depends on Win vs
   // Serve, so MobileMenuTrigger resolves it from the org instead.
   ['/dashboard/polls', 'Polls'],

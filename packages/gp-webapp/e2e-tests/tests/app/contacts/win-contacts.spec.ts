@@ -27,14 +27,11 @@ const selectFilterCheckbox = async (
 }
 
 // @dev-only: this spec exercises the Win Contacts surface for a pro campaign
-// org, which is reachable only when win-voter-data is on for the user AND the
-// campaign is pro (gp-api ContactsService.assertContactsAccess hard-gates every
-// /v1/contacts route for campaign orgs on flag + isPro). The first staged-
-// rollout step enables win-voter-data for internal/@test.goodparty.org users on
-// the warm dev stack (see contacts-staged-rollout.md); an ephemeral per-PR
-// preview can't guarantee that flag state or the pro provisioning, so this runs
-// on the post-merge develop e2e (and on demand), not on PRs. Same pattern as
-// polls-onboarding. See e2e-tests/CLAUDE.md ("@dev-only").
+// org — real people rows are pro-gated, and the flow needs the warm dev
+// stack's real district voter data. An ephemeral per-PR preview can't
+// guarantee the pro provisioning or the data, so this runs on the post-merge
+// develop e2e (and on demand), not on PRs. Same pattern as polls-onboarding.
+// See e2e-tests/CLAUDE.md ("@dev-only").
 test.describe('Win Contacts @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
