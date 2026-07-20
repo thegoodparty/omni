@@ -7,7 +7,6 @@ import { createMockLogger } from '@/shared/test-utils/mockLogger.util'
 describe('VoterFileController', () => {
   let controller: VoterFileController
   let mockVoterFileService: Record<string, ReturnType<typeof vi.fn>>
-  let mockVoterFileDownloadAccess: Record<string, ReturnType<typeof vi.fn>>
   let mockCampaignsService: Record<string, ReturnType<typeof vi.fn>>
   let mockVoterFileFilterService: {
     create: ReturnType<typeof vi.fn>
@@ -27,7 +26,6 @@ describe('VoterFileController', () => {
 
   beforeEach(() => {
     mockVoterFileService = {}
-    mockVoterFileDownloadAccess = {}
     mockCampaignsService = {}
     mockVoterFileFilterService = {
       create: vi.fn().mockResolvedValue(mockFilter),
@@ -40,7 +38,6 @@ describe('VoterFileController', () => {
 
     controller = new VoterFileController(
       mockVoterFileService as never,
-      mockVoterFileDownloadAccess as never,
       mockCampaignsService as never,
       mockVoterFileFilterService as never,
       {} as never,
