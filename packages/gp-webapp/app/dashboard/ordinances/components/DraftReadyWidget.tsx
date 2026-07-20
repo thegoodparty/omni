@@ -36,9 +36,12 @@ export default function DraftReadyWidget({
             </p>
           ) : null}
           {loopEnabled ? (
+            // Future tense on purpose: this card is static chat copy and the
+            // auto-start is fire-and-forget server-side — it can decline to
+            // run (flag/env/redline), so never assert the checks ARE running.
             <p className="mt-1 text-sm text-muted-foreground">
-              We&apos;re running quality checks on it now — you can watch or
-              stop them from the draft page.
+              We&apos;ll run quality checks on it — watch them from the draft
+              page.
             </p>
           ) : null}
         </div>

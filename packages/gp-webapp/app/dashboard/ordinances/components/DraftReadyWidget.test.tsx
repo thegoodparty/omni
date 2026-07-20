@@ -72,8 +72,7 @@ describe('DraftReadyWidget', () => {
 
     expect(
       screen.getByText(
-        "We're running quality checks on it now — you can watch or stop" +
-          ' them from the draft page.',
+        "We'll run quality checks on it — watch them from the draft page.",
       ),
     ).toBeVisible()
     // The read must not inflate the exposed population — this card is not
@@ -85,7 +84,7 @@ describe('DraftReadyWidget', () => {
     render(<DraftReadyWidget draft={draft} slug="public-safety-cameras" />)
 
     expect(
-      screen.queryByText(/running quality checks on it now/i),
+      screen.queryByText(/run quality checks on it/i),
     ).not.toBeInTheDocument()
   })
 

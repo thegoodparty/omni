@@ -104,18 +104,9 @@ export async function fetchQualityRun(
   return data
 }
 
-// Start the background quality-improvement loop (flag-gated). 202 with the
-// updated ordinance whose qualityLoop is 'running'; the draft page polls
-// fetchOrdinanceBySlug until the loop settles. 409 when a loop or a manual
-// quality run is already active.
-export async function startQualityLoop(slug: string): Promise<Ordinance> {
-  const { data } = await clientRequest(
-    'POST /v1/ordinances/:slug/quality-loop',
-    { slug },
-  )
-  return data
-}
-
+// The improvement loop has no client-side start: it auto-starts server-side
+// on saveDraft (design: the panel only re-grades). The POST
+// /v1/ordinances/:slug/quality-loop route still exists for API/ops use.
 export async function cancelQualityLoop(slug: string): Promise<Ordinance> {
   const { data } = await clientRequest(
     'DELETE /v1/ordinances/:slug/quality-loop',

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Badge, Button, cn } from '@styleguide'
+import { Badge, Button, IconButton, cn } from '@styleguide'
 import {
   ChevronRightIcon,
   CircleAlertIcon,
@@ -98,6 +98,12 @@ const POLL_SLOW_MS = 10_000
 // only this many consecutive failures surface an error.
 const MAX_POLL_FAILURES = 3
 const SLOW_NOTE = 'Still working. This is taking longer than usual.'
+// Local why-disabled feedback next to the run controls while the background
+// improvement loop owns the draft (the loop banner scrolls out of view on a
+// long draft, and a disabled button can't carry a tooltip).
+const LOOP_NOTE =
+  'Improvements are running — these checks refresh when they finish.'
+const LOOP_NOTE_ID = 'quality-report-loop-note'
 
 const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
@@ -193,9 +199,7 @@ export default function QualityReport({
   onReran,
   onDiscussFinding,
   onBeforeRun,
-  loopEnabled,
   loopRunning,
-  onStartLoop,
 }: {
   slug: string
   initialReport: OrdinanceQualityReport | null
@@ -209,13 +213,10 @@ export default function QualityReport({
   // Flush any pending draft edits (awaited) before the report is generated, so
   // the LLM grades the just-saved text rather than the stale DB copy.
   onBeforeRun?: () => Promise<void>
-  // Flag-gated background improvement loop. When enabled, the run buttons
-  // start the loop (via onStartLoop, owned by DraftDetail) instead of the
-  // manual claim-and-poll run; while the loop runs they are disabled (the
-  // server 409s a manual run anyway).
-  loopEnabled?: boolean
+  // The background improvement loop has no manual trigger here (design: the
+  // panel control only re-grades; the loop auto-starts on draft). While the
+  // loop runs the run buttons are disabled — the server 409s a manual run.
   loopRunning?: boolean
-  onStartLoop?: () => Promise<void>
 }): React.JSX.Element {
   const [report, setReport] = useState(initialReport)
   const [running, setRunning] = useState(initialRunStatus === 'running')
@@ -296,15 +297,6 @@ export default function QualityReport({
     }
   }
 
-  const startLoop = async (): Promise<void> => {
-    setError(null)
-    try {
-      await onStartLoop?.()
-    } catch (err) {
-      setError(runErrorMessage(err))
-    }
-  }
-
   useEffect(() => {
     if (initialRunStatus === 'running') {
       const controller = new AbortController()
@@ -335,10 +327,16 @@ export default function QualityReport({
         {running && slow ? (
           <p className="text-sm text-muted-foreground">{SLOW_NOTE}</p>
         ) : null}
+        {loopRunning ? (
+          <p id={LOOP_NOTE_ID} className="text-sm text-muted-foreground">
+            {LOOP_NOTE}
+          </p>
+        ) : null}
         <Button
           type="button"
-          onClick={loopEnabled ? startLoop : run}
+          onClick={run}
           disabled={running || loopRunning}
+          aria-describedby={loopRunning ? LOOP_NOTE_ID : undefined}
           className="gap-2 rounded-full text-sm"
         >
           {running ? (
@@ -346,11 +344,7 @@ export default function QualityReport({
           ) : (
             <SparklesIcon className="size-4" aria-hidden />
           )}
-          {running
-            ? 'Reviewing…'
-            : loopEnabled
-              ? 'Check & improve draft'
-              : 'Run quality checks'}
+          {running ? 'Reviewing…' : 'Run quality checks'}
         </Button>
       </div>
     )
@@ -377,27 +371,31 @@ export default function QualityReport({
             </div>
           )}
         </div>
-        <Button
+        {/* Design (Lovable QualityReport): an icon-only round refresh is the
+            panel's single control — it re-grades the draft; improvement is
+            never triggered from here. */}
+        <IconButton
           type="button"
           variant="outline"
           size="small"
-          onClick={loopEnabled ? startLoop : run}
+          onClick={run}
           disabled={running || loopRunning}
-          aria-label={
-            loopEnabled ? 'Check & improve draft' : 'Re-run quality checks'
-          }
-          className="ml-auto gap-1.5 rounded-full text-sm"
+          aria-label="Re-run quality checks"
+          aria-describedby={loopRunning ? LOOP_NOTE_ID : undefined}
+          className="ml-auto shrink-0 rounded-full"
         >
           {running ? (
-            <LoaderCircleIcon className="size-3.5 animate-spin" aria-hidden />
-          ) : loopEnabled ? (
-            <SparklesIcon className="size-3.5" aria-hidden />
+            <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
           ) : (
-            <RefreshIcon className="size-3.5" aria-hidden />
+            <RefreshIcon className="size-4" aria-hidden />
           )}
-          {loopEnabled ? 'Check & improve' : 'Re-run'}
-        </Button>
+        </IconButton>
       </div>
+      {loopRunning ? (
+        <p id={LOOP_NOTE_ID} className="text-xs text-muted-foreground">
+          {LOOP_NOTE}
+        </p>
+      ) : null}
 
       {running ? (
         // Replace the stale cards with a loading state so re-running never

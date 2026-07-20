@@ -16,7 +16,6 @@ const mocks = vi.hoisted(() => ({
   deleteOrdinance: vi.fn(),
   downloadOrdinanceExport: vi.fn(),
   fetchOrdinanceBySlug: vi.fn(),
-  startQualityLoop: vi.fn(),
   cancelQualityLoop: vi.fn(),
   fetchQualityIterations: vi.fn(),
   useOrdinanceQualityLoopFlag: vi.fn(),
@@ -29,7 +28,6 @@ vi.mock('../data/ordinances-api', () => ({
   deleteOrdinance: mocks.deleteOrdinance,
   downloadOrdinanceExport: mocks.downloadOrdinanceExport,
   fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
-  startQualityLoop: mocks.startQualityLoop,
   cancelQualityLoop: mocks.cancelQualityLoop,
   fetchQualityIterations: mocks.fetchQualityIterations,
 }))
@@ -143,7 +141,6 @@ beforeEach(() => {
   mocks.deleteOrdinance.mockReset()
   mocks.downloadOrdinanceExport.mockReset()
   mocks.fetchOrdinanceBySlug.mockReset()
-  mocks.startQualityLoop.mockReset()
   mocks.cancelQualityLoop.mockReset()
   mocks.fetchQualityIterations.mockReset()
   mocks.fetchQualityIterations.mockResolvedValue({
@@ -471,39 +468,105 @@ describe('DraftDetail what changed panel', () => {
   })
 })
 
-describe('DraftDetail quality loop entry point', () => {
-  it('starts the loop from the Check & improve draft button when flagged in', async () => {
-    mocks.startQualityLoop.mockResolvedValue(
-      makeOrdinance({ qualityLoop: loop() }),
-    )
-
-    render(<DraftDetail ordinance={makeOrdinance()} />)
-
-    fireEvent.click(
-      screen.getByRole('button', { name: /check & improve draft/i }),
-    )
-
-    expect(
-      await screen.findByText('Checking your draft (pass 1 of 4)'),
-    ).toBeVisible()
-    expect(mocks.startQualityLoop).toHaveBeenCalledWith('public-safety-cameras')
-    expect(mocks.startQualityReport).not.toHaveBeenCalled()
-    expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
-  })
-
-  it('keeps the manual run button when the flag is off', () => {
-    mocks.useOrdinanceQualityLoopFlag.mockReturnValue({
-      ready: true,
-      enabled: false,
+describe('DraftDetail quality panel (design: refresh only, loop is auto)', () => {
+  // Design contract (Lovable QualityReport): the panel control re-grades via
+  // the async claim-and-poll run; the loop has no manual trigger anywhere.
+  it('runs the manual check from the panel — never the loop', async () => {
+    mocks.startQualityReport.mockResolvedValue({
+      status: 'done',
+      report: null,
+      error: null,
     })
 
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
     expect(
-      screen.getByRole('button', { name: /run quality checks/i }),
-    ).toBeVisible()
-    expect(
-      screen.queryByRole('button', { name: /check & improve draft/i }),
+      screen.queryByRole('button', { name: /check & improve/i }),
     ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    await act(() => Promise.resolve())
+    expect(mocks.startQualityReport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      expect.anything(),
+    )
+  })
+
+  it('skips the autosave PATCH when input reserializes the same text', async () => {
+    vi.useFakeTimers()
+    try {
+      render(
+        <DraftDetail ordinance={makeOrdinance({ qualityReport: report() })} />,
+      )
+
+      // An input event whose innerText round-trips to the already-persisted
+      // serialization (loop reseed, caret placement, spellcheck no-op) must
+      // not PATCH: a byte-shuffled body invalidates the quality report's
+      // input hash and staled the report right after a loop finished.
+      fireEvent.input(bodyEditor())
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100)
+      })
+
+      expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+      // And it must not flag the hash-fresh report stale either — the banner
+      // would demand a paid re-grade that returns the identical report.
+      expect(
+        screen.queryByText(/draft changed since this report ran/i),
+      ).not.toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('pre-run flush also skips a reserialized no-op edit', async () => {
+    mocks.startQualityReport.mockResolvedValue({
+      status: 'done',
+      report: report(),
+      error: null,
+    })
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    // Pending debounce timer whose text round-trips unchanged, then an
+    // immediate run: the flush must not PATCH byte-identical text right
+    // before grading (it would shuffle the hash the report is graded against).
+    fireEvent.input(bodyEditor())
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    await act(() => Promise.resolve())
+    expect(mocks.startQualityReport).toHaveBeenCalledTimes(1)
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+  })
+
+  it('a failed save clears the snapshot so identical retyped text saves again', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.updateOrdinance.mockRejectedValueOnce(new Error('net'))
+
+      render(<DraftDetail ordinance={makeOrdinance()} />)
+
+      bodyEditor().innerText = 'Changed body.'
+      fireEvent.input(bodyEditor())
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100)
+      })
+      expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+
+      // The snapshot was optimistically advanced to 'Changed body.' before
+      // the PATCH failed; without the failure reset, this identical retype
+      // would be skipped as a no-op and the server would stay stale forever.
+      fireEvent.input(bodyEditor())
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100)
+      })
+      expect(mocks.updateOrdinance).toHaveBeenCalledTimes(2)
+      expect(mocks.updateOrdinance).toHaveBeenLastCalledWith(
+        'public-safety-cameras',
+        { draftBody: 'Changed body.' },
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

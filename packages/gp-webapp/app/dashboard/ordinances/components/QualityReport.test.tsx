@@ -519,77 +519,40 @@ describe('QualityReport', () => {
     }
   })
 
-  it('starts the improvement loop instead of a manual run when the loop is enabled', async () => {
-    const onStartLoop = vi.fn().mockResolvedValue(undefined)
+  // Design contract (Lovable QualityReport): the panel's only control is a
+  // refresh that re-grades the draft via the async claim-and-poll run. The
+  // improvement loop has NO manual panel trigger — it auto-starts on draft.
+  it('re-runs the manual check from the header refresh — no loop trigger', async () => {
+    mocks.startQualityReport.mockResolvedValue(qualityRun())
 
-    render(
-      <QualityReport
-        {...props({ initialReport: null, loopEnabled: true, onStartLoop })}
-      />,
-    )
+    render(<QualityReport {...props()} />)
 
-    const button = screen.getByRole('button', {
-      name: /check & improve draft/i,
-    })
     expect(
-      screen.queryByRole('button', { name: /run quality checks/i }),
+      screen.queryByRole('button', { name: /check & improve/i }),
     ).not.toBeInTheDocument()
-
-    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
 
     await act(() => Promise.resolve())
-    expect(onStartLoop).toHaveBeenCalledTimes(1)
-    expect(mocks.startQualityReport).not.toHaveBeenCalled()
+    expect(mocks.startQualityReport).toHaveBeenCalledTimes(1)
   })
 
-  it('starts the loop from the header button when a report already exists', async () => {
-    const onStartLoop = vi.fn().mockResolvedValue(undefined)
+  it('disables the refresh while the background loop is running', () => {
+    render(<QualityReport {...props({ loopRunning: true })} />)
 
-    render(<QualityReport {...props({ loopEnabled: true, onStartLoop })} />)
-
-    expect(
-      screen.queryByRole('button', { name: /re-run/i }),
-    ).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /check & improve/i }))
-
-    await act(() => Promise.resolve())
-    expect(onStartLoop).toHaveBeenCalledTimes(1)
-    expect(mocks.startQualityReport).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /re-run/i })).toBeDisabled()
   })
 
-  it('surfaces the API error message when starting the loop fails', async () => {
-    const onStartLoop = vi.fn().mockRejectedValue({
-      data: { message: 'Improvements are already running' },
-    })
-
-    render(<QualityReport {...props({ loopEnabled: true, onStartLoop })} />)
-
-    fireEvent.click(screen.getByRole('button', { name: /check & improve/i }))
-
-    expect(
-      await screen.findByText(/improvements are already running/i),
-    ).toBeVisible()
-    // The existing report stays on screen.
-    expect(screen.getByText(/reviewed by 6 checks/i)).toBeVisible()
-  })
-
-  it('disables the loop button while the loop is running', () => {
+  it('disables the empty-state run while the background loop is running', () => {
     render(
-      <QualityReport
-        {...props({
-          loopEnabled: true,
-          loopRunning: true,
-          onStartLoop: vi.fn(),
-        })}
-      />,
+      <QualityReport {...props({ initialReport: null, loopRunning: true })} />,
     )
 
     expect(
-      screen.getByRole('button', { name: /check & improve/i }),
+      screen.getByRole('button', { name: /run quality checks/i }),
     ).toBeDisabled()
   })
 
-  it('keeps the manual claim-and-poll behavior when the loop is not enabled', async () => {
+  it('runs the manual claim-and-poll from the empty state', async () => {
     mocks.startQualityReport.mockResolvedValue(qualityRun())
 
     render(<QualityReport {...props({ initialReport: null })} />)

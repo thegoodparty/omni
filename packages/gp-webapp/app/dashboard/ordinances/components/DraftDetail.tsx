@@ -52,7 +52,6 @@ import {
   downloadOrdinanceExport,
   fetchOrdinanceBySlug,
   fetchQualityIterations,
-  startQualityLoop,
   updateOrdinance,
   type OrdinanceExportFormat,
 } from '../data/ordinances-api'
@@ -128,7 +127,11 @@ export default function DraftDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
   const [exportError, setExportError] = useState<string | null>(null)
-  const { enabled: loopEnabled } = useOrdinanceQualityLoopFlag()
+  // Exposure-only read: the draft page IS the treatment surface (loop banner,
+  // locked editor, What-changed panel), so mounting it must register Amplitude
+  // exposure even though no UI branches on the flag here anymore — the loop
+  // itself is server-gated on the same flag.
+  useOrdinanceQualityLoopFlag()
   const [qualityLoop, setQualityLoop] = useState(ordinance.qualityLoop)
   // The report the loop last delivered (or the initial one). Keyed into
   // QualityReport so a mid-loop refresh actually replaces the rendered card.
@@ -148,6 +151,17 @@ export default function DraftDetail({
     loopRunningRef.current = loopRunning
   }, [loopRunning])
 
+  // The editors' last serialization known to match the persisted draft, as
+  // innerText reads it. contentEditable's innerText set/get round-trip is not
+  // byte-identical (nbsp/newline normalization), so an input event can fire
+  // with text that only *reserializes* the same content — saving it would
+  // byte-shuffle the body, change the quality report's input hash, and stale
+  // a fresh report (observed right after a loop reseed). Every save path
+  // skips when the text equals this snapshot. Null forces the next save
+  // through (after a failed PATCH the server copy is behind the snapshot).
+  const lastSavedTitleRef = useRef<string | null>(null)
+  const lastSavedBodyRef = useRef<string | null>(null)
+
   const router = useRouter()
 
   const seedEditorsFrom = useCallback((next: Ordinance): void => {
@@ -156,6 +170,10 @@ export default function DraftDetail({
         next.draftTitle ?? next.goalText ?? 'Untitled ordinance'
     }
     if (bodyRef.current) bodyRef.current.innerText = next.draftBody ?? ''
+    // Snapshot the read-back (not the assigned string): the setter/getter
+    // round-trip is the serialization future input events will produce.
+    lastSavedTitleRef.current = titleRef.current?.innerText ?? null
+    lastSavedBodyRef.current = bodyRef.current?.innerText ?? null
   }, [])
 
   // Fold a freshly fetched ordinance into the loop state. No-op when no loop
@@ -293,6 +311,10 @@ export default function DraftDetail({
   useEffect(() => {
     if (titleRef.current) titleRef.current.innerText = title
     if (bodyRef.current) bodyRef.current.innerText = ordinance.draftBody ?? ''
+    // Baseline snapshot of the seeded read-back, so the very first input
+    // event can already tell a real edit from a reserialization.
+    lastSavedTitleRef.current = titleRef.current?.innerText ?? null
+    lastSavedBodyRef.current = bodyRef.current?.innerText ?? null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -321,6 +343,10 @@ export default function DraftDetail({
           setSaveState('error')
           lastSaveFailedRef.current = true
           queuedRef.current = null
+          // The server copy is now behind the snapshot — clear it so the next
+          // input (even a reserialization) saves instead of being skipped.
+          lastSavedTitleRef.current = null
+          lastSavedBodyRef.current = null
         })
         .finally(() => {
           savingRef.current = false
@@ -345,13 +371,19 @@ export default function DraftDetail({
       clearTimeout(bodyTimerRef.current)
       bodyTimerRef.current = null
       const body = bodyRef.current?.innerText ?? ''
-      if (body.trim().length > 0) update.draftBody = body
+      if (body !== lastSavedBodyRef.current && body.trim().length > 0) {
+        lastSavedBodyRef.current = body
+        update.draftBody = body
+      }
     }
     if (titleTimerRef.current) {
       clearTimeout(titleTimerRef.current)
       titleTimerRef.current = null
-      const next = titleRef.current?.innerText.trim() ?? ''
-      if (next.length > 0) update.draftTitle = next
+      const raw = titleRef.current?.innerText ?? ''
+      if (raw !== lastSavedTitleRef.current && raw.trim().length > 0) {
+        lastSavedTitleRef.current = raw
+        update.draftTitle = raw.trim()
+      }
     }
     // If a prior save failed, the DB is stale and there may be no pending timer
     // to re-drive it. Re-send the current editor text so a run recovers from a
@@ -374,14 +406,6 @@ export default function DraftDetail({
     }
   }, [save])
 
-  // Start the background improvement loop (flag-gated entry point, wired into
-  // QualityReport's run button). Errors bubble to QualityReport's error UI.
-  const startLoop = useCallback(async (): Promise<void> => {
-    await flushPendingSaves()
-    const next = await startQualityLoop(ordinance.slug)
-    applyLoopFetch(next)
-  }, [flushPendingSaves, ordinance.slug, applyLoopFetch])
-
   // Read innerText only when typing pauses, not on every keystroke (each read
   // forces a synchronous layout reflow). Empty fields are skipped: the contract
   // requires draftTitle/draftBody be non-empty, so gp-api 400s on ''.
@@ -389,23 +413,35 @@ export default function DraftDetail({
     // The editor is locked while the loop runs; belt-and-braces mute the
     // autosave too so no stray input event PATCHes over a loop revision.
     if (loopRunningRef.current) return
-    setDraftDirty(true)
     if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     bodyTimerRef.current = setTimeout(() => {
       bodyTimerRef.current = null
       const body = bodyRef.current?.innerText ?? ''
-      if (body.trim().length > 0) save({ draftBody: body })
+      // Reserialized-but-identical text is not an edit: no save, and no
+      // draftDirty — flagging it would stale a hash-fresh report the user
+      // could only clear with a pointless paid re-grade.
+      if (body === lastSavedBodyRef.current) return
+      if (body.trim().length > 0) {
+        setDraftDirty(true)
+        lastSavedBodyRef.current = body
+        save({ draftBody: body })
+      }
     }, AUTOSAVE_DELAY_MS)
   }, [save])
 
   const onTitleInput = useCallback((): void => {
     if (loopRunningRef.current) return
-    setDraftDirty(true)
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
     titleTimerRef.current = setTimeout(() => {
       titleTimerRef.current = null
-      const next = titleRef.current?.innerText.trim() ?? ''
-      if (next.length > 0) save({ draftTitle: next })
+      const raw = titleRef.current?.innerText ?? ''
+      if (raw === lastSavedTitleRef.current) return
+      const next = raw.trim()
+      if (next.length > 0) {
+        setDraftDirty(true)
+        lastSavedTitleRef.current = raw
+        save({ draftTitle: next })
+      }
     }, AUTOSAVE_DELAY_MS)
   }, [save])
 
@@ -424,13 +460,19 @@ export default function DraftDetail({
         clearTimeout(bodyTimerRef.current)
         bodyTimerRef.current = null
         const body = bodyNode?.innerText ?? ''
-        if (body.trim().length > 0) update.draftBody = body
+        if (body !== lastSavedBodyRef.current && body.trim().length > 0) {
+          lastSavedBodyRef.current = body
+          update.draftBody = body
+        }
       }
       if (titleTimerRef.current) {
         clearTimeout(titleTimerRef.current)
         titleTimerRef.current = null
-        const next = titleNode?.innerText.trim() ?? ''
-        if (next.length > 0) update.draftTitle = next
+        const raw = titleNode?.innerText ?? ''
+        if (raw !== lastSavedTitleRef.current && raw.trim().length > 0) {
+          lastSavedTitleRef.current = raw
+          update.draftTitle = raw.trim()
+        }
       }
       if (Object.keys(update).length > 0) save(update)
     }
@@ -670,9 +712,7 @@ export default function DraftDetail({
               initialRunStatus={ordinance.qualityRunStatus}
               draftDirty={draftDirty}
               onBeforeRun={flushPendingSaves}
-              loopEnabled={loopEnabled}
               loopRunning={loopRunning}
-              onStartLoop={startLoop}
               onReran={() => {
                 // Only clear the stale banner once the draft is safely
                 // persisted: not while a save is in flight, not if the last
