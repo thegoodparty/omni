@@ -67,6 +67,7 @@ model VoterFileFilter {
   homeownerUnknown           Boolean?                           @default(false) @map("homeowner_unknown")
   voterCount                 Int?                               @map("voter_count")
   outreaches                 Outreach[]
+  doorKnockingTurfs          DoorKnockingTurf[]
   organizationSlug           String                             @map("organization_slug")
   organization               Organization                       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")
