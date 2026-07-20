@@ -78,3 +78,4 @@ Source the `context` from `isWinContext` (single source of truth in `ContactsTab
 - `helpers/createVoterFileFilter.ts` — filter payload builder.
 - `app/dashboard/outreach/` — consumer of saved segments.
 - `gpApi/api-endpoints.ts` — voter-file endpoints.
+- `packages/gp-api/src/contacts/CLAUDE.md` — the system-level CRM doc: backend flows (filter resolution, materialization, write-back sweeps, assistant tools), data model, and the debugging playbook.
