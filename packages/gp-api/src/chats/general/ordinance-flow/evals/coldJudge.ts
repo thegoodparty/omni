@@ -1,3 +1,4 @@
+import { format } from 'date-fns'
 import { z } from 'zod'
 import type { LlmJsonCompletionOptions } from '../../../../llm/services/llm.service'
 import type { LlmMessage } from '../../../../llm/types/llmMessages.types'
@@ -6,7 +7,15 @@ import type { LlmMessage } from '../../../../llm/types/llmMessages.types'
 // independent review, not the same temperature-0 model answered twice. Each
 // coldJudge call pins ONE model (jsonCompletion would otherwise fall back down
 // a shared list and every seat would converge on the same first model).
-const JUDGE_SEAT_MODELS = ['claude-haiku-4-5', 'claude-sonnet-4-6']
+// Three seats with a 2-of-3 majority (not two, where "majority" collapses to
+// unanimous): a faithfulness gate must survive one over-strict or weak seat
+// without false-failing a faithful artifact, while two agreeing seats still
+// catch a real defect. Small/mid/large families for perspective diversity.
+const JUDGE_SEAT_MODELS = [
+  'claude-haiku-4-5',
+  'claude-sonnet-4-6',
+  'claude-opus-4-7',
+]
 
 export const JudgeVerdictSchema = z.object({
   pass: z.boolean(),
@@ -38,6 +47,12 @@ export interface ColdJudgeInput {
   // truth it catches claims that contradict or aren't supported by it; without
   // it, a "real citation" gate is only a has-a-source proxy, not fact-checking.
   groundTruth?: string
+  // Web-search results the harness gathered for the specific statutes/laws the
+  // artifact cites, so an existence gate ("is this citation real?") is grounded
+  // in an actual lookup instead of the judge guessing. Corroboration = real;
+  // no trace of a specifically-numbered provision = fabricated. Without it, a
+  // blind judge cannot tell a genuine recent law from an invented one.
+  verificationEvidence?: string
 }
 
 // The subset of LlmService a cold judge needs. LlmService satisfies this
@@ -55,26 +70,40 @@ export interface JudgePanelResult {
   majorityPass: boolean
 }
 
-const JUDGE_SYSTEM = [
-  'You are a blind reviewer scoring ONE artifact against ONE rubric',
-  'dimension. You never saw the rubric being written and you did not write',
-  'the artifact. Judge only from the artifact and any GROUND TRUTH provided;',
-  'do not rely on outside knowledge of the specific jurisdiction.',
-  'Score 1 (fails) to 5 (fully satisfies).',
-  'On a faithfulness gate, set pass=false when a claim CONTRADICTS the',
-  'ground truth, or asserts a specific fact, statute number, figure, or',
-  'quote that has no supporting source in the artifact or ground truth.',
-  'Do NOT fail a claim merely because you personally cannot verify an',
-  'external fact that the artifact backs with a cited source — a blind',
-  'reviewer cannot fact-check the open web; flag unsupported assertions,',
-  'not sourced ones. Return only the structured verdict.',
-].join(' ')
+const buildSystem = (now: Date): string =>
+  [
+    'You are a reviewer scoring ONE artifact against ONE rubric dimension.',
+    'You never saw the rubric being written and you did not write the',
+    'artifact. Score 1 (fails) to 5 (fully satisfies).',
+    `Today's date is ${format(now, 'MMMM d, yyyy')}; treat it as the current`,
+    'date. A law, ordinance, court decision, or event dated on or before today',
+    'is NOT impossible or fabricated merely because it is recent or falls after',
+    'your training cutoff. Recency alone is never evidence of fabrication.',
+    'On a faithfulness GATE, set pass=false ONLY when you have positive',
+    'evidence the artifact is unfaithful:',
+    '(a) a claim CONTRADICTS the ground truth or verification evidence',
+    'provided; (b) a cited source or quoted excerpt does NOT actually support',
+    'the specific claim it is attached to (judge this from the excerpt shown —',
+    'a real source misattributed to a claim it does not establish still',
+    'fails); (c) the artifact is internally inconsistent or logically',
+    'impossible; or (d) a specific figure, threshold, statute number, or quote',
+    'is asserted with NO source and cannot be derived from the material.',
+    'Do NOT set pass=false merely because you cannot personally verify a',
+    'specific, sourced, plausible claim — inability to browse is not evidence',
+    'of fabrication. When VERIFICATION EVIDENCE is provided, use it: if it',
+    'corroborates a cited provision, treat the citation as real; if it',
+    'contradicts the claim or finds no trace of a specifically-numbered',
+    'statute or law, treat that as fabrication. When you have no positive',
+    'evidence of unfaithfulness, PASS the gate and note the residual',
+    'uncertainty in your reasoning. Return only the structured verdict.',
+  ].join(' ')
 
 const buildUserPrompt = ({
   rubric,
   artifact,
   dimension,
   groundTruth,
+  verificationEvidence,
 }: ColdJudgeInput) =>
   [
     'Full rubric (for context only):',
@@ -89,6 +118,14 @@ const buildUserPrompt = ({
           groundTruth,
         ]
       : []),
+    ...(verificationEvidence
+      ? [
+          '',
+          'VERIFICATION EVIDENCE — web-search results for the citations this',
+          'artifact makes, gathered so you can check whether they are real:',
+          verificationEvidence,
+        ]
+      : []),
     '',
     'The artifact under review:',
     artifact,
@@ -98,9 +135,10 @@ export const coldJudge = async (
   llm: JsonJudgeModel,
   input: ColdJudgeInput,
   model?: string,
+  now: Date = new Date(),
 ): Promise<JudgeVerdict> => {
   const messages: LlmMessage[] = [
-    { role: 'system', content: JUDGE_SYSTEM },
+    { role: 'system', content: buildSystem(now) },
     { role: 'user', content: buildUserPrompt(input) },
   ]
   const { object } = await llm.jsonCompletion({
@@ -120,9 +158,10 @@ export const judgePanel = async (
   llm: JsonJudgeModel,
   input: ColdJudgeInput,
   seatModels: string[] = JUDGE_SEAT_MODELS,
+  now: Date = new Date(),
 ): Promise<JudgePanelResult> => {
   const verdicts = await Promise.all(
-    seatModels.map((model) => coldJudge(llm, input, model)),
+    seatModels.map((model) => coldJudge(llm, input, model, now)),
   )
   const passes = verdicts.filter((v) => v.pass).length
   // Inter-judge agreement on the gate is the reliability signal: a split

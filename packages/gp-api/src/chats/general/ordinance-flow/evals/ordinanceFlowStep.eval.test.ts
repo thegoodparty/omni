@@ -9,8 +9,10 @@ import { describe, expect, it } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
 import { LlmService } from '../../../../llm/services/llm.service'
+import { OrdinanceFlowSearchService } from '../services/ordinanceFlowSearch.service'
 import { seedFromFixture } from './seedFromFixture'
 import { judgePanel } from './coldJudge'
+import { gatherVerificationEvidence } from './verifyCitations'
 import { stepRubrics, type RubricStep } from './rubrics'
 
 // Real-Claude eval: boots the real app, seeds a step-entry state from a captured
@@ -166,26 +168,41 @@ const runJudges = async (
   const fullRubric = rubric
     .map((dim) => `- ${dim.key} (${dim.kind}): ${dim.prompt}`)
     .join('\n')
+  // Existence gates ("is this cited statute/law real?") are unanswerable by a
+  // blind judge for recent or obscure provisions — it cannot tell a genuine
+  // 2026 session law from an invented one. Ground the gate in an actual web
+  // lookup of the exact citations the artifact makes, so corroboration reads as
+  // real and off-topic/no results reads as fabricated.
+  const verificationEvidence =
+    step === 'authority' || step === 'comparables'
+      ? await gatherVerificationEvidence(
+          service.app.get(OrdinanceFlowSearchService),
+          artifact,
+        )
+      : undefined
   for (const dim of rubric) {
     const panel = await judgePanel(llm, {
       rubric: fullRubric,
       artifact,
       dimension: dim.prompt,
       ...(groundTruth ? { groundTruth } : {}),
+      ...(verificationEvidence ? { verificationEvidence } : {}),
     })
     const why = panel.verdicts.map((v) => v.reasoning).join(' | ')
     if (dim.kind === 'gate') {
       expect(panel.majorityPass, `gate ${step}/${dim.key}: ${why}`).toBe(true)
       continue
     }
+    // Two-tier by design (build-output-quality-rubric.md): faithfulness GATES
+    // block, quality SCORES advise. A low score is surfaced as a warning to act
+    // on when sharpening prompts, but does NOT fail the run — subjective quality
+    // dims (e.g. whether an instructive-failure comparable happened to surface
+    // this run) vary run-to-run and are not faithfulness violations. Asserting
+    // on them made an advisory dim block, contradicting this split.
     const score = median(panel.verdicts.map((v) => v.score))
     if (score < SCORE_THRESHOLD) {
       console.warn(`advisory ${step}/${dim.key} scored ${score}: ${why}`)
     }
-    expect(
-      score,
-      `advisory ${step}/${dim.key} scored ${score} (min ${SCORE_THRESHOLD})`,
-    ).toBeGreaterThanOrEqual(SCORE_THRESHOLD)
   }
 }
 
