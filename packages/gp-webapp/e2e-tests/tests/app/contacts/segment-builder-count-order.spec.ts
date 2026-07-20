@@ -61,13 +61,11 @@ const VOTER_LIKELY_ORDER = [
 ]
 
 // @dev-only: this spec exercises the Win Contacts segment builder for a pro
-// campaign org, reachable only when win-voter-data is on for the user AND the
-// campaign is pro — and the live count endpoint (POST /v1/contacts/count) is
-// itself pro-gated. The warm dev stack enables win-voter-data for internal/
-// @test.goodparty.org users and provisions pro; an ephemeral per-PR preview
-// can't guarantee that flag state or the pro provisioning, so this runs on the
-// post-merge develop e2e (and on demand), not on PRs. Same pattern as
-// win-contacts. See e2e-tests/CLAUDE.md ("@dev-only").
+// campaign org — the live count endpoint (POST /v1/contacts/count) is
+// pro-gated. The warm dev stack provisions pro; an ephemeral per-PR preview
+// can't guarantee the pro provisioning, so this runs on the post-merge
+// develop e2e (and on demand), not on PRs. Same pattern as win-contacts.
+// See e2e-tests/CLAUDE.md ("@dev-only").
 test.describe('Segment builder count + order @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)

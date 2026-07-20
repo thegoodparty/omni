@@ -8,7 +8,7 @@ interface UseWinCrmFlagResult {
 }
 
 // Gate for every Win-facing CRM surface, layered on (never replacing) the
-// existing Win gates: the win-voter-data flag plus Pro for individual rows.
+// existing Win gates: Pro for individual rows.
 // Defaults off (useFlagOn falls back to 'off'), so no CRM surface is reachable
 // until the flag is turned on.
 //
