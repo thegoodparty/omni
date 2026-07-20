@@ -37,6 +37,13 @@ export = async () => {
 
   const { accountId } = await aws.getCallerIdentity({})
 
+  // The SSM parameter must exist before this stack is deployed. Create it once
+  // per environment with:
+  //   aws ssm put-parameter --name people-db-connection-string-<env> \
+  //     --value "<postgres-connection-string>" --type SecureString
+  // It is intentionally not a Pulumi resource: the DB connection string is a
+  // secret and would land in Pulumi state. If it is missing, DatabaseUrlProvider
+  // throws on startup and ECS fails to reach steady state.
   const dbUrlParameterArn = `arn:aws:ssm:us-west-2:${accountId}:parameter/people-db-connection-string-${environment}`
 
   const secretName = select({
