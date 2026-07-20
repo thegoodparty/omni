@@ -111,3 +111,18 @@ def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
                 }
             )
     return out
+
+
+# --- call-site diff -----------------------------------------------------------
+
+_TRACKING_RE = re.compile(r"\btrackEvent\(|\bAnalyticsService\b|\.track\(")
+
+
+def has_tracking_call(text: str) -> bool:
+    """Whether a file fires any analytics event (frontend trackEvent or backend track)."""
+    return _TRACKING_RE.search(text) is not None
+
+
+def find_gaps(surfaces: Sequence[dict], files_with_tracking: set[str]) -> list[dict]:
+    """A candidate surface whose file fires no event is a candidate gap (file-level, Phase 1)."""
+    return [s for s in surfaces if s["location"] not in files_with_tracking]

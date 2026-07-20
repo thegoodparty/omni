@@ -82,3 +82,18 @@ def test_detect_api_job_webhook_status():
 
 def test_detect_returns_nothing_for_plain_file():
     assert ig.detect_surfaces_in_file("packages/gp-webapp/helpers/x.ts", "export const x = 1\n") == []
+
+
+def test_has_tracking_call():
+    assert ig.has_tracking_call("trackEvent(EVENTS.Foo.Bar, {})") is True
+    assert ig.has_tracking_call("this.analytics.track(userId, EVENTS.X.Y)") is True
+    assert ig.has_tracking_call("const x = 1") is False
+
+
+def test_find_gaps_filters_files_with_tracking():
+    surfaces = [
+        {"id": "/dashboard", "surface_type": "route", "location": "a/page.tsx"},
+        {"id": "/settings", "surface_type": "route", "location": "b/page.tsx"},
+    ]
+    gaps = ig.find_gaps(surfaces, files_with_tracking={"a/page.tsx"})
+    assert [g["id"] for g in gaps] == ["/settings"]
