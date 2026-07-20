@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -56,6 +56,25 @@ export default function CampaignManagerHome({
   )
   const composerRef = useRef<HTMLInputElement | null>(null)
   const personalizeDeepLinkFiredRef = useRef(false)
+
+  // Entering via the story flow (the story card / personalize deep link) sets
+  // pendingKickoff before the conversation opens. On that entry the kickoff
+  // streams the story-intake greeting, so the server-seeded general greeting
+  // ("Hi <name>, I'm your Campaign Manager.") would show ABOVE it — the double
+  // greeting in the screenshot. Hide the exact seeded string on that entry only,
+  // so it shows just the story flow (fresh open AND resume). The general "meet"/
+  // footer entry (pendingKickoff undefined) keeps the greeting + starter chips.
+  // The string mirrors gp-api's buildCampaignManagerGreeting (buildCampaign
+  // ManagerIntro is its hand-synced client twin).
+  const hiddenMessageContents = useMemo(() => {
+    const base = [
+      CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+      CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
+    ]
+    return pendingKickoff === CAMPAIGN_MANAGER_START_STORY_SENTINEL
+      ? [...base, buildCampaignManagerIntro(firstName).join('\n\n')]
+      : base
+  }, [pendingKickoff, firstName])
 
   const suggestions: ChatSuggestion[] = [
     {
@@ -176,10 +195,7 @@ export default function CampaignManagerHome({
         showSuggestionsWithGreeting
         pendingKickoff={pendingKickoff}
         composerRef={composerRef}
-        hiddenMessageContents={[
-          CAMPAIGN_MANAGER_START_STORY_SENTINEL,
-          CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
-        ]}
+        hiddenMessageContents={hiddenMessageContents}
       />
     </div>
   )

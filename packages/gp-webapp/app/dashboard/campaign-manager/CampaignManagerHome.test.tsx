@@ -9,6 +9,7 @@ import {
 import type { TrackerTasksResult } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import type { ChatStreamEvent } from '../chief-of-staff/data/contracts'
 import type ChiefOfStaffChatSurfaceComponent from '../chief-of-staff/components/chat/ChiefOfStaffChatSurface'
+import { buildCampaignManagerIntro } from './campaignManagerChat'
 import CampaignManagerHome from './CampaignManagerHome'
 
 type SurfaceProps = React.ComponentProps<
@@ -295,6 +296,47 @@ describe('CampaignManagerHome story auto-launch', () => {
     expect(latestSurfaceProps().pendingKickoff).toBe(
       CAMPAIGN_MANAGER_START_STORY_SENTINEL,
     )
+  })
+
+  it('suppresses the seeded general greeting on the story entry so only the story flow shows', async () => {
+    // The server seeds the general greeting as the conversation's first
+    // message; the story kickoff then streams the intake greeting. Without
+    // suppression both render (the reported double greeting).
+    const generalGreeting = buildCampaignManagerIntro('Renee').join('\n\n')
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_1',
+        role: 'assistant',
+        content: generalGreeting,
+        createdAt: '2026-07-16T00:00:00.000Z',
+      },
+    ])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        {
+          type: 'text',
+          delta: "Before I build your plan, let's get your story.",
+        },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    const user = userEvent.setup()
+    render(<CampaignManagerHome firstName="Renee" />)
+
+    await user.click(
+      screen.getByRole('button', { name: 'Personalize your campaign' }),
+    )
+
+    // The story-intake reply streams in.
+    await waitFor(() =>
+      expect(screen.getByText(/Before I build your plan/)).toBeInTheDocument(),
+    )
+    // The seeded general greeting is hidden, so the manager never double-greets.
+    expect(
+      screen.queryByText(/I'm your Campaign Manager\./),
+    ).not.toBeInTheDocument()
   })
 
   it('opens the manager without a kickoff via the meet card', async () => {
