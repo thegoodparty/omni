@@ -153,6 +153,11 @@ export const convertVoterFileFilterToFilters = (
     'age25_35',
     'age35_50',
     'age50Plus',
+    'age18_24',
+    'age25_34',
+    'age35_49',
+    'age50_64',
+    'age65Plus',
     'ageUnknown',
     'likelyMarried',
     'likelySingle',
@@ -251,10 +256,17 @@ export const convertVoterFileFilterToFilters = (
   }
 
   const ageRanges: Array<{ min: number; max: number | null }> = []
+  // Retired keys keep the exact bounds they were saved with (ENG-10752) —
+  // reinterpreting them would silently change existing lists' membership.
   if (segment.age18_25) ageRanges.push({ min: 18, max: 25 })
   if (segment.age25_35) ageRanges.push({ min: 25, max: 35 })
   if (segment.age35_50) ageRanges.push({ min: 35, max: 50 })
   if (segment.age50Plus) ageRanges.push({ min: 50, max: null })
+  if (segment.age18_24) ageRanges.push({ min: 18, max: 24 })
+  if (segment.age25_34) ageRanges.push({ min: 25, max: 34 })
+  if (segment.age35_49) ageRanges.push({ min: 35, max: 49 })
+  if (segment.age50_64) ageRanges.push({ min: 50, max: 64 })
+  if (segment.age65Plus) ageRanges.push({ min: 65, max: null })
 
   const shouldIncludeNull = segment.ageUnknown
   if (ageRanges.length > 0) {

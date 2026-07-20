@@ -137,11 +137,11 @@ test.describe('Contacts Page', () => {
     const sheet = filtersSheet(page, /create segment/i)
     await expect(sheet).toBeVisible({ timeout: 30000 })
 
-    const age18_25Label = sheet.getByText('18-25', { exact: true })
-    const age18_25Checkbox = age18_25Label
+    const age18_24Label = sheet.getByText('18-24', { exact: true })
+    const age18_24Checkbox = age18_24Label
       .locator('xpath=..')
       .getByRole('checkbox')
-    await age18_25Checkbox.click({ timeout: 10000 })
+    await age18_24Checkbox.click({ timeout: 10000 })
     const createSegmentButton = sheet.getByRole('button', {
       name: /create segment/i,
     })
@@ -154,10 +154,10 @@ test.describe('Contacts Page', () => {
     ).not.toHaveCount(0, { timeout: 35000 })
     const segmentRows = await table.locator('tbody tr').all()
     const ageColumnIndex = 2
-    const age18to25Regex = /^\s*(18|19|20|21|22|23|24|25)\s*$/
+    const age18to24Regex = /^\s*(18|19|20|21|22|23|24)\s*$/
     for (const row of segmentRows) {
       await expect(row.locator('td').nth(ageColumnIndex)).toHaveText(
-        age18to25Regex,
+        age18to24Regex,
       )
     }
 
@@ -178,16 +178,16 @@ test.describe('Contacts Page', () => {
       })
       .first()
     await expect(editSheet).toBeVisible({ timeout: 10000 })
-    const age25_35Label = editSheet.getByText('25-35', { exact: true })
-    const age25_35Checkbox = age25_35Label
+    const age25_34Label = editSheet.getByText('25-34', { exact: true })
+    const age25_34Checkbox = age25_34Label
       .locator('xpath=..')
       .getByRole('checkbox')
-    await age25_35Checkbox.click({ timeout: 10000 })
-    const age18_25LabelEdit = editSheet.getByText('18-25', { exact: true })
-    const age18_25CheckboxEdit = age18_25LabelEdit
+    await age25_34Checkbox.click({ timeout: 10000 })
+    const age18_24LabelEdit = editSheet.getByText('18-24', { exact: true })
+    const age18_24CheckboxEdit = age18_24LabelEdit
       .locator('xpath=..')
       .getByRole('checkbox')
-    await age18_25CheckboxEdit.click({ timeout: 10000 })
+    await age18_24CheckboxEdit.click({ timeout: 10000 })
     await editSheet
       .getByRole('button', { name: /update segment/i })
       .click({ force: true })
@@ -198,10 +198,10 @@ test.describe('Contacts Page', () => {
     ).not.toHaveCount(0, { timeout: 20000 })
 
     const afterEditSegmentRows = await table.locator('tbody tr').all()
-    const age25to35Regex = /^\s*(25|26|27|28|29|30|31|32|33|34|35)\s*$/
+    const age25to34Regex = /^\s*(25|26|27|28|29|30|31|32|33|34)\s*$/
     for (const row of afterEditSegmentRows) {
       await expect(row.locator('td').nth(ageColumnIndex)).toHaveText(
-        age25to35Regex,
+        age25to34Regex,
       )
     }
   })

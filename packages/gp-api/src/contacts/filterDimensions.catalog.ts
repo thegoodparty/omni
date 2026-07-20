@@ -119,7 +119,7 @@ const activityChannelValue = (
 export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
   {
     key: 'audience',
-    label: 'Voter Likely',
+    label: 'Voter Likelihood',
     kind: 'boolean-group',
     modes: 'both',
     values: AUDIENCE_VOTER_STATUS_VALUES.map(({ field, value }) => ({
@@ -145,10 +145,11 @@ export const FILTER_DIMENSIONS: readonly FilterDimension[] = [
     kind: 'boolean-group',
     modes: 'both',
     values: [
-      { key: 'age18_25', label: '18-25' },
-      { key: 'age25_35', label: '25-35' },
-      { key: 'age35_50', label: '35-50' },
-      { key: 'age50Plus', label: '50+' },
+      { key: 'age18_24', label: '18-24' },
+      { key: 'age25_34', label: '25-34' },
+      { key: 'age35_49', label: '35-49' },
+      { key: 'age50_64', label: '50-64' },
+      { key: 'age65Plus', label: '65+' },
       { key: 'ageUnknown', label: 'Unknown' },
     ],
   },
