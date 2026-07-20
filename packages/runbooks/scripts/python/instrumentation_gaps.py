@@ -71,3 +71,43 @@ def enumerate_route_surfaces(
             {"id": route_pattern_from_page_path(rel), "surface_type": "route", "location": rel}
         )
     return out
+
+
+# --- enumeration: in-file heuristic detectors --------------------------------
+# Intentionally over-inclusive. False positives are expected and are the Phase-2 judgment
+# pass's job to drop; here they only need to be caught, not adjudicated.
+
+_WEBAPP_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("wizard_stage", re.compile(r"\bcurrentStep\b|\bsetCurrentStep\b|<Stepper\b|useWizard\b")),
+    ("form_submit", re.compile(r"onSubmit=\{|\bhandleSubmit\b")),
+    ("cta", re.compile(r"<Button\b[^>]*onClick=")),
+)
+_API_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("api_job", re.compile(r"@Processor\(|@Process\(|\.process\(")),
+    ("api_webhook", re.compile(r"@Post\(\s*['\"][^'\"]*webhook", re.IGNORECASE)),
+    ("api_status", re.compile(r"status\s*[:=]\s*['\"](COMPLETED|FAILED|REJECTED|APPROVED)['\"]")),
+)
+
+
+def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
+    """Run the path-appropriate detectors over one file's text. One surface per matched
+    detector type (not per match) — the coarse unit here is 'this file has a wizard', which
+    the judgment pass later refines. In-file surfaces have no URL, so they key on
+    path#surface_type (the spec's path-plus-symbol fallback)."""
+    if rel_path.startswith("packages/gp-webapp/"):
+        detectors = _WEBAPP_DETECTORS
+    elif rel_path.startswith("packages/gp-api/"):
+        detectors = _API_DETECTORS
+    else:
+        return []
+    out: list[dict] = []
+    for surface_type, pattern in detectors:
+        if pattern.search(text):
+            out.append(
+                {
+                    "id": f"{rel_path}#{surface_type}",
+                    "surface_type": surface_type,
+                    "location": rel_path,
+                }
+            )
+    return out

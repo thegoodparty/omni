@@ -45,3 +45,40 @@ def test_enumerate_route_surfaces_skips_excluded():
     assert [s["id"] for s in out] == ["/dashboard"]
     assert out[0]["surface_type"] == "route"
     assert out[0]["location"] == "packages/gp-webapp/app/dashboard/page.tsx"
+
+
+def test_detect_webapp_wizard_and_form_and_cta():
+    text = (
+        "const [currentStep, setCurrentStep] = useState(0)\n"
+        "export function Wizard() {\n"
+        "  return <form onSubmit={handleSubmit}>\n"
+        "    <Button onClick={handlePublish}>Publish</Button>\n"
+        "  </form>\n"
+        "}\n"
+    )
+    out = ig.detect_surfaces_in_file("packages/gp-webapp/components/Wizard.tsx", text)
+    kinds = {s["surface_type"] for s in out}
+    assert "wizard_stage" in kinds
+    assert "form_submit" in kinds
+    assert "cta" in kinds
+    assert all(s["id"].startswith("packages/gp-webapp/components/Wizard.tsx#") for s in out)
+
+
+def test_detect_api_job_webhook_status():
+    text = (
+        "@Processor('briefing')\n"
+        "export class BriefingWorker {\n"
+        "  @Post('webhook')\n"
+        "  handleWebhook() {}\n"
+        "  async complete() { this.status = 'COMPLETED' }\n"
+        "}\n"
+    )
+    out = ig.detect_surfaces_in_file("packages/gp-api/src/briefing/briefing.worker.ts", text)
+    kinds = {s["surface_type"] for s in out}
+    assert "api_job" in kinds
+    assert "api_webhook" in kinds
+    assert "api_status" in kinds
+
+
+def test_detect_returns_nothing_for_plain_file():
+    assert ig.detect_surfaces_in_file("packages/gp-webapp/helpers/x.ts", "export const x = 1\n") == []
