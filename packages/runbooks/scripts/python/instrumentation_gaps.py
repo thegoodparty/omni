@@ -200,6 +200,24 @@ def rank_gap(gap: Mapping) -> int:
     return _RANK_BY_TYPE.get(gap["surface_type"], 5)
 
 
+_TRIAGED = {"open", "accepted", "dismissed"}
+
+
+def select_candidates(
+    gaps: Sequence[dict], prior_state: Mapping[str, dict], limit: int = 25
+) -> list[dict]:
+    """The bounded set the judge sees: gaps not already triaged by a human, top-N by the
+    heuristic rank. Skipping triaged ids keeps cost down and never re-judges a decided
+    surface (which also means the judge can never overturn a human dismissal)."""
+    eligible = [
+        g
+        for g in gaps
+        if prior_state.get(g["id"], {}).get("disposition") not in _TRIAGED
+    ]
+    eligible.sort(key=lambda g: (rank_gap(g), g["id"]))
+    return eligible[:limit]
+
+
 # --- state + dispositions -----------------------------------------------------
 
 

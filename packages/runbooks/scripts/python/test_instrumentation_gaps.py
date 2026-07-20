@@ -335,3 +335,25 @@ def test_load_rubric_missing_raises(tmp_path):
     import pytest
     with pytest.raises(FileNotFoundError):
         ig.load_rubric(tmp_path / "nope.md")
+
+
+def test_select_candidates_drops_triaged_and_caps():
+    gaps = [
+        {"id": "/a", "surface_type": "wizard_stage", "location": "a.tsx"},   # rank 0
+        {"id": "/b", "surface_type": "cta", "location": "b.tsx"},            # rank 4
+        {"id": "/c", "surface_type": "route", "location": "c.tsx"},          # rank 3, dismissed
+        {"id": "/d", "surface_type": "form_submit", "location": "d.tsx"},    # rank 2
+    ]
+    prior = {
+        "/c": {"disposition": "dismissed"},
+        "/b": {"disposition": "new"},  # still untriaged -> eligible
+    }
+    out = ig.select_candidates(gaps, prior, limit=2)
+    # /c dropped (dismissed); remaining sorted by rank: /a(0), /d(2), /b(4); cap 2
+    assert [g["id"] for g in out] == ["/a", "/d"]
+
+
+def test_select_candidates_keeps_new_disposition():
+    gaps = [{"id": "/x", "surface_type": "route", "location": "x.tsx"}]
+    out = ig.select_candidates(gaps, {"/x": {"disposition": "new"}}, limit=10)
+    assert [g["id"] for g in out] == ["/x"]
