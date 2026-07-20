@@ -11,7 +11,14 @@ import { Campaign } from 'helpers/types'
 import { extractApiErrorInfo } from 'helpers/extractApiErrorInfo'
 
 const MAX_ATTEMPTS = 3
+// Legacy code kept for deploy overlap; the people-api-backed endpoint returns
+// VOTER_DATA_UNAVAILABLE (ENG-5032).
 const MISSING_L2_DISTRICT_DATA_ERROR_CODE = 'MISSING_L2_DISTRICT_DATA'
+const VOTER_DATA_UNAVAILABLE_ERROR_CODE = 'VOTER_DATA_UNAVAILABLE'
+
+const isVoterDataUnavailable = (error: CountVoterFileError): boolean =>
+  error.errorCode === MISSING_L2_DISTRICT_DATA_ERROR_CODE ||
+  error.errorCode === VOTER_DATA_UNAVAILABLE_ERROR_CODE
 
 interface VoterFileFilters {
   filters: string[]
@@ -102,8 +109,7 @@ export default function RecordCount(
       response = await countVoterFile(type)
     }
     if (typeof response !== 'number') {
-      const isMissingDistrictData =
-        response.errorCode === MISSING_L2_DISTRICT_DATA_ERROR_CODE
+      const isMissingDistrictData = isVoterDataUnavailable(response)
       const isClientError =
         typeof response.status === 'number' &&
         response.status >= 400 &&
@@ -131,8 +137,7 @@ export default function RecordCount(
     )
   }
   if (error) {
-    const isMissingDistrictData =
-      error.errorCode === MISSING_L2_DISTRICT_DATA_ERROR_CODE
+    const isMissingDistrictData = isVoterDataUnavailable(error)
     return (
       <div className="mt-4">
         <H2>
@@ -142,8 +147,9 @@ export default function RecordCount(
         </H2>
         {isMissingDistrictData ? (
           <Body2 className="mt-2">
-            {error.message ||
-              'Voter data is missing for the selected office. Please contact support at help@goodparty.org so we can update your district information.'}
+            Voter data is missing for the selected office. Please contact
+            support at help@goodparty.org so we can update your district
+            information.
           </Body2>
         ) : null}
       </div>
