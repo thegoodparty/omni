@@ -23,13 +23,18 @@ vi.mock('../../chief-of-staff/components/chat/FooterChatBar', () => ({
 vi.mock('../../chief-of-staff/components/chat/ChiefOfStaffChatSurface', () => ({
   default: ({
     open,
+    onOpenChange,
     initialConversationId,
   }: {
     open: boolean
+    onOpenChange: (open: boolean) => void
     initialConversationId?: string | null
   }) =>
     open ? (
-      <div data-testid="cos-surface">{initialConversationId ?? 'new'}</div>
+      <div data-testid="cos-surface">
+        {initialConversationId ?? 'new'}
+        <button onClick={() => onOpenChange(false)}>close</button>
+      </div>
     ) : null,
 }))
 
@@ -51,5 +56,15 @@ describe('OrdinancesChatDock', () => {
 
     fireEvent.click(screen.getByText('open-existing'))
     expect(screen.getByTestId('cos-surface')).toHaveTextContent('conv-1')
+  })
+
+  it('closes the chat surface when dismissed', () => {
+    render(<OrdinancesChatDock />)
+
+    fireEvent.click(screen.getByText('open-new'))
+    expect(screen.getByTestId('cos-surface')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('close'))
+    expect(screen.queryByTestId('cos-surface')).not.toBeInTheDocument()
   })
 })
