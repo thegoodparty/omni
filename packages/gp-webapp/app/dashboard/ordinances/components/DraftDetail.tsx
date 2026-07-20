@@ -192,6 +192,18 @@ export default function DraftDetail({
       // so any earlier local dirtiness is moot — without this, a loop-fresh
       // report renders under a false stale banner.
       setDraftDirty(false)
+      // The loop owns the draft now: a debounced or queued autosave from
+      // before this fetch carries pre-loop text — landing it would PATCH over
+      // the loop's revision and supersede a healthy run.
+      if (bodyTimerRef.current) {
+        clearTimeout(bodyTimerRef.current)
+        bodyTimerRef.current = null
+      }
+      if (titleTimerRef.current) {
+        clearTimeout(titleTimerRef.current)
+        titleTimerRef.current = null
+      }
+      queuedRef.current = null
       if (nowRunning) {
         setLoopOutcome(null)
         setIterations([])
@@ -297,6 +309,10 @@ export default function DraftDetail({
     // The report on the record was graded against the loop's final draft;
     // the restored original is different text, so the report is now stale.
     setDraftDirty(true)
+    // The outcome banner and this restore affordance describe a result the
+    // user just undid — leaving them up contradicts the editor's content.
+    setLoopOutcome(null)
+    setIterations([])
   }, [iterations, ordinance.slug, seedEditorsFrom])
 
   const handleExport = async (format: OrdinanceExportFormat): Promise<void> => {

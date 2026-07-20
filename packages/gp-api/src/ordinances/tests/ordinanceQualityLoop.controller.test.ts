@@ -337,6 +337,57 @@ describe('supersession on edit', () => {
     expect(res.data.qualityLoop.status).toBe('running')
   })
 
+  it('keeps the loop running on a PATCH that resends the unchanged draft', async () => {
+    const orgSlug = 'eo-qloop-noop-patch'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const { slug } = await seedDraftOrdinance(header)
+    await startLoop(slug, header)
+
+    // Byte-identical to what seedDraftOrdinance persisted: the hash inputs
+    // did not change, so a healthy run must not be retired.
+    const res = await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      {
+        draftTitle: 'Draft amendment to Chapter 34',
+        draftBody: 'Section 34.21 Canopy goal of forty percent by 2040.',
+      },
+      header,
+    )
+
+    expect(res.status).toBe(200)
+    expect(res.data.qualityLoop.status).toBe('running')
+  })
+
+  it('leaves the loop intact when the edit write itself fails', async () => {
+    const orgSlug = 'eo-qloop-failed-patch'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const { slug } = await seedDraftOrdinance(header)
+    await startLoop(slug, header)
+
+    // superseded_by_edit is a write-once terminal: if the flip landed before
+    // a write that then failed, the loop would be permanently dead while the
+    // edit never happened. The flip must come after the successful write.
+    const delegate = service.prisma.ordinance
+    const spy = vi
+      .spyOn(delegate, 'update')
+      .mockRejectedValueOnce(new Error('db down'))
+    try {
+      const res = await service.client.patch(
+        `/v1/ordinances/${slug}`,
+        { draftBody: 'Section 34.21 Canopy goal of sixty percent by 2040.' },
+        header,
+      )
+      expect(res.status).toBe(500)
+    } finally {
+      spy.mockRestore()
+    }
+
+    const after = await service.client.get(`/v1/ordinances/${slug}`, header)
+    expect(after.data.qualityLoop.status).toBe('running')
+  })
+
   it('supersedes a running loop when a clarify answer is saved', async () => {
     const orgSlug = 'eo-qloop-supersede-clarify'
     await seedElectedOffice(orgSlug)

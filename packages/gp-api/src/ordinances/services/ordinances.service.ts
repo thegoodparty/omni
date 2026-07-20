@@ -141,20 +141,21 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
     // A user edit that changes the loop's graded inputs (or advances the
-    // ordinance past draft) invalidates any running quality loop. Flip it
-    // before the write so a fenced loop write can't land on the edited draft.
-    const touchesHashInput =
-      dto.draftTitle !== undefined || dto.draftBody !== undefined
+    // ordinance past draft) invalidates any running quality loop. Changed
+    // means changed: a PATCH that resends the current text must not retire a
+    // healthy run. The flip happens AFTER the write lands — superseded_by_edit
+    // is a write-once terminal, so flipping first would permanently kill the
+    // loop if the write then threw; the loop's content-fenced terminals
+    // guarantee a not-yet-superseded run still can't overwrite the new draft
+    // in the gap.
+    const changesHashInput =
+      (dto.draftTitle !== undefined &&
+        dto.draftTitle !== existing.draftTitle) ||
+      (dto.draftBody !== undefined && dto.draftBody !== existing.draftBody)
     const advancesPastDraft =
       dto.status !== undefined &&
       dto.status !== OrdinanceStatus.in_progress &&
       dto.status !== OrdinanceStatus.draft
-    if (
-      existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running &&
-      (touchesHashInput || advancesPastDraft)
-    ) {
-      await this.qualityLoop.supersedeOnEdit(existing.id)
-    }
     const record = await this.model.update({
       where: { id: existing.id },
       data: {
@@ -167,6 +168,17 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         lastViewedStep: dto.lastViewedStep,
       },
     })
+    if (
+      existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running &&
+      (changesHashInput || advancesPastDraft)
+    ) {
+      await this.qualityLoop.supersedeOnEdit(existing.id)
+      // Re-read so the response carries the superseded loop, not the
+      // pre-flip snapshot from the write above.
+      return this.toResponse(
+        await this.model.findUniqueOrThrow({ where: { id: existing.id } }),
+      )
+    }
     return this.toResponse(record)
   }
 
@@ -201,15 +213,21 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       ...answers.filter((a) => a.questionId !== answer.questionId),
       answer,
     ]
-    // clarifyAnswers is a quality-report hash input, so a new answer
-    // invalidates a running loop the same way a draft edit does.
-    if (existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running) {
-      await this.qualityLoop.supersedeOnEdit(existing.id)
-    }
     const record = await this.model.update({
       where: { id: existing.id },
       data: { clarifyAnswers: next },
     })
+    // clarifyAnswers is a quality-report hash input, so a new answer
+    // invalidates a running loop the same way a draft edit does. Flipped
+    // AFTER the write: superseded_by_edit is write-once, so flipping first
+    // would strand a dead loop if the write threw, and the loop's fenced
+    // terminals already keep a not-yet-superseded run off the changed record.
+    if (existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running) {
+      await this.qualityLoop.supersedeOnEdit(existing.id)
+      return this.toResponse(
+        await this.model.findUniqueOrThrow({ where: { id: existing.id } }),
+      )
+    }
     return this.toResponse(record)
   }
 

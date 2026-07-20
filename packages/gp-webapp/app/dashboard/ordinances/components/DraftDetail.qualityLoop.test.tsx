@@ -295,6 +295,30 @@ describe('DraftDetail quality loop polling', () => {
     ).toBeVisible()
   })
 
+  it('drops a pending autosave when a reseed discovers a running loop', async () => {
+    mocks.fetchOrdinanceBySlug.mockResolvedValue(
+      makeOrdinance({ qualityLoop: loop(), draftBody: 'Loop revision.' }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    // An edit sits in the debounce window when a focus re-check learns a loop
+    // started elsewhere (another tab, the saveDraft hook). Firing afterward it
+    // would PATCH pre-loop text over the revision and retire the healthy run.
+    bodyEditor().innerText = 'Pre-loop edit.'
+    fireEvent.input(bodyEditor())
+    fireEvent(window, new Event('focus'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS * 2)
+    })
+    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+  })
+
   it('ignores a stale in-flight poll snapshot after Stop and edit', async () => {
     let releasePoll: (o: Ordinance) => void = () => undefined
     mocks.fetchOrdinanceBySlug.mockImplementation(
@@ -551,6 +575,18 @@ describe('DraftDetail what changed panel', () => {
     expect(
       screen.getByText(/draft changed since this report ran/i),
     ).toBeVisible()
+    // And the outcome banner + restore affordance describe a result the user
+    // just undid — they must clear rather than contradict the editor.
+    await waitFor(() =>
+      expect(
+        screen.queryByText(
+          'Improvements stopped — your draft is ready to edit.',
+        ),
+      ).not.toBeInTheDocument(),
+    )
+    expect(
+      screen.queryByRole('button', { name: /restore original draft/i }),
+    ).not.toBeInTheDocument()
   })
 
   it('restores body-only when the original iteration has no title', async () => {
