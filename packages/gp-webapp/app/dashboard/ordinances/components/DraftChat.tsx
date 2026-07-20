@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Ordinance } from '@goodparty_org/contracts'
 import {
   AssistantRow,
@@ -40,8 +40,21 @@ export default function DraftChat({
     onChange: setComposer,
     analyticsLabel: 'ordinance-draft-chat',
   })
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Auto-scroll only while pinned to the bottom; scrolling up to read pauses it
+  // until the user returns, so streaming text can't yank the view mid-read.
+  const pinnedRef = useRef(true)
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 4) {
+      pinnedRef.current = true
+    }
+  }, [])
+  const unpinOnUserScroll = useCallback(() => {
+    pinnedRef.current = false
+  }, [])
   // Opened from the launcher's mic: begin dictation on mount, while the opening
   // tap is still a fresh gesture for the permission prompt. Keyed on autoDictate
   // (fixed per mount) with dictation read through a ref — no mount-once guard, so
@@ -115,17 +128,15 @@ export default function DraftChat({
     if (seedNonce !== 0 && conversationId) inputRef.current?.focus()
   }, [seedNonce, conversationId])
 
-  // A new persisted turn scrolls in smoothly.
+  // Stay pinned to the bottom as turns arrive and the live turn streams
+  // (visibleSegments updates ~40x/s). Instant, not smooth: a smooth scroll
+  // would restart its animation every tick and jitter. Skips when the user has
+  // scrolled up to read.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Stay pinned to the bottom as the live turn streams. visibleSegments updates
-  // ~40x/s, so use an instant scroll (a smooth one would restart its animation
-  // every tick and never settle).
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [visibleSegments])
+    const el = scrollRef.current
+    if (!el || !pinnedRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [messages, visibleSegments])
 
   const working = sending && visibleSegments.length === 0
 
@@ -148,7 +159,15 @@ export default function DraftChat({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        onWheel={(e) => {
+          if (e.deltaY < 0) unpinOnUserScroll()
+        }}
+        onTouchMove={unpinOnUserScroll}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
+      >
         {history.map((m) =>
           m.live === null ? (
             <UserBubble key={m.id}>{m.content}</UserBubble>
@@ -172,8 +191,6 @@ export default function DraftChat({
         ) : null}
 
         {working ? <ThinkingRow /> : null}
-
-        <div ref={bottomRef} />
       </div>
 
       <ChatComposer
