@@ -1,20 +1,25 @@
 import { expect, test } from '@playwright/test'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
+import { setFlagOverrides } from 'src/helpers/campaignStory.helper'
 import {
   blockSlowScripts,
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 
-// @dev-only: the Chief of Staff route is gated by the `chief-of-staff` +
-// `serve-access` Amplitude flags (FeatureFlagGuard redirects to /dashboard when
-// off), and the chat hits the real Anthropic-backed agent. A per-PR preview
-// can't guarantee that flag state or carry a live model round-trip, so this
-// runs on the post-merge develop run and locally/on demand. See
-// e2e-tests/CLAUDE.md ("@dev-only"). Requires the test cohort to be in the dev
-// audience for both flags.
-test.describe('Chief of Staff @dev-only', () => {
+// The Chief of Staff route is gated by the `chief-of-staff` + `serve-access`
+// Amplitude flags (FeatureFlagGuard redirects to /dashboard when off); force
+// both on via the override cookie in beforeEach so a preview reaches the route.
+// The chat test drives the real Anthropic-backed agent, but that's an OUTBOUND
+// call the preview's own gp-api makes (it runs on the dev secret) — not an
+// inbound pipeline a preview can't receive — so this runs on PRs.
+test.describe('Chief of Staff', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    // Force the gating flags on before the per-test auth navigation.
+    await setFlagOverrides(page, {
+      'chief-of-staff': 'on',
+      'serve-access': 'on',
+    })
   })
 
   test('renders the dashboard for an elected office', async ({ page }) => {

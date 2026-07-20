@@ -66,6 +66,26 @@ export class NavigationHelper {
     }
   }
 
+  // A dashboard "awareness task" (e.g. "Fundraising ask") can pop open as a
+  // vaul Drawer on the mobile dashboard — its full-screen overlay
+  // (data-slot="drawer-overlay") sits over the page and intercepts the mobile
+  // menu trigger click. Close it before opening the menu. Scoped to the vaul
+  // overlay so it never matches the Radix Sheet sidebar (data-slot=
+  // "sheet-overlay", managed by openMobileMenu), and only acts while the sidebar
+  // is closed so the Escape can't collapse the sidebar itself.
+  static async dismissTaskDrawer(page: Page): Promise<void> {
+    const sidebar = page.getByRole('dialog', { name: MOBILE_DRAWER_TITLE })
+    if (await sidebar.isVisible().catch(() => false)) return
+
+    const drawerOverlay = page.locator('[data-slot="drawer-overlay"]').first()
+    if (await drawerOverlay.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await page.keyboard.press('Escape')
+      await drawerOverlay
+        .waitFor({ state: 'hidden', timeout: 5000 })
+        .catch(() => undefined)
+    }
+  }
+
   static async openMobileMenu(page: Page): Promise<void> {
     // The mobile drawer is a modal Radix Sheet (role="dialog", titled
     // "Sidebar"). While open it aria-hides the page chrome — the header trigger

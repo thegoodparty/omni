@@ -8,26 +8,13 @@ import {
   filtersSheet,
   waitForContactsTableReady,
 } from 'src/helpers/contacts-e2e'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-  getSelectedOrgName,
-  getOrgPickerOptions,
-} from 'src/helpers/organizations'
+import { setupProCampaignUser } from 'src/helpers/organizations'
+import { disableCrmFlags } from 'src/helpers/crm-contacts-e2e'
 
-// setupElectedOfficeUser leaves the elected-office org selected, but the Win
-// contacts surface (segment selector, search-as-list, per-row delete) is the
-// campaign org. Switch to it the same way win-contacts.spec.ts does: the EO org
-// resolves as Serve and uses a different copy/timeline. Returns the campaign
-// org name so the caller can re-select it after a reload.
+// The Win contacts surface (segment selector, search-as-list, per-row delete)
+// lives on the pro campaign org. setupProCampaignUser provisions one directly.
 const goToWinContacts = async (page: Page): Promise<void> => {
-  await setupElectedOfficeUser(page)
-
-  const eoOrgName = await getSelectedOrgName(page)
-  const allOrgs = await getOrgPickerOptions(page)
-  const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)
-  expect(campaignOrgName).toBeTruthy()
-  await switchOrganization(page, campaignOrgName!)
+  await setupProCampaignUser(page)
 
   await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
   await NavigationHelper.dismissOverlays(page)
@@ -60,15 +47,16 @@ const selectFilterCheckbox = async (
   await optionLabel.locator('xpath=..').getByRole('checkbox').click()
 }
 
-// @dev-only: same gate as win-contacts.spec.ts. The saved-list lifecycle lives
-// on the Win contacts surface — Create-list / search / named-segment actions
-// are pro-gated, and the flow needs the warm dev stack's real district voter
-// data. An ephemeral per-PR preview can't guarantee the pro provisioning or
-// the data, so this runs on the post-merge develop e2e (and on demand), not
-// on PRs. See e2e-tests/CLAUDE.md ("@dev-only").
-test.describe('Saved list lifecycle @dev-only', () => {
+// The saved-list lifecycle lives on the Win contacts surface — Create-list /
+// search / named-segment actions are pro-gated. setupProCampaignUser provisions
+// Pro without the Stripe webhook, so this runs on PR previews now. See
+// e2e-tests/CLAUDE.md ("@dev-only") for what still earns the tag.
+test.describe('Saved list lifecycle', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    // Legacy flag-off spec: pin the CRM flags OFF so a live ramp can't flip
+    // this onto the new CRM surface mid-test (e2e-tests/CLAUDE.md).
+    await disableCrmFlags(page)
   })
 
   // ENG-10519: name a list at creation. The create sheet has an always-visible

@@ -143,6 +143,7 @@ describe('CampaignsController', () => {
       updateJsonFields: vi.fn(),
       launch: vi.fn(),
       fetchLiveRaceTargetMetrics: vi.fn().mockResolvedValue(null),
+      setIsPro: vi.fn(),
     }
     campaignsService = campaignsServiceMock as CampaignsService
 
@@ -353,6 +354,30 @@ describe('CampaignsController', () => {
         mockUser,
       )
       expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe('testSetPro', () => {
+    it('rejects a non-@test.goodparty.org user with ForbiddenException', async () => {
+      const realUser = { ...mockUser, email: 'candidate@gmail.com' }
+
+      await expect(
+        controller.testSetPro(mockCampaign, realUser),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+      expect(campaignsService.setIsPro).not.toHaveBeenCalled()
+    })
+
+    it('flips isPro for a @test.goodparty.org user on their own campaign', async () => {
+      const testUser = { ...mockUser, email: 'test-42@test.goodparty.org' }
+
+      const result = await controller.testSetPro(mockCampaign, testUser)
+
+      expect(campaignsService.setIsPro).toHaveBeenCalledWith(
+        mockCampaign.id,
+        true,
+        false,
+      )
+      expect(result).toEqual({ isPro: true })
     })
   })
 
