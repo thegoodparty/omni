@@ -66,16 +66,27 @@ describe('convertVoterFileFilterToFilters age ranges', () => {
     ).toEqual({ ageInt: { gte: 18, lte: 34 } })
   })
 
-  it('enumerates non-contiguous new ranges instead of bridging the gap', () => {
-    const filters = convertVoterFileFilterToFilters({
-      age18_24: true,
-      age50_64: true,
+  it('emits _or bounds for non-contiguous ranges instead of bridging the gap', () => {
+    expect(
+      convertVoterFileFilterToFilters({ age18_24: true, age50_64: true }),
+    ).toEqual({
+      ageInt: {
+        _or: [
+          { gte: 18, lte: 24 },
+          { gte: 50, lte: 64 },
+        ],
+      },
     })
-    const expectedAges = [
-      ...Array.from({ length: 7 }, (_, i) => 18 + i),
-      ...Array.from({ length: 15 }, (_, i) => 50 + i),
-    ]
-    expect(filters).toEqual({ ageInt: { in: expectedAges } })
+  })
+
+  it('keeps an unbounded range open-ended inside a non-contiguous union', () => {
+    expect(
+      convertVoterFileFilterToFilters({ age18_24: true, age65Plus: true }),
+    ).toEqual({
+      ageInt: {
+        _or: [{ gte: 18, lte: 24 }, { gte: 65 }],
+      },
+    })
   })
 
   it('unions a legacy and a new range without reinterpreting either', () => {

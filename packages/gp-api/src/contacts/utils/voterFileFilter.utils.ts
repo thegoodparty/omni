@@ -268,69 +268,13 @@ export const convertVoterFileFilterToFilters = (
   if (segment.age50_64) ageRanges.push({ min: 50, max: 64 })
   if (segment.age65Plus) ageRanges.push({ min: 65, max: null })
 
-  const shouldIncludeNull = segment.ageUnknown
   if (ageRanges.length > 0) {
-    const [firstAgeRange] = ageRanges
-    if (ageRanges.length === 1 && firstAgeRange) {
-      if (firstAgeRange.max === null) {
-        filters['ageInt'] = { gte: firstAgeRange.min }
-      } else {
-        filters['ageInt'] = { gte: firstAgeRange.min, lte: firstAgeRange.max }
-      }
-    } else {
-      const sortedRanges = ageRanges.sort((a, b) => a.min - b.min)
-      const hasUnbounded = sortedRanges.some((r) => r.max === null)
-      const minAge = sortedRanges[0]?.min ?? 0
-      const maxAge = hasUnbounded
-        ? null
-        : Math.max(...sortedRanges.map((r) => r.max ?? 0))
-
-      const isContiguous = sortedRanges.every((range, index) => {
-        if (index === 0) return true
-        const prevRange = sortedRanges[index - 1]
-        return (
-          prevRange != null &&
-          prevRange.max !== null &&
-          (range.min === prevRange.max || range.min === prevRange.max + 1)
-        )
-      })
-
-      if (isContiguous && !hasUnbounded) {
-        filters['ageInt'] = { gte: minAge, lte: maxAge ?? 120 }
-      } else if (isContiguous && hasUnbounded) {
-        filters['ageInt'] = { gte: minAge }
-      } else {
-        const allAges = new Set<number>()
-        for (const range of ageRanges) {
-          if (range.max === null) {
-            for (let age = range.min; age <= 120; age++) {
-              allAges.add(age)
-            }
-          } else {
-            for (let age = range.min; age <= range.max; age++) {
-              allAges.add(age)
-            }
-          }
-        }
-        filters['ageInt'] = { in: Array.from(allAges).sort((a, b) => a - b) }
-      }
-    }
+    const ageFilter = processNumericRanges(ageRanges)
+    filters['ageInt'] = segment.ageUnknown
+      ? addIncludeNull(ageFilter)
+      : ageFilter
   } else if (segment.ageUnknown) {
     filters['ageInt'] = { is: 'null' }
-  }
-
-  if (shouldIncludeNull && ageRanges.length > 0) {
-    // Filter object shape varies at runtime — broad Prisma filter type requires narrowing
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    const currentFilter = filters['ageInt'] as {
-      gte?: number
-      lte?: number
-      in?: number[]
-    }
-    filters['ageInt'] = {
-      ...currentFilter,
-      _includeNull: true,
-    } as typeof currentFilter & { _includeNull: true }
   }
 
   const maritalValues: string[] = []

@@ -29,6 +29,7 @@ This module does not store the voter file itself — L2 is the source of truth. 
 ## Gotchas
 
 - `VoterDatabaseService` and `VotersService` look similar but query different sources: the former hits our Postgres, the latter hits L2's HTTP API. Pick deliberately.
+- **The legacy webapp voter-records page is gone** (win-voter-data went 100% and was removed; `/dashboard/voter-records` redirects to `/dashboard/contacts`). Its endpoints (`wake-up`, `help-message`, `can-download`) were deleted with it. `GET /voters/voter-file` (counts + CSV via `VoterDatabaseService` → the `gp-voter-db` cluster) is still live: the outreach/task-flow audience download and count (`downloadVoterList.util.ts` / `RecordCount` in gp-webapp) remain its callers until ENG-5032 migrates them to people-api. Only then can `VoterFileService`'s query path, `typeToQuery`/`customFiltersToQuery`, `VoterDatabaseService`, and the `gp-voter-db` cluster itself be decommissioned.
 - The L2 API has its own rate limits and timeouts; wrap new calls in `try/catch` and throw `BadGatewayException` per `.cursor/rules/rules.mdc` Rule 3.
 - Counts surfaced to the UI come from L2 in real time and may shift between page loads — don't rely on them for billing or quota math.
 - `VotersModule` imports `OutreachModule` (one-way). If you find yourself wanting `OutreachModule` to import voters too, route the dependency through an existing service instead — adding a back-edge will require `forwardRef` and is a smell.

@@ -1,16 +1,9 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common'
-import { Campaign, OutreachType, User } from '../../generated/prisma'
+import { Injectable } from '@nestjs/common'
+import { Campaign, OutreachType } from '../../generated/prisma'
 import { CampaignTaskType } from 'src/campaigns/tasks/campaignTasks.types'
 import { OrgDistrict } from 'src/organizations/organizations.types'
-import { SlackService } from 'src/vendors/slack/services/slack.service'
-import { IS_PROD_DEPLOY } from 'src/shared/util/appEnvironment.util'
-import { WrapperType } from 'src/shared/types/utility.types'
-import { CrmCampaignsService } from '../../campaigns/services/crmCampaigns.service'
-import { SlackChannel } from '../../vendors/slack/slackService.types'
 import { VoterDatabaseService } from '../services/voterDatabase.service'
 import { GetVoterFileSchema } from './schemas/GetVoterFile.schema'
-import { HelpMessageSchema } from './schemas/HelpMessage.schema'
-import { buildSlackBlocks } from './util/slack.util'
 import { typeToQuery } from './util/voterFile.util'
 import {
   CHANNEL_TO_TYPE_MAP,
@@ -18,16 +11,11 @@ import {
   VoterFileType,
 } from './voterFile.types'
 import { PinoLogger } from 'nestjs-pino'
-import { OrganizationsService } from '@/organizations/services/organizations.service'
 
 @Injectable()
 export class VoterFileService {
   constructor(
     private readonly voterDb: VoterDatabaseService,
-    private readonly slack: SlackService,
-    @Inject(forwardRef(() => CrmCampaignsService))
-    private readonly crm: WrapperType<CrmCampaignsService>,
-    private readonly organizations: OrganizationsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(VoterFileService.name)
@@ -166,50 +154,5 @@ export class VoterFileService {
     )
     this.logger.debug({ query }, 'Constructed Query:')
     return this.voterDb.csvStream(query, 'voters', selectedColumns)
-  }
-
-  wakeUp() {
-    const query = `SELECT "LALVOTERID"
-                   FROM public."VoterCA"
-                   where "LALVOTERID" = 'LALCA3184219' limit 1`
-    return this.voterDb.csvStream(query)
-  }
-
-  async helpMessage(
-    user: User,
-    campaign: Campaign,
-    { type, message }: HelpMessageSchema,
-  ) {
-    const { firstName, lastName, email, phone } = user
-    const { details, tier, data } = campaign
-    const { hubspotId: crmCompanyId } = data
-
-    const candidatePositionName = campaign.organizationSlug
-      ? await this.organizations.resolvePositionNameByOrganizationSlug(
-          campaign.organizationSlug,
-        )
-      : null
-
-    const slackBlocks = buildSlackBlocks({
-      name: `${firstName} ${lastName}`,
-      email,
-      phone,
-      office: candidatePositionName ?? undefined,
-      state: details.state,
-      tier,
-      type,
-      message,
-      assignedPa: crmCompanyId
-        ? await this.crm.getCrmCompanyOwnerName(crmCompanyId)
-        : '',
-      crmCompanyId,
-    })
-
-    await this.slack.message(
-      slackBlocks,
-      IS_PROD_DEPLOY ? SlackChannel.botPolitics : SlackChannel.botDev,
-    )
-
-    return true
   }
 }

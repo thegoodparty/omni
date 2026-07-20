@@ -29,6 +29,11 @@ export interface AudienceState {
   age_25_35?: boolean
   age_35_50?: boolean
   age_50_plus?: boolean
+  age_18_24?: boolean
+  age_25_34?: boolean
+  age_35_49?: boolean
+  age_50_64?: boolean
+  age_65_plus?: boolean
   gender_male?: boolean
   gender_female?: boolean
   gender_unknown?: boolean
@@ -111,6 +116,11 @@ type MappedAudience = Pick<
   | 'age25_35'
   | 'age35_50'
   | 'age50Plus'
+  | 'age18_24'
+  | 'age25_34'
+  | 'age35_49'
+  | 'age50_64'
+  | 'age65Plus'
   | 'genderMale'
   | 'genderFemale'
   | 'genderUnknown'
@@ -202,6 +212,11 @@ export const mapAudienceForPersistence = ({
   age_25_35: age25_35,
   age_35_50: age35_50,
   age_50_plus: age50Plus,
+  age_18_24: age18_24,
+  age_25_34: age25_34,
+  age_35_49: age35_49,
+  age_50_64: age50_64,
+  age_65_plus: age65Plus,
   gender_male: genderMale,
   gender_female: genderFemale,
   gender_unknown: genderUnknown,
@@ -229,6 +244,11 @@ export const mapAudienceForPersistence = ({
     age25_35,
     age35_50,
     age50Plus,
+    age18_24,
+    age25_34,
+    age35_49,
+    age50_64,
+    age65Plus,
     genderMale,
     genderFemale,
     genderUnknown,
@@ -247,6 +267,11 @@ export const mapAudienceForPersistence = ({
     'age25_35',
     'age35_50',
     'age50Plus',
+    'age18_24',
+    'age25_34',
+    'age35_49',
+    'age50_64',
+    'age65Plus',
     'genderMale',
     'genderFemale',
     'genderUnknown',
