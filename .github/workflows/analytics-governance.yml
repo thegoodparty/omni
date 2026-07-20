@@ -108,6 +108,14 @@ jobs:
           uv run analytics_event_health.py --slack \
             --json instrumentation_data/analytics_event_health_report.json
 
+      - name: Instrumentation gap sweep (recommendations)
+        working-directory: packages/runbooks/scripts/python
+        continue-on-error: true
+        env:
+          OMNI_REPO: ${{ github.workspace }}
+        run: |
+          uv run instrumentation_gaps.py --today "$(date -u +%F)"
+
       - name: Commit state and keep the auto-merge PR fresh
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
