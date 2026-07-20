@@ -1,0 +1,20 @@
+# Layer 1 of the three exclusion layers (DATA-2151): class-level path/package excludes,
+# applied at enumeration time so whole areas never become candidates. The moment-level
+# skip rubric lives in .claude/skills/instrument-analytics-event/SKILL.md (never copied
+# here); per-surface dismissals live in instrumentation_data/instrumentation_gaps.json.
+exclude_globs:
+  - "packages/gp-admin/**"          # internal staff console, not product analytics
+  - "packages/prototypes/**"        # throwaway
+  - "packages/candidate-sites/**"   # static per-candidate sites
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "**/*.stories.tsx"
+  - "**/node_modules/**"
+  - "**/.next/**"
+  - "**/dist/**"
+  - "packages/gp-webapp/app/api/**"       # route handlers, not user-facing screens
+  - "packages/gp-webapp/app/**/error.tsx"
+  - "packages/gp-webapp/app/**/not-found.tsx"
+  - "packages/gp-webapp/app/logout/**"
+  - "packages/gp-webapp/app/impersonate/**"
+  - "packages/gp-webapp/app/post-auth-redirect/**"

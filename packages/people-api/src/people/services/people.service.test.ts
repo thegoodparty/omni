@@ -55,6 +55,7 @@ describe('PeopleService', () => {
   }
   let mockStatsService: {
     getTotalCounts: ReturnType<typeof vi.fn>
+    findTotalConstituents: ReturnType<typeof vi.fn>
   }
   let mockClient: {
     $queryRaw: ReturnType<typeof vi.fn>
@@ -79,6 +80,7 @@ describe('PeopleService', () => {
         totalConstituents: 120,
         totalConstituentsWithCellPhone: 80,
       }),
+      findTotalConstituents: vi.fn().mockResolvedValue(null),
     }
     mockClient = {
       $queryRaw: vi.fn(),
@@ -556,6 +558,133 @@ describe('PeopleService', () => {
     })
   })
 
+  describe('zero-count stats-but-no-rows guardrail (ENG-10745)', () => {
+    const districtId = '0e5bafca-93a9-86a5-2522-f373979720df'
+    const sqlOf = (call: unknown): string =>
+      (call as { sql?: string })?.sql ?? ''
+
+    const filteredDto = {
+      districtId,
+      filters: {
+        filters: ['hasCellPhone'],
+        filterOperators: {
+          hasCellPhone: { operator: 'is', value: 'not_null' },
+        },
+      },
+      resultsPerPage: 10,
+      page: 1,
+    } as never
+
+    it('warns once when a filtered count is 0 for a district with stats but no DistrictVoter rows', async () => {
+      const warnSpy = vi.spyOn(service.logger, 'warn')
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 0n }]) // filtered count
+        .mockResolvedValueOnce([]) // data query
+        .mockResolvedValueOnce([{ has_rows: false }]) // EXISTS probe
+      mockStatsService.findTotalConstituents.mockResolvedValue(39932)
+
+      const result = await service.findPeople(filteredDto)
+
+      expect(result.pagination.totalResults).toBe(0)
+      const probeSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
+      expect(probeSql).toContain('SELECT EXISTS')
+      expect(probeSql).toContain('"green"."DistrictVoter"')
+      expect(mockStatsService.findTotalConstituents).toHaveBeenCalledWith(
+        districtId,
+      )
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        { districtId, state: 'WY', statsTotalConstituents: 39932 },
+        expect.stringContaining('no DistrictVoter rows'),
+      )
+    })
+
+    it('does not warn on a genuine filtered 0 for a populated district', async () => {
+      const warnSpy = vi.spyOn(service.logger, 'warn')
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 0n }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ has_rows: true }])
+
+      const result = await service.findPeople(filteredDto)
+
+      expect(result.pagination.totalResults).toBe(0)
+      expect(mockStatsService.findTotalConstituents).not.toHaveBeenCalled()
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it('does not warn when the empty district has no stats row either', async () => {
+      const warnSpy = vi.spyOn(service.logger, 'warn')
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 0n }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ has_rows: false }])
+      mockStatsService.findTotalConstituents.mockResolvedValue(null)
+
+      await service.findPeople(filteredDto)
+
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it('never probes on a non-zero filtered count (hot path pays nothing)', async () => {
+      const warnSpy = vi.spyOn(service.logger, 'warn')
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 7n }])
+        .mockResolvedValueOnce([makeDbPerson()])
+
+      await service.findPeople(filteredDto)
+
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it('never probes on the voter-only (state district) path', async () => {
+      const warnSpy = vi.spyOn(service.logger, 'warn')
+      mockDistrictService.findDistrictById.mockResolvedValue({
+        id: 'district-wy',
+        type: 'State',
+        name: 'WY',
+        state: 'WY',
+      })
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ voter_count: 0n }])
+        .mockResolvedValueOnce([])
+
+      await service.findPeople({
+        ...(filteredDto as object),
+        districtId: 'district-wy',
+      } as never)
+
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+
+    it('warns when a filtered aggregates count is 0 for a stats-but-no-rows district', async () => {
+      const warnSpy = vi.spyOn(service.logger, 'warn')
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ count: 0n, avgAge: null, avgIncome: null }])
+        .mockResolvedValueOnce([{ has_rows: false }])
+      mockStatsService.findTotalConstituents.mockResolvedValue(120)
+
+      const result = await service.getAggregates({
+        districtId,
+        filters: {
+          filters: ['hasCellPhone'],
+          filterOperators: {
+            hasCellPhone: { operator: 'is', value: 'not_null' },
+          },
+        },
+      } as never)
+
+      expect(result.count).toBe(0)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        { districtId, state: 'WY', statsTotalConstituents: 120 },
+        expect.stringContaining('no DistrictVoter rows'),
+      )
+    })
+  })
+
   describe('findPerson', () => {
     it('returns person for district path', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([
@@ -630,9 +759,11 @@ describe('PeopleService', () => {
     })
 
     it('reports null averages over an empty match set without dividing by zero', async () => {
-      mockClient.$queryRaw.mockResolvedValueOnce([
-        { count: 0n, avgAge: null, avgIncome: null },
-      ])
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([{ count: 0n, avgAge: null, avgIncome: null }])
+        // ENG-10745 guardrail probe: this district has voter rows, so the
+        // zero is genuine and no warning is emitted.
+        .mockResolvedValueOnce([{ has_rows: true }])
 
       const result = await service.getAggregates({
         districtId: '0e5bafca-93a9-86a5-2522-f373979720df',

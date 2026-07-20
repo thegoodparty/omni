@@ -1,3 +1,5 @@
+import { cn } from '@styleguide'
+
 const GRADIENT_STYLE = {
   background:
     'conic-gradient(from var(--gradient-angle), var(--ai-gradient-from), var(--ai-gradient-to), var(--ai-gradient-from))',
@@ -27,11 +29,19 @@ export default function ChatPill({
   const radius = rounded === '3xl' ? 'rounded-3xl' : 'rounded-full'
   return (
     <div
-      className={`relative p-[1.5px] animate-spin-gradient motion-reduce:animate-none ${radius}${className ? ` ${className}` : ''}`}
+      className={cn(
+        'relative p-[1.5px] animate-spin-gradient motion-reduce:animate-none',
+        radius,
+        className,
+      )}
       style={GRADIENT_STYLE}
     >
       <div
-        className={`flex min-h-12 w-full gap-1 bg-card py-0.5 pl-1.5 pr-1 ${radius}${innerClassName ? ` ${innerClassName}` : ''}`}
+        className={cn(
+          'flex min-h-12 w-full gap-1 bg-card py-0.5 pl-1.5 pr-1',
+          radius,
+          innerClassName,
+        )}
       >
         {children}
       </div>

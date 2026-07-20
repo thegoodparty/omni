@@ -1,6 +1,5 @@
 import { useTestService } from '@/test-service'
-import { FeaturesService } from '@/features/services/features.service'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 const service = useTestService()
 
@@ -29,11 +28,6 @@ const seedEoOrg = (slug: string) =>
     data: { slug, ownerId: service.user.id },
   })
 
-const enableVoterData = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
-
 describe('Contact notes routes', () => {
   describe('full CRUD cycle', () => {
     it.each([
@@ -42,7 +36,6 @@ describe('Contact notes routes', () => {
         setup: async () => {
           const slug = `win-pro-${Date.now()}`
           await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-          enableVoterData()
           return slug
         },
       },
@@ -116,7 +109,6 @@ describe('Contact notes routes', () => {
   it('returns notes newest first with createdAt and updatedAt', async () => {
     const slug = `win-pro-order-${Date.now()}`
     await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-    enableVoterData()
     const headers = { [ORG_SLUG_HEADER]: slug }
     const personId = 'person-order'
 
@@ -171,7 +163,6 @@ describe('Contact notes routes', () => {
     ])('rejects $name with 400', async ({ call }) => {
       const slug = `win-nonpro-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: false })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
 
       const result = await call(headers, 'person-1')
@@ -182,7 +173,6 @@ describe('Contact notes routes', () => {
     it('rejects edit and delete with 400', async () => {
       const proSlug = `win-pro-seed-${Date.now()}`
       await seedWinOrg({ slug: proSlug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const note = await service.prisma.contactNote.create({
         data: {
           organizationSlug: proSlug,
@@ -210,70 +200,6 @@ describe('Contact notes routes', () => {
     })
   })
 
-  // A Pro Win org still routes through assertContactsAccess first; eo- orgs
-  // bypass this flag entirely (see hasElectedOfficeAccess), so this can only
-  // fail if the four routes' assertContactsAccess calls are removed.
-  describe('win-voter-data flag off', () => {
-    it.each([
-      {
-        name: 'list',
-        call: (headers: Record<string, string>, personId: string) =>
-          service.client.get(`/v1/contacts/${personId}/notes`, { headers }),
-      },
-      {
-        name: 'create',
-        call: (headers: Record<string, string>, personId: string) =>
-          service.client.post(
-            `/v1/contacts/${personId}/notes`,
-            { body: 'note' },
-            { headers },
-          ),
-      },
-    ])('rejects $name with 403', async ({ call }) => {
-      const slug = `win-flagoff-${Date.now()}`
-      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
-      const headers = { [ORG_SLUG_HEADER]: slug }
-
-      const result = await call(headers, 'person-1')
-
-      expect(result.status).toBe(403)
-    })
-
-    it('rejects edit and delete with 403', async () => {
-      const slug = `win-flagoff-edit-${Date.now()}`
-      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      const note = await service.prisma.contactNote.create({
-        data: {
-          organizationSlug: slug,
-          personId: 'person-1',
-          body: 'seed note',
-        },
-      })
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
-      const headers = { [ORG_SLUG_HEADER]: slug }
-
-      const edited = await service.client.patch(
-        `/v1/contacts/notes/${note.id}`,
-        { body: 'hijack attempt' },
-        { headers },
-      )
-      expect(edited.status).toBe(403)
-
-      const deleted = await service.client.delete(
-        `/v1/contacts/notes/${note.id}`,
-        { headers },
-      )
-      expect(deleted.status).toBe(403)
-    })
-  })
-
   describe('cross-org PATCH and DELETE', () => {
     it('returns 404 and leaves the row unchanged', async () => {
       const ownerSlug = `win-owner-${Date.now()}`
@@ -288,7 +214,6 @@ describe('Contact notes routes', () => {
         ownerId: service.user.id,
         isPro: true,
       })
-      enableVoterData()
 
       const note = await service.prisma.contactNote.create({
         data: {
@@ -323,7 +248,6 @@ describe('Contact notes routes', () => {
     it('rejects an empty body with 400', async () => {
       const slug = `win-pro-empty-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
 
       const result = await service.client.post(
@@ -338,7 +262,6 @@ describe('Contact notes routes', () => {
     it('rejects a 10,001-char body with 400', async () => {
       const slug = `win-pro-toolong-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
 
       const result = await service.client.post(
@@ -353,7 +276,6 @@ describe('Contact notes routes', () => {
     it('accepts a 10,000-char body', async () => {
       const slug = `win-pro-maxlen-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
 
       const result = await service.client.post(

@@ -37,8 +37,7 @@ The persistent Aurora PostgreSQL Serverless v2 cluster (`gp-api-preview-shared-d
 
 ### Preview connection strategy
 
-Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/qa/prod keep the standard `connection_limit=20`. Each preview container opens **two** pools against the shared instance — Prisma via `DATABASE_URL` (`connection_limit=5`) and `PollResponsesDownloadService`'s own `pg.Pool` (`max=5`) — so the per-preview budget is ~10 connections. Against the ~100-connection ceiling of a 0.5-ACU instance that is ~10 concurrent previews before the ceiling; Aurora auto-scales above 0.5 ACU as load grows. (`VoterDatabaseService`'s pool hits a separate voter cluster and is not part of this budget.)
-
+Preview services run with `connection_limit=5` (set by `IS_PREVIEW` in `docker-entrypoint.sh`). Dev/qa/prod keep the standard `connection_limit=20`. Each preview container opens **two** pools against the shared instance — Prisma via `DATABASE_URL` (`connection_limit=5`) and `PollResponsesDownloadService`'s own `pg.Pool` (`max=5`) — so the per-preview budget is ~10 connections. Against the ~100-connection ceiling of a 0.5-ACU instance that is ~10 concurrent previews before the ceiling; Aurora auto-scales above 0.5 ACU as load grows.
 **Scaling levers if connection pressure is real:**
 
 1. Raise `minCapacity` in the cluster's `serverlessv2ScalingConfiguration` (in `components/preview-shared-cluster.ts`; reduces cold-start connection drops).

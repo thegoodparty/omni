@@ -1,4 +1,6 @@
-import filterSections from '../../[[...attr]]/components/configs/filters.config'
+import filterSections, {
+  legacyAgeOptions,
+} from '../../[[...attr]]/components/configs/filters.config'
 import { LANGUAGE_KEY_TO_CODE } from '../shared/voterFileFilterTransform.util'
 import {
   ACTIVITY_CONDITION_ACTION_LABELS,
@@ -63,9 +65,13 @@ export const buildFilterSummary = (
       if (isElectedOfficial && field.key === 'political_party') continue
       if (field.key === 'language' || field.key === 'income_ranges') continue
 
-      const matched = field.options.filter((option) =>
-        isTrue(segment[option.key]),
-      )
+      // Lists saved before ENG-10752 carry the retired age keys; without
+      // this union an age-only legacy list would summarize as unfiltered.
+      const options =
+        field.key === 'age'
+          ? [...field.options, ...legacyAgeOptions]
+          : field.options
+      const matched = options.filter((option) => isTrue(segment[option.key]))
       if (matched.length > 0) {
         clauses.push(
           `${sentenceCase(field.label)} ${matched.map((option) => option.label).join(' or ')}`,

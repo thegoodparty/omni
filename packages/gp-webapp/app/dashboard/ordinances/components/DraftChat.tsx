@@ -11,6 +11,7 @@ import {
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
@@ -25,15 +26,37 @@ export default function DraftChat({
   ordinance,
   seedText = '',
   seedNonce = 0,
+  autoDictate = false,
 }: {
   ordinance: Ordinance
   seedText?: string
   seedNonce?: number
+  autoDictate?: boolean
 }): React.JSX.Element {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState(seedText)
+  const dictation = useDictationAppend({
+    value: composer,
+    onChange: setComposer,
+    analyticsLabel: 'ordinance-draft-chat',
+  })
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Opened from the launcher's mic: begin dictation on mount, while the opening
+  // tap is still a fresh gesture for the permission prompt. Keyed on autoDictate
+  // (fixed per mount) with dictation read through a ref — no mount-once guard, so
+  // StrictMode's dev remount re-invokes start() after its teardown cancels the
+  // first attempt, and a stable dep means stopping never triggers a restart.
+  const dictationRef = useRef(dictation)
+  dictationRef.current = dictation
+  useEffect(() => {
+    if (autoDictate) void dictationRef.current.start()
+    // Close the session if the effect re-runs or the component unmounts; stop()
+    // is a no-op when idle, so it is safe when autoDictate was never true.
+    return () => {
+      void dictationRef.current.stop()
+    }
+  }, [autoDictate])
 
   const { messages, setMessages, visibleSegments, sending, send } =
     useStreamingTurn(ordinanceFlowChatApi, { toolLabel: ordinanceToolLabel })
@@ -164,6 +187,7 @@ export default function DraftChat({
         }}
         disabled={sending || !conversationId}
         inputRef={inputRef}
+        dictation={dictation}
       />
     </div>
   )

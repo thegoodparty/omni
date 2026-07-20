@@ -43,7 +43,7 @@ test.describe('CRM assistant bar', () => {
     test.setTimeout(2 * 60 * 1000)
     await blockSlowScripts(page)
     await acceptCookieBanner(page)
-    await setFlagOverrides(page, { 'win-voter-data': 'on', 'win-crm': 'on' })
+    await setFlagOverrides(page, { 'win-crm': 'on' })
     await authenticateTestUser(page)
 
     // Stub the general-chats endpoints before any navigation. The transcript

@@ -6,8 +6,18 @@ import { cn } from '@styleguide/lib/utils'
 import { numberFormatter } from 'helpers/numberHelper'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 
+interface StatRow {
+  label: string
+  value: number
+}
+
 interface DistrictStatCardProps {
   label: string
+  // ENG-10746: Win mode appends the raceTargetMetrics rows (projected
+  // turnout, voters needed to win) under the fetched district-total row.
+  // These values arrive synchronously from the campaign context, so they
+  // carry no loading/error state of their own.
+  additionalRows?: StatRow[]
   className?: string
 }
 
@@ -22,6 +32,7 @@ interface DistrictStatCardProps {
 // card (label left, value right) in ENG-10725.
 export default function DistrictStatCard({
   label,
+  additionalRows,
   className,
 }: DistrictStatCardProps) {
   const query = useQuery(districtStatsQueryOptions)
@@ -51,6 +62,17 @@ export default function DistrictStatCard({
           </span>
         )}
       </div>
+      {additionalRows?.map((row) => (
+        <div
+          key={row.label}
+          className="flex items-center justify-between gap-4 border-t border-border px-4 py-3"
+        >
+          <span className="text-sm font-normal">{row.label}</span>
+          <span className="text-lg font-semibold">
+            {numberFormatter(row.value)}
+          </span>
+        </div>
+      ))}
     </Card>
   )
 }

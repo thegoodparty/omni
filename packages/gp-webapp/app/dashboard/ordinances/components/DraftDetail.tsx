@@ -31,10 +31,10 @@ import {
   DownloadIcon,
   FileTextIcon,
   FlagIcon,
+  MicIcon,
   SparklesIcon,
   Trash2Icon,
 } from '@styleguide/components/ui/icons'
-import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import type {
   Ordinance,
   OrdinanceStatus,
@@ -107,6 +107,9 @@ export default function DraftDetail({
   // same passage re-seeds even when the text is identical.
   const [chatSeed, setChatSeed] = useState('')
   const [seedNonce, setSeedNonce] = useState(0)
+  // Opened via the launcher's mic: start dictation as soon as the drawer's
+  // chat mounts, so the user can talk without a second tap.
+  const [autoDictate, setAutoDictate] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -341,9 +344,10 @@ export default function DraftDetail({
   // clears any active selection so the selection toolbar doesn't linger over the
   // opening drawer (this fires whether opened from the launcher or a toolbar
   // button).
-  const openChat = useCallback((seed = ''): void => {
+  const openChat = useCallback((seed = '', dictate = false): void => {
     setChatSeed(seed)
     setSeedNonce((n) => n + 1)
+    setAutoDictate(dictate)
     setChatOpen(true)
     window.getSelection()?.removeAllRanges()
     setSelection(null)
@@ -538,11 +542,21 @@ export default function DraftDetail({
               <IconButton
                 type="button"
                 size="medium"
+                variant="ghost"
+                aria-label="Dictate a message"
+                className="shrink-0"
+                onClick={() => openChat('', true)}
+              >
+                <MicIcon className="size-5" aria-hidden />
+              </IconButton>
+              <IconButton
+                type="button"
+                size="medium"
                 aria-label="Ask about this draft"
-                className="bg-primary text-primary-foreground"
+                className="shrink-0 bg-primary text-primary-foreground"
                 onClick={() => openChat()}
               >
-                <AiIcon className="size-4" aria-hidden />
+                <SparklesIcon className="size-5" aria-hidden />
               </IconButton>
             </ChatPill>
           </div>
@@ -564,6 +578,7 @@ export default function DraftDetail({
               ordinance={ordinance}
               seedText={chatSeed}
               seedNonce={seedNonce}
+              autoDictate={autoDictate}
             />
           </div>
         </DrawerContent>

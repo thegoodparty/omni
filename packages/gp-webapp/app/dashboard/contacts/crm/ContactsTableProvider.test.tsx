@@ -11,7 +11,6 @@ import { screen, waitFor } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import {
   ContactsTableProvider,
   useContactsTable,
@@ -50,24 +49,16 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }))
 
-vi.mock('@shared/experiments/winVoterDataFlag', () => ({
-  useWinVoterDataFlag: vi.fn(),
-}))
-
 // The provider and useElectedOffice both read the active org from here to
 // org-scope their query keys (ENG-10511); outside a provider it would throw.
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'org-one' }),
 }))
 
-const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
-
 beforeEach(() => {
   mockPathname = '/dashboard/contacts'
   mockSearchParams = new URLSearchParams()
   mockPush = vi.fn()
-  mockedUseWinVoterDataFlag.mockReset()
-  mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
 })
 
 const Probe = () => {
@@ -165,7 +156,6 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
   it('passes personId as :id and lalVoterId as a query param for the Win activities branch', async () => {
     mockPathname = '/dashboard/contacts/p_1'
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
     // No elected office -> Win context.
     api.mock('GET /v1/elected-office/current', {
@@ -193,7 +183,6 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
   it('passes person.id and no lalVoterId for the Serve (elected office) activities branch', async () => {
     mockPathname = '/dashboard/contacts/p_1'
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
     mockContactsList()
     api.mock('GET /v1/elected-office/current', {
       status: 200,
@@ -220,7 +209,6 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
   it('never sends the Win-keyed lalVoterId query param for an elected official while the flag is on (loading-window guard)', async () => {
     mockPathname = '/dashboard/contacts/p_1'
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
     // Delay the elected-office resolution so the person fetch (with its
     // lalVoterId) settles first, recreating the loading window where
@@ -252,7 +240,6 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
   it('waits for personQuery to settle before firing the Win activities request, so lalVoterId resolving mid-session cannot discard paged-in pages', async () => {
     mockPathname = '/dashboard/contacts/p_1'
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
     api.mock('GET /v1/elected-office/current', {
       status: 404,
@@ -295,7 +282,6 @@ describe('ContactsTableProvider — engagement :id selection', () => {
 
   it('proceeds without lalVoterId once personQuery settles to an error, instead of deadlocking the feed', async () => {
     mockPathname = '/dashboard/contacts/p_1'
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
     mockContactsList()
     api.mock('GET /v1/elected-office/current', {
       status: 404,

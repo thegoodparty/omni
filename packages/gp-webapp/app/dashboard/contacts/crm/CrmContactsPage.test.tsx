@@ -9,9 +9,30 @@ import { useContactsTable } from './ContactsTableProvider'
 vi.mock('./ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
 }))
-vi.mock('@shared/hooks/useCampaign', () => ({ useCampaign: () => [null] }))
+const mockCampaign = vi.hoisted(() => ({
+  current: null as {
+    raceTargetMetrics: {
+      projectedTurnout: number
+      winNumber: number
+    } | null
+  } | null,
+}))
+vi.mock('@shared/hooks/useCampaign', () => ({
+  useCampaign: () => [mockCampaign.current],
+}))
 vi.mock('../../shared/DashboardLayout', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  default: ({
+    children,
+    navHeader,
+  }: {
+    children: React.ReactNode
+    navHeader?: { icon: string; label: string }
+  }) => (
+    <>
+      {navHeader && <div data-testid="nav-header">{navHeader.label}</div>}
+      {children}
+    </>
+  ),
 }))
 vi.mock('app/dashboard/shared/ProUpgradeModal', () => ({
   ProUpgradeModal: () => null,
@@ -38,7 +59,20 @@ vi.mock('./wizard/CreateListWizard', () => ({
     ) : null,
 }))
 vi.mock('./DistrictStatCard', () => ({
-  default: () => <div data-testid="district-stat" />,
+  default: ({
+    label,
+    additionalRows,
+  }: {
+    label: string
+    additionalRows?: Array<{ label: string; value: number }>
+  }) => (
+    <div data-testid="district-stat">
+      <div>{label}</div>
+      {additionalRows?.map((row) => (
+        <div key={row.label}>{`${row.label}: ${row.value}`}</div>
+      ))}
+    </div>
+  ),
 }))
 vi.mock('./assistant/CrmAssistant', () => ({
   default: () => <div data-testid="crm-assistant" />,
@@ -81,6 +115,7 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
 
 beforeEach(() => {
   setContext()
+  mockCampaign.current = null
 })
 
 describe('CrmContactsPage — mode-aware universe title', () => {
@@ -131,6 +166,87 @@ describe('CrmContactsPage — mode-aware universe title', () => {
     expect(
       screen.getByRole('button', { name: 'Create new list' }),
     ).toBeEnabled()
+  })
+})
+
+describe('CrmContactsPage — data-title nav header (ENG-10747)', () => {
+  it('reads "Voter Data" for a Win campaign', () => {
+    setContext({ isWinContext: true })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('nav-header')).toHaveTextContent('Voter Data')
+  })
+
+  it('reads "Constituent Data" for the Serve/elected-office path', () => {
+    setContext({ isWinContext: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByTestId('nav-header')).toHaveTextContent(
+      'Constituent Data',
+    )
+  })
+
+  it('renders no header until the Win/Serve context is ready (no mode-copy flash)', () => {
+    setContext({ isWinContext: false, isWinContextReady: false })
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByTestId('nav-header')).not.toBeInTheDocument()
+  })
+})
+
+describe('CrmContactsPage — universe stat card rows (ENG-10746)', () => {
+  it('Win with raceTargetMetrics passes the turnout and win-number rows', () => {
+    setContext({ isWinContext: true })
+    mockCampaign.current = {
+      raceTargetMetrics: { projectedTurnout: 42318, winNumber: 21160 },
+    }
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByText('Voters in your district')).toBeInTheDocument()
+    expect(screen.getByText('Projected turnout: 42318')).toBeInTheDocument()
+    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+  })
+
+  it('Win without raceTargetMetrics (no P2V yet) renders only the voters row', () => {
+    setContext({ isWinContext: true })
+    mockCampaign.current = { raceTargetMetrics: null }
+
+    render(<CrmContactsPage />)
+
+    expect(screen.getByText('Voters in your district')).toBeInTheDocument()
+    expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
+  })
+
+  it('drops a zero-valued metric row instead of rendering "0"', () => {
+    setContext({ isWinContext: true })
+    mockCampaign.current = {
+      raceTargetMetrics: { projectedTurnout: 0, winNumber: 21160 },
+    }
+
+    render(<CrmContactsPage />)
+
+    expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
+    expect(screen.getByText('Voters needed to win: 21160')).toBeInTheDocument()
+  })
+
+  it('Serve renders the single constituents row even when a campaign has metrics', () => {
+    setContext({ isWinContext: false })
+    mockCampaign.current = {
+      raceTargetMetrics: { projectedTurnout: 42318, winNumber: 21160 },
+    }
+
+    render(<CrmContactsPage />)
+
+    expect(
+      screen.getByText('Total constituents in your district'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Projected turnout/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Voters needed to win/)).not.toBeInTheDocument()
   })
 })
 

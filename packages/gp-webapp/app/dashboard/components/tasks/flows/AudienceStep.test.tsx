@@ -3,12 +3,12 @@ import { useState } from 'react'
 import { act, screen, waitFor, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import AudienceStep from './AudienceStep'
-import type { AudienceFiltersState } from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
+import type { AudienceFiltersState } from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 
 const mockCountVoterFile = vi.fn()
 const mockClientRequest = vi.fn()
 
-vi.mock('app/dashboard/voter-records/[type]/components/RecordCount', () => ({
+vi.mock('app/dashboard/components/tasks/flows/RecordCount', () => ({
   countVoterFile: (...args: unknown[]) => mockCountVoterFile(...args),
 }))
 
@@ -28,7 +28,7 @@ vi.mock(
 )
 
 vi.mock(
-  'app/dashboard/voter-records/components/CustomVoterAudienceFilters',
+  'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters',
   () => ({
     default: () => null,
     TRACKING_KEYS: { scheduleCampaign: 'scheduleCampaign' },

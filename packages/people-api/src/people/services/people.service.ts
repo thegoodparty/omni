@@ -212,9 +212,13 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       }>
     >(sql)
     const row = rows[0]
+    const count = Number(row?.count ?? 0n)
+    if (count === 0 && effectiveDistrictId) {
+      await this.warnIfStatsButNoVoterRows(effectiveDistrictId, state)
+    }
 
     return {
-      count: Number(row?.count ?? 0n),
+      count,
       avgAge: row?.avgAge ?? null,
       avgIncome: row?.avgIncome ?? null,
     }
@@ -272,22 +276,55 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       ${fromSql}
       ${whereClause}`
 
+    let rows: Array<{ voter_count: bigint }>
     if (!isNameSearch(search)) {
-      const rows =
-        await this.client.$queryRaw<{ voter_count: bigint }[]>(countSql)
-      return Number(rows[0]?.voter_count ?? 0n)
+      rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(countSql)
+    } else {
+      // Same pathological-plan exposure as the data query (the count shares the
+      // name-LIKE WHERE), same guard. The fenced count re-aliases the capped row
+      // set as v so countExpr (including the household key) applies unchanged. A
+      // pattern that trips the timeout matches far fewer rows than the fence in
+      // practice, so the fallback count is exact; if the cap ever binds, a floor
+      // of 10k beats a request that never returns.
+      const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
+      FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${NAME_SEARCH_FENCE_LIMIT}) v`
+      rows = await this.countWithTimeoutGuard(countSql, fencedCountSql)
     }
 
-    // Same pathological-plan exposure as the data query (the count shares the
-    // name-LIKE WHERE), same guard. The fenced count re-aliases the capped row
-    // set as v so countExpr (including the household key) applies unchanged. A
-    // pattern that trips the timeout matches far fewer rows than the fence in
-    // practice, so the fallback count is exact; if the cap ever binds, a floor
-    // of 10k beats a request that never returns.
-    const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
-      FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${NAME_SEARCH_FENCE_LIMIT}) v`
-    const rows = await this.countWithTimeoutGuard(countSql, fencedCountSql)
-    return Number(rows[0]?.voter_count ?? 0n)
+    const count = Number(rows[0]?.voter_count ?? 0n)
+    if (count === 0 && districtId) {
+      await this.warnIfStatsButNoVoterRows(districtId, state)
+    }
+    return count
+  }
+
+  // Partial voter data (dev by construction, or a prod ETL regression) leaves
+  // districts with a DistrictStats row but zero DistrictVoter rows: the
+  // unfiltered stats shortcut reports a healthy count while any filtered query
+  // joins to an empty set and returns 0 — which presents as a filter bug
+  // (ENG-10745). Probing only on the zero-result path keeps the hot path free
+  // of extra queries.
+  private async warnIfStatsButNoVoterRows(
+    districtId: string,
+    state: string,
+  ): Promise<void> {
+    const [probe] = await this.client.$queryRaw<{ has_rows: boolean }[]>(
+      Prisma.sql`SELECT EXISTS (
+        SELECT 1 FROM "green"."DistrictVoter" WHERE "district_id" = ${districtId}::uuid
+      ) AS has_rows`,
+    )
+    if (probe?.has_rows) {
+      return
+    }
+    const totalConstituents =
+      await this.statsService.findTotalConstituents(districtId)
+    if (!totalConstituents) {
+      return
+    }
+    this.logger.warn(
+      { districtId, state, statsTotalConstituents: totalConstituents },
+      'District has stats but no DistrictVoter rows; filtered results will be empty',
+    )
   }
 
   private async countWithTimeoutGuard(

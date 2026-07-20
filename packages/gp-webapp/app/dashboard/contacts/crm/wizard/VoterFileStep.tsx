@@ -9,7 +9,10 @@ import {
 import { sentenceCase } from '../shared/labels.util'
 import { SUPPORT_STATUS_OPTIONS } from '../shared/activityConditionOptions'
 import type { SupportStatusRollup } from '../shared/contacts-types'
-import type { VoterFileFilters } from '../shared/voterFileFilterTransform.util'
+import {
+  hasAnyVoterFileSelection,
+  type VoterFileFilters,
+} from '../shared/voterFileFilterTransform.util'
 
 interface VoterFileStepProps {
   filters: VoterFileFilters
@@ -59,8 +62,7 @@ export default function VoterFileStep({
     onFiltersChange(updated)
   }
 
-  const hasAnySelection =
-    Object.values(filters).some(Boolean) || supportStatus.length > 0
+  const hasAnySelection = hasAnyVoterFileSelection(filters, supportStatus)
 
   const handleClearFilters = () => {
     onFiltersChange({})
