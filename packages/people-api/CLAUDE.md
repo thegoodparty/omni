@@ -107,6 +107,17 @@ See `docs/data-pipeline.md` for the full pipeline.
 - Never query the `Voter` table via Prisma ORM in new code — use `Prisma.sql` / `$queryRaw`.
 - Never disable `unused-imports/no-unused-imports` without an inline comment justifying it.
 
+## Dev data coverage (QA gotcha)
+
+The dev people-db has voter rows for **NC, DC, and WY only**. Districts in every
+other state have a `DistrictStats` row but zero `DistrictVoter` rows, so
+unfiltered counts (stats shortcut) look healthy while ANY filter returns 0 —
+people-api logs a structured warning when a zero filtered count hits such a
+district (ENG-10745). QA of contacts filters on dev must use an org whose
+district resolves to NC/DC/WY, or set `organization.override_district_id`
+(gp-api dev DB) to a loaded district, e.g. CHEYENNE CITY
+`c6b12896-93cb-b360-221f-ca61318afe43`.
+
 ## Environment
 
 - Node `v22.12` (`.nvmrc`)

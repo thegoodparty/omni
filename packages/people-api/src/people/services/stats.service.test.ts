@@ -67,6 +67,28 @@ describe('StatsService', () => {
     expect(counts.totalConstituentsWithCellPhone).toBe(55)
   })
 
+  it('returns totalConstituents without throwing when the stats row exists', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue({
+      totalConstituents: 39932,
+    })
+
+    await expect(service.findTotalConstituents('district-1')).resolves.toBe(
+      39932,
+    )
+    expect(mockPrisma.districtStats.findUnique).toHaveBeenCalledWith({
+      select: { totalConstituents: true },
+      where: { districtId: 'district-1' },
+    })
+  })
+
+  it('returns null (not an exception) when findTotalConstituents finds no stats row', async () => {
+    mockPrisma.districtStats.findUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findTotalConstituents('missing-district-id'),
+    ).resolves.toBeNull()
+  })
+
   it('throws when total counts are missing', async () => {
     mockPrisma.districtStats.findUnique.mockResolvedValue(null)
 
