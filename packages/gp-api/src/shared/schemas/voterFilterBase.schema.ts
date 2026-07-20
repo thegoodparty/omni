@@ -17,10 +17,18 @@ export const voterFilterBaseSchema = z.object({
   partyDemocrat: z.boolean().optional(),
   partyRepublican: z.boolean().optional(),
   partyUnknown: z.boolean().optional(),
+  // Retired overlapping age split (ENG-10752). Still accepted so saved
+  // filters keep their original query bounds; new selections use the
+  // mutually exclusive keys below.
   age18_25: z.boolean().optional(),
   age25_35: z.boolean().optional(),
   age35_50: z.boolean().optional(),
   age50Plus: z.boolean().optional(),
+  age18_24: z.boolean().optional(),
+  age25_34: z.boolean().optional(),
+  age35_49: z.boolean().optional(),
+  age50_64: z.boolean().optional(),
+  age65Plus: z.boolean().optional(),
   ageUnknown: z.boolean().optional(),
   genderMale: z.boolean().optional(),
   genderFemale: z.boolean().optional(),

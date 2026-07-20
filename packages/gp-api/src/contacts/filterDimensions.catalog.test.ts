@@ -20,10 +20,18 @@ import {
 //   convertVoterFileFilterToFilters (excludeFields), so filtering on them is
 //   a no-op — advertising them would let the assistant build filters that
 //   silently don't filter.
+// - age18_25/age25_35/age35_50/age50Plus: the overlapping split ENG-10752
+//   retired. Saved rows keep converting with their original bounds, but the
+//   catalog only advertises the mutually exclusive replacement ranges so the
+//   assistant can't compose new filters from retired keys.
 const EXCLUDED_SCHEMA_FIELDS = new Set([
   'search',
   'registeredVoterTrue',
   'registeredVoterFalse',
+  'age18_25',
+  'age25_35',
+  'age35_50',
+  'age50Plus',
 ])
 
 const schemaFieldKeys = new Set(Object.keys(voterFilterBaseSchema.shape))

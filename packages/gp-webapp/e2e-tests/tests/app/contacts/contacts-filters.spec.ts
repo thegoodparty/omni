@@ -205,12 +205,12 @@ test('contacts filters: demographics', async ({ page }) => {
     // testFilterField confirm it returns a row, but don't assert the absent
     // age value — same live-data gap as the Spanish-language filter below.
     await testFilterField(page, {
-      select: [{ label: 'Age', values: ['25-35'] }],
+      select: [{ label: 'Age', values: ['25-34'] }],
       expectSheetValues: [],
     })
 
     await testFilterField(page, {
-      select: [{ label: 'Age', values: ['35-50'] }],
+      select: [{ label: 'Age', values: ['35-49'] }],
       expectSheetValues: [],
     })
   })
@@ -267,14 +267,14 @@ test('contacts filters: contact methods and voting', async ({ page }) => {
     // mechanism and the panel field render.
   })
 
-  await test.step('Filter: Voter Likely', async () => {
+  await test.step('Filter: Voter Likelihood', async () => {
     await testFilterField(page, {
-      select: [{ label: 'Voter Likely', values: ['Unlikely'] }],
+      select: [{ label: 'Voter Likelihood', values: ['Unlikely'] }],
       expectSheetValues: [{ label: 'Voter Status', value: /Unlikely/i }],
     })
 
     await testFilterField(page, {
-      select: [{ label: 'Voter Likely', values: ['Likely'] }],
+      select: [{ label: 'Voter Likelihood', values: ['Likely'] }],
       expectSheetValues: [{ label: 'Voter Status', value: /Likely/i }],
     })
   })
@@ -372,32 +372,32 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
     await testFilterField(page, {
       select: [
         { label: 'Gender', values: ['Male'] },
-        { label: 'Age', values: ['25-35'] },
+        { label: 'Age', values: ['25-34'] },
       ],
       expectTableValues: [
         { columnIndex: 1, value: /^\s*M\s*$/ },
-        { columnIndex: 2, value: /^\s*(2[5-9]|3[0-5])\s*$/ },
+        { columnIndex: 2, value: /^\s*(2[5-9]|3[0-4])\s*$/ },
       ],
       expectSheetValues: [
         async (panel) => {
           const header = panel.locator('p.text-xl').first()
-          await expect(header).toHaveText(/M.*\b(2[5-9]|3[0-5]) years old\b/)
+          await expect(header).toHaveText(/M.*\b(2[5-9]|3[0-4]) years old\b/)
         },
       ],
     })
   })
 
-  await test.step('Filter Combo: Female, Ages 25-50, Cell Phone, Married', async () => {
+  await test.step('Filter Combo: Female, Ages 25-49, Cell Phone, Married', async () => {
     await testFilterField(page, {
       select: [
         { label: 'Gender', values: ['Female'] },
-        { label: 'Age', values: ['25-35', '35-50'] },
+        { label: 'Age', values: ['25-34', '35-49'] },
         { label: 'Cell Phone', values: ['Has Cell Phone'] },
         { label: 'Marital Status', values: ['Married'] },
       ],
       expectTableValues: [
         { columnIndex: 1, value: /^\s*F\s*$/ },
-        { columnIndex: 2, value: /^\s*(2[5-9]|3[0-9]|4[0-9]|50)\s*$/ },
+        { columnIndex: 2, value: /^\s*(2[5-9]|3[0-9]|4[0-9])\s*$/ },
         { columnIndex: 4, value: /\d/ },
       ],
       expectSheetValues: [
@@ -414,7 +414,7 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
     await testFilterField(page, {
       select: [
         { label: 'Gender', values: ['Male'] },
-        { label: 'Voter Likely', values: ['Likely', 'Super'] },
+        { label: 'Voter Likelihood', values: ['Likely', 'Super'] },
         { label: 'Homeowner', values: ['Yes'] },
         {
           label: 'Level of Education',
@@ -439,7 +439,7 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
   await test.step('Filter Combo: Ages 35+, Landline, Children, Income $75-125k, Ethnicity', async () => {
     await testFilterField(page, {
       select: [
-        { label: 'Age', values: ['35-50', '50+'] },
+        { label: 'Age', values: ['35-49', '50-64', '65+'] },
         { label: 'Landline', values: ['Has Landline'] },
         { label: 'Children', values: ['Yes'] },
         {

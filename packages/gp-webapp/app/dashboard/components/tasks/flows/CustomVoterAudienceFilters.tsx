@@ -70,6 +70,11 @@ export type AudienceFilterKey =
   | 'age_25_35'
   | 'age_35_50'
   | 'age_50_plus'
+  | 'age_18_24'
+  | 'age_25_34'
+  | 'age_35_49'
+  | 'age_50_64'
+  | 'age_65_plus'
   | 'gender_male'
   | 'gender_female'
   | 'gender_unknown'
@@ -88,6 +93,11 @@ export interface AudienceFiltersState {
   age_25_35?: boolean
   age_35_50?: boolean
   age_50_plus?: boolean
+  age_18_24?: boolean
+  age_25_34?: boolean
+  age_35_49?: boolean
+  age_50_64?: boolean
+  age_65_plus?: boolean
   gender_male?: boolean
   gender_female?: boolean
   gender_unknown?: boolean
