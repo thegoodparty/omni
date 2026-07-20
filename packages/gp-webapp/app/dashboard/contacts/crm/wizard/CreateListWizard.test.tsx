@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
@@ -128,20 +128,60 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
   })
 
-  it('uses the constituent step-2 heading for an elected official (Serve)', async () => {
+  it('keeps the Win wizard at three steps with both branch cards', () => {
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', {
+        name: /build my list using outreach activity/i,
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    ).toBeInTheDocument()
+  })
+
+  // ENG-10750: Serve has no outreach, so its wizard drops the branch chooser
+  // entirely — a 2-step flow that opens directly on the constituent filters.
+  it('opens Serve directly on the constituent filters step with no activity option', () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Build a constituent list' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('radio', { name: /outreach activity/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Back' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('advances Serve to the name step as Step 2 of 2, with Back returning to filters', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
+    await user.click(pillForOption('Female'))
     await user.click(
-      screen.getByRole('radio', {
-        name: /build my list using the constituent file/i,
-      }),
+      await screen.findByRole('button', { name: /build your list/i }),
     )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(
+      screen.getByRole('heading', { name: 'Name your list' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Step 2 of 2')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       screen.getByRole('heading', { name: 'Build a constituent list' }),
     ).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument()
   })
 
   it('advances to the activity step 2 and disables the step-2 CTA until every row has a channel', async () => {
@@ -282,7 +322,10 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
       screen.queryByRole('button', { name: 'Clear filters' }),
     ).not.toBeInTheDocument()
 
-    // The cleared state actually reaches the submit payload, not just the UI.
+    // The cleared state actually reaches the submit payload, not just the
+    // UI — a fresh selection re-enables the build (ENG-10751 blocks an
+    // all-cleared submit), and the earlier Female toggle stays cleared.
+    await user.click(pillForOption('Democrat'))
     await user.click(
       await screen.findByRole('button', { name: /build your list/i }),
     )
@@ -290,7 +333,10 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await user.click(screen.getByRole('button', { name: 'Save list' }))
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
-    expect(sentBody).toMatchObject({ genderFemale: false })
+    expect(sentBody).toMatchObject({
+      genderFemale: false,
+      partyDemocrat: true,
+    })
   })
 })
 
@@ -398,6 +444,7 @@ describe('CreateListWizard — running total + CTA', () => {
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
 
     const cta = await screen.findByRole('button', {
       name: /build your list \(250\)/i,
@@ -424,6 +471,7 @@ describe('CreateListWizard — running total + CTA', () => {
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
     await user.click(
       await screen.findByRole('button', { name: 'Build your list' }),
     )
@@ -434,6 +482,77 @@ describe('CreateListWizard — running total + CTA', () => {
     // resolve/cap at save time).
     await user.type(screen.getByLabelText(/list name/i), 'Huge list')
     expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled()
+  })
+})
+
+describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
+  it('renders a truly disabled build CTA at zero selections that cannot advance to the name step', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const cta = await screen.findByRole('button', {
+      name: /build your list/i,
+    })
+    expect(cta).toBeDisabled()
+
+    // Programmatic activation (the old opacity-50 hack let this through):
+    // a raw dispatched click on the disabled button must not advance either.
+    fireEvent.click(cta)
+    expect(screen.queryByLabelText(/list name/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Filters' })).toBeInTheDocument()
+  })
+
+  it('enables on a single selection and disables again after Clear filters', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    const cta = await screen.findByRole('button', {
+      name: /build your list/i,
+    })
+    expect(cta).toBeDisabled()
+
+    await user.click(pillForOption('Female'))
+    expect(cta).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(cta).toBeDisabled()
+  })
+
+  it('keeps the count query firing at zero selections so the disabled CTA shows the unfiltered total', async () => {
+    const countHandler = vi.fn(() => ({
+      status: 200 as const,
+      data: { count: 118099 },
+    }))
+    api.mock('POST /v1/contacts/count', countHandler)
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await vi.waitFor(() => expect(countHandler).toHaveBeenCalled())
+    const cta = await screen.findByRole('button', {
+      name: /build your list \(118,099\)/i,
+    })
+    expect(cta).toBeDisabled()
   })
 })
 
@@ -454,6 +573,7 @@ describe('CreateListWizard — error handling', () => {
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
     await user.click(
       await screen.findByRole('button', { name: /build your list/i }),
     )
@@ -502,23 +622,19 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     })
   })
 
-  it('fires the Serve-mode List Created event without a hasParty property', async () => {
+  it('fires the Serve-mode List Created event without a hasParty property, and the payload carries no activityConditions', async () => {
     setContext({ isWinContext: false, isElectedOfficial: true })
-    api.mock('POST /v1/voters/voter-file/filter', {
-      status: 200,
-      data: { id: 102, name: 'Reachable constituents' },
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 102, name: 'Reachable constituents' } }
     })
     const user = userEvent.setup()
 
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
-    await user.click(
-      screen.getByRole('radio', {
-        name: /build my list using the constituent file/i,
-      }),
-    )
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-
+    // ENG-10750: no branch chooser for Serve — the wizard opens on the
+    // filters step directly.
     await user.click(pillForOption('Female'))
 
     await user.click(
@@ -537,6 +653,13 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
     const [, properties] = vi.mocked(trackEvent).mock.calls[0]!
     expect(properties).not.toHaveProperty('hasParty')
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({
+      name: 'Reachable constituents',
+      genderFemale: true,
+    })
+    expect(sentBody).not.toHaveProperty('activityConditions')
   })
 
   it('fires the Win-mode Activity List Created event with sourceCampaign + actionFilter for a single condition', async () => {
@@ -680,6 +803,7 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
     await user.click(
       await screen.findByRole('button', { name: /build your list/i }),
     )
@@ -702,7 +826,7 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     // all fire despite the drawer no longer being visible.
     await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
-      variableCount: 0,
+      variableCount: 1,
       hasParty: false,
     })
     await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(555))
