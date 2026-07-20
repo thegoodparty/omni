@@ -119,7 +119,9 @@ test.describe('Contacts pro gating @dev-only', () => {
       name: 'Get Pro voter data and tools',
     })
     await expect(proModalHeading).toBeVisible({ timeout: 10_000 })
-    await page.keyboard.press('Escape')
+    // ProUpgradeModal is escape- and backdrop-locked; the X button is the
+    // only dismissal.
+    await page.getByRole('button', { name: 'Close' }).click()
     await expect(proModalHeading).toBeHidden({ timeout: 10_000 })
 
     page.off('response', onSearchRequest)
