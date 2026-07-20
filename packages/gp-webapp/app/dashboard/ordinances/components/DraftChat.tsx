@@ -11,6 +11,7 @@ import {
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
@@ -25,15 +26,31 @@ export default function DraftChat({
   ordinance,
   seedText = '',
   seedNonce = 0,
+  autoDictate = false,
 }: {
   ordinance: Ordinance
   seedText?: string
   seedNonce?: number
+  autoDictate?: boolean
 }): React.JSX.Element {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState(seedText)
+  const dictation = useDictationAppend({
+    value: composer,
+    onChange: setComposer,
+    analyticsLabel: 'ordinance-draft-chat',
+  })
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // Opened from the launcher's mic: begin dictation once, on mount, while the
+  // opening tap is still a fresh user gesture for the mic permission prompt.
+  const autoDictateStartedRef = useRef(false)
+  useEffect(() => {
+    if (autoDictate && !autoDictateStartedRef.current) {
+      autoDictateStartedRef.current = true
+      void dictation.start()
+    }
+  }, [autoDictate, dictation])
 
   const { messages, setMessages, visibleSegments, sending, send } =
     useStreamingTurn(ordinanceFlowChatApi, { toolLabel: ordinanceToolLabel })
@@ -164,6 +181,7 @@ export default function DraftChat({
         }}
         disabled={sending || !conversationId}
         inputRef={inputRef}
+        dictation={dictation}
       />
     </div>
   )

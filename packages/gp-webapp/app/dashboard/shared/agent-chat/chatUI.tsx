@@ -5,11 +5,15 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { IconButton, Input } from '@styleguide'
 import {
+  Loader2Icon,
+  MicIcon,
   SearchIcon,
   SendIcon,
   SparklesIcon,
+  SquareIcon,
 } from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
+import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
 
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
 // flow, ...). One source of truth for the assistant bubble, markdown rendering,
@@ -191,7 +195,11 @@ export function ThinkingRow({
 
 // The message composer: a pill-shaped input with a send button. The consumer
 // owns the value and clears it on submit; `onSubmit` fires on Enter or the
-// button, and the button is disabled while empty.
+// button, and the button is disabled while empty. Pass `dictation` (from
+// useDictationAppend, wired to the same value/onChange) to add a voice-input
+// mic before the send button; omit it and the mic isn't rendered. The
+// dictation-enabled (agent) composer sends with the branded AI icon; the plain
+// composer keeps the send arrow.
 export function ChatComposer({
   value,
   onChange,
@@ -199,6 +207,7 @@ export function ChatComposer({
   disabled,
   placeholder = 'Ask me any questions about this...',
   inputRef,
+  dictation,
 }: {
   value: string
   onChange: (value: string) => void
@@ -206,6 +215,7 @@ export function ChatComposer({
   disabled?: boolean
   placeholder?: string
   inputRef?: Ref<HTMLInputElement>
+  dictation?: UseDictationAppendResult
 }): React.JSX.Element {
   return (
     <form
@@ -221,15 +231,44 @@ export function ChatComposer({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+        className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
       />
+      {dictation ? (
+        <IconButton
+          type="button"
+          variant="ghost"
+          className="shrink-0 rounded-full"
+          aria-label={
+            dictation.status === 'recording'
+              ? 'Stop dictation'
+              : 'Dictate a message'
+          }
+          disabled={disabled || dictation.status === 'stopping'}
+          onClick={() => void dictation.toggle()}
+        >
+          {dictation.busy ? (
+            <Loader2Icon className="size-5 animate-spin" aria-hidden />
+          ) : dictation.status === 'recording' ? (
+            <SquareIcon
+              className="size-5 animate-pulse text-destructive"
+              aria-hidden
+            />
+          ) : (
+            <MicIcon className="size-5" aria-hidden />
+          )}
+        </IconButton>
+      ) : null}
       <IconButton
         type="submit"
-        className="rounded-full"
+        className="shrink-0 rounded-full"
         disabled={disabled || value.trim().length === 0}
         aria-label="Send"
       >
-        <SendIcon className="size-4" aria-hidden />
+        {dictation ? (
+          <SparklesIcon className="size-5" aria-hidden />
+        ) : (
+          <SendIcon className="size-5" aria-hidden />
+        )}
       </IconButton>
     </form>
   )
