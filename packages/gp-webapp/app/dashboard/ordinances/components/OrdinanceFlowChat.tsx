@@ -30,6 +30,7 @@ import {
   segmentsToLive,
 } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
@@ -174,22 +175,6 @@ export default function OrdinanceFlowChat({
     analyticsLabel: 'ordinance-flow-chat',
   })
   const [streamError, setStreamError] = useState<string | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
-  // Auto-scroll only while pinned to the bottom. Unpinning is driven by the
-  // user's own wheel/touch gesture (which the auto-scroll never fires), so an
-  // in-flight auto-scroll can't fight a scroll-up; onScroll only ever *re-pins*,
-  // and only once the user is back at the very bottom.
-  const pinnedRef = useRef(true)
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 4) {
-      pinnedRef.current = true
-    }
-  }, [])
-  const unpinOnUserScroll = useCallback(() => {
-    pinnedRef.current = false
-  }, [])
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
@@ -366,13 +351,11 @@ export default function OrdinanceFlowChat({
     }
   }, [slug, stepValue])
 
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el || !pinnedRef.current) return
-    // Instant (not smooth): the reveal ticks ~40x/s while streaming, and a
-    // smooth scroll would restart its animation every tick and jitter.
-    el.scrollTop = el.scrollHeight
-  }, [messages, visibleSegments, liveClarify])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+    liveClarify,
+  ])
 
   if (phase === 'loading') {
     return (
@@ -495,11 +478,7 @@ export default function OrdinanceFlowChat({
           away with the conversation, matching the prototype. */}
       <div
         ref={scrollRef}
-        onScroll={handleScroll}
-        onWheel={(e) => {
-          if (e.deltaY < 0) unpinOnUserScroll()
-        }}
-        onTouchMove={unpinOnUserScroll}
+        onScroll={onScroll}
         className="min-h-0 flex-1 overflow-y-auto"
       >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">

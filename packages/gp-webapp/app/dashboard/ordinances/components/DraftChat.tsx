@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Ordinance } from '@goodparty_org/contracts'
 import {
   AssistantRow,
@@ -11,6 +11,7 @@ import {
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
@@ -40,21 +41,7 @@ export default function DraftChat({
     onChange: setComposer,
     analyticsLabel: 'ordinance-draft-chat',
   })
-  const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  // Auto-scroll only while pinned to the bottom; scrolling up to read pauses it
-  // until the user returns, so streaming text can't yank the view mid-read.
-  const pinnedRef = useRef(true)
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current
-    if (!el) return
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 4) {
-      pinnedRef.current = true
-    }
-  }, [])
-  const unpinOnUserScroll = useCallback(() => {
-    pinnedRef.current = false
-  }, [])
   // Opened from the launcher's mic: begin dictation on mount, while the opening
   // tap is still a fresh gesture for the permission prompt. Keyed on autoDictate
   // (fixed per mount) with dictation read through a ref — no mount-once guard, so
@@ -128,15 +115,10 @@ export default function DraftChat({
     if (seedNonce !== 0 && conversationId) inputRef.current?.focus()
   }, [seedNonce, conversationId])
 
-  // Stay pinned to the bottom as turns arrive and the live turn streams
-  // (visibleSegments updates ~40x/s). Instant, not smooth: a smooth scroll
-  // would restart its animation every tick and jitter. Skips when the user has
-  // scrolled up to read.
-  useEffect(() => {
-    const el = scrollRef.current
-    if (!el || !pinnedRef.current) return
-    el.scrollTop = el.scrollHeight
-  }, [messages, visibleSegments])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+  ])
 
   const working = sending && visibleSegments.length === 0
 
@@ -161,11 +143,7 @@ export default function DraftChat({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div
         ref={scrollRef}
-        onScroll={handleScroll}
-        onWheel={(e) => {
-          if (e.deltaY < 0) unpinOnUserScroll()
-        }}
-        onTouchMove={unpinOnUserScroll}
+        onScroll={onScroll}
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
       >
         {history.map((m) =>
