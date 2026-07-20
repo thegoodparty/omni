@@ -38,6 +38,7 @@ DEFAULT_STATE = DATA_DIR / "instrumentation_gaps.json"
 DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
 
 DEFAULT_RUBRIC_PATH = REPO_ROOT / ".claude/skills/instrument-analytics-event/SKILL.md"
+DEFAULT_MODEL = os.environ.get("GAP_JUDGE_MODEL", "claude-sonnet-5")
 
 
 # --- LLM judgment: schema + rubric -------------------------------------------
@@ -124,6 +125,12 @@ _API_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("api_webhook", re.compile(r"@Post\(\s*['\"][^'\"]*webhook", re.IGNORECASE)),
     ("api_status", re.compile(r"status\s*[:=]\s*['\"](COMPLETED|FAILED|REJECTED|APPROVED)['\"]")),
 )
+
+# Keyed by surface_type so scan_repo can window a candidate's snippet around the same
+# pattern that flagged it, rather than re-deriving the mapping there.
+_DETECTOR_PATTERN: dict[str, re.Pattern[str]] = {
+    name: pat for name, pat in (*_WEBAPP_DETECTORS, *_API_DETECTORS)
+}
 
 
 def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
@@ -517,31 +524,62 @@ def _iter_files(repo_root: Path, sub: str, exclude_globs: Sequence[str]):
 
 
 def scan_repo(repo_root: Path, exclude_globs: Sequence[str]) -> tuple[list[dict], set[str]]:
-    """Walk gp-webapp + gp-api, returning all candidate surfaces and the set of files that
-    fire at least one event."""
+    """Walk gp-webapp + gp-api, returning all candidate surfaces (each with a bounded code
+    snippet for the judge) and the set of files that fire at least one event."""
     surfaces: list[dict] = []
     files_with_tracking: set[str] = set()
-    page_paths: list[str] = []
+    page_texts: dict[str, str] = {}
     for sub in (_WEBAPP_ROOT, _API_ROOT):
         for rel, path in _iter_files(repo_root, sub, exclude_globs):
             text = path.read_text(errors="replace")
             if has_tracking_call(text):
                 files_with_tracking.add(rel)
             if rel.endswith("/page.tsx"):
-                page_paths.append(rel)
-            surfaces.extend(detect_surfaces_in_file(rel, text))
-    surfaces.extend(enumerate_route_surfaces(page_paths, exclude_globs))
+                page_texts[rel] = text
+            for surface in detect_surfaces_in_file(rel, text):
+                pat = _DETECTOR_PATTERN.get(surface["surface_type"])
+                surface["snippet"] = extract_context(text, pat)
+                surfaces.append(surface)
+    routes = enumerate_route_surfaces(list(page_texts), exclude_globs)
+    for r in routes:
+        r["snippet"] = extract_context(page_texts.get(r["location"], ""), None)
+    surfaces.extend(routes)
     return surfaces, files_with_tracking
 
 
 def run_sweep(
-    repo_root: Path, config_path: Path, state_path: Path | None, today: date
-) -> tuple[dict, list[dict]]:
+    repo_root: Path,
+    config_path: Path,
+    state_path: Path | None,
+    today: date,
+    *,
+    api_key: str | None = None,
+    model: str = DEFAULT_MODEL,
+    limit: int = 25,
+    rubric_path: Path = DEFAULT_RUBRIC_PATH,
+    client_factory=make_anthropic_client,
+    enable_judge: bool = True,
+) -> tuple[dict, list[dict], str, int]:
+    """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps.
+    Returns (new_state, gaps, judgment_status, pending_count). Judgment is graceful: when it
+    does not return 'ok', no new entries are added and pending_count reports the candidates
+    that went un-judged."""
     cfg = load_gap_config(config_path)
+    prior = load_state(state_path)
     surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
     gaps = find_gaps(surfaces, tracked)
-    new_state = merge_state(load_state(state_path), gaps, today)
-    return new_state, gaps
+    candidates = select_candidates(gaps, prior, limit)
+    candidates_by_id = {c["id"]: c for c in candidates}
+    if enable_judge:
+        verdicts, status = run_judgment(
+            candidates, api_key=api_key, model=model,
+            rubric_path=rubric_path, client_factory=client_factory,
+        )
+    else:
+        verdicts, status = {}, "skipped: --no-judge"
+    new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
+    pending = 0 if status in ("ok", "no-candidates") else len(candidates)
+    return new_state, gaps, status, pending
 
 
 def prepend_log(log_path: Path, section: str) -> None:
@@ -563,6 +601,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--json", type=Path, help="also write the full state JSON here")
     parser.add_argument("--today", help="override run date YYYY-MM-DD")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="judge model id")
+    parser.add_argument("--limit", type=int, default=25, help="max candidates judged per run")
+    parser.add_argument("--rubric", type=Path, default=DEFAULT_RUBRIC_PATH)
+    parser.add_argument("--no-judge", action="store_true", help="skip the LLM judgment pass")
     args = parser.parse_args(argv)
 
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
@@ -574,9 +616,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+
     # Graceful-skip contract: a scan/walk failure must never fail the governance run.
     try:
-        new_state, _gaps = run_sweep(repo_root, args.config, args.state, today)
+        new_state, _gaps, judgment_status, pending = run_sweep(
+            repo_root, args.config, args.state, today,
+            api_key=api_key, model=args.model, limit=args.limit,
+            rubric_path=args.rubric, enable_judge=not args.no_judge,
+        )
     except CorruptStateError as exc:
         print(
             f"gap-sweep: state file unreadable ({exc}); skipping this run, "
@@ -588,7 +636,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
         return 0
 
-    section = render_gap_section(new_state, today.isoformat())
+    section = render_gap_section(
+        new_state, today.isoformat(),
+        judgment_status=judgment_status, pending_count=pending,
+    )
+    if judgment_status not in ("ok", "no-candidates"):
+        print(f"gap-sweep: {judgment_status} ({pending} candidates pending).", file=sys.stderr)
     sys.stdout.write(section)
     if not args.no_log:
         prepend_log(args.log, section)

@@ -296,28 +296,24 @@ def test_scan_repo_finds_route_gap_and_ignores_tracked(tmp_path):
     assert "/settings" not in gap_ids
 
 
-def test_main_writes_state_and_log_and_is_idempotent(tmp_path):
+def test_run_sweep_idempotent_same_day(tmp_path):
     app = tmp_path / "packages/gp-webapp/app/dashboard"
     app.mkdir(parents=True)
     (app / "page.tsx").write_text("export default function P(){return null}")
     state = tmp_path / "state.json"
-    log = tmp_path / "log.md"
-    rc = ig.main([
-        "--repo", str(tmp_path), "--config", str(tmp_path / "none.yaml"),
-        "--state", str(state), "--log", str(log), "--today", "2026-07-17",
-    ])
-    assert rc == 0
-    data = json.loads(state.read_text())
-    assert data["/dashboard"]["disposition"] == "new"
-    assert "## 2026-07-17" in log.read_text()
 
-    # second run same day: /dashboard stays a single entry, still tracked, not duplicated
-    rc2 = ig.main([
-        "--repo", str(tmp_path), "--config", str(tmp_path / "none.yaml"),
-        "--state", str(state), "--log", str(log), "--today", "2026-07-17",
-    ])
-    assert rc2 == 0
-    assert len(json.loads(state.read_text())) == 1
+    def fake_factory(_key):
+        return _FakeClient(payload={
+            "results": [{"id": "/dashboard", "is_gap": True, "rubric_rule": "route",
+                         "dashboard_question": "q", "rank": 3, "reason": "r"}]
+        })
+
+    kwargs = dict(api_key="sk-ant-x", model="m", client_factory=fake_factory)
+    s1, *_ = ig.run_sweep(tmp_path, tmp_path / "n.yaml", state, date(2026, 7, 20), **kwargs)
+    ig._atomic_write(state, json.dumps(s1, indent=2, sort_keys=True) + "\n")
+    s2, *_ = ig.run_sweep(tmp_path, tmp_path / "n.yaml", state, date(2026, 7, 20), **kwargs)
+    assert len(s2) == 1
+    assert s2["/dashboard"]["first_seen"] == "2026-07-20"
 
 
 def test_main_skips_and_leaves_state_untouched_when_corrupt(tmp_path, capsys):
@@ -534,3 +530,63 @@ def test_run_judgment_ok_path(tmp_path):
     )
     assert status == "ok"
     assert out["/a"]["rubric_rule"] == "flow"
+
+
+def test_scan_repo_enriches_snippet(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return <div>hi</div>}")
+    surfaces, _ = ig.scan_repo(tmp_path, exclude_globs=[])
+    route = next(s for s in surfaces if s["id"] == "/dashboard")
+    assert "snippet" in route and route["snippet"]
+
+
+def test_run_sweep_no_judge_adds_nothing_and_reports_pending(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    new_state, gaps, status, pending = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
+        enable_judge=False,
+    )
+    assert gaps  # deterministic gap found
+    assert new_state == {}  # nothing enters state without judgment
+    assert status.startswith("skipped")
+    assert pending >= 1
+
+
+def test_run_sweep_with_fake_judge_adds_confirmed(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+
+    def fake_factory(_key):
+        return _FakeClient(payload={
+            "results": [
+                {"id": "/dashboard", "is_gap": True, "rubric_rule": "route",
+                 "dashboard_question": "q", "rank": 3, "reason": "r"},
+            ]
+        })
+
+    new_state, gaps, status, pending = ig.run_sweep(
+        tmp_path, tmp_path / "none.yaml", tmp_path / "state.json", date(2026, 7, 20),
+        api_key="sk-ant-x", model="claude-sonnet-5", client_factory=fake_factory,
+    )
+    assert status == "ok"
+    assert new_state["/dashboard"]["disposition"] == "new"
+    assert new_state["/dashboard"]["rubric_rule"] == "route"
+
+
+def test_main_no_judge_writes_empty_state_with_pending_note(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    state = tmp_path / "state.json"
+    log = tmp_path / "log.md"
+    rc = ig.main([
+        "--repo", str(tmp_path), "--config", str(tmp_path / "none.yaml"),
+        "--state", str(state), "--log", str(log), "--today", "2026-07-20", "--no-judge",
+    ])
+    assert rc == 0
+    assert json.loads(state.read_text()) == {}
+    assert "Judgment unavailable" in log.read_text()
