@@ -51,6 +51,11 @@ export default function DraftChat({
   dictationRef.current = dictation
   useEffect(() => {
     if (autoDictate) void dictationRef.current.start()
+    // Close the session if the effect re-runs or the component unmounts; stop()
+    // is a no-op when idle, so it is safe when autoDictate was never true.
+    return () => {
+      void dictationRef.current.stop()
+    }
   }, [autoDictate])
 
   const { messages, setMessages, visibleSegments, sending, send } =
