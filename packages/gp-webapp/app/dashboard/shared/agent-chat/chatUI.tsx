@@ -220,6 +220,9 @@ export function ChatComposer({
       className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
       onSubmit={(e) => {
         e.preventDefault()
+        // Match the send button's guard so Enter can't submit mid-dictation,
+        // which would drop the not-yet-finalized words still being spoken.
+        if (dictation?.active) return
         onSubmit()
       }}
     >

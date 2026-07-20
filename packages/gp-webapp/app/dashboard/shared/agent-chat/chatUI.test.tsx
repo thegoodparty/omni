@@ -125,4 +125,34 @@ describe('ChatComposer', () => {
 
     expect(sendButton()).toBeDisabled()
   })
+
+  it('ignores an Enter/form submit while dictation is active', () => {
+    const onSubmit = vi.fn()
+    const { container } = render(
+      <ChatComposer
+        {...baseProps}
+        onSubmit={onSubmit}
+        value="hello"
+        dictation={makeDictation({ status: 'recording', active: true })}
+      />,
+    )
+
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('submits on form submit when dictation is idle', () => {
+    const onSubmit = vi.fn()
+    const { container } = render(
+      <ChatComposer
+        {...baseProps}
+        onSubmit={onSubmit}
+        value="hello"
+        dictation={makeDictation()}
+      />,
+    )
+
+    fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+  })
 })
