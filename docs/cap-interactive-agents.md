@@ -122,6 +122,25 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
+- **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
+  shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
+  `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
+  filter-dimension catalog (`ContactsService.getFilterDimensions` — party stripped
+  for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
+  `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
+  inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
+  structured tool errors). Registration is gated per handler on the org's CRM
+  flag (`win-crm` / `serve-crm`) via `FeaturesService`, and the prompt advertises
+  them only when registered.
+- **`crud_saved_filters`** — saved-filter (contact list) **write** tool shared by
+  the same two handlers under the same CRM flag gates, mirroring
+  `crud_priorities`' single-tool-with-`action` shape (`list`/`create`/`update`/
+  `delete`). It calls the same `VoterFileFilterService` paths as the
+  `voters/voter-file` filter routes, so the Win Pro gate, completed-outreach
+  validation, org scoping, and the locked-filter conflict are inherited; the
+  locked-filter 409 surfaces as a structured "duplicate it to edit" tool error.
+  Aggregate-only returns: ids, names, and counts (create counts via
+  `ContactsService.countContacts` before persisting), never person rows.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers

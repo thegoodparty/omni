@@ -1,24 +1,133 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { Prisma, VoterFileFilter } from '../../generated/prisma'
+import { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
+import {
+  OutreachStatus,
+  OutreachType,
+  Prisma,
+  VoterFileFilter,
+} from '../../generated/prisma'
+import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
+
+// Exported so the assistant's saved-filter tool can recognize this exact
+// business-rule rejection (and suggest the Pro upgrade) without duplicating
+// the string.
+export const FILTER_PRO_REQUIRED_MESSAGE = 'Campaign is not pro'
+
+const ACTIVITY_CONDITIONS_INCLUDE = {
+  activityConditions: true,
+} as const satisfies Prisma.VoterFileFilterInclude
+
+type VoterFileFilterWithConditions = Prisma.VoterFileFilterGetPayload<{
+  include: typeof ACTIVITY_CONDITIONS_INCLUDE
+}>
+
+const toActivityConditionCreateInput = (
+  conditions: ActivityCondition[],
+): Prisma.VoterFileFilterActivityConditionUncheckedCreateWithoutVoterFileFilterInput[] =>
+  conditions.map(({ outreachType, outreachId, actions }) => ({
+    outreachType,
+    outreachId,
+    actions,
+  }))
 
 @Injectable()
 export class VoterFileFilterService extends createPrismaBase(
   MODELS.VoterFileFilter,
 ) {
+  private async validateActivityConditions(
+    organizationSlug: string,
+    conditions: ActivityCondition[],
+  ): Promise<void> {
+    for (const condition of conditions) {
+      if (condition.outreachId == null) continue
+
+      if (condition.outreachType === OutreachType.doorKnocking) {
+        throw new BadRequestException(
+          'Door-knocking activity conditions cannot target a specific ' +
+            'outreachId — door-knock interactions have no outreach ' +
+            'linkage, so door-knock conditions only support "any campaign" ' +
+            '(omit outreachId).',
+        )
+      }
+
+      const outreach = await this._prisma.outreach.findFirst({
+        where: {
+          id: condition.outreachId,
+          OR: [
+            { organizationSlug },
+            { organizationSlug: null, campaign: { organizationSlug } },
+          ],
+        },
+      })
+
+      if (!outreach) {
+        throw new BadRequestException(
+          `outreachId ${condition.outreachId} was not found for this organization`,
+        )
+      }
+      if (outreach.outreachType !== condition.outreachType) {
+        throw new BadRequestException(
+          `outreachId ${condition.outreachId} is a ${outreach.outreachType} ` +
+            `campaign, not ${condition.outreachType}`,
+        )
+      }
+      if (outreach.status !== OutreachStatus.completed) {
+        throw new BadRequestException(
+          `outreachId ${condition.outreachId} has not completed (status: ` +
+            `${outreach.status}); activity conditions can only target ` +
+            'completed outreach',
+        )
+      }
+    }
+  }
+
+  private async assertNotLocked(
+    id: number,
+    organizationSlug: string,
+  ): Promise<void> {
+    const existing = await this.model.findFirst({
+      where: { id, organizationSlug },
+    })
+    if (existing?.firstUsedForOutreachAt) {
+      throw new ConflictException(
+        'This list has already been used for outreach and is locked from ' +
+          'edits — duplicate it to make changes.',
+      )
+    }
+  }
+
   async create(
     organizationSlug: string,
-    data: Omit<
-      Prisma.VoterFileFilterCreateInput,
-      'campaign' | 'outreach' | 'organization'
-    >,
-  ) {
+    data: CreateVoterFileFilterSchema,
+  ): Promise<VoterFileFilterWithConditions> {
+    const { activityConditions, ...rest } = data
+
+    if (activityConditions?.length) {
+      await this.validateActivityConditions(
+        organizationSlug,
+        activityConditions,
+      )
+    }
+
     return this.model.create({
       data: {
         organizationSlug,
-        ...data,
+        ...rest,
+        ...(activityConditions
+          ? {
+              activityConditions: {
+                create: toActivityConditionCreateInput(activityConditions),
+              },
+            }
+          : {}),
       },
+      include: ACTIVITY_CONDITIONS_INCLUDE,
     })
   }
 
@@ -38,37 +147,75 @@ export class VoterFileFilterService extends createPrismaBase(
     })
   }
 
-  findByOrganizationSlug(slug: string): Promise<VoterFileFilter[]> {
+  findByOrganizationSlug(
+    slug: string,
+  ): Promise<VoterFileFilterWithConditions[]> {
     return this.model.findMany({
       where: { organizationSlug: slug },
       orderBy: { name: 'asc' },
+      include: ACTIVITY_CONDITIONS_INCLUDE,
     })
   }
 
   findByIdAndOrganizationSlug(
     id: number,
     organizationSlug: string,
-  ): Promise<VoterFileFilter | null> {
+  ): Promise<VoterFileFilterWithConditions | null> {
     return this.findFirst({
       where: { id, organizationSlug },
+      include: ACTIVITY_CONDITIONS_INCLUDE,
     })
   }
 
-  updateByIdAndOrganizationSlug(
+  async updateByIdAndOrganizationSlug(
     id: number,
     organizationSlug: string,
     data: UpdateVoterFileFilterSchema,
-  ): Promise<VoterFileFilter> {
-    return this.model.update({
-      where: { id, organizationSlug },
-      data,
+  ): Promise<VoterFileFilterWithConditions> {
+    await this.assertNotLocked(id, organizationSlug)
+
+    const { activityConditions, ...rest } = data
+
+    if (activityConditions?.length) {
+      await this.validateActivityConditions(
+        organizationSlug,
+        activityConditions,
+      )
+    }
+
+    return this.client.$transaction(async (tx) => {
+      if (activityConditions !== undefined) {
+        await tx.voterFileFilterActivityCondition.deleteMany({
+          where: { voterFileFilterId: id },
+        })
+        if (activityConditions.length > 0) {
+          await tx.voterFileFilterActivityCondition.createMany({
+            data: activityConditions.map(
+              ({ outreachType, outreachId, actions }) => ({
+                voterFileFilterId: id,
+                outreachType,
+                outreachId,
+                actions,
+              }),
+            ),
+          })
+        }
+      }
+
+      return tx.voterFileFilter.update({
+        where: { id, organizationSlug },
+        data: rest,
+        include: ACTIVITY_CONDITIONS_INCLUDE,
+      })
     })
   }
 
-  deleteByIdAndOrganizationSlug(
+  async deleteByIdAndOrganizationSlug(
     id: number,
     organizationSlug: string,
   ): Promise<VoterFileFilter> {
+    await this.assertNotLocked(id, organizationSlug)
+
     return this.model.delete({
       where: { id, organizationSlug },
     })
@@ -151,6 +298,25 @@ export class VoterFileFilterService extends createPrismaBase(
     }
   }
 
+  // Outreach history for a list-detail page (ENG-10706). Reads the Outreach
+  // table directly via `_prisma` (same pattern as validateActivityConditions
+  // above) rather than pulling in OutreachModule, which already imports
+  // ContactsModule (forwardRef) — a back-edge here would create a genuine
+  // module cycle.
+  findOutreachesByVoterFileFilterId(voterFileFilterId: number) {
+    return this._prisma.outreach.findMany({
+      where: { voterFileFilterId },
+      orderBy: { date: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        outreachType: true,
+        status: true,
+        date: true,
+      },
+    })
+  }
+
   async filterAccessCheck(organizationSlug: string): Promise<void> {
     if (organizationSlug.startsWith('campaign-')) {
       const campaign = await this._prisma.campaign.findFirst({
@@ -158,8 +324,26 @@ export class VoterFileFilterService extends createPrismaBase(
       })
 
       if (!campaign?.isPro) {
-        throw new BadRequestException('Campaign is not pro')
+        throw new BadRequestException(FILTER_PRO_REQUIRED_MESSAGE)
       }
     }
+  }
+
+  // First-write-wins claim: the `IS NULL` guard makes concurrent callers race
+  // safely (exactly one `updateMany` matches the row) with no read-then-write.
+  // Deliberately no rollback path — once a filter has been used for outreach,
+  // that fact is permanent even if the triggering send later fails, so the
+  // lock (and the 409 `assertNotLocked` reads) must never clear. Returns the
+  // number of rows this call actually claimed (0 or 1) so callers/tests can
+  // observe who won a concurrent race.
+  async stampFirstUsedForOutreach(
+    id: number,
+    organizationSlug: string,
+  ): Promise<number> {
+    const { count } = await this.model.updateMany({
+      where: { id, organizationSlug, firstUsedForOutreachAt: null },
+      data: { firstUsedForOutreachAt: new Date() },
+    })
+    return count
   }
 }

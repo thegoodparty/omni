@@ -24,7 +24,7 @@ calls; the wizard calls the same controller methods over HTTP.
 | `POST /campaigns/tcr-compliance` | `create` | Legacy non-agentic | Synchronous full Peerly submission (older flow). |
 | `POST /campaigns/tcr-compliance/:id/submit-cv-pin` | — | Wizard / agent | PIN entry → CV token → approve 10DLC brand. |
 | `GET /campaigns/tcr-compliance/admin/:campaignId/compliance-state` | `getComplianceStateForCampaign` | gp-admin (M2M) | Same payload as `mine/compliance-state` for any campaign (`AdminOrM2MGuard`). Backs the user-page 10DLC status/PIN widget. |
-| `POST /campaigns/tcr-compliance/admin/:campaignId/resend-cv-pin` | `resendCampaignVerifyPinForCampaign` | gp-admin (M2M) | Staff-triggered CV PIN resend (Peerly `resend_pin`, ENG-10689). Gated on the **live** CV status being `APPROVED`: 409 once `VERIFIED` (PIN already consumed), 422 before a PIN was issued or before any Peerly identity exists. Non-prod short-circuits to success without calling Peerly. Returns 204. |
+| `POST /campaigns/tcr-compliance/admin/:campaignId/resend-cv-pin` | `resendCampaignVerifyPinForCampaign` | gp-admin (M2M) | Staff-triggered CV PIN resend (Peerly `resend_pin`, ENG-10689). Gated on the **live** CV status being `APPROVED`: 409 once `VERIFIED` (PIN already consumed), 422 before a PIN was issued or before any Peerly identity exists. Non-prod short-circuits to success without calling Peerly. Returns 204. Every accepted resend (incl. the non-prod bypass) fires the `CompliancePinResent` Segment event (`triggered_by: 'admin'`) so HubSpot can surface staff resend activity; failures fire nothing. |
 
 ## The key correctness change: dispatch decoupled from submission
 

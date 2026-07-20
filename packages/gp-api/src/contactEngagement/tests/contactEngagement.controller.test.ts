@@ -5,6 +5,7 @@ import { ContactEngagementService } from '../contactEngagement.service'
 import {
   ConstituentActivityEventType,
   ConstituentActivityType,
+  GetIndividualActivitiesResponse,
 } from '../contactEngagement.types'
 
 describe('ContactEngagementController', () => {
@@ -31,12 +32,14 @@ describe('ContactEngagementController', () => {
 
   const noElectedOffice = undefined
   const noCampaign = undefined as unknown as Campaign
-  const mockCampaign = { id: 99 } as unknown as Campaign
+  const mockCampaign = {
+    id: 99,
+    organizationSlug: 'campaign-org-99',
+  } as unknown as Campaign
 
   beforeEach(() => {
     contactEngagementService = {
       getIndividualActivities: vi.fn(),
-      getCampaignActivities: vi.fn(),
       getConstituentIssues: vi.fn(),
     } as unknown as ContactEngagementService
 
@@ -49,12 +52,11 @@ describe('ContactEngagementController', () => {
       id: 'person-123',
     }
     const mockQuery = {
-      type: ConstituentActivityType.POLL_INTERACTIONS,
       take: 20,
     }
 
-    it('returns individual activities with the provided elected office', async () => {
-      const mockServiceResponse = {
+    it('resolves organizationSlug + electedOfficeId from the elected office', async () => {
+      const mockServiceResponse: GetIndividualActivitiesResponse = {
         nextCursor: 'last-seen-id',
         results: [
           {
@@ -90,20 +92,20 @@ describe('ContactEngagementController', () => {
         contactEngagementService.getIndividualActivities,
       ).toHaveBeenCalledWith({
         personId: 'person-123',
-        type: ConstituentActivityType.POLL_INTERACTIONS,
-        take: 20,
+        organizationSlug: 'eo-office-1',
         electedOfficeId: 'office-1',
+        take: 20,
       })
 
       expect(result).toEqual(mockServiceResponse)
     })
 
-    it('uses the elected office id from the decorator', async () => {
+    it('uses the elected office id and organizationSlug from the decorator', async () => {
       const differentElectedOffice: ElectedOffice = {
         id: 'office-42',
         userId: 42,
         campaignId: 1,
-        organizationSlug: 'eo-office-1',
+        organizationSlug: 'eo-office-42',
         swornInDate: null,
         electedDate: null,
         termStartDate: null,
@@ -133,38 +135,60 @@ describe('ContactEngagementController', () => {
         contactEngagementService.getIndividualActivities,
       ).toHaveBeenCalledWith({
         personId: 'person-123',
-        type: ConstituentActivityType.POLL_INTERACTIONS,
-        take: 20,
+        organizationSlug: 'eo-office-42',
         electedOfficeId: 'office-42',
+        take: 20,
       })
     })
 
-    it('uses the campaign branch when no elected office is present', async () => {
+    it('resolves organizationSlug + campaignId from the campaign when no elected office is present', async () => {
       const campaignResponse = { nextCursor: null, results: [] }
       vi.spyOn(
         contactEngagementService,
-        'getCampaignActivities',
+        'getIndividualActivities',
       ).mockResolvedValue(campaignResponse)
 
       const result = await controller.getIndividualActivities(
-        { id: 'LAL-1' },
+        { id: 'person-456' },
         { take: 5, after: '10' },
         noElectedOffice,
         mockCampaign,
       )
 
       expect(
-        contactEngagementService.getCampaignActivities,
+        contactEngagementService.getIndividualActivities,
       ).toHaveBeenCalledWith({
-        lalVoterId: 'LAL-1',
+        personId: 'person-456',
+        organizationSlug: 'campaign-org-99',
         campaignId: 99,
         take: 5,
         after: '10',
       })
+      expect(result).toEqual(campaignResponse)
+    })
+
+    it('forwards the lalVoterId query param for the campaign branch', async () => {
+      vi.spyOn(
+        contactEngagementService,
+        'getIndividualActivities',
+      ).mockResolvedValue({ nextCursor: null, results: [] })
+
+      await controller.getIndividualActivities(
+        { id: 'person-456' },
+        { take: 5, lalVoterId: 'LAL-1' },
+        noElectedOffice,
+        mockCampaign,
+      )
+
       expect(
         contactEngagementService.getIndividualActivities,
-      ).not.toHaveBeenCalled()
-      expect(result).toEqual(campaignResponse)
+      ).toHaveBeenCalledWith({
+        personId: 'person-456',
+        organizationSlug: 'campaign-org-99',
+        campaignId: 99,
+        take: 5,
+        lalVoterId: 'LAL-1',
+      })
     })
   })
 

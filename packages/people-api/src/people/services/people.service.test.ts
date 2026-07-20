@@ -599,4 +599,68 @@ describe('PeopleService', () => {
       )
     })
   })
+
+  describe('getAggregates', () => {
+    const sqlTextOf = (call: unknown): string => {
+      const arg = (call as { strings?: readonly string[] }) ?? {}
+      return arg.strings ? arg.strings.join('?') : ''
+    }
+
+    it('resolves the district and returns count/avgAge/avgIncome', async () => {
+      // A seeded set of 3 matching voters: ages [20, 30, 40] avg to 30;
+      // incomes [10000, 20000, null] average over the 2 non-null rows to
+      // 15000 — Postgres AVG() ignores NULLs, so the hand-computed value
+      // already reflects that.
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 3n, avgAge: 30, avgIncome: 15000 },
+      ])
+
+      const result = await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
+        '0e5bafca-93a9-86a5-2522-f373979720df',
+      )
+      expect(result).toEqual({ count: 3, avgAge: 30, avgIncome: 15000 })
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(sql).toContain('COUNT(*)::bigint AS count')
+      expect(sql).toContain('AVG(v."Age_Int")::float8 AS "avgAge"')
+    })
+
+    it('reports null averages over an empty match set without dividing by zero', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 0n, avgAge: null, avgIncome: null },
+      ])
+
+      const result = await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(result).toEqual({ count: 0, avgAge: null, avgIncome: null })
+    })
+
+    it('scopes to the whole state (no DistrictVoter join) for the voter-only path', async () => {
+      mockDistrictService.findDistrictById.mockResolvedValue({
+        id: 'district-wy',
+        type: 'State',
+        name: 'WY',
+        state: 'WY',
+      })
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 1n, avgAge: 45, avgIncome: 50000 },
+      ])
+
+      await service.getAggregates({
+        districtId: 'district-wy',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(sql).toContain('FROM "green"."Voter" v')
+      expect(sql).not.toContain('DistrictVoter')
+    })
+  })
 })

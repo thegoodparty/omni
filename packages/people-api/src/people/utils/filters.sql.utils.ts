@@ -19,6 +19,12 @@ export const buildVoterFiltersSql = (
       case 'hasLandline':
         sql = buildBooleanFilter('VoterTelephones_LandlineFormatted', op)
         break
+      case 'hasAddress':
+        sql = buildHasAddressFilter(op)
+        break
+      case 'id':
+        sql = buildIdFilter(op)
+        break
       case 'maritalStatus':
         sql = buildMappedFieldFilter(
           'Marital_Status',
@@ -298,6 +304,40 @@ const buildBooleanFilter = (
     return Prisma.sql`v."${Prisma.raw(fieldName)}" IS NOT NULL`
   } else if (op.operator === 'is' && op.value === 'null') {
     return Prisma.sql`v."${Prisma.raw(fieldName)}" IS NULL`
+  }
+  return null
+}
+
+// Door-knocking eligibility (task 07): L2 stores a missing residence line as
+// either NULL or '', so both true and false must check both to avoid
+// misclassifying blank-string rows as "has an address".
+const buildHasAddressFilter = (
+  op: FilterOperator | undefined,
+): Prisma.Sql | null => {
+  if (!op) return null
+  if (op.operator === 'is' && op.value === 'not_null') {
+    return Prisma.sql`(v."Residence_Addresses_AddressLine" IS NOT NULL AND v."Residence_Addresses_AddressLine" != '')`
+  } else if (op.operator === 'is' && op.value === 'null') {
+    return Prisma.sql`(v."Residence_Addresses_AddressLine" IS NULL OR v."Residence_Addresses_AddressLine" = '')`
+  }
+  return null
+}
+
+// Person-id sets resolved upstream in gp-api (activity conditions, derived
+// support status) — the whole set is bound as ONE array parameter (the
+// `sample.service.ts` hashBuckets pattern), never one param per id, so the
+// 100k schema cap stays clear of PostgreSQL's 65,535 bind-parameter limit.
+const buildIdFilter = (op: FilterOperator | undefined): Prisma.Sql | null => {
+  if (!op) return null
+  if (
+    (op.operator === 'in' || op.operator === 'notIn') &&
+    op.values &&
+    op.values.length > 0
+  ) {
+    const ids = op.values as string[]
+    return op.operator === 'in'
+      ? Prisma.sql`v."id" = ANY(${ids}::uuid[])`
+      : Prisma.sql`v."id" != ALL(${ids}::uuid[])`
   }
   return null
 }

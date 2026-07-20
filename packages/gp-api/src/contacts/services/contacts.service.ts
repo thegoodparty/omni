@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import type { ListDetailContactsResponse } from '@goodparty_org/contracts'
 import { Organization, User } from '../../generated/prisma'
 import { FeaturesService } from 'src/features/services/features.service'
 import { isAxiosError } from 'axios'
@@ -17,15 +18,27 @@ import { randomUUID } from 'node:crypto'
 import { Readable } from 'node:stream'
 import { lastValueFrom } from 'rxjs'
 import { CampaignsService } from 'src/campaigns/services/campaigns.service'
+import { SUPPORT_STATUS_UNKNOWN } from 'src/contactInteraction/contactInteraction.types'
+import {
+  ActivityConditionResolutionService,
+  type IdFilterResolution,
+} from 'src/contactInteraction/services/activityConditionResolution.service'
+import { ContactInteractionTextService } from 'src/contactInteraction/services/contactInteractionText.service'
+import { SupportStatusService } from 'src/contactInteraction/services/supportStatus.service'
 import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
 import {
+  PeopleAggregatesResponse,
   StatsResponse,
   VOTER_DATA_UNAVAILABLE_ERROR_CODE,
 } from '../contacts.types'
 import { CountContactsDTO } from '../schemas/countContacts.schema'
+import type { VoterFileFilter } from '../../generated/prisma'
+import type { SupportStatusRollup } from '@goodparty_org/contracts'
+import type { ActivityCondition } from '@/shared/schemas/activityCondition.schema'
+import { ListDetailContactsDTO } from '../schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -37,11 +50,17 @@ import {
   convertVoterFileFilterToFilters,
   type FilterObject,
 } from '../utils/voterFileFilter.utils'
+import {
+  FILTER_DIMENSIONS,
+  type FilterDimension,
+} from '../filterDimensions.catalog'
 import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
-const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
+// Exported so the campaign-manager chat handler can mirror the webapp's CRM
+// gate (useCrmEnabled): a Win surface needs win-voter-data AND win-crm.
+export const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 
 // The default, unfiltered view. It (and the district stats) are visible to any
 // Win campaign with the flag on, pro or not. A non-pro candidate sees the real
@@ -50,11 +69,34 @@ const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
 // segments, and download stay pro-only.
 const ALL_CONTACTS_SEGMENT = 'all'
 
+// The pro gate message shared by every filter-resolution path. Exported so
+// the assistant's count_contacts tool can recognize the rejection and suggest
+// the Pro upgrade without restating the string.
+export const PRO_FILTERING_REQUIRED_MESSAGE =
+  'Filtering voter data is only available for pro campaigns'
+
+// Mirrors people-api's EXCLUDABLE_VOTER_COLUMNS entry for the party column
+// (people.select.ts). The CSV download is a Postgres COPY stream gp-api
+// cannot post-process, so an `eo-` org's download asks people-api to drop
+// this column from the projection instead (ENG-10696).
+const PARTY_DOWNLOAD_COLUMN = 'Parties_Description'
+
 if (!PEOPLE_API_URL) {
   throw new Error('Please set PEOPLE_API_URL in your .env')
 }
 if (!PEOPLE_API_S2S_SECRET) {
   throw new Error('Please set PEOPLE_API_S2S_SECRET in your .env')
+}
+
+// What the shared filter resolution actually consumes: the request DTO, a
+// persisted VoterFileFilter row (nullable columns, relation-shaped activity
+// conditions), or a spread-merge of the two.
+export type ContactsFilterResolutionInput = Partial<
+  Omit<VoterFileFilter, 'search'>
+> & {
+  activityConditions?: ActivityCondition[]
+  supportStatus?: SupportStatusRollup[]
+  search?: string | null
 }
 
 @Injectable()
@@ -69,6 +111,9 @@ export class ContactsService {
     private readonly organizations: OrganizationsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly features: FeaturesService,
+    private readonly supportStatusService: SupportStatusService,
+    private readonly contactInteractionTextService: ContactInteractionTextService,
+    private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
@@ -103,6 +148,62 @@ export class ContactsService {
     return organization.slug.startsWith('eo-')
   }
 
+  // The filter vocabulary the AI assistant may describe and validate against,
+  // mode-filtered: an `eo-` (Serve) org never sees Win-only dimensions
+  // (party), mirroring assertNoPartyFilterForElectedOffice on the read side.
+  getFilterDimensions(organization: Organization): FilterDimension[] {
+    const excludedMode = this.hasElectedOfficeAccess(organization)
+      ? 'win'
+      : 'serve'
+    return FILTER_DIMENSIONS.filter(
+      (dimension) => dimension.modes !== excludedMode,
+    )
+  }
+
+  // Single choke point for the server-enforced Serve party-visibility rule
+  // (ENG-10696): findContacts (list + typeahead) and findPerson (detail) both
+  // route every people-api row through this before it reaches the response.
+  private stripPartyIfElectedOffice(
+    organization: Organization,
+    person: PersonOutput,
+  ): PersonOutput {
+    if (!this.hasElectedOfficeAccess(organization)) return person
+    const stripped = { ...person }
+    delete stripped.politicalParty
+    return stripped
+  }
+
+  private stripPartyFromList(
+    organization: Organization,
+    response: PeopleListResponse,
+  ): PeopleListResponse {
+    if (!this.hasElectedOfficeAccess(organization)) return response
+    return {
+      ...response,
+      people: response.people.map((person) =>
+        this.stripPartyIfElectedOffice(organization, person),
+      ),
+    }
+  }
+
+  // Rejects a party filter/segment before the people-api call rather than
+  // stripping party rows after the fact — list, count, and download all
+  // resolve their request into a FilterObject before calling out, so this one
+  // check covers all three (ENG-10696).
+  private assertNoPartyFilterForElectedOffice(
+    organization: Organization,
+    filters: FilterObject,
+  ): void {
+    if (
+      this.hasElectedOfficeAccess(organization) &&
+      'politicalParty' in filters
+    ) {
+      throw new BadRequestException(
+        'Political party filtering is not available for this organization',
+      )
+    }
+  }
+
   private async isProAccess(organization: Organization): Promise<boolean> {
     if (this.hasElectedOfficeAccess(organization)) return true
     const campaign = await this.campaigns.findFirst({
@@ -110,6 +211,16 @@ export class ContactsService {
       select: { isPro: true },
     })
     return campaign?.isPro ?? false
+  }
+
+  // Shared pro gate for record-level contact features (e.g. notes) that hang
+  // off an individual person but, unlike findPerson, never call people-api.
+  async assertProAccess(organization: Organization): Promise<void> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(
+        'This feature is only available for pro campaigns',
+      )
+    }
   }
 
   private async resolveDistrictInfoFromOrg(
@@ -239,7 +350,11 @@ export class ContactsService {
       }
     }
 
-    const filters = await this.segmentToFilters(segment, organization)
+    const { filters, empty } = await this.segmentToFilters(
+      segment,
+      organization,
+    )
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
     const groupByHousehold = this.segmentGroupsByHousehold(segment)
     // A list saved from a search result set persists its search term. When the
     // request itself carries no live search, re-apply the saved list's stored
@@ -247,9 +362,35 @@ export class ContactsService {
     // live search the user typed always wins over the stored one.
     const effectiveSearch =
       search || (await this.segmentToSearch(segment, organization))
-    return this.withOrgDistrictResolution(organization, (params) =>
-      fetchPeople(params, filters, groupByHousehold, effectiveSearch),
+    const response = await this.withOrgDistrictResolution(
+      organization,
+      (params) =>
+        empty
+          ? Promise.resolve(this.emptyPeopleListResponse(resultsPerPage, page))
+          : fetchPeople(params, filters, groupByHousehold, effectiveSearch),
     )
+    return this.stripPartyFromList(organization, response)
+  }
+
+  // The activity-condition/support-status resolution engine can compose to
+  // an empty person-id set (a real, expected outcome — e.g. a condition that
+  // matches nobody yet). people-api's `id` filter requires min(1), so this
+  // short-circuits to a zero-result page rather than sending `id: { in: [] }`.
+  private emptyPeopleListResponse(
+    resultsPerPage: number,
+    page: number,
+  ): PeopleListResponse {
+    return {
+      pagination: {
+        totalResults: 0,
+        currentPage: page,
+        pageSize: resultsPerPage,
+        totalPages: 0,
+        hasNextPage: false,
+        hasPreviousPage: page > 1,
+      },
+      people: [],
+    }
   }
 
   // Live matching-voter count for the in-progress (unsaved) filter set the
@@ -262,12 +403,23 @@ export class ContactsService {
     organization: Organization,
   ): Promise<number> {
     if (!(await this.isProAccess(organization))) {
-      throw new BadRequestException(
-        'Filtering voter data is only available for pro campaigns',
-      )
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
-    const filters = convertVoterFileFilterToFilters(filterInput)
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    if (idResolution.kind === 'empty') {
+      return this.withOrgDistrictResolution(organization, async () => 0)
+    }
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
     // The builder counts the filter set plus any active free-text search so the
     // number matches the list it would save (ENG-10517/10518).
     const search = filterInput.search || undefined
@@ -300,6 +452,199 @@ export class ContactsService {
     }
 
     return this.withOrgDistrictResolution(organization, fetchCount)
+  }
+
+  // Ad-hoc filter set, paged full-row export. The Peerly phone-list capture
+  // path (ENG-10728) resolves its request through the same
+  // activityConditions/supportStatus/search engine as list/count instead of
+  // the legacy voter-DB export, so an activity-built list's send can no
+  // longer include people the filter excludes. Channel-specific overrides
+  // (e.g. forcing hasCellPhone for SMS) are the caller's concern, not this
+  // shared resolution's — pass them already merged into filterInput. The
+  // input can be the request DTO, a persisted VoterFileFilter row, or a
+  // merge of the two (nullable row columns, relation-shaped conditions).
+  async findContactsForFilter(
+    filterInput: ContactsFilterResolutionInput,
+    pagination: { resultsPerPage: number; page: number },
+    organization: Organization,
+  ): Promise<PeopleListResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const baseFilters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filterInput.activityConditions,
+        supportStatus: filterInput.supportStatus,
+      },
+    )
+    if (idResolution.kind === 'empty') {
+      return this.emptyPeopleListResponse(
+        pagination.resultsPerPage,
+        pagination.page,
+      )
+    }
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const search = filterInput.search || undefined
+
+    const fetchPeoplePage = async (districtParams: { districtId: string }) => {
+      try {
+        const response = await lastValueFrom(
+          this.httpService.post(
+            `${PEOPLE_API_URL}/v1/people`,
+            {
+              ...districtParams,
+              resultsPerPage: pagination.resultsPerPage,
+              page: pagination.page,
+              filters,
+              search,
+              groupByHousehold: false,
+            },
+            {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            },
+          ),
+        )
+        // People API response is untyped — external API returns unknown shape
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+        return response.data as PeopleListResponse
+      } catch (error) {
+        this.logger.error({ error }, 'Failed to fetch from people API')
+        throw new BadGatewayException('Failed to fetch from people API')
+      }
+    }
+
+    const response = await this.withOrgDistrictResolution(
+      organization,
+      fetchPeoplePage,
+    )
+    return this.stripPartyFromList(organization, response)
+  }
+
+  // Demographics + reachable-by-channel counts + outreach history for a
+  // saved list's detail page (ENG-10706). Unlike countContacts (an unsaved,
+  // in-progress filter set), segment here is always a persisted
+  // VoterFileFilter id, so a cross-org/unknown id 404s instead of silently
+  // falling back to "no filter" the way the segmentToFilters seam does for
+  // the list/count/download paths.
+  async getListDetail(
+    { segment }: ListDetailContactsDTO,
+    organization: Organization,
+  ): Promise<ListDetailContactsResponse> {
+    if (!(await this.isProAccess(organization))) {
+      throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
+    }
+
+    const filter =
+      await this.voterFileFilterService.findByIdAndOrganizationSlug(
+        segment,
+        organization.slug,
+      )
+    if (!filter) {
+      throw new NotFoundException('List not found')
+    }
+
+    const baseFilters = convertVoterFileFilterToFilters(filter)
+    this.assertNoPartyFilterForElectedOffice(organization, baseFilters)
+
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: filter.activityConditions,
+        supportStatus: filter.supportStatus,
+      },
+    )
+
+    const outreachHistory =
+      await this.voterFileFilterService.findOutreachesByVoterFileFilterId(
+        filter.id,
+      )
+
+    if (idResolution.kind === 'empty') {
+      return {
+        demographics: { people: 0, avgAge: null, avgIncome: null },
+        reachability: {
+          sms: 0,
+          robocall: 0,
+          phoneBanking: 0,
+          doorKnocking: 0,
+          email: null,
+          metaAds: null,
+        },
+        outreachHistory,
+      }
+    }
+
+    const filters = this.mergeIdFilter(baseFilters, idResolution)
+
+    const [base, cellphone, landline, address] =
+      await this.withOrgDistrictResolution(organization, (districtParams) =>
+        Promise.all([
+          this.fetchPeopleAggregates(districtParams, filters),
+          this.fetchPeopleAggregates(districtParams, {
+            ...filters,
+            hasCellPhone: true,
+          }),
+          // phoneBanking mirrors the built-in channel map
+          // (segmentsToFiltersMap.const.ts): it dials landlines, not cell
+          // phones — the legacy raw-SQL export's phoneBanking population is
+          // landline-only.
+          this.fetchPeopleAggregates(districtParams, {
+            ...filters,
+            hasLandline: true,
+          }),
+          this.fetchPeopleAggregates(districtParams, {
+            ...filters,
+            hasAddress: true,
+          }),
+        ]),
+      )
+
+    return {
+      demographics: {
+        people: base.count,
+        avgAge: base.avgAge,
+        avgIncome: base.avgIncome,
+      },
+      reachability: {
+        sms: cellphone.count,
+        robocall: cellphone.count,
+        phoneBanking: landline.count,
+        doorKnocking: address.count,
+        email: null,
+        metaAds: null,
+      },
+      outreachHistory,
+    }
+  }
+
+  private async fetchPeopleAggregates(
+    districtParams: { districtId: string },
+    filters: FilterObject,
+  ): Promise<PeopleAggregatesResponse> {
+    try {
+      const response = await lastValueFrom(
+        this.httpService.post(
+          `${PEOPLE_API_URL}/v1/people/aggregates`,
+          { ...districtParams, filters },
+          {
+            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+          },
+        ),
+      )
+      // People API response is untyped — external API returns unknown shape
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+      return response.data as PeopleAggregatesResponse
+    } catch (error) {
+      this.logger.error({ error }, 'Failed to fetch aggregates from people API')
+      throw new BadGatewayException(
+        'Failed to fetch aggregates from people API',
+      )
+    }
   }
 
   async sampleContacts(dto: SampleContacts, organization: Organization) {
@@ -401,7 +746,22 @@ export class ContactsService {
       }
     }
 
-    return this.withOrgDistrictResolution(organization, fetchPerson)
+    const person = await this.withOrgDistrictResolution(
+      organization,
+      fetchPerson,
+    )
+    const [statuses, optedOutAt] = await Promise.all([
+      this.supportStatusService.statusForPeople(organization.slug, [person.id]),
+      this.contactInteractionTextService.latestOptOutAt(
+        organization.slug,
+        person.id,
+      ),
+    ])
+    return {
+      ...this.stripPartyIfElectedOffice(organization, person),
+      supportStatus: statuses.get(person.id) ?? SUPPORT_STATUS_UNKNOWN,
+      optedOutAt: optedOutAt ? optedOutAt.toISOString() : null,
+    }
   }
 
   async downloadContacts(
@@ -417,13 +777,14 @@ export class ContactsService {
       districtParams: { districtId: string },
       filters: FilterObject,
       groupByHousehold: boolean,
+      excludeColumns: string[] | undefined,
     ) => {
       let response: { data: Readable }
       try {
         response = await lastValueFrom(
           this.httpService.post<Readable>(
             `${PEOPLE_API_URL}/v1/people/download`,
-            { ...districtParams, filters, groupByHousehold },
+            { ...districtParams, filters, groupByHousehold, excludeColumns },
             {
               headers: {
                 Authorization: `Bearer ${this.getValidS2SToken()}`,
@@ -449,24 +810,7 @@ export class ContactsService {
       // the JSON error blob as `contacts.csv`). All earlier failures
       // (`isProAccess`, district resolution, axios POST) still produce a
       // structured 4xx/5xx because nothing has been written to the wire yet.
-      res.raw.setHeader('Content-Type', 'text/csv')
-      res.raw.setHeader(
-        'Content-Disposition',
-        'attachment; filename="contacts.csv"',
-      )
-      // Cookie handshake the Download.tsx client polls for. The browser
-      // commits cookies from a download response, so its appearance is the
-      // signal that "the server has actually started streaming" and lets the
-      // client clear its preparing-state spinner ahead of the 15s fallback.
-      // `Secure` is fine for localhost too: Chrome/Firefox/Safari all treat
-      // localhost as a secure context for cookie purposes.
-      res.raw.setHeader(
-        'Set-Cookie',
-        `gp_download=${randomUUID()}; Path=/; Max-Age=30; SameSite=Lax; Secure`,
-      )
-      if (!res.raw.headersSent) {
-        res.raw.flushHeaders()
-      }
+      this.setDownloadResponseHeaders(res)
 
       return new Promise<void>((resolve) => {
         let settled = false
@@ -518,11 +862,52 @@ export class ContactsService {
       })
     }
 
-    const filters = await this.segmentToFilters(segment, organization)
-    const groupByHousehold = this.segmentGroupsByHousehold(segment)
-    return this.withOrgDistrictResolution(organization, (params) =>
-      downloadPeople(params, filters, groupByHousehold),
+    const { filters, empty } = await this.segmentToFilters(
+      segment,
+      organization,
     )
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
+    const groupByHousehold = this.segmentGroupsByHousehold(segment)
+    const excludeColumns = this.hasElectedOfficeAccess(organization)
+      ? [PARTY_DOWNLOAD_COLUMN]
+      : undefined
+    return this.withOrgDistrictResolution(organization, (params) =>
+      empty
+        ? this.emptyDownload(res)
+        : downloadPeople(params, filters, groupByHousehold, excludeColumns),
+    )
+  }
+
+  // Shared with the empty-set short circuit below so the two paths can't
+  // drift on the download headers/cookie contract.
+  private setDownloadResponseHeaders(res: FastifyReply): void {
+    res.raw.setHeader('Content-Type', 'text/csv')
+    res.raw.setHeader(
+      'Content-Disposition',
+      'attachment; filename="contacts.csv"',
+    )
+    // Cookie handshake the Download.tsx client polls for. The browser
+    // commits cookies from a download response, so its appearance is the
+    // signal that "the server has actually started streaming" and lets the
+    // client clear its preparing-state spinner ahead of the 15s fallback.
+    // `Secure` is fine for localhost too: Chrome/Firefox/Safari all treat
+    // localhost as a secure context for cookie purposes.
+    res.raw.setHeader(
+      'Set-Cookie',
+      `gp_download=${randomUUID()}; Path=/; Max-Age=30; SameSite=Lax; Secure`,
+    )
+    if (!res.raw.headersSent) {
+      res.raw.flushHeaders()
+    }
+  }
+
+  // Same rationale as emptyPeopleListResponse: an empty resolved id set means
+  // zero matching people, without a people-api call that would otherwise 400
+  // on `id: { in: [] }`. Ships the same headers/cookie contract as a real
+  // download, just with no rows.
+  private async emptyDownload(res: FastifyReply): Promise<void> {
+    this.setDownloadResponseHeaders(res)
+    res.raw.end()
   }
 
   async getDistrictStats(organization: Organization) {
@@ -609,21 +994,48 @@ export class ContactsService {
     return this.cachedToken
   }
 
+  // Built-in segments never carry activity conditions or a support-status
+  // filter, so they skip the resolution engine entirely — no extra query, and
+  // the FilterObject they return is byte-identical to before this feature.
   private async segmentToFilters(
     segment: string | undefined,
     organization: Organization,
-  ): Promise<FilterObject> {
+  ): Promise<{ filters: FilterObject; empty: boolean }> {
     const resolvedSegment = segment || ALL_CONTACTS_SEGMENT
     const builtInFilters = this.resolveBuiltInSegment(resolvedSegment)
-    if (builtInFilters) return builtInFilters
+    if (builtInFilters) return { filters: builtInFilters, empty: false }
 
     const customSegment =
       await this.voterFileFilterService.findByIdAndOrganizationSlug(
         parseInt(resolvedSegment),
         organization.slug,
       )
+    if (!customSegment) return { filters: {}, empty: false }
 
-    return customSegment ? convertVoterFileFilterToFilters(customSegment) : {}
+    const baseFilters = convertVoterFileFilterToFilters(customSegment)
+    const idResolution = await this.activityConditionResolution.resolveIdFilter(
+      organization.slug,
+      {
+        activityConditions: customSegment.activityConditions,
+        supportStatus: customSegment.supportStatus,
+      },
+    )
+    if (idResolution.kind === 'empty') {
+      return { filters: baseFilters, empty: true }
+    }
+    return {
+      filters: this.mergeIdFilter(baseFilters, idResolution),
+      empty: false,
+    }
+  }
+
+  private mergeIdFilter(
+    filters: FilterObject,
+    resolution: IdFilterResolution,
+  ): FilterObject {
+    return resolution.kind === 'filter'
+      ? { ...filters, id: resolution.idFilter }
+      : filters
   }
 
   // A saved list created from a search result set stores its search term.

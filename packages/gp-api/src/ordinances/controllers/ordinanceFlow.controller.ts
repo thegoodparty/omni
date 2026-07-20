@@ -8,12 +8,15 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  StreamableFile,
   UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
   OrdinanceListResponseSchema,
+  OrdinanceQualityRunSchema,
   OrdinanceSchema,
 } from '@goodparty_org/contracts'
 import { ReqElectedOffice } from 'src/electedOffice/decorators/ReqElectedOffice.decorator'
@@ -25,6 +28,7 @@ import { ElectedOffice } from '../../generated/prisma'
 import { OrdinancesService } from '../services/ordinances.service'
 import {
   CreateOrdinanceDto,
+  OrdinanceExportQueryDto,
   OrdinanceSlugParamDto,
   SaveClarifyAnswerDto,
   UpdateOrdinanceDto,
@@ -81,6 +85,46 @@ export class OrdinanceFlowController {
     @Body() body: SaveClarifyAnswerDto,
   ) {
     return this.ordinances.appendClarifyAnswer(electedOffice, slug, body)
+  }
+
+  @Post(':slug/quality-report')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ResponseSchema(OrdinanceQualityRunSchema)
+  async startQualityReport(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.startQualityReport(electedOffice, slug)
+  }
+
+  @Get(':slug/quality-report')
+  @UseElectedOffice()
+  @ResponseSchema(OrdinanceQualityRunSchema)
+  async getQualityRun(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.getQualityRun(electedOffice, slug)
+  }
+
+  @Get(':slug/export')
+  @UseElectedOffice()
+  async exportDraft(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+    @Query() { format }: OrdinanceExportQueryDto,
+  ): Promise<StreamableFile> {
+    const { buffer, filename, contentType } = await this.ordinances.exportDraft(
+      electedOffice,
+      slug,
+      format,
+    )
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${filename}"`,
+      length: buffer.length,
+    })
   }
 
   @Patch(':slug')

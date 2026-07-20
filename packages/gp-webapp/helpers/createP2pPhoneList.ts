@@ -26,6 +26,11 @@ export interface PhoneListStatusResponse {
 
 export const createP2pPhoneList = async (
   voterFileFilter: PhoneListInput | undefined,
+  // Set only when the audience is a saved segment the user picked (not one
+  // built ad-hoc from checkboxes) — gp-api resolves the saved filter's
+  // persisted criteria as the base and treats these inline fields as
+  // overrides, then stamps the id onto the phone list for provenance.
+  voterFileFilterId?: number,
 ): Promise<PhoneListResult> => {
   try {
     if (!voterFileFilter) {
@@ -39,6 +44,7 @@ export const createP2pPhoneList = async (
       {
         ...voterFileFilter,
         listName,
+        ...(voterFileFilterId ? { voterFileFilterId } : {}),
       },
     )
     if (!resp.ok) {

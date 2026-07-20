@@ -11,6 +11,7 @@ import { useTestService } from '@/test-service'
 import { AnalyticsService } from '@/analytics/analytics.service'
 import { DispatchRequestSchema } from '../schemas/communityIssues.schema'
 import { CommunityIssueDispatchService } from './communityIssueDispatch.service'
+import { INACTIVITY_THRESHOLD_DAYS } from '@/shared/util/userActivity.util'
 
 const service = useTestService()
 
@@ -722,6 +723,77 @@ describe('CommunityIssueDispatchService — activity-gated dispatch', () => {
       expect(types).not.toContain('top_community_issues')
       expect(types).toContain('trending_issues')
       expect(result).toEqual({ dispatched: 1, skipped: 1 })
+    })
+
+    it('skips a type whose last completed run is inside the freshness window', async () => {
+      const orgSlug = `ci-ondemand-fresh-${Date.now()}`
+      await seedOrg(orgSlug)
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+      const run = await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: 'top_community_issues',
+          status: ExperimentRunStatus.COMPLETED,
+        },
+      })
+      // @updatedAt is Prisma-managed, so backdate the completion via raw SQL.
+      await service.prisma.$executeRaw`
+        UPDATE experiment_run
+        SET updated_at = ${subDays(new Date(), INACTIVITY_THRESHOLD_DAYS - 1)}
+        WHERE run_id = ${run.runId}
+      `
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+
+      const result = await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchIfNeeded(orgSlug)
+
+      const types = dispatchSpy.mock.calls.map((c) => c[0].type)
+      expect(types).not.toContain('top_community_issues')
+      expect(types).toContain('trending_issues')
+      expect(result).toEqual({ dispatched: 1, skipped: 1 })
+    })
+
+    it('re-dispatches a type whose last completed run is older than the window', async () => {
+      const orgSlug = `ci-ondemand-stale-${Date.now()}`
+      await seedOrg(orgSlug)
+      await service.prisma.electedOffice.create({
+        data: { userId: service.user.id, organizationSlug: orgSlug },
+      })
+      const run = await service.prisma.experimentRun.create({
+        data: {
+          organizationSlug: orgSlug,
+          experimentType: 'top_community_issues',
+          status: ExperimentRunStatus.COMPLETED,
+        },
+      })
+      await service.prisma.$executeRaw`
+        UPDATE experiment_run
+        SET updated_at = ${subDays(new Date(), INACTIVITY_THRESHOLD_DAYS + 10)}
+        WHERE run_id = ${run.runId}
+      `
+      mockResolveServeContext({
+        state: 'MN',
+        positionName: 'City Council',
+        isServeIcp: true,
+      })
+      const dispatchSpy = mockDispatchRun()
+
+      const result = await service.app
+        .get(CommunityIssueDispatchService)
+        .dispatchIfNeeded(orgSlug)
+
+      expect(result).toEqual({ dispatched: 2, skipped: 0 })
+      expect(dispatchSpy.mock.calls.map((c) => c[0].type)).toContain(
+        'top_community_issues',
+      )
     })
 
     it('skips entirely when the org fails the serve-ICP gate', async () => {

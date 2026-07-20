@@ -182,8 +182,15 @@ const CLARIFY_RULES = `CLARIFY RULES (this step):
 - Put the question and its options ONLY in the \`ask_clarify_question\` call. Do NOT also write the question or the options as chat text, the app renders them as an interactive widget and duplicating them is wrong. Precede the call with at most ONE short one-line lead-in ("Let's start with scope."). You may run web_search, read_ordinance, or get_current_code after the lead-in if you need to, but do NOT write a second lead-in afterward, go straight to the ask_clarify_question call. Never restate the question or list the options in prose.
 - A factual option must carry a source; a pure-judgment option may omit one. Never add an "Or write your own..." option yourself, the UI adds it.
 - After the user answers (a suggested option, a written-in option, or a typed reply), the answer is recorded for you automatically; just move on to the next question, research, or conclude.
+- Follow-ups, confirmations, and disambiguations are still questions: route them through \`ask_clarify_question\` too, with the candidate interpretations as the options (e.g. "2 spaces per unit" vs "1 space per 2 units"). Never ask for a decision in prose.
+- When the user defers to your judgment ("you decide"), give your recommendation and its reason in a sentence or two, then put the NEXT question in its own \`ask_clarify_question\` call — never appended to the recommendation as prose.
 - Adapt: ask follow-ups or run \`web_search\`/\`read_ordinance\` between questions as needed. Start with the ~3 questions that most shape the ordinance; there is no fixed count.
 - When the essentials are settled, write a short synthesis, call \`save_synthesis\` to persist it for later steps, then call \`offer_next_step\` (with a short label like "Check legal authority") to give the user a Continue button. Don't just ask in prose whether to move on, and don't over-ask.`
+
+const ASK_QUESTION_RULES = `ASK QUESTION RULES (whenever you call \`ask_clarify_question\`):
+- Put the question and its options ONLY in the \`ask_clarify_question\` call — never also as chat text; the app renders them as an interactive widget and duplicating them is wrong. Precede the call with at most ONE short one-line lead-in.
+- Offer 2-4 options. A factual option must carry a source; a pure-judgment option may omit one. Never add an "Or write your own..." option yourself, the UI adds it.
+- After the user answers, the answer is recorded for you automatically; just continue.`
 
 const CURRENT_LAW_RULES = `CURRENT LAW RULES (this step):
 - Start with \`get_code_source\` to find where the municipality's code lives, and route on its dataQuality: if it is not_found, rely on \`web_search\` and the user; if it is uncodified the record may still carry a pointer worth one \`fetch_url\` attempt before falling back to search.
@@ -209,6 +216,9 @@ const COMPARABLES_RULES = `COMPARABLES RULES (this step):
 
 const DRAFT_RULES = `DRAFT RULES (this step):
 - This is the final step. Synthesize everything the prior steps settled — the clarify answers, the authority finding, the current law and its gaps, and the comparables — into ONE complete first-draft ordinance. The <prior_steps> block carries only headlines; call \`read_ordinance\` to pull the full clarify, current_law, and comparables detail before you draft.
+- Do not interview. The clarify step owns questioning; the decisions are already on the record. A genuine policy call the prior steps left open becomes a [bracketed placeholder] in the draft, noted in the description — not a question. Only when drafting is truly impossible without one decision may you ask, with \`ask_clarify_question\` (options included), at most ONE for the whole step.
+- The draft is delivered ONLY through the single \`present_draft\` call — never write ordinance text as chat prose. A prose draft is not saved: the user's draft page stays empty and the flow cannot continue.
+- Call \`read_ordinance\` once, up front — not once per section.
 - Draft real, section-numbered legislative text in ordinary municipal-code style: a title, then numbered sections and subsections. Ground every substantive choice in what the prior steps decided; do not introduce policy the user never agreed to. Never invent statutes, citations, or facts.
 - If the draft amends an existing chapter, write the body as a redline: mark every change inline with {-struck old text-}{+inserted new text+} so the user sees exactly what moves. For standalone new text, write plain statute prose.
 - Where a specific number, threshold, or definition is genuinely a council policy call you could not settle from the prior steps, leave a bracketed placeholder like "[retention period to be set by council]" rather than inventing a figure.
@@ -245,7 +255,13 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     toolBlock(toolNames),
     ...(toolNames.includes('web_search') ? [WEB_SEARCH_RULES] : []),
     ...(toolNames.includes('brave_search') ? [BRAVE_SEARCH_RULES] : []),
-    ...(toolNames.includes('ask_clarify_question') ? [CLARIFY_RULES] : []),
+    ...(ctx.step === 'clarify' ? [CLARIFY_RULES] : []),
+    // Non-clarify steps that carry the widget (draft's one allowed
+    // question) still need its formatting contract; clarify's own
+    // rulebook already includes it.
+    ...(toolNames.includes('ask_clarify_question') && ctx.step !== 'clarify'
+      ? [ASK_QUESTION_RULES]
+      : []),
     ...(toolNames.includes('fetch_url') ? [CURRENT_LAW_RULES] : []),
     ...(toolNames.includes('present_authority_finding')
       ? [AUTHORITY_RULES]

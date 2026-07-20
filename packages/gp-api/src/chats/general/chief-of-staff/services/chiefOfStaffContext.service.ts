@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
-import { ChatScope } from '../../../../generated/prisma'
+import { ChatScope, type Organization } from '../../../../generated/prisma'
 import type { MandatoryFilter } from '@/llm/tools/districtInsights.tool'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { ChatAnchorSchema, type ChatAnchor } from '@goodparty_org/contracts'
@@ -9,6 +9,10 @@ export interface ChiefOfStaffContext {
   conversationId: string
   electedOfficeId: string
   organizationSlug: string
+  // The full org row (already loaded via the electedOffice include) so the
+  // CRM contact tools can call ContactsService with the same Organization
+  // the HTTP routes receive.
+  organization: Organization
   userFirstName: string | null
   userLastName: string | null
   officeTitle: string | null
@@ -23,6 +27,9 @@ export interface ChiefOfStaffContext {
   // Whether the per-user cos-constituent-data-tool flag is on. The context
   // service defaults it false; the handler resolves it from FeaturesService.
   constituentToolEnabled: boolean
+  // Whether the serve-crm flag enables the contact describe/count tools.
+  // Defaults false here; the handler resolves it from FeaturesService.
+  crmToolsEnabled: boolean
 }
 
 // Loads the static CoS context from the conversation's owning user + their
@@ -76,6 +83,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       conversationId,
       electedOfficeId: electedOffice.id,
       organizationSlug: electedOffice.organizationSlug,
+      organization: electedOffice.organization,
       userFirstName: electedOffice.user?.firstName ?? null,
       userLastName: electedOffice.user?.lastName ?? null,
       officeTitle: electedOffice.organization.customPositionName,
@@ -85,6 +93,7 @@ export class ChiefOfStaffContextService extends createPrismaBase(
       anchor,
       districtFilters: null,
       constituentToolEnabled: false,
+      crmToolsEnabled: false,
     }
   }
 }

@@ -8,37 +8,9 @@ import {
   Label,
   RadioGroup,
   RadioGroupItem,
-  SourceCitation,
 } from '@styleguide'
-import type {
-  OrdinanceClarifyQuestion,
-  OrdinanceSource,
-} from '@goodparty_org/contracts'
-
-// "source:" label + the styleguide source chip / hover popover (full org /
-// description / link). The styleguide chip defaults to a bordered surface with a
-// loud accent hover; override it to the understated subtle-gray pill (bg-muted /
-// muted text, no border) that matches the Lovable prototype and the briefings
-// source pills. twMerge collapses these onto the base chip classes.
-function OptionSource({
-  source,
-}: {
-  source: OrdinanceSource
-}): React.JSX.Element {
-  return (
-    <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="italic">source:</span>
-      <SourceCitation
-        organization={source.publisher ?? 'Source'}
-        title={source.title}
-        description={source.excerpt ?? source.title}
-        chipLabel={source.title}
-        className="border-transparent bg-muted text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-        {...(source.url ? { url: source.url } : {})}
-      />
-    </div>
-  )
-}
+import type { OrdinanceClarifyQuestion } from '@goodparty_org/contracts'
+import SourceLine from './SourceLine'
 
 // Renders one clarify question as selectable option cards (radio + title, with
 // the rationale and cited source in a divided section below) plus an
@@ -128,9 +100,7 @@ export default function ClarifyQuestionWidget({
                       {option.rationale}
                     </p>
                   ) : null}
-                  {option.source ? (
-                    <OptionSource source={option.source} />
-                  ) : null}
+                  {option.source ? <SourceLine source={option.source} /> : null}
                 </div>
               ) : null}
             </div>

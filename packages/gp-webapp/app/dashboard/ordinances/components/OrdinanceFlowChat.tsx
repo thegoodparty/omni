@@ -35,7 +35,7 @@ import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
 import {
-  ORDINANCE_STEP_LABELS,
+  ORDINANCE_NEXT_STEP_CTA,
   isOrdinanceStep,
   nextOrdinanceStep,
 } from '../data/steps'
@@ -67,10 +67,29 @@ const GENERATING_LABELS: Record<string, string> = {
 }
 
 // Hidden opener sent once for a brand-new conversation so the agent takes the
-// first turn and asks its opening clarifying question without the user having to
-// type. Filtered out of the transcript on both live send and reload.
-const KICKOFF =
+// first turn without the user having to type. Step-specific: the clarify
+// opener invites a question, but sending that same line on the draft step told
+// the model to interview instead of drafting (a real session got a six-question
+// prose interview and no saved draft out of it). Filtered out of the
+// transcript on both live send and reload.
+const CLARIFY_KICKOFF =
   "Let's begin. Ask me your first clarifying question about this ordinance."
+const KICKOFFS: Record<string, string> = {
+  intro:
+    "Let's begin. Walk me through what this flow will do for this ordinance.",
+  clarify: CLARIFY_KICKOFF,
+  authority:
+    "Let's begin. Check whether we have the legal authority to enact this.",
+  current_law:
+    "Let's begin. Show me what current law already does here and the gaps.",
+  comparables: "Let's begin. Show me how comparable cities handled this.",
+  draft: "Let's begin. Draft the ordinance from what the prior steps settled.",
+  review: "Let's begin. Give me a quick orientation to this draft.",
+}
+const kickoffFor = (step: string): string => KICKOFFS[step] ?? CLARIFY_KICKOFF
+// Reload filter must hide every kickoff variant, or an old conversation's
+// opener resurfaces as a visible user message after the text changes.
+const KICKOFF_TEXTS = new Set([CLARIFY_KICKOFF, ...Object.values(KICKOFFS)])
 
 type Phase = 'loading' | 'ready' | 'error'
 
@@ -106,13 +125,6 @@ const parseOffer = (value: unknown): OrdinanceNextStepOffer | null => {
 // True when a persisted assistant turn offered to advance to the next step.
 const hasOfferSegment = (segments: ChatMessageSegment[]): boolean =>
   segments.some((s) => s.toolName === OFFER_TOOL)
-
-const offerLabelFromSegments = (
-  segments: ChatMessageSegment[],
-): string | undefined => {
-  const segment = segments.find((s) => s.toolName === OFFER_TOOL)
-  return segment ? (parseOffer(segment.payload)?.label ?? undefined) : undefined
-}
 
 const buildAnchor = (
   ordinance: Ordinance,
@@ -318,7 +330,10 @@ export default function OrdinanceFlowChat({
         setPhase('ready')
         // Brand-new conversation: let the agent take the first turn.
         if (history.length === 0) {
-          void sendRef.current(KICKOFF, { hidden: true, idOverride: id })
+          void sendRef.current(kickoffFor(step), {
+            hidden: true,
+            idOverride: id,
+          })
         }
       } catch {
         if (!cancelled) setPhase('error')
@@ -414,7 +429,8 @@ export default function OrdinanceFlowChat({
   })
   const visibleMessages = messages.filter(
     (m) =>
-      !(m.role === 'user' && m.content === KICKOFF) && !hiddenIds.has(m.id),
+      !(m.role === 'user' && KICKOFF_TEXTS.has(m.content)) &&
+      !hiddenIds.has(m.id),
   )
   // Only the most recent clarify question is interactive; earlier ones render
   // read-only in place.
@@ -479,7 +495,7 @@ export default function OrdinanceFlowChat({
                 {...(nextStep
                   ? {
                       onAdvance: goToNextStep,
-                      nextLabel: ORDINANCE_STEP_LABELS[nextStep],
+                      nextLabel: ORDINANCE_NEXT_STEP_CTA[nextStep],
                     }
                   : {})}
               />
@@ -513,8 +529,7 @@ export default function OrdinanceFlowChat({
 
           {showOffer && liveOffer && nextStep ? (
             <NextStepButton
-              label={liveOffer.label}
-              nextLabel={ORDINANCE_STEP_LABELS[nextStep]}
+              nextLabel={ORDINANCE_NEXT_STEP_CTA[nextStep]}
               onAdvance={goToNextStep}
             />
           ) : null}
@@ -542,11 +557,9 @@ export default function OrdinanceFlowChat({
 }
 
 function NextStepButton({
-  label,
   nextLabel,
   onAdvance,
 }: {
-  label?: string
   nextLabel: string
   onAdvance: () => void
 }): React.JSX.Element {
@@ -557,7 +570,7 @@ function NextStepButton({
       onClick={onAdvance}
       className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
     >
-      <span>{label ?? `Continue to ${nextLabel}`}</span>
+      <span>{nextLabel}</span>
       <ChevronRightIcon
         className="size-4 shrink-0 text-muted-foreground"
         aria-hidden
@@ -611,11 +624,7 @@ function AssistantMessage({
         ) : null}
       </AssistantRow>
       {hasOfferSegment(segments) && onAdvance && nextLabel ? (
-        <NextStepButton
-          label={offerLabelFromSegments(segments)}
-          nextLabel={nextLabel}
-          onAdvance={onAdvance}
-        />
+        <NextStepButton nextLabel={nextLabel} onAdvance={onAdvance} />
       ) : null}
     </>
   )

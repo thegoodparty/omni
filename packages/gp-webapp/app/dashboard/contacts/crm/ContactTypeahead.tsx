@@ -75,7 +75,7 @@ export const ContactTypeahead = () => {
     <Command
       shouldFilter={false}
       onKeyDown={handleKeyDown}
-      className="border-components-input-border focus-within:border-components-input-active focus-within:ring-components-input-focus relative h-10 w-full overflow-visible rounded-md border bg-components-input-base transition-[color,box-shadow] focus-within:ring-[3px] [&_[data-slot=command-input-wrapper]]:border-b-0"
+      className="border-components-input-border focus-within:border-components-input-active focus-within:ring-components-input-focus relative h-10 w-full overflow-visible rounded border bg-components-input-base transition-[color,box-shadow] focus-within:ring-[3px] [&_[data-slot=command-input-wrapper]]:border-b-0"
     >
       <CommandInput
         placeholder={labels.searchPlaceholder}

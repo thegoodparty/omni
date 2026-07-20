@@ -46,6 +46,7 @@ import { UsersService } from 'src/users/services/users.service'
 import { S3Service } from 'src/vendors/aws/services/s3.service'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { CampaignTcrComplianceService } from '../../campaigns/tcrCompliance/services/campaignTcrCompliance.service'
+import { csvEscape } from '../../shared/util/csv.util'
 import { isNestJsHttpException } from '../../shared/util/http.util'
 import { normalizePhoneNumber } from '../../shared/util/strings.util'
 import { ForwardEmailDomainResponse } from '../../vendors/forwardEmail/forwardEmail.types'
@@ -1297,14 +1298,6 @@ export class QueueConsumerService {
       throw err
     }
   }
-}
-
-const csvEscape = (value: PersonOutput[keyof PersonOutput]) => {
-  if (value === null || value === undefined) return ''
-  const str = String(value)
-  const mustQuote = /[",\n]/.test(str)
-  const escaped = str.replace(/"/g, '""')
-  return mustQuote ? `"${escaped}"` : escaped
 }
 
 const buildCsvFromContacts = (people: PersonOutput[]) => {
