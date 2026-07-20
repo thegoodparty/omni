@@ -113,4 +113,16 @@ describe('ChatComposer', () => {
       screen.getByRole('button', { name: 'Dictate a message' }),
     ).toBeDisabled()
   })
+
+  it('disables the send button while dictation is active', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        value="hello"
+        dictation={makeDictation({ status: 'recording', active: true })}
+      />,
+    )
+
+    expect(sendButton()).toBeDisabled()
+  })
 })

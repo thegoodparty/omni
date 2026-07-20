@@ -244,7 +244,7 @@ export function ChatComposer({
       <IconButton
         type="submit"
         className="shrink-0 rounded-full"
-        disabled={disabled || value.trim().length === 0}
+        disabled={disabled || !!dictation?.active || value.trim().length === 0}
         aria-label="Send"
       >
         {dictation ? (
