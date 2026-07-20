@@ -26,6 +26,13 @@ const districtServiceMock = {
   findDistrictById: vi.fn(),
 }
 
+const databaseUrlProviderMock = {
+  current: 'postgres://example/test',
+  onChange: vi.fn<(listener: (url: string) => void) => () => void>(() =>
+    vi.fn(),
+  ),
+}
+
 const DISTRICT_UUID = '0e5bafca-93a9-86a5-2522-f373979720df'
 
 const cityWardDistrict = {
@@ -82,7 +89,6 @@ describe('PeopleDownloadService', () => {
   let copyStream: PassThrough
 
   beforeEach(() => {
-    process.env.DATABASE_URL = 'postgres://example/test'
     vi.clearAllMocks()
     districtServiceMock.findDistrictById.mockReset()
     districtServiceMock.findDistrictById.mockResolvedValue(cityWardDistrict)
@@ -99,7 +105,11 @@ describe('PeopleDownloadService', () => {
     })
     setupClient()
 
-    service = new PeopleDownloadService(districtServiceMock as never)
+    service = new PeopleDownloadService(
+      districtServiceMock as never,
+      databaseUrlProviderMock as never,
+    )
+    service.onModuleInit()
   })
 
   afterEach(() => {
@@ -616,6 +626,19 @@ describe('PeopleDownloadService', () => {
     it('closes the pool', async () => {
       mockPoolEnd.mockResolvedValue(undefined)
       await service.onModuleDestroy()
+      expect(mockPoolEnd).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('database URL swap', () => {
+    it('ends the previous pool when the URL changes', () => {
+      mockPoolEnd.mockResolvedValue(undefined)
+      const onChangeCallback =
+        databaseUrlProviderMock.onChange.mock.calls[0]?.[0]
+      if (!onChangeCallback) {
+        throw new Error('onChange listener was not registered')
+      }
+      onChangeCallback('postgres://new/db')
       expect(mockPoolEnd).toHaveBeenCalledTimes(1)
     })
   })

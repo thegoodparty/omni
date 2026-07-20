@@ -35,6 +35,10 @@ export = async () => {
   const select = <T>(values: Record<'dev' | 'prod', T>): T =>
     values[environment]
 
+  const { accountId } = await aws.getCallerIdentity({})
+
+  const dbUrlParameterArn = `arn:aws:ssm:us-west-2:${accountId}:parameter/people-db-connection-string-${environment}`
+
   const secretName = select({
     dev: 'PEOPLE_API_DEV',
     prod: 'PEOPLE_API_PROD',
@@ -125,17 +129,18 @@ export = async () => {
       prod: 'arn:aws:acm:us-west-2:333022194791:certificate/fb247fc9-b03e-42de-86af-f7de15e4ef46',
     }),
     secrets: Object.fromEntries(
-      Object.keys(secret).map((key) => [
-        key,
-        pulumi.interpolate`${secretVersion.arn}:${key}::`,
-      ]),
+      Object.keys(secret)
+        .filter((key) => key !== 'DATABASE_URL')
+        .map((key) => [key, pulumi.interpolate`${secretVersion.arn}:${key}::`]),
     ),
     environmentVariables: {
       PORT: '80',
       HOST: '0.0.0.0',
       LOG_LEVEL: 'debug',
       OTEL_SERVICE_ENVIRONMENT: environment,
-      SECRET_NAMES: Object.keys(secret).join(','),
+      SECRET_NAMES: Object.keys(secret)
+        .filter((key) => key !== 'DATABASE_URL')
+        .join(','),
       CORS_ORIGIN: select({
         dev: 'https://dev.goodparty.org',
         prod: 'https://goodparty.org',
@@ -153,12 +158,12 @@ export = async () => {
     permissions: [
       {
         Effect: 'Allow',
-        Action: [
-          'secretsmanager:GetSecretValue',
-          'ssm:GetParameters',
-          'ssm:GetParameter',
-          'ssm:GetParameterHistory',
-        ],
+        Action: ['ssm:GetParameter'],
+        Resource: [dbUrlParameterArn],
+      },
+      {
+        Effect: 'Allow',
+        Action: ['secretsmanager:GetSecretValue'],
         Resource: ['*'],
       },
       {

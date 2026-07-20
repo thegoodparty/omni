@@ -19,7 +19,7 @@ describe('StatsService', () => {
 
     service = new StatsService()
     Object.defineProperty(service, '_prisma', {
-      get: () => mockPrisma,
+      get: () => ({ instance: mockPrisma }),
       configurable: true,
     })
   })

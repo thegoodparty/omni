@@ -58,8 +58,11 @@ COPY packages/people-api ./packages/people-api
 
 # Set the docker build args into environment variables on runner.
 ARG STAGE
-ARG DATABASE_URL
-ENV DATABASE_URL=$DATABASE_URL
+# `prisma generate` reads the datasource url env var but never connects, so a
+# placeholder is sufficient at build time. The running service does not use this
+# — it resolves the real URL from SSM at runtime (see DatabaseUrlProvider).
+ARG LOCAL_DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
+ENV LOCAL_DATABASE_URL=$LOCAL_DATABASE_URL
 
 WORKDIR /app/packages/people-api
 
