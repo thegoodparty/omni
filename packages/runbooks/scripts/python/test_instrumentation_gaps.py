@@ -191,7 +191,7 @@ def test_scan_repo_finds_route_gap_and_ignores_tracked(tmp_path):
     (app / "settings").mkdir(parents=True)
     (app / "dashboard" / "page.tsx").write_text("export default function P(){return null}")
     (app / "settings" / "page.tsx").write_text(
-        "import {trackEvent} from 'helpers/analyticsHelper'\nexport default function S(){return null}"
+        "import {trackEvent} from 'helpers/analyticsHelper'\nexport default function S(){ trackEvent('x'); return null }"
     )
     surfaces, tracked = ig.scan_repo(tmp_path, exclude_globs=[])
     ids = {s["id"] for s in surfaces}

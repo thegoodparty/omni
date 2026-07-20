@@ -115,7 +115,7 @@ def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
 
 # --- call-site diff -----------------------------------------------------------
 
-_TRACKING_RE = re.compile(r"\btrackEvent\b|\bAnalyticsService\b|\.track\(")
+_TRACKING_RE = re.compile(r"\btrackEvent\s*\(|\bAnalyticsService\b|\.track\(")
 
 
 def has_tracking_call(text: str) -> bool:
