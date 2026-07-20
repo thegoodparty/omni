@@ -313,12 +313,21 @@ describe('CampaignManagerHandler.maybeCannedReply', () => {
     expect(reply).toBeNull()
   })
 
-  it('returns null when the sentinel arrives with no story loaded', () => {
+  it('falls back to the intake opener when no campaign context loaded', () => {
     const reply = buildHandler().maybeCannedReply(
       CAMPAIGN_MANAGER_START_STORY_SENTINEL,
       ctxWith({ story: null }),
     )
-    expect(reply).toBeNull()
+    expect(reply).not.toBeNull()
+    expect(reply).toBe(
+      buildStoryGreeting({
+        why: null,
+        background: null,
+        positions: [],
+        complete: false,
+        missing: ['why', 'background', 'positions'],
+      }),
+    )
   })
 
   it('returns the product overview when the story has not loaded', () => {

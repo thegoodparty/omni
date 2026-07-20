@@ -120,6 +120,18 @@ export const CM_CONSTITUENT_DATA_TOOL_FLAG = 'cm-constituent-data-tool'
 export const CM_CONSTITUENT_DATA_PROVIDER = 'CM_CONSTITUENT_DATA_PROVIDER'
 export const CM_CONSTITUENT_TABLES_CONFIG = 'CM_CONSTITUENT_TABLES_CONFIG'
 
+// All-fields-missing StoryState, used as the safe fallback when the sentinel
+// is intercepted but the campaign context couldn't be resolved (EMPTY_CONTEXT).
+// buildStoryGreeting only reads `missing`/`missing.length`, so this always
+// renders the fresh (not "welcome back") intake opener.
+const EMPTY_STORY_STATE: StoryState = {
+  why: null,
+  background: null,
+  positions: [],
+  complete: false,
+  missing: ['why', 'background', 'positions'],
+}
+
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
   candidateName: '',
@@ -373,7 +385,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     if (message !== CAMPAIGN_MANAGER_START_STORY_SENTINEL) {
       return null
     }
-    if (!ctx.story) return null
+    // The sentinel must never reach the LLM: even without a resolved campaign
+    // context (missing org slug, or the campaign row not found), fall back to
+    // the all-missing intake greeting so the candidate still gets prompted.
+    if (!ctx.story) return buildStoryGreeting(EMPTY_STORY_STATE)
     return ctx.story.complete
       ? 'Your Campaign Story is all set. Tell me what you would like to ' +
           'change and I can help you refine it.'
