@@ -288,3 +288,30 @@ def test_main_warns_when_neither_scan_root_exists(tmp_path, capsys):
     assert rc == 0
     err = capsys.readouterr().err
     assert "neither scan root found" in err
+
+
+def test_judge_verdict_schema_roundtrips():
+    v = ig.JudgeVerdict(
+        id="/dashboard/wizard#wizard_stage",
+        is_gap=True,
+        rubric_rule="multi-step flow stage",
+        dashboard_question="Where do users drop off in the wizard?",
+        rank=0,
+        reason="URL-stable stage RouteTracker cannot see.",
+    )
+    assert v.is_gap is True
+    assert v.rank == 0
+    schema = ig.JudgeBatch.model_json_schema()
+    assert "results" in schema["properties"]
+
+
+def test_load_rubric_reads_file(tmp_path):
+    p = tmp_path / "SKILL.md"
+    p.write_text("# Instrument an analytics event\n\n## Procedure\n...")
+    assert "Instrument an analytics event" in ig.load_rubric(p)
+
+
+def test_load_rubric_missing_raises(tmp_path):
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        ig.load_rubric(tmp_path / "nope.md")

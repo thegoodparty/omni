@@ -22,6 +22,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import yaml
+from pydantic import BaseModel, Field
 
 class CorruptStateError(Exception):
     """The on-disk state file exists but is not a readable JSON object. Distinct from a
@@ -35,6 +36,36 @@ DATA_DIR = HERE / "instrumentation_data"
 CONFIG_PATH = HERE / "instrumentation_gaps_config.yaml"
 DEFAULT_STATE = DATA_DIR / "instrumentation_gaps.json"
 DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
+
+DEFAULT_RUBRIC_PATH = REPO_ROOT / ".claude/skills/instrument-analytics-event/SKILL.md"
+
+
+# --- LLM judgment: schema + rubric -------------------------------------------
+# The judge applies the instrument/skip rubric (single-sourced in SKILL.md) to each
+# deterministic candidate gap. Deterministic enumeration is over-inclusive on purpose;
+# this pass is the precision filter. Phase 1 keeps working if this whole section is
+# skipped (see run_judgment's graceful contract).
+
+
+class JudgeVerdict(BaseModel):
+    id: str = Field(description="The candidate surface id, copied verbatim from the input.")
+    is_gap: bool = Field(description="True if this surface should fire an event per the rubric.")
+    rubric_rule: str = Field(description="Short name of the rubric rule that applies.")
+    dashboard_question: str = Field(
+        description="The product question the missing event would answer."
+    )
+    rank: int = Field(description="Priority 0-5, lower is higher priority.")
+    reason: str = Field(description="One-line justification for the verdict.")
+
+
+class JudgeBatch(BaseModel):
+    results: list[JudgeVerdict]
+
+
+def load_rubric(path: Path = DEFAULT_RUBRIC_PATH) -> str:
+    """Read the instrument/skip rubric from the skill. Single-sourced — never copied here.
+    Missing file raises FileNotFoundError; run_judgment treats that as a graceful skip."""
+    return path.read_text()
 
 
 def load_gap_config(path: Path = CONFIG_PATH) -> dict:
