@@ -552,6 +552,27 @@ describe('QualityReport', () => {
     ).toBeDisabled()
   })
 
+  it('adopts a fresh loop report even when its input hash is unchanged', () => {
+    const { rerender } = render(<QualityReport {...props()} />)
+    expect(screen.getByText('Conflicts with Chapter 12.')).toBeVisible()
+
+    // A loop re-run over unchanged inputs produces the SAME ranAgainstBodyHash
+    // with new check content — the parent's hash key never remounts this
+    // component, so the new report must arrive through the prop.
+    const fresh = report()
+    fresh.checks = fresh.checks.map((c) =>
+      c.id === 'legal_conflict'
+        ? { ...c, status: 'pass' as const, note: 'Resolved by revision.' }
+        : c,
+    )
+    rerender(<QualityReport {...props({ initialReport: fresh })} />)
+
+    expect(screen.getByText('Resolved by revision.')).toBeVisible()
+    expect(
+      screen.queryByText('Conflicts with Chapter 12.'),
+    ).not.toBeInTheDocument()
+  })
+
   it('runs the manual claim-and-poll from the empty state', async () => {
     mocks.startQualityReport.mockResolvedValue(qualityRun())
 

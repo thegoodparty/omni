@@ -292,8 +292,83 @@ describe('start', () => {
 
     expect(result).toEqual({ started: false, reason: 'already_running' })
     const updated = await reload(ordinance.id)
+    expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.running)
     expect(updated.qualityLoopRunId).toBe(runId)
     expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('auto trigger retires the running loop when a redline declines', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, {
+      draftBody: 'Section 1. {-old text-}{+new text+} remains.',
+    })
+
+    const result = await loop.start({
+      ordinance,
+      userId: service.user.id,
+      trigger: 'auto',
+    })
+
+    expect(result).toEqual({ started: false, reason: 'redline_draft' })
+    expect((await reload(ordinance.id)).qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+    expect(sendMessageMock).not.toHaveBeenCalled()
+  })
+
+  it('auto trigger retires the running loop when the env is off', async () => {
+    vi.stubEnv(ORDINANCE_QUALITY_LOOP_ENABLED_ENV, 'false')
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId)
+
+    const result = await loop.start({
+      ordinance,
+      userId: service.user.id,
+      trigger: 'auto',
+    })
+
+    expect(result).toEqual({ started: false, reason: 'env_off' })
+    expect((await reload(ordinance.id)).qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+  })
+
+  it('auto trigger retires the running loop when the flag is off', async () => {
+    isFeatureEnabledMock.mockResolvedValue(false)
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId)
+
+    const result = await loop.start({
+      ordinance,
+      userId: service.user.id,
+      trigger: 'auto',
+    })
+
+    expect(result).toEqual({ started: false, reason: 'flag_off' })
+    expect((await reload(ordinance.id)).qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+  })
+
+  it('auto trigger retires the running loop when already passing', async () => {
+    const runId = randomUUID()
+    const seeded = await seedRunningLoop(runId)
+    const passing = buildReport(qualityReportInputHash(seeded))
+    const ordinance = await service.prisma.ordinance.update({
+      where: { id: seeded.id },
+      data: { qualityReport: passing },
+    })
+
+    const result = await loop.start({
+      ordinance,
+      userId: service.user.id,
+      trigger: 'auto',
+    })
+
+    expect(result).toEqual({ started: false, reason: 'already_passing' })
+    expect((await reload(ordinance.id)).qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
   })
 
   it('auto trigger supersedes the running loop and claims a new run', async () => {
@@ -988,6 +1063,205 @@ describe('handleStep qc', () => {
         restoredIteration: 1,
       }),
     )
+  })
+})
+
+describe('handleStep terminal writes vs a changed draft', () => {
+  const NEW_DRAFT_TITLE = 'User rewritten title'
+  const NEW_DRAFT_BODY = 'Section 1. The user rewrote this after grading.'
+
+  // Prisma delegate methods return a branded PrismaPromise; wrapped mock
+  // implementations must re-brand or the spy's signature rejects them.
+  // defineProperty, not assignment: Promise.prototype's toStringTag is
+  // read-only, so assigning through it throws.
+  const prismaPromise = <T>(promise: Promise<T>) => {
+    Object.defineProperty(promise, Symbol.toStringTag, {
+      value: 'PrismaPromise',
+    })
+    return promise as Promise<T> & { [Symbol.toStringTag]: 'PrismaPromise' }
+  }
+
+  // Intercepts the loop's own terminal flip to land a competing draft write
+  // just before it — the saveDraft race, at its tightest window.
+  const raceDraftSaveBeforeFlip = (
+    ordinanceId: string,
+    status: OrdinanceQualityLoopStatus,
+  ) => {
+    const delegate = service.prisma.ordinance
+    const original = delegate.updateMany.bind(delegate)
+    const spy = vi.spyOn(delegate, 'updateMany').mockImplementation((args) =>
+      prismaPromise(
+        (async () => {
+          if (args.data.qualityLoopStatus === status) {
+            await service.prisma.ordinance.update({
+              where: { id: ordinanceId },
+              data: { draftTitle: NEW_DRAFT_TITLE, draftBody: NEW_DRAFT_BODY },
+            })
+          }
+          return original(args)
+        })(),
+      ),
+    )
+    return spy
+  }
+
+  it('supersedes instead of restoring over a draft edited after the frontier qc persisted', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, {
+      qualityLoopIteration: 1,
+      draftTitle: NEW_DRAFT_TITLE,
+      draftBody: NEW_DRAFT_BODY,
+    })
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 0,
+      inputHash: 'h0',
+      draftTitle: 'v0 title',
+      draftBody: 'v0 body of the ordinance draft',
+      report: buildReport('h0', { clarity: 'flag' }),
+    })
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 1,
+      inputHash: 'h1',
+      draftTitle: 'v1 title',
+      draftBody: 'v1 body of the ordinance draft',
+      report: buildReport('h1', { clarity: 'flag', voice: 'flag' }),
+    })
+
+    const result = await loop.handleStep(
+      qcMessage(ordinance, runId, { iteration: 1 }),
+    )
+
+    expect(result).toBe(true)
+    const updated = await reload(ordinance.id)
+    expect(updated.qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+    expect(updated.draftTitle).toBe(NEW_DRAFT_TITLE)
+    expect(updated.draftBody).toBe(NEW_DRAFT_BODY)
+    expect(generateMock).not.toHaveBeenCalled()
+    expect(sendMessageMock).not.toHaveBeenCalled()
+    expect(trackMock).toHaveBeenCalledWith(
+      service.user.id,
+      COMPLETED_EVENT,
+      expect.objectContaining({
+        status: OrdinanceQualityLoopStatus.superseded_by_edit,
+      }),
+    )
+  })
+
+  it('supersedes instead of stamping converged on a draft edited after grading', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, {
+      qualityLoopIteration: 1,
+      draftTitle: NEW_DRAFT_TITLE,
+      draftBody: NEW_DRAFT_BODY,
+    })
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 1,
+      inputHash: 'h1',
+      draftTitle: 'v1 title',
+      draftBody: 'v1 body of the ordinance draft',
+      report: buildReport('h1'),
+    })
+
+    const result = await loop.handleStep(
+      qcMessage(ordinance, runId, { iteration: 1 }),
+    )
+
+    expect(result).toBe(true)
+    const updated = await reload(ordinance.id)
+    expect(updated.qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+    expect(updated.draftTitle).toBe(NEW_DRAFT_TITLE)
+    expect(updated.draftBody).toBe(NEW_DRAFT_BODY)
+  })
+
+  it('yields to a saveDraft that lands during the terminal restore', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, {
+      qualityLoopIteration: 1,
+      draftBody: REVISED_BODY,
+    })
+    const gradedHash = qualityReportInputHash(ordinance)
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 0,
+      inputHash: 'h0',
+      draftTitle: 'v0 title',
+      draftBody: 'v0 body of the ordinance draft',
+      report: buildReport('h0', { clarity: 'flag' }),
+    })
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 1,
+      inputHash: gradedHash,
+      draftBody: REVISED_BODY,
+      report: buildReport(gradedHash, { clarity: 'flag', voice: 'flag' }),
+    })
+    const spy = raceDraftSaveBeforeFlip(
+      ordinance.id,
+      OrdinanceQualityLoopStatus.stopped_not_improving,
+    )
+    try {
+      const result = await loop.handleStep(
+        qcMessage(ordinance, runId, { iteration: 1 }),
+      )
+
+      expect(result).toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
+    const updated = await reload(ordinance.id)
+    expect(updated.qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+    expect(updated.draftTitle).toBe(NEW_DRAFT_TITLE)
+    expect(updated.draftBody).toBe(NEW_DRAFT_BODY)
+  })
+
+  it('yields to a saveDraft that lands during the converged flip', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, {
+      qualityLoopIteration: 1,
+      draftBody: REVISED_BODY,
+    })
+    const gradedHash = qualityReportInputHash(ordinance)
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 1,
+      inputHash: gradedHash,
+      draftBody: REVISED_BODY,
+      report: buildReport(gradedHash),
+    })
+    const spy = raceDraftSaveBeforeFlip(
+      ordinance.id,
+      OrdinanceQualityLoopStatus.converged,
+    )
+    try {
+      const result = await loop.handleStep(
+        qcMessage(ordinance, runId, { iteration: 1 }),
+      )
+
+      expect(result).toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
+    const updated = await reload(ordinance.id)
+    expect(updated.qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+    expect(updated.draftTitle).toBe(NEW_DRAFT_TITLE)
+    expect(updated.draftBody).toBe(NEW_DRAFT_BODY)
   })
 })
 

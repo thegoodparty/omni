@@ -224,6 +224,19 @@ export default function QualityReport({
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
+  // The loop delivers fresh reports through this prop. DraftDetail re-keys
+  // this component on the report's input hash, but a re-run over unchanged
+  // inputs produces the SAME hash with different check content — no remount,
+  // so sync here. Guarded on `running` so a mid-flight manual run's pending
+  // result is never stomped; the effect re-fires when the run settles.
+  const lastInitialRef = useRef(initialReport)
+  useEffect(() => {
+    if (running || !initialReport) return
+    if (initialReport === lastInitialRef.current) return
+    lastInitialRef.current = initialReport
+    setReport(initialReport)
+  }, [initialReport, running])
+
   // On a terminal run state: commit the fresh report, or surface the error
   // while keeping whatever report was already on screen (a failed re-run never
   // costs the previous results).

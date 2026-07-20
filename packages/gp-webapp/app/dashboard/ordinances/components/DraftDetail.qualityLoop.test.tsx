@@ -294,6 +294,52 @@ describe('DraftDetail quality loop polling', () => {
       ),
     ).toBeVisible()
   })
+
+  it('ignores a stale in-flight poll snapshot after Stop and edit', async () => {
+    let releasePoll: (o: Ordinance) => void = () => undefined
+    mocks.fetchOrdinanceBySlug.mockImplementation(
+      () =>
+        new Promise<Ordinance>((resolve) => {
+          releasePoll = resolve
+        }),
+    )
+    mocks.cancelQualityLoop.mockResolvedValue(
+      makeOrdinance({
+        qualityLoop: loop({ status: 'cancelled', phase: null }),
+      }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+
+    // A poll goes out and hangs on the wire...
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LOOP_POLL_MS)
+    })
+    const stalePoll = releasePoll
+
+    // ...the user stops, the editor unlocks, and they resume typing.
+    fireEvent.click(screen.getByRole('button', { name: /stop and edit/i }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
+    bodyEditor().innerText = 'Typed after stopping.'
+    fireEvent.input(bodyEditor())
+
+    // The pre-stop snapshot finally lands, still claiming "running" — it must
+    // not re-lock the editor or reseed over the fresh typing.
+    await act(async () => {
+      stalePoll(
+        makeOrdinance({
+          qualityLoop: loop(),
+          draftBody: 'Stale server copy.',
+        }),
+      )
+    })
+
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
+    expect(bodyEditor().innerText).toBe('Typed after stopping.')
+  })
 })
 
 describe('DraftDetail selection toolbar while the loop runs', () => {
@@ -389,16 +435,21 @@ describe('DraftDetail quality loop focus re-check', () => {
     expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
   })
 
-  it('leaves the editor alone when the focus re-check finds no running loop', async () => {
+  it('leaves unsaved edits intact when the focus re-check finds no running loop', async () => {
     mocks.fetchOrdinanceBySlug.mockResolvedValue(makeOrdinance())
 
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
+    // Unsaved local typing must survive the re-check — a reseed here would
+    // silently clobber it with the server copy.
+    bodyEditor().innerText = 'Unsaved local edit.'
+    fireEvent.input(bodyEditor())
     fireEvent(window, new Event('focus'))
     await waitFor(() =>
       expect(mocks.fetchOrdinanceBySlug).toHaveBeenCalledTimes(1),
     )
 
+    expect(bodyEditor().innerText).toBe('Unsaved local edit.')
     expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
     expect(screen.queryByText(/checking your draft/i)).not.toBeInTheDocument()
   })
@@ -465,6 +516,77 @@ describe('DraftDetail what changed panel', () => {
     )
     await waitFor(() => expect(bodyEditor().innerText).toBe('Original body.'))
     expect(titleEditor().innerText).toBe('Original title')
+  })
+
+  it('drops a pending autosave of the discarded text when restoring', async () => {
+    mocks.updateOrdinance.mockResolvedValue(
+      makeOrdinance({
+        draftTitle: 'Original title',
+        draftBody: 'Original body.',
+        // The server echoes the full record — the kept report rides along.
+        qualityReport: report(),
+      }),
+    )
+    await settleToCancelled()
+
+    // An edit of the soon-to-be-discarded text sits in the debounce window;
+    // firing after the restore it would PATCH the old draft back over it.
+    bodyEditor().innerText = 'Edited final text the restore discards.'
+    fireEvent.input(bodyEditor())
+
+    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore original draft/i }),
+    )
+    await waitFor(() => expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1))
+
+    await new Promise((r) => setTimeout(r, AUTOSAVE_DELAY_MS + 150))
+    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
+    expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      { draftTitle: 'Original title', draftBody: 'Original body.' },
+    )
+    // The kept report was graded against the discarded final text, so the
+    // restored original must surface the stale banner.
+    expect(
+      screen.getByText(/draft changed since this report ran/i),
+    ).toBeVisible()
+  })
+
+  it('restores body-only when the original iteration has no title', async () => {
+    mocks.cancelQualityLoop.mockResolvedValue(
+      makeOrdinance({
+        qualityLoop: loop({ status: 'cancelled', phase: null }),
+        qualityReport: report(),
+      }),
+    )
+    mocks.fetchQualityIterations.mockResolvedValue({
+      loopRunId: 'run-1',
+      iterations: [iteration({ draftTitle: '   ' })],
+    })
+    mocks.updateOrdinance.mockResolvedValue(
+      makeOrdinance({ draftBody: 'Original body.' }),
+    )
+
+    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
+    fireEvent.click(screen.getByRole('button', { name: /stop and edit/i }))
+    await screen.findByText(
+      'Improvements stopped — your draft is ready to edit.',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /restore original draft/i }),
+    )
+
+    // The wire contract 400s on an empty draftTitle — the restore must omit
+    // the field rather than fail outright.
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { draftBody: 'Original body.' },
+      ),
+    )
   })
 })
 

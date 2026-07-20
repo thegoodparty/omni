@@ -188,6 +188,10 @@ export default function DraftDetail({
       setQualityLoop(next.qualityLoop)
       setLoopReport(next.qualityReport)
       seedEditorsFrom(next)
+      // The editors now hold the server truth the report was graded against,
+      // so any earlier local dirtiness is moot — without this, a loop-fresh
+      // report renders under a false stale banner.
+      setDraftDirty(false)
       if (nowRunning) {
         setLoopOutcome(null)
         setIterations([])
@@ -203,12 +207,21 @@ export default function DraftDetail({
     [seedEditorsFrom],
   )
 
+  // Bumped by any user action that changes loop/draft state (stop, restore):
+  // a fetch that started before the bump carries a stale snapshot — applying
+  // it would re-lock the editor as "running" after a stop, and the reseed
+  // would wipe anything typed since the unlock. Guard every async consumer.
+  const loopGenRef = useRef(0)
+
   useEffect(() => {
     if (!loopRunning) return
     const timer = setInterval(() => {
+      const gen = loopGenRef.current
       // A transient poll failure is ignored; the next tick retries.
       void fetchOrdinanceBySlug(ordinance.slug)
-        .then(applyLoopFetch)
+        .then((next) => {
+          if (gen === loopGenRef.current) applyLoopFetch(next)
+        })
         .catch(() => undefined)
     }, LOOP_POLL_MS)
     return () => clearInterval(timer)
@@ -223,8 +236,11 @@ export default function DraftDetail({
       if (inFlight || loopRunningRef.current) return
       if (document.visibilityState === 'hidden') return
       inFlight = true
+      const gen = loopGenRef.current
       void fetchOrdinanceBySlug(ordinance.slug)
-        .then(applyLoopFetch)
+        .then((next) => {
+          if (gen === loopGenRef.current) applyLoopFetch(next)
+        })
         .catch(() => undefined)
         .finally(() => {
           inFlight = false
@@ -241,6 +257,9 @@ export default function DraftDetail({
   const stopLoop = async (): Promise<void> => {
     setStopping(true)
     setLoopError(null)
+    // Invalidate polls already in flight: their pre-cancel "running" snapshot
+    // must not land after the cancel response unlocks the editor.
+    loopGenRef.current += 1
     try {
       const next = await cancelQualityLoop(ordinance.slug)
       applyLoopFetch(next)
@@ -254,12 +273,30 @@ export default function DraftDetail({
   const restoreOriginal = useCallback(async (): Promise<void> => {
     const original = iterations[0]
     if (!original) return
-    const next = await updateOrdinance(ordinance.slug, {
-      draftTitle: original.draftTitle,
-      draftBody: original.draftBody,
-    })
+    // Invalidate in-flight polls and pending autosaves: a debounced edit of
+    // the discarded text (or a queued save) firing after the restore would
+    // silently PATCH the old draft back over it.
+    loopGenRef.current += 1
+    if (bodyTimerRef.current) {
+      clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = null
+    }
+    if (titleTimerRef.current) {
+      clearTimeout(titleTimerRef.current)
+      titleTimerRef.current = null
+    }
+    queuedRef.current = null
+    const update: UpdateOrdinanceRequest = { draftBody: original.draftBody }
+    // The wire contract rejects empty strings; an untitled original restores
+    // body-only rather than 400ing the whole restore.
+    const title = original.draftTitle.trim()
+    if (title.length > 0) update.draftTitle = title
+    const next = await updateOrdinance(ordinance.slug, update)
     seedEditorsFrom(next)
     setLoopReport(next.qualityReport)
+    // The report on the record was graded against the loop's final draft;
+    // the restored original is different text, so the report is now stale.
+    setDraftDirty(true)
   }, [iterations, ordinance.slug, seedEditorsFrom])
 
   const handleExport = async (format: OrdinanceExportFormat): Promise<void> => {

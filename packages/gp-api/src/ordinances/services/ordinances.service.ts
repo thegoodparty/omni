@@ -32,6 +32,7 @@ import {
   OrdinanceStatus,
   Prisma,
 } from '../../generated/prisma'
+import { MANUAL_RUN_STALE_MINUTES } from '../ordinances.constants'
 import { OrdinanceExportFormat } from '../schemas/ordinances.schema'
 import {
   OrdinanceExportResult,
@@ -48,7 +49,7 @@ const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
 
 // A 'running' claim older than this is an interrupted run (the server died
 // mid-run and the background writer never came back), not a live one.
-const STALE_RUN_MS = 10 * 60_000
+const STALE_RUN_MS = MANUAL_RUN_STALE_MINUTES * 60_000
 
 const INTERRUPTED_RUN_MESSAGE =
   'The last run was interrupted. Please try again.'

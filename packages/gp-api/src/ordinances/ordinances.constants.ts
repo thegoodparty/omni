@@ -7,6 +7,9 @@ export const QUALITY_LOOP_MODELS = ['claude-sonnet-4-6']
 export const QUALITY_LOOP_LLM_RETRIES = 1
 export const QUALITY_LOOP_STEP_TIMEOUT_MS = 240_000
 export const QUALITY_LOOP_STALL_MINUTES = 30
+// Shared by both quality machines: a manual-run 'running' claim older than
+// this is an interrupted run (the background writer died), not a live one.
+export const MANUAL_RUN_STALE_MINUTES = 10
 export const SERVE_ORDINANCE_QUALITY_LOOP_FLAG = 'serve-ordinance-quality-loop'
 export const ORDINANCE_QUALITY_LOOP_ENABLED_ENV =
   'ORDINANCE_QUALITY_LOOP_ENABLED'

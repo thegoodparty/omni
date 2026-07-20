@@ -31,6 +31,7 @@ import {
   Prisma,
 } from '../../generated/prisma'
 import {
+  MANUAL_RUN_STALE_MINUTES,
   MAX_QUALITY_LOOP_REVISIONS,
   ORDINANCE_QUALITY_LOOP_ENABLED_ENV,
   QUALITY_LOOP_LLM_RETRIES,
@@ -53,10 +54,6 @@ import {
   type OrdinanceQualityLoopStartResult,
   type OrdinanceWithLatestIteration,
 } from './ordinanceQualityLoop.types'
-
-// Mirrors the manual quality-run staleness window in ordinances.service.ts: a
-// 'running' claim older than this is an interrupted run, not a live one.
-const MANUAL_RUN_STALE_MINUTES = 10
 
 // One retry after a degraded report; the degraded-attempt count lives on the
 // iteration row, never in the message.
@@ -97,6 +94,27 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     input: OrdinanceQualityLoopStartInput,
   ): Promise<OrdinanceQualityLoopStartResult> {
     const { ordinance, userId, trigger } = input
+    if (
+      trigger === 'auto' &&
+      ordinance.qualityLoopStatus === OrdinanceQualityLoopStatus.running
+    ) {
+      // An auto trigger means the draft just changed, so a running loop is
+      // grading replaced inputs: retire it before ANY decline guard below.
+      // A declined restart (kill switch, redline, status, already passing)
+      // must not leave a zombie run writing over the new draft. Fenced by
+      // its own runId so a race can't flip a newer run.
+      await this.model.updateMany({
+        where: {
+          id: ordinance.id,
+          qualityLoopStatus: OrdinanceQualityLoopStatus.running,
+          qualityLoopRunId: ordinance.qualityLoopRunId,
+        },
+        data: {
+          qualityLoopStatus: OrdinanceQualityLoopStatus.superseded_by_edit,
+          qualityLoopUpdatedAt: new Date(),
+        },
+      })
+    }
     const enabled = await this.features.isFeatureEnabled({
       user: userId,
       feature: SERVE_ORDINANCE_QUALITY_LOOP_FLAG,
@@ -123,23 +141,11 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
     if (this.manualRunActive(ordinance)) {
       return { started: false, reason: 'manual_run_active' }
     }
-    if (ordinance.qualityLoopStatus === OrdinanceQualityLoopStatus.running) {
-      if (trigger === 'manual') {
-        return { started: false, reason: 'already_running' }
-      }
-      // A re-drafted ordinance restarts its loop: retire the old run first,
-      // fenced by its own runId so a race can't flip a newer run.
-      await this.model.updateMany({
-        where: {
-          id: ordinance.id,
-          qualityLoopStatus: OrdinanceQualityLoopStatus.running,
-          qualityLoopRunId: ordinance.qualityLoopRunId,
-        },
-        data: {
-          qualityLoopStatus: OrdinanceQualityLoopStatus.superseded_by_edit,
-          qualityLoopUpdatedAt: new Date(),
-        },
-      })
+    if (
+      trigger === 'manual' &&
+      ordinance.qualityLoopStatus === OrdinanceQualityLoopStatus.running
+    ) {
+      return { started: false, reason: 'already_running' }
     }
     const loopRunId = uuidv7()
     // Never-ran columns are NULL, and neither Prisma's NOT nor `not:` matches
@@ -312,20 +318,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       return this.resumeFrontier(record, msg.loopRunId)
     }
     if (qualityReportInputHash(record) !== msg.expectedInputHash) {
-      const flipped = await this.flipTerminal(
-        record.id,
-        msg.loopRunId,
-        OrdinanceQualityLoopStatus.superseded_by_edit,
-      )
-      if (flipped) {
-        await this.trackCompleted(
-          record,
-          msg.loopRunId,
-          OrdinanceQualityLoopStatus.superseded_by_edit,
-          null,
-        )
-      }
-      return true
+      return this.supersedeStaleStep(record, msg.loopRunId)
     }
     if (msg.phase === 'qc') {
       return this.runQcStep(record, msg.loopRunId, msg.iteration, row)
@@ -512,21 +505,30 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       )
       return this.failLoop(record, loopRunId)
     }
+    // The redelivered-frontier path reaches here without the message-hash
+    // check, so re-verify against the row: the graded report is actionable
+    // only while the draft it graded is still the current draft.
+    if (qualityReportInputHash(record) !== row.inputHash) {
+      return this.supersedeStaleStep(record, loopRunId)
+    }
     const flagged = flaggedIds(parsed.data)
     if (flagged.length === 0) {
-      const flipped = await this.flipTerminal(
-        record.id,
+      const flipped = await this.model.updateMany({
+        where: this.gradedDraftFence(record, loopRunId),
+        data: {
+          qualityLoopStatus: OrdinanceQualityLoopStatus.converged,
+          qualityLoopUpdatedAt: new Date(),
+        },
+      })
+      if (flipped.count === 0) {
+        return this.supersedeStaleStep(record, loopRunId)
+      }
+      await this.trackCompleted(
+        record,
         loopRunId,
         OrdinanceQualityLoopStatus.converged,
+        null,
       )
-      if (flipped) {
-        await this.trackCompleted(
-          record,
-          loopRunId,
-          OrdinanceQualityLoopStatus.converged,
-          null,
-        )
-      }
       return true
     }
     if (row.iteration >= MAX_QUALITY_LOOP_REVISIONS) {
@@ -825,19 +827,43 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
         }
       : {}
     const flipped = await this.model.updateMany({
-      where: this.runningFence(record.id, loopRunId),
+      where: this.gradedDraftFence(record, loopRunId),
       data: {
         qualityLoopStatus: status,
         qualityLoopUpdatedAt: new Date(),
         ...restore,
       },
     })
-    if (flipped.count > 0) {
+    if (flipped.count === 0) {
+      return this.supersedeStaleStep(record, loopRunId)
+    }
+    await this.trackCompleted(
+      record,
+      loopRunId,
+      status,
+      best?.row.iteration ?? null,
+    )
+    return true
+  }
+
+  // A stale run's terminal must never publish results for a draft the user
+  // replaced: flip it to superseded (a plain running fence, so a cancel or
+  // newer run that already took ownership makes this a no-op) and ack.
+  private async supersedeStaleStep(
+    record: LoadedOrdinance,
+    loopRunId: string,
+  ): Promise<boolean> {
+    const flipped = await this.flipTerminal(
+      record.id,
+      loopRunId,
+      OrdinanceQualityLoopStatus.superseded_by_edit,
+    )
+    if (flipped) {
       await this.trackCompleted(
         record,
         loopRunId,
-        status,
-        best?.row.iteration ?? null,
+        OrdinanceQualityLoopStatus.superseded_by_edit,
+        null,
       )
     }
     return true
@@ -883,6 +909,19 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       id: ordinanceId,
       qualityLoopStatus: OrdinanceQualityLoopStatus.running,
       qualityLoopRunId: loopRunId,
+    }
+  }
+
+  // Fence for the content-writing/success terminals (converged, stopped_*).
+  // saveDraft persists the new draft BEFORE start() retires the old run, so
+  // the running fence alone can race it; every other hash input supersedes
+  // the loop before it writes, so title+body equality closes the one
+  // unfenced window.
+  private gradedDraftFence(record: LoadedOrdinance, loopRunId: string) {
+    return {
+      ...this.runningFence(record.id, loopRunId),
+      draftTitle: record.draftTitle,
+      draftBody: record.draftBody,
     }
   }
 

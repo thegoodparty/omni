@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   fetchQualityRun: vi.fn(),
   deleteOrdinance: vi.fn(),
   downloadOrdinanceExport: vi.fn(),
+  fetchOrdinanceBySlug: vi.fn(),
+  cancelQualityLoop: vi.fn(),
+  fetchQualityIterations: vi.fn(),
   draftChatProps: {
     current: null as {
       seedText?: string
@@ -27,6 +30,9 @@ vi.mock('../data/ordinances-api', () => ({
   fetchQualityRun: mocks.fetchQualityRun,
   deleteOrdinance: mocks.deleteOrdinance,
   downloadOrdinanceExport: mocks.downloadOrdinanceExport,
+  fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
+  cancelQualityLoop: mocks.cancelQualityLoop,
+  fetchQualityIterations: mocks.fetchQualityIterations,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer

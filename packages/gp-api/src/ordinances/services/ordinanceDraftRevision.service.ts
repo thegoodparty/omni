@@ -62,7 +62,7 @@ const REVISION_SYSTEM_PROMPT = [
   '  material.',
 ].join('\n')
 
-const section = (label: string, value: unknown): string => {
+const section = <T>(label: string, value: T): string => {
   if (value === null || value === undefined) return ''
   const text =
     typeof value === 'string' ? value : JSON.stringify(value, null, 2)
