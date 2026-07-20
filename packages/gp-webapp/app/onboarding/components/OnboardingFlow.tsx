@@ -1067,6 +1067,10 @@ export default function OnboardingFlow({
             <section
               className={`space-y-8${
                 activeStep.id === 'welcome' ? ' text-center' : ''
+              }${
+                activeStep.id === 'campaign-story'
+                  ? ' mx-auto w-full max-w-[605px]'
+                  : ''
               }`}
             >
               {isP2vBlocking ? null : (

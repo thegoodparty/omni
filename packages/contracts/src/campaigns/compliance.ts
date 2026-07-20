@@ -3,7 +3,7 @@
 // the gp-webapp candidate-profile form enforce the identical threshold — a
 // divergence would let a candidate author a bio one side accepts and the
 // other rejects.
-export const MIN_BIO_LENGTH = 500
+export const MIN_BIO_LENGTH = 200
 
 // The agentic compliance flow's old fallback copy. Peerly rejects it as "not
 // genuine", so the publish gate, the Peerly-submit gate, and the webapp's

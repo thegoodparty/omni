@@ -143,8 +143,10 @@ already round-trips through `Website.content.about`.
   `WHY_RUNNING_PROMPT` (candidate-profile `candidateProfile.utils.ts`), reused by
   the why card here, the Pro-upgrade `CandidateProfileFields`, and the
   campaign-details `WhyRunningSection`, so the prompt reads identically wherever
-  the candidate writes their why. The story stays **lenient** — the bio's 500-char
-  minimum is enforced only in those other flows, not here.
+  the candidate writes their why. The story stays **lenient** — the bio's
+  `MIN_BIO_LENGTH` (200-char) minimum is enforced only in those other flows, not
+  here. The why card has no character cap or minimum of its own (a pre-existing
+  longer bio loads and edits intact).
 
 ## Related
 
