@@ -222,31 +222,39 @@ def test_coverage_stats_counts_by_disposition():
     }
 
 
-def test_render_gap_section_shows_new_ranked_and_coverage():
+def test_render_gap_section_shows_judged_columns():
     state = {
-        "/dashboard/wizard": {"id": "/dashboard/wizard", "surface_type": "wizard_stage",
-                              "location": "a.tsx", "disposition": "new", "rank": 0},
-        "/settings": {"id": "/settings", "surface_type": "route",
-                      "location": "b.tsx", "disposition": "new", "rank": 3},
-        "/old": {"id": "/old", "surface_type": "route", "location": "c.tsx",
-                 "disposition": "dismissed", "rank": 3},
+        "/wiz": {"id": "/wiz", "surface_type": "wizard_stage", "location": "a.tsx",
+                 "disposition": "new", "rank": 0, "rubric_rule": "flow stage",
+                 "dashboard_question": "where do users drop off?"},
+        "/plain": {"id": "/plain", "surface_type": "route", "location": "b.tsx",
+                   "disposition": "new", "rank": 3},  # no judged fields -> dashes
     }
-    out = ig.render_gap_section(state, "2026-07-17")
-    assert "## 2026-07-17" in out
-    assert "Potential instrumentation gaps" in out
-    # coverage line reports totals
-    assert "3 tracked" in out and "2 new" in out and "1 dismissed" in out
-    # wizard (rank 0) appears above the route (rank 3) in the table
-    assert out.index("/dashboard/wizard") < out.index("/settings")
-    # dismissed gap is not listed
-    assert "/old" not in out
+    out = ig.render_gap_section(state, "2026-07-20")
+    assert "rubric rule" in out and "dashboard question" in out
+    assert "flow stage" in out and "where do users drop off?" in out
+    assert out.index("/wiz") < out.index("/plain")
+    # the un-judged row renders dashes for the judged cells
+    plain_row = [ln for ln in out.splitlines() if "/plain" in ln][0]
+    assert "| - |" in plain_row
 
 
-def test_render_gap_section_no_new():
+def test_render_gap_section_reports_judgment_unavailable():
+    state = {}
+    out = ig.render_gap_section(
+        state, "2026-07-20", judgment_status="skipped: ANTHROPIC_API_KEY unset",
+        pending_count=42,
+    )
+    assert "Judgment unavailable" in out
+    assert "42 candidate" in out
+    assert "ANTHROPIC_API_KEY unset" in out
+
+
+def test_render_gap_section_ok_status_has_no_unavailable_line():
     state = {"/x": {"id": "/x", "surface_type": "route", "location": "x.tsx",
-                    "disposition": "dismissed", "rank": 3}}
-    out = ig.render_gap_section(state, "2026-07-17")
-    assert "No new gaps" in out
+                    "disposition": "new", "rank": 3}}
+    out = ig.render_gap_section(state, "2026-07-20", judgment_status="ok")
+    assert "Judgment unavailable" not in out
 
 
 def test_load_state_missing_file_returns_empty(tmp_path):

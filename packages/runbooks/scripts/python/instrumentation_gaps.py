@@ -421,8 +421,17 @@ def coverage_stats(state: Mapping[str, dict]) -> dict:
 # --- digest rendering ---------------------------------------------------------
 
 
-def render_gap_section(state: Mapping[str, dict], run_date: str, top_n: int = 10) -> str:
-    """One dated markdown section for the gap sweep. Coverage line + ranked new-gaps table."""
+def render_gap_section(
+    state: Mapping[str, dict],
+    run_date: str,
+    top_n: int = 10,
+    *,
+    judgment_status: str = "ok",
+    pending_count: int = 0,
+) -> str:
+    """One dated markdown section: coverage line, ranked new-gaps table (with the rubric
+    rule and dashboard question from the judge), and a graceful judgment-status line when
+    the judge did not run."""
     cov = coverage_stats(state)
     visible = sorted(
         (e for e in state.values() if is_visible(e)),
@@ -439,17 +448,27 @@ def render_gap_section(state: Mapping[str, dict], run_date: str, top_n: int = 10
     ]
     if not visible:
         lines += ["No new gaps.", ""]
-        return "\n".join(lines)
-    shown = visible[:top_n]
-    lines += [
-        "| rank | surface | type | location |",
-        "| --- | --- | --- | --- |",
-    ]
-    for e in shown:
-        lines.append(f"| {e.get('rank', 5)} | {e['id']} | {e['surface_type']} | {e['location']} |")
-    if len(visible) > top_n:
-        lines.append(f"\n({len(visible) - top_n} more new gaps — see the state file.)")
-    lines.append("")
+    else:
+        shown = visible[:top_n]
+        lines += [
+            "| rank | surface | type | rubric rule | dashboard question | location |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for e in shown:
+            lines.append(
+                f"| {e.get('rank', 5)} | {e['id']} | {e['surface_type']} | "
+                f"{e.get('rubric_rule') or '-'} | {e.get('dashboard_question') or '-'} | "
+                f"{e['location']} |"
+            )
+        if len(visible) > top_n:
+            lines.append(f"\n({len(visible) - top_n} more new gaps — see the state file.)")
+        lines.append("")
+    if judgment_status not in ("ok", "no-candidates"):
+        lines += [
+            f"Judgment unavailable this run ({judgment_status}); "
+            f"{pending_count} candidate(s) pending, not yet judged.",
+            "",
+        ]
     return "\n".join(lines)
 
 
