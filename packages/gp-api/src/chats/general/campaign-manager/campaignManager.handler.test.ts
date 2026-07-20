@@ -320,7 +320,11 @@ describe('CampaignManagerHandler.resolveConversation — single ongoing thread',
   ): CampaignManagerHandler =>
     new CampaignManagerHandler(
       store as GeneralChatStoreService,
-      {} as CampaignsService,
+      // resolveGreeting fetches the campaign for the first name; a null result
+      // makes it fall back to the no-name general greeting (no throw).
+      {
+        findFirst: vi.fn().mockResolvedValue(null),
+      } as unknown as CampaignsService,
       chatStore as ChatStoreService,
       WIN_CONSTITUENT_TABLES,
     )
