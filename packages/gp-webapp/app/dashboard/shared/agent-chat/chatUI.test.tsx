@@ -24,22 +24,47 @@ const baseProps = {
   onSubmit: vi.fn(),
 }
 
+const sendButton = (): HTMLElement =>
+  screen.getByRole('button', { name: 'Send' })
+
 describe('ChatComposer', () => {
-  it('omits the mic and sends with the arrow when no dictation is given', () => {
+  it('omits the mic when no dictation is given', () => {
     render(<ChatComposer {...baseProps} />)
 
-    expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: /dictate/i }),
     ).not.toBeInTheDocument()
   })
 
-  it('renders the mic and toggles dictation on click', () => {
+  it('sends with the arrow icon when no dictation is given', () => {
+    render(<ChatComposer {...baseProps} />)
+
+    expect(sendButton().querySelector('.lucide-send')).toBeInTheDocument()
+    expect(
+      sendButton().querySelector('.lucide-sparkles'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('sends with the sparkle icon when dictation is enabled', () => {
+    render(<ChatComposer {...baseProps} dictation={makeDictation()} />)
+
+    expect(sendButton().querySelector('.lucide-sparkles')).toBeInTheDocument()
+    expect(sendButton().querySelector('.lucide-send')).not.toBeInTheDocument()
+  })
+
+  it('renders the mic when dictation is given', () => {
+    render(<ChatComposer {...baseProps} dictation={makeDictation()} />)
+
+    expect(
+      screen.getByRole('button', { name: 'Dictate a message' }),
+    ).toBeInTheDocument()
+  })
+
+  it('toggles dictation on mic click', () => {
     const dictation = makeDictation()
     render(<ChatComposer {...baseProps} dictation={dictation} />)
 
-    const mic = screen.getByRole('button', { name: 'Dictate a message' })
-    fireEvent.click(mic)
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate a message' }))
     expect(dictation.toggle).toHaveBeenCalledTimes(1)
   })
 
@@ -56,7 +81,32 @@ describe('ChatComposer', () => {
     ).toBeInTheDocument()
   })
 
-  it('disables the mic while a request is in flight', () => {
+  it('shows a spinner while dictation is busy', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        dictation={makeDictation({ status: 'connecting', busy: true })}
+      />,
+    )
+
+    const mic = screen.getByRole('button', { name: 'Dictate a message' })
+    expect(mic.querySelector('.animate-spin')).toBeInTheDocument()
+  })
+
+  it('disables the mic while stopping', () => {
+    render(
+      <ChatComposer
+        {...baseProps}
+        dictation={makeDictation({ status: 'stopping' })}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: 'Dictate a message' }),
+    ).toBeDisabled()
+  })
+
+  it('disables the mic while the composer is disabled', () => {
     render(<ChatComposer {...baseProps} disabled dictation={makeDictation()} />)
 
     expect(

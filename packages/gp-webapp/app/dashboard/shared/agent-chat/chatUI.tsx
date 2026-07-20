@@ -5,14 +5,12 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { IconButton, Input } from '@styleguide'
 import {
-  Loader2Icon,
-  MicIcon,
   SearchIcon,
   SendIcon,
   SparklesIcon,
-  SquareIcon,
 } from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
+import { DictationMicButton } from '../../briefings/shared/DictationMicButton'
 import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
 
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
@@ -234,29 +232,14 @@ export function ChatComposer({
         className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
       />
       {dictation ? (
-        <IconButton
-          type="button"
-          variant="ghost"
-          className="shrink-0 rounded-full"
-          aria-label={
-            dictation.status === 'recording'
-              ? 'Stop dictation'
-              : 'Dictate a message'
-          }
-          disabled={disabled || dictation.status === 'stopping'}
-          onClick={() => void dictation.toggle()}
-        >
-          {dictation.busy ? (
-            <Loader2Icon className="size-5 animate-spin" aria-hidden />
-          ) : dictation.status === 'recording' ? (
-            <SquareIcon
-              className="size-5 animate-pulse text-destructive"
-              aria-hidden
-            />
-          ) : (
-            <MicIcon className="size-5" aria-hidden />
-          )}
-        </IconButton>
+        <DictationMicButton
+          dictation={dictation}
+          idleLabel="Dictate a message"
+          recordingLabel="Stop dictation"
+          disabled={disabled}
+          size="medium"
+          className="static shrink-0 rounded-full"
+        />
       ) : null}
       <IconButton
         type="submit"

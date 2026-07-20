@@ -42,15 +42,16 @@ export default function DraftChat({
   })
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  // Opened from the launcher's mic: begin dictation once, on mount, while the
-  // opening tap is still a fresh user gesture for the mic permission prompt.
-  const autoDictateStartedRef = useRef(false)
+  // Opened from the launcher's mic: begin dictation on mount, while the opening
+  // tap is still a fresh gesture for the permission prompt. Keyed on autoDictate
+  // (fixed per mount) with dictation read through a ref — no mount-once guard, so
+  // StrictMode's dev remount re-invokes start() after its teardown cancels the
+  // first attempt, and a stable dep means stopping never triggers a restart.
+  const dictationRef = useRef(dictation)
+  dictationRef.current = dictation
   useEffect(() => {
-    if (autoDictate && !autoDictateStartedRef.current) {
-      autoDictateStartedRef.current = true
-      void dictation.start()
-    }
-  }, [autoDictate, dictation])
+    if (autoDictate) void dictationRef.current.start()
+  }, [autoDictate])
 
   const { messages, setMessages, visibleSegments, sending, send } =
     useStreamingTurn(ordinanceFlowChatApi, { toolLabel: ordinanceToolLabel })
