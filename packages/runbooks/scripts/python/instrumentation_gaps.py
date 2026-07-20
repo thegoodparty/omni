@@ -126,3 +126,21 @@ def has_tracking_call(text: str) -> bool:
 def find_gaps(surfaces: Sequence[dict], files_with_tracking: set[str]) -> list[dict]:
     """A candidate surface whose file fires no event is a candidate gap (file-level, Phase 1)."""
     return [s for s in surfaces if s["location"] not in files_with_tracking]
+
+
+# --- ranking (heuristic; replaced/augmented by the LLM judge in Phase 2) ------
+
+_RANK_BY_TYPE = {
+    "wizard_stage": 0,  # URL-stable stages RouteTracker cannot see — highest value
+    "api_status": 1,
+    "api_job": 1,
+    "form_submit": 2,
+    "api_webhook": 2,
+    "route": 3,
+    "cta": 4,
+}
+
+
+def rank_gap(gap: Mapping) -> int:
+    """Lower = higher priority, ordered by the rubric's value hierarchy."""
+    return _RANK_BY_TYPE.get(gap["surface_type"], 5)

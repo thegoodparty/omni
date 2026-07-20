@@ -97,3 +97,9 @@ def test_find_gaps_filters_files_with_tracking():
     ]
     gaps = ig.find_gaps(surfaces, files_with_tracking={"a/page.tsx"})
     assert [g["id"] for g in gaps] == ["/settings"]
+
+
+def test_rank_gap_orders_wizard_before_route_before_cta():
+    assert ig.rank_gap({"surface_type": "wizard_stage"}) < ig.rank_gap({"surface_type": "route"})
+    assert ig.rank_gap({"surface_type": "route"}) < ig.rank_gap({"surface_type": "cta"})
+    assert ig.rank_gap({"surface_type": "mystery"}) == 5
