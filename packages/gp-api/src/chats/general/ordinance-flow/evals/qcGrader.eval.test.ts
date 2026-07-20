@@ -45,9 +45,12 @@ const gradeDraft = async (
   const record = await service.prisma.ordinance.findUniqueOrThrow({
     where: { id: seeded.ordinanceId },
   })
-  return service.app
+  // The quality loop's generate() returns { report, degradedCheckIds }; the
+  // grader eval only judges the report itself.
+  const { report } = await service.app
     .get(OrdinanceQualityReportService)
     .generate(record, service.user.id)
+  return report
 }
 
 const statusOf = (report: OrdinanceQualityReport, id: string) =>
