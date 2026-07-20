@@ -42,3 +42,32 @@ def load_gap_config(path: Path = CONFIG_PATH) -> dict:
 def is_excluded(rel_path: str, exclude_globs: Sequence[str]) -> bool:
     """True if the repo-relative path matches any exclusion glob."""
     return any(fnmatch.fnmatch(rel_path, g) for g in exclude_globs)
+
+
+# --- enumeration: routes ------------------------------------------------------
+
+_APP_PREFIX = "packages/gp-webapp/app"
+
+
+def route_pattern_from_page_path(rel_path: str) -> str:
+    """`.../app/dashboard/[slug]/page.tsx` -> `/dashboard/[slug]`. Route groups like
+    `(marketing)` are organizational, not URL segments, so they drop out."""
+    inner = rel_path[len(_APP_PREFIX):].removeprefix("/")
+    parts = inner.split("/")
+    parts = parts[:-1]  # drop the trailing page.tsx
+    segs = [p for p in parts if not (p.startswith("(") and p.endswith(")"))]
+    return "/" + "/".join(segs) if segs else "/"
+
+
+def enumerate_route_surfaces(
+    page_rel_paths: Iterable[str], exclude_globs: Sequence[str]
+) -> list[dict]:
+    """Every non-excluded `app/**/page.tsx` becomes a route surface keyed by URL pattern."""
+    out: list[dict] = []
+    for rel in sorted(page_rel_paths):
+        if not rel.endswith("/page.tsx") or is_excluded(rel, exclude_globs):
+            continue
+        out.append(
+            {"id": route_pattern_from_page_path(rel), "surface_type": "route", "location": rel}
+        )
+    return out
