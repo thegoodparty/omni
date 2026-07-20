@@ -25,7 +25,6 @@ export = async () => {
     environment === 'preview' ? config.require('prNumber') : undefined
 
   const vpcId = 'vpc-0763fa52c32ebcf6a'
-  const vpcCidr = '10.0.0.0/16'
   const hostedZoneId = 'Z10392302OXMPNQLPO07K'
 
   const vpcSubnetIds = {
@@ -191,8 +190,8 @@ export = async () => {
             description: 'gp-api app tasks (shared app security group)',
             securityGroups: vpcSecurityGroupIds,
           },
-          // The previous whole-VPC-CIDR rule (cidrBlocks: [vpcCidr]) was
-          // removed: it let anything in 10.0.0.0/16 reach Postgres. App tasks
+          // The previous whole-VPC-CIDR rule (cidrBlocks: ['10.0.0.0/16']) was
+          // removed: it let anything in the VPC reach Postgres. App tasks
           // already reach RDS via the app security group rule above, so the
           // broad CIDR grant only widened the blast radius.
           {
@@ -289,7 +288,6 @@ export = async () => {
   if (environment === 'dev') {
     createPreviewSharedCluster({
       vpcId,
-      vpcCidr,
       privateSubnetIds: vpcSubnetIds.private,
       appSecurityGroupIds: vpcSecurityGroupIds,
       dbPassword: secret.DB_PASSWORD,
