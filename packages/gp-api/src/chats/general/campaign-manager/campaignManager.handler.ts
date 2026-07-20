@@ -78,19 +78,21 @@ const STORY_QUESTION_PROMPTS: Record<StoryField, string> = {
 }
 
 // Story-aware, resume-aware opener seeded when the Campaign Story is unfinished:
-// introduces the manager (or welcomes them back if they've answered some), then
+// leads into the story (or welcomes them back if they've answered some), then
 // asks the FIRST still-missing question so reopening picks up where they left
-// off. Uses the Story page's wording.
+// off. Uses the Story page's wording. Deliberately does NOT re-introduce the
+// manager ("Hi, I'm your campaign manager"): this runs after the general
+// greeting on the in-chat "Personalize" chip path, and re-greeting there reads
+// as a jarring double hello.
 export const buildStoryGreeting = (story: StoryState): string => {
   const next = story.missing[0] ?? 'why'
   const answered = 3 - story.missing.length
   const intro =
     answered === 0
       ? [
-          "Hi, I'm your campaign manager. Before I build your plan and " +
-            "tracker, let's get your Campaign Story down, since it's what " +
-            'personalizes your Campaign Plan, Campaign Tracker, and your ' +
-            'GoodParty.org experience.',
+          "Before I build your plan and tracker, let's get your Campaign " +
+            "Story down, since it's what personalizes your Campaign Plan, " +
+            'Campaign Tracker, and your GoodParty.org experience.',
           "It's just three short questions, in your own words, and I can " +
             'help sharpen anything you write.',
         ]

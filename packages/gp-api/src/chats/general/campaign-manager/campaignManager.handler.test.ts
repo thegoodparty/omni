@@ -151,8 +151,11 @@ describe('buildStoryGreeting', () => {
     const greeting = buildStoryGreeting(
       story(['why', 'background', 'positions']),
     )
-    expect(greeting).toContain("Hi, I'm your campaign manager")
+    expect(greeting).toContain('Before I build your plan and tracker')
     expect(greeting).toContain('First, your why')
+    // No self-introduction: it must not re-greet after the general greeting on
+    // the in-chat "Personalize" chip path.
+    expect(greeting).not.toContain("I'm your campaign manager")
   })
 
   it('welcomes back and asks the next missing question when resuming', () => {
