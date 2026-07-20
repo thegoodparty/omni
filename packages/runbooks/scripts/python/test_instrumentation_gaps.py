@@ -156,6 +156,56 @@ def test_merge_state_new_and_persisted_dispositions():
     assert out["/old"]["last_seen"] == "2026-07-14"
 
 
+def test_merge_judged_state_adds_confirmed_and_preserves_dispositions():
+    prior = {
+        "/kept": {"id": "/kept", "surface_type": "route", "location": "k.tsx",
+                  "disposition": "dismissed", "reason": "human said chrome", "rank": 3,
+                  "rubric_rule": "old", "dashboard_question": "oldq", "judge_reason": "old",
+                  "first_seen": "2026-07-01", "last_seen": "2026-07-14"},
+    }
+    verdicts = {
+        "/new": {"id": "/new", "is_gap": True, "rubric_rule": "flow",
+                 "dashboard_question": "drop-off?", "rank": 0, "reason": "stage"},
+        "/kept": {"id": "/kept", "is_gap": True, "rubric_rule": "route-x",
+                  "dashboard_question": "q2", "rank": 2, "reason": "judge thinks gap"},
+        "/notgap": {"id": "/notgap", "is_gap": False, "rubric_rule": "chrome",
+                    "dashboard_question": "", "rank": 5, "reason": "toggle"},
+    }
+    cands = {
+        "/new": {"id": "/new", "surface_type": "wizard_stage", "location": "n.tsx"},
+        "/kept": {"id": "/kept", "surface_type": "route", "location": "k.tsx"},
+        "/notgap": {"id": "/notgap", "surface_type": "cta", "location": "c.tsx"},
+    }
+    out = ig.merge_judged_state(prior, verdicts, cands, date(2026, 7, 20))
+
+    # new confirmed gap enters as new with judged fields
+    assert out["/new"]["disposition"] == "new"
+    assert out["/new"]["rubric_rule"] == "flow"
+    assert out["/new"]["dashboard_question"] == "drop-off?"
+    assert out["/new"]["judge_reason"] == "stage"
+    assert out["/new"]["reason"] == ""          # human field stays empty
+    assert out["/new"]["first_seen"] == "2026-07-20"
+
+    # existing dismissed: disposition + human reason + first_seen preserved; judged fields refreshed
+    assert out["/kept"]["disposition"] == "dismissed"
+    assert out["/kept"]["reason"] == "human said chrome"
+    assert out["/kept"]["first_seen"] == "2026-07-01"
+    assert out["/kept"]["last_seen"] == "2026-07-20"
+    assert out["/kept"]["rubric_rule"] == "route-x"
+    assert out["/kept"]["judge_reason"] == "judge thinks gap"
+
+    # is_gap=False never enters state
+    assert "/notgap" not in out
+
+
+def test_merge_judged_state_leaves_unseen_prior_untouched():
+    prior = {"/old": {"id": "/old", "disposition": "open", "reason": "", "rank": 3,
+                      "last_seen": "2026-07-14"}}
+    out = ig.merge_judged_state(prior, {}, {}, date(2026, 7, 20))
+    assert out["/old"]["last_seen"] == "2026-07-14"
+    assert out["/old"]["disposition"] == "open"
+
+
 def test_is_visible_only_new():
     assert ig.is_visible({"disposition": "new"}) is True
     assert ig.is_visible({"disposition": "open"}) is False

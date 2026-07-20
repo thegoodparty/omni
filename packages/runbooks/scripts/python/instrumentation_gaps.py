@@ -360,6 +360,49 @@ def merge_state(
     return out
 
 
+def merge_judged_state(
+    prior: Mapping[str, dict],
+    verdicts: Mapping[str, dict],
+    candidates_by_id: Mapping[str, dict],
+    today: date,
+) -> dict[str, dict]:
+    """Fold judge-confirmed gaps into the disposition state. Only is_gap=true verdicts
+    create or refresh entries; is_gap=false is dropped and never added. Human decisions
+    (disposition, reason) and first_seen are preserved; the judge's reason is stored as
+    judge_reason so it never clobbers the human field. Prior ids absent this run are kept."""
+    iso = today.isoformat()
+    out: dict[str, dict] = {k: dict(v) for k, v in prior.items()}
+    for gid, verdict in verdicts.items():
+        if not verdict.get("is_gap"):
+            continue
+        cand = candidates_by_id.get(gid, {})
+        judged = {
+            "rubric_rule": verdict.get("rubric_rule", ""),
+            "dashboard_question": verdict.get("dashboard_question", ""),
+            "judge_reason": verdict.get("reason", ""),
+            "rank": verdict.get("rank", 5),
+        }
+        if gid not in out:
+            out[gid] = {
+                "id": gid,
+                "surface_type": cand.get("surface_type", ""),
+                "location": cand.get("location", ""),
+                "disposition": "new",
+                "reason": "",
+                "first_seen": iso,
+                "last_seen": iso,
+                **judged,
+            }
+            continue
+        entry = out[gid]
+        entry["last_seen"] = iso
+        if cand:
+            entry["surface_type"] = cand.get("surface_type", entry.get("surface_type", ""))
+            entry["location"] = cand.get("location", entry.get("location", ""))
+        entry.update(judged)  # refresh judged fields; disposition/reason/first_seen untouched
+    return out
+
+
 def is_visible(entry: Mapping) -> bool:
     """The digest shows only untriaged (`new`) gaps. open collapses to a count line;
     accepted/dismissed are suppressed."""
