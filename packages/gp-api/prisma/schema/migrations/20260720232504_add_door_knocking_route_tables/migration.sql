@@ -1,9 +1,3 @@
-/*
-  Warnings:
-
-  - A unique constraint covering the columns `[door_knocking_route_id]` on the table `outreach` will be added. If there are existing duplicate values, this will fail.
-
-*/
 -- CreateEnum
 CREATE TYPE "DoorKnockingMode" AS ENUM ('walk', 'drive');
 
@@ -51,7 +45,7 @@ CREATE TABLE "door_knocking_stop_target" (
     "updated_at" TIMESTAMP(3) NOT NULL,
     "door_knocking_stop_id" INTEGER NOT NULL,
     "person_id" TEXT NOT NULL,
-    "name" TEXT NOT NULL,
+    "name" TEXT,
     "address_key" TEXT NOT NULL,
 
     CONSTRAINT "door_knocking_stop_target_pkey" PRIMARY KEY ("id")
@@ -77,7 +71,7 @@ CREATE UNIQUE INDEX "door_knocking_route_door_knocking_turf_id_key" ON "door_kno
 CREATE UNIQUE INDEX "door_knocking_stop_door_knocking_route_id_seq_key" ON "door_knocking_stop"("door_knocking_route_id", "seq");
 
 -- CreateIndex
-CREATE INDEX "door_knocking_stop_target_door_knocking_stop_id_idx" ON "door_knocking_stop_target"("door_knocking_stop_id");
+CREATE UNIQUE INDEX "door_knocking_stop_target_door_knocking_stop_id_person_id_key" ON "door_knocking_stop_target"("door_knocking_stop_id", "person_id");
 
 -- CreateIndex
 CREATE INDEX "door_knocking_turf_voter_file_filter_id_idx" ON "door_knocking_turf"("voter_file_filter_id");
@@ -99,3 +93,4 @@ ALTER TABLE "door_knocking_turf" ADD CONSTRAINT "door_knocking_turf_voter_file_f
 
 -- AddForeignKey
 ALTER TABLE "outreach" ADD CONSTRAINT "outreach_door_knocking_route_id_fkey" FOREIGN KEY ("door_knocking_route_id") REFERENCES "door_knocking_route"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
