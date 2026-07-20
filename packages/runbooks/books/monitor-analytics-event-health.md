@@ -45,8 +45,8 @@ Scope is hybrid: every catalog event gets a status; the curated watchlist
 | --- | --- | --- | --- |
 | active | `retired_date` empty | fired in 30d | none |
 | dormant | empty | quiet 30d | "still intended?" (elevated for onboarding/activation) |
-| deprecating | set | quiet, within 30d holding window | informational |
-| orphaned_firing | set | still firing | highest severity, escalate |
+| deprecating | set | last fire on/before `retired_date`, within 30d holding window | informational (fresh retirees land here even while pre-retirement traffic still sits in the 30d count) |
+| orphaned_firing | set | last fire *after* `retired_date` (+ small grace for deploy/pipeline lag) | highest severity, escalate |
 | retired | set | quiet 30d+ | none |
 | code_unknown | no provenance row | any | auto-tracked or brand-new; anomaly-watched only |
 | instrumented_never_observed | present, not retired | never in catalog | possible broken instrumentation; flag |

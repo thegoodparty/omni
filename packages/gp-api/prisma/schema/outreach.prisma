@@ -18,42 +18,43 @@ enum OutreachStatus {
 }
 
 model Outreach {
-  id                          Int                          @id @default(autoincrement())
-  createdAt                   DateTime                     @default(now())
-  updatedAt                   DateTime                     @updatedAt
-  campaign                    Campaign                     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  campaignId                  Int
-  outreachType                OutreachType                 @map("outreach_type")
-  projectId                   String?                      @map("project_id")
-  name                        String?
-  status                      OutreachStatus?              @default(pending)
-  error                       String?
-  audienceRequest             String?                      @map("audience_request")
-  script                      String?                      @db.Text
-  message                     String?
-  date                        DateTime?
-  imageUrl                    String?                      @map("image_url")
-  voterFileFilter             VoterFileFilter?             @relation(fields: [voterFileFilterId], references: [id])
-  voterFileFilterId           Int?                         @map("voter_file_filter_id")
-  phoneListId                 Int?                         @map("phone_list_id")
+  id                                Int                                @id @default(autoincrement())
+  createdAt                         DateTime                           @default(now())
+  updatedAt                         DateTime                           @updatedAt
+  campaign                          Campaign                           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaignId                        Int
+  outreachType                      OutreachType                       @map("outreach_type")
+  projectId                         String?                            @map("project_id")
+  name                              String?
+  status                            OutreachStatus?                    @default(pending)
+  error                             String?
+  audienceRequest                   String?                            @map("audience_request")
+  script                            String?                            @db.Text
+  message                           String?
+  date                              DateTime?
+  imageUrl                          String?                            @map("image_url")
+  voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
+  voterFileFilterId                 Int?                               @map("voter_file_filter_id")
+  phoneListId                       Int?                               @map("phone_list_id")
   // P2P-specific fields
-  identityId                  String?                      @map("identity_id")
-  didState                    String?                      @map("did_state")
-  didNpaSubset                String[]                     @default([]) @map("did_npa_subset")
-  title                       String?
+  identityId                        String?                            @map("identity_id")
+  didState                          String?                            @map("did_state")
+  didNpaSubset                      String[]                           @default([]) @map("did_npa_subset")
+  title                             String?
   // Persisted at draft time so a payment-webhook finalize can rebuild the CAS
   // Slack message when the original request (and browser) is long gone.
-  textCount                   Int?                         @map("text_count")
-  billableTextCount           Int?                         @map("billable_text_count")
-  campaignPlanDueDate         String?                      @map("campaign_plan_due_date")
+  textCount                         Int?                               @map("text_count")
+  billableTextCount                 Int?                               @map("billable_text_count")
+  campaignPlanDueDate               String?                            @map("campaign_plan_due_date")
   // Nullable by design: legacy rows resolve their org via the campaignId join;
   // no backfill.
-  organizationSlug            String?                      @map("organization_slug")
-  organization                Organization?                @relation(fields: [organizationSlug], references: [slug], onDelete: SetNull)
-  voterActivities             VoterOutreachActivity[]
-  raceOpponentContrasts       RaceOpponentContrast[]
-  contactInteractionTexts     ContactInteractionText[]
-  contactInteractionRobocalls ContactInteractionRobocall[]
+  organizationSlug                  String?                            @map("organization_slug")
+  organization                      Organization?                      @relation(fields: [organizationSlug], references: [slug], onDelete: SetNull)
+  voterActivities                   VoterOutreachActivity[]
+  raceOpponentContrasts             RaceOpponentContrast[]
+  contactInteractionTexts           ContactInteractionText[]
+  contactInteractionRobocalls       ContactInteractionRobocall[]
+  voterFileFilterActivityConditions VoterFileFilterActivityCondition[]
 
   @@index([campaignId])
   @@map("outreach")

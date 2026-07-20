@@ -229,6 +229,13 @@ async function assertSuccessfulOutreach(opts: SuccessOutcomeOpts) {
 
   // HubSpot synced.
   expect(crmTrackCampaign).toHaveBeenCalledWith(campaign.id)
+
+  // Segment-derived VoterOutreachActivity writes are retired (ENG-10731):
+  // a successful launch must not write to the deprecated model.
+  const activityRows = await service.prisma.voterOutreachActivity.findMany({
+    where: { campaignId: campaign.id },
+  })
+  expect(activityRows).toHaveLength(0)
 }
 
 interface FailureOutcomeOpts {

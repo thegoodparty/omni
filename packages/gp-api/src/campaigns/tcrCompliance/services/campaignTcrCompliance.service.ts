@@ -1569,6 +1569,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         `Non-prod environment detected. Skipping Peerly CV PIN resend for ` +
           `campaign ${campaign.id}.`,
       )
+      this.trackCompliancePinResent(campaign, tcrCompliance.peerlyIdentityId)
       return
     }
 
@@ -1604,6 +1605,24 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       tcrCompliance.peerlyIdentityId,
       campaign,
     )
+    this.trackCompliancePinResent(campaign, tcrCompliance.peerlyIdentityId)
+  }
+
+  // Telemetry only (HubSpot surfaces staff resend activity on the contact) —
+  // fire-and-forget so a Segment hiccup can never fail the admin's request.
+  private trackCompliancePinResent(
+    campaign: Campaign,
+    peerlyIdentityId: string | null,
+  ) {
+    void this.analytics
+      .track(campaign.userId, EVENTS.Outreach.CompliancePinResent, {
+        triggered_by: 'admin',
+        ...(peerlyIdentityId ? { peerly_identity_id: peerlyIdentityId } : {}),
+        ...(campaign.data.hubspotId
+          ? { company_hubspot_id: campaign.data.hubspotId }
+          : {}),
+      })
+      .catch(() => undefined)
   }
 
   async getCvTokenStatus(peerlyIdentityId: string) {

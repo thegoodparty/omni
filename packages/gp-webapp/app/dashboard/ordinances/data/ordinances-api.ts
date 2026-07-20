@@ -1,12 +1,51 @@
 'use client'
 
 import { clientRequest } from 'gpApi/typed-request'
+import { getCookie } from 'helpers/cookieHelper'
+import {
+  ORG_SLUG_COOKIE,
+  ORG_SLUG_HEADER,
+} from '@shared/organizations/constants'
 import type {
   CreateOrdinanceRequest,
   Ordinance,
+  OrdinanceExportFormat,
+  OrdinanceQualityRun,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
+
+export type { OrdinanceExportFormat }
+
+// Download the exported draft (PDF/Word). The endpoint streams a binary file, so
+// this bypasses the JSON typed client: fetch through the /api proxy with the org
+// header the elected-office guard needs, then save the returned blob.
+export async function downloadOrdinanceExport(
+  slug: string,
+  format: OrdinanceExportFormat,
+): Promise<void> {
+  const orgSlug = getCookie(ORG_SLUG_COOKIE)
+  const res = await fetch(
+    `/api/v1/ordinances/${slug}/export?format=${format}`,
+    {
+      credentials: 'include',
+      headers: orgSlug ? { [ORG_SLUG_HEADER]: orgSlug } : {},
+    },
+  )
+  if (!res.ok) throw new Error(`Export failed (${res.status})`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `${slug}.${format}`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  // Defer the revoke: the browser's download manager reads the blob URL
+  // asynchronously, and revoking on the same tick can abort the download on
+  // Safari / older Chromium (matches the other download helpers here).
+  setTimeout(() => URL.revokeObjectURL(url), 100)
+}
 
 export async function fetchOrdinanceBySlug(slug: string): Promise<Ordinance> {
   const { data } = await clientRequest('GET /v1/ordinances/:slug', { slug })
@@ -26,10 +65,41 @@ export async function updateOrdinance(
   return data
 }
 
+export async function deleteOrdinance(slug: string): Promise<void> {
+  await clientRequest('DELETE /v1/ordinances/:slug', { slug })
+}
+
 export async function createOrdinance(
   input: CreateOrdinanceRequest,
 ): Promise<Ordinance> {
   const { data } = await clientRequest('POST /v1/ordinances', input)
+  return data
+}
+
+// Start (or join) the async six-check quality run. Returns the run's current
+// state immediately — 'running' means poll fetchQualityRun until it settles,
+// 'done' means the server already had a fresh report and no run was started.
+export async function startQualityReport(
+  slug: string,
+  opts?: { signal?: AbortSignal },
+): Promise<OrdinanceQualityRun> {
+  const { data } = await clientRequest(
+    'POST /v1/ordinances/:slug/quality-report',
+    { slug },
+    opts?.signal ? { signal: opts.signal } : undefined,
+  )
+  return data
+}
+
+export async function fetchQualityRun(
+  slug: string,
+  opts?: { signal?: AbortSignal },
+): Promise<OrdinanceQualityRun> {
+  const { data } = await clientRequest(
+    'GET /v1/ordinances/:slug/quality-report',
+    { slug },
+    opts?.signal ? { signal: opts.signal } : undefined,
+  )
   return data
 }
 

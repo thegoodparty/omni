@@ -10,6 +10,7 @@ interface BarStepperProps {
   totalSteps: number
   showLabel?: boolean
   className?: string
+  labelClassName?: string
 }
 
 interface VerticalStepperProps {
@@ -65,7 +66,13 @@ function Stepper(props: StepperProps) {
     )
   }
 
-  const { currentStep, totalSteps, showLabel = true, className } = props
+  const {
+    currentStep,
+    totalSteps,
+    showLabel = true,
+    className,
+    labelClassName,
+  } = props
   return (
     <div
       className={cn('space-y-3', className)}
@@ -76,7 +83,12 @@ function Stepper(props: StepperProps) {
       aria-valuenow={currentStep}
     >
       {showLabel && (
-        <div className="flex justify-end text-sm font-medium text-muted-foreground">
+        <div
+          className={cn(
+            'flex justify-end text-sm font-medium text-muted-foreground',
+            labelClassName,
+          )}
+        >
           Step {currentStep} of {totalSteps}
         </div>
       )}

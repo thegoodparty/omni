@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   Badge,
   Button,
@@ -16,24 +17,46 @@ import {
   DrawerDescription,
   DrawerHeader,
   DrawerTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   IconButton,
   cn,
 } from '@styleguide'
 import {
   ArrowLeftIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  DownloadIcon,
+  FileTextIcon,
   FlagIcon,
   SparklesIcon,
+  Trash2Icon,
 } from '@styleguide/components/ui/icons'
 import { AiIcon } from '@styleguide/components/ui/ai-icon'
 import type {
   Ordinance,
+  OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
+import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
-import { updateOrdinance } from '../data/ordinances-api'
-import { ORDINANCE_STATUS_META } from '../data/statuses'
+import {
+  deleteOrdinance,
+  downloadOrdinanceExport,
+  updateOrdinance,
+  type OrdinanceExportFormat,
+} from '../data/ordinances-api'
+import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
 import DraftChat from './DraftChat'
+import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
+
+// The statuses the user can set from the draft-detail pill. `in_progress` is the
+// pre-draft state, so it isn't offered once a draft exists (matches Lovable).
+const SELECTABLE_STATUSES: readonly OrdinanceStatus[] =
+  ORDINANCE_STATUS_ORDER.filter((s) => s !== 'in_progress')
 
 const AUTOSAVE_DELAY_MS = 800
 
@@ -62,21 +85,77 @@ export default function DraftDetail({
 }): React.JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const bodyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const savingRef = useRef(false)
   const queuedRef = useRef<UpdateOrdinanceRequest | null>(null)
+  // The in-flight save's promise, so a flush can await the chain to settle.
+  const savingPromiseRef = useRef<Promise<void> | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
+  // Whether the most recently settled save failed, set synchronously in save()'s
+  // then/catch. A ref (not saveState) because it must be read reliably inside
+  // flushPendingSaves right after the save promise settles — saveState's ref
+  // mirror only updates on React's deferred re-render, which is too late here.
+  const lastSaveFailedRef = useRef(false)
   const [selection, setSelection] = useState<Selection | null>(null)
+  // True once the draft is edited this session, so the quality report can show
+  // a stale banner without refetching. Cleared when a fresh report is run.
+  const [draftDirty, setDraftDirty] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   // The composer seed for the chat drawer, plus a nonce so re-highlighting the
   // same passage re-seeds even when the text is identical.
   const [chatSeed, setChatSeed] = useState('')
   const [seedNonce, setSeedNonce] = useState(0)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  const router = useRouter()
+
+  const handleExport = async (format: OrdinanceExportFormat): Promise<void> => {
+    setExportError(null)
+    try {
+      await downloadOrdinanceExport(ordinance.slug, format)
+    } catch {
+      setExportError('Could not export the draft. Please try again.')
+    }
+  }
+
+  const confirmDelete = async (): Promise<void> => {
+    setDeleting(true)
+    setDeleteError(null)
+    try {
+      await deleteOrdinance(ordinance.slug)
+      // router.push doesn't synchronously unmount, so reset here — a lingering
+      // deleting/open would otherwise lock the dialog in a spinner (or re-open
+      // locked) during the nav window.
+      setDeleting(false)
+      setDeleteOpen(false)
+      router.push('/dashboard/ordinances')
+    } catch {
+      setDeleting(false)
+      setDeleteError('Could not delete the draft. Please try again.')
+    }
+  }
+
+  // Optimistically reflect the picked status; revert if the save fails.
+  const changeStatus = async (next: OrdinanceStatus): Promise<void> => {
+    if (next === status) return
+    const prev = status
+    setStatus(next)
+    try {
+      await updateOrdinance(ordinance.slug, { status: next })
+    } catch {
+      setStatus(prev)
+    }
+  }
 
   const title =
     ordinance.draftTitle ?? ordinance.goalText ?? 'Untitled ordinance'
-  const statusMeta = ORDINANCE_STATUS_META[ordinance.status]
+  const statusMeta = ORDINANCE_STATUS_META[status]
   const sources = ordinance.draftSources ?? []
 
   // Uncontrolled contentEditable fields: seed once on mount so typing never
@@ -101,29 +180,76 @@ export default function DraftDetail({
       }
       savingRef.current = true
       setSaveState('saving')
-      updateOrdinance(ordinance.slug, update)
-        .then(() => setSaveState('saved'))
+      savingPromiseRef.current = updateOrdinance(ordinance.slug, update)
+        .then(() => {
+          setSaveState('saved')
+          lastSaveFailedRef.current = false
+        })
         .catch(() => {
           // Drop the queued edit on failure so the error state stays visible (a
           // queued retry would immediately flip back to 'saving') and we don't
           // spin an unbounded retry loop; the next edit re-triggers a save.
           setSaveState('error')
+          lastSaveFailedRef.current = true
           queuedRef.current = null
         })
         .finally(() => {
           savingRef.current = false
           const queued = queuedRef.current
           queuedRef.current = null
-          if (queued && Object.keys(queued).length > 0) save(queued)
+          if (queued && Object.keys(queued).length > 0) {
+            save(queued)
+          } else {
+            savingPromiseRef.current = null
+          }
         })
     },
     [ordinance.slug],
   )
 
+  // Fire any pending debounced edits immediately and resolve once the save
+  // chain (including a queued follow-up) has fully settled. Run before
+  // generating the quality report so the LLM grades the latest saved text.
+  const flushPendingSaves = useCallback(async (): Promise<void> => {
+    const update: UpdateOrdinanceRequest = {}
+    if (bodyTimerRef.current) {
+      clearTimeout(bodyTimerRef.current)
+      bodyTimerRef.current = null
+      const body = bodyRef.current?.innerText ?? ''
+      if (body.trim().length > 0) update.draftBody = body
+    }
+    if (titleTimerRef.current) {
+      clearTimeout(titleTimerRef.current)
+      titleTimerRef.current = null
+      const next = titleRef.current?.innerText.trim() ?? ''
+      if (next.length > 0) update.draftTitle = next
+    }
+    // If a prior save failed, the DB is stale and there may be no pending timer
+    // to re-drive it. Re-send the current editor text so a run recovers from a
+    // transient failure instead of dead-ending (we don't know which field
+    // failed, so persist both).
+    if (lastSaveFailedRef.current) {
+      const body = bodyRef.current?.innerText ?? ''
+      if (body.trim().length > 0) update.draftBody = body
+      const next = titleRef.current?.innerText.trim() ?? ''
+      if (next.length > 0) update.draftTitle = next
+    }
+    if (Object.keys(update).length > 0) save(update)
+    while (savingRef.current && savingPromiseRef.current) {
+      await savingPromiseRef.current
+    }
+    // Only abort if the draft still isn't saved after the attempt above — the
+    // report would otherwise be graded against stale text.
+    if (lastSaveFailedRef.current) {
+      throw new Error('Draft could not be saved before running quality checks')
+    }
+  }, [save])
+
   // Read innerText only when typing pauses, not on every keystroke (each read
   // forces a synchronous layout reflow). Empty fields are skipped: the contract
   // requires draftTitle/draftBody be non-empty, so gp-api 400s on ''.
   const onBodyInput = useCallback((): void => {
+    setDraftDirty(true)
     if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     bodyTimerRef.current = setTimeout(() => {
       bodyTimerRef.current = null
@@ -133,6 +259,7 @@ export default function DraftDetail({
   }, [save])
 
   const onTitleInput = useCallback((): void => {
+    setDraftDirty(true)
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
     titleTimerRef.current = setTimeout(() => {
       titleTimerRef.current = null
@@ -199,7 +326,7 @@ export default function DraftDetail({
         updatePosition()
       })
     }
-    const scrollContainer = bodyRef.current?.parentElement ?? null
+    const scrollContainer = scrollRef.current
     document.addEventListener('selectionchange', updatePosition)
     scrollContainer?.addEventListener('scroll', onScroll)
     return () => {
@@ -224,69 +351,178 @@ export default function DraftDetail({
 
   return (
     <div className="flex h-full w-full flex-col bg-background">
-      <header className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Link
-          href="/dashboard/ordinances"
-          aria-label="Back to ordinances"
-          className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
-        >
-          <ArrowLeftIcon className="size-4" aria-hidden />
-        </Link>
-        <h1 className="text-base font-semibold text-foreground">
-          Draft details
-        </h1>
-        <div className="ml-auto flex items-center gap-3">
-          {saveState !== 'idle' ? (
-            <span
-              className={cn(
-                'text-xs',
-                saveState === 'error'
-                  ? 'text-destructive'
-                  : 'text-muted-foreground',
-              )}
+      <header className="border-b border-border py-3">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-6">
+          <Link
+            href="/dashboard/ordinances"
+            aria-label="Back to ordinances"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:bg-muted"
+          >
+            <ArrowLeftIcon className="size-4" aria-hidden />
+          </Link>
+          <h1 className="text-base font-semibold text-foreground">
+            Draft details
+          </h1>
+          <div className="ml-auto flex items-center gap-3">
+            {saveState !== 'idle' ? (
+              <span
+                className={cn(
+                  'text-xs',
+                  saveState === 'error'
+                    ? 'text-destructive'
+                    : 'text-muted-foreground',
+                )}
+              >
+                {SAVE_LABEL[saveState]}
+              </span>
+            ) : null}
+            <IconButton
+              type="button"
+              variant="outline"
+              size="small"
+              aria-label="Delete draft"
+              onClick={() => setDeleteOpen(true)}
+              className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
             >
-              {SAVE_LABEL[saveState]}
-            </span>
-          ) : null}
-          <Badge className={cn('rounded-full', statusMeta.pillClass)}>
-            {statusMeta.label}
-          </Badge>
+              <Trash2Icon className="size-4" aria-hidden />
+            </IconButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton
+                  type="button"
+                  variant="outline"
+                  size="small"
+                  aria-label="Download draft"
+                  className="border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <DownloadIcon className="size-4" aria-hidden />
+                </IconButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => handleExport('pdf')}>
+                  <FileTextIcon className="size-4" aria-hidden />
+                  Download as PDF
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleExport('docx')}>
+                  <FileTextIcon className="size-4" aria-hidden />
+                  Download as Word
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
+      {exportError ? (
+        <div className="mx-auto w-full max-w-3xl px-6 pt-2">
+          <p className="text-sm text-destructive">{exportError}</p>
+        </div>
+      ) : null}
+
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="mx-auto min-h-0 w-full max-w-3xl flex-1 overflow-y-auto p-6">
-          <h2
-            ref={titleRef}
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-label="Ordinance draft title"
-            onInput={onTitleInput}
-            className="mb-4 text-xl font-bold text-foreground outline-none"
-          />
-          <div
-            ref={bodyRef}
-            contentEditable
-            suppressContentEditableWarning
-            role="textbox"
-            aria-multiline="true"
-            aria-label="Ordinance draft body"
-            onInput={onBodyInput}
-            className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
-          />
-          {sources.length > 0 ? (
-            <div className="mt-8 border-t border-border pt-4">
-              <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-                Sources
-              </h3>
-              <div className="flex flex-col gap-2">
-                {sources.map((source, i) => (
-                  <SourceLine key={`${source.id}-${i}`} source={source} />
-                ))}
-              </div>
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-3xl p-6">
+            <div className="mb-4 flex justify-end">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    aria-label="Change draft status"
+                    className={cn(
+                      'h-auto gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                      statusMeta.pillClass,
+                    )}
+                  >
+                    {statusMeta.label}
+                    <ChevronDownIcon className="size-3.5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {SELECTABLE_STATUSES.map((s) => {
+                    const meta = ORDINANCE_STATUS_META[s]
+                    return (
+                      <DropdownMenuItem
+                        key={s}
+                        onSelect={() => changeStatus(s)}
+                        className="gap-3"
+                      >
+                        <Badge className={cn('rounded-full', meta.pillClass)}>
+                          {meta.label}
+                        </Badge>
+                        {s === status ? (
+                          <CheckIcon
+                            className="ml-auto size-4 text-foreground"
+                            aria-hidden
+                          />
+                        ) : null}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
-          ) : null}
+            <h2
+              ref={titleRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-label="Ordinance draft title"
+              onInput={onTitleInput}
+              className="mb-4 text-xl font-bold text-foreground outline-none"
+            />
+            <div
+              ref={bodyRef}
+              contentEditable
+              suppressContentEditableWarning
+              role="textbox"
+              aria-multiline="true"
+              aria-label="Ordinance draft body"
+              onInput={onBodyInput}
+              className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
+            />
+            <QualityReport
+              slug={ordinance.slug}
+              initialReport={ordinance.qualityReport}
+              initialRunStatus={ordinance.qualityRunStatus}
+              draftDirty={draftDirty}
+              onBeforeRun={flushPendingSaves}
+              onReran={() => {
+                // Only clear the stale banner once the draft is safely
+                // persisted: not while a save is in flight, not if the last
+                // save failed, and not while an edit typed during the run is
+                // still waiting on its debounce timer. All synchronous, so this
+                // is reliable regardless of React's deferred re-render timing.
+                const editPending =
+                  bodyTimerRef.current !== null ||
+                  titleTimerRef.current !== null
+                if (
+                  !savingRef.current &&
+                  !lastSaveFailedRef.current &&
+                  !editPending
+                ) {
+                  setDraftDirty(false)
+                }
+              }}
+              onDiscussFinding={(check) =>
+                openChat(`About the "${check.label}" check: ${check.note}\n\n`)
+              }
+            />
+
+            {sources.length > 0 ? (
+              <div className="mt-8 border-t border-border pt-4">
+                <h3 className="mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Sources
+                </h3>
+                <div className="flex flex-col gap-2">
+                  {sources.map((source, i) => (
+                    <SourceLine key={`${source.id}-${i}`} source={source} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="sticky bottom-0 z-10 border-t border-border bg-background">
@@ -366,6 +602,21 @@ export default function DraftDetail({
           </Button>
         </div>
       ) : null}
+
+      <ConfirmDeleteDialog
+        open={deleteOpen}
+        onOpenChange={(open) => {
+          setDeleteOpen(open)
+          // Drop a prior error so it doesn't linger on the next open.
+          if (!open) setDeleteError(null)
+        }}
+        title="Delete this draft?"
+        description="This removes the ordinance draft and its quality report from your ordinances. This can't be undone."
+        confirmLabel="Delete draft"
+        confirming={deleting}
+        errorMessage={deleteError}
+        onConfirm={confirmDelete}
+      />
     </div>
   )
 }

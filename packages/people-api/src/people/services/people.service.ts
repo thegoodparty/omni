@@ -1,5 +1,6 @@
 import { Prisma } from '../../generated/prisma'
 import {
+  AggregatesDTO,
   GetPersonQueryDTO,
   ListPeopleDTO,
   SamplePeopleDTO,
@@ -22,7 +23,14 @@ import {
   buildVoterWhereSql,
   isNameSearch,
 } from '../utils/buildVoterWhereSql.utils'
+import { buildAggregatesSql } from '../utils/buildAggregatesSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
+
+export type PeopleAggregates = {
+  count: number
+  avgAge: number | null
+  avgIncome: number | null
+}
 
 export const DATABASE_SCHEMA = 'green'
 
@@ -180,6 +188,35 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
         hasPreviousPage: currentPage > 1,
       },
       people: people.map(transformToPersonOutput),
+    }
+  }
+
+  // Filtered aggregates (COUNT/AVG age/AVG income) for a list-detail page's
+  // membership (ENG-10706) — distinct from StatsService.getStats, which only
+  // serves the precomputed, unfiltered DistrictStats row.
+  async getAggregates(dto: AggregatesDTO): Promise<PeopleAggregates> {
+    const resolved = await resolveDistrict(this.districtService, dto)
+    const { state, useVoterOnlyPath, districtId } = resolved
+    const effectiveDistrictId = useVoterOnlyPath ? null : districtId
+
+    const sql = buildAggregatesSql({
+      state,
+      districtId: effectiveDistrictId,
+      filters: dto.filters,
+    })
+    const rows = await this.client.$queryRaw<
+      Array<{
+        count: bigint
+        avgAge: number | null
+        avgIncome: number | null
+      }>
+    >(sql)
+    const row = rows[0]
+
+    return {
+      count: Number(row?.count ?? 0n),
+      avgAge: row?.avgAge ?? null,
+      avgIncome: row?.avgIncome ?? null,
     }
   }
 

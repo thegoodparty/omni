@@ -83,6 +83,7 @@ interface AudienceStepProps {
   onCreateVoterFileFilter?: () => Promise<VoterFileFilterResult | undefined>
   onCreatePhoneList?: (
     voterFileFilter: VoterFileFilterResult | undefined,
+    voterFileFilterId?: number,
   ) => Promise<string | null | undefined>
 }
 
@@ -181,8 +182,12 @@ export default function AudienceStep({
     }
 
     const needsPhoneList = p2pUxEnabled && isTextType
+    // Only a saved list the user picked from the dropdown carries a
+    // voterFileFilterId here — an ad-hoc audience built from checkboxes
+    // stays undefined even though onCreateVoterFileFilter() also persists a
+    // (throwaway, auto-named) filter row with its own id.
     const phoneListToken = needsPhoneList
-      ? await onCreatePhoneList(voterFileFilter)
+      ? await onCreatePhoneList(voterFileFilter, selectedList?.id)
       : null
 
     if (needsPhoneList && !phoneListToken) {

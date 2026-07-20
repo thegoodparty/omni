@@ -1,11 +1,17 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent, act } from '@testing-library/react'
+import { screen, fireEvent, act, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { router } from 'helpers/test-utils/router-mocking'
 import type { Ordinance } from '@goodparty_org/contracts'
 import DraftDetail from './DraftDetail'
 
 const mocks = vi.hoisted(() => ({
   updateOrdinance: vi.fn(),
+  startQualityReport: vi.fn(),
+  fetchQualityRun: vi.fn(),
+  deleteOrdinance: vi.fn(),
+  downloadOrdinanceExport: vi.fn(),
   draftChatProps: {
     current: null as { seedText?: string; seedNonce?: number } | null,
   },
@@ -13,6 +19,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../data/ordinances-api', () => ({
   updateOrdinance: mocks.updateOrdinance,
+  startQualityReport: mocks.startQualityReport,
+  fetchQualityRun: mocks.fetchQualityRun,
+  deleteOrdinance: mocks.deleteOrdinance,
+  downloadOrdinanceExport: mocks.downloadOrdinanceExport,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
@@ -35,6 +45,7 @@ const makeOrdinance = (overrides: Partial<Ordinance> = {}): Ordinance =>
     goalText: 'Add camera guardrails',
     draftBody: 'Original body.',
     draftSources: null,
+    qualityRunStatus: 'idle',
     ...overrides,
   }) as unknown as Ordinance
 
@@ -283,5 +294,277 @@ describe('DraftDetail selection toolbar', () => {
       'I think there\'s a problem with this passage: "a 30-day retention limit"\n\n',
     )
     expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
+  })
+})
+
+const sampleReport = {
+  checks: [{ id: 'authority', label: 'Authority', status: 'pass', note: 'ok' }],
+  tally: { pass: 1, flag: 0, attention: 0 },
+  stale: false,
+  ranAgainstBodyHash: 'hash-1',
+}
+
+// Real timers here: clicking Run flushes (and clears) the debounce timer
+// synchronously, so these exercise the flush/stale wiring without a fake clock.
+describe('DraftDetail quality report flush', () => {
+  beforeEach(() => {
+    mocks.updateOrdinance.mockReset()
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.startQualityReport.mockReset()
+    mocks.startQualityReport.mockResolvedValue({
+      status: 'done',
+      report: sampleReport,
+      error: null,
+      startedAt: null,
+    })
+    mocks.fetchQualityRun.mockReset()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('flushes a pending edit before generating the report', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('flushed edit')
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(await screen.findByText(/reviewed by/i)).toBeVisible()
+    // The pending edit was saved (with its latest text) before the run.
+    expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      { draftBody: 'flushed edit' },
+    )
+    expect(mocks.startQualityReport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('aborts the run and does not generate when the flush save fails', async () => {
+    mocks.updateOrdinance.mockRejectedValue(new Error('save failed'))
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('edit that fails to save')
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(
+      await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
+    expect(mocks.startQualityReport).not.toHaveBeenCalled()
+  })
+
+  it('recovers on a later run after a failed flush save instead of dead-ending', async () => {
+    mocks.updateOrdinance.mockRejectedValueOnce(new Error('blip'))
+
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    editBody('edited during a blip')
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    // First run aborts because the flush save failed.
+    expect(
+      await screen.findByText(/could not run the quality checks/i),
+    ).toBeVisible()
+    expect(mocks.startQualityReport).not.toHaveBeenCalled()
+
+    // The next run re-saves the current text (network recovered) and proceeds,
+    // rather than dead-ending on the stale failure flag.
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(await screen.findByText(/reviewed by/i)).toBeVisible()
+    expect(mocks.startQualityReport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      { signal: expect.any(AbortSignal) },
+    )
+  })
+
+  it('resumes a running quality check from the ordinance run status', () => {
+    mocks.fetchQualityRun.mockResolvedValue({
+      status: 'running',
+      report: sampleReport,
+      error: null,
+      startedAt: '2026-07-01T00:00:00.000Z',
+    })
+
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityReport: sampleReport,
+          qualityRunStatus: 'running',
+        } as Partial<Ordinance>)}
+      />,
+    )
+
+    // The check kicked off before this mount (reload mid-run), so the report
+    // section opens directly in its loading state without a click.
+    expect(screen.getByText(/reviewing the draft/i)).toBeVisible()
+    expect(mocks.startQualityReport).not.toHaveBeenCalled()
+  })
+
+  it('shows the stale banner after an edit', () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityReport: sampleReport,
+        } as Partial<Ordinance>)}
+      />,
+    )
+
+    expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
+
+    editBody('a new edit')
+    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+  })
+
+  it('clears the stale banner after a successful re-run', async () => {
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityReport: { ...sampleReport, stale: true },
+        } as Partial<Ordinance>)}
+      />,
+    )
+
+    // Starts stale (server-reported).
+    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
+
+    await waitFor(() =>
+      expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument(),
+    )
+  })
+})
+
+describe('DraftDetail header actions', () => {
+  beforeEach(() => {
+    mocks.updateOrdinance.mockReset()
+    mocks.updateOrdinance.mockResolvedValue(makeOrdinance())
+    mocks.deleteOrdinance.mockReset()
+    mocks.deleteOrdinance.mockResolvedValue(undefined)
+    mocks.downloadOrdinanceExport.mockReset()
+    mocks.downloadOrdinanceExport.mockResolvedValue(undefined)
+    router.push?.mockReset?.()
+  })
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('offers PDF and Word options in the download menu', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+
+    expect(await screen.findByText(/download as pdf/i)).toBeVisible()
+    expect(screen.getByText(/download as word/i)).toBeVisible()
+  })
+
+  it('downloads the draft as PDF and Word from the download menu', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
+    expect(mocks.downloadOrdinanceExport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      'pdf',
+    )
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(
+      screen.getByRole('menuitem', { name: /download as word/i }),
+    )
+    expect(mocks.downloadOrdinanceExport).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      'docx',
+    )
+  })
+
+  it('surfaces an error when an export fails', async () => {
+    const user = userEvent.setup()
+    mocks.downloadOrdinanceExport.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    await user.click(screen.getByRole('button', { name: /download draft/i }))
+    await user.click(screen.getByRole('menuitem', { name: /download as pdf/i }))
+
+    expect(await screen.findByText(/could not export the draft/i)).toBeVisible()
+  })
+
+  it('changes the status from the status dropdown', async () => {
+    const user = userEvent.setup()
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'draft' })} />)
+
+    await user.click(
+      screen.getByRole('button', { name: /change draft status/i }),
+    )
+
+    // in_progress is the pre-draft state and is never offered manually.
+    expect(
+      screen.queryByRole('menuitem', { name: /in progress/i }),
+    ).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { status: 'in_review' },
+      ),
+    )
+  })
+
+  it('reverts the status pill when the change fails', async () => {
+    const user = userEvent.setup()
+    mocks.updateOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance({ status: 'proposed' })} />)
+
+    const trigger = screen.getByRole('button', { name: /change draft status/i })
+    await user.click(trigger)
+    await user.click(screen.getByRole('menuitem', { name: /in review/i }))
+
+    await waitFor(() =>
+      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+        { status: 'in_review' },
+      ),
+    )
+    // The optimistic pick reverts to the original status after the save fails.
+    await waitFor(() => expect(trigger).toHaveTextContent(/proposed/i))
+  })
+
+  it('deletes the draft after confirming and returns to the list', async () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    await waitFor(() =>
+      expect(mocks.deleteOrdinance).toHaveBeenCalledWith(
+        'public-safety-cameras',
+      ),
+    )
+    expect(router.push).toHaveBeenCalledWith('/dashboard/ordinances')
+  })
+
+  it('surfaces an error and stays open when the delete fails', async () => {
+    mocks.deleteOrdinance.mockRejectedValue(new Error('nope'))
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete draft/i }))
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: /delete draft/i }),
+    )
+
+    expect(await screen.findByText(/could not delete the draft/i)).toBeVisible()
+    expect(router.push).not.toHaveBeenCalled()
   })
 })
