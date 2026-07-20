@@ -912,7 +912,9 @@ export class ContactsService {
         params,
         filters,
         groupByHousehold,
-        undefined,
+        this.hasElectedOfficeAccess(organization)
+          ? [PARTY_DOWNLOAD_COLUMN]
+          : undefined,
         res,
       ),
     )

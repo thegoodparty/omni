@@ -638,6 +638,40 @@ describe('ContactsService', () => {
         expect(setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv')
         expect(mockStream.pipe).toHaveBeenCalledTimes(1)
       })
+
+      it('excludes the party column for an elected-office org', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        const mockStream = {
+          destroyed: false,
+          pipe: vi.fn(),
+          destroy: vi.fn(),
+          on: vi.fn((event: string, cb: (err?: Error) => void) => {
+            if (event === 'end') setImmediate(() => cb())
+          }),
+        }
+        mockHttpService.post.mockReturnValue(of({ data: mockStream }))
+        const res = {
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        } as never
+
+        await service.downloadVoterFilePeople({}, false, org, res)
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining('/v1/people/download'),
+          expect.objectContaining({
+            excludeColumns: ['Parties_Description'],
+          }),
+          expect.objectContaining({ responseType: 'stream' }),
+        )
+      })
     })
 
     describe('organization-based district resolution', () => {
