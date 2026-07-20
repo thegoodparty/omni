@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import instrumentation_gaps as ig
@@ -103,3 +104,46 @@ def test_rank_gap_orders_wizard_before_route_before_cta():
     assert ig.rank_gap({"surface_type": "wizard_stage"}) < ig.rank_gap({"surface_type": "route"})
     assert ig.rank_gap({"surface_type": "route"}) < ig.rank_gap({"surface_type": "cta"})
     assert ig.rank_gap({"surface_type": "mystery"}) == 5
+
+
+def test_merge_state_new_and_persisted_dispositions():
+    prior = {
+        "/settings": {"id": "/settings", "surface_type": "route", "location": "b/page.tsx",
+                      "disposition": "dismissed", "reason": "chrome", "rank": 3,
+                      "first_seen": "2026-07-01", "last_seen": "2026-07-14"},
+        "/old": {"id": "/old", "surface_type": "route", "location": "old/page.tsx",
+                 "disposition": "open", "reason": "", "rank": 3,
+                 "first_seen": "2026-06-01", "last_seen": "2026-07-14"},
+    }
+    gaps = [
+        {"id": "/dashboard", "surface_type": "wizard_stage", "location": "a/page.tsx"},
+        {"id": "/settings", "surface_type": "route", "location": "b/page.tsx"},
+    ]
+    out = ig.merge_state(prior, gaps, date(2026, 7, 17))
+
+    assert out["/dashboard"]["disposition"] == "new"
+    assert out["/dashboard"]["first_seen"] == "2026-07-17"
+    assert out["/dashboard"]["rank"] == 0
+    # dismissed stays dismissed, last_seen refreshed, reason preserved
+    assert out["/settings"]["disposition"] == "dismissed"
+    assert out["/settings"]["reason"] == "chrome"
+    assert out["/settings"]["last_seen"] == "2026-07-17"
+    # an id gone from this run's gaps is retained untouched (no resurrection risk)
+    assert out["/old"]["disposition"] == "open"
+    assert out["/old"]["last_seen"] == "2026-07-14"
+
+
+def test_is_visible_only_new():
+    assert ig.is_visible({"disposition": "new"}) is True
+    assert ig.is_visible({"disposition": "open"}) is False
+    assert ig.is_visible({"disposition": "dismissed"}) is False
+
+
+def test_coverage_stats_counts_by_disposition():
+    state = {
+        "a": {"disposition": "new"}, "b": {"disposition": "new"},
+        "c": {"disposition": "open"}, "d": {"disposition": "dismissed"},
+    }
+    assert ig.coverage_stats(state) == {
+        "tracked_gaps": 4, "new": 2, "open": 1, "accepted": 0, "dismissed": 1,
+    }

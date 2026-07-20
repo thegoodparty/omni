@@ -144,3 +144,56 @@ _RANK_BY_TYPE = {
 def rank_gap(gap: Mapping) -> int:
     """Lower = higher priority, ordered by the rubric's value hierarchy."""
     return _RANK_BY_TYPE.get(gap["surface_type"], 5)
+
+
+# --- state + dispositions -----------------------------------------------------
+
+_PERSISTENT = {"accepted", "dismissed"}
+
+
+def merge_state(
+    prior: Mapping[str, dict], gaps: Sequence[dict], today: date
+) -> dict[str, dict]:
+    """Fold this run's gaps into the prior disposition state. New surfaces enter as `new`;
+    dismissed/accepted are never downgraded or resurrected; a surface absent this run is
+    retained untouched (except it keeps its old last_seen). Keyed by user-facing surface id."""
+    iso = today.isoformat()
+    out: dict[str, dict] = {k: dict(v) for k, v in prior.items()}
+    for gap in gaps:
+        gid = gap["id"]
+        rank = rank_gap(gap)
+        if gid not in out:
+            out[gid] = {
+                "id": gid,
+                "surface_type": gap["surface_type"],
+                "location": gap["location"],
+                "disposition": "new",
+                "reason": "",
+                "rank": rank,
+                "first_seen": iso,
+                "last_seen": iso,
+            }
+            continue
+        entry = out[gid]
+        entry["last_seen"] = iso
+        entry["location"] = gap["location"]
+        entry["surface_type"] = gap["surface_type"]
+        entry["rank"] = rank
+        # disposition is preserved for all states: new stays new until triaged, open/
+        # accepted/dismissed are human decisions the sweep never overwrites.
+    return out
+
+
+def is_visible(entry: Mapping) -> bool:
+    """The digest shows only untriaged (`new`) gaps. open collapses to a count line;
+    accepted/dismissed are suppressed."""
+    return entry.get("disposition") == "new"
+
+
+def coverage_stats(state: Mapping[str, dict]) -> dict:
+    counts = {"new": 0, "open": 0, "accepted": 0, "dismissed": 0}
+    for entry in state.values():
+        d = entry.get("disposition", "new")
+        if d in counts:
+            counts[d] += 1
+    return {"tracked_gaps": len(state), **counts}
