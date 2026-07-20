@@ -40,6 +40,11 @@ export default function OnboardingCampaignStoryStep({
   })
   const { data: story, isError: isStoryError } = useCampaignStory()
 
+  // A fetch failure must not mount the cards with empty data — a returning
+  // candidate would see their saved story apparently lost and the footer would
+  // silently latch "Skip for now". Surface the failure instead.
+  const isError = isWebsiteError || isStoryError
+
   // The cards seed their editable state from initial* props via useState at
   // mount, read only once. Don't mount them until both fetches have resolved
   // (data present, or errored so a real failure doesn't hang forever), a
@@ -50,15 +55,24 @@ export default function OnboardingCampaignStoryStep({
     (website !== undefined || isWebsiteError) &&
     (story !== undefined || isStoryError)
 
-  // While loading, the inner CampaignStoryStepCards isn't mounted yet (its
-  // useState(initial*) can't seed from unresolved fetches), so nothing else
-  // reports a value up. Report incomplete here for the loading window; once
-  // isReady flips true, the inner component's own effect takes over.
+  // While loading (or errored), the inner CampaignStoryStepCards isn't mounted,
+  // so nothing else reports a value up. Report incomplete here; once isReady
+  // flips true on the non-error path, the inner component's own effect takes
+  // over.
   useEffect(() => {
-    if (!isReady) {
+    if (!isReady || isError) {
       onCompleteChange(false)
     }
-  }, [isReady, onCompleteChange])
+  }, [isReady, isError, onCompleteChange])
+
+  if (isError) {
+    return (
+      <p className="text-sm text-destructive">
+        We couldn&apos;t load your saved story. Check your connection and
+        refresh the page to try again.
+      </p>
+    )
+  }
 
   if (!isReady) {
     return <p className="text-sm text-muted-foreground">Loading your story…</p>

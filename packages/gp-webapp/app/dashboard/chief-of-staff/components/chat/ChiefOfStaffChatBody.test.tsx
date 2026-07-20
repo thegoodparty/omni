@@ -696,7 +696,7 @@ describe('<ChiefOfStaffChatBody>', () => {
     ).toBeInTheDocument()
   })
 
-  it('excludes hiddenMessageContents from a reloaded transcript (sentinel user turn)', async () => {
+  it('excludes a hidden sentinel user turn AND its canned assistant reply from a reloaded transcript', async () => {
     listMessagesMock.mockResolvedValue([
       {
         id: 'm1',
@@ -729,16 +729,65 @@ describe('<ChiefOfStaffChatBody>', () => {
       />,
     )
 
-    // The surrounding assistant turns still render...
+    // The assistant turn that preceded the sentinel still renders...
     await waitFor(
-      () => expect(screen.getByText('Tell me your why.')).toBeInTheDocument(),
+      () =>
+        expect(
+          screen.getByText('Welcome back to your campaign.'),
+        ).toBeInTheDocument(),
       { timeout: 6000 },
     )
-    expect(
-      screen.getByText('Welcome back to your campaign.'),
-    ).toBeInTheDocument()
-    // ...but the sentinel user turn is never shown as a bubble.
+    // ...but the sentinel user turn is never shown as a bubble...
     expect(screen.queryByText('__start_story__')).not.toBeInTheDocument()
+    // ...and neither is the canned reply that immediately followed it (it would
+    // otherwise be an orphaned assistant bubble with no preceding user turn).
+    expect(screen.queryByText('Tell me your why.')).not.toBeInTheDocument()
+  })
+
+  it('excludes the product-overview sentinel AND its canned reply from a reloaded transcript', async () => {
+    listMessagesMock.mockResolvedValue([
+      {
+        id: 'm1',
+        conversationId: 'conv_po',
+        role: 'assistant',
+        content: 'Welcome back to your campaign.',
+        createdAt: '2026-07-01T00:00:00.000Z',
+      },
+      {
+        id: 'm2',
+        conversationId: 'conv_po',
+        role: 'user',
+        content: '__product_overview__',
+        createdAt: '2026-07-01T00:00:01.000Z',
+      },
+      {
+        id: 'm3',
+        conversationId: 'conv_po',
+        role: 'assistant',
+        content: 'Here is what your campaign manager can do.',
+        createdAt: '2026-07-01T00:00:02.000Z',
+      },
+    ])
+
+    render(
+      <ChiefOfStaffChatBody
+        active
+        conversationIdOverride="conv_po"
+        hiddenMessageContents={['__start_story__', '__product_overview__']}
+      />,
+    )
+
+    await waitFor(
+      () =>
+        expect(
+          screen.getByText('Welcome back to your campaign.'),
+        ).toBeInTheDocument(),
+      { timeout: 6000 },
+    )
+    expect(screen.queryByText('__product_overview__')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Here is what your campaign manager can do.'),
+    ).not.toBeInTheDocument()
   })
 
   it('renders all messages including a sentinel when hiddenMessageContents is unset (default)', async () => {

@@ -72,6 +72,43 @@ describe('OnboardingCampaignStoryStep', () => {
     expect(onCompleteChange).not.toHaveBeenCalledWith(true)
   })
 
+  it('renders an error message and no cards when the story fetch errors', async () => {
+    mockGetUserWebsite.mockResolvedValue(website)
+    api.mock('GET /v1/campaigns/mine/story', { status: 500, data: {} })
+    const onCompleteChange = vi.fn()
+    render(<OnboardingCampaignStoryStep onCompleteChange={onCompleteChange} />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/couldn't load your saved story/i),
+      ).toBeInTheDocument(),
+    )
+    // The cards never mount, so no story fields are shown.
+    expect(screen.queryByText('Your background')).not.toBeInTheDocument()
+    expect(screen.queryByText('Your Policies')).not.toBeInTheDocument()
+    expect(onCompleteChange).toHaveBeenLastCalledWith(false)
+    expect(onCompleteChange).not.toHaveBeenCalledWith(true)
+  })
+
+  it('renders an error message and no cards when the website fetch errors', async () => {
+    mockGetUserWebsite.mockRejectedValue(new Error('boom'))
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'I grew up here and ran a small business.' },
+    })
+    const onCompleteChange = vi.fn()
+    render(<OnboardingCampaignStoryStep onCompleteChange={onCompleteChange} />)
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/couldn't load your saved story/i),
+      ).toBeInTheDocument(),
+    )
+    expect(screen.queryByText('Your background')).not.toBeInTheDocument()
+    expect(onCompleteChange).toHaveBeenLastCalledWith(false)
+    expect(onCompleteChange).not.toHaveBeenCalledWith(true)
+  })
+
   it("renders a returning candidate's fetched background into the card instead of an empty field", async () => {
     mockGetUserWebsite.mockResolvedValue(website)
     const background = 'I grew up here and ran a small business.'

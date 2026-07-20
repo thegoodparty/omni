@@ -469,11 +469,25 @@ export default function ChiefOfStaffChatBody({
       setConversationId(conversationIdOverride)
       const msgs = await chatApi.listMessages(conversationIdOverride)
       // Drop persisted sentinel turns (e.g. the story-kickoff sentinel) so
-      // they never enter history/playback or render as a raw bubble.
+      // they never enter history/playback or render as a raw bubble. A hidden
+      // sentinel is a USER turn whose canned assistant reply immediately
+      // follows it, so also skip that reply — otherwise it reloads as an
+      // orphaned assistant bubble with no preceding user message. (The one-off
+      // story/product greeting therefore does not render on reload, an
+      // accepted cosmetic.)
       const hidden = new Set(hiddenMessageContents)
       const items: ChatItem[] = []
+      let skipNextAssistant = false
       for (const m of msgs) {
-        if (hidden.has(m.content)) continue
+        if (hidden.has(m.content)) {
+          skipNextAssistant = m.role === 'user'
+          continue
+        }
+        if (skipNextAssistant && m.role === 'assistant') {
+          skipNextAssistant = false
+          continue
+        }
+        skipNextAssistant = false
         const it = messageToItem(m)
         if (it) items.push(it)
       }
