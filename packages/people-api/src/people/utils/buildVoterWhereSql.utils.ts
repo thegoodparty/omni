@@ -8,6 +8,17 @@ import { buildVoterFiltersSql } from './filters.sql.utils'
 // functional indexes.
 const MIN_SUBSTRING_TOKEN_LENGTH = 3
 
+// v."State" is the USState enum on prisma-managed (green) clusters and plain text on
+// loader-built clusters. PEOPLE_STATE_ENUM=false switches the comparison to plain text so
+// people-api can query a loader cluster; the default keeps the enum cast (unchanged behavior).
+const stateIsEnum = (): boolean =>
+  (process.env.PEOPLE_STATE_ENUM ?? 'true').toLowerCase() !== 'false'
+
+export const stateEquals = (alias: 'v' | 'dv', state: string): Prisma.Sql =>
+  stateIsEnum()
+    ? Prisma.sql`${Prisma.raw(alias)}."State" = CAST(${state}::text AS "public"."USState")`
+    : Prisma.sql`${Prisma.raw(alias)}."State" = ${state}`
+
 export const getNormalizedPhoneNumber = (phone: string): string | null => {
   if (!/^\d+$/.test(phone)) {
     return null
@@ -56,11 +67,9 @@ export const buildVoterWhereSql = (args: {
   const { state, districtId } = args
 
   const parts: Prisma.Sql[] = []
-  parts.push(Prisma.sql`v."State" = CAST(${state}::text AS "public"."USState")`)
+  parts.push(stateEquals('v', state))
   if (districtId) {
-    parts.push(
-      Prisma.sql`dv."State" = CAST(${state}::text AS "public"."USState")`,
-    )
+    parts.push(stateEquals('dv', state))
     parts.push(Prisma.sql`dv."district_id" = ${districtId}::uuid`)
     parts.push(Prisma.sql`dv."voter_id" IS NOT NULL`)
   }

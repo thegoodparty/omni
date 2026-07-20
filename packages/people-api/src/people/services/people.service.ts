@@ -22,6 +22,7 @@ import { resolveDistrict } from '../utils/resolveDistrict.utils'
 import {
   buildVoterWhereSql,
   isNameSearch,
+  stateEquals,
 } from '../utils/buildVoterWhereSql.utils'
 import { buildAggregatesSql } from '../utils/buildAggregatesSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
@@ -92,7 +93,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       : Prisma.empty
 
     const result = await this.client.$queryRaw<BaseDbPerson[]>(
-      Prisma.sql`${select} FROM "green"."Voter" v WHERE v."id" = ${id}::uuid AND v."State" = CAST(${state}::text AS "public"."USState") ${districtExistsClause}`,
+      Prisma.sql`${select} FROM "green"."Voter" v WHERE v."id" = ${id}::uuid AND ${stateEquals('v', state)} ${districtExistsClause}`,
     )
     const [person] = result
     if (!person) {
