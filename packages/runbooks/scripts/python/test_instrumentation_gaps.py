@@ -1,3 +1,4 @@
+import json
 from datetime import date
 from pathlib import Path
 
@@ -174,3 +175,54 @@ def test_render_gap_section_no_new():
                     "disposition": "dismissed", "rank": 3}}
     out = ig.render_gap_section(state, "2026-07-17")
     assert "No new gaps" in out
+
+
+def test_load_state_tolerates_missing_and_corrupt(tmp_path):
+    assert ig.load_state(tmp_path / "nope.json") == {}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ not json")
+    assert ig.load_state(bad) == {}
+
+
+def test_scan_repo_finds_route_gap_and_ignores_tracked(tmp_path):
+    # minimal fake repo tree
+    app = tmp_path / "packages/gp-webapp/app"
+    (app / "dashboard").mkdir(parents=True)
+    (app / "settings").mkdir(parents=True)
+    (app / "dashboard" / "page.tsx").write_text("export default function P(){return null}")
+    (app / "settings" / "page.tsx").write_text(
+        "import {trackEvent} from 'helpers/analyticsHelper'\nexport default function S(){return null}"
+    )
+    surfaces, tracked = ig.scan_repo(tmp_path, exclude_globs=[])
+    ids = {s["id"] for s in surfaces}
+    assert "/dashboard" in ids and "/settings" in ids
+    assert "packages/gp-webapp/app/settings/page.tsx" in tracked
+
+    gaps = ig.find_gaps(surfaces, tracked)
+    gap_ids = {g["id"] for g in gaps}
+    assert "/dashboard" in gap_ids
+    assert "/settings" not in gap_ids
+
+
+def test_main_writes_state_and_log_and_is_idempotent(tmp_path):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    state = tmp_path / "state.json"
+    log = tmp_path / "log.md"
+    rc = ig.main([
+        "--repo", str(tmp_path), "--config", str(tmp_path / "none.yaml"),
+        "--state", str(state), "--log", str(log), "--today", "2026-07-17",
+    ])
+    assert rc == 0
+    data = json.loads(state.read_text())
+    assert data["/dashboard"]["disposition"] == "new"
+    assert "## 2026-07-17" in log.read_text()
+
+    # second run same day: /dashboard stays a single entry, still tracked, not duplicated
+    rc2 = ig.main([
+        "--repo", str(tmp_path), "--config", str(tmp_path / "none.yaml"),
+        "--state", str(state), "--log", str(log), "--today", "2026-07-17",
+    ])
+    assert rc2 == 0
+    assert len(json.loads(state.read_text())) == 1

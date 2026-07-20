@@ -115,7 +115,7 @@ def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
 
 # --- call-site diff -----------------------------------------------------------
 
-_TRACKING_RE = re.compile(r"\btrackEvent\(|\bAnalyticsService\b|\.track\(")
+_TRACKING_RE = re.compile(r"\btrackEvent\b|\bAnalyticsService\b|\.track\(")
 
 
 def has_tracking_call(text: str) -> bool:
@@ -232,3 +232,115 @@ def render_gap_section(state: Mapping[str, dict], run_date: str, top_n: int = 10
         lines.append(f"\n({len(visible) - top_n} more new gaps — see the state file.)")
     lines.append("")
     return "\n".join(lines)
+
+
+# --- IO + CLI -----------------------------------------------------------------
+
+_WEBAPP_ROOT = "packages/gp-webapp"
+_API_ROOT = "packages/gp-api/src"
+_SCAN_SUFFIXES = (".ts", ".tsx")
+
+
+def load_state(path: Path | None) -> dict[str, dict]:
+    """Read the disposition state, keyed by id. Missing/corrupt -> {} (never raises), so a
+    bad hand-edit degrades to 'treat everything as new' instead of bricking the run."""
+    if not path or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+def _iter_files(repo_root: Path, sub: str, exclude_globs: Sequence[str]):
+    base = repo_root / sub
+    if not base.exists():
+        return
+    for p in base.rglob("*"):
+        if not p.is_file() or p.suffix not in _SCAN_SUFFIXES:
+            continue
+        rel = p.relative_to(repo_root).as_posix()
+        if is_excluded(rel, exclude_globs):
+            continue
+        yield rel, p
+
+
+def scan_repo(repo_root: Path, exclude_globs: Sequence[str]) -> tuple[list[dict], set[str]]:
+    """Walk gp-webapp + gp-api, returning all candidate surfaces and the set of files that
+    fire at least one event."""
+    surfaces: list[dict] = []
+    files_with_tracking: set[str] = set()
+    page_paths: list[str] = []
+    for sub in (_WEBAPP_ROOT, _API_ROOT):
+        for rel, path in _iter_files(repo_root, sub, exclude_globs):
+            text = path.read_text(errors="replace")
+            if has_tracking_call(text):
+                files_with_tracking.add(rel)
+            if rel.endswith("/page.tsx"):
+                page_paths.append(rel)
+            surfaces.extend(detect_surfaces_in_file(rel, text))
+    surfaces.extend(enumerate_route_surfaces(page_paths, exclude_globs))
+    return surfaces, files_with_tracking
+
+
+def run_sweep(
+    repo_root: Path, config_path: Path, state_path: Path | None, today: date
+) -> tuple[dict, list[dict]]:
+    cfg = load_gap_config(config_path)
+    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
+    gaps = find_gaps(surfaces, tracked)
+    new_state = merge_state(load_state(state_path), gaps, today)
+    return new_state, gaps
+
+
+def prepend_log(log_path: Path, section: str) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = log_path.read_text() if log_path.exists() else ""
+    match = re.search(r"^## \d{4}-\d{2}-\d{2}$", existing, re.MULTILINE)
+    if match:
+        log_path.write_text(existing[: match.start()] + section + "\n" + existing[match.start():])
+    else:
+        log_path.write_text(existing + ("\n" if existing else "") + section)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Instrumentation gap sweep (DATA-2151).")
+    parser.add_argument("--repo", type=Path, default=None, help="repo root (default: $OMNI_REPO or inferred)")
+    parser.add_argument("--config", type=Path, default=CONFIG_PATH)
+    parser.add_argument("--state", type=Path, default=DEFAULT_STATE)
+    parser.add_argument("--log", type=Path, default=DEFAULT_LOG)
+    parser.add_argument("--no-log", action="store_true")
+    parser.add_argument("--json", type=Path, help="also write the full state JSON here")
+    parser.add_argument("--today", help="override run date YYYY-MM-DD")
+    args = parser.parse_args(argv)
+
+    repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
+    today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else date.today()
+
+    # Graceful-skip contract: a scan/walk failure must never fail the governance run.
+    try:
+        new_state, _gaps = run_sweep(repo_root, args.config, args.state, today)
+    except Exception as exc:  # noqa: BLE001 — unattended cron must not crash on a scan error
+        print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
+        return 0
+
+    section = render_gap_section(new_state, today.isoformat())
+    sys.stdout.write(section)
+    if not args.no_log:
+        prepend_log(args.log, section)
+    _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
+    if args.json:
+        args.json.write_text(json.dumps(new_state, indent=2, sort_keys=True) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
