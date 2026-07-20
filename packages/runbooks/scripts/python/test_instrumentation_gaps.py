@@ -2,6 +2,8 @@ import json
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 import instrumentation_gaps as ig
 
 
@@ -177,11 +179,23 @@ def test_render_gap_section_no_new():
     assert "No new gaps" in out
 
 
-def test_load_state_tolerates_missing_and_corrupt(tmp_path):
+def test_load_state_missing_file_returns_empty(tmp_path):
     assert ig.load_state(tmp_path / "nope.json") == {}
+    assert ig.load_state(None) == {}
+
+
+def test_load_state_corrupt_json_raises(tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("{ not json")
-    assert ig.load_state(bad) == {}
+    with pytest.raises(ig.CorruptStateError):
+        ig.load_state(bad)
+
+
+def test_load_state_non_dict_json_raises(tmp_path):
+    bad = tmp_path / "list.json"
+    bad.write_text("[1, 2, 3]")
+    with pytest.raises(ig.CorruptStateError):
+        ig.load_state(bad)
 
 
 def test_scan_repo_finds_route_gap_and_ignores_tracked(tmp_path):
@@ -226,3 +240,51 @@ def test_main_writes_state_and_log_and_is_idempotent(tmp_path):
     ])
     assert rc2 == 0
     assert len(json.loads(state.read_text())) == 1
+
+
+def test_main_skips_and_leaves_state_untouched_when_corrupt(tmp_path, capsys):
+    app = tmp_path / "packages/gp-webapp/app/dashboard"
+    app.mkdir(parents=True)
+    (app / "page.tsx").write_text("export default function P(){return null}")
+    state = tmp_path / "state.json"
+    log = tmp_path / "log.md"
+
+    # first run: a known-good state file with a human `dismissed` disposition
+    good_state = {
+        "/settings": {
+            "id": "/settings", "surface_type": "route", "location": "b/page.tsx",
+            "disposition": "dismissed", "reason": "chrome", "rank": 3,
+            "first_seen": "2026-06-01", "last_seen": "2026-06-01",
+        }
+    }
+    state.write_text(json.dumps(good_state, indent=2, sort_keys=True) + "\n")
+    before = state.read_text()
+
+    # second run: the state file is corrupt on disk (e.g. a stray hand-edit)
+    state.write_text("{ this is not valid json")
+    corrupt = state.read_text()
+
+    rc = ig.main([
+        "--repo", str(tmp_path), "--config", str(tmp_path / "none.yaml"),
+        "--state", str(state), "--log", str(log), "--today", "2026-07-17",
+    ])
+
+    assert rc == 0
+    # the file must be left byte-for-byte as the corrupt content was — never overwritten
+    assert state.read_text() == corrupt
+    assert state.read_text() != before
+    assert not log.exists()
+    err = capsys.readouterr().err
+    assert "unreadable" in err or "corrupt" in err.lower()
+
+
+def test_main_warns_when_neither_scan_root_exists(tmp_path, capsys):
+    state = tmp_path / "state.json"
+    log = tmp_path / "log.md"
+    rc = ig.main([
+        "--repo", str(tmp_path), "--config", str(tmp_path / "none.yaml"),
+        "--state", str(state), "--log", str(log), "--today", "2026-07-17",
+    ])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "neither scan root found" in err

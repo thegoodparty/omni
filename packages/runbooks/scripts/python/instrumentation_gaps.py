@@ -23,6 +23,12 @@ from pathlib import Path
 
 import yaml
 
+class CorruptStateError(Exception):
+    """The on-disk state file exists but is not a readable JSON object. Distinct from a
+    missing file (legitimate first run) — a caller must treat this as 'stop, don't touch
+    the file', never as 'treat everything as new'."""
+
+
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[3]  # python -> scripts -> runbooks -> packages -> omni
 DATA_DIR = HERE / "instrumentation_data"
@@ -148,8 +154,6 @@ def rank_gap(gap: Mapping) -> int:
 
 # --- state + dispositions -----------------------------------------------------
 
-_PERSISTENT = {"accepted", "dismissed"}
-
 
 def merge_state(
     prior: Mapping[str, dict], gaps: Sequence[dict], today: date
@@ -242,15 +246,20 @@ _SCAN_SUFFIXES = (".ts", ".tsx")
 
 
 def load_state(path: Path | None) -> dict[str, dict]:
-    """Read the disposition state, keyed by id. Missing/corrupt -> {} (never raises), so a
-    bad hand-edit degrades to 'treat everything as new' instead of bricking the run."""
+    """Read the disposition state, keyed by id. Missing/None -> {} (legitimate first run).
+    Existing but unparseable or non-dict -> raise CorruptStateError. A bad hand-edit must
+    never be treated as 'everything is new' — that would silently wipe every human
+    dismissed/accepted disposition on the next auto-merged write. Callers must catch
+    CorruptStateError and skip the run instead of writing."""
     if not path or not path.exists():
         return {}
     try:
         data = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError) as exc:
+        raise CorruptStateError(f"{path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise CorruptStateError(f"{path}: state file does not contain a JSON object")
+    return data
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -325,9 +334,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
     today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else date.today()
 
+    if not (repo_root / _WEBAPP_ROOT).exists() and not (repo_root / _API_ROOT).exists():
+        print(
+            f"gap-sweep: neither scan root found under {repo_root}; nothing to scan.",
+            file=sys.stderr,
+        )
+
     # Graceful-skip contract: a scan/walk failure must never fail the governance run.
     try:
         new_state, _gaps = run_sweep(repo_root, args.config, args.state, today)
+    except CorruptStateError as exc:
+        print(
+            f"gap-sweep: state file unreadable ({exc}); skipping this run, "
+            "state left untouched.",
+            file=sys.stderr,
+        )
+        return 0
     except Exception as exc:  # noqa: BLE001 — unattended cron must not crash on a scan error
         print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
         return 0
