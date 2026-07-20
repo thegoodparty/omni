@@ -55,6 +55,10 @@ export = async () => {
     secretId: secretName,
   })
 
+  const secretMeta = await aws.secretsmanager.getSecret({
+    secretId: secretName,
+  })
+
   const secret: Record<string, string> = JSON.parse(
     secretVersion.secretString || '{}',
   ) as Record<string, string>
@@ -176,7 +180,7 @@ export = async () => {
       {
         Effect: 'Allow',
         Action: ['secretsmanager:GetSecretValue'],
-        Resource: ['*'],
+        Resource: [secretMeta.arn],
       },
       {
         Effect: 'Allow',

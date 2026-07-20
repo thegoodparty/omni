@@ -115,7 +115,7 @@ extract_pg_schema() {
 
 # Accept LOCAL_DATABASE_URL (the name in .env.example) from the environment,
 # falling back to DATABASE_URL for backwards compatibility.
-DATABASE_URL="${DATABASE_URL:-${LOCAL_DATABASE_URL:-}}"
+DATABASE_URL="${LOCAL_DATABASE_URL:-${DATABASE_URL:-}}"
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
   ENV_SRC=""
