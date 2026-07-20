@@ -9,6 +9,8 @@ type Props = {
   recordingLabel: string
   /** Caller-level disable (e.g. parent is saving). Hook-level busy is handled internally. */
   disabled?: boolean
+  /** Button + icon scale. `small` overlays a textarea corner; `medium` sits inline in a composer. */
+  size?: 'small' | 'medium'
   /** Overrides the default `absolute bottom-2 right-2` placement. */
   className?: string
 }
@@ -20,15 +22,17 @@ export function DictationMicButton({
   idleLabel,
   recordingLabel,
   disabled,
+  size = 'small',
   className,
 }: Props): React.JSX.Element {
   const isRecording = dictation.status === 'recording'
   const label = isRecording ? recordingLabel : idleLabel
+  const iconSize = size === 'medium' ? 'size-5' : 'size-4'
   return (
     <IconButton
       type="button"
       variant="ghost"
-      size="small"
+      size={size}
       aria-label={label}
       disabled={disabled || dictation.status === 'stopping'}
       onClick={() => {
@@ -37,11 +41,14 @@ export function DictationMicButton({
       className={cn(DEFAULT_PLACEMENT, className)}
     >
       {dictation.busy ? (
-        <Loader2Icon className="size-4 animate-spin" aria-hidden />
+        <Loader2Icon className={cn(iconSize, 'animate-spin')} aria-hidden />
       ) : isRecording ? (
-        <SquareIcon className="size-4 animate-pulse text-red-500" aria-hidden />
+        <SquareIcon
+          className={cn(iconSize, 'animate-pulse text-red-500')}
+          aria-hidden
+        />
       ) : (
-        <MicIcon className="size-4" aria-hidden />
+        <MicIcon className={iconSize} aria-hidden />
       )}
     </IconButton>
   )

@@ -19,13 +19,12 @@ import {
   type ContactNoteListResponse,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
 import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { ContactNoteService } from '@/contactNote/services/contactNote.service'
-import { ContactNote, Organization, User } from '../generated/prisma'
+import { ContactNote, Organization } from '../generated/prisma'
 import {
   ContactNoteBodyDTO,
   ContactNoteIdParamsDTO,
@@ -56,9 +55,7 @@ export class ContactNotesController {
   async listNotes(
     @Param() { personId }: ContactNotePersonParamsDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ): Promise<ContactNoteListResponse> {
-    await this.contactsService.assertContactsAccess(organization, user)
     await this.contactsService.assertProAccess(organization)
     const notes = await this.contactNoteService.listForPerson(
       organization.slug,
@@ -73,9 +70,7 @@ export class ContactNotesController {
     @Param() { personId }: ContactNotePersonParamsDTO,
     @Body() body: ContactNoteBodyDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ): Promise<ContactNoteDto> {
-    await this.contactsService.assertContactsAccess(organization, user)
     await this.contactsService.assertProAccess(organization)
     const note = await this.contactNoteService.create(
       organization.slug,
@@ -91,9 +86,7 @@ export class ContactNotesController {
     @Param() { noteId }: ContactNoteIdParamsDTO,
     @Body() body: ContactNoteBodyDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ): Promise<ContactNoteDto> {
-    await this.contactsService.assertContactsAccess(organization, user)
     await this.contactsService.assertProAccess(organization)
     const updated = await this.contactNoteService.updateByIdAndOrganizationSlug(
       noteId,
@@ -111,9 +104,7 @@ export class ContactNotesController {
   async deleteNote(
     @Param() { noteId }: ContactNoteIdParamsDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ): Promise<void> {
-    await this.contactsService.assertContactsAccess(organization, user)
     await this.contactsService.assertProAccess(organization)
     const deletedCount =
       await this.contactNoteService.deleteByIdAndOrganizationSlug(

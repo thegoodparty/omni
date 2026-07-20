@@ -265,21 +265,14 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     return { handler, features }
   }
 
-  it('loadContext enables the tools when win-crm AND win-voter-data are on', async () => {
-    const { handler, features } = buildLoadContextHandler([
-      'win-crm',
-      'win-voter-data',
-    ])
+  it('loadContext enables the tools when win-crm is on', async () => {
+    const { handler, features } = buildLoadContextHandler(['win-crm'])
 
     const ctx = await handler.loadContext('c1', 7)
 
     expect(features.isFeatureEnabled).toHaveBeenCalledWith({
       user: 7,
       feature: 'win-crm',
-    })
-    expect(features.isFeatureEnabled).toHaveBeenCalledWith({
-      user: 7,
-      feature: 'win-voter-data',
     })
     expect(ctx.organization).toEqual(ORG)
     expect(ctx.crmToolsEnabled).toBe(true)
@@ -289,10 +282,8 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     expect(toolNames).toContain('crud_saved_filters')
   })
 
-  // Mirrors the webapp's useCrmEnabled invariant: win-crm alone must never
-  // enable a Win org that isn't in the win-voter-data rollout.
-  it('loadContext leaves the tools off when win-crm is on but win-voter-data is off', async () => {
-    const { handler } = buildLoadContextHandler(['win-crm'])
+  it('loadContext leaves the tools off when win-crm is off', async () => {
+    const { handler } = buildLoadContextHandler([])
 
     const ctx = await handler.loadContext('c1', 7)
 
@@ -301,15 +292,6 @@ describe('CampaignManagerHandler — CRM contact tools (win-crm gating)', () => 
     const toolNames = Object.keys(handler.buildTools(ctx))
     expect(toolNames).not.toContain('count_contacts')
     expect(toolNames).not.toContain('crud_saved_filters')
-  })
-
-  it('loadContext leaves the tools off when win-crm is off', async () => {
-    const { handler } = buildLoadContextHandler(['win-voter-data'])
-
-    const ctx = await handler.loadContext('c1', 7)
-
-    expect(ctx.crmToolsEnabled).toBe(false)
-    expect(Object.keys(handler.buildTools(ctx))).not.toContain('count_contacts')
   })
 })
 

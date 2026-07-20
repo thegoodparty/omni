@@ -1,7 +1,7 @@
 import {
   AudienceFiltersState,
   AudienceFilterKey,
-} from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
+} from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 import { VoterFileFilters } from 'helpers/types'
 
 // If making a change, also update:
@@ -25,6 +25,11 @@ const VOTER_FILE_FILTER_KEYS_CONVERSION_MAPPING: Partial<
   age25_35: 'age_25_35',
   age35_50: 'age_35_50',
   age50Plus: 'age_50_plus',
+  age18_24: 'age_18_24',
+  age25_34: 'age_25_34',
+  age35_49: 'age_35_49',
+  age50_64: 'age_50_64',
+  age65Plus: 'age_65_plus',
   genderMale: 'gender_male',
   genderFemale: 'gender_female',
   genderUnknown: 'gender_unknown',

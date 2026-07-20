@@ -48,10 +48,10 @@ const mockPersonPayload = (personId: string) => ({
   language: 'English',
 })
 
-// eo- (elected office) orgs bypass both the win-voter-data flag gate and the
-// pro-campaign gate (ContactsService.hasElectedOfficeAccess), so seeding one
-// with overrideDistrictId is enough to reach findPerson through the real
-// route without also standing up a pro campaign.
+// eo- (elected office) orgs bypass the pro-campaign gate
+// (ContactsService.hasElectedOfficeAccess), so seeding one with
+// overrideDistrictId is enough to reach findPerson through the real route
+// without also standing up a pro campaign.
 const seedEoOrg = (slug: string) =>
   service.prisma.organization.create({
     data: {

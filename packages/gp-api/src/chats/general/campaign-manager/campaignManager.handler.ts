@@ -30,10 +30,7 @@ import {
   type StoryState,
 } from './campaignStoryIntake.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
-import {
-  ContactsService,
-  WIN_VOTER_DATA_FLAG_KEY,
-} from '@/contacts/services/contacts.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
 import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
 import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
@@ -107,10 +104,9 @@ export const CM_CONSTITUENT_DATA_PROVIDER = 'CM_CONSTITUENT_DATA_PROVIDER'
 export const CM_CONSTITUENT_TABLES_CONFIG = 'CM_CONSTITUENT_TABLES_CONFIG'
 
 // Win's CRM rollout flag (same key the webapp's contacts page reads). The
-// contact describe/count tools require it AND win-voter-data, mirroring the
-// webapp's useCrmEnabled gate (a Win org is only "in CRM" when win-voter-data
-// put it in the voter-data rollout and win-crm put it in the CRM cohort), so
-// the assistant capability ramps with exactly the same cohorts as the UI.
+// contact describe/count tools require it, mirroring the webapp's
+// useCrmEnabled gate, so the assistant capability ramps with exactly the
+// same cohorts as the UI.
 export const WIN_CRM_FLAG = 'win-crm'
 
 const EMPTY_CONTEXT: CampaignManagerContext = {
@@ -273,9 +269,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     // The org row the CRM contact tools bind counts to. Folding the service
     // presence into crmToolsEnabled keeps prompt advertising and tool
     // registration on one signal; only look up the org and hit Amplitude when
-    // the tools could otherwise register. Both flags are required, mirroring
-    // the webapp's useCrmEnabled: win-crm alone must never enable a Win org
-    // that isn't in the win-voter-data rollout.
+    // the tools could otherwise register.
     const organization = this.contacts
       ? await this.campaigns.client.organization.findFirst({
           where: { slug: organizationSlug },
@@ -284,8 +278,7 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const crmToolsEnabled =
       !!this.contacts &&
       !!organization &&
-      (await this.isFlagOn(userId, WIN_CRM_FLAG)) &&
-      (await this.isFlagOn(userId, WIN_VOTER_DATA_FLAG_KEY))
+      (await this.isFlagOn(userId, WIN_CRM_FLAG))
     // The saved-filter write tool additionally needs VoterFileFilterService;
     // folding its presence in keeps prompt advertising and tool registration
     // on one signal, same as crmToolsEnabled itself.

@@ -1,7 +1,6 @@
 import { HttpService } from '@nestjs/axios'
 import { useTestService } from '@/test-service'
 import { ElectionsService } from '@/elections/services/elections.service'
-import { FeaturesService } from '@/features/services/features.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { of } from 'rxjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -100,15 +99,9 @@ const stubPeerlyUpload = (token = 'peerly-upload-token') =>
     .spyOn(service.app.get(PeerlyPhoneListService), 'uploadPhoneList')
     .mockResolvedValue(token)
 
-const stubVoterDataFlag = (enabled = true) =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(enabled)
-
 describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => {
   beforeEach(() => {
     stubDistrict()
-    stubVoterDataFlag()
   })
 
   it('resolves activityConditions through the contacts pipeline and captures exactly the CSV rows', async () => {
@@ -271,30 +264,6 @@ describe('POST /v1/p2p/phone-list (ENG-10728 contacts-pipeline capture)', () => 
         where: { token: 'peerly-upload-token' },
       }),
     ).toMatchObject({ voterFileFilterId: savedFilter.id })
-  })
-
-  it('succeeds with the win-voter-data flag off for the user (ENG-10741: texting is independent of the CRM rollout)', async () => {
-    const campaign = await seedWinCampaign()
-    stubVoterDataFlag(false)
-    const post = stubPeopleApi([personPayload()])
-    const upload = stubPeerlyUpload()
-
-    const result = await service.client.post(
-      '/v1/p2p/phone-list',
-      { name: 'Ungated list' },
-      { headers: { [ORG_SLUG_HEADER]: WIN_SLUG } },
-    )
-
-    expect(result.status).toBe(201)
-    expect(post).toHaveBeenCalled()
-    expect(upload).toHaveBeenCalled()
-    const capturedList = await service.prisma.peerlyPhoneList.findUnique({
-      where: { token: 'peerly-upload-token' },
-    })
-    expect(capturedList).toMatchObject({
-      organizationSlug: WIN_SLUG,
-      campaignId: campaign.id,
-    })
   })
 
   it('400s when no contact is uploadable instead of sending an empty CSV', async () => {

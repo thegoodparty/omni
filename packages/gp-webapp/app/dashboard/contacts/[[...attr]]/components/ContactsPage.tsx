@@ -30,11 +30,11 @@ export default function ContactsPage() {
   } = useContactsTable()
   const labels = getContactsLabels(isWinContext)
 
-  // isWinContext reads false until both the elected-office query and the
-  // win-voter-data flag settle, so firing before then would emit a spurious
-  // serve event followed by a win one on every Win page load. Wait for
-  // isWinContextReady, and latch with a ref so a later isWinContext toggle
-  // (flag re-fetch on identity change, useElectedOffice focus revalidation)
+  // isWinContext reads false until the elected-office query settles, so
+  // firing before then would emit a spurious serve event followed by a win
+  // one on every Win page load. Wait for isWinContextReady, and latch with
+  // a ref so a later isWinContext toggle (useElectedOffice focus
+  // revalidation)
   // can't re-fire — one Contacts Viewed per mount with the settled context.
   const hasFiredViewedRef = useRef(false)
   useEffect(() => {
@@ -55,8 +55,8 @@ export default function ContactsPage() {
       >
         <Paper className="h-full">
           {/* Wait for the Win/Serve context to settle before naming anything:
-              isWinContext reads false until the elected-office query and the
-              win-voter-data flag resolve, so rendering early would flash the
+              isWinContext reads false until the elected-office query resolves,
+              so rendering early would flash the
               Serve copy ("constituent") to a Win user (ENG-10448). */}
           {isWinContextReady && (
             <div className="flex flex-col">

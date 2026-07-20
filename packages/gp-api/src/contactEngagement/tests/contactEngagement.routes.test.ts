@@ -6,8 +6,7 @@ import {
   SupportAnswer,
   VoterOutreachAttributionSource,
 } from '../../generated/prisma'
-import { FeaturesService } from '@/features/services/features.service'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { ConstituentActivityType } from '../contactEngagement.types'
 
 const service = useTestService()
@@ -30,11 +29,6 @@ describe('ContactEngagement routes', () => {
         organizationSlug: campaignOrgSlug,
       },
     })
-
-    vi.spyOn(
-      service.app.get(FeaturesService),
-      'isFeatureEnabled',
-    ).mockResolvedValue(true)
   })
 
   describe('GET /contact-engagement/:id/activities (campaign context - Win)', () => {
@@ -482,20 +476,6 @@ describe('ContactEngagement routes', () => {
 
       expect(result.status).toBe(200)
       expect(result.data.results).toEqual([])
-    })
-
-    it('rejects with 403 when the win-voter-data flag is off', async () => {
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
-
-      const result = await service.client.get(
-        `/v1/contact-engagement/person-flag-off/activities`,
-        { headers: { 'x-organization-slug': campaignOrgSlug } },
-      )
-
-      expect(result.status).toBe(403)
     })
 
     it('rejects with 404 when the org is owned by another user', async () => {

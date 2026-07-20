@@ -19,10 +19,20 @@ describe('buildFilterSummary — demographic-only filters', () => {
 
   it('renders a sentence-case clause per matched demographic field', () => {
     const summary = buildFilterSummary(
-      baseSegment({ genderFemale: true, age18_25: true, age25_35: true }),
+      baseSegment({ genderFemale: true, age18_24: true, age25_34: true }),
       false,
     )
-    expect(summary).toBe('Gender Female and Age 18-25 or 25-35.')
+    expect(summary).toBe('Gender Female and Age 18-24 or 25-34.')
+  })
+
+  // Lists saved before ENG-10752 carry the retired overlapping age keys;
+  // the summary must keep describing them with their original labels.
+  it('labels legacy age keys on lists saved before the range split', () => {
+    const summary = buildFilterSummary(
+      baseSegment({ age18_25: true, age50Plus: true }),
+      false,
+    )
+    expect(summary).toBe('Age 18-25 or 50+.')
   })
 
   it('excludes political party for an elected official (Serve never shows party)', () => {

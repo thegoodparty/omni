@@ -30,6 +30,7 @@ import {
   segmentsToLive,
 } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
@@ -167,6 +168,11 @@ export default function OrdinanceFlowChat({
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
+  const dictation = useDictationAppend({
+    value: composer,
+    onChange: setComposer,
+    analyticsLabel: 'ordinance-flow-chat',
+  })
   const [streamError, setStreamError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
@@ -351,7 +357,7 @@ export default function OrdinanceFlowChat({
 
   if (phase === 'loading') {
     return (
-      <div className="flex h-full w-full flex-col bg-background">
+      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
         <div
           className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4"
           aria-busy="true"
@@ -377,7 +383,7 @@ export default function OrdinanceFlowChat({
 
   if (phase === 'error' || !stepValue) {
     return (
-      <div className="flex h-full w-full flex-col bg-background">
+      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
         <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center p-6 text-center text-tertiary">
           We couldn&apos;t open this ordinance step. Check the link and try
           again.
@@ -465,92 +471,101 @@ export default function OrdinanceFlowChat({
     (generatingTool && GENERATING_LABELS[generatingTool]) || 'Thinking...'
 
   return (
-    <div className="flex h-full w-full flex-col bg-background">
-      <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4">
-        <header className="flex flex-col gap-3">
-          <OrdinanceStepper current={stepValue} />
-          {ordinanceTitle ? (
-            <h1 className="text-xl font-semibold text-foreground">
-              {ordinanceTitle}
-            </h1>
-          ) : null}
-        </header>
+    <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
+      {/* Everything but the composer scrolls together — the stepper scrolls
+          away with the conversation, matching the prototype. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+          <header className="flex flex-col gap-3">
+            <OrdinanceStepper current={stepValue} />
+            {ordinanceTitle ? (
+              <h1 className="text-xl font-semibold text-foreground">
+                {ordinanceTitle}
+              </h1>
+            ) : null}
+          </header>
 
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
-          {visibleMessages.map((message) =>
-            message.role === 'user' ? (
-              <UserBubble key={message.id}>{message.content}</UserBubble>
-            ) : (
-              <AssistantMessage
-                key={message.id}
-                message={message}
-                slug={slug}
-                answer={answerByMessageId[message.id]}
-                interactive={
-                  message.id === activeClarifyId &&
-                  !answerByMessageId[message.id] &&
-                  !sending
-                }
-                onAnswerClarify={answerClarify}
-                {...(nextStep
-                  ? {
-                      onAdvance: goToNextStep,
-                      nextLabel: ORDINANCE_NEXT_STEP_CTA[nextStep],
-                    }
-                  : {})}
+          <div className="flex flex-col gap-3">
+            {visibleMessages.map((message) =>
+              message.role === 'user' ? (
+                <UserBubble key={message.id}>{message.content}</UserBubble>
+              ) : (
+                <AssistantMessage
+                  key={message.id}
+                  message={message}
+                  slug={slug}
+                  answer={answerByMessageId[message.id]}
+                  interactive={
+                    message.id === activeClarifyId &&
+                    !answerByMessageId[message.id] &&
+                    !sending
+                  }
+                  onAnswerClarify={answerClarify}
+                  {...(nextStep
+                    ? {
+                        onAdvance: goToNextStep,
+                        nextLabel: ORDINANCE_NEXT_STEP_CTA[nextStep],
+                      }
+                    : {})}
+                />
+              ),
+            )}
+
+            {(visibleSegments.length > 0 ||
+              showClarify ||
+              showWidgets ||
+              working) && (
+              <AssistantRow>
+                {visibleSegments.length > 0 ? (
+                  <InlineSegments
+                    segments={visibleSegments}
+                    toolLabel={ordinanceToolLabel}
+                  />
+                ) : null}
+                {showWidgets ? (
+                  <StepWidgetBlocks widgets={shownWidgets} slug={slug} />
+                ) : null}
+                {showClarify && liveClarify ? (
+                  <ClarifyQuestionWidget
+                    question={liveClarify}
+                    disabled
+                    onAnswer={() => undefined}
+                  />
+                ) : null}
+                {working ? <ThinkingRow label={workingLabel} /> : null}
+              </AssistantRow>
+            )}
+
+            {showOffer && liveOffer && nextStep ? (
+              <NextStepButton
+                nextLabel={ORDINANCE_NEXT_STEP_CTA[nextStep]}
+                onAdvance={goToNextStep}
               />
-            ),
-          )}
+            ) : null}
 
-          {(visibleSegments.length > 0 ||
-            showClarify ||
-            showWidgets ||
-            working) && (
-            <AssistantRow>
-              {visibleSegments.length > 0 ? (
-                <InlineSegments
-                  segments={visibleSegments}
-                  toolLabel={ordinanceToolLabel}
-                />
-              ) : null}
-              {showWidgets ? (
-                <StepWidgetBlocks widgets={shownWidgets} slug={slug} />
-              ) : null}
-              {showClarify && liveClarify ? (
-                <ClarifyQuestionWidget
-                  question={liveClarify}
-                  disabled
-                  onAnswer={() => undefined}
-                />
-              ) : null}
-              {working ? <ThinkingRow label={workingLabel} /> : null}
-            </AssistantRow>
-          )}
+            {streamError ? (
+              <p className="text-sm text-destructive">{streamError}</p>
+            ) : null}
 
-          {showOffer && liveOffer && nextStep ? (
-            <NextStepButton
-              nextLabel={ORDINANCE_NEXT_STEP_CTA[nextStep]}
-              onAdvance={goToNextStep}
-            />
-          ) : null}
-
-          {streamError ? (
-            <p className="text-sm text-destructive">{streamError}</p>
-          ) : null}
-
-          <div ref={bottomRef} />
+            <div ref={bottomRef} />
+          </div>
         </div>
+      </div>
 
-        <ChatComposer
-          value={composer}
-          onChange={setComposer}
-          onSubmit={() => {
-            const text = composer
-            setComposer('')
-            void send(text)
-          }}
-          disabled={sending}
-        />
+      <div className="shrink-0 border-t border-border bg-background">
+        <div className="mx-auto w-full max-w-3xl px-4 py-3">
+          <ChatComposer
+            value={composer}
+            onChange={setComposer}
+            onSubmit={() => {
+              const text = composer
+              setComposer('')
+              void send(text)
+            }}
+            disabled={sending}
+            dictation={dictation}
+          />
+        </div>
       </div>
     </div>
   )

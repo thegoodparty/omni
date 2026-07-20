@@ -18,13 +18,10 @@ import CustomVoterAudienceFilters, {
   TRACKING_KEYS,
   AudienceFiltersState,
   AudienceFilterKey,
-} from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
+} from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { clientRequest } from 'gpApi/typed-request'
-import {
-  countVoterFile,
-  CountVoterFileError,
-} from 'app/dashboard/voter-records/[type]/components/RecordCount'
+import { countVoterFile, CountVoterFileError } from './RecordCount'
 import { numberFormatter } from 'helpers/numberHelper'
 import {
   LEGACY_TASK_TYPES,

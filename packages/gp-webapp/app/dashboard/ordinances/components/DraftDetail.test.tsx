@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
   deleteOrdinance: vi.fn(),
   downloadOrdinanceExport: vi.fn(),
   draftChatProps: {
-    current: null as { seedText?: string; seedNonce?: number } | null,
+    current: null as {
+      seedText?: string
+      seedNonce?: number
+      autoDictate?: boolean
+    } | null,
   },
 }))
 
@@ -28,7 +32,11 @@ vi.mock('../data/ordinances-api', () => ({
 // Stub the chat so the selection-toolbar tests can assert what the drawer
 // hands DraftChat (seed text + nonce) without mounting the real streaming chat.
 vi.mock('./DraftChat', () => ({
-  default: (props: { seedText?: string; seedNonce?: number }) => {
+  default: (props: {
+    seedText?: string
+    seedNonce?: number
+    autoDictate?: boolean
+  }) => {
     mocks.draftChatProps.current = props
     return null
   },
@@ -282,6 +290,25 @@ describe('DraftDetail selection toolbar', () => {
       'About this passage: "a 30-day retention limit"\n\n',
     )
     expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
+  })
+
+  it('the launcher mic opens the chat with dictation auto-started', () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate a message' }))
+
+    expect(mocks.draftChatProps.current?.autoDictate).toBe(true)
+  })
+
+  it('the launcher send button opens the chat without auto-dictation', () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about this draft' }),
+    )
+
+    expect(mocks.draftChatProps.current).not.toBeNull()
+    expect(mocks.draftChatProps.current?.autoDictate).toBe(false)
   })
 
   it('"Flag a bug" seeds the chat with the problem template', () => {
