@@ -1,7 +1,6 @@
 import { useTestService } from '@/test-service'
 import { ContactsService } from '@/contacts/services/contacts.service'
 import type { PersonOutput } from '@/contacts/schemas/person.schema'
-import { FeaturesService } from '@/features/services/features.service'
 import { SupportStatusService } from '@/contactInteraction/services/supportStatus.service'
 import { HttpService } from '@nestjs/axios'
 import { NotFoundException } from '@nestjs/common'
@@ -35,18 +34,13 @@ const seedEoOrg = (slug: string, overrideDistrictId?: string) =>
     data: { slug, ownerId: service.user.id, overrideDistrictId },
   })
 
-const enableVoterData = () =>
-  vi
-    .spyOn(service.app.get(FeaturesService), 'isFeatureEnabled')
-    .mockResolvedValue(true)
-
 const interactionsPath = (personId: string) =>
   `/v1/contacts/${personId}/interactions`
 
 // The write path now runs the same district-scoped person lookup every read
 // path uses (findPerson), so a real people-api round trip would need a
 // resolvable district on the org. Stubbed at the service layer — same
-// pattern as contacts.controller.test.ts's gatedEndpoints — instead of wiring
+// pattern as contacts.controller.test.ts — instead of wiring
 // overrideDistrictId + a real HttpService response on every test.
 //
 // vitest's `clearMocks: true` only clears call history between tests, not
@@ -77,7 +71,6 @@ describe('Contact interactions routes', () => {
     it('door knock with outcome and supportAnswer writes manual columns', async () => {
       const slug = `win-pro-dk-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-dk'
       mockPersonFound(personId)
@@ -115,7 +108,6 @@ describe('Contact interactions routes', () => {
     it('text with responded outcome sets respondedAt to occurredAt', async () => {
       const slug = `win-pro-text-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-text'
       mockPersonFound(personId)
@@ -143,7 +135,6 @@ describe('Contact interactions routes', () => {
     it('text with opted_out outcome sets optedOutAt to occurredAt', async () => {
       const slug = `win-pro-text-optout-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-text-optout'
       mockPersonFound(personId)
@@ -169,7 +160,6 @@ describe('Contact interactions routes', () => {
     it('text with no outcome leaves both timestamp columns null', async () => {
       const slug = `win-pro-text-noop-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-text-noop'
       mockPersonFound(personId)
@@ -194,7 +184,6 @@ describe('Contact interactions routes', () => {
     it('robocall with voicemail_left sets voicemailLeftAt', async () => {
       const slug = `win-pro-robocall-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-robocall'
       mockPersonFound(personId)
@@ -223,7 +212,6 @@ describe('Contact interactions routes', () => {
     it('robocall with answered outcome sets answeredAt', async () => {
       const slug = `win-pro-robocall-answered-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-robocall-answered'
       mockPersonFound(personId)
@@ -255,7 +243,6 @@ describe('Contact interactions routes', () => {
     it('note: "" is accepted and persists as a null note', async () => {
       const slug = `win-pro-note-empty-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-note-empty'
       mockPersonFound(personId)
@@ -306,7 +293,6 @@ describe('Contact interactions routes', () => {
     ])('rejects $name with 400', async ({ body }) => {
       const slug = `win-pro-invalid-${Date.now()}-${Math.random()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
 
       const result = await service.client.post(
@@ -323,7 +309,6 @@ describe('Contact interactions routes', () => {
     it('rejects with 400', async () => {
       const slug = `win-nonpro-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: false })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
 
       const result = await service.client.post(
@@ -376,7 +361,6 @@ describe('Contact interactions routes', () => {
     it('404s and writes no interaction row', async () => {
       const slug = `win-pro-notfound-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       mockPersonNotFound()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-out-of-district'
@@ -395,31 +379,10 @@ describe('Contact interactions routes', () => {
     }, 15_000)
   })
 
-  describe('win-voter-data flag off', () => {
-    it('rejects with 403', async () => {
-      const slug = `win-flagoff-${Date.now()}`
-      await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      vi.spyOn(
-        service.app.get(FeaturesService),
-        'isFeatureEnabled',
-      ).mockResolvedValue(false)
-      const headers = { [ORG_SLUG_HEADER]: slug }
-
-      const result = await service.client.post(
-        interactionsPath('person-1'),
-        { channel: 'doorKnock', outcome: 'not_home' },
-        { headers },
-      )
-
-      expect(result.status).toBe(403)
-    })
-  })
-
   describe('support-status integration', () => {
     it('a manually logged supporter door knock flips the derived support status', async () => {
       const slug = `win-pro-support-${Date.now()}`
       await seedWinOrg({ slug, ownerId: service.user.id, isPro: true })
-      enableVoterData()
       const headers = { [ORG_SLUG_HEADER]: slug }
       const personId = 'person-support'
       mockPersonFound(personId)

@@ -13,7 +13,6 @@ import {
   LogContactInteractionResponseSchema,
 } from '@goodparty_org/contracts'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
@@ -26,7 +25,6 @@ import {
   ContactInteractionRobocall,
   ContactInteractionText,
   Organization,
-  User,
 } from '../generated/prisma'
 import { LogContactInteractionParamsDTO } from './schemas/logInteraction.schema'
 import { ContactsService } from './services/contacts.service'
@@ -94,9 +92,7 @@ export class ContactInteractionsController {
     @Body(new ZodValidationPipe(LogContactInteractionInputSchema))
     body: LogContactInteractionInput,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ): Promise<LogContactInteractionResponse> {
-    await this.contactsService.assertContactsAccess(organization, user)
     await this.contactsService.assertProAccess(organization)
     // Every read path on this surface (findPerson/findContacts) resolves the
     // person through the org's district via people-api, so an out-of-district

@@ -111,7 +111,6 @@ describe('ContactsService.getFilterDimensions', () => {
       {} as never,
       {} as never,
       {} as never,
-      {} as never,
       createMockLogger() as unknown as PinoLogger,
     )
 

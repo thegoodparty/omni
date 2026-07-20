@@ -67,10 +67,8 @@ export class P2pPhoneListUploadService {
       throw new BadRequestException('Organization not found for campaign')
     }
 
-    // Texting is a Pro feature that predates and is independent of the CRM
-    // win-voter-data rollout — it does not gate on assertContactsAccess like
-    // the rest of the contacts pipeline. PII exposure stays bounded by the
-    // Pro gate (isProAccess, enforced inside findContactsForFilter below).
+    // Texting is a Pro feature — PII exposure stays bounded by the Pro gate
+    // (isProAccess, enforced inside findContactsForFilter below).
     // Product decision (Tomer, 2026-07-18): ENG-10741.
 
     let resolvedFilterInput: ContactsFilterResolutionInput = filterInput
