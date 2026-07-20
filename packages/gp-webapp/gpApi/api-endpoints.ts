@@ -3,6 +3,7 @@ import type {
   ExperimentVariantsResponse,
   Ordinance,
   OrdinanceListResponse,
+  OrdinanceQualityRun,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
   Priority,
@@ -38,9 +39,17 @@ import type {
   SegmentResponse,
   Person,
   ListContactsResponse,
+  ListDetailContactsResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
+  ContactNote,
+  ContactNoteInput,
+  ContactNoteListResponse,
+  LogContactInteractionInput,
+  LogContactInteractionResponse,
+  SupportStatusRollup,
 } from 'app/dashboard/contacts/crm/shared/contacts-types'
+import type { ActivityConditionInput } from 'app/dashboard/contacts/crm/shared/activityConditionOptions'
 import type { AnnotationAnchor, ChatMessage } from 'app/shared/briefings/types'
 import type { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import type {
@@ -484,9 +493,24 @@ export type APIEndpoints = {
     Response: Ordinance
   }
 
+  'DELETE /v1/ordinances/:slug': {
+    Request: {}
+    Response: void
+  }
+
   'POST /v1/ordinances/:slug/clarify-answers': {
     Request: SaveOrdinanceClarifyAnswerRequest
     Response: Ordinance
+  }
+
+  'POST /v1/ordinances/:slug/quality-report': {
+    Request: {}
+    Response: OrdinanceQualityRun
+  }
+
+  'GET /v1/ordinances/:slug/quality-report': {
+    Request: {}
+    Response: OrdinanceQualityRun
   }
 
   'GET /v1/contacts/stats': {
@@ -578,11 +602,19 @@ export type APIEndpoints = {
   }
 
   'POST /v1/voters/voter-file/filter': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'PUT /v1/voters/voter-file/filter/:id': {
-    Request: { name?: string } & Record<string, unknown>
+    Request: {
+      name?: string
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: SegmentResponse
   }
   'GET /v1/voters/voter-file/filters': {
@@ -608,12 +640,41 @@ export type APIEndpoints = {
     Response: Person
   }
   'POST /v1/contacts/count': {
-    Request: Record<string, unknown>
+    Request: {
+      activityConditions?: ActivityConditionInput[]
+      supportStatus?: SupportStatusRollup[]
+    } & Record<string, unknown>
     Response: { count: number }
   }
   'GET /v1/contacts/download': {
     Request: { segment?: string }
     Response: Blob
+  }
+  'GET /v1/contacts/list-detail': {
+    Request: { segment: number }
+    Response: ListDetailContactsResponse
+  }
+
+  'GET /v1/contacts/:personId/notes': {
+    Request: {}
+    Response: ContactNoteListResponse
+  }
+  'POST /v1/contacts/:personId/notes': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'PATCH /v1/contacts/notes/:noteId': {
+    Request: ContactNoteInput
+    Response: ContactNote
+  }
+  'DELETE /v1/contacts/notes/:noteId': {
+    Request: {}
+    Response: {}
+  }
+
+  'POST /v1/contacts/:personId/interactions': {
+    Request: LogContactInteractionInput
+    Response: LogContactInteractionResponse
   }
 
   'GET /v1/contact-engagement/:id/issues': {
@@ -621,7 +682,7 @@ export type APIEndpoints = {
     Response: GetConstituentIssuesResponse
   }
   'GET /v1/contact-engagement/:id/activities': {
-    Request: { take?: number; after?: string }
+    Request: { take?: number; after?: string; lalVoterId?: string }
     Response: GetIndividualActivitiesResponse
   }
 

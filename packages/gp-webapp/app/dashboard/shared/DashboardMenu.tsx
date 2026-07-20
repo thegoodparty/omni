@@ -39,7 +39,6 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { useCampaignStrategyExists } from './useCampaignStrategyExists'
 import { useElectedOffice } from '@shared/hooks/useElectedOffice'
 import { CONTACTS_DATA_TITLE } from './contactsLabels'
-import { Campaign } from 'helpers/types'
 import { CIRCLE_COMMUNITY_BASE } from 'appEnv'
 import {
   Avatar,
@@ -66,7 +65,6 @@ import {
   useOrganization,
 } from '@shared/organization-picker'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
 
 interface MenuItem {
@@ -162,16 +160,6 @@ const DEFAULT_MENU_ITEMS: MenuItem[] = [
     onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCommunity),
   },
 ]
-
-const VOTER_RECORDS_MENU_ITEM: MenuItem = {
-  id: 'voter-records-dashboard',
-  label: 'Voter Data',
-  link: '/dashboard/voter-records',
-  icon: <MdFolderShared />,
-  v2Icon: UsersRound,
-  v2Category: 'campaign',
-  onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickVoterData),
-}
 
 const ECANVASSER_MENU_ITEM: MenuItem = {
   id: 'door-knocking-dashboard',
@@ -277,13 +265,10 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
 }
 
 export const getDashboardMenuItems = (
-  campaign: Campaign | null,
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
   isElectedOfficeLoading: boolean,
   campaignStrategyExists: boolean,
-  winVoterDataReady: boolean,
-  winVoterDataEnabled: boolean,
   campaignStoryEnabled: boolean,
   communityIssuesEnabled: boolean,
   ordinancesEnabled: boolean,
@@ -298,24 +283,16 @@ export const getDashboardMenuItems = (
   const voterDataIndex = menuItems.indexOf(VOTER_DATA_UPGRADE_ITEM)
   if (serveAccessEnabled && isElectedOffice) {
     menuItems[voterDataIndex] = CONTACTS_MENU_ITEM
-  } else if (!isElectedOfficeLoading && winVoterDataReady) {
-    // Hold off until BOTH the elected-office query and the win-voter-data flag
-    // settle — the same combined guard useWinVoterContext applies elsewhere in
-    // this PR. Until then a Serve elected-official reads as not-elected-office,
-    // and the flag reads off, so committing here would swap the slot
-    // (placeholder → legacy Voter Data → Contacts) as each input resolves.
-    // While not ready, the generic upgrade placeholder holds the slot.
+  } else if (!isElectedOfficeLoading) {
+    // Hold off until the elected-office query settles — until then a Serve
+    // elected-official reads as not-elected-office, so committing here would
+    // swap the slot (placeholder → Contacts) as the query resolves. While not
+    // ready, the generic upgrade placeholder holds the slot.
     //
-    // With the flag on, pro AND non-pro Win campaigns get the unified Contacts
-    // page — a non-pro candidate sees the district aggregates and a blurred
-    // preview and is upsold there (ENG-10495). The legacy Voter Data page stays
-    // pro-only for the flag-off cohort; non-pro flag-off users keep the upgrade
-    // placeholder.
-    if (winVoterDataEnabled) {
-      menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
-    } else if (campaign?.isPro) {
-      menuItems[voterDataIndex] = VOTER_RECORDS_MENU_ITEM
-    }
+    // Pro AND non-pro Win campaigns get the unified Contacts page — a non-pro
+    // candidate sees the district aggregates and a blurred preview and is
+    // upsold there (ENG-10495).
+    menuItems[voterDataIndex] = WIN_CONTACTS_MENU_ITEM
   }
   if (isElectedOffice) {
     menuItems.splice(voterDataIndex, 0, POLLS_MENU_ITEM)
@@ -379,15 +356,8 @@ export default function DashboardMenu({
     useElectedOffice()
   const { ready: _flagsReady, on: serveAccessEnabled } =
     useFlagOn('serve-access')
-  // Master gate for the Win voter-data rollout. When on, a pro Win campaign
-  // sees the Contacts item (reusing the Serve route) in place of the legacy
-  // Voter Data item. Read with trackExposure=false — the page is the treatment
-  // surface, not the menu — so the nav read doesn't inflate the exposed
-  // population.
-  const { ready: winVoterDataReady, enabled: winVoterDataEnabled } =
-    useWinVoterDataFlag(false)
-  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so don't
-  // track exposure here — mirrors the win-voter-data gate above.
+  // Menu isn't the treatment surface (the page's FeatureFlagGuard is), so
+  // don't track exposure here.
   const { enabled: campaignStoryEnabled } = useCampaignStoryFlag(false)
   // Nav-only gate for the Community Issues tab; mirrors the serve-access read.
   const { on: communityIssuesEnabled } = useFlagOn('serve-community-issues-v1')
@@ -398,13 +368,10 @@ export default function DashboardMenu({
 
   const menuItems = useMemo(() => {
     const items = getDashboardMenuItems(
-      campaign,
       serveAccessEnabled,
       !!electedOffice,
       isElectedOfficeLoading,
       campaignStrategyExists,
-      winVoterDataReady,
-      winVoterDataEnabled,
       campaignStoryEnabled,
       communityIssuesEnabled,
       ordinancesEnabled,
@@ -416,14 +383,11 @@ export default function DashboardMenu({
 
     return items
   }, [
-    campaign,
     serveAccessEnabled,
     ecanvasser,
     electedOffice,
     isElectedOfficeLoading,
     campaignStrategyExists,
-    winVoterDataReady,
-    winVoterDataEnabled,
     campaignStoryEnabled,
     communityIssuesEnabled,
     ordinancesEnabled,

@@ -1,7 +1,7 @@
 import {
   AudienceFiltersState,
   AudienceFilterKey,
-} from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
+} from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 import { VoterFileFilters } from 'helpers/types'
 
 // If making a change, also update:

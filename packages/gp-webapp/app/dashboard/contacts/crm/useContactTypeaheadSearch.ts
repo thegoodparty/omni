@@ -68,8 +68,8 @@ export const useContactTypeaheadSearch = (
   // count as a new search (React Query may serve it from cache, but the user
   // ran another search). Gate on isWinContextReady the same way the Contacts
   // Viewed mount event does — isWin reads false (Serve) until the
-  // elected-office query and win-voter-data flag settle, so firing earlier
-  // would emit the wrong-mode event for Win users.
+  // elected-office query settles, so firing earlier would emit the
+  // wrong-mode event for Win users.
   const lastTrackedTermRef = useRef<string | null>(null)
   useEffect(() => {
     if (!isActive) {

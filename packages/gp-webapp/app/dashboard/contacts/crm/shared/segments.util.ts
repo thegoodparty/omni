@@ -37,21 +37,24 @@ export const filterOnlyTrueValues = (
   return Object.keys(filters).filter((key) => filters[key] === true)
 }
 
-export const MAX_SEGMENT_NAME_LENGTH = 20
+export const MAX_SEGMENT_NAME_LENGTH = 40
 
 export const trimCustomSegmentName = (name: string): string => {
   if (!name || typeof name !== 'string') {
     return 'custom segment'
   }
 
+  // The ellipsis counts toward the budget: trimmed output is stored as a
+  // real list name (useDuplicateList), and a 43-char value would pre-fill
+  // the rename dialog past its own cap and permanently disable Save.
   if (name.length > MAX_SEGMENT_NAME_LENGTH) {
     if (name.includes('Campaign')) {
       const campaignEndIndex = name.indexOf('Campaign') + 8
       return campaignEndIndex <= MAX_SEGMENT_NAME_LENGTH
         ? name.slice(0, campaignEndIndex)
-        : name.slice(0, MAX_SEGMENT_NAME_LENGTH) + '...'
+        : name.slice(0, MAX_SEGMENT_NAME_LENGTH - 3) + '...'
     }
-    return name.slice(0, MAX_SEGMENT_NAME_LENGTH) + '...'
+    return name.slice(0, MAX_SEGMENT_NAME_LENGTH - 3) + '...'
   }
   return name
 }

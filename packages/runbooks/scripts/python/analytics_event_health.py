@@ -64,6 +64,12 @@ DEFAULT_LOG = DATA_DIR / "analytics-event-health-log.md"
 # --- thresholds (SOP recommended defaults; tunable, pending Eng) --------------
 
 DORMANT_DAYS = 30
+# Grace after a lifecycle date (code retirement, or a gp-meta not-in-use declaration) before
+# trailing traffic counts as "still firing after" that date. Absorbs deploy lag (merge -> prod
+# rollout), the short client-cache drain tail, and Amplitude ingestion lag on last_seen. A
+# genuine orphan (stale clients emitting a removed event) keeps firing for weeks, well past this
+# window, so it is still caught; only the expected boundary tail is suppressed. (tunable, pending Eng)
+ORPHAN_GRACE_DAYS = 2
 RETIREMENT_FLOOR_PCT = 0.05  # current week below this fraction of baseline = anomaly drop
 ABSOLUTE_FLOOR = 5  # baseline fires/week below which a drop-to-zero rule replaces the %
 MIN_BASELINE_WEEKS = 5  # need >= current + 4 baseline complete weeks to judge an anomaly
@@ -241,6 +247,7 @@ def classify_status(
     in_code: bool | None,
     firing_recent: bool,
     retired_date: date | None,
+    last_seen_date: date | None,
     today: date,
 ) -> str:
     """SOP status from the code x firing axes. ``in_code`` is None when the event has no
@@ -249,19 +256,41 @@ def classify_status(
         return "code_unknown"
     if retired_date is None:  # code present
         return "active" if firing_recent else "dormant"
-    if firing_recent:  # code removed but still firing
+    # Code removed. "Still firing" (orphaned) requires firing AFTER retirement, not merely a
+    # nonzero 30-day count: that window straddles the retirement date, so pre-retirement traffic
+    # would false-alarm every fresh retiree with prior volume as orphaned for up to 30 days
+    # (DATA-2140). Gate on last_seen past retirement + a grace window for deploy/pipeline lag. A
+    # missing last_seen (Databricks catalog data gap) is ambiguous, so fall back to firing_recent
+    # rather than hiding a genuine orphan behind a null date.
+    fired_after_retirement = last_seen_date is None or (
+        last_seen_date > retired_date + timedelta(days=ORPHAN_GRACE_DAYS)
+    )
+    if firing_recent and fired_after_retirement:
         return "orphaned_firing"
     return "deprecating" if (today - retired_date).days <= DORMANT_DAYS else "retired"
 
 
-def divergence(gpmeta: dict | None, status: str, firing_recent: bool) -> str | None:
+def divergence(
+    gpmeta: dict | None,
+    status: str,
+    firing_recent: bool,
+    last_seen_date: date | None = None,
+) -> str | None:
     """Intent-vs-reality divergence note from gp-meta, or None. (gp-meta sparse today.)"""
     if not gpmeta:
         return None
     if gpmeta["intent"] == "in_use" and status in ("retired", "deprecating"):
         return "declared in-use but code removed + quiet"
     if gpmeta["intent"] == "not_in_use" and firing_recent:
-        return "declared not-in-use but still firing"
+        # "Still firing" must mean fired AFTER the not-in-use declaration, not merely a nonzero
+        # 30-day count straddling that date (the same trap as orphaned_firing, DATA-2140). A missing
+        # declaration date, or a missing last_seen (Databricks data gap), is ambiguous — fall back to
+        # the firing_recent signal rather than hiding a genuine divergence behind a null date.
+        intent_date = to_date(gpmeta.get("intent_date"))
+        if intent_date is None or last_seen_date is None or (
+            last_seen_date > intent_date + timedelta(days=ORPHAN_GRACE_DAYS)
+        ):
+            return "declared not-in-use but still firing"
     return None
 
 
@@ -386,6 +415,7 @@ def reconcile(
         description = row["govern_description"]
         cnt30 = int(row["event_count_30d"] or 0)
         firing_recent = cnt30 > 0
+        last_seen = to_date(row["last_seen_date"])
         crow = code.get(event_type)
         gpmeta = parse_gpmeta(description)
         anomaly = detect_anomaly(series.get(event_type, []))
@@ -399,7 +429,8 @@ def reconcile(
             in_code = None if crow is None else True
             retired = to_date(crow.get(RETIRED_COL)) if crow else None
             status = classify_status(
-                in_code=in_code, firing_recent=firing_recent, retired_date=retired, today=today
+                in_code=in_code, firing_recent=firing_recent, retired_date=retired,
+                last_seen_date=last_seen, today=today,
             )
 
         records.append(
@@ -410,12 +441,12 @@ def reconcile(
                 "elevated": is_elevated(family, event_type, description, on_watchlist=on_watchlist),
                 "on_watchlist": on_watchlist,
                 "event_count_30d": cnt30,
-                "last_seen_date": to_date(row["last_seen_date"]),
+                "last_seen_date": last_seen,
                 "anomaly": anomaly,
                 "instrumented_pr": (crow or {}).get(INSTRUMENTED_PR_COL),
                 "call_site_count": call_site_count,
                 "call_site_retired_date": (crow or {}).get(CALL_SITE_RETIRED_COL) or None,
-                "divergence": divergence(gpmeta, status, firing_recent),
+                "divergence": divergence(gpmeta, status, firing_recent, last_seen),
                 "gpmeta": gpmeta,
                 "has_description": has_description(description),
             }

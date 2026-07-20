@@ -49,6 +49,11 @@ export const EVENTS = {
     //  destination on the company and trigger the "check your texts/email"
     //  nudge. Fired once by the PIN-delivery detection sweep.
     CompliancePinSent: 'Voter Outreach - 10DLC Compliance PIN Sent',
+    // Fired when GoodParty staff trigger a CV PIN resend from the admin
+    // console (ENG-10689) so HubSpot can show resend activity on the
+    // contact/company. Requires a matching HubSpot custom-event definition
+    // (exact event string + property internal names) to be visible there.
+    CompliancePinResent: 'Voter Outreach - 10DLC Compliance PIN Resent',
     // Server-side twin of gp-webapp's 'Pro Upgrade - Candidate Profile
     // Submitted' (10DLC events must fire from gp-api for delivery
     // reliability). Fired when a website content save transitions the

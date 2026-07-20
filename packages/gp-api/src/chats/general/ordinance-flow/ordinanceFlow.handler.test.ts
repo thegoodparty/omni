@@ -38,8 +38,9 @@ const baseCtx = (): OrdinanceFlowContext => ({
   step: 'clarify',
   organizationSlug: ORG,
   officeTitle: 'City Council Member',
-  // The context service leaves this null; loadContext fills it from the
-  // district resolver (see the jurisdiction tests below).
+  // The context service fills this from the verified code record (or leaves
+  // it null); loadContext overrides it with the district resolver when that
+  // resolves (see the jurisdiction tests below).
   jurisdiction: null,
   seedType: 'new',
   issueSlug: null,
@@ -94,6 +95,15 @@ describe('OrdinanceFlowHandler', () => {
       features as never,
       districtResolver as never,
     )
+
+  it('gives the draft step the clarify widget for its rare question', () => {
+    const names = Object.keys(
+      build().buildTools({ ...baseCtx(), step: 'draft' }),
+    )
+    expect(names).toContain('ask_clarify_question')
+    expect(names).toContain('present_draft')
+    expect(names).not.toContain('save_synthesis')
+  })
 
   it('is a sensitive, Anthropic-only scope', () => {
     const handler = build()
@@ -363,6 +373,7 @@ describe('OrdinanceFlowHandler', () => {
       handler.buildTools({ ...baseCtx(), step: 'draft' }),
     ).sort()
     expect(names).toEqual([
+      'ask_clarify_question',
       'get_code_source',
       'present_draft',
       'read_ordinance',
@@ -399,5 +410,15 @@ describe('OrdinanceFlowHandler', () => {
     const resolveByOrgSlug = vi.fn(() => Promise.resolve(null))
     const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
     expect(ctx.jurisdiction).toBeNull()
+  })
+
+  it('keeps the code-record jurisdiction when the resolver finds nothing', async () => {
+    vi.mocked(context.load).mockResolvedValue({
+      ...baseCtx(),
+      jurisdiction: 'Hendersonville, NC',
+    })
+    const resolveByOrgSlug = vi.fn(() => Promise.resolve(null))
+    const ctx = await build({ resolveByOrgSlug }).loadContext('c1', USER_ID)
+    expect(ctx.jurisdiction).toBe('Hendersonville, NC')
   })
 })

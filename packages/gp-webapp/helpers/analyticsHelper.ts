@@ -86,6 +86,9 @@ export const EVENTS = {
   SignIn: {
     LoginCompleted: 'Sign In: Login Completed',
   },
+  SignUp: {
+    ClickLogin: 'Sign Up: Click Login',
+  },
   Onboarding: {
     RegistrationCompleted: 'Onboarding - Registration Completed',
     // Top of the magic-link funnel. The recipient landed on the redemption
@@ -403,9 +406,35 @@ export const EVENTS = {
   // with { resultCount }.
   ConstituentData: {
     ContactSearched: 'Constituent Data - Contact Searched',
+    // ENG-10697: person-record Notes section, fires once per successful
+    // create (never on failure/edit/delete). Same product-specific naming
+    // exception as ContactSearched above.
+    NoteAdded: 'Constituent Data - Note Added',
+    // ENG-10698: fires once per record open (CRM flag on) — distinct from
+    // `Contacts.Viewed` ('Contacts - Contacts Viewed'), which only fires from
+    // the pre-CRM page.
+    ContactViewed: 'Constituent Data - Contact Viewed',
+    // ENG-10709: crm/wizard's two create branches + the list-detail download
+    // seam. Same product-specific naming exception as the events above.
+    // ListCreated fires once per successful voter-file-branch create with
+    // { variableCount } (Win variant also carries hasParty — Serve is
+    // nonpartisan and must never see it). ActivityListCreated fires once per
+    // successful activity-branch create with { sourceCampaign, actionFilter }.
+    // ListExported fires once per confirmed-successful download with
+    // { listSize }.
+    ListCreated: 'Constituent Data - List Created',
+    ActivityListCreated: 'Constituent Data - Activity List Created',
+    ListExported: 'Constituent Data - List Exported',
   },
   VoterData: {
     ContactSearched: 'Voter Data - Contact Searched',
+    NoteAdded: 'Voter Data - Note Added',
+    ContactViewed: 'Voter Data - Contact Viewed',
+    // ENG-10709: see the ConstituentData variants above for the full seam
+    // description — Win-only difference is ListCreated's hasParty property.
+    ListCreated: 'Voter Data - List Created',
+    ActivityListCreated: 'Voter Data - Activity List Created',
+    ListExported: 'Voter Data - List Exported',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',
@@ -517,6 +546,11 @@ export const EVENTS = {
       ClickUpgrade: 'Settings - Account Settings: Click Upgrade',
       ClickManageSubscription:
         'Settings - Account Settings: Click Manage Pro Subscription',
+    },
+    DeleteAccount: {
+      ClickDelete: 'Settings - Delete Account: Click Delete',
+      SubmitDelete: 'Settings - Delete Account: Submit Delete',
+      CancelDelete: 'Settings - Delete Account: Cancel Delete',
     },
     Notifications: {
       ToggleEmail: 'Settings - Notifications: Toggle Email',

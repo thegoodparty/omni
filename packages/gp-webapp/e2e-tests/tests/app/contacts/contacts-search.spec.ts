@@ -15,12 +15,11 @@ import {
 } from 'src/helpers/organizations'
 
 // @dev-only: the Voter Data search box is reachable only on the Win Contacts
-// surface for a pro campaign org, which requires win-voter-data ON (enabled for
-// internal/@test.goodparty.org users on the warm dev stack, not on ephemeral
-// per-PR previews) AND a pro campaign (gp-api findContacts hard-rejects search
-// requests for non-pro). Same gating as win-contacts.spec.ts. The CI workflow
+// surface for a pro campaign org (gp-api findContacts hard-rejects search
+// requests for non-pro), and the search needs the warm dev stack's real
+// district voter data. Same gating as win-contacts.spec.ts. The CI workflow
 // greps @dev-only out on pull_request runs and includes it post-merge on
-// develop. See e2e-tests/CLAUDE.md ("@dev-only") and contacts-staged-rollout.md.
+// develop. See e2e-tests/CLAUDE.md ("@dev-only").
 test.describe('Voter Data contact search @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)

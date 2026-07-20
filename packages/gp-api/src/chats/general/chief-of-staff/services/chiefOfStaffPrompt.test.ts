@@ -4,6 +4,7 @@ import {
   COS_GUARDRAIL_DECLINE,
 } from './chiefOfStaffPrompt'
 import { ChiefOfStaffContext } from './chiefOfStaffContext.service'
+import type { Organization } from '../../../../generated/prisma'
 
 const baseCtx = (
   overrides: Partial<ChiefOfStaffContext> = {},
@@ -11,6 +12,7 @@ const baseCtx = (
   conversationId: 'conv-1',
   electedOfficeId: 'office-1',
   organizationSlug: 'org-1',
+  organization: { slug: 'org-1' } as Organization,
   userFirstName: 'Jordan',
   userLastName: 'Lee',
   officeTitle: 'City Council Member',
@@ -20,6 +22,7 @@ const baseCtx = (
   anchor: null,
   districtFilters: null,
   constituentToolEnabled: false,
+  crmToolsEnabled: false,
   ...overrides,
 })
 

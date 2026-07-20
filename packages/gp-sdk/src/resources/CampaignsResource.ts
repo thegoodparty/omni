@@ -1,4 +1,5 @@
 import type {
+  ComplianceStateOutput,
   ListCampaignsPagination,
   PaginatedList,
   ReadCampaignOutput,
@@ -39,5 +40,18 @@ export class CampaignsResource extends BaseResource {
     this.putRequest<SetDistrictOutput>(
       `${this.resourceBasePath}/${id}/district`,
       input,
+    )
+
+  getComplianceState = (campaignId: number): Promise<ComplianceStateOutput> =>
+    this.getRequest<ComplianceStateOutput>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/compliance-state',
+    )
+
+  resendCvPin = (campaignId: number): Promise<void> =>
+    this.postRequest<void>(
+      `${this.resourceBasePath}/tcr-compliance/admin/${campaignId}` +
+        '/resend-cv-pin',
+      {},
     )
 }

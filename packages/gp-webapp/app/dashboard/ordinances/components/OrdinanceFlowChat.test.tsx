@@ -32,6 +32,7 @@ const ordinance: Ordinance = {
   draftBody: null,
   draftSources: null,
   qualityReport: null,
+  qualityRunStatus: 'idle',
   research: null,
   scratchpad: null,
   lastViewedStep: null,
@@ -121,6 +122,42 @@ beforeEach(() => {
 })
 
 describe('OrdinanceFlowChat step widgets (persisted segments)', () => {
+  it('kicks off the draft step with a drafting instruction, not a question request', async () => {
+    mocks.listMessages.mockResolvedValue([])
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="draft" />)
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    const kickoff = (
+      mocks.streamMessage.mock.calls[0]?.[0] as { content: string } | undefined
+    )?.content
+    expect(kickoff).toMatch(/draft/i)
+    expect(kickoff).not.toMatch(/clarifying question/i)
+  })
+
+  it.each(['intro', 'authority', 'current_law', 'comparables', 'review'])(
+    'kicks off the %s step without a clarify-question opener',
+    async (step) => {
+      mocks.listMessages.mockResolvedValue([])
+      render(<OrdinanceFlowChat slug="public-safety-cameras" step={step} />)
+      await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+      const kickoff = (
+        mocks.streamMessage.mock.calls[0]?.[0] as
+          | { content: string }
+          | undefined
+      )?.content
+      expect(kickoff).not.toMatch(/clarifying question/i)
+    },
+  )
+
+  it('kicks off the clarify step by inviting the first question', async () => {
+    mocks.listMessages.mockResolvedValue([])
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="clarify" />)
+    await waitFor(() => expect(mocks.streamMessage).toHaveBeenCalled())
+    const kickoff = (
+      mocks.streamMessage.mock.calls[0]?.[0] as { content: string } | undefined
+    )?.content
+    expect(kickoff).toMatch(/clarifying question/i)
+  })
+
   it('renders the authority verdict card from a persisted tool segment', async () => {
     mocks.listMessages.mockResolvedValue([
       assistantTurn('m1', [
@@ -405,6 +442,33 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     // orphaned avatar row while the agent is still thinking.
     await waitFor(() => expect(screen.getByText('Thinking...')).toBeVisible())
     expect(screen.queryByText('Intent and history')).not.toBeInTheDocument()
+  })
+})
+
+describe('OrdinanceFlowChat next-step button', () => {
+  it('labels the advance button by flow order, ignoring the agent label', async () => {
+    // The agent-authored offer label can contradict where the button goes:
+    // on the comparables step the next step is draft, but the agent labeled the
+    // offer "Research current law". The button must read the flow-derived CTA.
+    mocks.listMessages.mockResolvedValue([
+      assistantTurn('m1', [
+        { kind: 'text', text: 'Here are the comparables.' },
+        {
+          kind: 'tool',
+          toolName: 'offer_next_step',
+          payload: { label: 'Research current law' },
+        },
+      ]),
+    ])
+
+    render(
+      <OrdinanceFlowChat slug="public-safety-cameras" step="comparables" />,
+    )
+
+    expect(
+      await screen.findByRole('button', { name: 'Write the first draft' }),
+    ).toBeVisible()
+    expect(screen.queryByText('Research current law')).not.toBeInTheDocument()
   })
 })
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { useTestService } from '@/test-service'
 import { VoterFileFilter } from '../../generated/prisma'
 import { VoterFileFilterService } from './voterFileFilter.service'
 
@@ -41,5 +42,65 @@ describe('voterFileFilterToAudience', () => {
       ethnicity_hispanic: true,
       ethnicity_african_american: true,
     })
+  })
+})
+
+describe('stampFirstUsedForOutreach', () => {
+  const service = useTestService()
+
+  const seedFilter = async () => {
+    const orgSlug = `org-stamp-${Math.random().toString(36).slice(2)}`
+    await service.prisma.organization.create({
+      data: { slug: orgSlug, ownerId: service.user.id },
+    })
+    const filter = await service.prisma.voterFileFilter.create({
+      data: { organizationSlug: orgSlug, name: 'stamp list' },
+    })
+    return { orgSlug, filter }
+  }
+
+  it('sets firstUsedForOutreachAt exactly once', async () => {
+    const { orgSlug, filter } = await seedFilter()
+    const svc = service.app.get(VoterFileFilterService)
+
+    const count = await svc.stampFirstUsedForOutreach(filter.id, orgSlug)
+    expect(count).toBe(1)
+
+    const stamped = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: filter.id },
+    })
+    expect(stamped.firstUsedForOutreachAt).not.toBeNull()
+  })
+
+  it('is a no-op once already stamped and never clears the timestamp', async () => {
+    const { orgSlug, filter } = await seedFilter()
+    const svc = service.app.get(VoterFileFilterService)
+
+    await svc.stampFirstUsedForOutreach(filter.id, orgSlug)
+    const firstStamp = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: filter.id },
+    })
+
+    const secondCount = await svc.stampFirstUsedForOutreach(filter.id, orgSlug)
+    expect(secondCount).toBe(0)
+
+    const secondStamp = await service.prisma.voterFileFilter.findUniqueOrThrow({
+      where: { id: filter.id },
+    })
+    expect(secondStamp.firstUsedForOutreachAt).toEqual(
+      firstStamp.firstUsedForOutreachAt,
+    )
+  })
+
+  it('two concurrent stamps claim the row exactly once total', async () => {
+    const { orgSlug, filter } = await seedFilter()
+    const svc = service.app.get(VoterFileFilterService)
+
+    const [countA, countB] = await Promise.all([
+      svc.stampFirstUsedForOutreach(filter.id, orgSlug),
+      svc.stampFirstUsedForOutreach(filter.id, orgSlug),
+    ])
+
+    expect(countA + countB).toBe(1)
   })
 })

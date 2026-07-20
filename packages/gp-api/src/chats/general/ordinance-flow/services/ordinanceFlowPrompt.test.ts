@@ -187,6 +187,44 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).not.toContain('CURRENT LAW RULES')
   })
 
+  it('routes follow-up and confirmation questions through the widget', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'clarify' }),
+      toolNames: [
+        'read_ordinance',
+        'save_note',
+        'web_search',
+        'ask_clarify_question',
+        'save_synthesis',
+        'offer_next_step',
+      ],
+    })
+    expect(prompt).toContain(
+      'Follow-ups, confirmations, and disambiguations are still questions',
+    )
+    expect(prompt).toContain('Never ask for a decision in prose')
+    expect(prompt).toContain('defers to your judgment')
+  })
+
+  it('keeps the clarify rulebook off the draft step and forbids interviewing', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'draft' }),
+      toolNames: [
+        'read_ordinance',
+        'save_note',
+        'web_search',
+        'ask_clarify_question',
+        'present_draft',
+      ],
+    })
+    expect(prompt).not.toContain('CLARIFY RULES')
+    expect(prompt).toContain('ASK QUESTION RULES')
+    expect(prompt).toContain('ONLY in the \`ask_clarify_question\` call')
+    expect(prompt).toContain('Do not interview')
+    expect(prompt).toContain('at most ONE')
+    expect(prompt).toContain('never write ordinance text as chat prose')
+  })
+
   it('never mentions the removed get_current_code tool', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),

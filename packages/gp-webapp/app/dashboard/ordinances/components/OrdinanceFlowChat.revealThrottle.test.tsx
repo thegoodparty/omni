@@ -32,6 +32,7 @@ const ordinance: Ordinance = {
   draftBody: null,
   draftSources: null,
   qualityReport: null,
+  qualityRunStatus: 'idle',
   research: null,
   scratchpad: null,
   lastViewedStep: null,
@@ -45,7 +46,11 @@ const RECAP =
   'The four core policy choices are now locked in: scope, timing, enforcement, and exemptions. '.repeat(
     5,
   )
-const OFFER_LABEL = 'Check legal authority'
+// The advance button renders the flow-derived CTA for the next step
+// (authority -> current_law), never the agent's offer label, so the throttle
+// assertion looks for that CTA. The label fed into the offer segment below is
+// deliberately ignored by the component (see the dedicated label test).
+const OFFER_LABEL = 'Show me the current law'
 
 const mocks = vi.hoisted(() => ({
   createConversation: vi.fn(),
