@@ -30,6 +30,7 @@ import {
   segmentsToLive,
 } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
@@ -167,6 +168,11 @@ export default function OrdinanceFlowChat({
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
+  const dictation = useDictationAppend({
+    value: composer,
+    onChange: setComposer,
+    analyticsLabel: 'ordinance-flow-chat',
+  })
   const [streamError, setStreamError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
@@ -351,7 +357,7 @@ export default function OrdinanceFlowChat({
 
   if (phase === 'loading') {
     return (
-      <div className="flex h-full w-full flex-col bg-background">
+      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
         <div
           className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4"
           aria-busy="true"
@@ -377,7 +383,7 @@ export default function OrdinanceFlowChat({
 
   if (phase === 'error' || !stepValue) {
     return (
-      <div className="flex h-full w-full flex-col bg-background">
+      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
         <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center p-6 text-center text-tertiary">
           We couldn&apos;t open this ordinance step. Check the link and try
           again.
@@ -465,7 +471,7 @@ export default function OrdinanceFlowChat({
     (generatingTool && GENERATING_LABELS[generatingTool]) || 'Thinking...'
 
   return (
-    <div className="flex h-full w-full flex-col bg-background">
+    <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
       <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4">
         <header className="flex flex-col gap-3">
           <OrdinanceStepper current={stepValue} />
@@ -550,6 +556,7 @@ export default function OrdinanceFlowChat({
             void send(text)
           }}
           disabled={sending}
+          dictation={dictation}
         />
       </div>
     </div>

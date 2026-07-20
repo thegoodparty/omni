@@ -10,6 +10,8 @@ import {
   SparklesIcon,
 } from '@styleguide/components/ui/icons'
 import type { LiveSegment } from './streaming'
+import { DictationMicButton } from '../../briefings/shared/DictationMicButton'
+import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
 
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
 // flow, ...). One source of truth for the assistant bubble, markdown rendering,
@@ -191,7 +193,11 @@ export function ThinkingRow({
 
 // The message composer: a pill-shaped input with a send button. The consumer
 // owns the value and clears it on submit; `onSubmit` fires on Enter or the
-// button, and the button is disabled while empty.
+// button, and the button is disabled while empty. Pass `dictation` (from
+// useDictationAppend, wired to the same value/onChange) to add a voice-input
+// mic before the send button; omit it and the mic isn't rendered. The
+// dictation-enabled (agent) composer sends with the branded AI icon; the plain
+// composer keeps the send arrow.
 export function ChatComposer({
   value,
   onChange,
@@ -199,6 +205,7 @@ export function ChatComposer({
   disabled,
   placeholder = 'Ask me any questions about this...',
   inputRef,
+  dictation,
 }: {
   value: string
   onChange: (value: string) => void
@@ -206,12 +213,16 @@ export function ChatComposer({
   disabled?: boolean
   placeholder?: string
   inputRef?: Ref<HTMLInputElement>
+  dictation?: UseDictationAppendResult
 }): React.JSX.Element {
   return (
     <form
       className="flex items-center gap-1 rounded-full border border-border bg-card py-1 pr-1 pl-4"
       onSubmit={(e) => {
         e.preventDefault()
+        // Match the send button's guard so Enter can't submit mid-dictation,
+        // which would drop the not-yet-finalized words still being spoken.
+        if (dictation?.active) return
         onSubmit()
       }}
     >
@@ -221,15 +232,29 @@ export function ChatComposer({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         disabled={disabled}
-        className="border-0 bg-transparent shadow-none focus-visible:ring-0"
+        className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0"
       />
+      {dictation ? (
+        <DictationMicButton
+          dictation={dictation}
+          idleLabel="Dictate a message"
+          recordingLabel="Stop dictation"
+          disabled={disabled}
+          size="medium"
+          className="static shrink-0 rounded-full"
+        />
+      ) : null}
       <IconButton
         type="submit"
-        className="rounded-full"
-        disabled={disabled || value.trim().length === 0}
+        className="shrink-0 rounded-full"
+        disabled={disabled || !!dictation?.active || value.trim().length === 0}
         aria-label="Send"
       >
-        <SendIcon className="size-4" aria-hidden />
+        {dictation ? (
+          <SparklesIcon className="size-5" aria-hidden />
+        ) : (
+          <SendIcon className="size-5" aria-hidden />
+        )}
       </IconButton>
     </form>
   )
