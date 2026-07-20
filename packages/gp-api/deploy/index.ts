@@ -188,14 +188,13 @@ export = async () => {
             protocol: 'tcp',
             fromPort: 5432,
             toPort: 5432,
+            description: 'gp-api app tasks (shared app security group)',
             securityGroups: vpcSecurityGroupIds,
           },
-          {
-            protocol: 'tcp',
-            fromPort: 5432,
-            toPort: 5432,
-            cidrBlocks: [vpcCidr],
-          },
+          // The previous whole-VPC-CIDR rule (cidrBlocks: [vpcCidr]) was
+          // removed: it let anything in 10.0.0.0/16 reach Postgres. App tasks
+          // already reach RDS via the app security group rule above, so the
+          // broad CIDR grant only widened the blast radius.
           {
             protocol: 'tcp',
             fromPort: 5432,
@@ -387,6 +386,71 @@ export = async () => {
     prod: 'gp-api.goodparty.org',
   })
 
+  // --- Task-role resource scoping ------------------------------------------
+  // The gp-api task role is granted access only to the specific S3 buckets and
+  // SQS queues this service actually uses (enumerated from the environment
+  // variables below), rather than account-wide s3:*/sqs:* on Resource '*'. A
+  // compromised task credential can then only reach gp-api's own resources,
+  // not every bucket/queue in the account.
+  const region = 'us-west-2'
+  const accountId = '333022194791'
+
+  const serveAnalysisBucketName = `serve-analyze-data-${
+    environment === 'preview' ? 'dev' : environment
+  }`
+  const assetsBucketName = select({
+    preview: 'assets-dev.goodparty.org',
+    dev: 'assets-dev.goodparty.org',
+    qa: 'assets-qa.goodparty.org',
+    prod: 'assets.goodparty.org',
+  })
+  const campaignPlanResultsBucketName = select({
+    preview: '',
+    dev: 'campaign-plan-results-dev',
+    qa: 'campaign-plan-results-qa',
+    prod: '',
+  })
+
+  const taskRoleBucketNames: pulumi.Input<string>[] = [
+    tevynPollCsvsBucket.bucket,
+    zipToAreaCodeBucket.bucket,
+    annotationAttachmentsBucketName,
+    campaignPlanSharesBucketName,
+    agentRunInputsBucketName,
+    meetingPipelineBucketName,
+    serveAnalysisBucketName,
+    assetsBucketName,
+    ...(campaignPlanResultsBucketName ? [campaignPlanResultsBucketName] : []),
+  ]
+
+  const taskRoleBucketArns = taskRoleBucketNames.map(
+    (name) => pulumi.interpolate`arn:aws:s3:::${name}`,
+  )
+  const taskRoleObjectArns = taskRoleBucketNames.map(
+    (name) => pulumi.interpolate`arn:aws:s3:::${name}/*`,
+  )
+
+  const campaignPlanInputQueueName = select({
+    preview: '',
+    dev: 'campaign-plan-input-dev.fifo',
+    qa: 'campaign-plan-input-qa.fifo',
+    prod: '',
+  })
+  const agentDispatchQueueName = select({
+    preview: '',
+    dev: 'agent-dispatch-dev.fifo',
+    qa: 'agent-dispatch-qa.fifo',
+    prod: 'agent-dispatch-prod.fifo',
+  })
+  const staticQueueArns = [campaignPlanInputQueueName, agentDispatchQueueName]
+    .filter((name): name is string => name !== '')
+    .map((name) => `arn:aws:sqs:${region}:${accountId}:${name}`)
+  const taskRoleQueueArns: pulumi.Input<string>[] = [
+    queue.arn,
+    dlq.arn,
+    ...staticQueueArns,
+  ]
+
   const service = createService({
     dependsOn: rdsInstance ? [rdsInstance] : [],
     environment,
@@ -395,6 +459,7 @@ export = async () => {
     vpcId,
     securityGroupIds: vpcSecurityGroupIds,
     publicSubnetIds: vpcSubnetIds.public,
+    privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain,
     certificateArn: select({
@@ -501,13 +566,30 @@ export = async () => {
       },
       {
         Effect: 'Allow',
-        Action: ['s3:*', 's3-object-lambda:*'],
-        Resource: ['*'],
+        Action: [
+          's3:GetObject',
+          's3:PutObject',
+          's3:DeleteObject',
+          's3:AbortMultipartUpload',
+        ],
+        Resource: taskRoleObjectArns,
       },
       {
         Effect: 'Allow',
-        Action: ['sqs:*'],
-        Resource: ['*'],
+        Action: ['s3:ListBucket', 's3:GetBucketLocation'],
+        Resource: taskRoleBucketArns,
+      },
+      {
+        Effect: 'Allow',
+        Action: [
+          'sqs:SendMessage',
+          'sqs:ReceiveMessage',
+          'sqs:DeleteMessage',
+          'sqs:GetQueueUrl',
+          'sqs:GetQueueAttributes',
+          'sqs:ChangeMessageVisibility',
+        ],
+        Resource: taskRoleQueueArns,
       },
       {
         Effect: 'Allow',
