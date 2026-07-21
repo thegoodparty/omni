@@ -247,6 +247,19 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(without).not.toContain('AUTHORITY RULES')
   })
 
+  it('includes present-card ordering rules when any present_* tool is offered', () => {
+    const withTool = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'authority' }),
+      toolNames: ['present_authority_finding', 'offer_next_step'],
+    })
+    expect(withTool).toContain('PRESENT-CARD ORDERING')
+    const without = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'clarify' }),
+      toolNames: ['ask_clarify_question', 'offer_next_step'],
+    })
+    expect(without).not.toContain('PRESENT-CARD ORDERING')
+  })
+
   it('includes comparables rules only when present_comparables is offered', () => {
     const withTool = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'comparables' }),

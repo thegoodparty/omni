@@ -322,7 +322,7 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     expect(screen.queryByText(/Nowhere/)).not.toBeInTheDocument()
   })
 
-  it("shows a turn's cards together below its lead-in, once the text types out", async () => {
+  it('interleaves the cards below the lead-in and keeps them while later prose streams', async () => {
     // Mount load is empty (kickoff); the post-stream refetch returns the
     // persisted turn so the commit swap resolves.
     mocks.listMessages.mockResolvedValueOnce([]).mockResolvedValue([
@@ -338,19 +338,22 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
           toolName: 'present_legislative_history',
           payload: historyPayload,
         },
+        { kind: 'text', text: 'Next we weigh this against peer cities.' },
       ]),
     ])
-    let release: (() => void) | undefined
-    const gate = new Promise<void>((resolve) => {
-      release = resolve
+    let releaseClosing: (() => void) | undefined
+    const closingGate = new Promise<void>((resolve) => {
+      releaseClosing = resolve
+    })
+    let releaseDone: (() => void) | undefined
+    const doneGate = new Promise<void>((resolve) => {
+      releaseDone = resolve
     })
     mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
       ChatStreamEvent,
       void,
       void
     > {
-      // Lead-in text first, then the present_* tools, then the turn ends — no
-      // prose after the cards (the step ends with the offer button, not text).
       yield { type: 'text', delta: 'Here is the chapter.' }
       yield {
         type: 'tool_call',
@@ -362,7 +365,11 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
         toolName: 'present_legislative_history',
         args: historyPayload,
       }
-      await gate
+      // Gate the trailing prose so the cards' positions are fixed at the lead-in
+      // before it arrives (a real stream has a gap here).
+      await closingGate
+      yield { type: 'text', delta: 'Next we weigh this against peer cities.' }
+      await doneGate
       yield { type: 'done' }
     })
 
@@ -379,91 +386,33 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     const leadIn = screen.getByText('Here is the chapter.')
     expect(leadIn).toBeVisible()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
-
-    // The lead-in renders above the cards, not the other way round.
     expect(
       leadIn.compareDocumentPosition(firstCard) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
 
-    release?.()
-    await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2), {
-      timeout: 8000,
-    })
-  }, 15000)
-
-  it('keeps a card between the lead-in and the trailing prose in one turn', async () => {
-    mocks.listMessages.mockResolvedValueOnce([]).mockResolvedValue([
-      assistantTurn('m1', [
-        { kind: 'text', text: 'Quick legal sanity check.' },
-        {
-          kind: 'tool',
-          toolName: 'present_authority_finding',
-          payload: authorityPayload,
-        },
-        { kind: 'text', text: 'That keeps you on solid ground.' },
-      ]),
-    ])
-    let releaseTrailing: (() => void) | undefined
-    const trailingGate = new Promise<void>((resolve) => {
-      releaseTrailing = resolve
-    })
-    let releaseDone: (() => void) | undefined
-    const doneGate = new Promise<void>((resolve) => {
-      releaseDone = resolve
-    })
-    mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
-      ChatStreamEvent,
-      void,
-      void
-    > {
-      // Lead-in, the card's tool, then — after a gap, as a real stream would —
-      // MORE prose in the same turn. The gap ensures the card's position is
-      // fixed at the lead-in before the trailing prose arrives.
-      yield { type: 'text', delta: 'Quick legal sanity check.' }
-      yield {
-        type: 'tool_call',
-        toolName: 'present_authority_finding',
-        args: authorityPayload,
-      }
-      await trailingGate
-      yield { type: 'text', delta: 'That keeps you on solid ground.' }
-      await doneGate
-      yield { type: 'done' }
-    })
-
-    render(<OrdinanceFlowChat slug="public-safety-cameras" step="authority" />)
-
-    // The card appears after the lead-in has typed out.
-    const card = await screen.findByText(
-      'Pass. The council has authority to act.',
+    // The trailing prose then types out below the cards, which stay mounted.
+    releaseClosing?.()
+    const closing = await screen.findByText(
+      'Next we weigh this against peer cities.',
       undefined,
       { timeout: 4000 },
     )
-    expect(card).toBeVisible()
-
-    // The trailing prose then types out below the card, which stays visible.
-    releaseTrailing?.()
-    const trailing = await screen.findByText(
-      'That keeps you on solid ground.',
-      undefined,
-      { timeout: 4000 },
-    )
-    expect(card).toBeVisible()
-    const leadIn = screen.getByText('Quick legal sanity check.')
-
-    // Order in the turn: lead-in, then card, then trailing prose.
+    expect(screen.getByText('What it does today')).toBeVisible()
+    expect(screen.getByText('Intent and history')).toBeVisible()
     expect(
-      leadIn.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-    expect(
-      card.compareDocumentPosition(trailing) & Node.DOCUMENT_POSITION_FOLLOWING,
+      firstCard.compareDocumentPosition(closing) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
 
     releaseDone?.()
-    await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2), {
-      timeout: 8000,
-    })
+    // A stall-reconcile on this longer gated stream can add refetches, so assert
+    // at least the commit refetch happened rather than an exact count.
+    await waitFor(
+      () =>
+        expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
+      { timeout: 8000 },
+    )
   }, 15000)
 
   it('ignores a live widget whose payload parses but has nothing to render', async () => {
