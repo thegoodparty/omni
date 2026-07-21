@@ -14,6 +14,11 @@ import ChatPill from '../ai-chat/ChatPill'
 import { DictationMicButton } from '../../briefings/shared/DictationMicButton'
 import type { UseDictationAppendResult } from '../../briefings/shared/useDictationAppend'
 
+// Module-level so react-markdown gets a stable plugins identity across the
+// per-tick re-renders of a streaming turn (a fresh [remarkGfm] each render
+// would defeat its internal memoization).
+const REMARK_PLUGINS = [remarkGfm]
+
 // Shared presentation for the agent chat surfaces (Chief of Staff, ordinance
 // flow, ...). One source of truth for the assistant bubble, markdown rendering,
 // the in-progress tool "shimmer" pills, and the avatar so every scope's chat
@@ -72,7 +77,7 @@ export function AssistantMarkdown({
 }): React.JSX.Element {
   return (
     <div className={ASSISTANT_BUBBLE}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
     </div>
   )
 }
@@ -99,7 +104,7 @@ export function CardMarkdown({
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{children}</ReactMarkdown>
     </div>
   )
 }

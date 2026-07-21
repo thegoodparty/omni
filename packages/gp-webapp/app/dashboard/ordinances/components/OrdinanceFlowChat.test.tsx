@@ -371,16 +371,96 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     )
 
     // The lead-in types out first, then both cards appear together below it.
-    expect(
-      await screen.findByText('What it does today', undefined, {
-        timeout: 4000,
-      }),
-    ).toBeVisible()
+    const firstCard = await screen.findByText('What it does today', undefined, {
+      timeout: 4000,
+    })
+    expect(firstCard).toBeVisible()
     expect(screen.getByText('Intent and history')).toBeVisible()
-    expect(screen.getByText('Here is the chapter.')).toBeVisible()
+    const leadIn = screen.getByText('Here is the chapter.')
+    expect(leadIn).toBeVisible()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
 
+    // The lead-in renders above the cards, not the other way round.
+    expect(
+      leadIn.compareDocumentPosition(firstCard) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
     release?.()
+    await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2), {
+      timeout: 8000,
+    })
+  }, 15000)
+
+  it('keeps a card between the lead-in and the trailing prose in one turn', async () => {
+    mocks.listMessages.mockResolvedValueOnce([]).mockResolvedValue([
+      assistantTurn('m1', [
+        { kind: 'text', text: 'Quick legal sanity check.' },
+        {
+          kind: 'tool',
+          toolName: 'present_authority_finding',
+          payload: authorityPayload,
+        },
+        { kind: 'text', text: 'That keeps you on solid ground.' },
+      ]),
+    ])
+    let releaseTrailing: (() => void) | undefined
+    const trailingGate = new Promise<void>((resolve) => {
+      releaseTrailing = resolve
+    })
+    let releaseDone: (() => void) | undefined
+    const doneGate = new Promise<void>((resolve) => {
+      releaseDone = resolve
+    })
+    mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
+      ChatStreamEvent,
+      void,
+      void
+    > {
+      // Lead-in, the card's tool, then — after a gap, as a real stream would —
+      // MORE prose in the same turn. The gap ensures the card's position is
+      // fixed at the lead-in before the trailing prose arrives.
+      yield { type: 'text', delta: 'Quick legal sanity check.' }
+      yield {
+        type: 'tool_call',
+        toolName: 'present_authority_finding',
+        args: authorityPayload,
+      }
+      await trailingGate
+      yield { type: 'text', delta: 'That keeps you on solid ground.' }
+      await doneGate
+      yield { type: 'done' }
+    })
+
+    render(<OrdinanceFlowChat slug="public-safety-cameras" step="authority" />)
+
+    // The card appears after the lead-in has typed out.
+    const card = await screen.findByText(
+      'Pass. The council has authority to act.',
+      undefined,
+      { timeout: 4000 },
+    )
+    expect(card).toBeVisible()
+
+    // The trailing prose then types out below the card, which stays visible.
+    releaseTrailing?.()
+    const trailing = await screen.findByText(
+      'That keeps you on solid ground.',
+      undefined,
+      { timeout: 4000 },
+    )
+    expect(card).toBeVisible()
+    const leadIn = screen.getByText('Quick legal sanity check.')
+
+    // Order in the turn: lead-in, then card, then trailing prose.
+    expect(
+      leadIn.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    expect(
+      card.compareDocumentPosition(trailing) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+
+    releaseDone?.()
     await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2), {
       timeout: 8000,
     })

@@ -11,7 +11,10 @@ import {
   type OrdinancePresentDraft,
 } from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../shared/agent-chat/chatClient'
-import type { LiveSegment } from '../../shared/agent-chat/streaming'
+import {
+  segmentsToLive,
+  type LiveSegment,
+} from '../../shared/agent-chat/streaming'
 import { InlineSegments } from '../../shared/agent-chat/chatUI'
 import AuthorityFindingWidget from './AuthorityFindingWidget'
 import ComparablesWidget from './ComparablesWidget'
@@ -99,16 +102,6 @@ export const parseStepWidget = (
   }
 }
 
-// Widgets a persisted assistant turn carries, in tool-call order.
-export const parseStepWidgets = (
-  segments: ChatMessageSegment[],
-): StepWidgetInstance[] =>
-  segments.flatMap((s) => {
-    if (s.kind !== 'tool' || !s.toolName) return []
-    const widget = parseStepWidget(s.toolName, s.payload)
-    return widget ? [widget] : []
-  })
-
 // A live widget plus the text position (chars streamed before its tool fired)
 // where it belongs in the turn, so it renders inline at that seam.
 export type PositionedWidget = {
@@ -190,25 +183,21 @@ export function persistedTurnBlocks(
   content: string,
 ): TurnBlock[] {
   if (segments.length === 0) {
-    return content
-      ? [{ kind: 'segments', segments: [{ kind: 'text', text: content }] }]
-      : []
+    const live = segmentsToLive([], content)
+    return live.length > 0 ? [{ kind: 'segments', segments: live }] : []
   }
   const blocks: TurnBlock[] = []
-  let run: LiveSegment[] = []
+  let run: ChatMessageSegment[] = []
+  // Split the segments at each widget tool; the shared segmentsToLive does the
+  // text/tool projection for the non-widget runs, so those rules live in one
+  // place.
   const flushRun = (): void => {
-    if (run.length > 0) {
-      blocks.push({ kind: 'segments', segments: run })
-      run = []
-    }
+    const live = segmentsToLive(run, '')
+    if (live.length > 0) blocks.push({ kind: 'segments', segments: live })
+    run = []
   }
   for (const s of segments) {
-    if (s.kind === 'text') {
-      if (s.text) run.push({ kind: 'text', text: s.text })
-      continue
-    }
-    if (!s.toolName) continue
-    if (isStepWidgetTool(s.toolName)) {
+    if (s.kind === 'tool' && s.toolName && isStepWidgetTool(s.toolName)) {
       const widget = parseStepWidget(s.toolName, s.payload)
       if (widget) {
         flushRun()
@@ -216,7 +205,7 @@ export function persistedTurnBlocks(
       }
       continue
     }
-    run.push({ kind: 'tool', toolName: s.toolName })
+    run.push(s)
   }
   flushRun()
   return blocks

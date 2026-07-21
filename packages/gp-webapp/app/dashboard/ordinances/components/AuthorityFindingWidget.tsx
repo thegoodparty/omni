@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { cn } from '@styleguide'
 import {
   CircleAlertIcon,
@@ -33,8 +34,10 @@ const VARIANTS = {
 
 // The authority-check verdict card (present_authority_finding tool payload):
 // status icon, verdict headline, the statute-grounded explanation, an optional
-// "what this means for you" confirmation, and the cited source.
-export default function AuthorityFindingWidget({
+// "what this means for you" confirmation, and the cited source. Memoized because
+// its `finding` is a stable reference across a streaming turn's reveal ticks —
+// so its markdown isn't re-parsed while later prose types out below the card.
+function AuthorityFindingWidget({
   finding,
 }: {
   finding: OrdinanceAuthorityFinding
@@ -72,3 +75,5 @@ export default function AuthorityFindingWidget({
     </div>
   )
 }
+
+export default memo(AuthorityFindingWidget)
