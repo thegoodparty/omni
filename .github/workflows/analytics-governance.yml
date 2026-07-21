@@ -53,6 +53,9 @@ jobs:
       # a base64 of the personal OAuth token pickle. Absent -> step skips.
       GP_SHEETS_TOKEN_B64: ${{ secrets.GP_SHEETS_TOKEN_B64 }}
       GP_EVENT_STATE_SHEET_ID: ${{ vars.GP_EVENT_STATE_SHEET_ID }}
+      # Deep-links the Slack "browse gaps" link to the gaps tab; unset -> the
+      # browse link falls back to the sheet's default tab (DATA-2151 Phase 3).
+      GP_GAPS_TAB_GID: ${{ vars.GP_GAPS_TAB_GID }}
     steps:
       - name: Preflight required config
         env:
