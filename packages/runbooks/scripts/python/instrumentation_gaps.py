@@ -642,6 +642,71 @@ def run_sweep(
     return new_state, gaps, status, pending
 
 
+def render_seed_artifact(state: Mapping[str, dict]) -> str:
+    """A one-off, machine-parseable review artifact (PR #171 shape). One block per gap;
+    the reviewer fills `- disposition:` (accepted|dismissed|open, blank keeps `new`) and
+    `- reason:`. load_seed parses it back."""
+    gaps = sorted(state.values(), key=lambda e: (e.get("rank", 5), e["id"]))
+    lines = [
+        f"# Instrumentation gap seed — {len(gaps)} candidate gaps",
+        "",
+        "For each, set `- disposition:` to accepted | dismissed | open (blank keeps it `new`)",
+        "and add `- reason:` when dismissing. Then load it back with --load-seed.",
+        "",
+    ]
+    for e in gaps:
+        lines += [
+            f"## {e['id']}",
+            f"- surface_type: {e.get('surface_type', '')}",
+            f"- rank: {e.get('rank', 5)}",
+            f"- location: {e.get('location', '')}",
+            f"- rubric_rule: {e.get('rubric_rule', '')}",
+            f"- dashboard_question: {e.get('dashboard_question', '')}",
+            f"- judge_reason: {e.get('judge_reason', '')}",
+            "- disposition:",
+            "- reason:",
+            "",
+        ]
+    return "\n".join(lines)
+
+
+def run_seed(
+    repo_root: Path,
+    config_path: Path,
+    state_path: Path | None,
+    today: date,
+    *,
+    api_key: str | None,
+    model: str = DEFAULT_MODEL,
+    rubric_path: Path = DEFAULT_RUBRIC_PATH,
+    client_factory=make_anthropic_client,
+    chunk_size: int = 25,
+) -> tuple[dict, str, int]:
+    """Whole-repo one-off audit: scan, judge every untriaged candidate (chunked), merge
+    confirmed gaps as `new`. Graceful like run_sweep — never raises on judgment issues."""
+    cfg = load_gap_config(config_path)
+    prior = load_state(state_path)
+    surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
+    gaps = find_gaps(surfaces, tracked)
+    candidates = select_candidates(gaps, prior, limit=None)
+    candidates_by_id = {c["id"]: c for c in candidates}
+    if not candidates:
+        return merge_judged_state(prior, {}, {}, today), "no-candidates", 0
+    if not api_key:
+        return dict(prior), "skipped: ANTHROPIC_API_KEY unset", 0
+    try:
+        rubric = load_rubric(rubric_path)
+    except OSError:
+        return dict(prior), "skipped: rubric unavailable", 0
+    try:
+        client = client_factory(api_key)
+        verdicts = judge_all(candidates, rubric, client=client, model=model, chunk_size=chunk_size)
+    except Exception as exc:  # noqa: BLE001 — judgment must never break the seed run
+        return dict(prior), f"failed: {exc}", 0
+    new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
+    return new_state, "ok", len(candidates)
+
+
 def prepend_log(log_path: Path, section: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     existing = log_path.read_text() if log_path.exists() else ""
@@ -667,6 +732,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--no-judge", action="store_true", help="skip the LLM judgment pass")
     parser.add_argument("--slack-out", type=Path, default=None,
                         help="write the gap run-data JSON here for the health step's Slack post")
+    parser.add_argument("--seed", action="store_true",
+                        help="one-off whole-repo audit: judge every untriaged candidate "
+                             "uncapped and write a human-reviewable seed artifact")
+    parser.add_argument("--seed-artifact", type=Path, default=DATA_DIR / "instrumentation-gaps-seed.md",
+                        help="where to write the --seed review artifact")
     args = parser.parse_args(argv)
 
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
@@ -679,6 +749,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    if args.seed:
+        # Graceful-skip contract: a scan/walk failure must never fail the run.
+        try:
+            new_state, status, judged = run_seed(
+                repo_root, args.config, args.state, today,
+                api_key=api_key, model=args.model, rubric_path=args.rubric,
+                client_factory=make_anthropic_client,
+            )
+        except CorruptStateError as exc:
+            print(
+                f"gap-sweep: state file unreadable ({exc}); skipping this run, "
+                "state left untouched.",
+                file=sys.stderr,
+            )
+            return 0
+        except Exception as exc:  # noqa: BLE001 — unattended run must not crash on a scan error
+            print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
+            return 0
+        print(f"gap-seed: {status} ({judged} candidate(s) judged).", file=sys.stderr)
+        _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
+        _atomic_write(args.seed_artifact, render_seed_artifact(new_state))
+        return 0
 
     # Graceful-skip contract: a scan/walk failure must never fail the governance run.
     try:

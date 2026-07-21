@@ -660,3 +660,112 @@ def test_main_writes_slack_out_file(tmp_path, monkeypatch):
     data = json.loads(out.read_text())
     assert data["status"] == "ok"
     assert any(g["id"] == "/foo" for g in data["new_gaps"])
+
+
+def test_render_seed_artifact_has_parseable_blocks():
+    state = {"/a": {"id": "/a", "surface_type": "route", "rank": 0, "location": "a.tsx",
+                    "rubric_rule": "flow", "dashboard_question": "q", "judge_reason": "jr",
+                    "disposition": "new", "reason": ""}}
+    md = ig.render_seed_artifact(state)
+    assert "## /a" in md
+    assert "- disposition:" in md and "- reason:" in md
+    assert "- location: a.tsx" in md
+
+
+def test_run_seed_scans_whole_repo_and_confirms(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    (tmp_path / "packages/gp-api/src").mkdir(parents=True)
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    rub = tmp_path / "r.md"; rub.write_text("RUBRIC")
+    payload = {"results": [{"id": "/foo", "is_gap": True, "rubric_rule": "route",
+                            "dashboard_question": "q", "rank": 3, "reason": "r"}]}
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=rub,
+        client_factory=lambda _k: _FakeClient(payload=payload))
+    assert status == "ok"
+    assert new_state["/foo"]["disposition"] == "new"
+    assert judged == 1
+
+
+def test_run_seed_no_candidates(tmp_path):
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=tmp_path / "r.md",
+        client_factory=lambda _k: _FakeClient(payload=_VERDICT_PAYLOAD))
+    assert status == "no-candidates"
+    assert judged == 0
+    assert new_state == {}
+
+
+def test_run_seed_skips_without_key(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    prior = {"/keep": {"id": "/keep", "disposition": "accepted"}}
+    state_path = tmp_path / "s.json"
+    state_path.write_text(json.dumps(prior))
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, state_path, date(2026, 7, 21),
+        api_key=None, model="m", rubric_path=tmp_path / "r.md",
+    )
+    assert status == "skipped: ANTHROPIC_API_KEY unset"
+    assert judged == 0
+    assert new_state == prior
+    assert new_state is not prior  # must not alias the prior mapping
+
+
+def test_run_seed_skips_when_rubric_unreadable(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=tmp_path,  # a directory -> OSError
+    )
+    assert status == "skipped: rubric unavailable"
+    assert judged == 0
+    assert new_state == {}
+
+
+def test_run_seed_swallows_judge_exception(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    rub = tmp_path / "r.md"; rub.write_text("RUBRIC")
+    boom = _FakeClient(raise_exc=RuntimeError("429 overloaded"))
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=rub,
+        client_factory=lambda _k: boom,
+    )
+    assert status.startswith("failed:")
+    assert judged == 0
+    assert new_state == {}
+
+
+def test_main_seed_writes_state_and_artifact(tmp_path, monkeypatch):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    (tmp_path / "packages/gp-api/src").mkdir(parents=True)
+    cfg = tmp_path / "cfg.yaml"; cfg.write_text("exclude_globs: []\n")
+    rubric = tmp_path / "rub.md"; rubric.write_text("RUBRIC")
+    state = tmp_path / "state.json"
+    log = tmp_path / "log.md"
+    artifact = tmp_path / "seed.md"
+    payload = {"results": [{"id": "/foo", "is_gap": True, "rubric_rule": "route",
+                            "dashboard_question": "q", "rank": 3, "reason": "r"}]}
+    monkeypatch.setattr(ig, "make_anthropic_client", lambda k: _FakeClient(payload=payload))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    rc = ig.main(["--repo", str(tmp_path), "--config", str(cfg), "--state", str(state),
+                  "--rubric", str(rubric), "--log", str(log), "--today", "2026-07-21",
+                  "--seed", "--seed-artifact", str(artifact)])
+    assert rc == 0
+    data = json.loads(state.read_text())
+    assert data["/foo"]["disposition"] == "new"
+    assert not log.exists()  # --seed skips the log write
+    md = artifact.read_text()
+    assert "## /foo" in md
+    assert "- disposition:" in md
