@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createIdFilterSchema, transformFilters } from './filters.schema.utils'
+import { createIdFilterSchema } from '@goodparty_org/contracts'
+import { transformFilters } from './filters.schema.utils'
 
 const mockSchemaShape = {
   estimatedIncomeAmountInt: {},

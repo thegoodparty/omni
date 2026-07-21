@@ -1,136 +1,26 @@
 /**
- * Filter Schema for People API
- *
- * Example JSON structure:
- * {
- *   "hasCellPhone": true,                          // Boolean filter (true = IS NOT NULL)
- *   "hasAddress": true,                            // Boolean filter (true = IS NOT NULL)
- *   "id": { "in": ["<uuid>"] },                    // Id filter with 'in' operator
- *   "id": { "notIn": ["<uuid>"] },                 // Id filter with 'notIn' operator
- *   "voterStatus": { "in": ["Super", "Likely"] }, // Enum filter with 'in' operator
- *   "politicalParty": { "eq": "Democratic" }, // Enum filter with 'eq' operator
- *   "maritalStatus": { "is": "not_null" },        // Enum filter with 'is' operator
- *   "gender": { "in": ["M", "F"] },               // Enum filter with multiple values
- *   "language": { "in": ["English", "Spanish"] }, // Enum filter with 'in' operator
- *   "estimatedIncomeAmountInt": { "gte": 25000, "lte": 50000 }, // Numeric filter with range
- *   "estimatedIncomeAmountInt": { "in": [25000, 50000, 75000] }, // Numeric filter with 'in' operator
- *   "estimatedIncomeAmountInt": { "_or": [{ "gte": 0, "lte": 25000 }, { "gte": 75000, "lte": 100000 }] }, // Numeric filter with OR'd ranges
- *   "estimatedIncomeAmountInt": { "gte": 25000, "_includeNull": true }, // Numeric filter including null values
- *   "ageInt": { "gte": 18, "lte": 65 },            // Numeric filter with range
- *   "ageInt": { "in": [25, 30, 35] },             // Numeric filter with 'in' operator
- *   "ageInt": { "eq": 30 }                         // Numeric filter with 'eq' operator
- * }
- *
- * Filter Types:
- * - Boolean filters: hasCellPhone, hasLandline, hasAddress (true = IS NOT NULL, false = IS NULL)
- * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
- * - Enum filters: voterStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
- *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender
- *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
- * - Enum filters: language (uses enum values from FILTER_VALUE_ENUMS.language)
- *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
- * - Numeric filters: ageInt, estimatedIncomeAmountInt
- *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
- *   Options: { _or: [{ gte, lte }] } for OR'd ranges, { _includeNull: boolean } to include null values in results
+ * The `filters` input grammar (operator shapes, enum vocabularies, array
+ * caps, example JSON) is defined in @goodparty_org/contracts
+ * (`PeopleFiltersSchema`) so the producer (gp-api) and this service
+ * validate against one definition. This file owns only the server-side
+ * transform into the SQL pipeline's FilterData shape.
  */
 
-import { z } from 'zod'
 import {
-  createEnumFilterSchema,
-  createIdFilterSchema,
-  createNumericFilterSchema,
+  type PeopleFilters,
+  PeopleFiltersSchema,
+} from '@goodparty_org/contracts'
+import {
   transformFilters,
   type TransformFiltersResult,
 } from './filters.schema.utils'
 
-export const FILTER_VALUE_ENUMS = {
-  voterStatus: [
-    'Super',
-    'Likely',
-    'Unreliable',
-    'Unlikely',
-    'First Time',
-    'Unknown',
-  ] as const,
-  politicalParty: [
-    'Independent',
-    'Democratic',
-    'Republican',
-    'Unknown',
-  ] as const,
-  maritalStatus: [
-    'Inferred Married',
-    'Inferred Single',
-    'Married',
-    'Single',
-    'Unknown',
-  ] as const,
-  veteranStatus: ['Yes', 'Unknown'] as const,
-  educationLevel: [
-    'None',
-    'High School Diploma',
-    'Technical School',
-    'Some College',
-    'College Degree',
-    'Graduate Degree',
-    'Unknown',
-  ] as const,
-  ethnicity: [
-    'Asian',
-    'European',
-    'Hispanic',
-    'African American',
-    'Other',
-    'Unknown',
-  ] as const,
-  businessOwner: ['Yes', 'Unknown'] as const,
-  presenceOfChildren: ['Yes', 'No', 'Unknown'] as const,
-  homeowner: ['Yes', 'Likely', 'No', 'Unknown'] as const,
-  gender: ['M', 'F', 'Unknown'] as const,
-  language: ['English', 'Spanish', 'Other'] as const,
-} as const
+export type AllowedFilter = keyof PeopleFilters
 
-const filtersSchemaObject = z.object({
-  hasCellPhone: z.boolean().optional(),
-  hasLandline: z.boolean().optional(),
-  hasAddress: z.boolean().optional(),
-  id: createIdFilterSchema().optional(),
-  maritalStatus: createEnumFilterSchema(
-    FILTER_VALUE_ENUMS.maritalStatus,
-  ).optional(),
-  veteranStatus: createEnumFilterSchema(
-    FILTER_VALUE_ENUMS.veteranStatus,
-  ).optional(),
-  educationLevel: createEnumFilterSchema(
-    FILTER_VALUE_ENUMS.educationLevel,
-  ).optional(),
-  ethnicity: createEnumFilterSchema(FILTER_VALUE_ENUMS.ethnicity).optional(),
-  businessOwner: createEnumFilterSchema(
-    FILTER_VALUE_ENUMS.businessOwner,
-  ).optional(),
-  presenceOfChildren: createEnumFilterSchema(
-    FILTER_VALUE_ENUMS.presenceOfChildren,
-  ).optional(),
-  homeowner: createEnumFilterSchema(FILTER_VALUE_ENUMS.homeowner).optional(),
-  gender: createEnumFilterSchema(FILTER_VALUE_ENUMS.gender).optional(),
-  voterStatus: createEnumFilterSchema(
-    FILTER_VALUE_ENUMS.voterStatus,
-  ).optional(),
-  politicalParty: createEnumFilterSchema(
-    FILTER_VALUE_ENUMS.politicalParty,
-  ).optional(),
-  language: createEnumFilterSchema(FILTER_VALUE_ENUMS.language).optional(),
-  estimatedIncomeAmountInt: createNumericFilterSchema().optional(),
-  ageInt: createNumericFilterSchema().optional(),
-})
-
-export type AllowedFilter = keyof z.infer<typeof filtersSchemaObject>
-
-export const filtersSchema = filtersSchemaObject
-  .optional()
+export const filtersSchema = PeopleFiltersSchema.optional()
   .default({})
   .transform((filters) =>
-    transformFilters<AllowedFilter>(filters, filtersSchemaObject.shape),
+    transformFilters<AllowedFilter>(filters, PeopleFiltersSchema.shape),
   )
 
 export type { FilterOperator } from './filters.schema.utils'
