@@ -321,6 +321,25 @@ describe('supersession on edit', () => {
     expect(res.data.qualityLoop.status).toBe('superseded_by_edit')
   })
 
+  it('supersedes a running loop when a PATCH regresses status to in_progress', async () => {
+    const orgSlug = 'eo-qloop-supersede-regress'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const { slug } = await seedDraftOrdinance(header)
+    await startLoop(slug, header)
+
+    // Any move off `draft` — forward or backward — takes the record out of
+    // the loop's operating domain; a run left alive would write terminals
+    // over the regressed record.
+    const res = await service.client.patch(
+      `/v1/ordinances/${slug}`,
+      { status: 'in_progress' },
+      header,
+    )
+
+    expect(res.data.qualityLoop.status).toBe('superseded_by_edit')
+  })
+
   it('keeps the loop running on a PATCH that touches no hash input', async () => {
     const orgSlug = 'eo-qloop-no-supersede'
     await seedElectedOffice(orgSlug)

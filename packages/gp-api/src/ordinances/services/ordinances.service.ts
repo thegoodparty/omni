@@ -152,10 +152,11 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       (dto.draftTitle !== undefined &&
         dto.draftTitle !== existing.draftTitle) ||
       (dto.draftBody !== undefined && dto.draftBody !== existing.draftBody)
-    const advancesPastDraft =
-      dto.status !== undefined &&
-      dto.status !== OrdinanceStatus.in_progress &&
-      dto.status !== OrdinanceStatus.draft
+    // Any status move off `draft` — forward (in_review, ...) or backward
+    // (in_progress) — takes the record out of the loop's operating domain;
+    // a run left alive would write its terminal over the moved record.
+    const leavesDraft =
+      dto.status !== undefined && dto.status !== OrdinanceStatus.draft
     const record = await this.model.update({
       where: { id: existing.id },
       data: {
@@ -170,7 +171,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     })
     if (
       existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running &&
-      (changesHashInput || advancesPastDraft)
+      (changesHashInput || leavesDraft)
     ) {
       await this.qualityLoop.supersedeOnEdit(existing.id)
       // Re-read so the response carries the superseded loop, not the

@@ -929,6 +929,56 @@ describe('handleStep qc', () => {
     )
   })
 
+  it('restores the draftSources snapshot alongside the best iteration', async () => {
+    const runId = randomUUID()
+    const gradedSources = [{ id: 's0', title: 'N.C.G.S. § 160A-174' }]
+    // A later revise step appended a source the iteration-0 body never
+    // cites; the record carries the accumulation.
+    const accumulatedSources = [
+      ...gradedSources,
+      { id: 's1', title: 'Takoma Park, MD Municipal Code § 6.38' },
+    ]
+    const ordinance = await seedRunningLoop(runId, {
+      qualityLoopIteration: MAX_QUALITY_LOOP_REVISIONS,
+      draftBody: REVISED_BODY,
+      draftSources: accumulatedSources,
+    })
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 0,
+      inputHash: 'h0',
+      draftTitle: 'v0 title',
+      draftBody: 'v0 body of the ordinance draft',
+      draftSources: gradedSources,
+      report: buildReport('h0', { clarity: 'flag' }),
+    })
+    generateMock.mockImplementation(async (record: Ordinance) => ({
+      report: buildReport(qualityReportInputHash(record), {
+        clarity: 'flag',
+        voice: 'flag',
+      }),
+      degradedCheckIds: [],
+      tokens: 111,
+    }))
+
+    const result = await loop.handleStep(
+      qcMessage(ordinance, runId, {
+        iteration: MAX_QUALITY_LOOP_REVISIONS,
+      }),
+    )
+
+    expect(result).toBe(true)
+    const updated = await reload(ordinance.id)
+    expect(updated.qualityLoopStatus).toBe(
+      OrdinanceQualityLoopStatus.stopped_max_iterations,
+    )
+    expect(updated.draftBody).toBe('v0 body of the ordinance draft')
+    // The restored draft carries the sources it was graded with — not the
+    // accumulation from revise steps its text never cites.
+    expect(updated.draftSources).toEqual(gradedSources)
+  })
+
   it('counts flag-to-attention as resolved and keeps looping', async () => {
     const runId = randomUUID()
     const ordinance = await seedRunningLoop(runId, {

@@ -417,6 +417,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
           qcAttempts: attempts,
           draftTitle: record.draftTitle ?? '',
           draftBody: record.draftBody ?? '',
+          draftSources: record.draftSources ?? Prisma.DbNull,
           tokens: generated.tokens,
         },
         update: {
@@ -460,6 +461,7 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
             qcAttempts: attempts,
             draftTitle: record.draftTitle ?? '',
             draftBody: record.draftBody ?? '',
+            draftSources: record.draftSources ?? Prisma.DbNull,
             report: generated.report,
             model: QUALITY_LOOP_MODELS[0],
             tokens: generated.tokens,
@@ -823,6 +825,10 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       ? {
           draftTitle: best.row.draftTitle,
           draftBody: best.row.draftBody,
+          // The snapshot graded with that draft — not the accumulation from
+          // later revise steps, whose additions the restored text never
+          // cites. Explicit DbNull clears when the snapshot had none.
+          draftSources: best.row.draftSources ?? Prisma.DbNull,
           qualityReport: best.report,
         }
       : {}

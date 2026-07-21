@@ -14,12 +14,16 @@ model OrdinanceQualityIteration {
   inputHash  String @map("input_hash")
   qcAttempts Int    @default(1) @map("qc_attempts")
 
-  // The draft as graded by this iteration's QC pass.
-  draftTitle String  @map("draft_title")
-  draftBody  String  @map("draft_body") @db.Text
-  report     Json?   @db.JsonB
-  model      String?
-  tokens     Int?
+  // The draft as graded by this iteration's QC pass. draftSources snapshots
+  // the record's sources alongside the text: later revise steps append
+  // sources the earlier body never cites, so a terminal restore must put
+  // back the sources graded with the restored text, not the accumulation.
+  draftTitle   String  @map("draft_title")
+  draftBody    String  @map("draft_body") @db.Text
+  draftSources Json?   @map("draft_sources") @db.JsonB
+  report       Json?   @db.JsonB
+  model        String?
+  tokens       Int?
 
   // Set by the revise step; revisedInputHash is the record's
   // qualityReportInputHash after the revision landed.
