@@ -847,7 +847,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         new_state, applied = apply_seed_dispositions(prior, parsed, today)
         skipped = len(parsed) - applied
         _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
-        print(f"applied {applied} / skipped {skipped} (unknown ids)")
+        print(f"applied {applied} / skipped {skipped} (unknown ids or invalid dispositions)")
         return 0
 
     if not (repo_root / _WEBAPP_ROOT).exists() and not (repo_root / _API_ROOT).exists():
