@@ -2,7 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotFoundException } from '@nestjs/common'
 import type { OrdinanceSource } from '@goodparty_org/contracts'
 import { useTestService } from '@/test-service'
+import { OrdinanceQualityLoopStatus, OrdinanceStatus } from '@/generated/prisma'
+import { firstOrThrow } from '@/shared/test-utils'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 import { OrdinanceFlowToolsService } from './ordinanceFlowTools.service'
 import { OrdinanceFlowFetchService } from './ordinanceFlowFetch.service'
 import { OrdinanceFlowSearchService } from './ordinanceFlowSearch.service'
@@ -518,6 +521,161 @@ describe('ordinance-flow present_* tool builders', () => {
     const read = await tools.readSection(ordinanceId, electedOfficeId, 'draft')
     const draft = read.draft as { sources: OrdinanceSource[] }
     expect(draft.sources).toEqual([{ id: 's1', title: 'Source one' }])
+  })
+
+  describe('quality loop hooks', () => {
+    const seedRunningLoop = () =>
+      service.prisma.ordinance.update({
+        where: { id: ordinanceId },
+        data: {
+          status: OrdinanceStatus.draft,
+          draftTitle: 'Existing draft',
+          draftBody: 'Section 1. Existing text.',
+          qualityLoopStatus: OrdinanceQualityLoopStatus.running,
+          qualityLoopRunId: 'run-hook',
+          qualityLoopUpdatedAt: new Date(),
+        },
+      })
+
+    const loopStatus = async () =>
+      (
+        await service.prisma.ordinance.findUniqueOrThrow({
+          where: { id: ordinanceId },
+        })
+      ).qualityLoopStatus
+
+    it('saveDraft auto-starts a loop with the freshly saved draft', async () => {
+      const startSpy = vi
+        .spyOn(service.app.get(OrdinanceQualityLoopService), 'start')
+        .mockResolvedValue({ started: true })
+
+      await tools.saveDraft(ordinanceId, electedOfficeId, {
+        title: 'Camera siting ordinance',
+        body: 'Section 1. Cameras shall be sited by crime-density data.',
+      })
+
+      await vi.waitFor(() => expect(startSpy).toHaveBeenCalledTimes(1))
+      const input = firstOrThrow(firstOrThrow(startSpy.mock.calls))
+      expect(input.trigger).toBe('auto')
+      expect(input.userId).toBe(service.user.id)
+      expect(input.ordinance.id).toBe(ordinanceId)
+      expect(input.ordinance.draftBody).toBe(
+        'Section 1. Cameras shall be sited by crime-density data.',
+      )
+    })
+
+    it('saveDraft resolves even when the loop start rejects', async () => {
+      vi.spyOn(
+        service.app.get(OrdinanceQualityLoopService),
+        'start',
+      ).mockRejectedValue(new Error('enqueue exploded'))
+
+      await expect(
+        tools.saveDraft(ordinanceId, electedOfficeId, {
+          title: 'T',
+          body: 'Section 1.',
+        }),
+      ).resolves.toEqual({ saved: true })
+    })
+
+    it('saveAuthority supersedes a running loop', async () => {
+      await seedRunningLoop()
+
+      await tools.saveAuthority(ordinanceId, electedOfficeId, {
+        status: 'pass',
+        explanation: 'Within council power.',
+        source: { id: 'gs-160a', title: 'N.C.G.S. § 160A-4' },
+      })
+
+      expect(await loopStatus()).toBe(
+        OrdinanceQualityLoopStatus.superseded_by_edit,
+      )
+    })
+
+    it('saveComparables supersedes a running loop', async () => {
+      await seedRunningLoop()
+
+      await tools.saveComparables(ordinanceId, electedOfficeId, [])
+
+      expect(await loopStatus()).toBe(
+        OrdinanceQualityLoopStatus.superseded_by_edit,
+      )
+    })
+
+    it('saveExistingLaw supersedes a running loop', async () => {
+      await seedRunningLoop()
+
+      await tools.saveExistingLaw(ordinanceId, electedOfficeId, {
+        sourceUrl: 'https://library.municode.com/nc/hendersonville',
+        text: 'Chapter 12 regulates surveillance.',
+      })
+
+      expect(await loopStatus()).toBe(
+        OrdinanceQualityLoopStatus.superseded_by_edit,
+      )
+    })
+
+    it('saveAuthority leaves the loop intact when the write itself fails', async () => {
+      await seedRunningLoop()
+      vi.spyOn(service.prisma.ordinance, 'update').mockRejectedValueOnce(
+        new Error('db exploded'),
+      )
+
+      await expect(
+        tools.saveAuthority(ordinanceId, electedOfficeId, {
+          status: 'pass',
+          explanation: 'Within council power.',
+          source: { id: 'gs-160a', title: 'N.C.G.S. § 160A-4' },
+        }),
+      ).rejects.toThrow('db exploded')
+
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
+    })
+
+    it('saveComparables leaves the loop intact when the write itself fails', async () => {
+      await seedRunningLoop()
+      vi.spyOn(service.prisma.ordinance, 'update').mockRejectedValueOnce(
+        new Error('db exploded'),
+      )
+
+      await expect(
+        tools.saveComparables(ordinanceId, electedOfficeId, []),
+      ).rejects.toThrow('db exploded')
+
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
+    })
+
+    it('saveExistingLaw leaves the loop intact when the write itself fails', async () => {
+      await seedRunningLoop()
+      vi.spyOn(service.prisma.ordinance, 'update').mockRejectedValueOnce(
+        new Error('db exploded'),
+      )
+
+      await expect(
+        tools.saveExistingLaw(ordinanceId, electedOfficeId, {
+          sourceUrl: 'https://library.municode.com/nc/hendersonville',
+          text: 'Chapter 12 regulates surveillance.',
+        }),
+      ).rejects.toThrow('db exploded')
+
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
+    })
+
+    it('saveAuthority leaves a non-running loop status untouched', async () => {
+      await seedRunningLoop()
+      await service.prisma.ordinance.update({
+        where: { id: ordinanceId },
+        data: { qualityLoopStatus: OrdinanceQualityLoopStatus.converged },
+      })
+
+      await tools.saveAuthority(ordinanceId, electedOfficeId, {
+        status: 'pass',
+        explanation: 'Within council power.',
+        source: { id: 'gs-160a', title: 'N.C.G.S. § 160A-4' },
+      })
+
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.converged)
+    })
   })
 
   it('display-only present tools ack without persisting or throwing', async () => {

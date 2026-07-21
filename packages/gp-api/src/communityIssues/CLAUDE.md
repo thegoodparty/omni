@@ -55,8 +55,13 @@ All routes under `@Controller('community-issues')` → `/v1/community-issues`.
   per-PR preview stack (and dev post-merge).
 - `POST /dispatch-if-needed` — any authenticated user; self-serve landing
   catch-up (`dispatchIfNeeded`). Dispatches both experiment types for the
-  caller's own org if ICP-eligible and not already in flight, skipping only
-  the 30-day-inactivity gate (landing already proves activity). Distinct from
+  caller's own org if ICP-eligible and not already in flight, skipping the
+  inactivity gate (landing already proves activity) but applying a freshness
+  gate: a list whose last completed run is within `INACTIVITY_THRESHOLD_DAYS`
+  is left alone. That window is intentionally the same constant the cron uses
+  to stop dispatching for an inactive user, so an active user (kept fresh by
+  the cron) never re-triggers on landing, and a returning user whose issues
+  went stale while they were away regenerates immediately. Distinct from
   `self-dispatch`, which is staff-only and single-type.
 
 ## Activity gate

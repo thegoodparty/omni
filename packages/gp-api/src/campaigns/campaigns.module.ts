@@ -60,7 +60,9 @@ import { PublicCampaignsService } from './services/public-campaigns.service'
     forwardRef(() => EcanvasserIntegrationModule),
     ScheduledMessagingModule,
     StripeModule,
-    PeerlyModule,
+    // PeerlyModule -> ContactsModule -> CampaignsModule -> PeerlyModule:
+    // every edge of the cycle needs forwardRef
+    forwardRef(() => PeerlyModule),
     GoogleModule,
     AnalyticsModule,
     UsersModule,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { getUrlHostname, urlHasCredentials } from './strings.util'
+import {
+  getUrlHostname,
+  phoneDigitsKey,
+  urlHasCredentials,
+} from './strings.util'
 
 // The host-spoof case these guards defend against: the WHATWG parser reads the
 // host from *after* the '@', so a naive host check on this value sees evil.gov.
@@ -62,5 +66,26 @@ describe('urlHasCredentials', () => {
 
   it('is false for empty input', () => {
     expect(urlHasCredentials('')).toBe(false)
+  })
+})
+
+describe('phoneDigitsKey', () => {
+  const KEY = '3035550101'
+
+  it.each([
+    ['+13035550101', 'E.164'],
+    ['13035550101', 'bare 11-digit (Peerly report shape)'],
+    ['3035550101', 'bare 10-digit'],
+    ['(303) 555-0101', 'formatted'],
+  ])('reduces %s (%s) to the same 10-digit key', (input) => {
+    expect(phoneDigitsKey(input)).toBe(KEY)
+  })
+
+  it.each([
+    ['', 'empty'],
+    ['555-0101', 'too short'],
+    ['2303555010199', 'too long'],
+  ])('returns null for %s (%s) instead of throwing', (input) => {
+    expect(phoneDigitsKey(input)).toBeNull()
   })
 })

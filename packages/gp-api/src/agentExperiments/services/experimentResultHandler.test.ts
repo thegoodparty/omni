@@ -155,6 +155,7 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
       raceOpponentResearch as never,
       {} as never,
       ordinanceCodePersist as never,
+      {} as never,
       logger,
     )
   })

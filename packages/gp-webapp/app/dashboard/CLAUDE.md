@@ -24,7 +24,7 @@ The candidate dashboard. Authenticated shell that hosts campaign tools, polls, v
 
 ## Gotchas
 
-- The directory has more subdirs than the sidebar exposes (`account/`, `briefings/`, `campaign-details/`, `campaign-plan/`, `election-result/`, `pro-upgrade/`, `profile/`, `purchase/`, `questions/`, `voter-records/`). These are mostly internal flows / sub-pages reached from within other features — don't assume "directory exists" means "menu item exists." (`pro-upgrade/` is the pre-payment Pro upgrade wizard; it superseded the now-deleted `pro-sign-up/` + `upgrade-to-pro/` trees — see `pro-upgrade/CLAUDE.md`.)
+- The directory has more subdirs than the sidebar exposes (`account/`, `briefings/`, `campaign-details/`, `campaign-plan/`, `election-result/`, `pro-upgrade/`, `profile/`, `purchase/`, `questions/`; `voter-records/` is only a redirect stub to `/dashboard/contacts`). These are mostly internal flows / sub-pages reached from within other features — don't assume "directory exists" means "menu item exists." (`pro-upgrade/` is the pre-payment Pro upgrade wizard; it superseded the now-deleted `pro-sign-up/` + `upgrade-to-pro/` trees — see `pro-upgrade/CLAUDE.md`.)
 - `dashboard/shared/` and `dashboard/components/` overlap in spirit. Convention: `shared/` = layout, access, modals reused across features; `components/` = card-style widgets composed onto pages. Check both before adding a new file.
 - `DashboardLayout` enforces auth. Pages don't need their own redirect-to-login logic.
 

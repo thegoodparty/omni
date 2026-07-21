@@ -12,7 +12,6 @@ import {
 } from './contactEngagement.schema'
 import { ContactEngagementService } from './contactEngagement.service'
 import {
-  GetCampaignActivitiesResponse,
   GetConstituentIssuesResponse,
   GetIndividualActivitiesResponse,
 } from './contactEngagement.types'
@@ -31,21 +30,26 @@ export class ContactEngagementController {
     @Query() query: IndividualActivityQueryDTO,
     @ReqElectedOffice() electedOffice: ElectedOffice | undefined,
     @ReqCampaign() campaign: Campaign,
-  ): Promise<GetIndividualActivitiesResponse | GetCampaignActivitiesResponse> {
-    if (electedOffice) {
-      return this.contactEngagementService.getIndividualActivities({
-        personId: params.id,
-        ...query,
-        electedOfficeId: electedOffice.id,
-      })
-    }
-    // Campaign context: :id is the durable lalVoterId (task 12 contract).
-    return this.contactEngagementService.getCampaignActivities({
-      lalVoterId: params.id,
-      campaignId: campaign.id,
-      take: query.take,
-      after: query.after,
-    })
+  ): Promise<GetIndividualActivitiesResponse> {
+    // :id is the personId in both contexts — the ContactInteraction*/
+    // ContactNote tables key on (organizationSlug, personId) for Win and
+    // Serve alike. `lalVoterId` is an optional query param (Win only) that
+    // brings the legacy VoterOutreachActivity rows into the union during the
+    // sunset (this supersedes the old contract where :id was the durable
+    // lalVoterId for campaigns).
+    return electedOffice
+      ? this.contactEngagementService.getIndividualActivities({
+          personId: params.id,
+          organizationSlug: electedOffice.organizationSlug,
+          electedOfficeId: electedOffice.id,
+          ...query,
+        })
+      : this.contactEngagementService.getIndividualActivities({
+          personId: params.id,
+          organizationSlug: campaign.organizationSlug,
+          campaignId: campaign.id,
+          ...query,
+        })
   }
 
   @Get(':id/issues')

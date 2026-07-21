@@ -32,6 +32,7 @@ export interface LlmChatCompletionOptions {
   maxTokens?: number
   userId?: string
   retries?: number
+  abortSignal?: AbortSignal
 }
 
 export interface LlmToolCompletionOptions extends LlmChatCompletionOptions {
@@ -251,6 +252,7 @@ export class LlmService {
       maxTokens,
       userId,
       retries = this.defaultRetries,
+      abortSignal,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -267,7 +269,9 @@ export class LlmService {
           topP,
           maxTokens,
           userId,
+          abortSignal,
         }),
+      abortSignal,
     )
 
     return { ...result, model }
@@ -285,6 +289,7 @@ export class LlmService {
       maxTokens,
       userId,
       retries = this.defaultRetries,
+      abortSignal,
     } = options
 
     const models = this.prepareModelList(providedModels)
@@ -302,7 +307,9 @@ export class LlmService {
           topP,
           maxTokens,
           userId,
+          abortSignal,
         }),
+      abortSignal,
     )
 
     return { object: result.object, tokens: result.tokens, model }
@@ -321,6 +328,7 @@ export class LlmService {
       maxTokens,
       userId,
       retries = this.defaultRetries,
+      abortSignal,
     } = options
 
     if (!tools.length) {
@@ -343,7 +351,9 @@ export class LlmService {
           topP,
           maxTokens,
           userId,
+          abortSignal,
         }),
+      abortSignal,
     )
 
     return { ...result, model }
@@ -550,6 +560,7 @@ export class LlmService {
     retries: number,
     operationLabel: string,
     fn: (model: string) => Promise<R>,
+    abortSignal?: AbortSignal,
   ): Promise<{ model: string; result: R }> {
     return retry(
       async () => {
@@ -565,6 +576,19 @@ export class LlmService {
           } catch (error) {
             lastError =
               error instanceof Error ? error : new Error(String(error))
+
+            // An abort is a caller decision (cancel/timeout), not a provider
+            // failure — cascading to another model or retrying would keep
+            // burning time the caller explicitly capped.
+            if (lastError.name === 'AbortError' || abortSignal?.aborted) {
+              this.logger.warn(
+                lastError,
+                `Aborted ${operationLabel} with model ${currentModel}, not retrying`,
+              )
+              const bailable: Error & { bail?: boolean } = lastError
+              bailable.bail = true
+              throw bailable
+            }
 
             if (this.isPermanentClientError(error)) {
               this.logger.error(
@@ -630,6 +654,7 @@ export class LlmService {
     topP,
     maxTokens,
     userId,
+    abortSignal,
   }: {
     model: string
     messages: LlmMessage[]
@@ -637,6 +662,7 @@ export class LlmService {
     topP: number
     maxTokens?: number
     userId?: string
+    abortSignal?: AbortSignal
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const result = await this.generateTextFn({
       model: this.resolveChatModel(model),
@@ -645,6 +671,7 @@ export class LlmService {
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
+      ...(abortSignal && { abortSignal }),
     })
     return {
       content: result.text.trim(),
@@ -660,6 +687,7 @@ export class LlmService {
     topP,
     maxTokens,
     userId,
+    abortSignal,
   }: {
     model: string
     messages: LlmMessage[]
@@ -668,6 +696,7 @@ export class LlmService {
     topP: number
     maxTokens?: number
     userId?: string
+    abortSignal?: AbortSignal
   }): Promise<{ object: T; tokens: number }> {
     const result = await this.generateObjectFn({
       model: this.resolveChatModel(model),
@@ -677,6 +706,7 @@ export class LlmService {
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
+      ...(abortSignal && { abortSignal }),
     })
     return {
       object: result.object,
@@ -693,6 +723,7 @@ export class LlmService {
     topP,
     maxTokens,
     userId,
+    abortSignal,
   }: {
     model: string
     messages: LlmMessage[]
@@ -702,6 +733,7 @@ export class LlmService {
     topP: number
     maxTokens?: number
     userId?: string
+    abortSignal?: AbortSignal
   }): Promise<Omit<LlmCompletionResult, 'model'>> {
     const toolSet: ToolSet = {}
     for (const t of tools) {
@@ -732,6 +764,7 @@ export class LlmService {
       topP,
       ...(maxTokens !== undefined && { maxOutputTokens: maxTokens }),
       ...(userId && { headers: { 'X-User-Id': userId } }),
+      ...(abortSignal && { abortSignal }),
     })
 
     const toolCalls = this.mapAiSdkToolCalls(

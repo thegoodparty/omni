@@ -7,7 +7,11 @@ const individualActivityParamsSchema = z.object({
 
 const individualActivityQuerySchema = z.object({
   take: z.coerce.number().int().min(1).max(20).optional().default(20),
-  after: z.string().optional(), // Last seen pollIndividualMessage ID
+  after: z.string().optional(), // Last-seen activity's sort-key value (date)
+  // Win-only sunset param: brings legacy VoterOutreachActivity rows (keyed on
+  // the durable lalVoterId) into the union. Absent for Serve, and absent for
+  // Win once the ContactInteraction* backfill is complete.
+  lalVoterId: z.string().optional(),
 })
 
 export class IndividualActivityParamsDTO extends createZodDto(
@@ -20,7 +24,9 @@ export class IndividualActivityQueryDTO extends createZodDto(
 
 export type IndividualActivityInput = {
   personId: string
-  electedOfficeId: string
+  organizationSlug: string
+  electedOfficeId?: string
+  campaignId?: number
 } & z.infer<typeof individualActivityQuerySchema>
 
 const constituentIssuesParamsSchema = z.object({

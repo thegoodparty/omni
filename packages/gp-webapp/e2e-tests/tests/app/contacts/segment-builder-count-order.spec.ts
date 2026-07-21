@@ -49,8 +49,8 @@ const readVotersMatchCount = async (sheet: Locator): Promise<number | null> => {
   return Number(digits.replace(/,/g, ''))
 }
 
-// The canonical Voter Likely option order (least → most likely), read from
-// filters.config.ts ("Voter Likely" field): Unknown, First Time, Unlikely,
+// The canonical Voter Likelihood option order (least → most likely), read from
+// filters.config.ts ("Voter Likelihood" field): Unknown, First Time, Unlikely,
 // Likely, Super. This is the ENG-10516 ordering the builder must render.
 const VOTER_LIKELY_ORDER = [
   'Unknown',
@@ -61,19 +61,17 @@ const VOTER_LIKELY_ORDER = [
 ]
 
 // @dev-only: this spec exercises the Win Contacts segment builder for a pro
-// campaign org, reachable only when win-voter-data is on for the user AND the
-// campaign is pro — and the live count endpoint (POST /v1/contacts/count) is
-// itself pro-gated. The warm dev stack enables win-voter-data for internal/
-// @test.goodparty.org users and provisions pro; an ephemeral per-PR preview
-// can't guarantee that flag state or the pro provisioning, so this runs on the
-// post-merge develop e2e (and on demand), not on PRs. Same pattern as
-// win-contacts. See e2e-tests/CLAUDE.md ("@dev-only").
+// campaign org — the live count endpoint (POST /v1/contacts/count) is
+// pro-gated. The warm dev stack provisions pro; an ephemeral per-PR preview
+// can't guarantee the pro provisioning, so this runs on the post-merge
+// develop e2e (and on demand), not on PRs. Same pattern as win-contacts.
+// See e2e-tests/CLAUDE.md ("@dev-only").
 test.describe('Segment builder count + order @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
   })
 
-  test('live voter count updates with a filter and Voter Likely renders in order', async ({
+  test('live voter count updates with a filter and Voter Likelihood renders in order', async ({
     page,
   }) => {
     test.setTimeout(3 * 60 * 1000)
@@ -122,10 +120,12 @@ test.describe('Segment builder count + order @dev-only', () => {
     const sheet = filtersSheet(page, /create segment/i)
     await expect(sheet).toBeVisible({ timeout: 30000 })
 
-    // --- Voter Likely option order (ENG-10516) ---
-    // The Voter Likely section renders one option label per row; assert they
+    // --- Voter Likelihood option order (ENG-10516) ---
+    // The Voter Likelihood section renders one option label per row; assert they
     // appear in the exact least-→-most-likely order from filters.config.ts.
-    const voterLikelyHeading = sheet.locator('h4', { hasText: 'Voter Likely' })
+    const voterLikelyHeading = sheet.locator('h4', {
+      hasText: 'Voter Likelihood',
+    })
     await expect(voterLikelyHeading).toBeVisible({ timeout: 10000 })
     const voterLikelyContainer = voterLikelyHeading.locator('xpath=../..')
     // Each option label is a Body2, which renders a `<div>` (not a `<p>`)

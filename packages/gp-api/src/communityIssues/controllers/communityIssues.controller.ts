@@ -107,11 +107,12 @@ export class CommunityIssuesController {
   /**
    * Self-serve landing catch-up: called client-side after any elected
    * official lands on the community issues dashboard. Dispatches both
-   * experiment types if eligible and not already in flight, skipping only
-   * the 90-day-inactivity gate — landing already proves the user is active.
-   * Distinct from `self-dispatch` above, which is staff-only, single-type,
-   * and backs a manual refresh button rather than a fire-on-every-landing
-   * check.
+   * experiment types if eligible and not already in flight, skipping the
+   * inactivity gate (landing already proves the user is active) but applying
+   * a freshness gate so a list generated within the active window
+   * (INACTIVITY_THRESHOLD_DAYS) isn't needlessly re-run. Distinct from
+   * `self-dispatch` above, which is staff-only, single-type, and backs a
+   * manual refresh button rather than a fire-on-every-landing check.
    */
   @Post('dispatch-if-needed')
   @UseElectedOffice()

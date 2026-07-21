@@ -5,6 +5,7 @@
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { ElectionsModule } from '@/elections/elections.module'
 import { AwsModule } from '@/vendors/aws/aws.module'
+import { OrdinancesModule } from '@/ordinances/ordinances.module'
 import { Module } from '@nestjs/common'
 import { GeneralChatStoreService } from '../services/generalChatStore.prisma'
 import { DistrictResolverService } from '@/chats/briefing-chats/services/districtResolver.service'
@@ -24,9 +25,10 @@ export { ORDINANCE_FLOW_MODELS }
 // elected office are read via the global Prisma client; OrganizationsModule and
 // ElectionsModule are imported only to satisfy DistrictResolverService, which
 // resolves the caller's jurisdiction for the prompt's City/District line the
-// same way Chief of Staff does.
+// same way Chief of Staff does. OrdinancesModule supplies the quality-loop
+// service for the saveDraft auto-start and hash-input supersession hooks.
 @Module({
-  imports: [OrganizationsModule, ElectionsModule, AwsModule],
+  imports: [OrganizationsModule, ElectionsModule, AwsModule, OrdinancesModule],
   providers: [
     OrdinanceFlowHandler,
     OrdinanceFlowContextService,

@@ -31,6 +31,8 @@ const ordinance: Ordinance = {
   draftBody: null,
   draftSources: null,
   qualityReport: null,
+  qualityRunStatus: 'idle',
+  qualityLoop: null,
   research: null,
   scratchpad: null,
   lastViewedStep: null,

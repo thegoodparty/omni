@@ -7,7 +7,7 @@ import H4 from '@shared/typography/H4'
 import { GradientOverlay } from '@shared/GradientOverlay'
 import { StackedChips } from '@shared/utils/StackedChips'
 import { formatAudienceLabels } from 'app/dashboard/outreach/util/formatAudienceLabels.util'
-import { ActualViewAudienceFiltersModal } from 'app/dashboard/voter-records/components/ViewAudienceFiltersModal'
+import { ActualViewAudienceFiltersModal } from 'app/dashboard/outreach/components/ViewAudienceFiltersModal'
 import { convertAudienceFiltersForModal } from 'app/dashboard/outreach/util/convertAudienceFiltersForModal.util'
 import { OutreachActions } from 'app/dashboard/outreach/components/OutreachActions'
 import {
