@@ -70,4 +70,30 @@ describe('KnockTurfDialog', () => {
     await waitFor(() => expect(onRouteReady).toHaveBeenCalledWith(3))
     expect(posted).toEqual([{ id: '3', mode: 'drive', loop: false }])
   })
+
+  it('shows an error message when the route build fails', async () => {
+    api.mock('POST /v1/door-knocking/turfs/:id/knock', {
+      status: 500,
+      data: {},
+    })
+    const onRouteReady = vi.fn()
+
+    render(
+      <KnockTurfDialog
+        turf={turf}
+        open={true}
+        onOpenChange={vi.fn()}
+        onRouteReady={onRouteReady}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Build route' }))
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Route building failed — nothing was saved/),
+      ).toBeInTheDocument(),
+    )
+    expect(onRouteReady).not.toHaveBeenCalled()
+  })
 })
