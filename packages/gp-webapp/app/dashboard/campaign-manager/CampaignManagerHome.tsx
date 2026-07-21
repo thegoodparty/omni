@@ -26,6 +26,14 @@ interface Props {
   firstName?: string
 }
 
+// The first-run "meet your campaign manager" card is dismissed once the
+// candidate opens the manager in its GENERAL mode (the meet card itself or the
+// footer chat box, which both land on the same manager greeting), persisted so
+// it stays dismissed across reloads. It is deliberately NOT dismissed by the
+// story flow (the story card / personalize deep link): that opens the same
+// conversation but into the story intake, which is not "meeting the manager".
+const MEET_CARD_DISMISSED_KEY = 'campaign-manager-meet-dismissed'
+
 /**
  * The Campaign Manager dashboard home for the campaign-story cohort: the top
  * tracker tasks, a persistent chat bar, and a "meet your campaign manager"
@@ -56,6 +64,32 @@ export default function CampaignManagerHome({
   )
   const composerRef = useRef<HTMLInputElement | null>(null)
   const personalizeDeepLinkFiredRef = useRef(false)
+
+  // Default to showing the card (the common case: a new candidate who has not
+  // dismissed it) so it renders immediately with no pop-in. The effect flips it
+  // to dismissed only when the persisted key is present. A dismissed candidate
+  // may see it for a single post-hydration frame (imperceptible), which is the
+  // right trade: localStorage is unreadable during SSR, so a synchronous
+  // initializer would either mismatch hydration or pop the card in for everyone.
+  const [meetDismissed, setMeetDismissed] = useState(false)
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem(MEET_CARD_DISMISSED_KEY) === '1') {
+        setMeetDismissed(true)
+      }
+    } catch {
+      // Storage disabled: leave meetDismissed false so the card shows.
+    }
+  }, [])
+  const dismissMeetCard = useCallback(() => {
+    try {
+      window.localStorage.setItem(MEET_CARD_DISMISSED_KEY, '1')
+    } catch {
+      // Storage disabled (private mode): the card reappears next load, which is
+      // acceptable for a first-run nudge.
+    }
+    setMeetDismissed(true)
+  }, [])
 
   // Entering via the story flow (the story card / personalize deep link) sets
   // pendingKickoff before the conversation opens. On that entry the kickoff
@@ -105,8 +139,9 @@ export default function CampaignManagerHome({
       const { conversationId: id } =
         await campaignManagerChatApi.createConversation()
       setConversationId(id)
-      // A conversation now exists, so refresh history: the footer picker shows
-      // it and the first-run "meet" card drops away.
+      // A conversation now exists, so refresh history so the footer picker
+      // shows it. (The first-run "meet" card is dismissed only by clicking it,
+      // not by a conversation existing, so it is unaffected here.)
       void queryClient.invalidateQueries({
         queryKey: CAMPAIGN_MANAGER_HISTORY_KEY,
       })
@@ -160,18 +195,29 @@ export default function CampaignManagerHome({
             </CampaignUpdateHistoryProvider>
           </VoterContactsProvider>
         </div>
-        {/* onPersonalize opens the manager and auto-launches the story-intake
-            chat flow (the hidden story sentinel), same as the deep link the
-            plan-tab gate links use. */}
+        {/* onMeetManager is a general open, so it dismisses the meet card.
+            onPersonalize opens the manager and auto-launches the story-intake
+            chat flow (the hidden story sentinel) without dismissing the meet
+            card, same as the deep link the plan-tab gate links use. */}
         <CampaignManagerTasks
-          onMeetManager={() => void openManager()}
+          showMeetCard={!meetDismissed}
+          onMeetManager={() => {
+            dismissMeetCard()
+            void openManager()
+          }}
           onPersonalize={startStory}
         />
       </div>
       <FooterChatBar
         firstName={firstName}
-        onOpen={() => void openManager()}
-        onOpenConversation={openConversation}
+        onOpen={() => {
+          dismissMeetCard()
+          void openManager()
+        }}
+        onOpenConversation={(id) => {
+          dismissMeetCard()
+          openConversation(id)
+        }}
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         openLabel="Open campaign manager chat"
