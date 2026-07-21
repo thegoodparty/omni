@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import { PassThrough } from 'stream'
+import { Pool } from 'pg'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PeopleDownloadService } from './peopleDownload.service'
 
@@ -9,13 +10,15 @@ const mockClientQuery = vi.fn()
 const mockPoolConnect = vi.fn()
 
 vi.mock('pg', () => {
-  const PoolClass = function () {
+  const Pool = vi.fn<
+    (config: { connectionString: string; max: number }) => void
+  >(function () {
     // @ts-expect-error -- mock constructor
     this.connect = mockPoolConnect
     // @ts-expect-error -- mock constructor
     this.end = mockPoolEnd
-  }
-  return { Pool: PoolClass }
+  })
+  return { Pool }
 })
 
 vi.mock('pg-copy-streams', () => ({
@@ -24,6 +27,13 @@ vi.mock('pg-copy-streams', () => ({
 
 const districtServiceMock = {
   findDistrictById: vi.fn(),
+}
+
+const databaseUrlProviderMock = {
+  current: 'postgres://example/test',
+  onChange: vi.fn<(listener: (url: string) => void) => () => void>(() =>
+    vi.fn(),
+  ),
 }
 
 const DISTRICT_UUID = '0e5bafca-93a9-86a5-2522-f373979720df'
@@ -82,7 +92,6 @@ describe('PeopleDownloadService', () => {
   let copyStream: PassThrough
 
   beforeEach(() => {
-    process.env.DATABASE_URL = 'postgres://example/test'
     vi.clearAllMocks()
     districtServiceMock.findDistrictById.mockReset()
     districtServiceMock.findDistrictById.mockResolvedValue(cityWardDistrict)
@@ -99,7 +108,11 @@ describe('PeopleDownloadService', () => {
     })
     setupClient()
 
-    service = new PeopleDownloadService(districtServiceMock as never)
+    service = new PeopleDownloadService(
+      districtServiceMock as never,
+      databaseUrlProviderMock as never,
+    )
+    service.onModuleInit()
   })
 
   afterEach(() => {
@@ -617,6 +630,27 @@ describe('PeopleDownloadService', () => {
       mockPoolEnd.mockResolvedValue(undefined)
       await service.onModuleDestroy()
       expect(mockPoolEnd).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('database URL swap', () => {
+    it('ends the previous pool and builds a new one with the new URL', () => {
+      mockPoolEnd.mockResolvedValue(undefined)
+      const PoolCtor = vi.mocked(Pool)
+      const callsBefore = PoolCtor.mock.calls.length
+
+      const onChangeCallback =
+        databaseUrlProviderMock.onChange.mock.calls[0]?.[0]
+      if (!onChangeCallback) {
+        throw new Error('onChange listener was not registered')
+      }
+      onChangeCallback('postgres://new/db')
+
+      expect(mockPoolEnd).toHaveBeenCalledTimes(1)
+      expect(PoolCtor).toHaveBeenCalledTimes(callsBefore + 1)
+      expect(PoolCtor.mock.calls.at(-1)?.[0]).toEqual(
+        expect.objectContaining({ connectionString: 'postgres://new/db' }),
+      )
     })
   })
 })

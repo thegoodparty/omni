@@ -4,10 +4,12 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common'
 import type { FastifyReply } from 'fastify'
 import { Pool, PoolClient } from 'pg'
 import { CopyToStreamQuery, to as copyTo } from 'pg-copy-streams'
+import { DatabaseUrlProvider } from 'src/prisma/database-url.provider'
 import { DistrictService } from 'src/district/services/district.service'
 import { DownloadPeopleDTO } from '../people.schema'
 import {
@@ -59,16 +61,31 @@ const quoteIdent = (id: string) => `"${id.replace(/"/g, '""')}"`
 
 @Injectable()
 export class PeopleDownloadService
-  implements OnApplicationBootstrap, OnModuleDestroy
+  implements OnApplicationBootstrap, OnModuleInit, OnModuleDestroy
 {
   private readonly logger = new Logger(PeopleDownloadService.name)
-  private readonly pool: Pool
+  private pool!: Pool
+  private unsubscribe: (() => void) | null = null
 
-  constructor(private readonly districtService: DistrictService) {
-    const databaseUrl = process.env.DATABASE_URL
-    if (!databaseUrl) {
-      throw new Error('DATABASE_URL environment variable is required')
-    }
+  constructor(
+    private readonly districtService: DistrictService,
+    private readonly databaseUrl: DatabaseUrlProvider,
+  ) {}
+
+  onModuleInit() {
+    this.pool = this.buildPool(this.databaseUrl.current)
+    this.unsubscribe = this.databaseUrl.onChange((url) => {
+      const previous = this.pool
+      this.pool = this.buildPool(url)
+      // end() drains: it waits for checked-out clients (e.g. an in-flight COPY)
+      // to be released before closing, so no explicit delay is needed.
+      previous.end().catch((err: unknown) => {
+        this.logger.warn({ err }, 'Failed to end previous pg pool')
+      })
+    })
+  }
+
+  private buildPool(connectionString: string): Pool {
     // Each COPY holds one session for the entire download. Cap connections so
     // CSV downloads cannot crowd out other workloads.
     //
@@ -77,7 +94,7 @@ export class PeopleDownloadService
     // mode. People-api currently connects directly to Aurora Postgres (see
     // `deploy/index.ts`), which is session-mode. If a transaction-mode pooler
     // is ever introduced in front of the DB, this service must bypass it.
-    this.pool = new Pool({ connectionString: databaseUrl, max: 10 })
+    return new Pool({ connectionString, max: 10 })
   }
 
   onApplicationBootstrap() {
@@ -97,6 +114,7 @@ export class PeopleDownloadService
   }
 
   async onModuleDestroy() {
+    this.unsubscribe?.()
     await this.pool.end()
   }
 
