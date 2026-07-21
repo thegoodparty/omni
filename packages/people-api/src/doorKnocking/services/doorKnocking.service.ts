@@ -131,6 +131,10 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
       districtId: effectiveDistrictId,
       filters: EMPTY_FILTERS,
       extraConditions: [
+        // ROOFTOP_ONLY keeps the population in parity with evaluate — the
+        // cap below is sized against the rooftop-only roster, and a unit's
+        // non-rooftop rows would inflate rows toward a spurious rejection.
+        ROOFTOP_ONLY,
         Prisma.sql`${buildDoorKnockingAddressKeySql('v')} = ANY(${dto.addressKeys}::text[])`,
       ],
     })
