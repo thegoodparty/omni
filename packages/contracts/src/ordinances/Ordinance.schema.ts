@@ -272,6 +272,9 @@ export const OrdinanceQualityIterationSummarySchema = z.object({
   report: OrdinanceQualityReportSchema.nullable(),
   draftTitle: z.string(),
   draftBody: z.string(),
+  // The sources snapshot graded with this iteration's draft, so a restore
+  // can put back the sources the restored text actually cites.
+  draftSources: z.array(OrdinanceSourceSchema).nullable(),
   revisedTitle: z.string().nullable(),
   revisedBody: z.string().nullable(),
   revisionNotes: z

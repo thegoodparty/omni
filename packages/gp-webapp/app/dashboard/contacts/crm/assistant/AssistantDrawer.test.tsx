@@ -83,8 +83,11 @@ describe('AssistantDrawer', () => {
       await screen.findByText('Build me a list of young supporters'),
     ).toBeInTheDocument()
     expect(
+      // The streamed text surfaces via the smooth reveal, whose drain has a
+      // designed 10s worst-case ceiling on a starved runner — a shorter
+      // timeout undershoots the code's own bound and flakes in CI.
       await screen.findByText('Created your list.', undefined, {
-        timeout: 5000,
+        timeout: 15_000,
       }),
     ).toBeInTheDocument()
     expect(chatApi.streamMessage).toHaveBeenCalledWith(
@@ -93,7 +96,7 @@ describe('AssistantDrawer', () => {
         content: 'Build me a list of young supporters',
       }),
     )
-  })
+  }, 20_000)
 
   it('invalidates the lists queries when a saved-filter tool call finishes', async () => {
     const invalidate = vi.spyOn(testQueryClient, 'invalidateQueries')

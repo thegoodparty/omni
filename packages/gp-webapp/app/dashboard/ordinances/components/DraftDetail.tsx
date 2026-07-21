@@ -337,6 +337,12 @@ export default function DraftDetail({
     // body-only rather than 400ing the whole restore.
     const title = original.draftTitle.trim()
     if (title.length > 0) update.draftTitle = title
+    // Restore the sources graded with that draft — later revise steps append
+    // sources the restored text never cites. The contract requires min(1),
+    // so a sourceless snapshot restores text-only.
+    if (original.draftSources && original.draftSources.length > 0) {
+      update.draftSources = original.draftSources
+    }
     const next = await updateOrdinance(ordinance.slug, update)
     seedEditorsFrom(next)
     setLoopReport(next.qualityReport)

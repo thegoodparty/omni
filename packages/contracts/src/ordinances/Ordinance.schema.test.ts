@@ -411,6 +411,7 @@ describe('OrdinanceQualityIterationSummarySchema', () => {
     report: null,
     draftTitle: 'Camera retention amendment',
     draftBody: 'Section 1. Recordings shall be deleted after thirty days.',
+    draftSources: [{ id: 'gs-160a', title: 'N.C.G.S. § 160A-174' }],
     revisedTitle: 'Camera retention amendment (revised)',
     revisedBody: 'Section 1. Recordings shall be deleted after 30 days.',
     revisionNotes: [
@@ -462,6 +463,7 @@ describe('OrdinanceQualityIterationsResponseSchema', () => {
           report: null,
           draftTitle: 'Title',
           draftBody: 'Body',
+          draftSources: null,
           revisedTitle: null,
           revisedBody: null,
           revisionNotes: null,

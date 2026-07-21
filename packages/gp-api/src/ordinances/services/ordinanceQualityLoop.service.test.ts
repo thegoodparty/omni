@@ -1656,6 +1656,7 @@ describe('listIterations', () => {
       iteration: 0,
       inputHash: 'h0',
       report: buildReport('h0', { clarity: 'flag' }),
+      draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
       revisedTitle: 'Revised title',
       revisedBody: REVISED_BODY,
       revisedInputHash: 'h1',
@@ -1684,11 +1685,17 @@ describe('listIterations', () => {
     expect(first.iteration).toBe(0)
     expect(first.flaggedCheckIds).toEqual(['clarity'])
     expect(first.revisedTitle).toBe('Revised title')
+    // The sources snapshot rides along so a client restore can put back the
+    // sources graded with that draft.
+    expect(first.draftSources).toEqual([
+      { id: 's0', title: 'N.C.G.S. § 160A-174' },
+    ])
     expect(first.revisionNotes).toEqual([
       { checkId: 'clarity', note: 'Tightened' },
     ])
     const second = nthOrThrow(result.iterations, 1)
     expect(second.flaggedCheckIds).toEqual([])
+    expect(second.draftSources).toBeNull()
     expect(second.revisedTitle).toBeNull()
   })
 

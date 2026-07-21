@@ -55,6 +55,9 @@ model Ordinance {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  // The sweepStalled cron isolates the tiny `running` subset every 10 min;
+  // without this it seq-scans the table.
+  @@index([qualityLoopStatus, qualityLoopUpdatedAt])
   @@index([electedOfficeId, deletedAt, updatedAt])
   @@map("ordinance")
 }

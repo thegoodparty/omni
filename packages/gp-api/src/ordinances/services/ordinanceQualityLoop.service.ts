@@ -757,12 +757,16 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       iterations: rows.map((row) => {
         const report = OrdinanceQualityReportSchema.safeParse(row.report)
         const notes = RevisionNotesSchema.safeParse(row.revisionNotes)
+        const sources = z
+          .array(OrdinanceSourceSchema)
+          .safeParse(row.draftSources)
         return {
           iteration: row.iteration,
           flaggedCheckIds: report.success ? flaggedIds(report.data) : [],
           report: report.success ? report.data : null,
           draftTitle: row.draftTitle,
           draftBody: row.draftBody,
+          draftSources: sources.success ? sources.data : null,
           revisedTitle: row.revisedTitle,
           revisedBody: row.revisedBody,
           revisionNotes: notes.success ? notes.data : null,

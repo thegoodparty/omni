@@ -119,6 +119,7 @@ const iteration = (
   report: report(),
   draftTitle: 'Original title',
   draftBody: 'Original body.',
+  draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
   revisedTitle: 'Improved title',
   revisedBody: 'Improved body.',
   revisionNotes: [
@@ -572,7 +573,14 @@ describe('DraftDetail what changed panel', () => {
     await waitFor(() =>
       expect(mocks.updateOrdinance).toHaveBeenCalledWith(
         'public-safety-cameras',
-        { draftTitle: 'Original title', draftBody: 'Original body.' },
+        {
+          draftTitle: 'Original title',
+          draftBody: 'Original body.',
+          // The sources graded with the restored draft ride along — leaving
+          // the accumulation would pair the old text with citations it
+          // never references.
+          draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
+        },
       ),
     )
     await waitFor(() => expect(bodyEditor().innerText).toBe('Original body.'))
@@ -605,7 +613,11 @@ describe('DraftDetail what changed panel', () => {
     expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
     expect(mocks.updateOrdinance).toHaveBeenCalledWith(
       'public-safety-cameras',
-      { draftTitle: 'Original title', draftBody: 'Original body.' },
+      {
+        draftTitle: 'Original title',
+        draftBody: 'Original body.',
+        draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
+      },
     )
     // The kept report was graded against the discarded final text, so the
     // restored original must surface the stale banner.
@@ -657,7 +669,10 @@ describe('DraftDetail what changed panel', () => {
     await waitFor(() =>
       expect(mocks.updateOrdinance).toHaveBeenCalledWith(
         'public-safety-cameras',
-        { draftBody: 'Original body.' },
+        {
+          draftBody: 'Original body.',
+          draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
+        },
       ),
     )
   })
