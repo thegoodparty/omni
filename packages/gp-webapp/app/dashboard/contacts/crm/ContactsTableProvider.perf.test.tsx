@@ -4,7 +4,7 @@ import { screen, waitFor, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
 import { CampaignContext } from '@shared/hooks/CampaignProvider'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
+import { useWinVoterContext } from '../../shared/useWinVoterContext'
 import {
   ContactsTableProvider,
   useContactsTable,
@@ -31,8 +31,8 @@ vi.mock('next/navigation', () => ({
   useParams: () => stableParams,
 }))
 
-vi.mock('@shared/experiments/winVoterDataFlag', () => ({
-  useWinVoterDataFlag: vi.fn(),
+vi.mock('../../shared/useWinVoterContext', () => ({
+  useWinVoterContext: vi.fn(),
 }))
 
 // The provider and useElectedOffice both read the active org from here.
@@ -40,11 +40,11 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: () => ({ slug: 'org-one' }),
 }))
 
-const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
+const mockedUseWinVoterContext = vi.mocked(useWinVoterContext)
 
 beforeEach(() => {
-  mockedUseWinVoterDataFlag.mockReset()
-  mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
+  mockedUseWinVoterContext.mockReset()
+  mockedUseWinVoterContext.mockReturnValue({ isWin: false, isReady: true })
 })
 
 const mockSupportingEndpoints = () => {

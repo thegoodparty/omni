@@ -10,7 +10,11 @@ import { Pool, PoolClient } from 'pg'
 import { CopyToStreamQuery, to as copyTo } from 'pg-copy-streams'
 import { DistrictService } from 'src/district/services/district.service'
 import { DownloadPeopleDTO } from '../people.schema'
-import { buildVoterSelectSql, ExtraSelectedField } from '../people.select'
+import {
+  buildVoterSelectSql,
+  ExcludableVoterColumn,
+  ExtraSelectedField,
+} from '../people.select'
 import { buildVoterWhereSql } from '../utils/buildVoterWhereSql.utils'
 import { buildHouseholdKeySql } from '../utils/buildHouseholdKeySql.utils'
 import { inlinePrismaSql } from '../utils/inlinePrismaSql.utils'
@@ -140,6 +144,7 @@ export class PeopleDownloadService
         districtName,
         districtType,
         groupByHousehold: dto.groupByHousehold,
+        excludeColumns: dto.excludeColumns,
       })
       copyStream = client.query(copyTo(sql))
     } catch (err) {
@@ -220,6 +225,7 @@ export class PeopleDownloadService
     districtName: string
     districtType: string
     groupByHousehold?: boolean
+    excludeColumns?: ExcludableVoterColumn[]
   }): string {
     const {
       client,
@@ -229,11 +235,14 @@ export class PeopleDownloadService
       districtName,
       districtType,
       groupByHousehold,
+      excludeColumns,
     } = args
 
     const { columnNames } = buildVoterSelectSql(EXTRA_FIELDS)
+    const excluded = new Set<string>(excludeColumns ?? [])
 
     const voterCols = columnNames
+      .filter((c) => !excluded.has(c))
       .map((c) => `v.${quoteIdent(c)} AS ${quoteIdent(c)}`)
       .join(', ')
     const electionLocationLiteral = client.escapeLiteral(districtName)

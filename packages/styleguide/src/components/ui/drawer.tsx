@@ -60,9 +60,12 @@ function DrawerHandle({ className, ...props }: React.ComponentProps<'div'>) {
 
 function DrawerContent({
   className,
+  closeClassName,
   children,
   ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+}: React.ComponentProps<typeof DrawerPrimitive.Content> & {
+  closeClassName?: string
+}) {
   return (
     <DrawerPortal>
       <DrawerOverlay />
@@ -79,7 +82,10 @@ function DrawerContent({
         {...props}
       >
         <DrawerPrimitive.Close
-          className="absolute top-4 right-4 z-10 inline-flex items-center justify-center rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none disabled:pointer-events-none"
+          className={cn(
+            'absolute top-4 right-4 z-10 inline-flex items-center justify-center rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none disabled:pointer-events-none',
+            closeClassName,
+          )}
           aria-label="Close"
         >
           <XMarkIcon className="size-4" />

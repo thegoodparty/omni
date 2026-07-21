@@ -8,7 +8,11 @@ export default async function Page(): Promise<React.JSX.Element> {
   await serveAccess()
 
   return (
-    <DashboardLayout pathname="/dashboard/ordinances/new" showAlert={false}>
+    <DashboardLayout
+      pathname="/dashboard/ordinances/new"
+      showAlert={false}
+      wrapperClassName="!p-0"
+    >
       <NewOrdinanceForm />
     </DashboardLayout>
   )

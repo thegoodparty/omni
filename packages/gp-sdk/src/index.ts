@@ -51,6 +51,8 @@ export type {
   BriefingDispatchPreview,
   CommunityIssuesDispatchRequest,
   CommunityIssuesDispatchResult,
+  ComplianceStateOutput,
+  PinDelivery,
 } from '@goodparty_org/contracts'
 
 export {
@@ -72,6 +74,8 @@ export {
   CampaignStatus,
   OnboardingStep,
   GenerationStatus,
+  ComplianceStage,
+  PeerlyCvVerificationStatus,
 } from '@goodparty_org/contracts'
 
 export { UserRole, WhyBrowsing, CampaignTier } from './enums'

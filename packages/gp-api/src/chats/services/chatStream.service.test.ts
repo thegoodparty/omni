@@ -1522,4 +1522,66 @@ describe('ChatStreamService', () => {
       expect(settled).toBe('done')
     })
   })
+
+  describe('heartbeat', () => {
+    it('emits ping chunks while the model is silent mid-generation', async () => {
+      vi.useFakeTimers()
+      try {
+        store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+        let release!: () => void
+        const gate = new Promise<void>((resolve) => {
+          release = resolve
+        })
+        llm.streamChatCompletion = (
+          options: LlmStreamOptions,
+        ): Promise<LlmStreamResult> => {
+          const textStream: AsyncIterable<string> = {
+            [Symbol.asyncIterator]: async function* () {
+              if (options.abortSignal?.aborted) return
+              await gate
+              yield 'draft ready'
+            },
+          }
+          return Promise.resolve({
+            textStream,
+            finalText: Promise.resolve('draft ready'),
+            toolCalls: Promise.resolve([]),
+            usage: Promise.resolve({
+              inputTokens: 0,
+              outputTokens: 0,
+              totalTokens: 0,
+            }),
+            model: 'fake-model-x',
+          })
+        }
+
+        const chunks: ChatStreamChunk[] = []
+        const consumed = (async () => {
+          for await (const chunk of service.stream(baseStreamArgs())) {
+            chunks.push(chunk)
+          }
+        })()
+
+        // Let the generator run its (promise-based) setup so the heartbeat
+        // interval is registered before the clock advances.
+        await vi.advanceTimersByTimeAsync(0)
+        await vi.advanceTimersByTimeAsync(45_000)
+        expect(
+          chunks.filter((c) => c.type === 'ping').length,
+        ).toBeGreaterThanOrEqual(2)
+
+        release()
+        await vi.advanceTimersByTimeAsync(0)
+        await consumed
+
+        expect(
+          chunks.some((c) => c.type === 'text' && c.delta === 'draft ready'),
+        ).toBe(true)
+        expect(chunks[chunks.length - 1]?.type).toBe('done')
+        expect(vi.getTimerCount()).toBe(0)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  })
 })

@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Param, Query, Res, Body } from '@nestjs/common'
 import {
+  AggregatesDTO,
   DownloadPeopleDTO,
   GetPersonParamsDTO,
   GetPersonQueryDTO,
@@ -41,6 +42,11 @@ export class PeopleController {
   @Get('stats')
   getStats(@Query() dto: StatsDTO) {
     return this.statsService.getStats(dto)
+  }
+
+  @Post('aggregates')
+  getAggregates(@Body() dto: AggregatesDTO) {
+    return this.peopleService.getAggregates(dto)
   }
 
   // keep for backwards compatibility

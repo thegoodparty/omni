@@ -281,4 +281,136 @@ describe('buildVoterFiltersSql', () => {
       expect(sqlStr).toContain('IS NULL')
     })
   })
+
+  describe('id filter', () => {
+    it('emits = ANY with ::uuid[] for the in operator', () => {
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: {
+            operator: 'in',
+            values: ['11111111-1111-1111-1111-111111111111'],
+          },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('v."id"')
+      expect(sqlStr).toContain('= ANY(')
+      expect(sqlStr).toContain('::uuid[]')
+    })
+
+    it('emits != ALL with ::uuid[] for the notIn operator', () => {
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: {
+            operator: 'notIn',
+            values: ['11111111-1111-1111-1111-111111111111'],
+          },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('v."id"')
+      expect(sqlStr).toContain('!= ALL(')
+      expect(sqlStr).toContain('::uuid[]')
+    })
+
+    it('binds the whole id set as one array parameter, not one per id', () => {
+      const ids = [
+        '11111111-1111-1111-1111-111111111111',
+        '22222222-2222-2222-2222-222222222222',
+        '33333333-3333-3333-3333-333333333333',
+      ]
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: { operator: 'in', values: ids },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+
+      expect(result?.values).toHaveLength(1)
+      expect(result?.values[0]).toEqual(ids)
+    })
+
+    it('combines with a demographic filter via AND', () => {
+      const filterData: FilterData = {
+        filters: ['id', 'gender'],
+        filterValues: {},
+        filterOperators: {
+          id: {
+            operator: 'in',
+            values: ['11111111-1111-1111-1111-111111111111'],
+          },
+          gender: { operator: 'eq', value: 'M' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('v."id"')
+      expect(sqlStr).toContain('Gender')
+      expect(sqlStr).toContain('AND')
+    })
+
+    it('returns null when values are empty', () => {
+      const filterData: FilterData = {
+        filters: ['id'],
+        filterValues: {},
+        filterOperators: {
+          id: { operator: 'in', values: [] },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      expect(result).toBeNull()
+    })
+  })
+
+  describe('hasAddress filter', () => {
+    it('emits an IS NOT NULL + != empty check for true', () => {
+      const filterData: FilterData = {
+        filters: ['hasAddress'],
+        filterValues: {},
+        filterOperators: {
+          hasAddress: { operator: 'is', value: 'not_null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Residence_Addresses_AddressLine')
+      expect(sqlStr).toContain('IS NOT NULL')
+      expect(sqlStr).toContain("!= ''")
+    })
+
+    it('emits an IS NULL OR empty check for false', () => {
+      const filterData: FilterData = {
+        filters: ['hasAddress'],
+        filterValues: {},
+        filterOperators: {
+          hasAddress: { operator: 'is', value: 'null' },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Residence_Addresses_AddressLine')
+      expect(sqlStr).toContain('IS NULL')
+      expect(sqlStr).toContain("= ''")
+    })
+  })
 })

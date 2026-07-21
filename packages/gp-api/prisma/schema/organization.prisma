@@ -19,6 +19,7 @@ model Organization {
   contactInteractionDoorKnocks ContactInteractionDoorKnock[]
   contactInteractionTexts      ContactInteractionText[]
   contactInteractionRobocalls  ContactInteractionRobocall[]
+  peerlyPhoneLists             PeerlyPhoneList[]
 
   @@index([ownerId])
   @@map("organization")

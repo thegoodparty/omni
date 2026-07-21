@@ -81,6 +81,11 @@ export type AudienceLabelKey =
   | 'age25_35'
   | 'age35_50'
   | 'age50Plus'
+  | 'age18_24'
+  | 'age25_34'
+  | 'age35_49'
+  | 'age50_64'
+  | 'age65Plus'
   | 'genderMale'
   | 'genderFemale'
   | 'genderUnknown'
@@ -104,6 +109,11 @@ interface AudienceLabelsMapping {
   age25_35: string
   age35_50: string
   age50Plus: string
+  age18_24: string
+  age25_34: string
+  age35_49: string
+  age50_64: string
+  age65Plus: string
   genderMale: string
   genderFemale: string
   genderUnknown: string
@@ -128,6 +138,11 @@ export const AUDIENCE_LABELS_MAPPING: AudienceLabelsMapping = {
   age25_35: '25-35',
   age35_50: '35-50',
   age50Plus: '50+',
+  age18_24: '18-24',
+  age25_34: '25-34',
+  age35_49: '35-49',
+  age50_64: '50-64',
+  age65Plus: '65+',
   genderMale: 'Male',
   genderFemale: 'Female',
   genderUnknown: 'Unknown',

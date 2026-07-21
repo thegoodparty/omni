@@ -11,6 +11,8 @@ import {
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
+import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
@@ -25,15 +27,36 @@ export default function DraftChat({
   ordinance,
   seedText = '',
   seedNonce = 0,
+  autoDictate = false,
 }: {
   ordinance: Ordinance
   seedText?: string
   seedNonce?: number
+  autoDictate?: boolean
 }): React.JSX.Element {
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [composer, setComposer] = useState(seedText)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const dictation = useDictationAppend({
+    value: composer,
+    onChange: setComposer,
+    analyticsLabel: 'ordinance-draft-chat',
+  })
   const inputRef = useRef<HTMLInputElement>(null)
+  // Opened from the launcher's mic: begin dictation on mount, while the opening
+  // tap is still a fresh gesture for the permission prompt. Keyed on autoDictate
+  // (fixed per mount) with dictation read through a ref — no mount-once guard, so
+  // StrictMode's dev remount re-invokes start() after its teardown cancels the
+  // first attempt, and a stable dep means stopping never triggers a restart.
+  const dictationRef = useRef(dictation)
+  dictationRef.current = dictation
+  useEffect(() => {
+    if (autoDictate) void dictationRef.current.start()
+    // Close the session if the effect re-runs or the component unmounts; stop()
+    // is a no-op when idle, so it is safe when autoDictate was never true.
+    return () => {
+      void dictationRef.current.stop()
+    }
+  }, [autoDictate])
 
   const { messages, setMessages, visibleSegments, sending, send } =
     useStreamingTurn(ordinanceFlowChatApi, { toolLabel: ordinanceToolLabel })
@@ -92,17 +115,10 @@ export default function DraftChat({
     if (seedNonce !== 0 && conversationId) inputRef.current?.focus()
   }, [seedNonce, conversationId])
 
-  // A new persisted turn scrolls in smoothly.
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Stay pinned to the bottom as the live turn streams. visibleSegments updates
-  // ~40x/s, so use an instant scroll (a smooth one would restart its animation
-  // every tick and never settle).
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [visibleSegments])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+  ])
 
   const working = sending && visibleSegments.length === 0
 
@@ -125,7 +141,11 @@ export default function DraftChat({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
+      >
         {history.map((m) =>
           m.live === null ? (
             <UserBubble key={m.id}>{m.content}</UserBubble>
@@ -149,8 +169,6 @@ export default function DraftChat({
         ) : null}
 
         {working ? <ThinkingRow /> : null}
-
-        <div ref={bottomRef} />
       </div>
 
       <ChatComposer
@@ -164,6 +182,7 @@ export default function DraftChat({
         }}
         disabled={sending || !conversationId}
         inputRef={inputRef}
+        dictation={dictation}
       />
     </div>
   )
