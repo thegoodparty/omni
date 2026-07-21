@@ -272,8 +272,19 @@ export default function VoterMapCanvas({
     )
   }, [focusTurf])
 
+  // Fit once per distinct route: refit when the pin set actually changes,
+  // not on every rerender that passes the same array contents.
+  const fittedRouteRef = useRef<string | null>(null)
   useEffect(() => {
-    if (routePins.length === 0 || !mapRef.current) return
+    if (routePins.length === 0) {
+      fittedRouteRef.current = null
+      return
+    }
+    const first = routePins[0]
+    const last = routePins[routePins.length - 1]
+    const signature = `${routePins.length}:${first?.lat},${first?.lng}:${last?.lat},${last?.lng}`
+    if (fittedRouteRef.current === signature || !mapRef.current) return
+    fittedRouteRef.current = signature
     let minX = Infinity
     let minY = Infinity
     let maxX = -Infinity
@@ -291,9 +302,7 @@ export default function VoterMapCanvas({
       ],
       { padding: 80 },
     )
-    // Fit once per route open (length is a stable proxy for a new route).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routePins.length > 0 ? routePins[0]?.lat : null])
+  }, [routePins])
 
   useEffect(() => {
     if (startDrawToken === 0) return

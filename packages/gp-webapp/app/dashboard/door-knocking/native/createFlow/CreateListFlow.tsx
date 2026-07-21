@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -74,8 +74,13 @@ export default function CreateListFlow({
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(TURF_COLORS[0])
   // If the turf POST fails after the filter was created, the retry reuses
-  // the existing filter instead of minting an orphan list per attempt.
+  // the existing filter instead of minting an orphan list per attempt. The
+  // ref is only valid for the confirm step it was minted in — leaving the
+  // step (back to filters, close) may change the audience, so it resets.
   const createdFilterIdRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (step !== 'confirm') createdFilterIdRef.current = null
+  }, [step])
 
   const save = useMutation({
     mutationFn: async (drawAnother: boolean) => {
