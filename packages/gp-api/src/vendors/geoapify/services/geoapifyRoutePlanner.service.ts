@@ -2,6 +2,7 @@ import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
 import {
   Agent,
+  AgentPlan,
   Job,
   RoutePlanner,
   RoutePlannerError,
@@ -25,6 +26,19 @@ export type RoutePlannerAgent = {
   end_location?: LngLat
 }
 
+// GeoJSON path geometry from the Routing API ([lng, lat] positions).
+const isRoutePathGeometry = (value: unknown): value is RoutePathGeometry =>
+  typeof value === 'object' &&
+  value !== null &&
+  'type' in value &&
+  (value.type === 'LineString' || value.type === 'MultiLineString') &&
+  'coordinates' in value &&
+  Array.isArray(value.coordinates)
+
+export type RoutePathGeometry =
+  | { type: 'LineString'; coordinates: [number, number][] }
+  | { type: 'MultiLineString'; coordinates: [number, number][][] }
+
 export type RoutePlannerPlan = {
   // Visit order as job ids, in knock order.
   orderedJobIds: string[]
@@ -34,6 +48,11 @@ export type RoutePlannerPlan = {
   legMeters: number[]
   totalSeconds: number
   totalMeters: number
+  // Road-following tour path, fetched once here so it can be frozen with
+  // the route (Geoapify's terms permit storing results). Null when the
+  // routing call failed — the route itself is still valid, consumers fall
+  // back to straight legs.
+  pathGeometry: RoutePathGeometry | null
 }
 
 @Injectable()
@@ -165,6 +184,43 @@ export class GeoapifyRoutePlannerService {
       legMeters,
       totalSeconds: agentPlan.getTime() ?? 0,
       totalMeters: agentPlan.getDistance() ?? 0,
+      pathGeometry: await this.fetchPathGeometry(agentPlan, args.mode),
+    }
+  }
+
+  // Best-effort: the ordered plan is the critical artifact; a geometry
+  // failure must not fail the knock.
+  private async fetchPathGeometry(
+    agentPlan: AgentPlan,
+    mode: 'walk' | 'drive',
+  ): Promise<RoutePathGeometry | null> {
+    try {
+      // getRoute is typed Promise<any>; narrow structurally instead of
+      // asserting.
+      const feature: unknown = await Promise.race([
+        agentPlan.getRoute({ mode }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Routing request timed out')),
+            PLAN_TIMEOUT_MS,
+          ),
+        ),
+      ])
+      if (
+        typeof feature !== 'object' ||
+        feature === null ||
+        !('geometry' in feature)
+      ) {
+        return null
+      }
+      const geometry = feature.geometry
+      return isRoutePathGeometry(geometry) ? geometry : null
+    } catch (error) {
+      this.logger.warn(
+        { message: error instanceof Error ? error.message : String(error) },
+        'Geoapify route geometry fetch failed; route ships without a path',
+      )
+      return null
     }
   }
 }
