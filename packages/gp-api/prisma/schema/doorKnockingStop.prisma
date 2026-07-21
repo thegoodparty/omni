@@ -4,7 +4,9 @@ model DoorKnockingStop {
   updatedAt           DateTime               @updatedAt @map("updated_at")
   route               DoorKnockingRoute      @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
   doorKnockingRouteId Int                    @map("door_knocking_route_id")
-  // Geoapify visit order, joined back by the opaque job ids we minted.
+  // Geoapify visit order (1-based), joined back by the opaque job ids we
+  // minted. A raw CHECK in the migration caps seq at 150 (the hard stop
+  // limit) — Prisma cannot express CHECK constraints in the model.
   seq                 Int                    @db.SmallInt
   lat                 Float
   lng                 Float

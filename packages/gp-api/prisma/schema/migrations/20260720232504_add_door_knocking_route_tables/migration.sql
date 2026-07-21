@@ -68,6 +68,11 @@ CREATE TABLE "door_knocking_turf" (
 CREATE UNIQUE INDEX "door_knocking_route_door_knocking_turf_id_key" ON "door_knocking_route"("door_knocking_turf_id");
 
 -- CreateIndex
+-- The 150-stop hard cap (vendor cost + product decision), enforced here as
+-- defense-in-depth against writers that bypass the app-layer guard. seq is
+-- 1-based visit order; (route_id, seq) unique makes this cap stops/route.
+ALTER TABLE "door_knocking_stop" ADD CONSTRAINT "door_knocking_stop_seq_within_cap" CHECK ("seq" >= 1 AND "seq" <= 150);
+
 CREATE UNIQUE INDEX "door_knocking_stop_door_knocking_route_id_seq_key" ON "door_knocking_stop"("door_knocking_route_id", "seq");
 
 -- CreateIndex
