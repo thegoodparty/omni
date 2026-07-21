@@ -43,6 +43,32 @@ DEFAULT_RUBRIC_PATH = REPO_ROOT / ".claude/skills/instrument-analytics-event/SKI
 DEFAULT_MODEL = os.environ.get("GAP_JUDGE_MODEL", "claude-sonnet-5")
 
 
+def gaps_feedback_url() -> str | None:
+    """GitHub link where a reviewer edits disposition + reason inline. Env override, else the
+    committed state file on develop."""
+    explicit = os.environ.get("GP_GAPS_FEEDBACK_URL")
+    if explicit:
+        return explicit
+    return (
+        "https://github.com/thegoodparty/omni/blob/develop/"
+        "packages/runbooks/scripts/python/instrumentation_data/instrumentation_gaps.json"
+    )
+
+
+def gaps_browse_url() -> str | None:
+    """Read-only gaps tab in the event-state sheet. Env override, else derived from the sheet
+    id (+ optional gaps tab gid). None when no sheet id is set — the post then omits the link."""
+    explicit = os.environ.get("GP_GAPS_BROWSE_URL")
+    if explicit:
+        return explicit
+    sheet_id = os.environ.get("GP_EVENT_STATE_SHEET_ID")
+    if not sheet_id:
+        return None
+    url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
+    gid = os.environ.get("GP_GAPS_TAB_GID")
+    return f"{url}#gid={gid}" if gid else url
+
+
 # --- LLM judgment: schema + rubric -------------------------------------------
 # The judge applies the instrument/skip rubric (single-sourced in SKILL.md) to each
 # deterministic candidate gap. Deterministic enumeration is over-inclusive on purpose;
@@ -407,6 +433,44 @@ def _md_cell(value: str | None) -> str:
     return text.replace("|", r"\|").replace("\n", " ").replace("\r", " ")
 
 
+def build_slack_payload(
+    state: Mapping[str, dict],
+    run_date: str,
+    judgment_status: str,
+    pending_count: int,
+    *,
+    browse_url: str | None,
+    feedback_url: str | None,
+    top_n: int = 10,
+) -> dict:
+    """Run-data the health step reads to fold the gaps into its Slack post. new_gaps is the
+    visible (new) entries, sorted by (rank, id), capped at top_n."""
+    visible = sorted(
+        (e for e in state.values() if is_visible(e)),
+        key=lambda e: (e.get("rank", 5), e["id"]),
+    )
+    new_gaps = [
+        {
+            "rank": e.get("rank", 5),
+            "id": e["id"],
+            "surface_type": e["surface_type"],
+            "rubric_rule": e.get("rubric_rule", ""),
+            "dashboard_question": e.get("dashboard_question", ""),
+            "location": e["location"],
+        }
+        for e in visible[:top_n]
+    ]
+    return {
+        "status": judgment_status,
+        "run_date": run_date,
+        "new_count": len(visible),
+        "pending_count": pending_count,
+        "new_gaps": new_gaps,
+        "browse_url": browse_url,
+        "feedback_url": feedback_url,
+    }
+
+
 def render_gap_section(
     state: Mapping[str, dict],
     run_date: str,
@@ -536,13 +600,16 @@ def run_sweep(
     model: str = DEFAULT_MODEL,
     limit: int = 25,
     rubric_path: Path = DEFAULT_RUBRIC_PATH,
-    client_factory=make_anthropic_client,
+    client_factory=None,
     enable_judge: bool = True,
 ) -> tuple[dict, list[dict], str, int]:
     """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps.
     Returns (new_state, gaps, judgment_status, pending_count). Judgment is graceful: when it
     does not return 'ok', no new entries are added and pending_count reports the candidates
-    that went un-judged."""
+    that went un-judged. client_factory defaults to None (resolved here, not at def time) so
+    that callers like main() which never pass it still pick up a test's monkeypatched
+    make_anthropic_client instead of a frozen reference to the original."""
+    client_factory = client_factory or make_anthropic_client
     cfg = load_gap_config(config_path)
     prior = load_state(state_path)
     surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
@@ -584,6 +651,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=25, help="max candidates judged per run")
     parser.add_argument("--rubric", type=Path, default=DEFAULT_RUBRIC_PATH)
     parser.add_argument("--no-judge", action="store_true", help="skip the LLM judgment pass")
+    parser.add_argument("--slack-out", type=Path, default=None,
+                        help="write the gap run-data JSON here for the health step's Slack post")
     args = parser.parse_args(argv)
 
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
@@ -627,6 +696,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
     if args.json:
         args.json.write_text(json.dumps(new_state, indent=2, sort_keys=True) + "\n")
+    if args.slack_out:
+        payload = build_slack_payload(
+            new_state, today.isoformat(), judgment_status, pending,
+            browse_url=gaps_browse_url(), feedback_url=gaps_feedback_url(),
+        )
+        args.slack_out.parent.mkdir(parents=True, exist_ok=True)
+        args.slack_out.write_text(json.dumps(payload, indent=2) + "\n")
     return 0
 
 

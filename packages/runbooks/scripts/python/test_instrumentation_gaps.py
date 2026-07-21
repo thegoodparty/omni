@@ -579,3 +579,54 @@ def test_main_no_judge_writes_empty_state_with_pending_note(tmp_path):
     assert rc == 0
     assert json.loads(state.read_text()) == {}
     assert "Judgment unavailable" in log.read_text()
+
+
+def test_gaps_urls_env_overrides_and_derivation(monkeypatch):
+    monkeypatch.delenv("GP_GAPS_BROWSE_URL", raising=False)
+    monkeypatch.delenv("GP_GAPS_TAB_GID", raising=False)
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "SID")
+    assert ig.gaps_browse_url() == "https://docs.google.com/spreadsheets/d/SID/edit"
+    monkeypatch.setenv("GP_GAPS_TAB_GID", "42")
+    assert ig.gaps_browse_url().endswith("#gid=42")
+    monkeypatch.setenv("GP_GAPS_BROWSE_URL", "https://x")
+    assert ig.gaps_browse_url() == "https://x"
+    monkeypatch.setenv("GP_GAPS_FEEDBACK_URL", "https://fb")
+    assert ig.gaps_feedback_url() == "https://fb"
+
+
+def test_build_slack_payload_caps_and_shapes_new_gaps():
+    state = {
+        f"/r{i}": {"id": f"/r{i}", "surface_type": "route", "disposition": "new",
+                   "rubric_rule": "rr", "dashboard_question": "q", "location": f"r{i}.tsx",
+                   "rank": i % 3}
+        for i in range(15)
+    }
+    state["/done"] = {"id": "/done", "surface_type": "route", "disposition": "accepted", "rank": 0}
+    payload = ig.build_slack_payload(state, "2026-07-21", "ok", 0,
+                                     browse_url="b", feedback_url="f", top_n=10)
+    assert payload["new_count"] == 15          # accepted excluded
+    assert len(payload["new_gaps"]) == 10      # capped
+    assert payload["new_gaps"][0]["rank"] <= payload["new_gaps"][-1]["rank"]
+    assert payload["status"] == "ok" and payload["browse_url"] == "b"
+
+
+def test_main_writes_slack_out_file(tmp_path, monkeypatch):
+    # a fake repo with one untracked route gap + a fake judge confirming it
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    (tmp_path / "packages/gp-api/src").mkdir(parents=True)
+    cfg = tmp_path / "cfg.yaml"; cfg.write_text("exclude_globs: []\n")
+    rubric = tmp_path / "rub.md"; rubric.write_text("RUBRIC")
+    state = tmp_path / "state.json"
+    out = tmp_path / "gap_slack.json"
+    payload = {"results": [{"id": "/foo", "is_gap": True, "rubric_rule": "route",
+                            "dashboard_question": "q", "rank": 3, "reason": "r"}]}
+    monkeypatch.setattr(ig, "make_anthropic_client", lambda k: _FakeClient(payload=payload))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    rc = ig.main(["--repo", str(tmp_path), "--config", str(cfg), "--state", str(state),
+                  "--rubric", str(rubric), "--no-log", "--today", "2026-07-21",
+                  "--slack-out", str(out)])
+    assert rc == 0
+    data = json.loads(out.read_text())
+    assert data["status"] == "ok"
+    assert any(g["id"] == "/foo" for g in data["new_gaps"])
