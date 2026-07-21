@@ -119,6 +119,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     await expect(service.sweepPinDeliveryDetection()).resolves.not.toThrow()
 
     expect(mockTrack).toHaveBeenCalledTimes(1)
+    expect(mockTrackCampaign).toHaveBeenCalledWith(campaignWithUser.id)
   })
 
   it('does not fire the event when another caller already claimed the record', async () => {
