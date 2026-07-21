@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DatabaseUrlProvider } from './database-url.provider'
 
 const mockSend = vi.fn()
+const mockDestroy = vi.fn()
 
 vi.mock('@aws-sdk/client-ssm', () => ({
   SSMClient: class {
     send = mockSend
+    destroy = mockDestroy
   },
   GetParameterCommand: class {
     constructor(public input: unknown) {}
@@ -104,6 +106,16 @@ describe('DatabaseUrlProvider', () => {
 
     expect(provider.current).toBe('postgres://good')
     expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('closes the SSM client on destroy', async () => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+    mockSend.mockResolvedValue({ Parameter: { Value: 'postgres://one' } })
+    await provider.onModuleInit()
+
+    provider.onModuleDestroy()
+
+    expect(mockDestroy).toHaveBeenCalled()
   })
 
   it('stops notifying after unsubscribe', async () => {

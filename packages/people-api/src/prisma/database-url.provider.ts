@@ -31,6 +31,9 @@ export class DatabaseUrlProvider implements OnModuleInit, OnModuleDestroy {
     if (this.interval) {
       clearInterval(this.interval)
     }
+    // Close the SDK's keep-alive sockets so they don't hold the event loop open
+    // and block a clean SIGTERM exit on ECS.
+    this.ssm?.destroy()
   }
 
   get current(): string {
