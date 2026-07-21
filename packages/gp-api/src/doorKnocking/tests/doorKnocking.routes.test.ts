@@ -688,12 +688,15 @@ describe('door-knocking routes', () => {
         res.data.stops as Array<{
           addresses: Array<{
             addressKey: string
+            address: string
             targets: Array<Record<string, unknown>>
           }>
         }>
       )
         .flatMap((s) => s.addresses)
         .find((a) => a.addressKey === 'KEY-4')
+      // Legacy sub-7-segment keys render as their first segment.
+      expect(movedAddress?.address).toBe('KEY-4')
       expect(movedAddress?.targets[0]).toMatchObject({
         personId: PERSON_4,
         name: 'Voter Number4',
