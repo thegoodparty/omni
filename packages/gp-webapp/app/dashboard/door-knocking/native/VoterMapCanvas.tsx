@@ -112,11 +112,21 @@ export default function VoterMapCanvas({
     map.addControl(overlay as unknown as maplibregl.IControl)
     overlayRef.current = overlay
 
+    // One turf at a time: drawing a new shape replaces the previous one on
+    // the map, so the stats panel always describes the single visible
+    // polygon.
     const emitPolygon = () => {
       const polygons = draw
         .getAll()
         .features.filter((f) => f.geometry.type === 'Polygon')
       const last = polygons[polygons.length - 1]
+      const stale = polygons
+        .slice(0, -1)
+        .map((f) => f.id)
+        .filter((id): id is string => typeof id === 'string')
+      if (stale.length > 0) {
+        draw.delete(stale)
+      }
       const ring =
         last && last.geometry.type === 'Polygon'
           ? (last.geometry.coordinates[0] as PolygonRing)

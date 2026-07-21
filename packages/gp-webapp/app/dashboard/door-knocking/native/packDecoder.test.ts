@@ -23,7 +23,12 @@ const buildFixture = (): ArrayBuffer => {
   let dataStart = 4
   let manifestJson = ''
   for (;;) {
-    const arrays = []
+    const arrays: Array<{
+      name: string
+      type: string
+      byteOffset: number
+      elementCount: number
+    }> = []
     let offset = dataStart
     const push = (name: string, type: string, count: number, width: number) => {
       arrays.push({ name, type, byteOffset: offset, elementCount: count })
