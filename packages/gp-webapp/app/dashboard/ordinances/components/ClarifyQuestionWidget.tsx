@@ -75,6 +75,13 @@ export default function ClarifyQuestionWidget({
             >
               <Label
                 htmlFor={id}
+                onClick={(e) => {
+                  // A drag to highlight the option text ends in a click on the
+                  // label; a non-empty selection here means the user was
+                  // selecting (a plain click clears any prior selection on
+                  // mousedown), so don't let it toggle the radio.
+                  if (window.getSelection()?.toString()) e.preventDefault()
+                }}
                 className={cn(
                   'flex items-center gap-3 text-left',
                   selectable ? 'cursor-pointer' : 'cursor-default',
@@ -86,7 +93,7 @@ export default function ClarifyQuestionWidget({
                   disabled={disabled || isAnswered}
                   className="shrink-0 disabled:cursor-default disabled:opacity-100"
                 />
-                <span className="text-sm font-medium text-foreground">
+                <span className="text-sm font-medium text-foreground select-text">
                   {option.label}
                 </span>
               </Label>
