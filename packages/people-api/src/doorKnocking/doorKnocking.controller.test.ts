@@ -7,6 +7,8 @@ vi.hoisted(() => {
   process.env.NODE_ENV = 'production'
   process.env.LOG_LEVEL = 'silent'
   process.env.S2S_ALLOW_LOCALHOST = 'true'
+  // DatabaseUrlProvider reads LOCAL_DATABASE_URL when booting; the pool connects
+  // lazily and swallows failures, so a dummy value is enough here.
   process.env.LOCAL_DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/db'
 })
 
@@ -56,8 +58,8 @@ const baseFakePrisma = {
 
 const fakePrisma = new Proxy(baseFakePrisma as Record<string, unknown>, {
   get(target, prop: string, receiver) {
-    // PrismaBase services reach the live client through `.instance`; point
-    // it back at this same fake.
+    // PrismaBase services reach the live client through `.instance`; point it
+    // back at this same fake.
     if (prop === 'instance') return receiver
     if (prop in target) return target[prop]
     if (/^[a-z]/.test(prop)) return makeModel()
