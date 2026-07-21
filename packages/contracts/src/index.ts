@@ -654,6 +654,8 @@ export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
 export { BboxSchema, type Bbox } from './shared/Bbox.schema'
 
 export {
+  INCOME_RANGE_MAPPING,
+  type IncomeRange,
   PEOPLE_FILTER_VALUE_ENUMS,
   createEnumFilterSchema,
   createIdFilterSchema,

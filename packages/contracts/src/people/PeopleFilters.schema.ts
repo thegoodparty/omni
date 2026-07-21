@@ -37,6 +37,23 @@ import { z } from 'zod'
  *   Operators: { in: number[] }, { eq: number }, { gte: number }, { lte: number }, { is: "not_null" | "null" }
  *   Options: { _or: [{ gte, lte }] } for OR'd ranges, { _includeNull: boolean } to include null values in results
  */
+export type IncomeRange = { min: number; max: number | null }
+
+// The saved-filter incomeRanges vocabulary and the numeric bounds each key
+// translates to. Cross-service: gp-api's boolean→filter translation emits
+// these bounds, and people-api's pack encoder buckets incomes by them.
+export const INCOME_RANGE_MAPPING: Record<string, IncomeRange> = {
+  'Under $25k': { min: 0, max: 24999 },
+  '$25k - $35k': { min: 25000, max: 34999 },
+  '$35k - $50k': { min: 35000, max: 49999 },
+  '$50k - $75k': { min: 50000, max: 74999 },
+  '$75k - $100k': { min: 75000, max: 99999 },
+  '$100k - $125k': { min: 100000, max: 124999 },
+  '$125k - $150k': { min: 125000, max: 149999 },
+  '$150k - $200k': { min: 150000, max: 199999 },
+  '$200k+': { min: 200000, max: null },
+}
+
 export const PEOPLE_FILTER_VALUE_ENUMS = {
   voterStatus: [
     'Super',
