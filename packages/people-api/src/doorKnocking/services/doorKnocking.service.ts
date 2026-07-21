@@ -168,9 +168,11 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
           firstName: row.firstName,
           lastName: row.lastName,
           age: mapAge(row),
-          // Unlike /v1/people output (null → 'Other'), no party data (null
-          // or empty) stays null here — the contract distinguishes "no
-          // data" from an actual third-party registration.
+          // No party data (null/empty) stays null — unlike /v1/people
+          // output, which collapses it to 'Other'. A non-empty unrecognized
+          // value (Green, Libertarian, …) IS a real registration and maps
+          // to 'Other' deliberately; the ?? null only narrows the mapper's
+          // optional return type.
           politicalParty: row.Parties_Description
             ? (mapPoliticalParty(row.Parties_Description) ?? null)
             : null,

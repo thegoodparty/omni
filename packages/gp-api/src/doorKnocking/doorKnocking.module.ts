@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common'
 import { HttpModule } from '@nestjs/axios'
 import { ClerkModule } from '@/vendors/clerk/clerk.module'
-import { ElectionsModule } from '@/elections/elections.module'
+import { ContactsModule } from '@/contacts/contacts.module'
 import { OrganizationsModule } from '@/organizations/organizations.module'
 import { GeoapifyModule } from '@/vendors/geoapify/geoapify.module'
 import { DoorKnockingController } from './doorKnocking.controller'
@@ -13,7 +13,7 @@ import { DoorKnockingPeopleApiService } from './services/doorKnockingPeopleApi.s
   imports: [
     ClerkModule,
     HttpModule,
-    ElectionsModule,
+    ContactsModule,
     OrganizationsModule,
     GeoapifyModule,
   ],

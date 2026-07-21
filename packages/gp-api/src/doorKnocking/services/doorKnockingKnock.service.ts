@@ -11,7 +11,7 @@ import {
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { convertVoterFileFilterToFilters } from '@/contacts/utils/voterFileFilter.utils'
-import { ElectionsService } from '@/elections/services/elections.service'
+import { ContactsService } from '@/contacts/services/contacts.service'
 import { GeoapifyRoutePlannerService } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import type { LngLat } from '@/vendors/geoapify/services/geoapifyRoutePlanner.service'
 import {
@@ -73,7 +73,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
   constructor(
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly geoapify: GeoapifyRoutePlannerService,
-    private readonly elections: ElectionsService,
+    private readonly contacts: ContactsService,
   ) {
     super()
   }
@@ -84,7 +84,10 @@ export class DoorKnockingKnockService extends createPrismaBase(
     campaign: Campaign | null,
     request: DoorKnockingKnockRequest,
   ): Promise<DoorKnockingKnockResponse> {
-    const districtId = await this.resolveDistrictId(organization)
+    // Runs the same eligibility gate as every other voter-data read — a
+    // Win campaign without downloadable voter data can't knock either.
+    const districtId =
+      await this.contacts.resolveEligibleDistrictId(organization)
 
     return this.client.$transaction(
       async (tx) => {
@@ -186,27 +189,6 @@ export class DoorKnockingKnockService extends createPrismaBase(
         return { created: true, route: toHeader(route, stops.length) }
       },
       { timeout: KNOCK_TX_TIMEOUT_MS },
-    )
-  }
-
-  private async resolveDistrictId(organization: Organization): Promise<string> {
-    // Same resolution ContactsService uses (overrideDistrictId beats the
-    // position's district) — duplicated because that implementation is
-    // private and pulling in ContactsModule would add a forwardRef edge.
-    if (organization.overrideDistrictId) {
-      return organization.overrideDistrictId
-    }
-    if (organization.positionId) {
-      const position = await this.elections.getPositionById(
-        organization.positionId,
-        { includeDistrict: true },
-      )
-      if (position?.district?.id) {
-        return position.district.id
-      }
-    }
-    throw new BadRequestException(
-      'No voter district could be resolved for this organization',
     )
   }
 

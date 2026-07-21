@@ -353,6 +353,52 @@ describe('door-knocking routes', () => {
       expect(spy.mock.calls).toHaveLength(0)
     })
 
+    it('loop knock anchors start=end and legs align from the anchor', async () => {
+      const turf = await createTurf()
+      let agentSent: Record<string, unknown> | undefined
+      stubVendors({
+        geoapify: (body) => {
+          agentSent = (body as { agents: Record<string, unknown>[] }).agents[0]
+          const ordered = [...body.jobs].reverse()
+          return {
+            features: [
+              {
+                properties: {
+                  time: 1200,
+                  distance: 1500,
+                  actions: ordered.map((job) => ({
+                    type: 'job',
+                    job_id: job.id,
+                  })),
+                  // Closed tour: n + 1 legs (the extra one returns to the
+                  // anchor and belongs to no stop).
+                  legs: [...ordered, null].map((_, i) => ({
+                    time: 60 + i,
+                    distance: 100 + i,
+                  })),
+                },
+              },
+            ],
+          }
+        },
+      })
+
+      const res = await knock(turf.id, { loop: true })
+
+      expect(res.status).toBe(201)
+      expect(res.data.route.loop).toBe(true)
+      expect(agentSent?.start_location).toEqual(agentSent?.end_location)
+
+      const stops = await service.prisma.doorKnockingStop.findMany({
+        where: { doorKnockingRouteId: res.data.route.id },
+        orderBy: { seq: 'asc' },
+      })
+      // With a start anchor, every stop (including the first) has an
+      // incoming leg.
+      expect(stops[0]?.legSeconds).toBe(60)
+      expect(stops[1]?.legSeconds).toBe(61)
+    })
+
     it('rejects a turf over the 150-stop cap before calling the vendor', async () => {
       const turf = await createTurf()
       const manyPeople = Array.from({ length: 151 }, (_, i) =>

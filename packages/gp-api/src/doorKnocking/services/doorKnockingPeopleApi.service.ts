@@ -101,7 +101,14 @@ export class DoorKnockingPeopleApiService {
             'narrow the audience filters',
         )
       }
-      this.logger.error({ error }, 'people-api door-knocking evaluate failed')
+      // Never log the raw AxiosError: config.headers carries the S2S JWT.
+      this.logger.error(
+        {
+          status: isAxiosError(error) ? error.response?.status : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        },
+        'people-api door-knocking evaluate failed',
+      )
       throw new BadGatewayException('Turf evaluation failed')
     }
   }
