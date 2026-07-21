@@ -82,14 +82,14 @@ describe('AssistantDrawer', () => {
     expect(
       await screen.findByText('Build me a list of young supporters'),
     ).toBeInTheDocument()
-    expect(
-      // The streamed text surfaces via the smooth reveal, whose drain has a
-      // designed 10s worst-case ceiling on a starved runner — a shorter
-      // timeout undershoots the code's own bound and flakes in CI.
-      await screen.findByText('Created your list.', undefined, {
-        timeout: 15_000,
-      }),
-    ).toBeInTheDocument()
+    // Re-query inside waitFor rather than holding a findBy's element across
+    // the live-render -> persisted-history swap: the swap replaces the node
+    // carrying this text, so a reference captured mid-stream can be detached
+    // by assertion time (the CI-consistent failure mode of this test).
+    await waitFor(
+      () => expect(screen.getByText('Created your list.')).toBeInTheDocument(),
+      { timeout: 15_000 },
+    )
     expect(chatApi.streamMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         conversationId: 'c1',
