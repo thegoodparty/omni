@@ -9,6 +9,16 @@ enum DoorKnockOutcome {
   answered
   not_home
   refused_to_engage
+  // Door-knocking-tool additions (July 2026): flattened end-states from the
+  // canvasser question flow. Additive — CRM readers unaffected.
+  inaccessible
+  not_a_voter
+}
+
+enum WillVoteAnswer {
+  yes
+  no
+  unsure
 }
 
 model ContactInteractionDoorKnock {
@@ -20,6 +30,9 @@ model ContactInteractionDoorKnock {
   occurredAt       DateTime         @map("occurred_at")
   outcome          DoorKnockOutcome
   supportAnswer    SupportAnswer?   @map("support_answer")
+  // GOTV signal captured by the door-knocking tool; null on manual/legacy
+  // rows and unused by the feed until it wants it.
+  willVote         WillVoteAnswer?  @map("will_vote")
   note             String?
   // The door-knocking tool's route/interaction id, the idempotency key so a
   // re-sync upserts rather than double-writes. Null for manual logs; Postgres

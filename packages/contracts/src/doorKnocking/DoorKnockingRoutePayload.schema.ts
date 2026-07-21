@@ -1,16 +1,17 @@
 import { z } from 'zod'
 import { DoorKnockingRouteHeaderSchema } from './DoorKnockingTurf.schema'
 
-// Knock statuses derivable from the CRM's shipped door-knock vocabulary
-// (outcome answered/not_home/refused_to_engage + supportAnswer). 'unknown'
-// covers never-knocked, answered-but-unsure, and unsure support. Additive
-// values ('inaccessible') join when the interaction vocabulary grows.
+// Knock statuses derived from the CRM door-knock vocabulary (outcome +
+// supportAnswer). 'unknown' covers never-knocked, answered-but-unsure, and
+// unsure support.
 export const DOOR_KNOCK_STATUSES = [
   'unknown',
   'not_home',
   'supporter',
   'non_supporter',
+  'inaccessible',
   'refused',
+  'not_a_voter',
 ] as const
 
 export const DoorKnockStatusSchema = z.enum(DOOR_KNOCK_STATUSES)

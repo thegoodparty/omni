@@ -16,6 +16,9 @@ import { z } from 'zod'
 import {
   CreateDoorKnockingTurf,
   CreateDoorKnockingTurfSchema,
+  RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionSchema,
+  RecordDoorKnockInteractionResponseSchema,
   DoorKnockingKnockRequest,
   DoorKnockingKnockRequestSchema,
   DoorKnockingKnockResponseSchema,
@@ -33,6 +36,7 @@ import { Campaign, Organization } from '../generated/prisma'
 import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
+import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 
 @Controller('door-knocking')
 export class DoorKnockingController {
@@ -40,6 +44,7 @@ export class DoorKnockingController {
     private readonly turfService: DoorKnockingTurfService,
     private readonly knockService: DoorKnockingKnockService,
     private readonly serveService: DoorKnockingServeService,
+    private readonly interactionService: DoorKnockingInteractionService,
   ) {}
 
   @Post('turfs')
@@ -104,6 +109,17 @@ export class DoorKnockingController {
     @ReqOrganization() organization: Organization,
   ) {
     return this.serveService.serve(id, organization)
+  }
+
+  @Post('interactions')
+  @UseOrganization()
+  @ResponseSchema(RecordDoorKnockInteractionResponseSchema)
+  recordInteraction(
+    @ReqOrganization() organization: Organization,
+    @Body(new ZodValidationPipe(RecordDoorKnockInteractionSchema))
+    input: RecordDoorKnockInteraction,
+  ) {
+    return this.interactionService.record(organization, input)
   }
 
   @Post('turfs/:id/knock')

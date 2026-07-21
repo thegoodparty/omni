@@ -9,6 +9,7 @@ import { DoorKnockingTurfService } from './services/doorKnockingTurf.service'
 import { DoorKnockingKnockService } from './services/doorKnockingKnock.service'
 import { DoorKnockingPeopleApiService } from './services/doorKnockingPeopleApi.service'
 import { DoorKnockingServeService } from './services/doorKnockingServe.service'
+import { DoorKnockingInteractionService } from './services/doorKnockingInteraction.service'
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { DoorKnockingServeService } from './services/doorKnockingServe.service'
     DoorKnockingKnockService,
     DoorKnockingPeopleApiService,
     DoorKnockingServeService,
+    DoorKnockingInteractionService,
   ],
 })
 export class DoorKnockingModule {}

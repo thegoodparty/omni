@@ -27,6 +27,12 @@ export const deriveKnockStatus = (
   if (interaction.outcome === DoorKnockOutcome.refused_to_engage) {
     return STATUS.refused
   }
+  if (interaction.outcome === DoorKnockOutcome.inaccessible) {
+    return STATUS.inaccessible
+  }
+  if (interaction.outcome === DoorKnockOutcome.not_a_voter) {
+    return STATUS.not_a_voter
+  }
   if (interaction.outcome === DoorKnockOutcome.not_home) {
     return STATUS.not_home
   }
@@ -40,7 +46,9 @@ const ROLLUP_PRIORITY: DoorKnockStatus[] = [
   STATUS.not_home,
   STATUS.supporter,
   STATUS.non_supporter,
+  STATUS.inaccessible,
   STATUS.refused,
+  STATUS.not_a_voter,
 ]
 
 export const rollupStopStatus = (
