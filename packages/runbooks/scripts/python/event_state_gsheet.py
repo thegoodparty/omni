@@ -80,6 +80,39 @@ def build_gap_values(state: dict) -> list[list[str]]:
     return matrix
 
 
+GAPS_TAB = "gaps"
+
+
+def load_gaps_state(path: Path) -> dict | None:
+    """Read the committed disposition state for the gaps tab. Missing -> {} (nothing to
+    show yet). Unreadable or non-dict -> None so the caller skips the gaps write with a
+    warning rather than crashing the sheet refresh — a bad hand-edit must never take the
+    whole refresh down."""
+    path = Path(path)
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_gaps_sheet(state: dict, *, service: Any, spreadsheet_id: str, tab: str = GAPS_TAB) -> int:
+    """Full-overwrite `tab` with the gap rows; returns the data-row count (excl. header).
+    Same write-then-clear order as write_sheet: a failed update never leaves an empty tab."""
+    values = build_gap_values(state)
+    sheets = service.spreadsheets()
+    sheets.values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{tab}!A1",
+        valueInputOption="RAW",
+        body={"values": values},
+    ).execute()
+    sheets.values().clear(spreadsheetId=spreadsheet_id, range=f"{tab}!A{len(values) + 1}:ZZ").execute()
+    return len(values) - 1
+
+
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:
     """Full-overwrite `tab` with the assembled rows. Returns the data row count (excl. header).
     `service` is a googleapiclient Sheets resource (injected in tests).

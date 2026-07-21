@@ -131,3 +131,41 @@ def test_build_gap_values_missing_cell_becomes_blank():
     row = values[1]
     assert row[gs.GAPS_COLUMNS.index("reason")] == ""
     assert row[gs.GAPS_COLUMNS.index("surface")] == "/a"
+
+
+def test_write_gaps_sheet_updates_then_clears_and_returns_count():
+    svc = _FakeService()
+    state = {"/a": {"id": "/a", "rank": 0}, "/b": {"id": "/b", "rank": 1}}
+    n = gs.write_gaps_sheet(state, service=svc, spreadsheet_id="SID", tab="gaps")
+    assert n == 2  # excludes header
+    kinds = [k for k, _ in svc.log]
+    assert kinds == ["update", "clear"]              # update before clear, never empty
+    update_kw = svc.log[0][1]
+    clear_kw = svc.log[1][1]
+    assert update_kw["spreadsheetId"] == "SID"
+    assert update_kw["range"] == "gaps!A1"
+    assert update_kw["body"]["values"][0] == list(gs.GAPS_COLUMNS)
+    assert len(update_kw["body"]["values"]) == 3     # header + 2 data rows
+    assert clear_kw["spreadsheetId"] == "SID" and clear_kw["range"] == "gaps!A4:ZZ"
+
+
+def test_write_gaps_sheet_default_tab_is_GAPS_TAB():
+    svc = _FakeService()
+    gs.write_gaps_sheet({}, service=svc, spreadsheet_id="SID")
+    assert svc.log[0][1]["range"] == f"{gs.GAPS_TAB}!A1"
+
+
+def test_load_gaps_state_missing_is_empty_and_corrupt_is_none(tmp_path):
+    assert gs.load_gaps_state(tmp_path / "nope.json") == {}
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ not json")
+    assert gs.load_gaps_state(bad) is None
+    notdict = tmp_path / "arr.json"
+    notdict.write_text("[]")
+    assert gs.load_gaps_state(notdict) is None
+
+
+def test_load_gaps_state_reads_valid_dict(tmp_path):
+    good = tmp_path / "state.json"
+    good.write_text(json.dumps({"/a": {"id": "/a", "rank": 0}}))
+    assert gs.load_gaps_state(good) == {"/a": {"id": "/a", "rank": 0}}
