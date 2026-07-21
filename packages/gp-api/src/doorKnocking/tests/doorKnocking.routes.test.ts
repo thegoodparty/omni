@@ -634,23 +634,17 @@ describe('door-knocking routes', () => {
 
       const { res } = await knockAndServe()
 
-      const byKey = new Map(
-        (
-          res.data.stops as Array<{
-            knockStatus: string
-            addresses: Array<{
-              addressKey: string
-              targets: Array<{ personId: string; knockStatus: string }>
-            }>
+      const entries = (
+        res.data.stops as Array<{
+          knockStatus: string
+          addresses: Array<{
+            addressKey: string
+            targets: Array<{ personId: string; knockStatus: string }>
           }>
-        )
-          .flatMap((s) =>
-            s.addresses.map((a) => [a.addressKey, { stop: s, address: a }]),
-          )
-          .map(([k, v]) => [k, v] as const),
-      )
+        }>
+      ).flatMap((stop) => stop.addresses.map((address) => ({ stop, address })))
 
-      const key1 = byKey.get('KEY-1')
+      const key1 = entries.find((e) => e.address.addressKey === 'KEY-1')
       const statusFor = (personId: string) =>
         key1?.address.targets.find((t) => t.personId === personId)?.knockStatus
       // Latest row wins: the newer not_home beats the older supporter.
@@ -659,9 +653,46 @@ describe('door-knocking routes', () => {
       // An unknown person keeps the whole stop knockable.
       expect(key1?.stop.knockStatus).toBe('unknown')
 
-      const key3 = byKey.get('KEY-3')
+      const key3 = entries.find((e) => e.address.addressKey === 'KEY-3')
       expect(key3?.address.targets[0]?.knockStatus).toBe('supporter')
       expect(key3?.stop.knockStatus).toBe('supporter')
+    })
+
+    it('serves a targetless route without calling people-api', async () => {
+      const turf = await createTurf()
+      await service.prisma.doorKnockingRoute.create({
+        data: {
+          doorKnockingTurfId: turf.id,
+          mode: 'walk',
+          loop: false,
+          totalSeconds: 0,
+          totalMeters: 0,
+          credits: 0,
+          stops: {
+            create: [
+              {
+                seq: 1,
+                lat: 41.9,
+                lng: -87.65,
+                displayAddress: '1 W Elm St',
+                legSeconds: 0,
+                legMeters: 0,
+              },
+            ],
+          },
+        },
+      })
+      const spy = stubVendors()
+
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+
+      expect(res.status).toBe(200)
+      expect(res.data.stops[0].addresses).toEqual([])
+      expect(res.data.stops[0].knockStatus).toBe('unknown')
+      expect(spy.mock.calls).toHaveLength(0)
     })
 
     it('404s for a turf that has not been knocked', async () => {

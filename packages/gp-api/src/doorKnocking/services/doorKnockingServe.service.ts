@@ -70,13 +70,17 @@ export class DoorKnockingServeService extends createPrismaBase(
     const addressKeys = [...new Set(targets.map((t) => t.addressKey))]
     const targetPersonIds = [...new Set(targets.map((t) => t.personId))]
 
-    const districtId =
-      await this.contacts.resolveEligibleDistrictId(organization)
-    const residents = await this.peopleApi.residents({
-      districtId,
-      addressKeys,
-      targetPersonIds,
-    })
+    // knock() can't freeze a targetless route, but guard anyway: people-api
+    // rejects empty key arrays, which would surface here as a 502.
+    const residents =
+      targets.length > 0
+        ? await this.peopleApi.residents({
+            districtId:
+              await this.contacts.resolveEligibleDistrictId(organization),
+            addressKeys,
+            targetPersonIds,
+          })
+        : { addresses: [] }
     const liveByAddressKey = new Map<string, LiveAddress>(
       residents.addresses.map((address) => [address.addressKey, address]),
     )
