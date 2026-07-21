@@ -151,12 +151,6 @@ test('new-office follow-on: office picker shown, new active org', async ({
   ).toBeVisible({ timeout: 30_000 })
   await clickContinue(page)
 
-  // voter-demographics.
-  await expect(
-    page.getByRole('heading', { level: 1, name: /voter insights/i }),
-  ).toBeVisible({ timeout: 15_000 })
-  await clickContinue(page)
-
   // pledge -> launch -> dashboard.
   await expect(
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),

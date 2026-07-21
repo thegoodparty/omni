@@ -14,10 +14,11 @@ describe('followOnConfig', () => {
     const ids = visibleIds({ followOnIntent: 'same-office' })
     expect(ids).not.toContain('office-selection')
     expect(ids).not.toContain('manual-office-entry')
-    // Inherited-position path still runs the projection + insights steps.
+    // Inherited-position path still runs the projection step.
     expect(ids).toContain('path-to-victory')
-    expect(ids).toContain('voter-demographics')
     expect(ids).toContain('pledge')
+    // The follow-on flow doesn't get the campaign-story step in this phase.
+    expect(ids).not.toContain('campaign-story')
   })
 
   it('includes the office picker for new-office', () => {

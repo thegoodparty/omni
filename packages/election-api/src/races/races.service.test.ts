@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RacesService } from './races.service'
-import { RaceFilterDto } from './races.schema'
+import { DEFAULT_RACE_PAGE_SIZE, RaceFilterDto } from './races.schema'
 
 describe('RacesService.findFilingFeeByBrHashId', () => {
   let service: RacesService
@@ -269,12 +269,14 @@ describe('RacesService.findFrequencyByBrHashId', () => {
 describe('RacesService.findRaces — candidacy PII', () => {
   let service: RacesService
   let raceFindMany: ReturnType<typeof vi.fn>
+  let raceGroupBy: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     raceFindMany = vi.fn().mockResolvedValue([{ id: 'race-1' }])
+    raceGroupBy = vi.fn().mockResolvedValue([{ slug: 'tx/place/office' }])
     service = new RacesService()
     Object.defineProperty(service, '_prisma', {
-      value: { race: { findMany: raceFindMany } },
+      value: { race: { findMany: raceFindMany, groupBy: raceGroupBy } },
     })
   })
 
@@ -296,5 +298,113 @@ describe('RacesService.findRaces — candidacy PII', () => {
     // raceColumns present -> top-level `select`; the Candidacies relation still
     // carries the omit so email never comes back.
     expect(args.select.Candidacies).toEqual({ omit: { email: true } })
+  })
+})
+
+describe('RacesService.findRaces — pagination', () => {
+  let service: RacesService
+  let raceFindMany: ReturnType<typeof vi.fn>
+  let raceGroupBy: ReturnType<typeof vi.fn>
+  let placeFindUnique: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    raceFindMany = vi
+      .fn()
+      .mockResolvedValue([{ id: 'race-1', slug: 'tx/a', positionNames: ['X'] }])
+    raceGroupBy = vi.fn().mockResolvedValue([{ slug: 'tx/a' }])
+    placeFindUnique = vi.fn().mockResolvedValue({ id: 'place-123' })
+    service = new RacesService()
+    Object.defineProperty(service, '_prisma', {
+      value: {
+        race: { findMany: raceFindMany, groupBy: raceGroupBy },
+        place: { findUnique: placeFindUnique },
+      },
+    })
+  })
+
+  it('paginates over distinct slugs, not raw rows', async () => {
+    await service.findRaces({
+      state: 'TX',
+      page: 1,
+      pageSize: DEFAULT_RACE_PAGE_SIZE,
+    } as RaceFilterDto)
+
+    // The bound is applied to the grouped slug query so a slug group can never
+    // be split across a page boundary.
+    const groupArgs = raceGroupBy.mock.calls[0]?.[0]
+    expect(groupArgs.by).toEqual(['slug'])
+    expect(groupArgs.take).toBe(DEFAULT_RACE_PAGE_SIZE)
+    expect(groupArgs.skip).toBe(0)
+    expect(groupArgs.orderBy).toEqual({ slug: 'asc' })
+    expect(groupArgs.where).toEqual({ state: 'TX' })
+  })
+
+  it('fetches the complete row set for exactly the page slugs', async () => {
+    raceGroupBy.mockResolvedValue([{ slug: 'tx/a' }, { slug: 'tx/b' }])
+
+    await service.findRaces({ state: 'TX' } as RaceFilterDto)
+
+    const findArgs = raceFindMany.mock.calls[0]?.[0]
+    // No row-level skip/take — grouping already bounded the page.
+    expect(findArgs.skip).toBeUndefined()
+    expect(findArgs.take).toBeUndefined()
+    expect(findArgs.where).toEqual({
+      state: 'TX',
+      slug: { in: ['tx/a', 'tx/b'] },
+    })
+    expect(findArgs.orderBy).toEqual([{ slug: 'asc' }, { id: 'asc' }])
+  })
+
+  it('computes the grouped skip from page and pageSize', async () => {
+    await service.findRaces({ page: 3, pageSize: 100 } as RaceFilterDto)
+
+    const groupArgs = raceGroupBy.mock.calls[0]?.[0]
+    expect(groupArgs.skip).toBe(200)
+    expect(groupArgs.take).toBe(100)
+  })
+
+  it('resolves placeSlug to a scalar placeId filter for both queries', async () => {
+    // placeSlug is resolved to a scalar placeId first so the slug `groupBy`
+    // never has to filter on the `Place` relation.
+    await service.findRaces({ placeSlug: 'tx/austin' } as RaceFilterDto)
+
+    expect(placeFindUnique).toHaveBeenCalledWith({
+      where: { slug: 'tx/austin' },
+      select: { id: true },
+    })
+    const groupArgs = raceGroupBy.mock.calls[0]?.[0]
+    expect(groupArgs.where).toEqual({ placeId: 'place-123' })
+    const findArgs = raceFindMany.mock.calls[0]?.[0]
+    expect(findArgs.where.placeId).toBe('place-123')
+  })
+
+  it('404s when placeSlug matches no place', async () => {
+    placeFindUnique.mockResolvedValue(null)
+
+    await expect(
+      service.findRaces({ placeSlug: 'tx/nonexistent' } as RaceFilterDto),
+    ).rejects.toThrow('No place found for slug')
+    expect(raceGroupBy).not.toHaveBeenCalled()
+  })
+
+  it('returns an empty array when paging past the last result', async () => {
+    raceGroupBy.mockResolvedValue([])
+
+    const result = await service.findRaces({
+      state: 'TX',
+      page: 5,
+    } as RaceFilterDto)
+
+    expect(result).toEqual([])
+    // Never touches the row query when there are no slugs on the page.
+    expect(raceFindMany).not.toHaveBeenCalled()
+  })
+
+  it('still 404s when the first page genuinely matches nothing', async () => {
+    raceGroupBy.mockResolvedValue([])
+
+    await expect(
+      service.findRaces({ state: 'TX', page: 1 } as RaceFilterDto),
+    ).rejects.toThrow('No races found')
   })
 })

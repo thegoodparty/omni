@@ -34,7 +34,7 @@ Install dependencies:
 npm install
 ```
 
-Copy .env file and update with your DATABASE_URL and other variables.
+Copy .env file and update with your LOCAL_DATABASE_URL and other variables.
 
 ```
 cp .env.example .env
