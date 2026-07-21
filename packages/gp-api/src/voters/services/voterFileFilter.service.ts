@@ -47,7 +47,10 @@ export class VoterFileFilterService extends createPrismaBase(
     for (const condition of conditions) {
       if (condition.outreachId == null) continue
 
-      if (condition.outreachType === OutreachType.doorKnocking) {
+      if (
+        condition.outreachType === OutreachType.doorKnocking ||
+        condition.outreachType === OutreachType.nativeDoorKnocking
+      ) {
         throw new BadRequestException(
           'Door-knocking activity conditions cannot target a specific ' +
             'outreachId — door-knock interactions have no outreach ' +

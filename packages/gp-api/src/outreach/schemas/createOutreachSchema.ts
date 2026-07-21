@@ -102,5 +102,14 @@ export class CreateOutreachSchema extends createZodDto(
           message: 'pending_payment is set by the draft flow, not the client',
         })
       }
+      if (data.outreachType === OutreachType.nativeDoorKnocking) {
+        ctx.addIssue({
+          path: ['outreachType'],
+          code: z.ZodIssueCode.custom,
+          message:
+            'nativeDoorKnocking outreach is created only by the knock ' +
+            'transaction, not the client',
+        })
+      }
     }),
 ) {}
