@@ -153,13 +153,17 @@ export default function VoterMapCanvas({
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
     // osm-liberty ships transit overlays and 3D building extrusions we
-    // don't want on a canvassing map — hide them, keep everything else.
+    // don't want on a canvassing map. Transit hides entirely; buildings
+    // keep their footprints but flatten (height 0) — canvassers want to see
+    // building outlines when zoomed in, just not in 3D.
     map.on('style.load', () => {
       for (const layer of map.getStyle().layers ?? []) {
-        const hide =
-          layer.type === 'fill-extrusion' ||
-          /transit|railway|rail|ferry|aeroway/i.test(layer.id)
-        if (hide) {
+        if (layer.type === 'fill-extrusion') {
+          map.setPaintProperty(layer.id, 'fill-extrusion-height', 0)
+          map.setPaintProperty(layer.id, 'fill-extrusion-base', 0)
+          continue
+        }
+        if (/transit|railway|rail|ferry|aeroway/i.test(layer.id)) {
           map.setLayoutProperty(layer.id, 'visibility', 'none')
         }
       }
