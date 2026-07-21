@@ -136,8 +136,15 @@ export default function DraftDetail({
   // The report the loop last delivered (or the initial one). Keyed into
   // QualityReport so a mid-loop refresh actually replaces the rendered card.
   const [loopReport, setLoopReport] = useState(ordinance.qualityReport)
+  // Seeded from the server snapshot: a loop that finished while this page
+  // was closed never fires the running -> terminal transition here, yet its
+  // outcome banner and change history are still due.
   const [loopOutcome, setLoopOutcome] =
-    useState<OrdinanceQualityLoopStatus | null>(null)
+    useState<OrdinanceQualityLoopStatus | null>(() =>
+      ordinance.qualityLoop && ordinance.qualityLoop.status !== 'running'
+        ? ordinance.qualityLoop.status
+        : null,
+    )
   const [iterations, setIterations] = useState<
     OrdinanceQualityIterationSummary[]
   >([])
@@ -176,10 +183,20 @@ export default function DraftDetail({
     lastSavedBodyRef.current = bodyRef.current?.innerText ?? null
   }, [])
 
+  // Bumped by any user action that changes loop/draft state (stop, restore):
+  // a fetch that started before the bump carries a stale snapshot — applying
+  // it would re-lock the editor as "running" after a stop, and the reseed
+  // would wipe anything typed since the unlock. Guard every async consumer.
+  const loopGenRef = useRef(0)
+
   // Fold a freshly fetched ordinance into the loop state. No-op when no loop
-  // is involved (so a focus re-check never clobbers live edits); while running
-  // (editor locked) the refs are re-seeded with the server truth each tick,
-  // and the first running -> terminal transition loads the change history.
+  // is involved (so a focus re-check never clobbers live edits). Reseeding
+  // and autosave-cancelling only happen when the loop already owned the
+  // editor (locked): on the not-running -> running discovery (a focus
+  // re-check finding a loop started elsewhere) the editor is still editable,
+  // so the user's typing is authoritative — reseeding would silently discard
+  // it, and its pending autosave legitimately retires the young run through
+  // the edit supersession hook.
   const applyLoopFetch = useCallback(
     (next: Ordinance): void => {
       const wasRunning = loopRunningRef.current
@@ -187,23 +204,25 @@ export default function DraftDetail({
       if (!wasRunning && !nowRunning) return
       setQualityLoop(next.qualityLoop)
       setLoopReport(next.qualityReport)
-      seedEditorsFrom(next)
-      // The editors now hold the server truth the report was graded against,
-      // so any earlier local dirtiness is moot — without this, a loop-fresh
-      // report renders under a false stale banner.
-      setDraftDirty(false)
-      // The loop owns the draft now: a debounced or queued autosave from
-      // before this fetch carries pre-loop text — landing it would PATCH over
-      // the loop's revision and supersede a healthy run.
-      if (bodyTimerRef.current) {
-        clearTimeout(bodyTimerRef.current)
-        bodyTimerRef.current = null
+      if (wasRunning) {
+        seedEditorsFrom(next)
+        // The editors now hold the server truth the report was graded
+        // against, so any earlier local dirtiness is moot — without this, a
+        // loop-fresh report renders under a false stale banner.
+        setDraftDirty(false)
+        // The loop owns the draft: a debounced or queued autosave from
+        // before this fetch carries pre-loop text — landing it would PATCH
+        // over the loop's revision and supersede a healthy run.
+        if (bodyTimerRef.current) {
+          clearTimeout(bodyTimerRef.current)
+          bodyTimerRef.current = null
+        }
+        if (titleTimerRef.current) {
+          clearTimeout(titleTimerRef.current)
+          titleTimerRef.current = null
+        }
+        queuedRef.current = null
       }
-      if (titleTimerRef.current) {
-        clearTimeout(titleTimerRef.current)
-        titleTimerRef.current = null
-      }
-      queuedRef.current = null
       if (nowRunning) {
         setLoopOutcome(null)
         setIterations([])
@@ -211,19 +230,18 @@ export default function DraftDetail({
       }
       if (next.qualityLoop) {
         setLoopOutcome(next.qualityLoop.status)
+        const gen = loopGenRef.current
         void fetchQualityIterations(next.slug)
-          .then((res) => setIterations(res.iterations))
-          .catch(() => setIterations([]))
+          .then((res) => {
+            if (gen === loopGenRef.current) setIterations(res.iterations)
+          })
+          .catch(() => {
+            if (gen === loopGenRef.current) setIterations([])
+          })
       }
     },
     [seedEditorsFrom],
   )
-
-  // Bumped by any user action that changes loop/draft state (stop, restore):
-  // a fetch that started before the bump carries a stale snapshot — applying
-  // it would re-lock the editor as "running" after a stop, and the reseed
-  // would wipe anything typed since the unlock. Guard every async consumer.
-  const loopGenRef = useRef(0)
 
   useEffect(() => {
     if (!loopRunning) return
@@ -238,6 +256,22 @@ export default function DraftDetail({
     }, LOOP_POLL_MS)
     return () => clearInterval(timer)
   }, [loopRunning, ordinance.slug, applyLoopFetch])
+
+  // Change history for an outcome seeded from the server snapshot (loop
+  // finished before this page mounted). Later outcomes load their history in
+  // applyLoopFetch's transition path.
+  useEffect(() => {
+    if (!loopOutcome) return
+    const gen = loopGenRef.current
+    void fetchQualityIterations(ordinance.slug)
+      .then((res) => {
+        if (gen === loopGenRef.current) setIterations(res.iterations)
+      })
+      .catch(() => undefined)
+    // Mount-only: reacting to later loopOutcome changes would double-fetch
+    // what the transition path already loads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // A loop can be started from another tab (or by the saveDraft hook while
   // this page sat in a background tab). Re-check on focus/visibility so a

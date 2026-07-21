@@ -295,7 +295,7 @@ describe('DraftDetail quality loop polling', () => {
     ).toBeVisible()
   })
 
-  it('drops a pending autosave when a reseed discovers a running loop', async () => {
+  it('keeps unsaved edits when a re-check discovers a loop started elsewhere', async () => {
     mocks.fetchOrdinanceBySlug.mockResolvedValue(
       makeOrdinance({ qualityLoop: loop(), draftBody: 'Loop revision.' }),
     )
@@ -303,8 +303,10 @@ describe('DraftDetail quality loop polling', () => {
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
     // An edit sits in the debounce window when a focus re-check learns a loop
-    // started elsewhere (another tab, the saveDraft hook). Firing afterward it
-    // would PATCH pre-loop text over the revision and retire the healthy run.
+    // started elsewhere (another tab, the saveDraft hook). The user's live
+    // typing is authoritative: reseeding would silently discard it. The
+    // pending autosave lands and retires the young run through the edit
+    // supersession hook instead of being dropped.
     bodyEditor().innerText = 'Pre-loop edit.'
     fireEvent.input(bodyEditor())
     fireEvent(window, new Event('focus'))
@@ -312,11 +314,15 @@ describe('DraftDetail quality loop polling', () => {
       await vi.advanceTimersByTimeAsync(0)
     })
     expect(bodyEditor()).toHaveAttribute('contenteditable', 'false')
+    expect(bodyEditor().innerText).toBe('Pre-loop edit.')
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS * 2)
     })
-    expect(mocks.updateOrdinance).not.toHaveBeenCalled()
+    expect(mocks.updateOrdinance).toHaveBeenCalledWith(
+      'public-safety-cameras',
+      { draftBody: 'Pre-loop edit.' },
+    )
   })
 
   it('ignores a stale in-flight poll snapshot after Stop and edit', async () => {
@@ -476,6 +482,37 @@ describe('DraftDetail quality loop focus re-check', () => {
     expect(bodyEditor().innerText).toBe('Unsaved local edit.')
     expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
     expect(screen.queryByText(/checking your draft/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('DraftDetail loop outcome on load', () => {
+  it('shows the finished outcome and change history for a loop that ended while the page was closed', async () => {
+    mocks.fetchQualityIterations.mockResolvedValue({
+      loopRunId: 'run-1',
+      iterations: [iteration()],
+    })
+
+    render(
+      <DraftDetail
+        ordinance={makeOrdinance({
+          qualityLoop: loop({ status: 'converged', phase: null }),
+          qualityReport: passingReport,
+        })}
+      />,
+    )
+
+    // The transition path (running -> terminal) never fires for a loop that
+    // finished before this page existed, so the outcome must seed from the
+    // server snapshot.
+    expect(
+      await screen.findByText('No blocking problems — 2 items worth a look'),
+    ).toBeVisible()
+    expect(mocks.fetchQualityIterations).toHaveBeenCalledWith(
+      'public-safety-cameras',
+    )
+    expect(
+      await screen.findByRole('button', { name: /what changed/i }),
+    ).toBeVisible()
   })
 })
 
