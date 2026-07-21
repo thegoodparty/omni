@@ -3,25 +3,25 @@
 import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
-import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-  Button,
-  Checkbox,
-} from '@styleguide'
+  DOOR_KNOCK_STATUSES,
+  DoorKnockingTurf,
+  DoorKnockStatus,
+} from '@goodparty_org/contracts'
+import { Button } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
+import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { voterPackQueryOptions } from './useVoterPack'
-import { DimSelections, polygonStats, runFilter } from './filterEngine'
-import { turfsQueryOptions } from './turfQueries'
+import { polygonStats, runFilter } from './filterEngine'
+import { routeQueryOptions, turfsQueryOptions } from './turfQueries'
+import CreateListFlow, { CreateFlowStep } from './createFlow/CreateListFlow'
+import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import KnockTurfDialog from './KnockTurfDialog'
-import SaveTurfDialog from './SaveTurfDialog'
 import TurfList from './TurfList'
 import WalkView from './WalkView'
+import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
 import type { PolygonRing } from './VoterMapCanvas'
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
@@ -32,35 +32,6 @@ const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
     </div>
   ),
 })
-
-// Dim keys the panel exposes in v1, in display order — the rest of the
-// manifest's dims still filter-match, they just don't get panel UI yet.
-const PANEL_DIMS: Array<[string, string]> = [
-  ['canvassStatus', 'Knock status'],
-  ['party', 'Political party'],
-  ['age', 'Age'],
-  ['gender', 'Gender'],
-  ['voterStatus', 'Voter status'],
-  ['hasCellPhone', 'Has cell phone'],
-  ['homeowner', 'Homeowner'],
-  ['veteranStatus', 'Veteran'],
-]
-
-const VALUE_LABELS: Record<string, string> = {
-  unknown: 'Unknown',
-  not_home: 'Not home',
-  supporter: 'Supporter',
-  non_supporter: 'Non-supporter',
-  inaccessible: 'Inaccessible',
-  refused: 'Refused',
-  not_a_voter: 'Not a voter',
-  '18_25': '18-25',
-  '25_35': '25-35',
-  '35_50': '35-50',
-  '50_plus': '50+',
-  M: 'Male',
-  F: 'Female',
-}
 
 interface NativeDoorKnockingPageProps {
   pathname: string
@@ -73,18 +44,27 @@ export default function NativeDoorKnockingPage({
 }: NativeDoorKnockingPageProps) {
   const packQuery = useQuery(voterPackQueryOptions)
   const turfsQuery = useQuery(turfsQueryOptions)
-  const [selections, setSelections] = useState<DimSelections>(new Map())
+  const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
+  const [filters, setFilters] = useState<VoterFileFilters>({})
   const [ring, setRing] = useState<PolygonRing | null>(null)
-  const [saveOpen, setSaveOpen] = useState(false)
-  const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
+  const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [walkTurf, setWalkTurf] = useState<{
     id: number
     name: string
   } | null>(null)
 
+  // The filter draft narrows the preview only while the create flow is open;
+  // the landing map always shows the whole district.
+  const selections = useMemo(
+    () =>
+      flowStep && packQuery.data
+        ? filtersToDimSelections(filters, packQuery.data.manifest)
+        : new Map<string, Set<number>>(),
+    [flowStep, filters, packQuery.data],
+  )
   const filterResult = useMemo(
     () => (packQuery.data ? runFilter(packQuery.data, selections) : null),
     [packQuery.data, selections],
@@ -96,21 +76,123 @@ export default function NativeDoorKnockingPage({
         : null,
     [packQuery.data, filterResult, ring],
   )
-
-  const toggleValue = (dimKey: string, valueIndex: number, total: number) => {
-    setSelections((current) => {
-      const next = new Map(current)
-      const existing =
-        next.get(dimKey) ?? new Set(Array.from({ length: total }, (_, i) => i))
-      const updated = new Set(existing)
-      if (updated.has(valueIndex)) {
-        updated.delete(valueIndex)
-      } else {
-        updated.add(valueIndex)
-      }
-      next.set(dimKey, updated)
-      return next
+  // Landing-rail status chips: person-level counts over the whole district.
+  const statusCounts = useMemo(() => {
+    const counts: Partial<Record<DoorKnockStatus, number>> = {}
+    const pack = packQuery.data
+    const dim = pack?.manifest.dims.find((d) => d.key === 'canvassStatus')
+    const plane = pack?.dimPlanes.get('canvassStatus')
+    if (!pack || !dim || !plane) return counts
+    const perValue = new Array<number>(dim.values.length).fill(0)
+    for (let i = 0; i < plane.length; i++) {
+      const value = plane[i] as number
+      if (value < perValue.length) perValue[value] = (perValue[value] ?? 0) + 1
+    }
+    dim.values.forEach((value, index) => {
+      counts[value as DoorKnockStatus] = perValue[index] ?? 0
     })
+    return counts
+  }, [packQuery.data])
+
+  const walkRouteQuery = useQuery({
+    ...routeQueryOptions(walkTurf?.id ?? 0),
+    enabled: walkTurf !== null,
+  })
+  const routePins = useMemo(
+    () =>
+      walkTurf && walkRouteQuery.data
+        ? walkRouteQuery.data.stops.map((stop) => ({
+            seq: stop.seq,
+            lat: stop.lat,
+            lng: stop.lng,
+          }))
+        : [],
+    [walkTurf, walkRouteQuery.data],
+  )
+
+  const changeFlowStep = (next: CreateFlowStep) => {
+    if (next === 'draw' && flowStep === 'filters') {
+      setStartDrawToken((token) => token + 1)
+    }
+    setFlowStep(next)
+  }
+  const closeFlow = () => {
+    setFlowStep(null)
+    setFilters({})
+    setClearDrawToken((token) => token + 1)
+  }
+  const handleSaved = (drawAnother: boolean) => {
+    setClearDrawToken((token) => token + 1)
+    if (drawAnother) {
+      setFlowStep('draw')
+      setStartDrawToken((token) => token + 1)
+    } else {
+      setFlowStep(null)
+      setFilters({})
+    }
+  }
+
+  const rightRail = () => {
+    if (walkTurf) {
+      return (
+        <WalkView
+          turfId={walkTurf.id}
+          turfName={walkTurf.name}
+          onBack={() => setWalkTurf(null)}
+        />
+      )
+    }
+    if (flowStep) {
+      return (
+        <CreateListFlow
+          step={flowStep}
+          filters={filters}
+          onFiltersChange={setFilters}
+          onStepChange={changeFlowStep}
+          onClose={closeFlow}
+          matchingHouseholds={filterResult?.households ?? 0}
+          ring={ring}
+          turfStats={turfStats}
+          onSaved={handleSaved}
+        />
+      )
+    }
+    return (
+      <aside className="flex h-full w-96 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border bg-background p-4">
+        <TurfList
+          onFocusTurf={setFocusTurf}
+          onKnockTurf={setKnockTurf}
+          onOpenRoute={(turf) => setWalkTurf({ id: turf.id, name: turf.name })}
+        />
+        <section className="flex flex-col gap-2">
+          <div>
+            <h2 className="text-sm font-semibold">District voters</h2>
+            {filterResult && (
+              <p className="text-xs text-muted-foreground">
+                {filterResult.people.toLocaleString()} voters in your district
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {DOOR_KNOCK_STATUSES.map((status) => (
+              <span
+                key={status}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs"
+              >
+                <span
+                  className="h-2 w-2 rounded-full"
+                  style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
+                />
+                {STATUS_LABELS[status]}
+                <span className="font-semibold tabular-nums">
+                  {(statusCounts[status] ?? 0).toLocaleString()}
+                </span>
+              </span>
+            ))}
+          </div>
+        </section>
+      </aside>
+    )
   }
 
   return (
@@ -119,160 +201,56 @@ export default function NativeDoorKnockingPage({
       campaign={campaign}
       wrapperClassName="!p-0 flex flex-col"
     >
-      <div className="flex h-[calc(100dvh-4rem)] w-full">
-        <aside className="flex w-72 shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-background p-4">
+      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col">
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <h1 className="text-lg font-semibold">Door knocking</h1>
-          {packQuery.isPending && (
-            <p className="text-sm text-muted-foreground">
-              Loading your voter map…
-            </p>
+          {!flowStep && !walkTurf && (
+            <Button
+              size="small"
+              disabled={!packQuery.data}
+              onClick={() => setFlowStep('filters')}
+            >
+              Create list
+            </Button>
           )}
-          {packQuery.isError && (
-            <p className="text-sm text-destructive">
-              The voter map could not load. Refresh to try again.
-            </p>
-          )}
-          {packQuery.data && filterResult && (
-            <>
-              <div className="rounded-md border border-border p-3 text-sm">
-                <div>
-                  <span className="font-semibold tabular-nums">
-                    {filterResult.people.toLocaleString()}
-                  </span>{' '}
-                  matching voters
-                </div>
-                <div>
-                  <span className="font-semibold tabular-nums">
-                    {filterResult.households.toLocaleString()}
-                  </span>{' '}
-                  households ·{' '}
-                  <span className="font-semibold tabular-nums">
-                    {filterResult.dots.toLocaleString()}
-                  </span>{' '}
-                  doors
-                </div>
+        </div>
+        <div className="flex min-h-0 flex-1">
+          <div className="relative min-w-0 flex-1">
+            {packQuery.isPending && (
+              <div className="flex h-full items-center justify-center">
+                <LoadingAnimation />
               </div>
-              <Button
-                size="small"
-                variant={ring ? 'outline' : 'default'}
-                onClick={() => {
-                  setWalkTurf(null)
-                  setStartDrawToken((token) => token + 1)
-                }}
-              >
-                {ring ? 'Redraw turf' : 'Draw a turf'}
-              </Button>
-              {!ring && (
-                <p className="text-xs text-muted-foreground">
-                  Click the map to outline an area; double-click to finish.
-                </p>
-              )}
-              {turfStats && (
-                <div className="rounded-md border border-info bg-info-light p-3 text-sm">
-                  <div className="font-semibold">Drawn area</div>
-                  <div>
-                    <span className="font-semibold tabular-nums">
-                      {turfStats.stops.toLocaleString()}
-                    </span>{' '}
-                    stops ·{' '}
-                    <span className="font-semibold tabular-nums">
-                      {turfStats.people.toLocaleString()}
-                    </span>{' '}
-                    voters
-                  </div>
-                  {turfStats.stops > 150 && (
-                    <p className="mt-1 text-destructive">
-                      Over the 150-stop limit — draw a smaller area.
-                    </p>
-                  )}
-                  <Button
-                    size="small"
-                    className="mt-2 w-full"
-                    disabled={turfStats.stops === 0 || turfStats.stops > 150}
-                    onClick={() => setSaveOpen(true)}
-                  >
-                    Save turf
-                  </Button>
-                </div>
-              )}
-              <TurfList
-                walkingTurfId={walkTurf?.id}
-                onFocusTurf={(turf) => {
-                  setWalkTurf(null)
-                  setFocusTurf(turf)
-                }}
-                onKnockTurf={setKnockTurf}
-                onOpenRoute={(turf) =>
-                  setWalkTurf({ id: turf.id, name: turf.name })
-                }
-              />
-              <Accordion type="multiple" className="w-full">
-                {PANEL_DIMS.map(([key, label]) => {
-                  const dim = packQuery.data.manifest.dims.find(
-                    (d) => d.key === key,
-                  )
-                  if (!dim) return null
-                  const selected =
-                    selections.get(key) ?? new Set(dim.values.map((_, i) => i))
-                  return (
-                    <AccordionItem key={key} value={key}>
-                      <AccordionTrigger className="text-sm">
-                        {label}
-                      </AccordionTrigger>
-                      <AccordionContent className="flex flex-col gap-2">
-                        {dim.values.map((value, index) => (
-                          <label
-                            key={value}
-                            className="flex items-center gap-2 text-sm"
-                          >
-                            <Checkbox
-                              checked={selected.has(index)}
-                              onCheckedChange={() =>
-                                toggleValue(key, index, dim.values.length)
-                              }
-                            />
-                            {VALUE_LABELS[value] ?? value}
-                          </label>
-                        ))}
-                      </AccordionContent>
-                    </AccordionItem>
-                  )
-                })}
-              </Accordion>
-            </>
-          )}
-        </aside>
-        <div className="min-w-0 flex-1">
-          {walkTurf ? (
-            <WalkView
-              turfId={walkTurf.id}
-              turfName={walkTurf.name}
-              onBack={() => setWalkTurf(null)}
-            />
-          ) : (
-            packQuery.data &&
-            filterResult && (
+            )}
+            {packQuery.isError && (
+              <p className="p-4 text-sm text-destructive">
+                The voter map could not load. Refresh to try again.
+              </p>
+            )}
+            {packQuery.data && filterResult && (
               <VoterMapCanvas
                 pack={packQuery.data}
                 filterResult={filterResult}
                 turfs={turfsQuery.data ?? []}
+                routePins={routePins}
                 focusTurf={focusTurf}
                 startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
                 onPolygonChange={setRing}
               />
-            )
-          )}
+            )}
+            {flowStep === 'draw' && (
+              <div className="pointer-events-none absolute left-4 top-4 max-w-xs rounded-md border border-border bg-background/95 p-3 text-sm shadow-sm">
+                <p className="font-semibold">Draw your knocking boundaries</p>
+                <p className="text-muted-foreground">
+                  Click the map to drop boundary points, then double-click to
+                  close the shape.
+                </p>
+              </div>
+            )}
+          </div>
+          {rightRail()}
         </div>
       </div>
-      {ring && (
-        <SaveTurfDialog
-          ring={ring}
-          open={saveOpen}
-          onOpenChange={setSaveOpen}
-          onSaved={() => setClearDrawToken((token) => token + 1)}
-        />
-      )}
       {knockTurf && (
         <KnockTurfDialog
           key={knockTurf.id}

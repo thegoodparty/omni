@@ -7,7 +7,7 @@ import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css'
-import { PolygonLayer } from '@deck.gl/layers'
+import { PolygonLayer, TextLayer } from '@deck.gl/layers'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { DecodedPack } from './packDecoder'
@@ -30,10 +30,18 @@ const UNMATCHED_COLOR: [number, number, number, number] = [190, 195, 200, 60]
 
 export type PolygonRing = Array<[number, number]>
 
+export interface RoutePin {
+  seq: number
+  lat: number
+  lng: number
+}
+
 interface VoterMapCanvasProps {
   pack: DecodedPack
   filterResult: FilterResult
   turfs: DoorKnockingTurf[]
+  // Numbered stop pins for the open route's walk view.
+  routePins: RoutePin[]
   focusTurf: DoorKnockingTurf | null
   // Bump to enter polygon-draw mode (the page owns the Draw button).
   startDrawToken: number
@@ -98,6 +106,7 @@ export default function VoterMapCanvas({
   pack,
   filterResult,
   turfs,
+  routePins,
   focusTurf,
   startDrawToken,
   clearDrawToken,
@@ -213,9 +222,32 @@ export default function VoterMapCanvas({
           getRadius: 5,
           pickable: false,
         }),
+        new ScatterplotLayer<RoutePin>({
+          id: 'route-pins',
+          data: routePins,
+          getPosition: (pin) => [pin.lng, pin.lat],
+          getFillColor: [11, 21, 40, 235],
+          getLineColor: [255, 255, 255, 255],
+          lineWidthMinPixels: 2,
+          stroked: true,
+          radiusMinPixels: 11,
+          radiusMaxPixels: 14,
+          getRadius: 12,
+          pickable: false,
+        }),
+        new TextLayer<RoutePin>({
+          id: 'route-pin-numbers',
+          data: routePins,
+          getPosition: (pin) => [pin.lng, pin.lat],
+          getText: (pin) => String(pin.seq),
+          getColor: [255, 255, 255, 255],
+          getSize: 12,
+          fontWeight: 700,
+          pickable: false,
+        }),
       ],
     })
-  }, [pack, filterResult, turfs])
+  }, [pack, filterResult, turfs, routePins])
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return
@@ -239,6 +271,29 @@ export default function VoterMapCanvas({
       { padding: 64 },
     )
   }, [focusTurf])
+
+  useEffect(() => {
+    if (routePins.length === 0 || !mapRef.current) return
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const pin of routePins) {
+      if (pin.lng < minX) minX = pin.lng
+      if (pin.lng > maxX) maxX = pin.lng
+      if (pin.lat < minY) minY = pin.lat
+      if (pin.lat > maxY) maxY = pin.lat
+    }
+    mapRef.current.fitBounds(
+      [
+        [minX, minY],
+        [maxX, maxY],
+      ],
+      { padding: 80 },
+    )
+    // Fit once per route open (length is a stable proxy for a new route).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routePins.length > 0 ? routePins[0]?.lat : null])
 
   useEffect(() => {
     if (startDrawToken === 0) return

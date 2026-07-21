@@ -10,30 +10,9 @@ import {
 } from '@goodparty_org/contracts'
 import { Button } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
-import { clientRequest } from 'gpApi/typed-request'
 import RecordKnockForm from './RecordKnockForm'
-
-// 'unknown' is not "never knocked" — it also covers answered-but-unsure
-// (deriveKnockStatus), so the chip matches the filter panel's label.
-const STATUS_LABELS: Record<DoorKnockStatus, string> = {
-  unknown: 'Unknown',
-  not_home: 'Not home',
-  supporter: 'Supporter',
-  non_supporter: 'Non-supporter',
-  inaccessible: 'Inaccessible',
-  refused: 'Refused',
-  not_a_voter: 'Not a voter',
-}
-
-const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> = {
-  unknown: '#9ca3af',
-  not_home: '#d97706',
-  supporter: '#16a34a',
-  non_supporter: '#dc2626',
-  inaccessible: '#7c3aed',
-  refused: '#db2777',
-  not_a_voter: '#475569',
-}
+import { routeQueryOptions } from './turfQueries'
+import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
 
 const StatusChip = ({ status }: { status: DoorKnockStatus }) => (
   <span className="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs">
@@ -74,13 +53,7 @@ interface WalkViewProps {
 
 export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
   const queryClient = useQueryClient()
-  const routeQuery = useQuery({
-    queryKey: ['door-knocking-route', turfId],
-    queryFn: () =>
-      clientRequest('GET /v1/door-knocking/turfs/:id/route', {
-        id: String(turfId),
-      }).then((res) => res.data),
-  })
+  const routeQuery = useQuery(routeQueryOptions(turfId))
   // Recorded statuses patch the route query cache itself (not component
   // state), so they survive leaving and re-opening the walk view within the
   // cache window; a real refetch replaces them with the server's derivation.
@@ -135,8 +108,25 @@ export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
       ),
     )
 
+  const allTargets = (stopList: RoutePayloadStop[]) =>
+    stopList.flatMap((stop) =>
+      stop.addresses.flatMap((address) => address.targets),
+    )
+  const targetCount = (stopList: RoutePayloadStop[]) =>
+    allTargets(stopList).length
+  const reachedCount = (stopList: RoutePayloadStop[]) =>
+    allTargets(stopList).filter((target) => target.knockStatus !== 'unknown')
+      .length
+  const statusCount = (stopList: RoutePayloadStop[], status: DoorKnockStatus) =>
+    allTargets(stopList).filter((target) => target.knockStatus === status)
+      .length
+  const primaryTargetName = (stop: RoutePayloadStop): string | null =>
+    stop.addresses[0]?.targets[0]?.name ?? null
+  const targetCountForStop = (stop: RoutePayloadStop): number =>
+    stop.addresses.reduce((sum, address) => sum + address.targets.length, 0)
+
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-background p-4">
+    <div className="flex h-full w-96 shrink-0 flex-col overflow-y-auto border-l border-border bg-background p-4">
       <div className="mb-3 flex items-center gap-3">
         <Button size="small" variant="outline" onClick={onBack}>
           Back to map
@@ -155,8 +145,38 @@ export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
       )}
       {routeQuery.data && (
         <>
+          <div className="mb-3 rounded-md border border-border p-3">
+            <div className="flex items-baseline justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                In this list
+              </span>
+              <span className="text-sm font-semibold tabular-nums">
+                {`${reachedCount(routeQuery.data.stops)}/${targetCount(
+                  routeQuery.data.stops,
+                )} reached`}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {DOOR_KNOCK_STATUSES.map((status) => (
+                <span
+                  key={status}
+                  className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-xs"
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: STATUS_DOT_COLORS[status] }}
+                  />
+                  {STATUS_LABELS[status]}{' '}
+                  <span className="tabular-nums">
+                    {statusCount(routeQuery.data?.stops ?? [], status)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
           <p className="mb-3 text-sm text-muted-foreground">
-            {routeQuery.data.route.stopCount} stops ·{' '}
+            <span className="font-semibold text-foreground">Stops</span> ·{' '}
+            {routeQuery.data.route.stopCount} doors ·{' '}
             {formatDuration(routeQuery.data.route.totalSeconds)} ·{' '}
             {formatDistance(routeQuery.data.route.totalMeters)} ·{' '}
             {routeQuery.data.route.mode === 'walk' ? 'walking' : 'driving'}
@@ -176,14 +196,22 @@ export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
                     {stop.seq}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
+                    <span className="flex items-baseline gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {primaryTargetName(stop) ?? stop.displayAddress}
+                      </span>
+                      {stop.legSeconds > 0 && (
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {formatDuration(stop.legSeconds)} walk
+                        </span>
+                      )}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
                       {stop.displayAddress}
                     </span>
-                    {stop.legSeconds > 0 && (
-                      <span className="block text-xs text-muted-foreground">
-                        {formatDuration(stop.legSeconds)} from previous stop
-                      </span>
-                    )}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-semibold tabular-nums">
+                    {targetCountForStop(stop)}
                   </span>
                   <StatusChip status={stopStatus(stop)} />
                 </button>
