@@ -26,9 +26,9 @@ if [ "$WT" = "$MAIN" ]; then
   echo "==> $WT is the main checkout; skipping env copy"
 else
   echo "==> Copying untracked .env files from $MAIN"
-  for dir in . packages/*; do
-    [ -d "$MAIN/$dir" ] || continue
-    for src in "$MAIN/$dir"/.env "$MAIN/$dir"/.env.*; do
+  for dir in "$MAIN" "$MAIN"/packages/*; do
+    [ -d "$dir" ] || continue
+    for src in "$dir"/.env "$dir"/.env.*; do
       [ -f "$src" ] || continue
       rel="${src#"$MAIN"/}"
       if git -C "$MAIN" ls-files --error-unmatch "$rel" >/dev/null 2>&1; then
