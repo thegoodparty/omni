@@ -57,6 +57,13 @@ export class FeaturesService {
           })
         : params.user
 
+    // The placeholder key always 401s upstream — skip the doomed round-trip
+    // (its retries cost real seconds per gated request, enough to push CI
+    // tests into their timeout) and go straight to the local-box default.
+    if (usingPlaceholderKey) {
+      return true
+    }
+
     try {
       const variants = await amplitude.fetchV2({
         user_id: user.id.toString(),
@@ -95,6 +102,12 @@ export class FeaturesService {
    * evaluations target the same segments.
    */
   async getAllVariants(user: User): Promise<ExperimentVariants> {
+    // Same placeholder short-circuit as isFeatureEnabled: the fetch can only
+    // 401, and the client falls back to its own SDK evaluation regardless.
+    if (usingPlaceholderKey) {
+      return {}
+    }
+
     try {
       const variants = await amplitude.fetchV2({
         user_id: user.id.toString(),
