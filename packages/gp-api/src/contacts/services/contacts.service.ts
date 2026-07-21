@@ -181,6 +181,14 @@ export class ContactsService {
     return campaign?.isPro ?? false
   }
 
+  // Pro-access depends only on the organization, so callers fanning out over
+  // many phones for one org (e.g. the poll-analysis consumer) can resolve it
+  // once and pass it into findContacts/findPersonByPhone instead of paying a
+  // campaign lookup per phone.
+  async resolveProAccess(organization: Organization): Promise<boolean> {
+    return this.isProAccess(organization)
+  }
+
   // Shared pro gate for record-level contact features (e.g. notes) that hang
   // off an individual person but, unlike findPerson, never call people-api.
   async assertProAccess(organization: Organization): Promise<void> {
@@ -256,10 +264,14 @@ export class ContactsService {
   async findContacts(
     { resultsPerPage, page, search, segment }: ListContactsDTO,
     organization: Organization,
+    // Optional pre-resolved pro-access. Batch callers (e.g. the poll-analysis
+    // consumer fanning out over many phones for one org) resolve it once via
+    // resolveProAccess() and pass it in; falls back to resolving here.
+    proAccess?: boolean,
   ) {
     const wantsProOnlyView =
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
-    const isPro = await this.isProAccess(organization)
+    const isPro = proAccess ?? (await this.isProAccess(organization))
     if (wantsProOnlyView && !isPro) {
       throw new BadRequestException(
         'Search and segments are only available for pro campaigns',
@@ -660,10 +672,12 @@ export class ContactsService {
   async findPersonByPhone(
     phone: string,
     organization: Organization,
+    proAccess?: boolean,
   ): Promise<PersonOutput | null> {
     const result = await this.findContacts(
       { search: phone, segment: 'all', resultsPerPage: 1, page: 1 },
       organization,
+      proAccess,
     )
     return result.people[0] ?? null
   }
