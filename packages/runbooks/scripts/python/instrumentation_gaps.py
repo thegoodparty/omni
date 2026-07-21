@@ -9,6 +9,17 @@ and have no IO, so they are unit-tested with fixtures. Only the walk/IO/CLI laye
 disk. Phase 1 is fully deterministic; Phase 2 adds a graceful Anthropic rubric-judgment pass
 (`run_judgment`) over the untriaged candidate gaps — only judge-confirmed gaps enter state,
 and a missing key or failed call degrades to a compact status line, never a crash.
+
+Running the one-off seed (needs a funded ANTHROPIC_API_KEY):
+  ANTHROPIC_API_KEY=... uv run instrumentation_gaps.py --seed
+    -> writes every confirmed gap to instrumentation_data/instrumentation_gaps.json as `new`
+       and a review artifact to instrumentation_data/instrumentation-gaps-seed.md
+  # fill in `- disposition:` / `- reason:` in the artifact, then:
+  uv run instrumentation_gaps.py --load-seed instrumentation_data/instrumentation-gaps-seed.md
+    -> applies your dispositions back into the state file
+Commit the resulting instrumentation_gaps.json to establish the baseline; the weekly
+cadence then shows deltas. The seed is deferred until the funded key is available (the CI
+secret ANTHROPIC_PRODUCT_ANALYTICS_API_KEY, or a local console key).
 """
 
 from __future__ import annotations
