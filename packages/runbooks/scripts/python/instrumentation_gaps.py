@@ -1,4 +1,4 @@
-"""Instrumentation gap sweep (DATA-2151) — deterministic layer.
+"""Instrumentation gap sweep (DATA-2151) — deterministic enumeration + graceful LLM judgment.
 
 Enumerates candidate product surfaces in gp-webapp and gp-api, diffs them against
 tracking call sites, and surfaces the ones with no nearby event as ranked recommendations
@@ -323,7 +323,7 @@ def run_judgment(
         return {}, "skipped: ANTHROPIC_API_KEY unset"
     try:
         rubric = load_rubric(rubric_path)
-    except FileNotFoundError:
+    except OSError:  # missing, unreadable, or a directory — all degrade to a skip, never raise
         return {}, "skipped: rubric unavailable"
     try:
         client = client_factory(api_key)
@@ -334,39 +334,6 @@ def run_judgment(
 
 
 # --- state + dispositions -----------------------------------------------------
-
-
-def merge_state(
-    prior: Mapping[str, dict], gaps: Sequence[dict], today: date
-) -> dict[str, dict]:
-    """Fold this run's gaps into the prior disposition state. New surfaces enter as `new`;
-    dismissed/accepted are never downgraded or resurrected; a surface absent this run is
-    retained untouched (except it keeps its old last_seen). Keyed by user-facing surface id."""
-    iso = today.isoformat()
-    out: dict[str, dict] = {k: dict(v) for k, v in prior.items()}
-    for gap in gaps:
-        gid = gap["id"]
-        rank = rank_gap(gap)
-        if gid not in out:
-            out[gid] = {
-                "id": gid,
-                "surface_type": gap["surface_type"],
-                "location": gap["location"],
-                "disposition": "new",
-                "reason": "",
-                "rank": rank,
-                "first_seen": iso,
-                "last_seen": iso,
-            }
-            continue
-        entry = out[gid]
-        entry["last_seen"] = iso
-        entry["location"] = gap["location"]
-        entry["surface_type"] = gap["surface_type"]
-        entry["rank"] = rank
-        # disposition is preserved for all states: new stays new until triaged, open/
-        # accepted/dismissed are human decisions the sweep never overwrites.
-    return out
 
 
 def merge_judged_state(
@@ -430,6 +397,16 @@ def coverage_stats(state: Mapping[str, dict]) -> dict:
 # --- digest rendering ---------------------------------------------------------
 
 
+def _md_cell(value: str | None) -> str:
+    """Sanitize a judge-authored string for a markdown table cell: empty -> '-', and pipes
+    or newlines (which would break the committed-log table) are neutralized. The digest is
+    written to a committed markdown file, so uncontrolled model text must not corrupt it."""
+    text = (value or "").strip()
+    if not text:
+        return "-"
+    return text.replace("|", r"\|").replace("\n", " ").replace("\r", " ")
+
+
 def render_gap_section(
     state: Mapping[str, dict],
     run_date: str,
@@ -466,7 +443,7 @@ def render_gap_section(
         for e in shown:
             lines.append(
                 f"| {e.get('rank', 5)} | {e['id']} | {e['surface_type']} | "
-                f"{e.get('rubric_rule') or '-'} | {e.get('dashboard_question') or '-'} | "
+                f"{_md_cell(e.get('rubric_rule'))} | {_md_cell(e.get('dashboard_question'))} | "
                 f"{e['location']} |"
             )
         if len(visible) > top_n:

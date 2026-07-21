@@ -129,31 +129,11 @@ def test_rank_gap_orders_wizard_before_route_before_cta():
     assert ig.rank_gap({"surface_type": "mystery"}) == 5
 
 
-def test_merge_state_new_and_persisted_dispositions():
-    prior = {
-        "/settings": {"id": "/settings", "surface_type": "route", "location": "b/page.tsx",
-                      "disposition": "dismissed", "reason": "chrome", "rank": 3,
-                      "first_seen": "2026-07-01", "last_seen": "2026-07-14"},
-        "/old": {"id": "/old", "surface_type": "route", "location": "old/page.tsx",
-                 "disposition": "open", "reason": "", "rank": 3,
-                 "first_seen": "2026-06-01", "last_seen": "2026-07-14"},
-    }
-    gaps = [
-        {"id": "/dashboard", "surface_type": "wizard_stage", "location": "a/page.tsx"},
-        {"id": "/settings", "surface_type": "route", "location": "b/page.tsx"},
-    ]
-    out = ig.merge_state(prior, gaps, date(2026, 7, 17))
-
-    assert out["/dashboard"]["disposition"] == "new"
-    assert out["/dashboard"]["first_seen"] == "2026-07-17"
-    assert out["/dashboard"]["rank"] == 0
-    # dismissed stays dismissed, last_seen refreshed, reason preserved
-    assert out["/settings"]["disposition"] == "dismissed"
-    assert out["/settings"]["reason"] == "chrome"
-    assert out["/settings"]["last_seen"] == "2026-07-17"
-    # an id gone from this run's gaps is retained untouched (no resurrection risk)
-    assert out["/old"]["disposition"] == "open"
-    assert out["/old"]["last_seen"] == "2026-07-14"
+def test_md_cell_escapes_pipes_and_newlines_and_blanks():
+    assert ig._md_cell(None) == "-"
+    assert ig._md_cell("   ") == "-"
+    assert ig._md_cell("a | b") == r"a \| b"
+    assert ig._md_cell("line1\nline2") == "line1 line2"
 
 
 def test_merge_judged_state_adds_confirmed_and_preserves_dispositions():
@@ -504,6 +484,15 @@ def test_run_judgment_skips_without_key(tmp_path):
 def test_run_judgment_no_candidates_is_noop():
     out, status = ig.run_judgment([], api_key="sk-ant-x", model="m")
     assert out == {} and status == "no-candidates"
+
+
+def test_run_judgment_skips_when_rubric_unreadable(tmp_path):
+    # rubric_path points at a directory -> IsADirectoryError (an OSError, not FileNotFoundError);
+    # run_judgment must still degrade to a skip and never raise.
+    cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
+    out, status = ig.run_judgment(cands, api_key="sk-ant-x", model="m", rubric_path=tmp_path)
+    assert out == {}
+    assert status == "skipped: rubric unavailable"
 
 
 def test_run_judgment_swallows_sdk_error(tmp_path):
