@@ -72,8 +72,8 @@ export class PeopleDownloadService
     private readonly databaseUrl: DatabaseUrlProvider,
   ) {}
 
-  onModuleInit() {
-    this.pool = this.buildPool(this.databaseUrl.current)
+  async onModuleInit() {
+    this.pool = this.buildPool(await this.databaseUrl.ensureLoaded())
     this.unsubscribe = this.databaseUrl.onChange((url) => {
       const previous = this.pool
       this.pool = this.buildPool(url)
