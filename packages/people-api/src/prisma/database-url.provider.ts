@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common'
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common'
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm'
 
 const REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
@@ -11,20 +6,40 @@ const REVALIDATE_INTERVAL_MS = 5 * 60 * 1000
 type ChangeListener = (url: string) => void
 
 @Injectable()
-export class DatabaseUrlProvider implements OnModuleInit, OnModuleDestroy {
+export class DatabaseUrlProvider implements OnModuleDestroy {
   private readonly logger = new Logger(DatabaseUrlProvider.name)
   private readonly listeners = new Set<ChangeListener>()
   private ssm: SSMClient | null = null
   private value: string | null = null
+  private loadPromise: Promise<string> | null = null
   private interval: NodeJS.Timeout | null = null
   private revalidating = false
 
-  async onModuleInit() {
-    this.value = await this.load()
+  // Lazy, memoized load. Consumers await this from their own onModuleInit
+  // rather than reading a value that a separate onModuleInit populated —
+  // Nest does not guarantee a dependency's onModuleInit runs before its
+  // dependents' within the same module, so eager population would race.
+  async ensureLoaded(): Promise<string> {
+    if (this.value !== null) {
+      return this.value
+    }
+    if (!this.loadPromise) {
+      this.loadPromise = this.load()
+    }
+    try {
+      this.value = await this.loadPromise
+    } catch (err) {
+      // Don't memoize a failed load — allow a later caller to retry.
+      this.loadPromise = null
+      throw err
+    }
     this.logger.log('Loaded initial database URL')
-    this.interval = setInterval(() => {
-      void this.revalidate()
-    }, REVALIDATE_INTERVAL_MS)
+    if (!this.interval) {
+      this.interval = setInterval(() => {
+        void this.revalidate()
+      }, REVALIDATE_INTERVAL_MS)
+    }
+    return this.value
   }
 
   onModuleDestroy() {
@@ -34,13 +49,6 @@ export class DatabaseUrlProvider implements OnModuleInit, OnModuleDestroy {
     // Close the SDK's keep-alive sockets so they don't hold the event loop open
     // and block a clean SIGTERM exit on ECS.
     this.ssm?.destroy()
-  }
-
-  get current(): string {
-    if (this.value === null) {
-      throw new Error('DatabaseUrlProvider accessed before initialization')
-    }
-    return this.value
   }
 
   onChange(listener: ChangeListener): () => void {
