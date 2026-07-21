@@ -929,6 +929,39 @@ describe('handleStep qc', () => {
     )
   })
 
+  it('fails the loop on an unparseable previous report instead of stopping as not-improving', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, {
+      qualityLoopIteration: 1,
+      draftBody: REVISED_BODY,
+    })
+    // Corrupt prior row (schema evolution, bad write): it cannot anchor the
+    // improvement comparison. Treating it as "no prior flags" would stop a
+    // genuinely improving loop as not-improving.
+    await seedIteration({
+      ordinanceId: ordinance.id,
+      loopRunId: runId,
+      iteration: 0,
+      inputHash: 'h0',
+      report: { bogus: 'not a report' },
+    })
+    generateMock.mockImplementation(async (record: Ordinance) => ({
+      report: buildReport(qualityReportInputHash(record), {
+        clarity: 'flag',
+      }),
+      degradedCheckIds: [],
+      tokens: 111,
+    }))
+
+    const result = await loop.handleStep(
+      qcMessage(ordinance, runId, { iteration: 1 }),
+    )
+
+    expect(result).toBe(true)
+    const updated = await reload(ordinance.id)
+    expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.failed)
+  })
+
   it('restores the draftSources snapshot alongside the best iteration', async () => {
     const runId = randomUUID()
     const gradedSources = [{ id: 's0', title: 'N.C.G.S. § 160A-174' }]

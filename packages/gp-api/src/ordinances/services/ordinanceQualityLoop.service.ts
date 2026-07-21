@@ -547,7 +547,18 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
         row.iteration - 1,
       )
       const prevParsed = OrdinanceQualityReportSchema.safeParse(prevRow?.report)
-      const prevFlagged = prevParsed.success ? flaggedIds(prevParsed.data) : []
+      if (!prevParsed.success) {
+        // An unparseable (or missing) previous report can't anchor the
+        // improvement comparison — treating it as "no prior flags" would
+        // stop a genuinely improving loop as not-improving. Fail, like
+        // every other unparseable-report path.
+        this.logger.error(
+          { ordinanceId: record.id, loopRunId, iteration: row.iteration },
+          'quality loop previous iteration report failed schema parse',
+        )
+        return this.failLoop(record, loopRunId)
+      }
+      const prevFlagged = flaggedIds(prevParsed.data)
       // Strict-improvement rule: continue only when the flagged set properly
       // shrank. A flag that became attention drops out of the set, so it
       // counts as resolved.
