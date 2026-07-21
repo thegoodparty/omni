@@ -169,3 +169,24 @@ def test_load_gaps_state_reads_valid_dict(tmp_path):
     good = tmp_path / "state.json"
     good.write_text(json.dumps({"/a": {"id": "/a", "rank": 0}}))
     assert gs.load_gaps_state(good) == {"/a": {"id": "/a", "rank": 0}}
+
+
+def test_main_refresh_gaps_writes_state_rows(monkeypatch, tmp_path, capsys):
+    state = {"/a": {"id": "/a", "rank": 0, "disposition": "new"}}
+    state_file = tmp_path / "instrumentation_gaps.json"
+    state_file.write_text(json.dumps(state))
+    svc = _FakeService()
+    monkeypatch.setattr(gs, "get_sheets_service", lambda **kw: svc)
+    rc = gs.main(["refresh-gaps", "--spreadsheet-id", "SID", "--state", str(state_file)])
+    assert rc == 0
+    assert any(c[0] == "update" for c in svc.log)
+
+
+def test_main_refresh_gaps_skips_on_corrupt_state(monkeypatch, tmp_path, capsys):
+    state_file = tmp_path / "instrumentation_gaps.json"
+    state_file.write_text("{ broken")
+    monkeypatch.setattr(gs, "get_sheets_service",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("must not auth")))
+    rc = gs.main(["refresh-gaps", "--spreadsheet-id", "SID", "--state", str(state_file)])
+    assert rc == 0
+    assert "skipping" in capsys.readouterr().err.lower()

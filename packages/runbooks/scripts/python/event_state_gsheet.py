@@ -193,11 +193,16 @@ def get_sheets_service(token_path: Path = TOKEN_PATH, client_secrets_file: str |
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Write the event-state table to a Google Sheet.")
-    parser.add_argument("command", choices=["refresh"])
+    parser.add_argument("command", choices=["refresh", "refresh-gaps"])
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="print matrix dims; reads Databricks but skips Google auth and the sheet write",
+    )
+    parser.add_argument(
+        "--state",
+        default=str(DATA_DIR / "instrumentation_gaps.json"),
+        help="disposition state JSON for refresh-gaps (default: instrumentation_data/)",
     )
     parser.add_argument(
         "--spreadsheet-id",
@@ -217,6 +222,24 @@ def main(argv: list[str] | None = None) -> int:
         "key on the raw event_type (as fired in code), not the Govern display name",
     )
     args = parser.parse_args(argv)
+
+    if args.command == "refresh-gaps":
+        state = load_gaps_state(Path(args.state))
+        if state is None:
+            print(f"gaps state at {args.state} is unreadable; skipping the gaps tab refresh.",
+                  file=sys.stderr)
+            return 0
+        if args.dry_run:
+            values = build_gap_values(state)
+            print(f"{len(values)} rows x {len(values[0])} cols (incl. header); {len(state)} gaps")
+            return 0
+        if not args.spreadsheet_id:
+            print("--spreadsheet-id or GP_EVENT_STATE_SHEET_ID required for a live write", file=sys.stderr)
+            return 2
+        service = get_sheets_service(client_secrets_file=args.client_secrets)
+        count = write_gaps_sheet(state, service=service, spreadsheet_id=args.spreadsheet_id)
+        print(f"wrote {count} gaps to sheet {args.spreadsheet_id} (tab {GAPS_TAB})")
+        return 0
 
     # Dry-run previews the real output dimensions, so it still runs the (read-only)
     # Databricks query — it only skips the Google auth and the sheet write.
