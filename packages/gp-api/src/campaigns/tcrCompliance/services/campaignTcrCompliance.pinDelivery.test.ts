@@ -41,6 +41,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   let mockPeerly: { retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn> }
   let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockTrack: ReturnType<typeof vi.fn>
+  let mockTrackCampaign: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     mockModel = {
@@ -50,6 +51,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     mockPeerly = { retrieveCampaignVerifyDetails: vi.fn() }
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaignWithUser) }
     mockTrack = vi.fn().mockResolvedValue(undefined)
+    mockTrackCampaign = vi.fn().mockResolvedValue(undefined)
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -57,7 +59,10 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
         { provide: PeerlyIdentityService, useValue: mockPeerly },
         { provide: WebsitesService, useValue: {} },
         { provide: CampaignsService, useValue: mockCampaigns },
-        { provide: CrmCampaignsService, useValue: {} },
+        {
+          provide: CrmCampaignsService,
+          useValue: { trackCampaign: mockTrackCampaign },
+        },
         { provide: ComplianceStateService, useValue: {} },
         { provide: QueueProducerService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
@@ -101,6 +106,19 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
         company_hubspot_id: 'company-1',
       }),
     )
+    expect(mockTrackCampaign).toHaveBeenCalledWith(campaignWithUser.id)
+  })
+
+  it('still succeeds when the post-event CRM company sync fails', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
+    mockTrackCampaign.mockRejectedValue(new Error('hubspot down'))
+
+    await expect(service.sweepPinDeliveryDetection()).resolves.not.toThrow()
+
+    expect(mockTrack).toHaveBeenCalledTimes(1)
   })
 
   it('does not fire the event when another caller already claimed the record', async () => {
