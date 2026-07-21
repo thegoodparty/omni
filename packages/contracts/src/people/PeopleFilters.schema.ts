@@ -134,7 +134,10 @@ export const createNumericFilterSchema = () => {
       gte: z.coerce.number().optional(),
       lte: z.coerce.number().optional(),
       is: z.enum(['not_null', 'null']).optional(),
-      _or: z.array(rangeConditionSchema).optional(),
+      // min(1): an empty _or would pass the operator-count refine below,
+      // then be silently dropped by the SQL builder — the field would go
+      // unfiltered instead of erroring.
+      _or: z.array(rangeConditionSchema).min(1).optional(),
       _includeNull: z.boolean().optional(),
     })
     .refine((data) => {

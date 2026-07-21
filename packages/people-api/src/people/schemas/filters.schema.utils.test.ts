@@ -91,22 +91,6 @@ describe('transformFilters', () => {
   })
 
   describe('_or edge cases', () => {
-    it('handles empty _or array', () => {
-      const filters = {
-        estimatedIncomeAmountInt: {
-          _or: [],
-        },
-      }
-
-      const result = transformFilters(filters, mockSchemaShape)
-
-      expect(result.filterOperators.estimatedIncomeAmountInt).toEqual({
-        operator: 'or',
-        orRanges: [],
-        includeNull: false,
-      })
-    })
-
     it('handles _or with undefined gte/lte values', () => {
       const filters = {
         estimatedIncomeAmountInt: {

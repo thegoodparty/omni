@@ -108,4 +108,9 @@ describe('DoorKnockingEvaluateRequestSchema', () => {
     }
     expect(() => DoorKnockingEvaluateRequestSchema.parse(request)).not.toThrow()
   })
+
+  it('rejects an empty _or array (would silently disable the filter)', () => {
+    const request = { ...base, filters: { ageInt: { _or: [] } } }
+    expect(() => DoorKnockingEvaluateRequestSchema.parse(request)).toThrow()
+  })
 })
