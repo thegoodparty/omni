@@ -192,7 +192,7 @@ export class CrmCampaignsService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       (await this.users.findByCampaign(campaign)) || ({} as User)
     const aiChatCount = userId
-      ? await this.aiChat.count({ where: { id: userId } })
+      ? await this.aiChat.count({ where: { userId, campaignId } })
       : 0
 
     const liveMetrics =
