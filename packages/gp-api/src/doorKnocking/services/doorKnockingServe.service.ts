@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import {
   DoorKnockingResidentsResponse,
   DoorKnockingRoutePayload,
-  DoorKnockingRoutePayloadSchema,
   DoorKnockStatus,
   RoutePayloadAddress,
 } from '@goodparty_org/contracts'
@@ -103,7 +102,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       targetPersonIds,
     )
 
-    return DoorKnockingRoutePayloadSchema.parse({
+    return {
       route: {
         id: route.id,
         doorKnockingTurfId: route.doorKnockingTurfId,
@@ -138,7 +137,7 @@ export class DoorKnockingServeService extends createPrismaBase(
           addresses,
         }
       }),
-    })
+    }
   }
 
   private buildAddresses(
