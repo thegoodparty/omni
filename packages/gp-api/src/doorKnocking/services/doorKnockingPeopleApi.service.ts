@@ -12,6 +12,8 @@ import {
   Bbox,
   DoorKnockingEvaluateResponse,
   DoorKnockingEvaluateResponseSchema,
+  DoorKnockingResidentsResponse,
+  DoorKnockingResidentsResponseSchema,
 } from '@goodparty_org/contracts'
 import { FilterObject } from '@/contacts/utils/voterFileFilter.utils'
 import { HttpStatus } from '@nestjs/common'
@@ -110,6 +112,32 @@ export class DoorKnockingPeopleApiService {
         'people-api door-knocking evaluate failed',
       )
       throw new BadGatewayException('Turf evaluation failed')
+    }
+  }
+
+  async residents(args: {
+    districtId: string
+    addressKeys: string[]
+    targetPersonIds: string[]
+  }): Promise<DoorKnockingResidentsResponse> {
+    try {
+      const response = await lastValueFrom(
+        this.httpService.post(
+          `${PEOPLE_API_URL}/v1/door-knocking/residents`,
+          args,
+          { headers: { Authorization: `Bearer ${this.s2sToken()}` } },
+        ),
+      )
+      return DoorKnockingResidentsResponseSchema.parse(response.data)
+    } catch (error) {
+      this.logger.error(
+        {
+          status: isAxiosError(error) ? error.response?.status : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        },
+        'people-api door-knocking residents failed',
+      )
+      throw new BadGatewayException('Residents lookup failed')
     }
   }
 }

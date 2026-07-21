@@ -80,6 +80,7 @@ const stubVendors = (
   overrides: {
     people?: Array<ReturnType<typeof person>>
     geoapify?: (body: PostBody) => unknown
+    residents?: { addresses: Array<Record<string, unknown>> }
   } = {},
 ) =>
   vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
@@ -92,6 +93,9 @@ const stubVendors = (
           people: overrides.people ?? [...insidePeople, bboxOnlyPerson],
         },
       })
+    }
+    if (url.includes('/v1/door-knocking/residents')) {
+      return of({ data: overrides.residents ?? { addresses: [] } })
     }
     if (url.includes('routeplanner')) {
       const build = overrides.geoapify ?? geoapifyPlan
@@ -487,6 +491,207 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(201)
       expect(res.data.created).toBe(true)
       expect(await service.prisma.outreach.count()).toBe(0)
+    })
+  })
+  describe('serve', () => {
+    const PERSON_1 = '00000001-1111-1111-1111-111111111111'
+    const PERSON_2 = '00000002-1111-1111-1111-111111111111'
+    const PERSON_3 = '00000003-1111-1111-1111-111111111111'
+    const PERSON_4 = '00000004-1111-1111-1111-111111111111'
+
+    const liveResidents = {
+      addresses: [
+        {
+          addressKey: 'KEY-1',
+          targets: [
+            {
+              personId: PERSON_1,
+              firstName: 'Liv',
+              lastName: 'Current',
+              age: 51,
+              politicalParty: 'Democratic',
+            },
+            {
+              personId: PERSON_2,
+              firstName: 'Also',
+              lastName: 'Here',
+              age: 48,
+              politicalParty: null,
+            },
+          ],
+          otherResidents: [
+            { personId: PERSON_4, firstName: 'Teo', lastName: 'Vega' },
+          ],
+        },
+        {
+          addressKey: 'KEY-3',
+          targets: [
+            {
+              personId: PERSON_3,
+              firstName: 'Marisol',
+              lastName: 'Vega',
+              age: 34,
+              politicalParty: 'Independent',
+            },
+          ],
+          otherResidents: [],
+        },
+        // KEY-4 absent: its target moved away since the freeze.
+      ],
+    }
+
+    const knockAndServe = async () => {
+      const turf = await createTurf()
+      stubVendors({ residents: liveResidents })
+      const knocked = await knock(turf.id)
+      expect(knocked.status).toBe(201)
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      return { turf, res }
+    }
+
+    it('serves the frozen route enriched with live residents', async () => {
+      const { res } = await knockAndServe()
+
+      expect(res.status).toBe(200)
+      expect(res.data.route.stopCount).toBe(3)
+      expect(res.data.stops.map((s: { seq: number }) => s.seq)).toEqual([
+        1, 2, 3,
+      ])
+
+      const stops = res.data.stops as Array<{
+        addresses: Array<{
+          addressKey: string
+          address: string
+          targets: Array<Record<string, unknown>>
+          otherResidents: Array<{ name: string | null }>
+        }>
+      }>
+      const dedupedAddress = stops
+        .flatMap((s) => s.addresses)
+        .find((a) => a.addressKey === 'KEY-1')
+      expect(dedupedAddress?.address).toBe('KEY-1')
+      expect(dedupedAddress?.targets).toHaveLength(2)
+      expect(dedupedAddress?.targets[0]).toMatchObject({
+        personId: PERSON_1,
+        name: 'Liv Current',
+        age: 51,
+        politicalParty: 'Democratic',
+        mayHaveMoved: false,
+      })
+      expect(dedupedAddress?.otherResidents).toEqual([{ name: 'Teo Vega' }])
+    })
+
+    it('flags moved-away targets and falls back to the frozen name', async () => {
+      const { res } = await knockAndServe()
+
+      const movedAddress = (
+        res.data.stops as Array<{
+          addresses: Array<{
+            addressKey: string
+            targets: Array<Record<string, unknown>>
+          }>
+        }>
+      )
+        .flatMap((s) => s.addresses)
+        .find((a) => a.addressKey === 'KEY-4')
+      expect(movedAddress?.targets[0]).toMatchObject({
+        personId: PERSON_4,
+        name: 'Voter Number4',
+        age: null,
+        politicalParty: null,
+        mayHaveMoved: true,
+      })
+    })
+
+    it('derives org-wide knock statuses, latest row per person', async () => {
+      await service.prisma.contactInteractionDoorKnock.createMany({
+        data: [
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-01T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_1,
+            occurredAt: new Date('2026-07-10T10:00:00Z'),
+            outcome: 'not_home',
+          },
+          {
+            organizationSlug: orgSlug,
+            personId: PERSON_3,
+            occurredAt: new Date('2026-07-05T10:00:00Z'),
+            outcome: 'answered',
+            supportAnswer: 'supporter',
+          },
+        ],
+      })
+
+      const { res } = await knockAndServe()
+
+      const byKey = new Map(
+        (
+          res.data.stops as Array<{
+            knockStatus: string
+            addresses: Array<{
+              addressKey: string
+              targets: Array<{ personId: string; knockStatus: string }>
+            }>
+          }>
+        )
+          .flatMap((s) =>
+            s.addresses.map((a) => [a.addressKey, { stop: s, address: a }]),
+          )
+          .map(([k, v]) => [k, v] as const),
+      )
+
+      const key1 = byKey.get('KEY-1')
+      const statusFor = (personId: string) =>
+        key1?.address.targets.find((t) => t.personId === personId)?.knockStatus
+      // Latest row wins: the newer not_home beats the older supporter.
+      expect(statusFor(PERSON_1)).toBe('not_home')
+      expect(statusFor(PERSON_2)).toBe('unknown')
+      // An unknown person keeps the whole stop knockable.
+      expect(key1?.stop.knockStatus).toBe('unknown')
+
+      const key3 = byKey.get('KEY-3')
+      expect(key3?.address.targets[0]?.knockStatus).toBe('supporter')
+      expect(key3?.stop.knockStatus).toBe('supporter')
+    })
+
+    it('404s for a turf that has not been knocked', async () => {
+      const turf = await createTurf()
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        { ...orgHeaders(), validateStatus: () => true },
+      )
+      expect(res.status).toBe(404)
+    })
+
+    it("404s for another organization's route", async () => {
+      const { turf } = await knockAndServe()
+      const suffix = Date.now()
+      const otherSlug = `campaign-other-${suffix}`
+      await service.prisma.organization.create({
+        data: {
+          slug: otherSlug,
+          ownerId: service.user.id,
+          overrideDistrictId: DISTRICT_ID,
+        },
+      })
+      const res = await service.client.get(
+        `/v1/door-knocking/turfs/${turf.id}/route`,
+        {
+          headers: { 'x-organization-slug': otherSlug },
+          validateStatus: () => true,
+        },
+      )
+      expect(res.status).toBe(404)
     })
   })
 })

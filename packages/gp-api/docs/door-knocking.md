@@ -75,8 +75,8 @@ call, loser returns `created: false`; (b) crash-mid-freeze → zero rows;
 
 ## Serving
 
-Every read of a route (knock response, later opens, walk start) = frozen
-route + live enrichment: residents-by-address from people-api (only units
+`GET /v1/door-knocking/turfs/:id/route`. Every read of a route (later
+opens, walk start) = frozen route + live enrichment: residents-by-address from people-api (only units
 containing a target; targets get live age/party; otherResidents are
 name-only) + each stop's knock status derived from
 `contact_interaction_door_knock` (org-wide, latest row per person —
