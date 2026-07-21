@@ -32,8 +32,8 @@ jobs:
         with:
           app: people-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: "true"
-          build-nest-common: "true"
+          build-contracts: 'true'
+          build-nest-common: 'true'
           prisma-generate-script: generate:prisma:people-api
 
       - name: Lint
@@ -42,6 +42,13 @@ jobs:
       - name: Typecheck
         working-directory: ${{ env.WORKSPACE }}
         run: npx tsc --noEmit
+
+      # The Pulumi program under deploy/ is excluded from the main tsconfig and
+      # is only otherwise compiled at deploy time — this catches type errors in
+      # it before they reach the (irreversible) Deploy step.
+      - name: Typecheck deploy
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx tsc -p tsconfig.deploy.json
 
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }}
@@ -68,8 +75,8 @@ jobs:
         with:
           app: people-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: "true"
-          build-nest-common: "true"
+          build-contracts: 'true'
+          build-nest-common: 'true'
           prisma-generate-script: generate:prisma:people-api
 
       - name: Determine deployment context
