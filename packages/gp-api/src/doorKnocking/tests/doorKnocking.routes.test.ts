@@ -71,7 +71,10 @@ const geoapifyPlan = (body: { jobs: Array<{ id: string }> }) => {
   }
 }
 
-type PostBody = { jobs: Array<{ id: string }> }
+type PostBody = {
+  jobs: Array<{ id: string }>
+  agents?: Array<Record<string, unknown>>
+}
 
 const stubVendors = (
   overrides: {
@@ -358,7 +361,7 @@ describe('door-knocking routes', () => {
       let agentSent: Record<string, unknown> | undefined
       stubVendors({
         geoapify: (body) => {
-          agentSent = (body as { agents: Record<string, unknown>[] }).agents[0]
+          agentSent = body.agents?.[0]
           const ordered = [...body.jobs].reverse()
           return {
             features: [
