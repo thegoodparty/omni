@@ -39,6 +39,10 @@ export interface ChatScopeHandler<
   loadContext: (conversationId: string, userId: number) => Promise<TContext>
   buildSystemPrompt: (ctx: TContext) => string
   buildTools: (ctx: TContext) => Record<string, LlmTool>
+  // Optional pre-LLM hook: return a deterministic assistant reply for a
+  // recognized message (e.g. a kickoff sentinel) to skip the model; return
+  // null to run the normal turn.
+  maybeCannedReply?: (userMessage: string, ctx: TContext) => string | null
 }
 
 export const CHAT_SCOPE_HANDLERS = 'CHAT_SCOPE_HANDLERS'

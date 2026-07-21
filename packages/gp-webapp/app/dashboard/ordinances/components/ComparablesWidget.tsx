@@ -57,9 +57,11 @@ const ComparableCard = ({
           {status.label}
         </Badge>
       </div>
-      <blockquote className="break-words rounded-md border-l-2 border-border bg-muted/40 px-3 py-2 text-sm italic leading-6 text-foreground">
-        &ldquo;{comparable.quote}&rdquo;
-      </blockquote>
+      {comparable.quote.trim() ? (
+        <blockquote className="break-words rounded-md border-l-2 border-border bg-muted/40 px-3 py-2 text-sm italic leading-6 text-foreground">
+          &ldquo;{comparable.quote}&rdquo;
+        </blockquote>
+      ) : null}
       {comparable.outcome ? (
         <p className="text-sm text-muted-foreground">
           <span className="font-semibold text-foreground">Outcome.</span>{' '}

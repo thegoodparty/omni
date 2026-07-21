@@ -40,16 +40,14 @@ import { PathToVictoryStep } from './PathToVictoryStep'
 import { PledgeStep } from './PledgeStep'
 import OnboardingTopBar from '../shared/OnboardingTopBar'
 import { WhyThisMatters } from './WhyThisMatters'
-import {
-  VoterDemographicsStep,
-  onboardingDistrictStatsQueryOptions,
-} from './VoterDemographicsStep'
 import { localNewsQueryOptions } from './LocalNewsSourcesSection'
+import OnboardingCampaignStoryStep from './OnboardingCampaignStoryStep'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
 import { MajorPartyBlockedAlert } from '../shared/partisanParty'
 import type {
   BallotStatus,
   ManualOfficeForm,
+  NonEmptyArray,
   OnboardingStepConfig,
   OnboardingAnswers,
   OnboardingStepId,
@@ -196,6 +194,7 @@ interface StepBodyProps {
   >
   p2vOfficeName: string | null
   skipP2vReveal: boolean
+  onStoryCompleteChange: (complete: boolean) => void
 }
 
 const StepBody = ({
@@ -209,6 +208,7 @@ const StepBody = ({
   onP2vMetricsResolved,
   p2vOfficeName,
   skipP2vReveal,
+  onStoryCompleteChange,
 }: StepBodyProps): React.JSX.Element | null => {
   if (activeStep.id === 'welcome') {
     return (
@@ -303,19 +303,9 @@ const StepBody = ({
     )
   }
 
-  if (activeStep.id === 'voter-demographics') {
+  if (activeStep.id === 'campaign-story') {
     return (
-      <VoterDemographicsStep
-        ballotReadyPositionId={answers.structuredOffice?.positionId}
-        // Keys the stats query identically to the path-to-victory prefetch
-        // (which includes the org position) so the warmed entry is the one
-        // this step reads — and keeps the query enabled when the snapshot
-        // id is missing.
-        orgPositionId={liveCampaign?.organization?.positionId ?? undefined}
-        city={answers.structuredOffice?.city}
-        state={answers.structuredOffice?.state}
-        office={answers.structuredOffice?.positionName}
-      />
+      <OnboardingCampaignStoryStep onCompleteChange={onStoryCompleteChange} />
     )
   }
 
@@ -348,6 +338,19 @@ export default function OnboardingFlow({
   // exposure for every onboarding visitor.
   const { ready: campaignStoryReady, enabled: campaignStoryEnabled } =
     useCampaignStoryFlag(false)
+  // The campaign-story step lives in the static config but only for the story
+  // cohort. Inject it (flag-gated) into the array getVisibleOnboardingSteps
+  // filters, so the stepper count and back/forward navigation stay correct.
+  const [welcomeStep, ...laterOnboardingSteps] = ONBOARDING_STEPS
+  const effectiveSteps: NonEmptyArray<OnboardingStepConfig> =
+    campaignStoryEnabled
+      ? ONBOARDING_STEPS
+      : [
+          welcomeStep,
+          ...laterOnboardingSteps.filter(
+            (step) => step.id !== 'campaign-story',
+          ),
+        ]
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
   const [answers, setAnswers] = useState<OnboardingAnswers>({})
@@ -356,8 +359,21 @@ export default function OnboardingFlow({
   )
   const [isSavingOffice, setIsSavingOffice] = useState(false)
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
+  // Reported by OnboardingCampaignStoryStep as its underlying cards resolve.
+  // Gates the campaign-story step's footer label and whether continuing
+  // fires plan generation.
+  const [storyComplete, setStoryComplete] = useState(false)
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
+  // Guards against a double-fire of the strategic-landscape pre-warm (e.g. a
+  // rapid double-click of Continue). Generation - and the Completed event
+  // that rides with it - fires at most once ever, on first completion.
+  const storyGenFiredRef = useRef(false)
+  // Guards CampaignStorySkipped so a user who skips, goes Back, and skips
+  // again only counts once. Independent of storyGenFiredRef: a Skipped fire
+  // must not block a later Completed fire (skip-then-complete still upgrades
+  // to Completed + generation).
+  const storySkippedFiredRef = useRef(false)
   const [liveCampaign, setLiveCampaign] = useState<Campaign | null>(
     initialCampaign,
   )
@@ -381,7 +397,7 @@ export default function OnboardingFlow({
   const hasResolvedPathToVictory =
     Boolean(officeIdentityKey) && resolvedP2vOfficeKey === officeIdentityKey
 
-  const visibleSteps = getVisibleOnboardingSteps(ONBOARDING_STEPS, answers)
+  const visibleSteps = getVisibleOnboardingSteps(effectiveSteps, answers)
   const activeIndex = Math.max(
     0,
     visibleSteps.findIndex((step) => step.id === activeStepId),
@@ -411,6 +427,10 @@ export default function OnboardingFlow({
     !isSavingOffice &&
     !isP2vBlocking &&
     !isOfficeHydrationBlocking &&
+    // Hold Continue until the story flag resolves so effectiveSteps is stable
+    // (story step present) before the candidate can advance past it. Otherwise
+    // a slow flag load drops the step and they never see it.
+    campaignStoryReady &&
     pledgeFlagsReady
 
   const handleP2vLoadingChange = useCallback((loading: boolean) => {
@@ -469,7 +489,7 @@ export default function OnboardingFlow({
       'party-affiliation': EVENTS.OnboardingV2.PartyDesignationViewed,
       'office-selection': EVENTS.OnboardingV2.OfficeViewed,
       'path-to-victory': EVENTS.OnboardingV2.VotesNeededViewed,
-      'voter-demographics': EVENTS.OnboardingV2.VoterInsightsViewed,
+      'campaign-story': EVENTS.OnboardingV2.CampaignStoryViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
@@ -520,21 +540,9 @@ export default function OnboardingFlow({
 
   useEffect(() => {
     if (activeStepId !== 'path-to-victory') return
-    const ballotReadyPositionId = answers.structuredOffice?.positionId
-    // The plan page keys this query by orgPositionId too — the prefetch
-    // must match or it warms a key the plan page never reads.
-    const orgPositionId = liveCampaign?.organization?.positionId ?? undefined
     const city = answers.structuredOffice?.city
     const state = answers.structuredOffice?.state
     const office = answers.structuredOffice?.positionName
-    if (ballotReadyPositionId || orgPositionId) {
-      void queryClient.prefetchQuery(
-        onboardingDistrictStatsQueryOptions({
-          ballotReadyPositionId,
-          orgPositionId,
-        }),
-      )
-    }
     if (state && office) {
       void queryClient.prefetchQuery(
         localNewsQueryOptions({ city, state, office }),
@@ -542,11 +550,9 @@ export default function OnboardingFlow({
     }
   }, [
     activeStepId,
-    answers.structuredOffice?.positionId,
     answers.structuredOffice?.city,
     answers.structuredOffice?.state,
     answers.structuredOffice?.positionName,
-    liveCampaign?.organization?.positionId,
     queryClient,
   ])
 
@@ -885,11 +891,6 @@ export default function OnboardingFlow({
         winNumber: trackedCampaign?.raceTargetMetrics?.winNumber ?? 0,
       })
     }
-    if (activeStep.id === 'voter-demographics') {
-      trackEvent(EVENTS.OnboardingV2.VoterInsightsCompleted, {
-        campaignId: campaign?.id,
-      })
-    }
     if (
       activeStep.id === 'office-selection' &&
       answers.structuredOffice &&
@@ -977,6 +978,27 @@ export default function OnboardingFlow({
       const ok = await persistPartyAffiliation(answers.partyAffiliation)
       if (!ok) return
     }
+    if (activeStep.id === 'campaign-story') {
+      if (storyComplete && !storyGenFiredRef.current) {
+        storyGenFiredRef.current = true
+        // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
+        // raceId) and prewarmStrategicLandscape swallows that, so a candidate
+        // is never blocked from reaching the pledge.
+        void prewarmStrategicLandscape()
+        trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
+          campaignId: liveCampaign?.id ?? campaign?.id,
+        })
+      } else if (
+        !storyComplete &&
+        !storyGenFiredRef.current &&
+        !storySkippedFiredRef.current
+      ) {
+        storySkippedFiredRef.current = true
+        trackEvent(EVENTS.OnboardingV2.CampaignStorySkipped, {
+          campaignId: liveCampaign?.id ?? campaign?.id,
+        })
+      }
+    }
     if (activeStep.id === 'pledge') {
       const effectiveCampaign = campaign ?? liveCampaign
       if (!effectiveCampaign) return
@@ -1014,7 +1036,7 @@ export default function OnboardingFlow({
       unmatchedOffice: true,
       structuredOffice: undefined,
     }))
-    const visibleAfter = getVisibleOnboardingSteps(ONBOARDING_STEPS, {
+    const visibleAfter = getVisibleOnboardingSteps(effectiveSteps, {
       ...answers,
       officePath: 'manual',
     })
@@ -1045,6 +1067,10 @@ export default function OnboardingFlow({
             <section
               className={`space-y-8${
                 activeStep.id === 'welcome' ? ' text-center' : ''
+              }${
+                activeStep.id === 'campaign-story'
+                  ? ' mx-auto w-full max-w-[605px]'
+                  : ''
               }`}
             >
               {isP2vBlocking ? null : (
@@ -1080,6 +1106,7 @@ export default function OnboardingFlow({
                 onP2vMetricsResolved={handleP2vMetricsResolved}
                 p2vOfficeName={p2vOfficeName}
                 skipP2vReveal={hasResolvedPathToVictory}
+                onStoryCompleteChange={setStoryComplete}
               />
             </section>
 
@@ -1130,10 +1157,14 @@ export default function OnboardingFlow({
             disabled={!canContinue}
           >
             {nextStep
-              ? 'Continue'
+              ? activeStep.id === 'campaign-story'
+                ? storyComplete
+                  ? 'Continue'
+                  : 'Skip for now'
+                : 'Continue'
               : activeStep.id === 'pledge'
                 ? campaignStoryEnabled
-                  ? "Let's Create Your Story"
+                  ? 'Agree & Continue'
                   : 'Agree & Create My Plan'
                 : 'Complete'}
           </Button>

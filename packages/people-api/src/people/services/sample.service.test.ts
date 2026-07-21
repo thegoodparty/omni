@@ -41,7 +41,7 @@ describe('SampleService', () => {
     )
 
     Object.defineProperty(service, '_prisma', {
-      get: () => mockPrisma,
+      get: () => ({ instance: mockPrisma }),
       configurable: true,
     })
   })

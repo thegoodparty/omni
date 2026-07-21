@@ -109,7 +109,7 @@ test('filed candidate upgrades to Pro and reaches the post-payment PIN state @de
 
   await page.getByRole('button', { name: 'Continue' }).click()
 
-  // 7. Candidate profile — ≥500-char bio (Quill editor) + one policy priority
+  // 7. Candidate profile — ≥200-char bio (Quill editor) + one policy priority
   // with a ≥100-char focus.
   await page.waitForURL(/\/dashboard\/pro-upgrade\/candidate-profile/)
   const bioEditor = page.locator('.ql-editor').first()

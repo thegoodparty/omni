@@ -225,6 +225,90 @@ describe('LlmService non-streaming (Anthropic via ai SDK)', () => {
     expect(generateText).toHaveBeenCalledTimes(2)
   })
 
+  it('jsonCompletion forwards abortSignal to generateObject', async () => {
+    const { service, generateObject } = build()
+    generateObject.mockResolvedValueOnce({
+      object: { answer: '42' },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
+    const controller = new AbortController()
+
+    await service.jsonCompletion({
+      messages: [USER_MSG],
+      schema: z.object({ answer: z.string() }),
+      models: ['claude-sonnet-4-6'],
+      abortSignal: controller.signal,
+      retries: 0,
+    })
+
+    expect(generateObject.mock.calls[0]?.[0].abortSignal).toBe(
+      controller.signal,
+    )
+  })
+
+  it('chatCompletion forwards abortSignal to generateText', async () => {
+    const { service, generateText } = build()
+    generateText.mockResolvedValueOnce({
+      text: 'ok',
+      toolCalls: [],
+      totalUsage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    })
+    const controller = new AbortController()
+
+    await service.chatCompletion({
+      messages: [USER_MSG],
+      models: ['claude-sonnet-4-6'],
+      abortSignal: controller.signal,
+      retries: 0,
+    })
+
+    expect(generateText.mock.calls[0]?.[0].abortSignal).toBe(controller.signal)
+  })
+
+  it('bails on AbortError: one call, no model cascade, no retries', async () => {
+    const { service, generateObject } = build()
+    const controller = new AbortController()
+    generateObject.mockImplementation(() => {
+      controller.abort()
+      const err = new Error('The operation was aborted')
+      err.name = 'AbortError'
+      return Promise.reject(err)
+    })
+
+    await expect(
+      service.jsonCompletion({
+        messages: [USER_MSG],
+        schema: z.object({ answer: z.string() }),
+        models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+        abortSignal: controller.signal,
+        retries: 2,
+      }),
+    ).rejects.toThrow('aborted')
+    expect(generateObject).toHaveBeenCalledOnce()
+  })
+
+  it('bails when the signal is aborted even without an AbortError name', async () => {
+    const { service, generateObject } = build()
+    const controller = new AbortController()
+    generateObject.mockImplementation(() => {
+      controller.abort()
+      const err = new Error('timed out')
+      err.name = 'TimeoutError'
+      return Promise.reject(err)
+    })
+
+    await expect(
+      service.jsonCompletion({
+        messages: [USER_MSG],
+        schema: z.object({ answer: z.string() }),
+        models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+        abortSignal: controller.signal,
+        retries: 2,
+      }),
+    ).rejects.toThrow('timed out')
+    expect(generateObject).toHaveBeenCalledOnce()
+  })
+
   it('bails immediately on a permanent 4xx ai-SDK APICallError (statusCode)', async () => {
     const { service, generateText } = build()
     generateText.mockRejectedValue(

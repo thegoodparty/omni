@@ -1,0 +1,21 @@
+model DoorKnockingStopTarget {
+  id                 Int              @id @default(autoincrement())
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  stop               DoorKnockingStop @relation(fields: [doorKnockingStopId], references: [id], onDelete: Cascade)
+  doorKnockingStopId Int              @map("door_knocking_stop_id")
+  // people-api person UUID (hash-derived from the L2 id). Raw LALVOTERIDs
+  // never enter these tables.
+  personId           String           @map("person_id")
+  // Bare-minimum snapshot: enough to print a walk sheet if the person
+  // vanishes upstream. Everything else (age, party, unit roster) is
+  // fetched live at serve time. Nullable because privacy-deletion
+  // requests null it in place; the row is never removed.
+  name               String?
+  addressKey         String           @map("address_key")
+
+  // A person appears at most once per stop; stopTargetId is the
+  // interaction write key, so duplicates would fork knock records.
+  @@unique([doorKnockingStopId, personId])
+  @@map("door_knocking_stop_target")
+}

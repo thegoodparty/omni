@@ -18,6 +18,7 @@ import { addMinutes, format, isBefore, isValid, parseISO } from 'date-fns'
 import { groupBy } from 'es-toolkit'
 import { formatInTimeZone } from 'date-fns-tz'
 import parseCsv from 'neat-csv'
+import pmap from 'p-map'
 import { serializeError } from 'serialize-error'
 import { AnalyticsService } from 'src/analytics/analytics.service'
 import { AiContentService } from 'src/campaigns/ai/content/aiContent.service'
@@ -35,6 +36,7 @@ import { CampaignStrategyService } from 'src/campaignStrategy/services/campaignS
 import { RaceOpponentPersistService } from 'src/raceOpponent/services/raceOpponentPersist.service'
 import { RaceOpponentResearchPersistService } from 'src/raceOpponent/services/raceOpponentResearchPersist.service'
 import { OrdinanceCodePersistService } from 'src/ordinances/services/ordinanceCodePersist.service'
+import { OrdinanceQualityLoopService } from 'src/ordinances/services/ordinanceQualityLoop.service'
 import { PollIssuesService } from 'src/polls/services/pollIssues.service'
 import { PollsService } from 'src/polls/services/polls.service'
 import {
@@ -62,6 +64,7 @@ import {
   Nightly10DlcReportMessageSchema,
   WeeklyTasksDigestMessageSchema,
   OcrAttachmentMessageSchema,
+  OrdinanceQualityLoopMessageSchema,
   PollAnalysisCompleteEvent,
   PollAnalysisCompleteEventSchema,
   PollCreationEvent,
@@ -90,6 +93,15 @@ import { ExperimentRunStatus } from '../../generated/prisma'
 import { isJsonObject } from '@/shared/util/objects.util'
 
 type PollAnalysisIssue = PollAnalysisCompleteEvent['data']['issues'][number]
+
+// One poll can have hundreds of unmapped response phones, each resolved via an
+// HTTP POST to People-API. Firing them all at once (Promise.all) overruns
+// People-API's request/socket budget and cascades into timeouts and failures.
+// A benchmark (pollAnalysisFanout.benchmark.test.ts) modelling that downstream
+// showed a cap of 20 eliminates the errors while being at least as fast as the
+// unbounded burst at typical poll sizes (the burst pays a degradation penalty),
+// so we bound the fan-out here.
+const PEOPLE_LOOKUP_CONCURRENCY = 20
 
 const TERMINAL_STATUSES: readonly ExperimentRunStatus[] = [
   ExperimentRunStatus.COMPLETED,
@@ -149,6 +161,7 @@ export class QueueConsumerService {
     private readonly raceOpponentResearch: RaceOpponentResearchPersistService,
     private readonly annotationAttachments: AnnotationAttachmentService,
     private readonly ordinanceCodePersist: OrdinanceCodePersistService,
+    private readonly ordinanceQualityLoop: OrdinanceQualityLoopService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(QueueConsumerService.name)
@@ -418,6 +431,23 @@ export class QueueConsumerService {
           await this.annotationAttachments.runOcr(attachmentId)
           return true
         })
+      case QueueType.ORDINANCE_QUALITY_LOOP: {
+        // Parse failure is a poison message — it can never become valid, and
+        // requeueing would block the ordinance's FIFO group until the DLQ
+        // limit. Ack-drop it. handleStep errors still escape to the requeue
+        // path: position resolution makes redelivery of a valid step safe.
+        const step = OrdinanceQualityLoopMessageSchema.safeParse(
+          queueMessage.data,
+        )
+        if (!step.success) {
+          this.logger.error(
+            { messageId: message.MessageId, error: step.error },
+            'malformed ordinance quality loop message, discarding',
+          )
+          return true
+        }
+        return await this.ordinanceQualityLoop.handleStep(step.data)
+      }
       default:
         this.logger.warn(
           { messageId: message.MessageId, body: message.Body },
@@ -698,13 +728,21 @@ export class QueueConsumerService {
         { pollId, unmappedPhoneCount: unmappedPhones.length },
         "Some response phones weren't in this poll's outreach; trying People DB fallback",
       )
-      const lookups = await Promise.all(
-        unmappedPhones.map(async (normalized) => {
+      // Pro-access depends only on `organization` (constant across this loop),
+      // so resolve it once instead of letting every findPersonByPhone re-query
+      // the campaign. Bound the fan-out (see PEOPLE_LOOKUP_CONCURRENCY) so a
+      // large poll can't burst hundreds of simultaneous requests at People-API.
+      const proAccess =
+        await this.contactsService.resolveProAccess(organization)
+      const lookups = await pmap(
+        unmappedPhones,
+        async (normalized) => {
           const digitsOnly = normalized.replace(/^\+1/, '')
           try {
             const person = await this.contactsService.findPersonByPhone(
               digitsOnly,
               organization,
+              proAccess,
             )
             return { phone: normalized, personId: person?.id ?? null }
           } catch (err) {
@@ -714,7 +752,8 @@ export class QueueConsumerService {
             )
             return { phone: normalized, personId: null }
           }
-        }),
+        },
+        { concurrency: PEOPLE_LOOKUP_CONCURRENCY },
       )
       for (const { phone, personId } of lookups) {
         if (personId) phoneToPersonIdMap.set(phone, personId)

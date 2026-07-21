@@ -34,17 +34,23 @@ export function createPrismaBase<T extends Prisma.ModelName>(modelName: T) {
     readonly logger = new Logger(this.constructor.name)
 
     get model(): PrismaClient[Uncapitalize<T>] {
-      return this._prisma[lowerModelName]
+      return this._prisma.instance[lowerModelName]
     }
 
     get client(): PrismaClient {
-      return this._prisma
+      return this._prisma.instance
     }
 
     onModuleInit() {
-      // Have to do these in onModuleInit, client is not available at constructor
+      // Resolve `this.model` on every call rather than binding once: the
+      // underlying Prisma client is rebuilt and swapped when the database URL
+      // changes, so a one-time bind would leave these pointed at a disconnected
+      // client after a swap.
       for (const method of PASSTHROUGH_MODEL_METHODS) {
-        this[method] = this.model[method].bind(this.model)
+        this[method] = ((...args: unknown[]) =>
+          (this.model[method] as (...a: unknown[]) => unknown)(
+            ...args,
+          )) as never
       }
     }
   }

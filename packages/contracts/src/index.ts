@@ -62,6 +62,9 @@ export {
   type OrdinanceSeedType,
   ORDINANCE_SEED_TYPE_VALUES,
   OrdinanceSeedTypeSchema,
+  type OrdinanceQualityLoopStatus,
+  ORDINANCE_QUALITY_LOOP_STATUS_VALUES,
+  OrdinanceQualityLoopStatusSchema,
   type ActivityConditionAction,
   ACTIVITY_CONDITION_ACTION_VALUES,
   ActivityConditionActionSchema,
@@ -608,6 +611,8 @@ export {
   CreateChatResponseSchema,
   type CreateChatResponse,
   CHAT_MESSAGE_MAX_LENGTH,
+  CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+  CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   SendChatMessageRequestSchema,
   type SendChatMessageRequest,
   ChatMessageSegmentSchema,
@@ -650,3 +655,47 @@ export {
 export * from './ordinances/Ordinance.schema'
 
 export { P2P_SCRIPT_MAX_LENGTH } from './outreach/OutreachScript.const'
+
+export { BboxSchema, type Bbox } from './shared/Bbox.schema'
+
+export {
+  PEOPLE_FILTER_VALUE_ENUMS,
+  createEnumFilterSchema,
+  createIdFilterSchema,
+  createNumericFilterSchema,
+  PeopleFiltersSchema,
+  type PeopleFilters,
+} from './people/PeopleFilters.schema'
+
+export {
+  DoorKnockingEvaluateRequestSchema,
+  type DoorKnockingEvaluateRequest,
+  DoorKnockingEvaluatedPersonSchema,
+  type DoorKnockingEvaluatedPerson,
+  DoorKnockingEvaluateResponseSchema,
+  type DoorKnockingEvaluateResponse,
+} from './doorKnocking/DoorKnockingEvaluation.schema'
+
+export {
+  DoorKnockingResidentsRequestSchema,
+  type DoorKnockingResidentsRequest,
+  DoorKnockingResidentTargetSchema,
+  type DoorKnockingResidentTarget,
+  DoorKnockingResidentsAddressSchema,
+  type DoorKnockingResidentsAddress,
+  DoorKnockingResidentsResponseSchema,
+  type DoorKnockingResidentsResponse,
+} from './doorKnocking/DoorKnockingResidents.schema'
+
+export {
+  DoorKnockingPackRequestSchema,
+  type DoorKnockingPackRequest,
+  PACK_ARRAY_TYPES,
+  PACK_CORE_ARRAYS,
+  DoorKnockingPackDimSchema,
+  type DoorKnockingPackDim,
+  DoorKnockingPackArraySchema,
+  type DoorKnockingPackArray,
+  DoorKnockingPackManifestSchema,
+  type DoorKnockingPackManifest,
+} from './doorKnocking/DoorKnockingPack.schema'

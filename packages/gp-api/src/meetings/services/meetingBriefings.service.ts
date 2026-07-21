@@ -32,6 +32,7 @@ import { addDays, differenceInCalendarDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
 import { chunk } from 'es-toolkit'
 import ms from 'ms'
+import pMap from 'p-map'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
@@ -138,6 +139,11 @@ type DispatchContext = {
 const CRON_CONFIG = {
   batchSize: 100,
   every: '20m' as const,
+  // Max offices dispatched in parallel WITHIN a batch. Bounds the fan-out to
+  // the DB / election-api / S3 / dispatch queue while collapsing the
+  // previously fully-serial per-office latency. The inter-batch `every` sleep
+  // below is the intended throttle and is preserved unchanged.
+  concurrency: 10,
 }
 
 // Briefings are dispatched only when the official's next scheduled meeting
@@ -819,21 +825,55 @@ export class MeetingBriefingsService extends createPrismaBase(
     )
     if (!claimed) return
 
+    // DB-side pre-filter: skip offices that provably can never dispatch, so
+    // the loop below only touches candidates instead of every elected office.
+    // Both predicates are strictly necessary conditions for dispatch, so this
+    // never drops an office that dispatchBriefingIfNeeded would have briefed:
+    //   1. The imminence gate calls resolveTargetMeeting -> loadLatestScheduleForOrg,
+    //      which requires a COMPLETED meeting_schedule run with artifact
+    //      pointers. No such run => resolveTargetMeeting returns null => skip.
+    //   2. Coverage dedupe skips any office already covered by a future
+    //      briefing (meetingDate >= now).
+    // The remaining gates (serve-ICP, activity, imminence window, in-flight
+    // dedupe) depend on the election-api / the S3 schedule artifact / user
+    // metadata and can't be expressed here, so they stay in the per-office
+    // guard below.
     const offices = await this.client.electedOffice.findMany({
+      where: {
+        organization: {
+          experimentRuns: {
+            some: {
+              experimentType: SCHEDULE_EXPERIMENT_TYPE,
+              status: ExperimentRunStatus.COMPLETED,
+              artifactBucket: { not: null },
+              artifactKey: { not: null },
+            },
+          },
+        },
+        meetingBriefings: { none: { meetingDate: { gte: now } } },
+      },
       select: { id: true, organizationSlug: true, userId: true },
     })
 
     const chunks = chunk(offices, CRON_CONFIG.batchSize)
 
     for (const [i, batch] of chunks.entries()) {
-      for (const eo of batch) {
-        await this.dispatchBriefingIfNeeded(eo, now).catch((err: unknown) =>
-          this.logger.error(
-            { err, electedOfficeId: eo.id },
-            'dispatchBriefingIfNeeded failed, continuing',
+      // Bounded concurrency WITHIN a batch: each office's dispatch work is
+      // independent (distinct org), so we fan out up to `concurrency` at a
+      // time instead of awaiting them one by one.
+      await pMap(
+        batch,
+        (eo) =>
+          this.dispatchBriefingIfNeeded(eo, now).catch((err: unknown) =>
+            this.logger.error(
+              { err, electedOfficeId: eo.id },
+              'dispatchBriefingIfNeeded failed, continuing',
+            ),
           ),
-        )
-      }
+        { concurrency: CRON_CONFIG.concurrency },
+      )
+      // Intentional inter-batch throttle — preserved as-is so we don't burst
+      // the whole population at the queue at once.
       if (i < chunks.length - 1) {
         await new Promise((resolve) =>
           setTimeout(resolve, ms(CRON_CONFIG.every)),
@@ -920,12 +960,10 @@ export class MeetingBriefingsService extends createPrismaBase(
     )
     if (!target) return notDispatched
 
-    const electedOffice = await this.client.electedOffice.findUnique({
-      where: { id: eo.id },
-    })
-    if (!electedOffice) return notDispatched
-
-    const ctx = await this.resolveDispatchContext(electedOffice)
+    // `eo` already carries the id / organizationSlug / userId that
+    // resolveDispatchContext needs, so we skip the redundant full-row
+    // findUnique the loop used to do per office (fetch once, up top).
+    const ctx = await this.resolveDispatchContext(eo)
     if (!ctx) return notDispatched
 
     // Fail closed: automated dispatches require an affirmative serve-ICP
@@ -962,7 +1000,7 @@ export class MeetingBriefingsService extends createPrismaBase(
   }
 
   private async resolveDispatchContext(
-    electedOffice: ElectedOffice,
+    electedOffice: Pick<ElectedOffice, 'id' | 'organizationSlug' | 'userId'>,
   ): Promise<DispatchContext | null> {
     const [user, organization] = await Promise.all([
       this.client.user.findUnique({

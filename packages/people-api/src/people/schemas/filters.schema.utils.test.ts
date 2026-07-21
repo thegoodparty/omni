@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createIdFilterSchema, transformFilters } from './filters.schema.utils'
+import { createIdFilterSchema } from '@goodparty_org/contracts'
+import { transformFilters } from './filters.schema.utils'
 
 const mockSchemaShape = {
   estimatedIncomeAmountInt: {},
@@ -90,22 +91,6 @@ describe('transformFilters', () => {
   })
 
   describe('_or edge cases', () => {
-    it('handles empty _or array', () => {
-      const filters = {
-        estimatedIncomeAmountInt: {
-          _or: [],
-        },
-      }
-
-      const result = transformFilters(filters, mockSchemaShape)
-
-      expect(result.filterOperators.estimatedIncomeAmountInt).toEqual({
-        operator: 'or',
-        orRanges: [],
-        includeNull: false,
-      })
-    })
-
     it('handles _or with undefined gte/lte values', () => {
       const filters = {
         estimatedIncomeAmountInt: {

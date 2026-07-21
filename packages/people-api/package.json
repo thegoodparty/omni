@@ -33,6 +33,7 @@
     "schema": "prisma/schema"
   },
   "dependencies": {
+    "@aws-sdk/client-ssm": "^3.972.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^11.0.0",
     "@fastify/helmet": "^13.0.1",
