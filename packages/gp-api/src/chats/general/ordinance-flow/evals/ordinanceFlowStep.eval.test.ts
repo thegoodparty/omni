@@ -258,14 +258,22 @@ d('ordinance-flow step evals (real Claude)', () => {
   it(
     'draft step persists a draft via present_draft',
     async () => {
-      const { ordinance, toolNames } = await runStep('bike-parking', 'draft')
+      const { ordinance, toolNames, assistantText, payloadsFor } =
+        await runStep('bike-parking', 'draft')
 
       expect(toolNames).toContain('present_draft')
       expect(ordinance.draftBody?.length ?? 0).toBeGreaterThan(500)
       expect(ordinance.draftTitle?.length ?? 0).toBeGreaterThan(0)
       expect(ordinance.status).toBe('draft')
-      reportVerbosity('draft', '', [
-        { title: ordinance.draftTitle, body: ordinance.draftBody },
+      // The turn's reading load is the prose plus the draft CARD copy — the
+      // body is the document itself, rendered on the draft page, and counting
+      // it would track document length instead of turn verbosity.
+      const draftCard = payloadsFor('present_draft')[0] as {
+        title?: string
+        description?: string
+      }
+      reportVerbosity('draft', assistantText, [
+        { title: draftCard?.title, description: draftCard?.description },
       ])
 
       await runJudges(
