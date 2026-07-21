@@ -236,8 +236,8 @@ export default function NativeDoorKnockingPage({
               <div className="pointer-events-none absolute left-4 top-32 max-w-xs rounded-md border border-border bg-background/95 p-3 text-sm shadow-sm">
                 <p className="font-semibold">Draw your knocking boundaries</p>
                 <p className="text-muted-foreground">
-                  Click the map to drop boundary points, then double-click to
-                  close the shape.
+                  Each click drops a boundary point — the shape closes itself as
+                  you go.
                 </p>
               </div>
             )}

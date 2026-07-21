@@ -1,12 +1,10 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
-import MapboxDraw from '@mapbox/mapbox-gl-draw'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import '@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css'
 import { PolygonLayer, TextLayer } from '@deck.gl/layers'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
@@ -27,6 +25,9 @@ const STATUS_COLORS: Array<[number, number, number, number]> = [
   [100, 116, 139, 160], // not_a_voter
 ]
 const UNMATCHED_COLOR: [number, number, number, number] = [190, 195, 200, 60]
+// The demo's action blue for the in-progress boundary.
+const DRAW_BLUE: [number, number, number, number] = [19, 81, 216, 255]
+const DRAW_BLUE_FILL: [number, number, number, number] = [19, 81, 216, 40]
 
 export type PolygonRing = Array<[number, number]>
 
@@ -116,7 +117,12 @@ export default function VoterMapCanvas({
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const drawRef = useRef<MapboxDraw | null>(null)
+  // Click-to-add-vertex drawing (mapbox-gl-draw's finish gesture is
+  // unreliable on maplibre): every click appends a point and the shape
+  // closes itself from whatever points exist — there is no finish gesture.
+  const drawActiveRef = useRef(false)
+  const [drawPoints, setDrawPoints] = useState<PolygonRing>([])
+  const drawPointsRef = useRef<PolygonRing>([])
   const onPolygonChangeRef = useRef(onPolygonChange)
   onPolygonChangeRef.current = onPolygonChange
 
@@ -133,47 +139,21 @@ export default function VoterMapCanvas({
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-    // No built-in buttons: mapbox-gl-draw's control UI styles against
-    // mapboxgl-ctrl classes that maplibre doesn't emit, leaving the buttons
-    // unstyled and effectively unclickable. Drawing starts from the page's
-    // own button via startDrawToken instead.
-    const draw = new MapboxDraw({
-      displayControlsDefault: false,
-      controls: {},
-    })
-    // MapboxDraw predates maplibre's types but is runtime-compatible — the
-    // POC shipped this exact pairing.
-    map.addControl(draw as unknown as maplibregl.IControl, 'top-right')
-    drawRef.current = draw
-
     const overlay = new MapboxOverlay({ layers: [] })
     map.addControl(overlay as unknown as maplibregl.IControl)
     overlayRef.current = overlay
 
-    // One turf at a time: drawing a new shape replaces the previous one on
-    // the map, so the stats panel always describes the single visible
-    // polygon.
-    const emitPolygon = () => {
-      const polygons = draw
-        .getAll()
-        .features.filter((f) => f.geometry.type === 'Polygon')
-      const last = polygons[polygons.length - 1]
-      const stale = polygons
-        .slice(0, -1)
-        .map((f) => f.id)
-        .filter((id): id is string => typeof id === 'string')
-      if (stale.length > 0) {
-        draw.delete(stale)
-      }
-      const ring =
-        last && last.geometry.type === 'Polygon'
-          ? (last.geometry.coordinates[0] as PolygonRing)
-          : null
-      onPolygonChangeRef.current(ring ?? null)
-    }
-    map.on('draw.create', emitPolygon)
-    map.on('draw.update', emitPolygon)
-    map.on('draw.delete', emitPolygon)
+    map.on('click', (event) => {
+      if (!drawActiveRef.current) return
+      const point: [number, number] = [event.lngLat.lng, event.lngLat.lat]
+      const last = drawPointsRef.current[drawPointsRef.current.length - 1]
+      // A double-click lands as two clicks at the same spot — one vertex.
+      if (last && last[0] === point[0] && last[1] === point[1]) return
+      const next = [...drawPointsRef.current, point]
+      drawPointsRef.current = next
+      setDrawPoints(next)
+      onPolygonChangeRef.current(next.length >= 3 ? next : null)
+    })
 
     const bounds = packBounds(pack.positions)
     if (bounds) {
@@ -183,7 +163,6 @@ export default function VoterMapCanvas({
     return () => {
       overlayRef.current = null
       mapRef.current = null
-      drawRef.current = null
       map.remove()
     }
     // The map mounts once per pack — everything dynamic flows through the
@@ -222,6 +201,28 @@ export default function VoterMapCanvas({
           getRadius: 5,
           pickable: false,
         }),
+        new PolygonLayer<PolygonRing>({
+          id: 'draw-preview',
+          data: drawPoints.length >= 3 ? [drawPoints] : [],
+          getPolygon: (ring) => ring,
+          getFillColor: DRAW_BLUE_FILL,
+          getLineColor: DRAW_BLUE,
+          lineWidthMinPixels: 2.5,
+          pickable: false,
+        }),
+        new ScatterplotLayer<[number, number]>({
+          id: 'draw-vertices',
+          data: drawPoints,
+          getPosition: (point) => point,
+          getFillColor: DRAW_BLUE,
+          getLineColor: [255, 255, 255, 255],
+          stroked: true,
+          lineWidthMinPixels: 1.5,
+          radiusMinPixels: 4,
+          radiusMaxPixels: 6,
+          getRadius: 5,
+          pickable: false,
+        }),
         new ScatterplotLayer<RoutePin>({
           id: 'route-pins',
           data: routePins,
@@ -247,7 +248,7 @@ export default function VoterMapCanvas({
         }),
       ],
     })
-  }, [pack, filterResult, turfs, routePins])
+  }, [pack, filterResult, turfs, routePins, drawPoints])
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return
@@ -306,15 +307,21 @@ export default function VoterMapCanvas({
 
   useEffect(() => {
     if (startDrawToken === 0) return
-    drawRef.current?.deleteAll()
+    drawActiveRef.current = true
+    drawPointsRef.current = []
+    setDrawPoints([])
     onPolygonChangeRef.current(null)
-    drawRef.current?.changeMode('draw_polygon')
+    // Adding vertices shouldn't fight the zoom gesture.
+    mapRef.current?.doubleClickZoom.disable()
   }, [startDrawToken])
 
   useEffect(() => {
     if (clearDrawToken === 0) return
-    drawRef.current?.deleteAll()
+    drawActiveRef.current = false
+    drawPointsRef.current = []
+    setDrawPoints([])
     onPolygonChangeRef.current(null)
+    mapRef.current?.doubleClickZoom.enable()
   }, [clearDrawToken])
 
   // A missing key would otherwise render a silent blank map (401s from the
