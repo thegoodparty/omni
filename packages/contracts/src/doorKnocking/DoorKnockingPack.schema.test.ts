@@ -53,6 +53,28 @@ describe('DoorKnockingPackManifestSchema', () => {
     )
   })
 
+  it('rejects a count/elementCount mismatch', () => {
+    const manifest = {
+      ...validManifest,
+      counts: { ...validManifest.counts, dots: 51 },
+    }
+    expect(() => DoorKnockingPackManifestSchema.parse(manifest)).toThrow(
+      /positions elementCount .100. must equal 102/,
+    )
+  })
+
+  it('rejects a dim plane shorter than counts.people', () => {
+    const manifest = {
+      ...validManifest,
+      arrays: validManifest.arrays.map((a) =>
+        a.name === 'dim:party' ? { ...a, elementCount: 99 } : a,
+      ),
+    }
+    expect(() => DoorKnockingPackManifestSchema.parse(manifest)).toThrow(
+      /must equal counts.people/,
+    )
+  })
+
   it('rejects a dim whose byte plane is not u8', () => {
     const manifest = {
       ...validManifest,

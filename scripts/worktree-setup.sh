@@ -23,7 +23,11 @@ WT="$(cd "${1:-.}" && git rev-parse --show-toplevel)"
 MAIN="$(git -C "$WT" worktree list --porcelain | head -1 | sed 's/^worktree //')"
 
 if [ "$WT" = "$MAIN" ]; then
-  echo "==> $WT is the main checkout; skipping env copy"
+  # npm ci wipes node_modules — running it against the shared main checkout
+  # would disrupt dev servers and other agent sessions using it.
+  echo "==> $WT is the main checkout; nothing to provision. Run this from"
+  echo "    inside a worktree."
+  exit 0
 else
   echo "==> Copying untracked .env files from $MAIN"
   for dir in "$MAIN" "$MAIN"/packages/*; do

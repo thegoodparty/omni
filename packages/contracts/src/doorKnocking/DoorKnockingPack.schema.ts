@@ -82,6 +82,35 @@ export const DoorKnockingPackManifestSchema = z
           code: z.ZodIssueCode.custom,
           message: `dim "${dim.key}" needs a u8 array named "dim:${dim.key}"`,
         })
+      } else if (plane.elementCount !== manifest.counts.people) {
+        ctx.addIssue({
+          path: ['dims'],
+          code: z.ZodIssueCode.custom,
+          message:
+            `dim "${dim.key}" elementCount (${plane.elementCount}) must ` +
+            `equal counts.people (${manifest.counts.people})`,
+        })
+      }
+    }
+    // The manifest is the only enforcement layer between producer and
+    // consumer, so counts and array lengths must agree — a mismatch means
+    // out-of-bounds typed-array reads on the client. elementCount is in
+    // scalar elements (TypedArray.length): positions carries 2 per dot.
+    const expectedCounts: [string, number][] = [
+      [PACK_CORE_ARRAYS.positions, manifest.counts.dots * 2],
+      [PACK_CORE_ARRAYS.personToHousehold, manifest.counts.people],
+      [PACK_CORE_ARRAYS.householdToDot, manifest.counts.households],
+    ]
+    for (const [name, expected] of expectedCounts) {
+      const array = byName.get(name)
+      if (array && array.elementCount !== expected) {
+        ctx.addIssue({
+          path: ['arrays'],
+          code: z.ZodIssueCode.custom,
+          message:
+            `${name} elementCount (${array.elementCount}) must equal ` +
+            `${expected}`,
+        })
       }
     }
   })
