@@ -9,7 +9,7 @@ import { Prisma } from 'src/generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
 import { DistrictService } from 'src/district/services/district.service'
 import { DATABASE_SCHEMA } from 'src/people/services/people.service'
-import { buildHouseholdKeySql } from 'src/people/utils/buildHouseholdKeySql.utils'
+import { buildDoorKnockingAddressKeySql } from '../utils/doorKnockingAddressKey.utils'
 import { buildVoterWhereSql } from 'src/people/utils/buildVoterWhereSql.utils'
 import { resolveDistrict } from 'src/people/utils/resolveDistrict.utils'
 import {
@@ -103,7 +103,7 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
         v."LastName" AS "lastName",
         v."Residence_Addresses_Latitude"::float8 AS "lat",
         v."Residence_Addresses_Longitude"::float8 AS "lng",
-        ${buildHouseholdKeySql('v')} AS "addressKey",
+        ${buildDoorKnockingAddressKeySql('v')} AS "addressKey",
         COALESCE(v."Residence_Addresses_AddressLine", '') AS "displayAddress"
       FROM ${VOTER_TABLE} v
       ${joinClause}
@@ -131,7 +131,7 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
       districtId: effectiveDistrictId,
       filters: EMPTY_FILTERS,
       extraConditions: [
-        Prisma.sql`${buildHouseholdKeySql('v')} = ANY(${dto.addressKeys}::text[])`,
+        Prisma.sql`${buildDoorKnockingAddressKeySql('v')} = ANY(${dto.addressKeys}::text[])`,
       ],
     })
 
@@ -143,7 +143,7 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
         v."Age",
         v."Age_Int",
         v."Parties_Description",
-        ${buildHouseholdKeySql('v')} AS "addressKey"
+        ${buildDoorKnockingAddressKeySql('v')} AS "addressKey"
       FROM ${VOTER_TABLE} v
       ${joinClause}
       ${whereClause}

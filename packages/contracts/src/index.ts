@@ -81,6 +81,7 @@ export {
   PeopleListResponseSchema,
   type PeopleListResponse,
   HOUSEHOLD_KEY_RESIDENCE_COLUMNS,
+  DOOR_KNOCKING_UNIT_KEY_COLUMNS,
   SupportStatusRollupSchema,
   type SupportStatusRollup,
 } from './people/Person.schema'
@@ -736,6 +737,8 @@ export {
   type RoutePayloadStop,
   DoorKnockingRoutePayloadSchema,
   type DoorKnockingRoutePayload,
+  RoutePathGeometrySchema,
+  type RoutePathGeometry,
 } from './doorKnocking/DoorKnockingRoutePayload.schema'
 
 export {
