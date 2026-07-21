@@ -151,6 +151,7 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
     expect(properties).not.toHaveProperty('n10_dlc_pin_delivery_method')
     expect(properties).not.toHaveProperty('n10_dlc_pin_sent_at')
     expect(properties).not.toHaveProperty('n10_dlc_pin_delivery_destination')
+    expect(properties).not.toHaveProperty('peerly_identity_id')
   })
 
   it('omits the filing properties when no TCR record exists', async () => {
