@@ -707,6 +707,52 @@ def run_seed(
     return new_state, "ok", len(candidates)
 
 
+def parse_seed_artifact(text: str) -> dict[str, dict]:
+    """Parse a filled seed artifact into {id: {disposition, reason}}, keeping only blocks
+    whose disposition was filled in (blank disposition means the reviewer left it `new`).
+    Format is exactly render_seed_artifact's output; unknown lines are ignored."""
+    out: dict[str, dict] = {}
+    current: str | None = None
+    fields: dict[str, str] = {}
+
+    def flush():
+        if current is not None and fields.get("disposition"):
+            out[current] = {
+                "disposition": fields["disposition"],
+                "reason": fields.get("reason", ""),
+            }
+
+    for line in text.splitlines():
+        if line.startswith("## "):
+            flush()
+            current, fields = line[3:].strip(), {}
+        elif line.startswith("- disposition:"):
+            fields["disposition"] = line[len("- disposition:"):].strip()
+        elif line.startswith("- reason:"):
+            fields["reason"] = line[len("- reason:"):].strip()
+    flush()
+    return out
+
+
+def apply_seed_dispositions(
+    state: Mapping[str, dict], parsed: Mapping[str, dict], today: date
+) -> tuple[dict, int]:
+    """Apply reviewer dispositions from a parsed seed artifact back onto the state, for ids
+    that exist in state. Ids not in state are skipped (not counted, not added). first_seen
+    is preserved; only disposition/reason/last_seen change. Returns (new_state, applied_count)."""
+    out = {k: dict(v) for k, v in state.items()}
+    applied = 0
+    iso = today.isoformat()
+    for gid, d in parsed.items():
+        if gid not in out:
+            continue
+        out[gid]["disposition"] = d["disposition"]
+        out[gid]["reason"] = d.get("reason", "")
+        out[gid]["last_seen"] = iso
+        applied += 1
+    return out, applied
+
+
 def prepend_log(log_path: Path, section: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     existing = log_path.read_text() if log_path.exists() else ""
@@ -737,10 +783,32 @@ def main(argv: Sequence[str] | None = None) -> int:
                              "uncapped and write a human-reviewable seed artifact")
     parser.add_argument("--seed-artifact", type=Path, default=DATA_DIR / "instrumentation-gaps-seed.md",
                         help="where to write the --seed review artifact")
+    parser.add_argument("--load-seed", type=Path, default=None,
+                        help="parse a filled seed artifact and apply its dispositions to "
+                             "--state; does no scan and no judgment")
     args = parser.parse_args(argv)
 
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
     today = datetime.strptime(args.today, "%Y-%m-%d").date() if args.today else date.today()
+
+    if args.load_seed:
+        # Dedicated round-trip branch: no scan, no judgment — just apply a reviewer's
+        # dispositions from a filled seed artifact back onto the state.
+        try:
+            prior = load_state(args.state)
+        except CorruptStateError as exc:
+            print(
+                f"gap-sweep: state file unreadable ({exc}); skipping this run, "
+                "state left untouched.",
+                file=sys.stderr,
+            )
+            return 0
+        parsed = parse_seed_artifact(args.load_seed.read_text())
+        new_state, applied = apply_seed_dispositions(prior, parsed, today)
+        skipped = len(parsed) - applied
+        _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")
+        print(f"applied {applied} / skipped {skipped} (unknown ids)")
+        return 0
 
     if not (repo_root / _WEBAPP_ROOT).exists() and not (repo_root / _API_ROOT).exists():
         print(

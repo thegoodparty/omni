@@ -769,3 +769,94 @@ def test_main_seed_writes_state_and_artifact(tmp_path, monkeypatch):
     md = artifact.read_text()
     assert "## /foo" in md
     assert "- disposition:" in md
+
+
+def test_parse_seed_artifact_reads_filled_only():
+    md = (
+        "# header\n\n"
+        "## /a\n- surface_type: route\n- disposition: dismissed\n- reason: chrome\n\n"
+        "## /b\n- surface_type: route\n- disposition:\n- reason:\n\n"
+    )
+    parsed = ig.parse_seed_artifact(md)
+    assert set(parsed) == {"/a"}
+    assert parsed["/a"] == {"disposition": "dismissed", "reason": "chrome"}
+
+
+def test_apply_seed_dispositions_updates_known_ids_only():
+    state = {"/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01"}}
+    parsed = {"/a": {"disposition": "dismissed", "reason": "chrome"},
+              "/gone": {"disposition": "accepted", "reason": ""}}
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 7, 21))
+    assert applied == 1
+    assert new_state["/a"]["disposition"] == "dismissed"
+    assert new_state["/a"]["reason"] == "chrome"
+    assert new_state["/a"]["first_seen"] == "2026-07-01"  # preserved
+    assert "/gone" not in new_state
+
+
+def test_seed_artifact_round_trip_after_hand_edit():
+    """Render an artifact, hand-edit one disposition/reason in the raw text, parse it back —
+    the round trip must recover exactly the edited fields without needing the original dict."""
+    state = {
+        "/a": {"id": "/a", "surface_type": "route", "rank": 0, "location": "a.tsx",
+               "rubric_rule": "flow", "dashboard_question": "q", "judge_reason": "jr",
+               "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+        "/b": {"id": "/b", "surface_type": "route", "rank": 3, "location": "b.tsx",
+               "rubric_rule": "flow", "dashboard_question": "q", "judge_reason": "jr",
+               "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+    }
+    md = ig.render_seed_artifact(state)
+    edited = md.replace("## /a\n- surface_type: route\n- rank: 0\n- location: a.tsx\n"
+                         "- rubric_rule: flow\n- dashboard_question: q\n- judge_reason: jr\n"
+                         "- disposition:\n- reason:",
+                         "## /a\n- surface_type: route\n- rank: 0\n- location: a.tsx\n"
+                         "- rubric_rule: flow\n- dashboard_question: q\n- judge_reason: jr\n"
+                         "- disposition: accepted\n- reason: real gap")
+    parsed = ig.parse_seed_artifact(edited)
+    assert set(parsed) == {"/a"}  # /b left blank -> skipped
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 7, 21))
+    assert applied == 1
+    assert new_state["/a"]["disposition"] == "accepted"
+    assert new_state["/a"]["reason"] == "real gap"
+    assert new_state["/a"]["last_seen"] == "2026-07-21"
+    assert new_state["/b"]["disposition"] == "new"  # untouched
+
+
+def test_main_load_seed_applies_dispositions_and_prints_counts(tmp_path, capsys):
+    state = tmp_path / "state.json"
+    prior = {
+        "/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01",
+               "last_seen": "2026-07-01"},
+    }
+    state.write_text(json.dumps(prior, indent=2, sort_keys=True) + "\n")
+    artifact = tmp_path / "seed.md"
+    artifact.write_text(
+        "## /a\n- disposition: dismissed\n- reason: chrome\n\n"
+        "## /gone\n- disposition: accepted\n- reason:\n\n"
+    )
+
+    rc = ig.main(["--state", str(state), "--load-seed", str(artifact), "--today", "2026-07-21"])
+
+    assert rc == 0
+    new_state = json.loads(state.read_text())
+    assert new_state["/a"]["disposition"] == "dismissed"
+    assert new_state["/a"]["reason"] == "chrome"
+    assert new_state["/a"]["last_seen"] == "2026-07-21"
+    assert "/gone" not in new_state
+    out = capsys.readouterr().out
+    assert "applied 1" in out and "skipped 1" in out
+
+
+def test_main_load_seed_skips_on_corrupt_state(tmp_path, capsys):
+    state = tmp_path / "state.json"
+    state.write_text("{ not valid json")
+    before = state.read_text()
+    artifact = tmp_path / "seed.md"
+    artifact.write_text("## /a\n- disposition: dismissed\n- reason: chrome\n\n")
+
+    rc = ig.main(["--state", str(state), "--load-seed", str(artifact), "--today", "2026-07-21"])
+
+    assert rc == 0
+    assert state.read_text() == before
+    err = capsys.readouterr().err
+    assert "unreadable" in err or "corrupt" in err.lower()
