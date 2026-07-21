@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import { IconButton, XMarkIcon } from '@styleguide'
 import filterSections from 'app/dashboard/contacts/[[...attr]]/components/configs/filters.config'
+import { LANGUAGE_KEY_TO_CODE } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { routeQueryOptions, savedListsQueryOptions } from './turfQueries'
 import type { PolygonStats } from './filterEngine'
 
@@ -51,11 +52,23 @@ export default function TurfDetailsSheet({
   const filter = listsQuery.data?.find(
     (list) => list.id === turf.voterFileFilterId,
   )
+  // Language selections persist as codes ('en'), not booleans — re-expand
+  // them to their option labels like the boolean keys.
+  const languageLabels = (
+    (filter?.languageCodes as string[] | undefined) ?? []
+  ).flatMap((code) => {
+    const key = Object.entries(LANGUAGE_KEY_TO_CODE).find(
+      ([, candidate]) => candidate === code,
+    )?.[0]
+    const label = key ? OPTION_LABELS[key] : undefined
+    return label ? [label] : []
+  })
   const appliedFilterLabels = filter
     ? Object.entries(OPTION_LABELS)
         .filter(([key]) => filter[key] === true)
         .map(([, label]) => label)
         .concat((filter.incomeRanges as string[] | undefined) ?? [])
+        .concat(languageLabels)
     : []
 
   const route = routeQuery.data

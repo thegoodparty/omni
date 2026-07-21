@@ -164,7 +164,18 @@ export default function CreateListFlow({
   // step (back to filters, close) may change the audience, so it resets.
   const createdFilterIdRef = useRef<number | null>(null)
   useEffect(() => {
-    if (step !== 'confirm') createdFilterIdRef.current = null
+    if (step === 'confirm') return
+    // Leaving confirm with a filter created but no turf attached (the turf
+    // POST failed): delete the orphan — the next save mints a fresh one for
+    // the possibly-changed audience. Best-effort; an orphaned list is a
+    // nuisance, not a correctness problem.
+    const orphanId = createdFilterIdRef.current
+    createdFilterIdRef.current = null
+    if (orphanId !== null) {
+      void clientRequest('DELETE /v1/voters/voter-file/filter/:id', {
+        id: String(orphanId),
+      }).catch(() => undefined)
+    }
   }, [step])
 
   const save = useMutation({
