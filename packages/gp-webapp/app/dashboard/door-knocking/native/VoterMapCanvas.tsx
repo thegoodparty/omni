@@ -123,6 +123,8 @@ export default function VoterMapCanvas({
   const drawActiveRef = useRef(false)
   const [drawPoints, setDrawPoints] = useState<PolygonRing>([])
   const drawPointsRef = useRef<PolygonRing>([])
+  const dragIndexRef = useRef<number | null>(null)
+  const justDraggedRef = useRef(false)
   const onPolygonChangeRef = useRef(onPolygonChange)
   onPolygonChangeRef.current = onPolygonChange
 
@@ -145,6 +147,12 @@ export default function VoterMapCanvas({
 
     map.on('click', (event) => {
       if (!drawActiveRef.current) return
+      // A vertex drag that ends within click tolerance still fires a click —
+      // don't turn it into a new point.
+      if (justDraggedRef.current) {
+        justDraggedRef.current = false
+        return
+      }
       const point: [number, number] = [event.lngLat.lng, event.lngLat.lat]
       const last = drawPointsRef.current[drawPointsRef.current.length - 1]
       // A double-click lands as two clicks at the same spot — one vertex.
@@ -153,6 +161,47 @@ export default function VoterMapCanvas({
       drawPointsRef.current = next
       setDrawPoints(next)
       onPolygonChangeRef.current(next.length >= 3 ? next : null)
+    })
+
+    // Vertex dragging: grab a boundary point and move it. The shape updates
+    // live; the page's counts settle on release (a 180k-dot ray-cast per
+    // mousemove is wasted work mid-drag).
+    const pickVertex = (x: number, y: number): number | null => {
+      const info = overlayRef.current?.pickObject({
+        x,
+        y,
+        radius: 8,
+        layerIds: ['draw-vertices'],
+      })
+      return info && info.index >= 0 ? info.index : null
+    }
+    map.on('mousedown', (event) => {
+      if (!drawActiveRef.current) return
+      const index = pickVertex(event.point.x, event.point.y)
+      if (index === null) return
+      dragIndexRef.current = index
+      map.dragPan.disable()
+      event.preventDefault()
+    })
+    map.on('mousemove', (event) => {
+      if (!drawActiveRef.current) return
+      if (dragIndexRef.current !== null) {
+        const next = [...drawPointsRef.current]
+        next[dragIndexRef.current] = [event.lngLat.lng, event.lngLat.lat]
+        drawPointsRef.current = next
+        setDrawPoints(next)
+        return
+      }
+      map.getCanvas().style.cursor =
+        pickVertex(event.point.x, event.point.y) !== null ? 'move' : ''
+    })
+    map.on('mouseup', () => {
+      if (dragIndexRef.current === null) return
+      dragIndexRef.current = null
+      justDraggedRef.current = true
+      map.dragPan.enable()
+      const points = drawPointsRef.current
+      onPolygonChangeRef.current(points.length >= 3 ? points : null)
     })
 
     const bounds = packBounds(pack.positions)
@@ -218,10 +267,10 @@ export default function VoterMapCanvas({
           getLineColor: [255, 255, 255, 255],
           stroked: true,
           lineWidthMinPixels: 1.5,
-          radiusMinPixels: 4,
-          radiusMaxPixels: 6,
-          getRadius: 5,
-          pickable: false,
+          radiusMinPixels: 5,
+          radiusMaxPixels: 8,
+          getRadius: 6,
+          pickable: true,
         }),
         new ScatterplotLayer<RoutePin>({
           id: 'route-pins',
@@ -308,6 +357,7 @@ export default function VoterMapCanvas({
   useEffect(() => {
     if (startDrawToken === 0) return
     drawActiveRef.current = true
+    dragIndexRef.current = null
     drawPointsRef.current = []
     setDrawPoints([])
     onPolygonChangeRef.current(null)
@@ -318,6 +368,7 @@ export default function VoterMapCanvas({
   useEffect(() => {
     if (clearDrawToken === 0) return
     drawActiveRef.current = false
+    dragIndexRef.current = null
     drawPointsRef.current = []
     setDrawPoints([])
     onPolygonChangeRef.current(null)
