@@ -65,18 +65,20 @@ export default function CampaignManagerHome({
   const composerRef = useRef<HTMLInputElement | null>(null)
   const personalizeDeepLinkFiredRef = useRef(false)
 
-  // `undefined` until localStorage is read, so the meet card never flashes
-  // before we know whether it was already dismissed.
-  const [meetDismissed, setMeetDismissed] = useState<boolean | undefined>(
-    undefined,
-  )
+  // Default to showing the card (the common case: a new candidate who has not
+  // dismissed it) so it renders immediately with no pop-in. The effect flips it
+  // to dismissed only when the persisted key is present. A dismissed candidate
+  // may see it for a single post-hydration frame (imperceptible), which is the
+  // right trade: localStorage is unreadable during SSR, so a synchronous
+  // initializer would either mismatch hydration or pop the card in for everyone.
+  const [meetDismissed, setMeetDismissed] = useState(false)
   useEffect(() => {
     try {
-      setMeetDismissed(
-        window.localStorage.getItem(MEET_CARD_DISMISSED_KEY) === '1',
-      )
+      if (window.localStorage.getItem(MEET_CARD_DISMISSED_KEY) === '1') {
+        setMeetDismissed(true)
+      }
     } catch {
-      setMeetDismissed(false)
+      // Storage disabled: leave meetDismissed false so the card shows.
     }
   }, [])
   const dismissMeetCard = useCallback(() => {
@@ -198,7 +200,7 @@ export default function CampaignManagerHome({
             chat flow (the hidden story sentinel) without dismissing the meet
             card, same as the deep link the plan-tab gate links use. */}
         <CampaignManagerTasks
-          showMeetCard={meetDismissed === false}
+          showMeetCard={!meetDismissed}
           onMeetManager={() => {
             dismissMeetCard()
             void openManager()
