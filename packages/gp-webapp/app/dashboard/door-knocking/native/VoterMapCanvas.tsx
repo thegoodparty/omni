@@ -5,7 +5,7 @@ import maplibregl from 'maplibre-gl'
 import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { PolygonLayer, TextLayer } from '@deck.gl/layers'
+import { PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers'
 import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
@@ -36,6 +36,8 @@ interface VoterMapCanvasProps {
   turfs: DoorKnockingTurf[]
   // Numbered stop pins for the open route's walk view.
   routePins: RoutePin[]
+  // Closed-loop routes draw the return leg back to stop 1.
+  routeLoop: boolean
   focusTurf: DoorKnockingTurf | null
   // Bump to enter polygon-draw mode (the page owns the Draw button).
   startDrawToken: number
@@ -104,6 +106,7 @@ export default function VoterMapCanvas({
   filterResult,
   turfs,
   routePins,
+  routeLoop,
   focusTurf,
   startDrawToken,
   clearDrawToken,
@@ -132,7 +135,7 @@ export default function VoterMapCanvas({
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: `https://maps.geoapify.com/v1/styles/osm-bright/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
+      style: `https://maps.geoapify.com/v1/styles/osm-liberty/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
       center: [-98, 39],
       zoom: 4,
       attributionControl: { compact: true },
@@ -272,6 +275,27 @@ export default function VoterMapCanvas({
           getRadius: 6,
           pickable: true,
         }),
+        new PathLayer<[number, number][]>({
+          id: 'route-path',
+          // Straight seq-order legs: the road-following polylines are
+          // deliberately not stored (Geoapify caching terms) — this is the
+          // designed fallback geometry.
+          data: (() => {
+            if (routePins.length < 2) return []
+            const ordered = [...routePins].sort((a, b) => a.seq - b.seq)
+            const path = ordered.map(
+              (pin) => [pin.lng, pin.lat] as [number, number],
+            )
+            if (routeLoop && path[0]) path.push(path[0])
+            return [path]
+          })(),
+          getPath: (path) => path,
+          getColor: [19, 81, 216, 200],
+          widthMinPixels: 3,
+          capRounded: true,
+          jointRounded: true,
+          pickable: false,
+        }),
         new ScatterplotLayer<RoutePin>({
           id: 'route-pins',
           data: routePins,
@@ -297,7 +321,7 @@ export default function VoterMapCanvas({
         }),
       ],
     })
-  }, [pack, filterResult, turfs, routePins, drawPoints])
+  }, [pack, filterResult, turfs, routePins, routeLoop, drawPoints])
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return

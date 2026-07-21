@@ -1,47 +1,35 @@
 'use client'
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
-import { Button, IconButton, Trash2Icon } from '@styleguide'
-import { clientRequest } from 'gpApi/typed-request'
+import { Button } from '@styleguide'
 import { turfsQueryOptions } from './turfQueries'
 
 interface TurfListProps {
-  // The turf whose route is open right now: its knock already succeeded, so
-  // treat it as locked even before the invalidated turfs query settles —
-  // otherwise the stale `locked: false` row briefly re-offers Knock.
-  walkingTurfId?: number
   onFocusTurf: (turf: DoorKnockingTurf) => void
+  onShowDetails: (turf: DoorKnockingTurf) => void
+  // Knock on an unknocked turf builds the route; on a knocked turf it opens
+  // the existing route (the backend call is idempotent either way).
   onKnockTurf: (turf: DoorKnockingTurf) => void
-  onOpenRoute: (turf: DoorKnockingTurf) => void
 }
 
 export default function TurfList({
-  walkingTurfId,
   onFocusTurf,
+  onShowDetails,
   onKnockTurf,
-  onOpenRoute,
 }: TurfListProps) {
-  const queryClient = useQueryClient()
   const turfsQuery = useQuery(turfsQueryOptions)
-  const deleteTurf = useMutation({
-    mutationFn: (id: number) =>
-      clientRequest('DELETE /v1/door-knocking/turfs/:id', { id: String(id) }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['door-knocking-turfs'] })
-    },
-  })
 
   const turfs = turfsQuery.data ?? []
   if (turfsQuery.isPending || turfs.length === 0) return null
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <h2 className="text-sm font-semibold">Turfs</h2>
+    <section className="flex flex-col gap-1.5">
+      <h2 className="text-sm font-semibold">Saved lists · {turfs.length}</h2>
       {turfs.map((turf) => (
         <div
           key={turf.id}
-          className="flex items-center gap-2 rounded-md border border-border p-2"
+          className="flex items-center gap-2 rounded-md border border-border p-2.5"
         >
           <span
             className="h-3 w-3 shrink-0 rounded-full"
@@ -49,35 +37,23 @@ export default function TurfList({
           />
           <button
             type="button"
-            className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+            className="min-w-0 flex-1 truncate text-left text-sm font-medium hover:underline"
             onClick={() => onFocusTurf(turf)}
           >
             {turf.name}
           </button>
-          {turf.locked || turf.id === walkingTurfId ? (
-            <Button
-              size="small"
-              variant="outline"
-              onClick={() => onOpenRoute(turf)}
-            >
-              Route
-            </Button>
-          ) : (
-            <>
-              <Button size="small" onClick={() => onKnockTurf(turf)}>
-                Knock
-              </Button>
-              <IconButton
-                aria-label={`Delete turf ${turf.name}`}
-                disabled={deleteTurf.isPending}
-                onClick={() => deleteTurf.mutate(turf.id)}
-              >
-                <Trash2Icon size={14} />
-              </IconButton>
-            </>
-          )}
+          <Button
+            size="small"
+            variant="outline"
+            onClick={() => onShowDetails(turf)}
+          >
+            Details
+          </Button>
+          <Button size="small" onClick={() => onKnockTurf(turf)}>
+            Knock
+          </Button>
         </div>
       ))}
-    </div>
+    </section>
   )
 }

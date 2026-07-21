@@ -8,7 +8,7 @@ import {
   DoorKnockingTurf,
   DoorKnockStatus,
 } from '@goodparty_org/contracts'
-import { Button } from '@styleguide'
+import { ArrowLeftIcon, Button, IconButton } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
@@ -19,6 +19,7 @@ import { routeQueryOptions, turfsQueryOptions } from './turfQueries'
 import CreateListFlow, { CreateFlowStep } from './createFlow/CreateListFlow'
 import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import KnockTurfDialog from './KnockTurfDialog'
+import TurfDetailsSheet from './TurfDetailsSheet'
 import TurfList from './TurfList'
 import WalkView from './WalkView'
 import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
@@ -58,6 +59,7 @@ export default function NativeDoorKnockingPage({
   )
   const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
+  const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
   const [walkTurf, setWalkTurf] = useState<{
     id: number
     name: string
@@ -88,6 +90,25 @@ export default function NativeDoorKnockingPage({
   const filterResult = useMemo(
     () => (packQuery.data ? runFilter(packQuery.data, selections) : null),
     [packQuery.data, selections],
+  )
+  // Unfiltered pass for turf-details area stats (doors/voters in polygon).
+  const fullResult = useMemo(
+    () =>
+      packQuery.data && detailsTurf
+        ? runFilter(packQuery.data, new Map())
+        : null,
+    [packQuery.data, detailsTurf],
+  )
+  const detailsAreaStats = useMemo(
+    () =>
+      packQuery.data && fullResult && detailsTurf
+        ? polygonStats(
+            packQuery.data,
+            fullResult.matchedPerDot,
+            (detailsTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
+          )
+        : null,
+    [packQuery.data, fullResult, detailsTurf],
   )
   const turfStats = useMemo(
     () =>
@@ -161,13 +182,7 @@ export default function NativeDoorKnockingPage({
 
   const rightRail = () => {
     if (walkTurf) {
-      return (
-        <WalkView
-          turfId={walkTurf.id}
-          turfName={walkTurf.name}
-          onBack={() => setWalkTurf(null)}
-        />
-      )
+      return <WalkView turfId={walkTurf.id} />
     }
     // The create flow renders as a full-width overlay, not a rail.
     if (flowStep) return null
@@ -175,8 +190,13 @@ export default function NativeDoorKnockingPage({
       <aside className="flex h-full w-96 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border bg-background p-4">
         <TurfList
           onFocusTurf={setFocusTurf}
-          onKnockTurf={setKnockTurf}
-          onOpenRoute={(turf) => setWalkTurf({ id: turf.id, name: turf.name })}
+          onShowDetails={setDetailsTurf}
+          onKnockTurf={(turf) => {
+            // Knock is idempotent: a knocked turf opens its existing route,
+            // an unknocked one confirms mode/loop and builds it.
+            if (turf.locked) setWalkTurf({ id: turf.id, name: turf.name })
+            else setKnockTurf(turf)
+          }}
         />
         <section className="flex flex-col gap-2">
           <div>
@@ -231,7 +251,19 @@ export default function NativeDoorKnockingPage({
     >
       <div className="flex h-[calc(100dvh-4rem)] w-full flex-col">
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h1 className="text-lg font-semibold">Door knocking</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            {walkTurf && (
+              <IconButton
+                aria-label="Back to the map"
+                onClick={() => setWalkTurf(null)}
+              >
+                <ArrowLeftIcon size={18} />
+              </IconButton>
+            )}
+            <h1 className="truncate text-lg font-semibold">
+              {walkTurf ? walkTurf.name : 'Door knocking'}
+            </h1>
+          </div>
           {!flowStep && !walkTurf && (
             <Button
               size="small"
@@ -242,8 +274,16 @@ export default function NativeDoorKnockingPage({
             </Button>
           )}
         </div>
-        <div className="relative flex min-h-0 flex-1">
-          <div className="relative min-w-0 flex-1">
+        <div
+          className={`relative flex min-h-0 flex-1 ${walkTurf ? 'flex-col' : ''}`}
+        >
+          <div
+            className={
+              walkTurf
+                ? 'relative h-[40%] min-h-[240px] w-full shrink-0'
+                : 'relative min-w-0 flex-1'
+            }
+          >
             {packQuery.isPending && (
               <div className="flex h-full items-center justify-center">
                 <LoadingAnimation />
@@ -260,6 +300,7 @@ export default function NativeDoorKnockingPage({
                 filterResult={filterResult}
                 turfs={turfsQuery.data ?? []}
                 routePins={routePins}
+                routeLoop={walkRouteQuery.data?.route.loop ?? false}
                 focusTurf={focusTurf}
                 startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
@@ -300,6 +341,13 @@ export default function NativeDoorKnockingPage({
           )}
         </div>
       </div>
+      {detailsTurf && (
+        <TurfDetailsSheet
+          turf={detailsTurf}
+          areaStats={detailsAreaStats}
+          onClose={() => setDetailsTurf(null)}
+        />
+      )}
       {knockTurf && (
         <KnockTurfDialog
           key={knockTurf.id}

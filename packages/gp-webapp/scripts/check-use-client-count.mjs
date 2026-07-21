@@ -127,7 +127,11 @@ import { dirname, join, relative } from 'node:path'
 // (mode/loop form + knock mutation), WalkView (route query + per-stop
 // expand/record state), RecordKnockForm (answer state + interaction
 // mutation) — all interactive, all inside the client-only map page.
-const BASELINE = 561
+// 2026-07-21: 561 -> 563 for the demo-parity pass: PersonSheet (household
+// switcher + record flow state) and TurfDetailsSheet (route/list queries)
+// replace inline expansions; both are interactive sheets inside the
+// client-only map page (SaveTurfDialog was removed in the same PR).
+const BASELINE = 563
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

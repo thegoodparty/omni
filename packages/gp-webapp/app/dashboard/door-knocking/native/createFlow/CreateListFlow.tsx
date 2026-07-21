@@ -119,12 +119,45 @@ export default function CreateListFlow({
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(TURF_COLORS[0])
-  // Filters step only: pulled down to a bottom sheet so the dots stay
-  // visible and recolor live while pills are toggled.
-  const [peeked, setPeeked] = useState(false)
+  // Filters step only: a drawer that pulls down to any height so the dots
+  // stay visible and recolor live while pills are toggled. sheetTopPct is
+  // how far down the sheet's top edge sits (0 = full screen).
+  const [sheetTopPct, setSheetTopPct] = useState(0)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<{
+    pointerId: number
+    startY: number
+    startPct: number
+    moved: boolean
+  } | null>(null)
   useEffect(() => {
-    setPeeked(false)
+    setSheetTopPct(0)
   }, [step])
+  const handleDragStart = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId)
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      startPct: sheetTopPct,
+      moved: false,
+    }
+  }
+  const handleDragMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    const parentHeight = sheetRef.current?.parentElement?.clientHeight
+    if (!drag || !parentHeight) return
+    const deltaPct = ((event.clientY - drag.startY) / parentHeight) * 100
+    if (Math.abs(event.clientY - drag.startY) > 4) drag.moved = true
+    setSheetTopPct(Math.min(70, Math.max(0, drag.startPct + deltaPct)))
+  }
+  const handleDragEnd = () => {
+    const drag = dragRef.current
+    dragRef.current = null
+    if (drag && !drag.moved) {
+      // A plain click on the handle snaps between full and pulled-down.
+      setSheetTopPct((current) => (current > 0 ? 0 : 55))
+    }
+  }
   // If the turf POST fails after the filter was created, the retry reuses
   // the existing filter instead of minting an orphan list per attempt. The
   // ref is only valid for the confirm step it was minted in — leaving the
@@ -233,22 +266,26 @@ export default function CreateListFlow({
   }
 
   const peekable = step === 'filters'
+  const pulled = peekable && sheetTopPct > 0
   return (
     <div
-      className={
-        peekable && peeked
-          ? 'absolute inset-x-0 bottom-0 z-20 flex h-[45%] flex-col rounded-t-xl border-t border-border bg-background shadow-lg'
-          : 'absolute inset-0 z-20 flex flex-col bg-background'
-      }
+      ref={sheetRef}
+      className={`absolute inset-x-0 bottom-0 z-20 flex flex-col bg-background ${
+        pulled ? 'rounded-t-xl border-t border-border shadow-lg' : ''
+      }`}
+      style={{ top: peekable ? `${sheetTopPct}%` : 0 }}
     >
       {peekable && (
         <button
           type="button"
           aria-label={
-            peeked ? 'Expand the filters' : 'Pull down to see the map'
+            pulled ? 'Expand the filters' : 'Pull down to see the map'
           }
-          className="flex w-full items-center justify-center py-2"
-          onClick={() => setPeeked((current) => !current)}
+          className="flex w-full touch-none items-center justify-center py-2"
+          onPointerDown={handleDragStart}
+          onPointerMove={handleDragMove}
+          onPointerUp={handleDragEnd}
+          onPointerCancel={handleDragEnd}
         >
           <span className="h-1.5 w-12 rounded-full bg-muted" />
         </button>
