@@ -1,13 +1,17 @@
 import { DoorKnockingPackManifest } from '@goodparty_org/contracts'
 import { DimSelections } from '../filterEngine'
-import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import {
+  INCOME_KEY_TO_RANGE,
+  type VoterFileFilters,
+} from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 
 // Maps saved-list filter option keys onto pack dims so the map can preview a
 // step-1 selection. Candidates are matched against the manifest's actual
-// bucket names at runtime; keys with no pack equivalent (income, education,
-// ethnicity, language, marital...) simply don't narrow the preview — the
-// knock-time evaluation stays canonical. The age ranges predate ENG-10752's
-// exclusive split, so the mapping is the closest legacy bucket.
+// bucket names at runtime; unmatched keys simply don't narrow the preview —
+// the knock-time evaluation stays canonical. The pack's age buckets predate
+// ENG-10752's exclusive split, so the age mapping is the closest legacy
+// bucket. Income buckets are named by the shared INCOME_RANGE_MAPPING keys,
+// which INCOME_KEY_TO_RANGE already points at.
 const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
   {
     partyDemocrat: { dim: 'party', candidates: ['Democratic', 'Democrat'] },
@@ -62,6 +66,64 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
       dim: 'presenceOfChildren',
       candidates: ['Unknown', 'unknown'],
     },
+    languageEnglish: { dim: 'language', candidates: ['English'] },
+    languageSpanish: { dim: 'language', candidates: ['Spanish'] },
+    languageOther: { dim: 'language', candidates: ['Other'] },
+    likelyMarried: {
+      dim: 'maritalStatus',
+      candidates: ['Inferred Married'],
+    },
+    likelySingle: { dim: 'maritalStatus', candidates: ['Inferred Single'] },
+    married: { dim: 'maritalStatus', candidates: ['Married'] },
+    single: { dim: 'maritalStatus', candidates: ['Single'] },
+    maritalUnknown: {
+      dim: 'maritalStatus',
+      candidates: ['Unknown', 'unknown'],
+    },
+    educationNone: { dim: 'educationLevel', candidates: ['None'] },
+    educationHighSchoolDiploma: {
+      dim: 'educationLevel',
+      candidates: ['High School Diploma'],
+    },
+    educationTechnicalSchool: {
+      dim: 'educationLevel',
+      candidates: ['Technical School'],
+    },
+    educationSomeCollege: {
+      dim: 'educationLevel',
+      candidates: ['Some College'],
+    },
+    educationCollegeDegree: {
+      dim: 'educationLevel',
+      candidates: ['College Degree'],
+    },
+    educationGraduateDegree: {
+      dim: 'educationLevel',
+      candidates: ['Graduate Degree'],
+    },
+    educationUnknown: {
+      dim: 'educationLevel',
+      candidates: ['Unknown', 'unknown'],
+    },
+    ethnicityAsian: { dim: 'ethnicity', candidates: ['Asian'] },
+    ethnicityEuropean: { dim: 'ethnicity', candidates: ['European'] },
+    ethnicityHispanic: { dim: 'ethnicity', candidates: ['Hispanic'] },
+    ethnicityAfricanAmerican: {
+      dim: 'ethnicity',
+      candidates: ['African American'],
+    },
+    ethnicityOther: { dim: 'ethnicity', candidates: ['Other'] },
+    ethnicityUnknown: {
+      dim: 'ethnicity',
+      candidates: ['Unknown', 'unknown'],
+    },
+    incomeUnknown: { dim: 'income', candidates: ['Unknown', 'unknown'] },
+    ...Object.fromEntries(
+      Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [
+        key,
+        { dim: 'income', candidates: [range] },
+      ]),
+    ),
   }
 
 // Builds the pack filter selection previewing a saved-list filter draft: for

@@ -33,10 +33,25 @@ describe('filtersToDimSelections', () => {
     expect(selections.get('age')).toEqual(new Set([0, 3]))
   })
 
-  it('ignores keys with no pack equivalent and unmatched buckets', () => {
+  it('maps income pills through the shared range names', () => {
+    const withIncome = {
+      ...manifest,
+      dims: [
+        ...manifest.dims,
+        { key: 'income', values: ['Unknown', 'Under $25k', '$200k+'] },
+      ],
+    } as typeof manifest
     const selections = filtersToDimSelections(
-      { incomeUnknown: true, educationSomeCollege: true },
-      manifest,
+      { incomeUnder25k: true, income200kPlus: true },
+      withIncome,
+    )
+    expect(selections.get('income')).toEqual(new Set([1, 2]))
+  })
+
+  it('ignores unknown keys and dims absent from the manifest', () => {
+    const selections = filtersToDimSelections(
+      { educationSomeCollege: true, notARealFilterKey: true },
+      manifest, // has no educationLevel dim
     )
     expect(selections.size).toBe(0)
   })
