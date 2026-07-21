@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent, act } from '@testing-library/react'
+import { screen, fireEvent, act, waitFor } from '@testing-library/react'
 import type {
   OrdinanceQualityReport,
   OrdinanceQualityRun,
@@ -571,6 +571,41 @@ describe('QualityReport', () => {
     expect(
       screen.queryByText('Conflicts with Chapter 12.'),
     ).not.toBeInTheDocument()
+  })
+
+  it('keeps a fresh manual result over a prop that arrived mid-run', async () => {
+    let releaseRun!: (run: OrdinanceQualityRun) => void
+    mocks.startQualityReport.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseRun = resolve
+        }),
+    )
+
+    const { rerender } = render(<QualityReport {...props()} />)
+    fireEvent.click(
+      screen.getByRole('button', { name: /re-run quality checks/i }),
+    )
+    await waitFor(() => expect(mocks.startQualityReport).toHaveBeenCalled())
+
+    // A loop poll delivers a stale prop while the manual run is in flight —
+    // it predates the result about to settle and must never stomp it.
+    const stale = report()
+    stale.checks = stale.checks.map((c) =>
+      c.id === 'legal_conflict' ? { ...c, note: 'Stale mid-run prop.' } : c,
+    )
+    rerender(<QualityReport {...props({ initialReport: stale })} />)
+
+    const fresh = report()
+    fresh.checks = fresh.checks.map((c) =>
+      c.id === 'legal_conflict'
+        ? { ...c, status: 'pass' as const, note: 'Fresh manual result.' }
+        : c,
+    )
+    releaseRun(qualityRun({ report: fresh }))
+
+    expect(await screen.findByText('Fresh manual result.')).toBeVisible()
+    expect(screen.queryByText('Stale mid-run prop.')).not.toBeInTheDocument()
   })
 
   it('runs the manual claim-and-poll from the empty state', async () => {

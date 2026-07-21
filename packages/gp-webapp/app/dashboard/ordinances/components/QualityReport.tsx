@@ -231,7 +231,14 @@ export default function QualityReport({
   // result is never stomped; the effect re-fires when the run settles.
   const lastInitialRef = useRef(initialReport)
   useEffect(() => {
-    if (running || !initialReport) return
+    if (!initialReport) return
+    if (running) {
+      // Acknowledge without applying: a prop that lands mid-run predates the
+      // manual result about to settle. Leaving it unacknowledged would apply
+      // it on the post-settle re-fire and stomp the fresh report.
+      lastInitialRef.current = initialReport
+      return
+    }
     if (initialReport === lastInitialRef.current) return
     lastInitialRef.current = initialReport
     setReport(initialReport)
