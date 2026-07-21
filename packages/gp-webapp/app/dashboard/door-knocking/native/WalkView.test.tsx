@@ -121,11 +121,11 @@ describe('WalkView', () => {
     ).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Record' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Answered' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
     fireEvent.click(
       within(
         screen.getByText('Do they support you?').parentElement as HTMLElement,
-      ).getByRole('button', { name: 'Yes' }),
+      ).getByRole('radio', { name: 'Yes' }),
     )
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
 
@@ -166,13 +166,13 @@ describe('WalkView', () => {
     fireEvent.click(screen.getByText('105 Elm St'))
     fireEvent.click(screen.getByRole('button', { name: 'Record' }))
     // Pick answers first, then flip to Not home — the answers must not leak.
-    fireEvent.click(screen.getByRole('button', { name: 'Answered' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
     fireEvent.click(
       within(
         screen.getByText('Will they vote?').parentElement as HTMLElement,
-      ).getByRole('button', { name: 'Yes' }),
+      ).getByRole('radio', { name: 'Yes' }),
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Not home' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
 
     await waitFor(() => expect(posted).toHaveLength(1))

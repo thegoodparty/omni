@@ -9,8 +9,13 @@ import {
   SupportAnswer,
   WillVoteAnswer,
 } from '@goodparty_org/contracts'
-import { Button, Textarea } from '@styleguide'
+import { Button, Textarea, ToggleGroup, ToggleGroupItem } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
+
+// Compact cousin of the CRM wizard's pill toggles (crm/shared/constants.ts)
+// — same selected-state convention, sized for the walk view's dense form.
+const PILL_ITEM_CLASSNAME =
+  'rounded-full border border-components-input-border bg-transparent px-3 py-1 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
 const OUTCOME_OPTIONS: Array<[DoorKnockOutcome, string]> = [
   ['answered', 'Answered'],
@@ -50,23 +55,23 @@ const ChoiceRow = <T extends string>({
 }) => (
   <div className="flex flex-col gap-1">
     <span className="text-xs font-medium text-muted-foreground">{label}</span>
-    <div className="flex flex-wrap gap-1.5">
+    <ToggleGroup
+      type="single"
+      value={value ?? ''}
+      onValueChange={(next) => next && onChange(next as T)}
+      aria-label={label}
+      className="flex flex-wrap justify-start gap-1.5"
+    >
       {options.map(([option, optionLabel]) => (
-        <button
+        <ToggleGroupItem
           key={option}
-          type="button"
-          aria-pressed={value === option}
-          className={`rounded-full border px-3 py-1 text-xs ${
-            value === option
-              ? 'border-foreground bg-foreground text-background'
-              : 'border-border bg-background'
-          }`}
-          onClick={() => onChange(option)}
+          value={option}
+          className={PILL_ITEM_CLASSNAME}
         >
           {optionLabel}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   </div>
 )
 

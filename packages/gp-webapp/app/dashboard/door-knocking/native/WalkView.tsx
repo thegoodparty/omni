@@ -12,8 +12,10 @@ import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import { clientRequest } from 'gpApi/typed-request'
 import RecordKnockForm from './RecordKnockForm'
 
+// 'unknown' is not "never knocked" — it also covers answered-but-unsure
+// (deriveKnockStatus), so the chip matches the filter panel's label.
 const STATUS_LABELS: Record<DoorKnockStatus, string> = {
-  unknown: 'Not knocked',
+  unknown: 'Unknown',
   not_home: 'Not home',
   supporter: 'Supporter',
   non_supporter: 'Non-supporter',
