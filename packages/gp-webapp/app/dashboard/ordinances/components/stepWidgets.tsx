@@ -147,8 +147,11 @@ export function liveTurnBlocks(
   }
   for (const seg of visibleSegments) {
     if (seg.kind !== 'text') {
-      placeWidgetsUpTo(acc)
+      // Push the pill before placing any widget at this same text position, so
+      // a tool-first card (appearAfter === acc) renders below the preceding
+      // research pill, not above it.
       run.push(seg)
+      placeWidgetsUpTo(acc)
       continue
     }
     let text = seg.text
