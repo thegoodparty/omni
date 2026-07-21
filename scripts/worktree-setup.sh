@@ -37,7 +37,7 @@ else
       if [ -e "$WT/$rel" ]; then
         echo "    keep  $rel (already present)"
       else
-        cp "$src" "$WT/$rel"
+        mkdir -p "$(dirname "$WT/$rel")" && cp "$src" "$WT/$rel"
         echo "    copy  $rel"
       fi
     done

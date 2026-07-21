@@ -113,4 +113,9 @@ describe('DoorKnockingEvaluateRequestSchema', () => {
     const request = { ...base, filters: { ageInt: { _or: [] } } }
     expect(() => DoorKnockingEvaluateRequestSchema.parse(request)).toThrow()
   })
+
+  it('rejects an _or range with neither gte nor lte', () => {
+    const request = { ...base, filters: { ageInt: { _or: [{}] } } }
+    expect(() => DoorKnockingEvaluateRequestSchema.parse(request)).toThrow()
+  })
 })

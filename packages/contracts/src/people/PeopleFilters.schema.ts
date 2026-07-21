@@ -102,10 +102,15 @@ export const createEnumFilterSchema = <T extends readonly string[]>(
     }, 'Exactly one operator (in, eq, or is) must be specified')
 }
 
-const rangeConditionSchema = z.object({
-  gte: z.coerce.number().optional(),
-  lte: z.coerce.number().optional(),
-})
+const rangeConditionSchema = z
+  .object({
+    gte: z.coerce.number().optional(),
+    lte: z.coerce.number().optional(),
+  })
+  .refine(
+    (data) => data.gte !== undefined || data.lte !== undefined,
+    'At least one of gte or lte must be specified in each _or range',
+  )
 
 // The id filter takes an id set (in/notIn), not eq/is, and caps the array —
 // id sets can arrive from arbitrarily large upstream resolutions. 100k is
