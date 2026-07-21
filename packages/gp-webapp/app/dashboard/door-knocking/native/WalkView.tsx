@@ -194,9 +194,19 @@ export default function WalkView({ turfId }: WalkViewProps) {
                   <button
                     type="button"
                     className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-muted/50"
-                    onClick={() =>
+                    onClick={() => {
+                      // One resident: straight to their sheet. Several:
+                      // expand so the canvasser picks (the demo's behavior).
+                      const stopTargets = targetsForStop(stop)
+                      if (stopTargets.length === 1 && stopTargets[0]) {
+                        setSheet({
+                          stopId: stop.id,
+                          targetId: stopTargets[0].stopTargetId,
+                        })
+                        return
+                      }
                       setOpenStopId(openStopId === stop.id ? null : stop.id)
-                    }
+                    }}
                   >
                     <span
                       className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-semibold tabular-nums text-primary-foreground"
@@ -234,7 +244,8 @@ export default function WalkView({ turfId }: WalkViewProps) {
                         {formatDuration(stop.legSeconds)} walk
                       </span>
                     )}
-                    {openStopId === stop.id ? (
+                    {targetsForStop(stop).length > 1 &&
+                    openStopId === stop.id ? (
                       <ChevronDownIcon size={16} className="shrink-0" />
                     ) : (
                       <ChevronRightIcon size={16} className="shrink-0" />

@@ -78,17 +78,11 @@ const routePayload: DoorKnockingRoutePayload = {
   ],
 }
 
-const openPersonSheet = async (address: string, person: string) => {
+// Every fixture stop has one resident, so clicking the stop row opens the
+// person sheet directly (multi-resident stops expand instead).
+const openPersonSheet = async (address: string) => {
   await waitFor(() => expect(screen.getByText(address)).toBeInTheDocument())
-  // The person sub-row's accessible name has the person but not the address
-  // (the stop row has both); expand the stop only when it isn't already.
-  const findPersonRow = () =>
-    screen
-      .queryAllByRole('button', { name: new RegExp(person) })
-      .find((button) => !button.textContent?.includes(address))
-  if (!findPersonRow()) fireEvent.click(screen.getByText(address))
-  await waitFor(() => expect(findPersonRow()).toBeTruthy())
-  fireEvent.click(findPersonRow()!)
+  fireEvent.click(screen.getByText(address))
   await waitFor(() =>
     expect(screen.getByText('Log this door')).toBeInTheDocument(),
   )
@@ -136,7 +130,7 @@ describe('WalkView', () => {
     })
 
     render(<WalkView turfId={3} />)
-    await openPersonSheet('105 Elm St', 'Dorian Fen')
+    await openPersonSheet('105 Elm St')
     expect(
       screen.getByText('May have moved since this route was built.'),
     ).toBeInTheDocument()
@@ -181,7 +175,7 @@ describe('WalkView', () => {
     })
 
     render(<WalkView turfId={3} />)
-    await openPersonSheet('105 Elm St', 'Dorian Fen')
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(1))
@@ -189,7 +183,7 @@ describe('WalkView', () => {
     // Close and reopen the sheet — the remount must not mint a new key,
     // or the server-side upsert can't dedupe the retry.
     await closePersonSheet()
-    await openPersonSheet('105 Elm St', 'Dorian Fen')
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(2))
@@ -207,13 +201,13 @@ describe('WalkView', () => {
     })
 
     render(<WalkView turfId={3} />)
-    await openPersonSheet('105 Elm St', 'Dorian Fen')
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(1))
     await waitFor(() => expect(screen.queryByText('Log this door')).toBeNull())
 
-    await openPersonSheet('105 Elm St', 'Dorian Fen')
+    await openPersonSheet('105 Elm St')
     fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
     await waitFor(() => expect(keys).toHaveLength(2))
@@ -231,7 +225,7 @@ describe('WalkView', () => {
     })
 
     render(<WalkView turfId={3} />)
-    await openPersonSheet('105 Elm St', 'Dorian Fen')
+    await openPersonSheet('105 Elm St')
     // Pick answers first, then flip to Not home — the answers must not leak.
     fireEvent.click(screen.getByRole('radio', { name: 'Answered' }))
     fireEvent.click(
