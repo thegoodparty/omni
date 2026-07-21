@@ -114,6 +114,7 @@ export class DoorKnockingServeService extends createPrismaBase(
         stopCount: route.stops.length,
         createdAt: route.createdAt,
       },
+      pathGeometry: route.pathGeometry ?? null,
       stops: route.stops.map((stop) => {
         const addresses = this.buildAddresses(
           stop.targets,

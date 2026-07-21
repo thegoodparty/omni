@@ -730,4 +730,6 @@ export {
   type RoutePayloadStop,
   DoorKnockingRoutePayloadSchema,
   type DoorKnockingRoutePayload,
+  RoutePathGeometrySchema,
+  type RoutePathGeometry,
 } from './doorKnocking/DoorKnockingRoutePayload.schema'

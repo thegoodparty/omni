@@ -783,7 +783,16 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(200)
       expect(res.data.stops[0].addresses).toEqual([])
       expect(res.data.stops[0].knockStatus).toBe('unknown')
-      expect(spy.mock.calls).toHaveLength(0)
+      // No vendor traffic: neither Geoapify (fetch) nor people-api
+      // (HttpService — the fetch spy only sees passthrough Clerk calls).
+      expect(
+        spy.mock.calls.filter(([url]) =>
+          String(url).includes('api.geoapify.com'),
+        ),
+      ).toHaveLength(0)
+      expect(
+        vi.mocked(service.app.get(HttpService).post).mock.calls,
+      ).toHaveLength(0)
     })
 
     it('404s for a turf that has not been knocked', async () => {

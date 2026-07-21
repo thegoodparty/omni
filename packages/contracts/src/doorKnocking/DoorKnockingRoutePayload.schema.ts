@@ -62,11 +62,28 @@ export const RoutePayloadStopSchema = z.object({
 
 export type RoutePayloadStop = z.infer<typeof RoutePayloadStopSchema>
 
+// Road-following tour path frozen at knock (Geoapify Routing API; their
+// terms permit storing results). Null on legacy routes or when the routing
+// call failed — consumers fall back to straight seq-order legs.
+export const RoutePathGeometrySchema = z.union([
+  z.object({
+    type: z.literal('LineString'),
+    coordinates: z.array(z.tuple([z.number(), z.number()])),
+  }),
+  z.object({
+    type: z.literal('MultiLineString'),
+    coordinates: z.array(z.array(z.tuple([z.number(), z.number()]))),
+  }),
+])
+
+export type RoutePathGeometry = z.infer<typeof RoutePathGeometrySchema>
+
 // The full serve response: the frozen route plus live enrichment. Phones
 // snapshot this offline; there is no navigate block — the phone builds deep
 // links from lat/lng.
 export const DoorKnockingRoutePayloadSchema = z.object({
   route: DoorKnockingRouteHeaderSchema,
+  pathGeometry: RoutePathGeometrySchema.nullable(),
   stops: z.array(RoutePayloadStopSchema),
 })
 
