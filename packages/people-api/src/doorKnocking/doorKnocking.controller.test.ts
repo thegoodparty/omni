@@ -177,6 +177,50 @@ describe('POST /v1/door-knocking', () => {
     })
   })
 
+  describe('pack', () => {
+    const packPayload = { districtId: DISTRICT_ID }
+
+    it('returns the binary pack as octet-stream', async () => {
+      rows = []
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/door-knocking/pack',
+        payload: packPayload,
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(res.headers['content-type']).toContain('application/octet-stream')
+      const body = res.rawPayload
+      const manifestBytes = body.readUInt32LE(0)
+      const manifest = JSON.parse(
+        body.subarray(4, 4 + manifestBytes).toString('utf8'),
+      ) as { counts: { people: number } }
+      expect(manifest.counts.people).toBe(0)
+    })
+
+    it('rejects a malformed body with 400', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/door-knocking/pack',
+        payload: { districtId: 'not-a-guid' },
+      })
+
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('rejects a presented-but-invalid S2S token', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/door-knocking/pack',
+        headers: { authorization: 'Bearer not-a-real-token' },
+        payload: packPayload,
+      })
+
+      expect(res.statusCode).toBe(401)
+    })
+  })
+
   it('rejects a presented-but-invalid S2S token (guard is wired)', async () => {
     const res = await app.inject({
       method: 'POST',

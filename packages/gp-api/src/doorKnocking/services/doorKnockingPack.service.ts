@@ -31,6 +31,10 @@ export class DoorKnockingPackService extends createPrismaBase(
         { occurredAt: Prisma.SortOrder.desc },
         { id: Prisma.SortOrder.desc },
       ],
+      // Mirrors the contract's knockStatuses cap. Newest-first ordering
+      // means truncation (absurd knock volume) drops the OLDEST rows, and a
+      // dropped person just renders as unknown on the map.
+      take: 200_000,
       select: { personId: true, outcome: true, supportAnswer: true },
     })
     const knockStatuses: DoorKnockingPackRequest['knockStatuses'] = []
