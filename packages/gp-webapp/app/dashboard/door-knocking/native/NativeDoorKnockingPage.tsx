@@ -77,6 +77,7 @@ export default function NativeDoorKnockingPage({
   const [ring, setRing] = useState<PolygonRing | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
   const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
+  const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [walkTurf, setWalkTurf] = useState<{
@@ -151,6 +152,21 @@ export default function NativeDoorKnockingPage({
                   doors
                 </div>
               </div>
+              <Button
+                size="small"
+                variant={ring ? 'outline' : 'default'}
+                onClick={() => {
+                  setWalkTurf(null)
+                  setStartDrawToken((token) => token + 1)
+                }}
+              >
+                {ring ? 'Redraw turf' : 'Draw a turf'}
+              </Button>
+              {!ring && (
+                <p className="text-xs text-muted-foreground">
+                  Click the map to outline an area; double-click to finish.
+                </p>
+              )}
               {turfStats && (
                 <div className="rounded-md border border-info bg-info-light p-3 text-sm">
                   <div className="font-semibold">Drawn area</div>
@@ -241,6 +257,7 @@ export default function NativeDoorKnockingPage({
                 filterResult={filterResult}
                 turfs={turfsQuery.data ?? []}
                 focusTurf={focusTurf}
+                startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
                 onPolygonChange={setRing}
               />

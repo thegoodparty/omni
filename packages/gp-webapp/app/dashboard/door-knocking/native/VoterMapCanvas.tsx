@@ -35,6 +35,8 @@ interface VoterMapCanvasProps {
   filterResult: FilterResult
   turfs: DoorKnockingTurf[]
   focusTurf: DoorKnockingTurf | null
+  // Bump to enter polygon-draw mode (the page owns the Draw button).
+  startDrawToken: number
   // Bump to clear the in-progress drawing (e.g. after a turf is saved).
   clearDrawToken: number
   onPolygonChange: (ring: PolygonRing | null) => void
@@ -97,6 +99,7 @@ export default function VoterMapCanvas({
   filterResult,
   turfs,
   focusTurf,
+  startDrawToken,
   clearDrawToken,
   onPolygonChange,
 }: VoterMapCanvasProps) {
@@ -121,9 +124,13 @@ export default function VoterMapCanvas({
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
+    // No built-in buttons: mapbox-gl-draw's control UI styles against
+    // mapboxgl-ctrl classes that maplibre doesn't emit, leaving the buttons
+    // unstyled and effectively unclickable. Drawing starts from the page's
+    // own button via startDrawToken instead.
     const draw = new MapboxDraw({
       displayControlsDefault: false,
-      controls: { polygon: true, trash: true },
+      controls: {},
     })
     // MapboxDraw predates maplibre's types but is runtime-compatible — the
     // POC shipped this exact pairing.
@@ -232,6 +239,13 @@ export default function VoterMapCanvas({
       { padding: 64 },
     )
   }, [focusTurf])
+
+  useEffect(() => {
+    if (startDrawToken === 0) return
+    drawRef.current?.deleteAll()
+    onPolygonChangeRef.current(null)
+    drawRef.current?.changeMode('draw_polygon')
+  }, [startDrawToken])
 
   useEffect(() => {
     if (clearDrawToken === 0) return
