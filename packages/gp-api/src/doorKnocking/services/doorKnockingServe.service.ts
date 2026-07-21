@@ -32,6 +32,19 @@ const composeName = (
     ? [person.firstName, person.lastName].filter(Boolean).join(' ') || null
     : null
 
+// The frozen unit key renders back to a human address line: street parts
+// joined in display order, apartment suffixed. Old line-format keys (a
+// single AddressLine first segment) degrade gracefully to that segment.
+const renderUnitAddress = (addressKey: string): string => {
+  const parts = addressKey.split('|')
+  if (parts.length < 7) return parts[0] ?? addressKey
+  const [house, prefixDir, street, designator, suffixDir, apartment] = parts
+  const line = [house, prefixDir, street, designator, suffixDir]
+    .filter((part) => part && part.length > 0)
+    .join(' ')
+  return apartment && apartment.length > 0 ? `${line} Apt ${apartment}` : line
+}
+
 @Injectable()
 export class DoorKnockingServeService extends createPrismaBase(
   MODELS.DoorKnockingRoute,
@@ -145,10 +158,11 @@ export class DoorKnockingServeService extends createPrismaBase(
       )
       return {
         addressKey,
-        // Frozen at the lock: the addressKey's own address line — never
-        // re-derived from live data, so the walk view matches what was
-        // routed. (The key is LINE|CITY|STATE|ZIP.)
-        address: addressKey.split('|')[0] ?? addressKey,
+        // Frozen at the lock: rendered from the key's own components —
+        // never re-derived from live data, so the walk view matches what
+        // was routed. The unit key is HOUSE|PREFIXDIR|STREET|DESIGNATOR|
+        // SUFFIXDIR|APT|ZIP (DOOR_KNOCKING_UNIT_KEY_COLUMNS order).
+        address: renderUnitAddress(addressKey),
         targets: group.map((target) => {
           const livePerson = liveTargetsById.get(target.personId)
           return {
