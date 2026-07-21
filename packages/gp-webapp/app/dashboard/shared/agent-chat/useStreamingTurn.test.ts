@@ -154,4 +154,49 @@ describe('useStreamingTurn', () => {
 
     expect(streamMessage).not.toHaveBeenCalled()
   })
+
+  it('swaps in the transcript when a done-less stream persists late (no local partial)', async () => {
+    vi.useFakeTimers()
+    try {
+      const start = Date.now()
+      const persisted = {
+        id: 'srv-1',
+        conversationId: 'c1',
+        role: 'assistant' as const,
+        content: 'Here is your first draft — the full turn',
+        createdAt: new Date().toISOString(),
+      }
+      // The server is still generating when the stream dies: the finished turn
+      // only appears in the transcript 30s after the stream ended.
+      const listMessages = vi.fn(async () =>
+        Date.now() - start >= 30_000 ? [persisted] : [],
+      )
+      const api = {
+        streamMessage: () =>
+          streamOf([{ type: 'text' as const, delta: 'Here is your first' }]),
+        listMessages,
+      }
+
+      const { result } = renderHook(() =>
+        useStreamingTurn(api, { toolLabel: () => null }),
+      )
+
+      let sendPromise!: Promise<void>
+      act(() => {
+        sendPromise = result.current.send('c1', 'draft it')
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200_000)
+        await sendPromise
+      })
+
+      expect(result.current.messages.some((m) => m.id === 'srv-1')).toBe(true)
+      expect(
+        result.current.messages.some((m) => m.id.startsWith('local-')),
+      ).toBe(false)
+      expect(result.current.sending).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

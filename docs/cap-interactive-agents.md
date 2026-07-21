@@ -81,10 +81,17 @@ methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
 messages, calls `streamChatCompletion`, and pumps deltas/tool events through a
-backpressure-bounded `ChunkQueue` (max 256). Controllers write `data: <JSON>\n\n`
-frames with a 300s timeout and an `AbortController` on client disconnect. Error codes:
+backpressure-bounded `ChunkQueue` (max 256). While a turn is open the service also
+emits a `{ type: 'ping' }` keep-alive every 15s (`CHAT_STREAM_HEARTBEAT_MS`) —
+tool-arg generation (e.g. an ordinance draft body) streams nothing else for
+minutes, and without wire traffic client idle watchdogs and LB idle timeouts kill
+the healthy stream. Controllers write `data: <JSON>\n\n` frames with a 300s
+timeout and an `AbortController` on client disconnect. Error codes:
 `conversation_not_found`, `rate_limited`, `upstream_unavailable`, `aborted`,
-`internal`.
+`internal`. On the webapp side, `useStreamingTurn` treats any event as watchdog
+activity (60s idle = stalled), and when a stream ends without `done` it polls the
+transcript for up to 3 minutes for the still-generating turn before falling back
+to rendering the partial locally.
 
 ### The chat-scope abstraction
 
