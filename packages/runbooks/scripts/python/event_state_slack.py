@@ -175,7 +175,14 @@ def build_gap_thread_blocks(gap: dict) -> list[dict]:
         f"• [{g.get('rank', 5)}] `{g['id']}` ({g['surface_type']}) — {g.get('dashboard_question') or '—'}"
         for g in new_gaps
     )
-    blocks = [_section(f"*New instrumentation gaps*\n{rows}")]
+    body = f"*New instrumentation gaps*\n{rows}"
+    # new_gaps is pre-capped at top_n by build_slack_payload, so the thread can't tell
+    # overflow occurred from its own length alone — new_count carries the true this-run
+    # total (falling back to len(new_gaps) when absent, so older payloads still render).
+    new_count = gap.get("new_count", len(new_gaps))
+    if new_count > len(new_gaps):
+        body += f"\n…and {new_count - len(new_gaps)} more (see the gaps tab)"
+    blocks = [_section(body)]
     links = [b for b in (
         f"<{gap['browse_url']}|📄 Browse gaps>" if gap.get("browse_url") else None,
         f"<{gap['feedback_url']}|✍️ Set disposition>" if gap.get("feedback_url") else None,
@@ -362,7 +369,8 @@ def post_digest(
         return None
     parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous, gap)
     ts = post_message(parent, token=token, channel=channel,
-                      text=f"Analytics event health — {result.get('run_date')}", transport=transport)
+                      text=f"Analytics event health & instrumentation gaps — {result.get('run_date')}",
+                      transport=transport)
     # The parent is meaningful on its own and already advertises "details in thread", so a
     # failed reply is a partial success, not a whole-digest failure: log it and still return
     # the parent ts rather than propagating (which the monitor would report as the post failing).

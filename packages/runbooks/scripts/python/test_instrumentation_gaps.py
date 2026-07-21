@@ -625,19 +625,42 @@ def test_gaps_urls_env_overrides_and_derivation(monkeypatch):
 
 
 def test_build_slack_payload_caps_and_shapes_new_gaps():
+    run_date = "2026-07-21"
     state = {
         f"/r{i}": {"id": f"/r{i}", "surface_type": "route", "disposition": "new",
                    "rubric_rule": "rr", "dashboard_question": "q", "location": f"r{i}.tsx",
-                   "rank": i % 3}
+                   "rank": i % 3, "first_seen": run_date}
         for i in range(15)
     }
     state["/done"] = {"id": "/done", "surface_type": "route", "disposition": "accepted", "rank": 0}
-    payload = ig.build_slack_payload(state, "2026-07-21", "ok", 0,
+    # carried-over untriaged gap: disposition "new" but first_seen from an earlier run —
+    # must be excluded from new_count/new_gaps (delta, not existence, based).
+    state["/carried"] = {"id": "/carried", "surface_type": "route", "disposition": "new",
+                         "rubric_rule": "rr", "dashboard_question": "q", "location": "old.tsx",
+                         "rank": 0, "first_seen": "2026-07-01"}
+    payload = ig.build_slack_payload(state, run_date, "ok", 0,
                                      browse_url="b", feedback_url="f", top_n=10)
-    assert payload["new_count"] == 15          # accepted excluded
+    assert payload["new_count"] == 15          # accepted excluded, carried-over excluded
     assert len(payload["new_gaps"]) == 10      # capped
     assert payload["new_gaps"][0]["rank"] <= payload["new_gaps"][-1]["rank"]
+    assert all(g["id"] != "/carried" for g in payload["new_gaps"])
     assert payload["status"] == "ok" and payload["browse_url"] == "b"
+
+
+def test_build_slack_payload_excludes_carried_over_new_gaps():
+    run_date = "2026-07-21"
+    state = {
+        "/fresh": {"id": "/fresh", "surface_type": "route", "disposition": "new",
+                   "rubric_rule": "rr", "dashboard_question": "q", "location": "fresh.tsx",
+                   "rank": 0, "first_seen": run_date},
+        "/carried": {"id": "/carried", "surface_type": "route", "disposition": "new",
+                     "rubric_rule": "rr", "dashboard_question": "q", "location": "old.tsx",
+                     "rank": 0, "first_seen": "2026-07-01"},
+    }
+    payload = ig.build_slack_payload(state, run_date, "ok", 0,
+                                     browse_url="b", feedback_url="f", top_n=10)
+    assert payload["new_count"] == 1
+    assert [g["id"] for g in payload["new_gaps"]] == ["/fresh"]
 
 
 def test_main_writes_slack_out_file(tmp_path, monkeypatch):
@@ -794,6 +817,23 @@ def test_apply_seed_dispositions_updates_known_ids_only():
     assert "/gone" not in new_state
 
 
+def test_apply_seed_dispositions_skips_invalid_value(capsys):
+    state = {
+        "/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+        "/b": {"id": "/b", "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+    }
+    parsed = {
+        "/a": {"disposition": "dismissed", "reason": "chrome"},
+        "/b": {"disposition": "dismiss", "reason": "typo'd disposition"},  # invalid
+    }
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 7, 21))
+    assert applied == 1
+    assert new_state["/a"]["disposition"] == "dismissed"
+    assert new_state["/b"]["disposition"] == "new"  # invalid value never applied
+    err = capsys.readouterr().err
+    assert "/b" in err and "dismiss" in err
+
+
 def test_seed_artifact_round_trip_after_hand_edit():
     """Render an artifact, hand-edit one disposition/reason in the raw text, parse it back —
     the round trip must recover exactly the edited fields without needing the original dict."""
@@ -860,3 +900,17 @@ def test_main_load_seed_skips_on_corrupt_state(tmp_path, capsys):
     assert state.read_text() == before
     err = capsys.readouterr().err
     assert "unreadable" in err or "corrupt" in err.lower()
+
+
+def test_main_load_seed_missing_file_is_graceful(tmp_path, capsys):
+    state = tmp_path / "state.json"
+    prior = {"/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01"}}
+    state.write_text(json.dumps(prior, indent=2, sort_keys=True) + "\n")
+    missing = tmp_path / "does-not-exist.md"
+
+    rc = ig.main(["--state", str(state), "--load-seed", str(missing), "--today", "2026-07-21"])
+
+    assert rc == 0
+    assert json.loads(state.read_text()) == prior  # untouched
+    err = capsys.readouterr().err
+    assert str(missing) in err

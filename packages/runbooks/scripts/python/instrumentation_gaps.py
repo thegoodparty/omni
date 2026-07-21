@@ -468,12 +468,17 @@ def build_slack_payload(
     feedback_url: str | None,
     top_n: int = 10,
 ) -> dict:
-    """Run-data the health step reads to fold the gaps into its Slack post. new_gaps is the
-    visible (new) entries, sorted by (rank, id), capped at top_n."""
+    """Run-data the health step reads to fold the gaps into its Slack post. The digest is
+    delta-led (like the health monitor's new/escalated/resolved), so the Slack signal is
+    scoped to gaps first-seen THIS run, not the whole untriaged backlog — a genuinely new
+    gap breaks the quiet gate, but an un-triaged backlog never re-nags the channel weekly.
+    The full untriaged set stays browsable in the gaps sheet tab / committed log. new_gaps
+    is that this-run set, sorted by (rank, id), capped at top_n."""
     visible = sorted(
         (e for e in state.values() if is_visible(e)),
         key=lambda e: (e.get("rank", 5), e["id"]),
     )
+    new_this_run = [e for e in visible if e.get("first_seen") == run_date]
     new_gaps = [
         {
             "rank": e.get("rank", 5),
@@ -483,12 +488,12 @@ def build_slack_payload(
             "dashboard_question": e.get("dashboard_question", ""),
             "location": e["location"],
         }
-        for e in visible[:top_n]
+        for e in new_this_run[:top_n]
     ]
     return {
         "status": judgment_status,
         "run_date": run_date,
-        "new_count": len(visible),
+        "new_count": len(new_this_run),
         "pending_count": pending_count,
         "new_gaps": new_gaps,
         "browse_url": browse_url,
@@ -745,19 +750,34 @@ def parse_seed_artifact(text: str) -> dict[str, dict]:
     return out
 
 
+_VALID_DISPOSITIONS = {"new", "open", "accepted", "dismissed"}
+
+
 def apply_seed_dispositions(
     state: Mapping[str, dict], parsed: Mapping[str, dict], today: date
 ) -> tuple[dict, int]:
     """Apply reviewer dispositions from a parsed seed artifact back onto the state, for ids
-    that exist in state. Ids not in state are skipped (not counted, not added). first_seen
-    is preserved; only disposition/reason/last_seen change. Returns (new_state, applied_count)."""
+    that exist in state. Ids not in state are skipped (not counted, not added). A disposition
+    outside the valid whitelist (e.g. a typo like "dismiss") is skipped and warned on rather
+    than stored verbatim — an unrecognized value would silently drop the entry from the
+    digest (is_visible only matches "new") without being tallied by coverage_stats either.
+    first_seen is preserved; only disposition/reason/last_seen change on an applied id.
+    Returns (new_state, applied_count)."""
     out = {k: dict(v) for k, v in state.items()}
     applied = 0
     iso = today.isoformat()
     for gid, d in parsed.items():
         if gid not in out:
             continue
-        out[gid]["disposition"] = d["disposition"]
+        disposition = d["disposition"]
+        if disposition not in _VALID_DISPOSITIONS:
+            print(
+                f"gap-sweep: skipping {gid!r} — invalid disposition {disposition!r} "
+                f"(valid: {sorted(_VALID_DISPOSITIONS)})",
+                file=sys.stderr,
+            )
+            continue
+        out[gid]["disposition"] = disposition
         out[gid]["reason"] = d.get("reason", "")
         out[gid]["last_seen"] = iso
         applied += 1
@@ -814,7 +834,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 0
-        parsed = parse_seed_artifact(args.load_seed.read_text())
+        try:
+            seed_text = args.load_seed.read_text()
+        except OSError as exc:
+            print(
+                f"gap-sweep: --load-seed file unreadable ({exc}); skipping this run, "
+                "state left untouched.",
+                file=sys.stderr,
+            )
+            return 0
+        parsed = parse_seed_artifact(seed_text)
         new_state, applied = apply_seed_dispositions(prior, parsed, today)
         skipped = len(parsed) - applied
         _atomic_write(args.state, json.dumps(new_state, indent=2, sort_keys=True) + "\n")

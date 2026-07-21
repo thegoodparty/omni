@@ -230,6 +230,10 @@ def test_gap_summary_line_three_states():
     line = slk.build_gap_summary_line(
         {"new_count": 0, "status": "skipped: ANTHROPIC_API_KEY unset", "pending_count": 7})
     assert "unavailable" in line and "7" in line
+    # singular form regression guard: no trailing "s" for exactly one new gap
+    singular = slk.build_gap_summary_line({"new_count": 1, "status": "ok", "pending_count": 0})
+    assert "1 new instrumentation gap" in singular
+    assert "1 new instrumentation gaps" not in singular
 
 
 def test_gap_thread_blocks_empty_when_no_new_gaps():
@@ -245,6 +249,31 @@ def test_gap_thread_blocks_renders_ranked_list_and_links():
     blocks = slk.build_gap_thread_blocks(gap)
     text = _flatten_text(blocks)
     assert "/a" in text and "http://browse" in text and "http://fb" in text
+
+
+def test_gap_thread_blocks_shows_overflow_when_capped():
+    gap = {
+        "new_count": 15,
+        "new_gaps": [
+            {"rank": 0, "id": f"/g{i}", "surface_type": "route",
+             "rubric_rule": "flow", "dashboard_question": "q", "location": f"g{i}.tsx"}
+            for i in range(10)
+        ],
+        "browse_url": "http://browse", "feedback_url": "http://fb",
+    }
+    blocks = slk.build_gap_thread_blocks(gap)
+    text = _flatten_text(blocks)
+    assert "5 more" in text
+
+
+def test_gap_thread_blocks_omits_absent_link_label():
+    gap = {"new_count": 1, "status": "ok", "pending_count": 0,
+           "new_gaps": [{"rank": 0, "id": "/a", "surface_type": "route",
+                         "rubric_rule": "flow", "dashboard_question": "q", "location": "a.tsx"}],
+           "browse_url": "http://browse", "feedback_url": None}
+    text = _flatten_text(slk.build_gap_thread_blocks(gap))
+    assert "Browse gaps" in text
+    assert "Set disposition" not in text
 
 
 def test_should_post_true_on_gap_news_even_if_health_quiet():
@@ -349,6 +378,8 @@ def test_post_digest_posts_parent_then_threaded_reply():
     # parent has no thread_ts; reply threads under the parent ts
     assert "thread_ts" not in tx.calls[0]["json"]
     assert tx.calls[1]["json"]["thread_ts"] == "1111.1"
+    # notification-preview fallback text matches the header block's naming
+    assert tx.calls[0]["json"]["text"] == f"Analytics event health & instrumentation gaps — {RESULT['run_date']}"
 
 
 def test_post_digest_survives_thread_failure_and_returns_parent_ts():
