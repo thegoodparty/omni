@@ -213,6 +213,82 @@ def test_digest_thread_truncates_proposals_with_overflow_indicator():
     assert "…and 5 more" in text                        # overflow indicator present
 
 
+# --- gap section (Task 5: folded into the health digest) ---------------------
+
+
+def test_gap_has_news():
+    assert slk.gap_has_news({"new_count": 2}) is True
+    assert slk.gap_has_news({"new_count": 0}) is False
+    assert slk.gap_has_news(None) is False
+
+
+def test_gap_summary_line_three_states():
+    assert "3 new" in slk.build_gap_summary_line(
+        {"new_count": 3, "status": "ok", "pending_count": 0})
+    assert "No new" in slk.build_gap_summary_line(
+        {"new_count": 0, "status": "ok", "pending_count": 0})
+    line = slk.build_gap_summary_line(
+        {"new_count": 0, "status": "skipped: ANTHROPIC_API_KEY unset", "pending_count": 7})
+    assert "unavailable" in line and "7" in line
+
+
+def test_gap_thread_blocks_empty_when_no_new_gaps():
+    assert slk.build_gap_thread_blocks({"new_gaps": [], "browse_url": "http://browse"}) == []
+    assert slk.build_gap_thread_blocks({}) == []
+
+
+def test_gap_thread_blocks_renders_ranked_list_and_links():
+    gap = {"new_count": 1, "status": "ok", "pending_count": 0,
+           "new_gaps": [{"rank": 0, "id": "/a", "surface_type": "route",
+                         "rubric_rule": "flow", "dashboard_question": "q", "location": "a.tsx"}],
+           "browse_url": "http://browse", "feedback_url": "http://fb"}
+    blocks = slk.build_gap_thread_blocks(gap)
+    text = _flatten_text(blocks)
+    assert "/a" in text and "http://browse" in text and "http://fb" in text
+
+
+def test_should_post_true_on_gap_news_even_if_health_quiet():
+    quiet_changes = {"new": [], "escalated": [], "resolved": [], "still_open": ["x"]}
+    assert slk.should_post({"flagged": []}, quiet_changes, None, {"new_count": 1}) is True
+
+
+def test_should_post_false_when_gap_none_and_health_quiet():
+    assert slk.should_post(RESULT, QUIET, prior_anomalous={"donation_submitted"}, gap=None) is False
+
+
+def test_build_digest_blocks_unchanged_when_gap_none():
+    # header names the gap sweep unconditionally (Task 5 brief), but with gap=None no
+    # gaps summary line or thread detail is appended — the compass emoji marks that line.
+    parent, thread = slk.build_digest_blocks(RESULT, CHANGES, PRIOR)
+    text = _flatten_text(parent)
+    assert "🧭" not in text
+    assert "📊 Analytics event health & instrumentation gaps —" in parent[0]["text"]["text"]
+
+
+def test_build_digest_blocks_appends_gap_line_and_thread():
+    gap = {"new_count": 1, "status": "ok", "pending_count": 0,
+           "new_gaps": [{"rank": 0, "id": "/a", "surface_type": "route",
+                         "rubric_rule": "flow", "dashboard_question": "q", "location": "a.tsx"}],
+           "browse_url": "http://browse", "feedback_url": "http://fb"}
+    parent, thread = slk.build_digest_blocks(RESULT, CHANGES, PRIOR, None, gap)
+    ptext = _flatten_text(parent)
+    assert "instrumentation gaps" in ptext.lower()
+    assert "1 new" in ptext
+    ttext = _flatten_text(thread)
+    assert "/a" in ttext and "http://browse" in ttext and "http://fb" in ttext
+
+
+def test_post_digest_threads_gap_through(monkeypatch):
+    tx = _FakeTransport()
+    gap = {"new_count": 1, "status": "ok", "pending_count": 0, "new_gaps": [],
+           "browse_url": "http://browse", "feedback_url": "http://fb"}
+    ts = slk.post_digest(RESULT, QUIET, PRIOR, token="xoxb-t", channel="C0BECEK0603",
+                         transport=tx, prior_anomalous={"donation_submitted"}, gap=gap)
+    # health side is quiet, but gap has news -> should still post
+    assert ts == "1111.1"
+    assert len(tx.calls) == 2
+
+
 # --- poster (injected transport) ---------------------------------------------
 
 
