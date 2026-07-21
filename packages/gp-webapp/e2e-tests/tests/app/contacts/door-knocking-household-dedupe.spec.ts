@@ -4,12 +4,8 @@ import {
   NavigationHelper,
 } from 'src/helpers/navigation.helper'
 import { applyContactsQuery } from 'src/helpers/contacts-e2e'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-  getSelectedOrgName,
-  getOrgPickerOptions,
-} from 'src/helpers/organizations'
+import { setupProCampaignUser } from 'src/helpers/organizations'
+import { disableCrmFlags } from 'src/helpers/crm-contacts-e2e'
 
 // The "Total Voters" stat card renders the active segment's count (it reads
 // pagination.totalResults for the current segment, formatted with commas by
@@ -50,14 +46,16 @@ const readVisibleAddresses = async (table: Locator): Promise<string[]> => {
   return addresses
 }
 
-// @dev-only: same gating as win-contacts.spec.ts — selecting a non-default
-// segment is pro-gated, and the flow needs the warm dev stack's real district
-// voter data. An ephemeral per-PR preview can't guarantee the pro provisioning
-// or the data, so this runs on the post-merge develop e2e (and on demand), not
-// on PRs. See e2e-tests/CLAUDE.md ("@dev-only").
-test.describe('Door Knocking household dedupe @dev-only', () => {
+// Selecting a non-default segment (Door Knocking) is pro-gated.
+// setupProCampaignUser provisions Pro without the Stripe webhook and the pinned
+// district has real voter data on the preview's gp-api, so this runs on PR
+// previews now. See e2e-tests/CLAUDE.md ("@dev-only") for what still earns the tag.
+test.describe('Door Knocking household dedupe', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    // Legacy flag-off spec: pin the CRM flags OFF so a live ramp can't flip
+    // this onto the new CRM surface mid-test (e2e-tests/CLAUDE.md).
+    await disableCrmFlags(page)
   })
 
   test('Door Knocking total is below All Contacts and rows are one-per-household', async ({
@@ -65,16 +63,7 @@ test.describe('Door Knocking household dedupe @dev-only', () => {
   }) => {
     test.setTimeout(3 * 60 * 1000)
 
-    // setupElectedOfficeUser leaves the elected-office org selected; the Win
-    // context is the campaign (non-eo) org, so switch to it (mirrors
-    // win-contacts.spec.ts — the EO org resolves as Serve).
-    await setupElectedOfficeUser(page)
-
-    const eoOrgName = await getSelectedOrgName(page)
-    const allOrgs = await getOrgPickerOptions(page)
-    const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)
-    expect(campaignOrgName).toBeTruthy()
-    await switchOrganization(page, campaignOrgName!)
+    await setupProCampaignUser(page)
 
     await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
     await NavigationHelper.dismissOverlays(page)

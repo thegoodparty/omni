@@ -1,12 +1,6 @@
 import { expect, test, type Page, type Request } from '@playwright/test'
 import { blockSlowScripts } from 'src/helpers/navigation.helper'
-import { authenticateTestUser } from 'tests/utils/api-registration'
-import {
-  seedCandidateProfileComplete,
-  seedEinAndFiled,
-  seedFilingComplete,
-  upgradeCampaignToProViaStripe,
-} from 'src/helpers/pro-upgrade.helper'
+import { setupProCampaignUser } from 'src/helpers/organizations'
 import {
   activityPill,
   activityPillGroup,
@@ -45,10 +39,8 @@ import {
 //     stamped) needs a real outreach launch and is out of e2e reach; it is
 //     covered by packages/gp-api/src/voters/services/voterFileFilter.service.test.ts.
 //
-// @dev-only: reaching the wizard at all requires a Pro Win campaign, and the
-// only path that can set isPro is the embedded Stripe payment plus its
-// checkout.session.completed webhook (see pro-upgrade-step-resume.spec.ts's
-// deferred-AC note) — which an ephemeral per-PR preview can't deliver.
+// Reaching the wizard requires a Pro Win campaign; setupProCampaignUser flips
+// isPro via the test-only endpoint (no Stripe webhook), so this runs on PRs.
 
 const TEST_TIMEOUT = 15 * 60 * 1000
 
@@ -110,7 +102,7 @@ const armCountRequestWait = (
         (request.postDataJSON() as CountRequestPayload).activityConditions!,
     )
 
-test.describe('Contacts activity filters @dev-only', () => {
+test.describe('Contacts activity filters', () => {
   // The production build's service worker fetches same-origin GETs from inside
   // the worker, where page.route never sees them — the GET /v1/outreach stub
   // would silently leak to the real API (see crm-assistant-bar.spec.ts).
@@ -119,21 +111,11 @@ test.describe('Contacts activity filters @dev-only', () => {
   test('activity branch: conditions, payload contract, save, detail round-trip', async ({
     page,
   }) => {
-    // The Stripe webhook poll inside the Pro provisioning can run ~240s.
     test.setTimeout(TEST_TIMEOUT)
     await blockSlowScripts(page)
     await enableCrmFlags(page)
 
-    const { user, client } = await authenticateTestUser(page, {
-      isolated: true,
-    })
-
-    await test.step('provision a Pro Win campaign (seeded wizard + Stripe test checkout)', async () => {
-      await seedEinAndFiled(client)
-      await seedFilingComplete(client, user.email)
-      await seedCandidateProfileComplete(client)
-      await upgradeCampaignToProViaStripe(page, client)
-    })
+    await setupProCampaignUser(page)
 
     await page.route(/\/api\/v1\/outreach(\?|$)/, (route) =>
       route.request().method() === 'GET'

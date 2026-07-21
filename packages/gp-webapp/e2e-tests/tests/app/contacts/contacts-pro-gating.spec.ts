@@ -55,10 +55,13 @@ const gotoContactsAndCaptureList = async (
   return (await (await listResponse).json()) as ContactsListBody
 }
 
-// @dev-only: pro-gating behavior on the Win Contacts surface needs the warm
-// dev stack's real district voter data and provisioned users; an ephemeral
-// per-PR preview can't guarantee either. Same gate as win-contacts.spec.
-test.describe('Contacts pro gating @dev-only', () => {
+// Pro-gating behavior on the Win Contacts surface. A per-PR preview's gp-api
+// runs on the dev secret (so it has real district voter data), and
+// setupElectedOfficeUser provisions the elected-office org that grants
+// pro-access (isProAccess = electedOffice || campaign.isPro) — so this runs on
+// PRs. No Stripe needed: the pro branch here comes from the EO org, and the
+// non-pro branch is a fresh launched campaign.
+test.describe('Contacts pro gating', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
     await enableCrmFlags(page)
