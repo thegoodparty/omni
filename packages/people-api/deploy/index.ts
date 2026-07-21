@@ -66,8 +66,16 @@ export = async () => {
   // NOTE: DATABASE_URL must remain a key in the PEOPLE_API_<ENV> Secrets Manager
   // secret. The running service no longer receives it (it resolves the URL from
   // SSM at runtime), but this stack still parses it here to derive the RDS
-  // cluster masterPassword. Removing it from the secret would make this
-  // `new URL(undefined)` throw and break every `pulumi up` at plan time.
+  // cluster masterPassword. Guard explicitly so its absence fails with a clear
+  // message rather than an opaque `new URL(undefined)` TypeError at plan time.
+  if (!secret.DATABASE_URL) {
+    throw new Error(
+      `DATABASE_URL key is missing from the ${secretName} Secrets Manager ` +
+        'secret. It must remain present so this stack can derive the RDS ' +
+        'masterPassword.',
+    )
+  }
+
   const { password } = extractDbCredentials(secret.DATABASE_URL)
 
   const dbSubnetGroup = new aws.rds.SubnetGroup('dbSubnetGroup', {
