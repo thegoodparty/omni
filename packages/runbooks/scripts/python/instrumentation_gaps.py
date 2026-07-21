@@ -6,7 +6,9 @@ with disposition tracking. Recommendations only: never edits product packages.
 
 Pure functions (config, enumeration, diff, id, rank, state merge, render) take plain data
 and have no IO, so they are unit-tested with fixtures. Only the walk/IO/CLI layer touches
-disk. Phase 1 (this module) is fully deterministic; the LLM rubric-judgment pass is Phase 2.
+disk. Phase 1 is fully deterministic; Phase 2 adds a graceful Anthropic rubric-judgment pass
+(`run_judgment`) over the untriaged candidate gaps — only judge-confirmed gaps enter state,
+and a missing key or failed call degrades to a compact status line, never a crash.
 """
 
 from __future__ import annotations
