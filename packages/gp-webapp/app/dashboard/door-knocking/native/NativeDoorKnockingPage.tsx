@@ -122,13 +122,16 @@ export default function NativeDoorKnockingPage({
     setClearDrawToken((token) => token + 1)
   }
   const handleSaved = (drawAnother: boolean) => {
-    setClearDrawToken((token) => token + 1)
     if (drawAnother) {
+      // The start-draw effect wipes the previous shape itself; bumping the
+      // clear token too would run deleteAll AFTER draw_polygon is entered
+      // and kill the fresh drawing session.
       setFlowStep('draw')
       setStartDrawToken((token) => token + 1)
     } else {
       setFlowStep(null)
       setFilters({})
+      setClearDrawToken((token) => token + 1)
     }
   }
 

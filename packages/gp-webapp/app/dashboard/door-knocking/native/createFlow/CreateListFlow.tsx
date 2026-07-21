@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Button,
@@ -73,28 +73,34 @@ export default function CreateListFlow({
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(TURF_COLORS[0])
+  // If the turf POST fails after the filter was created, the retry reuses
+  // the existing filter instead of minting an orphan list per attempt.
+  const createdFilterIdRef = useRef<number | null>(null)
 
   const save = useMutation({
     mutationFn: async (drawAnother: boolean) => {
       if (!ring) throw new Error('no polygon')
-      const filterRes = await clientRequest(
-        'POST /v1/voters/voter-file/filter',
-        {
-          name: name.trim(),
-          ...transformVoterFileFiltersForBackend(filters),
-        },
-      )
+      const filterId =
+        createdFilterIdRef.current ??
+        (
+          await clientRequest('POST /v1/voters/voter-file/filter', {
+            name: name.trim(),
+            ...transformVoterFileFiltersForBackend(filters),
+          })
+        ).data.id
+      createdFilterIdRef.current = filterId
       const closedRing: PolygonRing =
         ring[0]?.[0] !== ring[ring.length - 1]?.[0] ||
         ring[0]?.[1] !== ring[ring.length - 1]?.[1]
           ? [...ring, ring[0] as [number, number]]
           : ring
       await clientRequest('POST /v1/door-knocking/turfs', {
-        voterFileFilterId: filterRes.data.id,
+        voterFileFilterId: filterId,
         name: name.trim(),
         color,
         geoPoly: { type: 'Polygon', coordinates: [closedRing] },
       })
+      createdFilterIdRef.current = null
       return drawAnother
     },
     onSuccess: (drawAnother) => {

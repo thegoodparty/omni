@@ -94,6 +94,53 @@ describe('CreateListFlow', () => {
     })
   })
 
+  it('reuses the created filter when the turf save is retried', async () => {
+    let filterPosts = 0
+    let turfPosts = 0
+    api.mock('POST /v1/voters/voter-file/filter', () => {
+      filterPosts += 1
+      return { status: 200, data: { id: 88 } }
+    })
+    api.mock('POST /v1/door-knocking/turfs', ({ body }) => {
+      turfPosts += 1
+      if (turfPosts === 1) return { status: 500, data: {} }
+      expect(body).toMatchObject({ voterFileFilterId: 88 })
+      return {
+        status: 200,
+        data: {
+          id: 6,
+          voterFileFilterId: 88,
+          name: 'Retry turf',
+          color: '#2563eb',
+          geoPoly: {
+            type: 'Polygon',
+            coordinates: [[...OPEN_RING, OPEN_RING[0] as [number, number]]],
+          },
+          locked: false,
+          createdAt: new Date('2026-07-21T00:00:00Z'),
+          updatedAt: new Date('2026-07-21T00:00:00Z'),
+        },
+      }
+    })
+    const onSaved = vi.fn()
+
+    render(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
+
+    fireEvent.change(screen.getByLabelText('Turf name'), {
+      target: { value: 'Retry turf' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    await waitFor(() =>
+      expect(screen.getByText(/Saving failed/)).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(false))
+    // One list total across both attempts — no orphan per retry.
+    expect(filterPosts).toBe(1)
+    expect(turfPosts).toBe(2)
+  })
+
   it('gates the draw step on a drawn shape under the cap', () => {
     const { rerender } = render(
       <CreateListFlow
