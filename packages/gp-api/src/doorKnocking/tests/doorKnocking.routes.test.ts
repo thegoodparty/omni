@@ -234,6 +234,11 @@ describe('door-knocking routes', () => {
       expect(res.data.route.stopCount).toBe(3)
       expect(res.data.route.totalSeconds).toBe(900)
 
+      const route = await service.prisma.doorKnockingRoute.findUniqueOrThrow({
+        where: { id: res.data.route.id },
+      })
+      expect(route.credits).toBe(30)
+
       const stops = await service.prisma.doorKnockingStop.findMany({
         where: { doorKnockingRouteId: res.data.route.id },
         orderBy: { seq: 'asc' },

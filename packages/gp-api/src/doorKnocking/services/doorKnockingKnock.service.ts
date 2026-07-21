@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common'
 import {
   DoorKnockingKnockRequest,
   DoorKnockingKnockResponse,
@@ -17,15 +21,16 @@ import {
   OutreachStatus,
   OutreachType,
 } from '../../generated/prisma'
-import { DoorKnockingTurfService } from './doorKnockingTurf.service'
 import { DoorKnockingPeopleApiService } from './doorKnockingPeopleApi.service'
 import { pointInPolygon, polygonBbox } from '../utils/geo.util'
+import { lockTurf } from '../utils/turfLock.util'
 
-// Two-int form of pg_advisory_xact_lock: (namespace, turfId). 'dk' in ASCII.
-const LOCK_NAMESPACE = 25707
 // Leadership-approved hard cap; the DB CHECK on stop.seq enforces the same
 // bound.
 const MAX_STOPS = 150
+// Geoapify bills the Route Planner at 10 credits per location (the
+// schema-documented meaning of route.credits).
+const GEOAPIFY_CREDITS_PER_LOCATION = 10
 // The vendor call happens inside the lock-holding transaction by design (so
 // concurrent knocks make exactly one call); the timeout must absorb it.
 const KNOCK_TX_TIMEOUT_MS = 120_000
@@ -66,7 +71,6 @@ export class DoorKnockingKnockService extends createPrismaBase(
   MODELS.DoorKnockingRoute,
 ) {
   constructor(
-    private readonly turfService: DoorKnockingTurfService,
     private readonly peopleApi: DoorKnockingPeopleApiService,
     private readonly geoapify: GeoapifyRoutePlannerService,
     private readonly elections: ElectionsService,
@@ -80,23 +84,26 @@ export class DoorKnockingKnockService extends createPrismaBase(
     campaign: Campaign | null,
     request: DoorKnockingKnockRequest,
   ): Promise<DoorKnockingKnockResponse> {
-    const turf = await this.turfService.findForOrganization(
-      turfId,
-      organization.slug,
-    )
-    const filter = await this.client.voterFileFilter.findFirstOrThrow({
-      where: { id: turf.voterFileFilterId },
-    })
     const districtId = await this.resolveDistrictId(organization)
 
     return this.client.$transaction(
       async (tx) => {
-        // Serializes concurrent knocks per turf; auto-releases on
-        // commit/rollback/crash, so a crash mid-freeze leaves zero rows AND
-        // no lock. $executeRaw, not $queryRaw (void return can't be
-        // deserialized); ::int casts because Prisma binds numbers as bigint
-        // and the two-argument lock form is (int4, int4).
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_NAMESPACE}::int, ${turfId}::int)`
+        await lockTurf(tx, turfId)
+
+        // The turf (and its polygon) is read AFTER the lock, so a racing
+        // edit can't slip a changed polygon between read and freeze — turf
+        // update/delete take the same lock.
+        const turf = await tx.doorKnockingTurf.findFirst({
+          where: {
+            id: turfId,
+            voterFileFilter: { organizationSlug: organization.slug },
+          },
+          include: { voterFileFilter: true },
+        })
+        if (!turf) {
+          throw new NotFoundException('Turf not found')
+        }
+        const filter = turf.voterFileFilter
 
         const existing = await tx.doorKnockingRoute.findUnique({
           where: { doorKnockingTurfId: turfId },
@@ -125,8 +132,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
             loop: request.loop,
             totalSeconds: plan.totalSeconds,
             totalMeters: plan.totalMeters,
-            // Geoapify's Route Planner bills per job — one job per stop.
-            credits: stops.length,
+            credits: stops.length * GEOAPIFY_CREDITS_PER_LOCATION,
             stops: {
               create: plan.orderedJobIds.map((jobId, index) => {
                 const stop = stops[Number(jobId)]!
