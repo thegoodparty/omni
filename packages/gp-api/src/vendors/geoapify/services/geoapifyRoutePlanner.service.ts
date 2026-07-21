@@ -1,11 +1,17 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
-import { HttpService } from '@nestjs/axios'
 import { PinoLogger } from 'nestjs-pino'
-import { isAxiosError } from 'axios'
-import { lastValueFrom } from 'rxjs'
+import {
+  Agent,
+  AgentPlan,
+  Job,
+  RoutePlanner,
+  RoutePlannerError,
+  RoutePlannerResult,
+} from '@geoapify/route-planner-sdk'
 
-const GEOAPIFY_ROUTEPLANNER_URL = 'https://api.geoapify.com/v1/routeplanner'
-const HTTP_TIMEOUT_MS = 30_000
+// The SDK's fetch has no timeout option, so the plan call races a deadline:
+// the knock endpoint must fail visibly rather than hold its transaction open.
+const PLAN_TIMEOUT_MS = 30_000
 
 // [lng, lat] — GeoJSON coordinate order, which Geoapify uses throughout.
 export type LngLat = [number, number]
@@ -20,6 +26,19 @@ export type RoutePlannerAgent = {
   end_location?: LngLat
 }
 
+// GeoJSON path geometry from the Routing API ([lng, lat] positions).
+const isRoutePathGeometry = (value: unknown): value is RoutePathGeometry =>
+  typeof value === 'object' &&
+  value !== null &&
+  'type' in value &&
+  (value.type === 'LineString' || value.type === 'MultiLineString') &&
+  'coordinates' in value &&
+  Array.isArray(value.coordinates)
+
+export type RoutePathGeometry =
+  | { type: 'LineString'; coordinates: [number, number][] }
+  | { type: 'MultiLineString'; coordinates: [number, number][][] }
+
 export type RoutePlannerPlan = {
   // Visit order as job ids, in knock order.
   orderedJobIds: string[]
@@ -29,37 +48,16 @@ export type RoutePlannerPlan = {
   legMeters: number[]
   totalSeconds: number
   totalMeters: number
-}
-
-type RoutePlannerAction = {
-  type: string
-  job_id?: string
-  job_index?: number
-}
-
-type RoutePlannerLeg = {
-  time?: number
-  distance?: number
-}
-
-type RoutePlannerResponse = {
-  features?: Array<{
-    properties?: {
-      time?: number
-      distance?: number
-      actions?: RoutePlannerAction[]
-      legs?: RoutePlannerLeg[]
-    }
-  }>
-  properties?: { issues?: unknown }
+  // Road-following tour path, fetched once here so it can be frozen with
+  // the route (Geoapify's terms permit storing results). Null when the
+  // routing call failed — the route itself is still valid, consumers fall
+  // back to straight legs.
+  pathGeometry: RoutePathGeometry | null
 }
 
 @Injectable()
 export class GeoapifyRoutePlannerService {
-  constructor(
-    private readonly httpService: HttpService,
-    private readonly logger: PinoLogger,
-  ) {
+  constructor(private readonly logger: PinoLogger) {
     this.logger.setContext(this.constructor.name)
   }
 
@@ -81,21 +79,37 @@ export class GeoapifyRoutePlannerService {
     agent: RoutePlannerAgent
     jobs: RoutePlannerJob[]
   }): Promise<RoutePlannerPlan> {
-    let data: RoutePlannerResponse
+    const planner = new RoutePlanner({ apiKey: this.apiKey() })
+    planner.setMode(args.mode)
+    const agent = new Agent()
+    if (args.agent.start_location) {
+      agent.setStartLocation(...args.agent.start_location)
+    }
+    if (args.agent.end_location) {
+      agent.setEndLocation(...args.agent.end_location)
+    }
+    planner.addAgent(agent)
+    for (const job of args.jobs) {
+      planner.addJob(new Job().setId(job.id).setLocation(...job.location))
+    }
+
+    let result: RoutePlannerResult
     try {
-      const response = await lastValueFrom(
-        this.httpService.post<RoutePlannerResponse>(
-          `${GEOAPIFY_ROUTEPLANNER_URL}?apiKey=${this.apiKey()}`,
-          { mode: args.mode, agents: [args.agent], jobs: args.jobs },
-          { timeout: HTTP_TIMEOUT_MS },
+      result = await Promise.race([
+        planner.plan(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Route planner timed out')),
+            PLAN_TIMEOUT_MS,
+          ),
         ),
-      )
-      data = response.data
+      ])
     } catch (error) {
-      // Never log the raw AxiosError: its config.url carries ?apiKey=<key>.
+      // RoutePlannerError.message is the API's error text; never log the
+      // original error object — the request URL carries ?apiKey=<key>.
       this.logger.error(
         {
-          status: isAxiosError(error) ? error.response?.status : undefined,
+          name: error instanceof RoutePlannerError ? error.name : undefined,
           message: error instanceof Error ? error.message : String(error),
         },
         'Geoapify route planner request failed',
@@ -103,17 +117,15 @@ export class GeoapifyRoutePlannerService {
       throw new BadGatewayException('Route optimization failed')
     }
 
-    const properties = data.features?.[0]?.properties
-    if (!properties) {
-      this.logger.error(
-        { issues: data.properties?.issues },
-        'Geoapify returned no agent plan',
-      )
+    const issues = result.getRaw().properties?.issues
+    const agentPlan = result.getAgentPlans()[0]
+    if (!agentPlan) {
+      this.logger.error({ issues }, 'Geoapify returned no agent plan')
       throw new BadGatewayException('Route optimization returned no plan')
     }
 
-    const actions = properties.actions ?? []
-    const legs = properties.legs ?? []
+    const actions = agentPlan.getActions()
+    const legs = agentPlan.getLegs()
 
     // Legs describe movement between consecutive locations of the whole tour
     // (anchors included). Walk the actions in order, counting one leg per
@@ -125,20 +137,19 @@ export class GeoapifyRoutePlannerService {
     const legMeters: number[] = []
     let legIndex = args.agent.start_location ? 0 : -1
     for (const action of actions) {
-      if (action.type !== 'job') continue
+      if (action.getType() !== 'job') continue
       if (legIndex >= 0) {
-        legSeconds.push(legs[legIndex]?.time ?? 0)
-        legMeters.push(legs[legIndex]?.distance ?? 0)
+        legSeconds.push(legs[legIndex]?.getTime() ?? 0)
+        legMeters.push(legs[legIndex]?.getDistance() ?? 0)
       } else {
         legSeconds.push(0)
         legMeters.push(0)
       }
       legIndex += 1
+      const jobIndex = action.getJobIndex()
       const jobId =
-        action.job_id ??
-        (action.job_index !== undefined
-          ? args.jobs[action.job_index]?.id
-          : undefined)
+        action.getJobId() ??
+        (jobIndex !== undefined ? args.jobs[jobIndex]?.id : undefined)
       if (!jobId) {
         throw new BadGatewayException(
           'Route optimization returned an unidentifiable stop',
@@ -158,7 +169,7 @@ export class GeoapifyRoutePlannerService {
         {
           requested: args.jobs.length,
           planned: orderedJobIds.length,
-          issues: data.properties?.issues,
+          issues,
         },
         'Geoapify plan does not cover every stop',
       )
@@ -171,8 +182,45 @@ export class GeoapifyRoutePlannerService {
       orderedJobIds,
       legSeconds,
       legMeters,
-      totalSeconds: properties.time ?? 0,
-      totalMeters: properties.distance ?? 0,
+      totalSeconds: agentPlan.getTime() ?? 0,
+      totalMeters: agentPlan.getDistance() ?? 0,
+      pathGeometry: await this.fetchPathGeometry(agentPlan, args.mode),
+    }
+  }
+
+  // Best-effort: the ordered plan is the critical artifact; a geometry
+  // failure must not fail the knock.
+  private async fetchPathGeometry(
+    agentPlan: AgentPlan,
+    mode: 'walk' | 'drive',
+  ): Promise<RoutePathGeometry | null> {
+    try {
+      // getRoute is typed Promise<any>; narrow structurally instead of
+      // asserting.
+      const feature: unknown = await Promise.race([
+        agentPlan.getRoute({ mode }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Routing request timed out')),
+            PLAN_TIMEOUT_MS,
+          ),
+        ),
+      ])
+      if (
+        typeof feature !== 'object' ||
+        feature === null ||
+        !('geometry' in feature)
+      ) {
+        return null
+      }
+      const geometry = feature.geometry
+      return isRoutePathGeometry(geometry) ? geometry : null
+    } catch (error) {
+      this.logger.warn(
+        { message: error instanceof Error ? error.message : String(error) },
+        'Geoapify route geometry fetch failed; route ships without a path',
+      )
+      return null
     }
   }
 }
