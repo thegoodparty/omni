@@ -1,4 +1,4 @@
-"""Instrumentation gap sweep (DATA-2151) — deterministic layer.
+"""Instrumentation gap sweep (DATA-2151) — deterministic enumeration + graceful LLM judgment.
 
 Enumerates candidate product surfaces in gp-webapp and gp-api, diffs them against
 tracking call sites, and surfaces the ones with no nearby event as ranked recommendations
@@ -6,7 +6,9 @@ with disposition tracking. Recommendations only: never edits product packages.
 
 Pure functions (config, enumeration, diff, id, rank, state merge, render) take plain data
 and have no IO, so they are unit-tested with fixtures. Only the walk/IO/CLI layer touches
-disk. Phase 1 (this module) is fully deterministic; the LLM rubric-judgment pass is Phase 2.
+disk. Phase 1 is fully deterministic; Phase 2 adds a graceful Anthropic rubric-judgment pass
+(`run_judgment`) over the untriaged candidate gaps — only judge-confirmed gaps enter state,
+and a missing key or failed call degrades to a compact status line, never a crash.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import yaml
+from pydantic import BaseModel, Field
 
 class CorruptStateError(Exception):
     """The on-disk state file exists but is not a readable JSON object. Distinct from a
@@ -35,6 +38,37 @@ DATA_DIR = HERE / "instrumentation_data"
 CONFIG_PATH = HERE / "instrumentation_gaps_config.yaml"
 DEFAULT_STATE = DATA_DIR / "instrumentation_gaps.json"
 DEFAULT_LOG = DATA_DIR / "instrumentation-gaps-log.md"
+
+DEFAULT_RUBRIC_PATH = REPO_ROOT / ".claude/skills/instrument-analytics-event/SKILL.md"
+DEFAULT_MODEL = os.environ.get("GAP_JUDGE_MODEL", "claude-sonnet-5")
+
+
+# --- LLM judgment: schema + rubric -------------------------------------------
+# The judge applies the instrument/skip rubric (single-sourced in SKILL.md) to each
+# deterministic candidate gap. Deterministic enumeration is over-inclusive on purpose;
+# this pass is the precision filter. Phase 1 keeps working if this whole section is
+# skipped (see run_judgment's graceful contract).
+
+
+class JudgeVerdict(BaseModel):
+    id: str = Field(description="The candidate surface id, copied verbatim from the input.")
+    is_gap: bool = Field(description="True if this surface should fire an event per the rubric.")
+    rubric_rule: str = Field(description="Short name of the rubric rule that applies.")
+    dashboard_question: str = Field(
+        description="The product question the missing event would answer."
+    )
+    rank: int = Field(description="Priority 0-5, lower is higher priority.")
+    reason: str = Field(description="One-line justification for the verdict.")
+
+
+class JudgeBatch(BaseModel):
+    results: list[JudgeVerdict]
+
+
+def load_rubric(path: Path = DEFAULT_RUBRIC_PATH) -> str:
+    """Read the instrument/skip rubric from the skill. Single-sourced — never copied here.
+    Missing file raises FileNotFoundError; run_judgment treats that as a graceful skip."""
+    return path.read_text()
 
 
 def load_gap_config(path: Path = CONFIG_PATH) -> dict:
@@ -94,6 +128,12 @@ _API_DETECTORS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("api_status", re.compile(r"status\s*[:=]\s*['\"](COMPLETED|FAILED|REJECTED|APPROVED)['\"]")),
 )
 
+# Keyed by surface_type so scan_repo can window a candidate's snippet around the same
+# pattern that flagged it, rather than re-deriving the mapping there.
+_DETECTOR_PATTERN: dict[str, re.Pattern[str]] = {
+    name: pat for name, pat in (*_WEBAPP_DETECTORS, *_API_DETECTORS)
+}
+
 
 def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
     """Run the path-appropriate detectors over one file's text. One surface per matched
@@ -117,6 +157,23 @@ def detect_surfaces_in_file(rel_path: str, text: str) -> list[dict]:
                 }
             )
     return out
+
+
+def extract_context(
+    text: str, pattern: re.Pattern[str] | None = None, max_lines: int = 40
+) -> str:
+    """A bounded code snippet for the judge to read. Windowed around the first pattern
+    match when given, else the file head. Bounded so the judge input stays small."""
+    lines = text.splitlines()
+    if pattern is not None:
+        match = pattern.search(text)
+        if match is not None:
+            hit_line = text.count("\n", 0, match.start())
+            half = max_lines // 2
+            start = max(0, hit_line - half)
+            window = lines[start : start + max_lines]
+            return "\n".join(window).strip("\n")
+    return "\n".join(lines[:max_lines]).strip("\n")
 
 
 # --- call-site diff -----------------------------------------------------------
@@ -152,39 +209,173 @@ def rank_gap(gap: Mapping) -> int:
     return _RANK_BY_TYPE.get(gap["surface_type"], 5)
 
 
+_TRIAGED = {"open", "accepted", "dismissed"}
+
+
+def select_candidates(
+    gaps: Sequence[dict], prior_state: Mapping[str, dict], limit: int = 25
+) -> list[dict]:
+    """The bounded set the judge sees: gaps not already triaged by a human, top-N by the
+    heuristic rank. Skipping triaged ids keeps cost down and never re-judges a decided
+    surface (which also means the judge can never overturn a human dismissal)."""
+    eligible = [
+        g
+        for g in gaps
+        if prior_state.get(g["id"], {}).get("disposition") not in _TRIAGED
+    ]
+    eligible.sort(key=lambda g: (rank_gap(g), g["id"]))
+    return eligible[:limit]
+
+
+# --- judge prompt + response parsing (pure, no network) ----------------------
+
+JUDGE_TOOL = {
+    "name": "report_gap_verdicts",
+    "description": "Return one verdict per candidate surface, applying the instrument/skip rubric.",
+    "input_schema": JudgeBatch.model_json_schema(),
+}
+
+_JUDGE_INSTRUCTIONS = (
+    "You are auditing product surfaces for missing analytics instrumentation. "
+    "The rubric above is authoritative: decide is_gap=true only when the rubric says the "
+    "surface should fire an event that it currently does not. Apply the skip list strictly "
+    "(chrome, in-page nav, main-nav destinations already covered by page views, single "
+    "toggle open/close). For each candidate name the rubric_rule that applies, the "
+    "dashboard_question the missing event would answer, a rank 0-5 (0 = highest priority, "
+    "e.g. a URL-stable multi-step flow stage; higher = lower value), and a one-line reason. "
+    "Copy each id verbatim. Return exactly one verdict per candidate via the tool."
+)
+
+
+def judge_system_prompt(rubric: str) -> str:
+    """Rubric text (single-sourced from SKILL.md) plus the fixed judging instructions."""
+    return f"{rubric}\n\n---\n\n{_JUDGE_INSTRUCTIONS}"
+
+
+def build_judge_messages(candidates: Sequence[dict]) -> list[dict]:
+    """One user turn carrying the capped candidate set as JSON for the judge to classify."""
+    payload = [
+        {
+            "id": c["id"],
+            "surface_type": c["surface_type"],
+            "location": c["location"],
+            "snippet": c.get("snippet", ""),
+        }
+        for c in candidates
+    ]
+    content = "Candidate surfaces to classify:\n\n" + json.dumps(payload, indent=2)
+    return [{"role": "user", "content": content}]
+
+
+def parse_judge_response(resp, candidate_ids: Sequence[str]) -> dict[str, dict]:
+    """Validate the tool_use block as a JudgeBatch and key verdicts by id, keeping only ids
+    that were in the input (a hallucinated id is dropped, never trusted into state)."""
+    block = next((b for b in resp.content if getattr(b, "type", None) == "tool_use"), None)
+    if block is None:
+        raise RuntimeError("no tool_use block in judge response")
+    batch = JudgeBatch.model_validate(block.input)
+    allowed = set(candidate_ids)
+    return {v.id: v.model_dump() for v in batch.results if v.id in allowed}
+
+
+# --- judge call + graceful wrapper (network IO layer) ------------------------
+
+
+def make_anthropic_client(api_key: str):
+    """Construct the Anthropic SDK client. Import is local so the module still imports when
+    the dependency is absent and judgment is skipped."""
+    import anthropic
+
+    return anthropic.Anthropic(api_key=api_key)
+
+
+def judge_candidates(
+    candidates: Sequence[dict], rubric: str, *, client, model: str, max_tokens: int = 4096
+) -> dict[str, dict]:
+    """One batched judgment call over the capped candidate set. Client is injected so this
+    is unit-testable without network. Forces the report_gap_verdicts tool for a validated
+    result. Mirrors qa_validate.py's AnthropicJudge."""
+    resp = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=judge_system_prompt(rubric),
+        tools=[JUDGE_TOOL],
+        tool_choice={"type": "tool", "name": JUDGE_TOOL["name"]},
+        messages=build_judge_messages(candidates),
+    )
+    return parse_judge_response(resp, [c["id"] for c in candidates])
+
+
+def run_judgment(
+    candidates: Sequence[dict],
+    *,
+    api_key: str | None,
+    model: str,
+    rubric_path: Path = DEFAULT_RUBRIC_PATH,
+    client_factory=make_anthropic_client,
+) -> tuple[dict[str, dict], str]:
+    """Graceful boundary around the judge. Never raises: returns (verdicts_by_id, status).
+    A missing key, missing rubric, SDK/network error, or bad response all degrade to an
+    empty result and a status string the digest reports — the run continues unaffected."""
+    if not candidates:
+        return {}, "no-candidates"
+    if not api_key:
+        return {}, "skipped: ANTHROPIC_API_KEY unset"
+    try:
+        rubric = load_rubric(rubric_path)
+    except OSError:  # missing, unreadable, or a directory — all degrade to a skip, never raise
+        return {}, "skipped: rubric unavailable"
+    try:
+        client = client_factory(api_key)
+        verdicts = judge_candidates(candidates, rubric, client=client, model=model)
+    except Exception as exc:  # noqa: BLE001 — judgment must never break the governance run
+        return {}, f"failed: {exc}"
+    return verdicts, "ok"
+
+
 # --- state + dispositions -----------------------------------------------------
 
 
-def merge_state(
-    prior: Mapping[str, dict], gaps: Sequence[dict], today: date
+def merge_judged_state(
+    prior: Mapping[str, dict],
+    verdicts: Mapping[str, dict],
+    candidates_by_id: Mapping[str, dict],
+    today: date,
 ) -> dict[str, dict]:
-    """Fold this run's gaps into the prior disposition state. New surfaces enter as `new`;
-    dismissed/accepted are never downgraded or resurrected; a surface absent this run is
-    retained untouched (except it keeps its old last_seen). Keyed by user-facing surface id."""
+    """Fold judge-confirmed gaps into the disposition state. Only is_gap=true verdicts
+    create or refresh entries; is_gap=false is dropped and never added. Human decisions
+    (disposition, reason) and first_seen are preserved; the judge's reason is stored as
+    judge_reason so it never clobbers the human field. Prior ids absent this run are kept."""
     iso = today.isoformat()
     out: dict[str, dict] = {k: dict(v) for k, v in prior.items()}
-    for gap in gaps:
-        gid = gap["id"]
-        rank = rank_gap(gap)
+    for gid, verdict in verdicts.items():
+        if not verdict.get("is_gap"):
+            continue
+        cand = candidates_by_id.get(gid, {})
+        judged = {
+            "rubric_rule": verdict.get("rubric_rule", ""),
+            "dashboard_question": verdict.get("dashboard_question", ""),
+            "judge_reason": verdict.get("reason", ""),
+            "rank": verdict.get("rank", 5),
+        }
         if gid not in out:
             out[gid] = {
                 "id": gid,
-                "surface_type": gap["surface_type"],
-                "location": gap["location"],
+                "surface_type": cand.get("surface_type", ""),
+                "location": cand.get("location", ""),
                 "disposition": "new",
                 "reason": "",
-                "rank": rank,
                 "first_seen": iso,
                 "last_seen": iso,
+                **judged,
             }
             continue
         entry = out[gid]
         entry["last_seen"] = iso
-        entry["location"] = gap["location"]
-        entry["surface_type"] = gap["surface_type"]
-        entry["rank"] = rank
-        # disposition is preserved for all states: new stays new until triaged, open/
-        # accepted/dismissed are human decisions the sweep never overwrites.
+        if cand:
+            entry["surface_type"] = cand.get("surface_type", entry.get("surface_type", ""))
+            entry["location"] = cand.get("location", entry.get("location", ""))
+        entry.update(judged)  # refresh judged fields; disposition/reason/first_seen untouched
     return out
 
 
@@ -206,8 +397,27 @@ def coverage_stats(state: Mapping[str, dict]) -> dict:
 # --- digest rendering ---------------------------------------------------------
 
 
-def render_gap_section(state: Mapping[str, dict], run_date: str, top_n: int = 10) -> str:
-    """One dated markdown section for the gap sweep. Coverage line + ranked new-gaps table."""
+def _md_cell(value: str | None) -> str:
+    """Sanitize a judge-authored string for a markdown table cell: empty -> '-', and pipes
+    or newlines (which would break the committed-log table) are neutralized. The digest is
+    written to a committed markdown file, so uncontrolled model text must not corrupt it."""
+    text = (value or "").strip()
+    if not text:
+        return "-"
+    return text.replace("|", r"\|").replace("\n", " ").replace("\r", " ")
+
+
+def render_gap_section(
+    state: Mapping[str, dict],
+    run_date: str,
+    top_n: int = 10,
+    *,
+    judgment_status: str = "ok",
+    pending_count: int = 0,
+) -> str:
+    """One dated markdown section: coverage line, ranked new-gaps table (with the rubric
+    rule and dashboard question from the judge), and a graceful judgment-status line when
+    the judge did not run."""
     cov = coverage_stats(state)
     visible = sorted(
         (e for e in state.values() if is_visible(e)),
@@ -224,17 +434,27 @@ def render_gap_section(state: Mapping[str, dict], run_date: str, top_n: int = 10
     ]
     if not visible:
         lines += ["No new gaps.", ""]
-        return "\n".join(lines)
-    shown = visible[:top_n]
-    lines += [
-        "| rank | surface | type | location |",
-        "| --- | --- | --- | --- |",
-    ]
-    for e in shown:
-        lines.append(f"| {e.get('rank', 5)} | {e['id']} | {e['surface_type']} | {e['location']} |")
-    if len(visible) > top_n:
-        lines.append(f"\n({len(visible) - top_n} more new gaps — see the state file.)")
-    lines.append("")
+    else:
+        shown = visible[:top_n]
+        lines += [
+            "| rank | surface | type | rubric rule | dashboard question | location |",
+            "| --- | --- | --- | --- | --- | --- |",
+        ]
+        for e in shown:
+            lines.append(
+                f"| {e.get('rank', 5)} | {e['id']} | {e['surface_type']} | "
+                f"{_md_cell(e.get('rubric_rule'))} | {_md_cell(e.get('dashboard_question'))} | "
+                f"{e['location']} |"
+            )
+        if len(visible) > top_n:
+            lines.append(f"\n({len(visible) - top_n} more new gaps — see the state file.)")
+        lines.append("")
+    if judgment_status not in ("ok", "no-candidates"):
+        lines += [
+            f"Judgment unavailable this run ({judgment_status}); "
+            f"{pending_count} candidate(s) pending, not yet judged.",
+            "",
+        ]
     return "\n".join(lines)
 
 
@@ -283,31 +503,62 @@ def _iter_files(repo_root: Path, sub: str, exclude_globs: Sequence[str]):
 
 
 def scan_repo(repo_root: Path, exclude_globs: Sequence[str]) -> tuple[list[dict], set[str]]:
-    """Walk gp-webapp + gp-api, returning all candidate surfaces and the set of files that
-    fire at least one event."""
+    """Walk gp-webapp + gp-api, returning all candidate surfaces (each with a bounded code
+    snippet for the judge) and the set of files that fire at least one event."""
     surfaces: list[dict] = []
     files_with_tracking: set[str] = set()
-    page_paths: list[str] = []
+    page_texts: dict[str, str] = {}
     for sub in (_WEBAPP_ROOT, _API_ROOT):
         for rel, path in _iter_files(repo_root, sub, exclude_globs):
             text = path.read_text(errors="replace")
             if has_tracking_call(text):
                 files_with_tracking.add(rel)
             if rel.endswith("/page.tsx"):
-                page_paths.append(rel)
-            surfaces.extend(detect_surfaces_in_file(rel, text))
-    surfaces.extend(enumerate_route_surfaces(page_paths, exclude_globs))
+                page_texts[rel] = text
+            for surface in detect_surfaces_in_file(rel, text):
+                pat = _DETECTOR_PATTERN.get(surface["surface_type"])
+                surface["snippet"] = extract_context(text, pat)
+                surfaces.append(surface)
+    routes = enumerate_route_surfaces(list(page_texts), exclude_globs)
+    for r in routes:
+        r["snippet"] = extract_context(page_texts.get(r["location"], ""), None)
+    surfaces.extend(routes)
     return surfaces, files_with_tracking
 
 
 def run_sweep(
-    repo_root: Path, config_path: Path, state_path: Path | None, today: date
-) -> tuple[dict, list[dict]]:
+    repo_root: Path,
+    config_path: Path,
+    state_path: Path | None,
+    today: date,
+    *,
+    api_key: str | None = None,
+    model: str = DEFAULT_MODEL,
+    limit: int = 25,
+    rubric_path: Path = DEFAULT_RUBRIC_PATH,
+    client_factory=make_anthropic_client,
+    enable_judge: bool = True,
+) -> tuple[dict, list[dict], str, int]:
+    """Scan → deterministic gaps → judge the untriaged capped set → merge confirmed gaps.
+    Returns (new_state, gaps, judgment_status, pending_count). Judgment is graceful: when it
+    does not return 'ok', no new entries are added and pending_count reports the candidates
+    that went un-judged."""
     cfg = load_gap_config(config_path)
+    prior = load_state(state_path)
     surfaces, tracked = scan_repo(repo_root, cfg["exclude_globs"])
     gaps = find_gaps(surfaces, tracked)
-    new_state = merge_state(load_state(state_path), gaps, today)
-    return new_state, gaps
+    candidates = select_candidates(gaps, prior, limit)
+    candidates_by_id = {c["id"]: c for c in candidates}
+    if enable_judge:
+        verdicts, status = run_judgment(
+            candidates, api_key=api_key, model=model,
+            rubric_path=rubric_path, client_factory=client_factory,
+        )
+    else:
+        verdicts, status = {}, "skipped: --no-judge"
+    new_state = merge_judged_state(prior, verdicts, candidates_by_id, today)
+    pending = 0 if status in ("ok", "no-candidates") else len(candidates)
+    return new_state, gaps, status, pending
 
 
 def prepend_log(log_path: Path, section: str) -> None:
@@ -329,6 +580,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--no-log", action="store_true")
     parser.add_argument("--json", type=Path, help="also write the full state JSON here")
     parser.add_argument("--today", help="override run date YYYY-MM-DD")
+    parser.add_argument("--model", default=DEFAULT_MODEL, help="judge model id")
+    parser.add_argument("--limit", type=int, default=25, help="max candidates judged per run")
+    parser.add_argument("--rubric", type=Path, default=DEFAULT_RUBRIC_PATH)
+    parser.add_argument("--no-judge", action="store_true", help="skip the LLM judgment pass")
     args = parser.parse_args(argv)
 
     repo_root = args.repo or Path(os.environ.get("OMNI_REPO", REPO_ROOT))
@@ -340,9 +595,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
 
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+
     # Graceful-skip contract: a scan/walk failure must never fail the governance run.
     try:
-        new_state, _gaps = run_sweep(repo_root, args.config, args.state, today)
+        new_state, _gaps, judgment_status, pending = run_sweep(
+            repo_root, args.config, args.state, today,
+            api_key=api_key, model=args.model, limit=args.limit,
+            rubric_path=args.rubric, enable_judge=not args.no_judge,
+        )
     except CorruptStateError as exc:
         print(
             f"gap-sweep: state file unreadable ({exc}); skipping this run, "
@@ -354,7 +615,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"gap-sweep: scan failed ({exc}); skipping this run, state untouched.", file=sys.stderr)
         return 0
 
-    section = render_gap_section(new_state, today.isoformat())
+    section = render_gap_section(
+        new_state, today.isoformat(),
+        judgment_status=judgment_status, pending_count=pending,
+    )
+    if judgment_status not in ("ok", "no-candidates"):
+        print(f"gap-sweep: {judgment_status} ({pending} candidates pending).", file=sys.stderr)
     sys.stdout.write(section)
     if not args.no_log:
         prepend_log(args.log, section)
