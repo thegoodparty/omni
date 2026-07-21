@@ -38,8 +38,6 @@ import {
 } from '@styleguide/components/ui/icons'
 import type {
   Ordinance,
-  OrdinanceQualityIterationSummary,
-  OrdinanceQualityLoopStatus,
   OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
@@ -51,13 +49,11 @@ import {
   deleteOrdinance,
   downloadOrdinanceExport,
   fetchOrdinanceBySlug,
-  fetchQualityIterations,
   updateOrdinance,
   type OrdinanceExportFormat,
 } from '../data/ordinances-api'
 import { ORDINANCE_STATUS_META, ORDINANCE_STATUS_ORDER } from '../data/statuses'
 import DraftChat from './DraftChat'
-import QualityLoopChanges from './QualityLoopChanges'
 import QualityReport from './QualityReport'
 import SourceLine from './SourceLine'
 
@@ -136,18 +132,6 @@ export default function DraftDetail({
   // The report the loop last delivered (or the initial one). Keyed into
   // QualityReport so a mid-loop refresh actually replaces the rendered card.
   const [loopReport, setLoopReport] = useState(ordinance.qualityReport)
-  // Seeded from the server snapshot: a loop that finished while this page
-  // was closed never fires the running -> terminal transition here, yet its
-  // outcome banner and change history are still due.
-  const [loopOutcome, setLoopOutcome] =
-    useState<OrdinanceQualityLoopStatus | null>(() =>
-      ordinance.qualityLoop && ordinance.qualityLoop.status !== 'running'
-        ? ordinance.qualityLoop.status
-        : null,
-    )
-  const [iterations, setIterations] = useState<
-    OrdinanceQualityIterationSummary[]
-  >([])
   const [stopping, setStopping] = useState(false)
   const [loopError, setLoopError] = useState<string | null>(null)
   const loopRunning = qualityLoop?.status === 'running'
@@ -223,22 +207,6 @@ export default function DraftDetail({
         }
         queuedRef.current = null
       }
-      if (nowRunning) {
-        setLoopOutcome(null)
-        setIterations([])
-        return
-      }
-      if (next.qualityLoop) {
-        setLoopOutcome(next.qualityLoop.status)
-        const gen = loopGenRef.current
-        void fetchQualityIterations(next.slug)
-          .then((res) => {
-            if (gen === loopGenRef.current) setIterations(res.iterations)
-          })
-          .catch(() => {
-            if (gen === loopGenRef.current) setIterations([])
-          })
-      }
     },
     [seedEditorsFrom],
   )
@@ -256,22 +224,6 @@ export default function DraftDetail({
     }, LOOP_POLL_MS)
     return () => clearInterval(timer)
   }, [loopRunning, ordinance.slug, applyLoopFetch])
-
-  // Change history for an outcome seeded from the server snapshot (loop
-  // finished before this page mounted). Later outcomes load their history in
-  // applyLoopFetch's transition path.
-  useEffect(() => {
-    if (!loopOutcome) return
-    const gen = loopGenRef.current
-    void fetchQualityIterations(ordinance.slug)
-      .then((res) => {
-        if (gen === loopGenRef.current) setIterations(res.iterations)
-      })
-      .catch(() => undefined)
-    // Mount-only: reacting to later loopOutcome changes would double-fetch
-    // what the transition path already loads.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // A loop can be started from another tab (or by the saveDraft hook while
   // this page sat in a background tab). Re-check on focus/visibility so a
@@ -315,45 +267,6 @@ export default function DraftDetail({
       setStopping(false)
     }
   }
-
-  const restoreOriginal = useCallback(async (): Promise<void> => {
-    const original = iterations[0]
-    if (!original) return
-    // Invalidate in-flight polls and pending autosaves: a debounced edit of
-    // the discarded text (or a queued save) firing after the restore would
-    // silently PATCH the old draft back over it.
-    loopGenRef.current += 1
-    if (bodyTimerRef.current) {
-      clearTimeout(bodyTimerRef.current)
-      bodyTimerRef.current = null
-    }
-    if (titleTimerRef.current) {
-      clearTimeout(titleTimerRef.current)
-      titleTimerRef.current = null
-    }
-    queuedRef.current = null
-    const update: UpdateOrdinanceRequest = { draftBody: original.draftBody }
-    // The wire contract rejects empty strings; an untitled original restores
-    // body-only rather than 400ing the whole restore.
-    const title = original.draftTitle.trim()
-    if (title.length > 0) update.draftTitle = title
-    // Restore the sources graded with that draft — later revise steps append
-    // sources the restored text never cites. The contract requires min(1),
-    // so a sourceless snapshot restores text-only.
-    if (original.draftSources && original.draftSources.length > 0) {
-      update.draftSources = original.draftSources
-    }
-    const next = await updateOrdinance(ordinance.slug, update)
-    seedEditorsFrom(next)
-    setLoopReport(next.qualityReport)
-    // The report on the record was graded against the loop's final draft;
-    // the restored original is different text, so the report is now stale.
-    setDraftDirty(true)
-    // The outcome banner and this restore affordance describe a result the
-    // user just undid — leaving them up contradicts the editor's content.
-    setLoopOutcome(null)
-    setIterations([])
-  }, [iterations, ordinance.slug, seedEditorsFrom])
 
   const handleExport = async (format: OrdinanceExportFormat): Promise<void> => {
     setExportError(null)
@@ -790,14 +703,6 @@ export default function DraftDetail({
               onInput={onBodyInput}
               className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
             />
-            {loopOutcome && !loopRunning ? (
-              <QualityLoopChanges
-                status={loopOutcome}
-                report={loopReport}
-                iterations={iterations}
-                onRestoreOriginal={restoreOriginal}
-              />
-            ) : null}
             <QualityReport
               key={loopReport?.ranAgainstBodyHash ?? 'no-report'}
               slug={ordinance.slug}
