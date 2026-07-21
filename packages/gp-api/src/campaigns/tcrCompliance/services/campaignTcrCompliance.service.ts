@@ -448,6 +448,21 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       }
       throw err
     }
+
+    // Stamp the delivery details onto the HubSpot company directly (via the
+    // company sync, which now carries the n10_dlc_pin_* fields). The
+    // Segment -> HubSpot event-property path silently drops properties that
+    // are missing from the destination's mapping, so the company sync is the
+    // guaranteed carrier; the event remains the workflow trigger.
+    try {
+      await this.crmCampaignsService.trackCampaign(campaign.id)
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        '[TCR Compliance] CRM company sync failed after PIN Sent event; ' +
+          'next full sync will carry the PIN delivery fields',
+      )
+    }
   }
 
   private async firePinSentEvent(
