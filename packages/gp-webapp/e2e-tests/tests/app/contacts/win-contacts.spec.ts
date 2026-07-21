@@ -127,11 +127,15 @@ test.describe('Win Contacts', () => {
     // --- Download from the detail-sheet footer: the request must succeed
     // (pro-gated on the server). Assert the response rather than the
     // streamed file event, which is not deterministically observable. ---
+    // The export is generated server-side (people-api query -> CSV) before the
+    // response headers, which the app's own toast bills at "10-15 seconds" on a
+    // warm stack; a cold per-PR preview runs longer, so give it room (the test
+    // budget is 5 min).
     const downloadResponsePromise = page.waitForResponse(
       (response) =>
         response.url().includes('/api/v1/contacts/download') &&
         response.request().method() === 'GET',
-      { timeout: 30000 },
+      { timeout: 90000 },
     )
     await detailSheet.getByRole('button', { name: 'Download list' }).click()
     const downloadResponse = await downloadResponsePromise

@@ -250,6 +250,12 @@ test.describe('Saved list lifecycle', () => {
       await confirmDelete.click()
     })
 
+    // The selector dropdown was opened to reach the trash and stays open behind
+    // the (now-closed) confirm dialog; on a cold preview it doesn't re-render
+    // shut fast enough, leaving a listbox and no combobox trigger for the
+    // assertions below. Close it explicitly (a no-op if already shut).
+    await page.keyboard.press('Escape')
+
     await expect(segmentSelect(page)).not.toContainText(listName, {
       timeout: 15000,
     })
