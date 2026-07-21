@@ -23,9 +23,27 @@ const loadSdk = (): Promise<GeoapifySdk> =>
     () => import('@geoapify/route-planner-sdk'),
   ))
 
-// The SDK's fetch has no timeout option, so the plan call races a deadline:
-// the knock endpoint must fail visibly rather than hold its transaction open.
+// The SDK's fetch has no timeout option, so vendor calls race a deadline:
+// the knock endpoint must fail visibly rather than hold its transaction
+// open. The timer is cleared on settle so a resolved call doesn't leave a
+// 30s handle delaying shutdown (and leaking in tests).
 const PLAN_TIMEOUT_MS = 30_000
+
+const raceWithDeadline = <Value>(
+  work: Promise<Value>,
+  timeoutMessage: string,
+): Promise<Value> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(timeoutMessage)),
+        PLAN_TIMEOUT_MS,
+      )
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
 
 // [lng, lat] — GeoJSON coordinate order, which Geoapify uses throughout.
 export type LngLat = [number, number]
@@ -110,15 +128,7 @@ export class GeoapifyRoutePlannerService {
 
     let result: RoutePlannerResult
     try {
-      result = await Promise.race([
-        planner.plan(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Route planner timed out')),
-            PLAN_TIMEOUT_MS,
-          ),
-        ),
-      ])
+      result = await raceWithDeadline(planner.plan(), 'Route planner timed out')
     } catch (error) {
       // RoutePlannerError.message is the API's error text; never log the
       // original error object — the request URL carries ?apiKey=<key>.
@@ -212,15 +222,10 @@ export class GeoapifyRoutePlannerService {
     try {
       // getRoute is typed Promise<any>; narrow structurally instead of
       // asserting.
-      const feature: unknown = await Promise.race([
+      const feature: unknown = await raceWithDeadline<unknown>(
         agentPlan.getRoute({ mode }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error('Routing request timed out')),
-            PLAN_TIMEOUT_MS,
-          ),
-        ),
-      ])
+        'Routing request timed out',
+      )
       if (
         typeof feature !== 'object' ||
         feature === null ||
