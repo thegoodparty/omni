@@ -1,10 +1,10 @@
 {
   "$schema": "../_schema/manifest.schema.json",
   "id": "meeting_briefing",
-  "version": 15,
+  "version": 16,
   "model": "sonnet",
   "max_turns": 200,
-  "timeout_seconds": 3000,
+  "timeout_seconds": 3600,
   "runtime": {
     "max_thinking_tokens": 0
   },
