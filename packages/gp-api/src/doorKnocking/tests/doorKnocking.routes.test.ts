@@ -58,7 +58,7 @@ const insidePeople = [
 const bboxOnlyPerson = person(9, 41.9, -87.6401)
 
 type PostBody = {
-  jobs: Array<{ id: string }>
+  jobs: Array<{ id: string; location?: [number, number] }>
   agents?: Array<Record<string, unknown>>
 }
 
@@ -90,7 +90,11 @@ const geoapifyPlan = (body: PostBody) => {
           mode: 'walk',
           actions: ordered.map((job) => ({ type: 'job', job_id: job.id })),
           legs: ordered.map((_, i) => ({ time: 60 + i, distance: 100 + i })),
-          waypoints: [],
+          waypoints: ordered.map((job) => ({
+            original_location: job.location ?? [0, 0],
+            location: job.location ?? [0, 0],
+            actions: [],
+          })),
         },
       },
     ],
@@ -128,6 +132,28 @@ const stubVendors = (
     return of({ data: {} })
   }) as never)
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (String(url).includes('/v1/routing')) {
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              type: 'Feature',
+              geometry: {
+                type: 'MultiLineString',
+                coordinates: [
+                  [
+                    [-87.65, 41.9],
+                    [-87.651, 41.901],
+                  ],
+                ],
+              },
+              properties: {},
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }
     if (!String(url).includes('routeplanner')) {
       // Clerk enrichment etc. still ride real fetch.
       return realFetch(url as Parameters<typeof fetch>[0], init)
@@ -276,6 +302,11 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(201)
       expect(res.data.created).toBe(true)
       expect(res.data.route.stopCount).toBe(3)
+
+      const frozen = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+        where: { doorKnockingTurfId: turf.id },
+      })
+      expect(frozen.pathGeometry).toMatchObject({ type: 'MultiLineString' })
       expect(res.data.route.totalSeconds).toBe(900)
 
       const route = await service.prisma.doorKnockingRoute.findUniqueOrThrow({
@@ -437,7 +468,11 @@ describe('door-knocking routes', () => {
                     time: 60 + i,
                     distance: 100 + i,
                   })),
-                  waypoints: [],
+                  waypoints: ordered.map((job) => ({
+                    original_location: job.location ?? [0, 0],
+                    location: job.location ?? [0, 0],
+                    actions: [],
+                  })),
                 },
               },
             ],

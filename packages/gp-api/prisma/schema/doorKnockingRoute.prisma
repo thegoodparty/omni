@@ -21,6 +21,11 @@ model DoorKnockingRoute {
   totalMeters        Int                    @map("total_meters")
   // Geoapify credits spent generating this route (locations x 10).
   credits            Int
+  /// [RoutePathGeometry]
+  /// Road-following path from Geoapify's Routing API, fetched once at knock
+  /// and frozen (their terms permit storing results). Null when the routing
+  /// call failed — consumers fall back to straight seq-order legs.
+  pathGeometry       Json?                  @map("path_geometry")
   stops              DoorKnockingStop[]
   outreach           Outreach?
 

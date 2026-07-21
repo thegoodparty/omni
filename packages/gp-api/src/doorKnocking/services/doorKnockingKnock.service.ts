@@ -136,6 +136,7 @@ export class DoorKnockingKnockService extends createPrismaBase(
             totalSeconds: plan.totalSeconds,
             totalMeters: plan.totalMeters,
             credits: stops.length * GEOAPIFY_CREDITS_PER_LOCATION,
+            pathGeometry: plan.pathGeometry ?? undefined,
             stops: {
               create: plan.orderedJobIds.map((jobId, index) => {
                 const stop = stops[Number(jobId)]!
