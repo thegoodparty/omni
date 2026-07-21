@@ -30,7 +30,9 @@ const districtServiceMock = {
 }
 
 const databaseUrlProviderMock = {
-  current: 'postgres://example/test',
+  ensureLoaded: vi.fn<() => Promise<string>>(() =>
+    Promise.resolve('postgres://example/test'),
+  ),
   onChange: vi.fn<(listener: (url: string) => void) => () => void>(() =>
     vi.fn(),
   ),
@@ -91,7 +93,7 @@ describe('PeopleDownloadService', () => {
   let service: PeopleDownloadService
   let copyStream: PassThrough
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     districtServiceMock.findDistrictById.mockReset()
     districtServiceMock.findDistrictById.mockResolvedValue(cityWardDistrict)
@@ -112,7 +114,7 @@ describe('PeopleDownloadService', () => {
       districtServiceMock as never,
       databaseUrlProviderMock as never,
     )
-    service.onModuleInit()
+    await service.onModuleInit()
   })
 
   afterEach(() => {

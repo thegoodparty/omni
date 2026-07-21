@@ -46,16 +46,19 @@ const apiURL = `${apiBaseURL}/api`
 // A cold PR-preview gp-api stack returns gateway 5xx (502/503/504) on its first
 // requests until the ECS target passes health checks, and can refuse the
 // connection outright. These are pre-backend (the request never reached a
-// healthy task), so re-issuing is safe even for the EO seed write. Mirrors the
-// retry policy in `tests/utils/api-registration.ts`.
-const RETRIABLE_GATEWAY_STATUSES = new Set([502, 503, 504])
+// healthy task), so re-issuing is safe even for the EO seed write. 401 is
+// retried for the same reason as in `tests/utils/headless-user.ts`: a freshly
+// minted Clerk session token is transiently rejected until the session
+// propagates (most visible under parallel shards on a cold preview). Mirrors
+// the retry policy in `tests/utils/headless-user.ts`.
+const RETRIABLE_STATUSES = new Set([401, 502, 503, 504])
 const GATEWAY_RETRY_ATTEMPTS = 5
 
 const isRetriableGatewayError = (error: unknown): boolean => {
   if (!axios.isAxiosError(error)) return false
   const status = error.response?.status
   if (status === undefined) return true
-  return RETRIABLE_GATEWAY_STATUSES.has(status)
+  return RETRIABLE_STATUSES.has(status)
 }
 
 const withGatewayRetry = async <T>(

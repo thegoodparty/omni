@@ -9,6 +9,11 @@ import { DISPLAY_TASK_TYPES } from 'app/dashboard/shared/constants/tasks.const'
 import { VoterFileFilters } from 'helpers/types'
 import { Outreach } from 'app/dashboard/outreach/hooks/OutreachContext'
 import { OutreachType } from 'gpApi/types/outreach.types'
+import {
+  AUDIENCE_FILTER_SNAKE_KEYS,
+  AudienceFilterCamelKey,
+  snakeToCamelAudienceKey,
+} from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 
 const PEERLY_DEFAULT_IMAGE_TITLE = `P2P Outreach - Campaign`
 
@@ -102,31 +107,7 @@ export const AUTO_VOTER_FILTER_NAME_PATTERN = new RegExp(
 )
 
 // MappedAudience is the subset of VoterFileFilters used for audience mapping
-type MappedAudience = Pick<
-  VoterFileFilters,
-  | 'audienceSuperVoters'
-  | 'audienceLikelyVoters'
-  | 'audienceUnreliableVoters'
-  | 'audienceUnlikelyVoters'
-  | 'audienceFirstTimeVoters'
-  | 'partyIndependent'
-  | 'partyDemocrat'
-  | 'partyRepublican'
-  | 'age18_25'
-  | 'age25_35'
-  | 'age35_50'
-  | 'age50Plus'
-  | 'age18_24'
-  | 'age25_34'
-  | 'age35_49'
-  | 'age50_64'
-  | 'age65Plus'
-  | 'genderMale'
-  | 'genderFemale'
-  | 'genderUnknown'
->
-
-type MappedAudienceKey = keyof MappedAudience
+type MappedAudience = Pick<VoterFileFilters, AudienceFilterCamelKey>
 
 export const handleCreateOutreach =
   ({
@@ -199,92 +180,16 @@ export const handleCreateOutreach =
     return outreach
   }
 
-export const mapAudienceForPersistence = ({
-  audience_superVoters: audienceSuperVoters,
-  audience_likelyVoters: audienceLikelyVoters,
-  audience_unreliableVoters: audienceUnreliableVoters,
-  audience_unlikelyVoters: audienceUnlikelyVoters,
-  audience_firstTimeVoters: audienceFirstTimeVoters,
-  party_independent: partyIndependent,
-  party_democrat: partyDemocrat,
-  party_republican: partyRepublican,
-  age_18_25: age18_25,
-  age_25_35: age25_35,
-  age_35_50: age35_50,
-  age_50_plus: age50Plus,
-  age_18_24: age18_24,
-  age_25_34: age25_34,
-  age_35_49: age35_49,
-  age_50_64: age50_64,
-  age_65_plus: age65Plus,
-  gender_male: genderMale,
-  gender_female: genderFemale,
-  gender_unknown: genderUnknown,
-}: AudienceState = {}): MappedAudience => {
-  // TODO: Fix the keys for the audience values in the CustomVoterAudienceFilters
-  //  to match the API once we redo that component so that we don't have to do
-  //  this mapping: https://goodparty.atlassian.net/browse/WEB-4277
-
-  // If making a change, also update:
-  // gp-webapp/app/dashboard/outreach/util/downloadVoterList.util.ts
-  // gp-webapp/app/dashboard/components/tasks/flows/util/flowHandlers.util.ts
-  // gp-webapp/app/dashboard/outreach/util/convertAudienceFiltersForModal.util.ts
-  // gp-webapp/app/dashboard/outreach/util/formatAudienceLabels.util.ts
-  // gp-webapp/app/dashboard/outreach/constants.tsx
-  const mappedAudience: MappedAudience = {
-    audienceSuperVoters,
-    audienceLikelyVoters,
-    audienceUnreliableVoters,
-    audienceUnlikelyVoters,
-    audienceFirstTimeVoters,
-    partyIndependent,
-    partyDemocrat,
-    partyRepublican,
-    age18_25,
-    age25_35,
-    age35_50,
-    age50Plus,
-    age18_24,
-    age25_34,
-    age35_49,
-    age50_64,
-    age65Plus,
-    genderMale,
-    genderFemale,
-    genderUnknown,
-  }
-
-  const AUDIENCE_KEYS: MappedAudienceKey[] = [
-    'audienceSuperVoters',
-    'audienceLikelyVoters',
-    'audienceUnreliableVoters',
-    'audienceUnlikelyVoters',
-    'audienceFirstTimeVoters',
-    'partyIndependent',
-    'partyDemocrat',
-    'partyRepublican',
-    'age18_25',
-    'age25_35',
-    'age35_50',
-    'age50Plus',
-    'age18_24',
-    'age25_34',
-    'age35_49',
-    'age50_64',
-    'age65Plus',
-    'genderMale',
-    'genderFemale',
-    'genderUnknown',
-  ]
-
-  return AUDIENCE_KEYS.reduce<MappedAudience>(
-    (acc, k) => ({
-      ...acc,
-      ...(Boolean(mappedAudience[k]) ? { [k]: mappedAudience[k] } : {}),
-    }),
-    {},
-  )
-}
+// Translates the underscore-keyed audience form state into the camelCase
+// VoterFileFilters shape the API persists, keeping only the selected (truthy)
+// audiences. The snake_case <-> camelCase vocabulary lives in audienceFilterKeyMap.
+export const mapAudienceForPersistence = (
+  audience: AudienceState = {},
+): MappedAudience =>
+  AUDIENCE_FILTER_SNAKE_KEYS.reduce<MappedAudience>((acc, snakeKey) => {
+    const value = audience[snakeKey]
+    return value ? { ...acc, [snakeToCamelAudienceKey(snakeKey)]: value } : acc
+  }, {})
 
 export const handleCreatePhoneList =
   (errorSnackbar: (message: string) => void = noop) =>
