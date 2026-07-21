@@ -95,26 +95,58 @@ describe('CrmCampaignsService 10DLC filing properties', () => {
     companyUpdate.mockResolvedValue({ id: 'hs-1' })
   })
 
-  it('syncs TCR filing email, phone, and url to the HubSpot company', async () => {
+  it('syncs TCR filing and PIN delivery fields to the HubSpot company', async () => {
     tcrFindUnique.mockResolvedValue({
       email: 'filing@example.com',
       phone: '5555551234',
       filingUrl: 'https://sos.example.gov/filing/jane',
+      pinDeliveryMethod: 'email',
+      pinDeliveryDestination: 'treasurer@example.com',
+      pinSentDetectedAt: new Date('2026-07-21T04:08:04Z'),
     })
 
     await buildService().trackCampaign(5)
 
     expect(tcrFindUnique).toHaveBeenCalledWith({
       where: { campaignId: 5 },
-      select: { email: true, phone: true, filingUrl: true },
+      select: {
+        email: true,
+        phone: true,
+        filingUrl: true,
+        pinDeliveryMethod: true,
+        pinDeliveryDestination: true,
+        pinSentDetectedAt: true,
+      },
     })
     expect(companyUpdate).toHaveBeenCalledWith('hs-1', {
       properties: expect.objectContaining({
         n10_dlc_filing_email: 'filing@example.com',
         n10_dlc_filing_phone: '5555551234',
         n10_dlc_filing_url: 'https://sos.example.gov/filing/jane',
+        n10_dlc_pin_delivery_method: 'email',
+        n10_dlc_pin_delivery_destination: 'treasurer@example.com',
+        n10_dlc_pin_sent_at: String(Date.UTC(2026, 6, 21)),
       }),
     })
+  })
+
+  it('omits PIN delivery fields when the PIN has not been detected yet', async () => {
+    tcrFindUnique.mockResolvedValue({
+      email: 'filing@example.com',
+      phone: '5555551234',
+      filingUrl: 'https://sos.example.gov/filing/jane',
+      pinDeliveryMethod: null,
+      pinDeliveryDestination: null,
+      pinSentDetectedAt: null,
+    })
+
+    await buildService().trackCampaign(5)
+
+    expect(companyUpdate).toHaveBeenCalledTimes(1)
+    const properties = companyUpdate.mock.calls.at(0)?.[1].properties
+    expect(properties).not.toHaveProperty('n10_dlc_pin_delivery_method')
+    expect(properties).not.toHaveProperty('n10_dlc_pin_sent_at')
+    expect(properties).not.toHaveProperty('n10_dlc_pin_delivery_destination')
   })
 
   it('omits the filing properties when no TCR record exists', async () => {

@@ -113,6 +113,11 @@ jobs:
         continue-on-error: true
         env:
           OMNI_REPO: ${{ github.workspace }}
+          # Phase 2 judgment key, scoped to this analytics-governance cron (repo secret
+          # ANTHROPIC_PRODUCT_ANALYTICS_API_KEY, mapped into the SDK-standard ANTHROPIC_API_KEY
+          # env var). Unset until an omni repo admin adds it; run_judgment then reports
+          # "skipped: ANTHROPIC_API_KEY unset" and the run continues (DATA-2151).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
         run: |
           uv run instrumentation_gaps.py --today "$(date -u +%F)"
 
