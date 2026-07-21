@@ -1142,7 +1142,8 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     details: { electionDate: '2026-11-03' },
   })
 
-  // A real bio (>= 500 chars, no template marker) plus one real issue, so the
+  // A real bio (well over MIN_BIO_LENGTH, no template marker) plus one real
+  // issue, so the
   // content gate passes by default; individual tests override this to
   // exercise the generic-content rejection path.
   const genuineContent = {

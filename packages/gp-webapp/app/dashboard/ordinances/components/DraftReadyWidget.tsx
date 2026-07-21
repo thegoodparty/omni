@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Badge, cn } from '@styleguide'
 import { ChevronRightIcon } from '@styleguide/components/ui/icons'
 import type { OrdinancePresentDraft } from '@goodparty_org/contracts'
+import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
 
 // The present_draft tool payload rendered as a compact "draft ready" card. The
 // full ordinance text lives on the record (draft columns) and opens on its own
@@ -15,6 +16,10 @@ export default function DraftReadyWidget({
   slug: string
 }): React.JSX.Element {
   const { title, description } = draft
+  // Expectation-setting only, not the treatment surface — read without
+  // exposure. saveDraft auto-starts the improvement loop for flagged-in
+  // users, so the card says what will already be happening on the draft page.
+  const { enabled: loopEnabled } = useOrdinanceQualityLoopFlag(false)
   return (
     <Link
       href={`/dashboard/ordinances/draft/${slug}`}
@@ -28,6 +33,15 @@ export default function DraftReadyWidget({
           {description ? (
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
               {description}
+            </p>
+          ) : null}
+          {loopEnabled ? (
+            // Future tense on purpose: this card is static chat copy and the
+            // auto-start is fire-and-forget server-side — it can decline to
+            // run (flag/env/redline), so never assert the checks ARE running.
+            <p className="mt-1 text-sm text-muted-foreground">
+              We&apos;ll run quality checks on it — watch them from the draft
+              page.
             </p>
           ) : null}
         </div>

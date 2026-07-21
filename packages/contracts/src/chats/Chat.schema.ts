@@ -68,6 +68,14 @@ export type CreateChatResponse = z.infer<typeof CreateChatResponseSchema>
 
 export const CHAT_MESSAGE_MAX_LENGTH = 10_000
 
+// Hidden message the Campaign Manager client sends to trigger the story intake; the gp-api handler maps it to the scripted story greeting.
+export const CAMPAIGN_MANAGER_START_STORY_SENTINEL = '__start_story__'
+
+// Hidden message the Campaign Manager client sends when the candidate taps
+// "Learn more about the product"; the gp-api handler maps it to a canned
+// product overview.
+export const CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL = '__product_overview__'
+
 export const SendChatMessageRequestSchema = z.object({
   content: z.string().min(1).max(CHAT_MESSAGE_MAX_LENGTH),
   clientMessageId: z.guid().optional(),

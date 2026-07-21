@@ -147,6 +147,12 @@ export const EVENTS = {
     TrendingIssuesDispatchSkipped:
       'Community Issues - Trending Issues Dispatch Skipped',
   },
+  // Ordinance quality loop (Serve). Fires from the queue handler when a
+  // background quality-improvement loop reaches any terminal status — the
+  // browser only observes polling; completion is server truth.
+  Ordinances: {
+    QualityLoopCompleted: 'Ordinances - Quality Loop Completed',
+  },
 }
 
 export type UserContext = {

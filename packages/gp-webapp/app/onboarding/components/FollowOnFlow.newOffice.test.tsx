@@ -71,7 +71,7 @@ const advanceToOfficeSelection = async () => {
 }
 
 // Drive the manual-office path from office-selection through creation to the
-// pledge step (p2v + voter-demographics are skipped on the manual path).
+// pledge step (p2v is skipped on the manual path).
 const fillManualOfficeToPledge = async () => {
   fireEvent.click(
     await screen.findByRole('button', { name: /don.t see my office/i }),
