@@ -286,10 +286,14 @@ export class PackEncoder {
     }
     const pad4 = (n: number) => Math.ceil(n / 4) * 4
 
-    let manifestJson = ''
-    for (let iteration = 0; iteration < 8; iteration++) {
+    // Offsets are computed FROM dataStart, and dataStart only grows until
+    // the serialized manifest (whose offsets were computed from it) fits
+    // inside it — so the written manifest is always consistent with the
+    // actual layout. Monotone growth converges in 2-3 iterations; the guard
+    // turns a would-be silent corruption into a hard error.
+    const buildManifestJson = (dataStart: number): string => {
       const arrays: DoorKnockingPackManifest['arrays'] = []
-      let offset = 4 + pad4(Buffer.byteLength(manifestJson))
+      let offset = dataStart
       const push = (
         name: string,
         type: 'f32' | 'u32' | 'u8',
@@ -311,18 +315,24 @@ export class PackEncoder {
         dims: this.dims.map((dim) => ({ key: dim.key, values: dim.values })),
         arrays,
       }
-      const next = JSON.stringify(manifest)
-      const stable =
-        pad4(Buffer.byteLength(next)) === pad4(Buffer.byteLength(manifestJson))
-      manifestJson = next
-      if (stable) break
+      return JSON.stringify(manifest)
+    }
+
+    let dataStart = 4
+    let manifestJson = ''
+    for (let iteration = 0; ; iteration++) {
+      if (iteration >= 8) {
+        throw new Error('pack manifest offsets did not converge')
+      }
+      manifestJson = buildManifestJson(dataStart)
+      const needed = 4 + pad4(Buffer.byteLength(manifestJson))
+      if (needed <= dataStart) break
+      dataStart = needed
     }
 
     const manifestBytes = Buffer.byteLength(manifestJson)
-    const paddedManifest = pad4(manifestBytes)
     const total =
-      4 +
-      paddedManifest +
+      dataStart +
       this.positionsLength * 4 +
       counts.people * 4 +
       counts.households * 4 +
@@ -331,7 +341,7 @@ export class PackEncoder {
     const buffer = Buffer.alloc(total)
     buffer.writeUInt32LE(manifestBytes, 0)
     buffer.write(manifestJson, 4, 'utf8')
-    let offset = 4 + paddedManifest
+    let offset = dataStart
     const copy = (view: Uint8Array) => {
       buffer.set(view, offset)
       offset += view.byteLength

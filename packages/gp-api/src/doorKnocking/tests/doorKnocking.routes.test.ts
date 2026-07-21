@@ -954,6 +954,7 @@ describe('door-knocking routes', () => {
       expect(packBody?.knockStatuses).toEqual([
         { personId, status: 'supporter' },
       ])
+      expect(packBody?.districtId).toBe(DISTRICT_ID)
     })
   })
 })
