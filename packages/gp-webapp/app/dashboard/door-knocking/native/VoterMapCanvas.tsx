@@ -6,7 +6,11 @@ import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers'
-import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
+import {
+  DOOR_KNOCK_STATUSES,
+  DoorKnockingTurf,
+  RoutePathGeometry,
+} from '@goodparty_org/contracts'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
 import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
@@ -38,6 +42,8 @@ interface VoterMapCanvasProps {
   routePins: RoutePin[]
   // Closed-loop routes draw the return leg back to stop 1.
   routeLoop: boolean
+  // Road-following path frozen at knock; straight legs are the fallback.
+  routeGeometry: RoutePathGeometry | null
   focusTurf: DoorKnockingTurf | null
   // Bump to enter polygon-draw mode (the page owns the Draw button).
   startDrawToken: number
@@ -107,6 +113,7 @@ export default function VoterMapCanvas({
   turfs,
   routePins,
   routeLoop,
+  routeGeometry,
   focusTurf,
   startDrawToken,
   clearDrawToken,
@@ -142,6 +149,19 @@ export default function VoterMapCanvas({
     })
     mapRef.current = map
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
+
+    // osm-liberty ships transit overlays and 3D building extrusions we
+    // don't want on a canvassing map — hide them, keep everything else.
+    map.on('style.load', () => {
+      for (const layer of map.getStyle().layers ?? []) {
+        const hide =
+          layer.type === 'fill-extrusion' ||
+          /transit|railway|rail|ferry|aeroway/i.test(layer.id)
+        if (hide) {
+          map.setLayoutProperty(layer.id, 'visibility', 'none')
+        }
+      }
+    })
 
     const overlay = new MapboxOverlay({ layers: [] })
     map.addControl(overlay as unknown as maplibregl.IControl)
@@ -281,6 +301,13 @@ export default function VoterMapCanvas({
           // deliberately not stored (Geoapify caching terms) — this is the
           // designed fallback geometry.
           data: (() => {
+            // Prefer the frozen road-following geometry; straight seq-order
+            // legs only when a route shipped without one.
+            if (routeGeometry) {
+              return routeGeometry.type === 'MultiLineString'
+                ? routeGeometry.coordinates
+                : [routeGeometry.coordinates]
+            }
             if (routePins.length < 2) return []
             const ordered = [...routePins].sort((a, b) => a.seq - b.seq)
             const path = ordered.map(
@@ -321,7 +348,15 @@ export default function VoterMapCanvas({
         }),
       ],
     })
-  }, [pack, filterResult, turfs, routePins, routeLoop, drawPoints])
+  }, [
+    pack,
+    filterResult,
+    turfs,
+    routePins,
+    routeLoop,
+    routeGeometry,
+    drawPoints,
+  ])
 
   useEffect(() => {
     if (!focusTurf || !mapRef.current) return

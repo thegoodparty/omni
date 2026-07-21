@@ -51,6 +51,7 @@ export default function NativeDoorKnockingPage({
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [drawPointCount, setDrawPointCount] = useState(0)
+  const [drawHintDismissed, setDrawHintDismissed] = useState(false)
   // Landing-map legend filter: chip clicks narrow the dots to those
   // statuses. Deliberately inert while the create flow is open — the flow's
   // own filter draft drives the preview there.
@@ -154,6 +155,7 @@ export default function NativeDoorKnockingPage({
   const changeFlowStep = (next: CreateFlowStep) => {
     if (next === 'draw' && flowStep === 'filters') {
       setStartDrawToken((token) => token + 1)
+      setDrawHintDismissed(false)
     }
     setFlowStep(next)
   }
@@ -301,6 +303,9 @@ export default function NativeDoorKnockingPage({
                 turfs={turfsQuery.data ?? []}
                 routePins={routePins}
                 routeLoop={walkRouteQuery.data?.route.loop ?? false}
+                routeGeometry={
+                  walkTurf ? (walkRouteQuery.data?.pathGeometry ?? null) : null
+                }
                 focusTurf={focusTurf}
                 startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
@@ -308,22 +313,31 @@ export default function NativeDoorKnockingPage({
                 onDrawPointCount={setDrawPointCount}
               />
             )}
-            {flowStep === 'draw' && drawPointCount === 0 && (
-              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                <div className="max-w-sm rounded-xl border border-border bg-background p-5 text-center shadow-lg">
-                  <p className="font-semibold">
-                    Draw your knocking boundaries.
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Tap on the map to drop boundary points, then drag any point
-                    to outline the doors you want to knock.
-                  </p>
-                  <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-info">
-                    Tap the map to get started
-                  </p>
-                </div>
-              </div>
-            )}
+            {flowStep === 'draw' &&
+              !drawHintDismissed &&
+              drawPointCount === 0 && (
+                // The overlay swallows the dismissing click — the first tap
+                // closes the card without dropping a boundary point.
+                <button
+                  type="button"
+                  aria-label="Dismiss map instructions"
+                  className="absolute inset-0 z-10 flex cursor-default items-center justify-center"
+                  onClick={() => setDrawHintDismissed(true)}
+                >
+                  <div className="max-w-sm rounded-xl border border-border bg-background p-5 text-center shadow-lg">
+                    <p className="font-semibold">
+                      Draw your knocking boundaries.
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Tap on the map to drop boundary points, then drag any
+                      point to outline the doors you want to knock.
+                    </p>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-info">
+                      Tap the map to get started
+                    </p>
+                  </div>
+                </button>
+              )}
           </div>
           {rightRail()}
           {flowStep && (
