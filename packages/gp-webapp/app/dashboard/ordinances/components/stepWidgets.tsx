@@ -11,6 +11,8 @@ import {
   type OrdinancePresentDraft,
 } from '@goodparty_org/contracts'
 import type { ChatMessageSegment } from '../../shared/agent-chat/chatClient'
+import type { LiveSegment } from '../../shared/agent-chat/streaming'
+import { InlineSegments } from '../../shared/agent-chat/chatUI'
 import AuthorityFindingWidget from './AuthorityFindingWidget'
 import ComparablesWidget from './ComparablesWidget'
 import CurrentLawSummaryWidget from './CurrentLawSummaryWidget'
@@ -106,6 +108,147 @@ export const parseStepWidgets = (
     const widget = parseStepWidget(s.toolName, s.payload)
     return widget ? [widget] : []
   })
+
+// A live widget plus the text position (chars streamed before its tool fired)
+// where it belongs in the turn, so it renders inline at that seam.
+export type PositionedWidget = {
+  instance: StepWidgetInstance
+  appearAfter: number
+}
+
+// A turn rendered as ordered blocks: runs of inline segments (text + tool pills)
+// and step cards, in stream order. A card sits at the point its tool fired, so
+// the lead-in text renders above it and any following prose renders below it.
+type TurnBlock =
+  | { kind: 'segments'; segments: LiveSegment[] }
+  | { kind: 'widget'; instance: StepWidgetInstance }
+
+// Live turn: splice each shown widget into the revealed segments at its text
+// position (`appearAfter`). Gated on a fixed threshold (not the moving
+// "revealDone"), so once the reveal passes `appearAfter` the card stays put and
+// later text types out below it — never flashing out as more text arrives.
+export function liveTurnBlocks(
+  visibleSegments: LiveSegment[],
+  widgets: PositionedWidget[],
+  revealedTextLength: number,
+): TurnBlock[] {
+  const shown = widgets
+    .filter((w) => revealedTextLength >= w.appearAfter)
+    .sort((a, b) => a.appearAfter - b.appearAfter)
+  const blocks: TurnBlock[] = []
+  let run: LiveSegment[] = []
+  let acc = 0
+  let wi = 0
+  const flushRun = (): void => {
+    if (run.length > 0) {
+      blocks.push({ kind: 'segments', segments: run })
+      run = []
+    }
+  }
+  const placeWidgetsUpTo = (pos: number): void => {
+    for (let w = shown[wi]; w && w.appearAfter <= pos; w = shown[wi]) {
+      flushRun()
+      blocks.push({ kind: 'widget', instance: w.instance })
+      wi++
+    }
+  }
+  for (const seg of visibleSegments) {
+    if (seg.kind !== 'text') {
+      placeWidgetsUpTo(acc)
+      run.push(seg)
+      continue
+    }
+    let text = seg.text
+    let segStart = acc
+    for (
+      let w = shown[wi];
+      w && w.appearAfter <= segStart + text.length;
+      w = shown[wi]
+    ) {
+      const at = Math.max(w.appearAfter, segStart)
+      const before = text.slice(0, at - segStart)
+      if (before) run.push({ kind: 'text', text: before })
+      flushRun()
+      blocks.push({ kind: 'widget', instance: w.instance })
+      text = text.slice(at - segStart)
+      segStart = at
+      wi++
+    }
+    if (text) run.push({ kind: 'text', text })
+    acc += seg.text.length
+  }
+  placeWidgetsUpTo(acc)
+  flushRun()
+  return blocks
+}
+
+// Reloaded turn: the persisted segments already carry the present_* tools at
+// their stream positions, so walk them in order — text and non-widget tools
+// into inline runs, widget tools as cards — to match the live interleaving.
+export function persistedTurnBlocks(
+  segments: ChatMessageSegment[],
+  content: string,
+): TurnBlock[] {
+  if (segments.length === 0) {
+    return content
+      ? [{ kind: 'segments', segments: [{ kind: 'text', text: content }] }]
+      : []
+  }
+  const blocks: TurnBlock[] = []
+  let run: LiveSegment[] = []
+  const flushRun = (): void => {
+    if (run.length > 0) {
+      blocks.push({ kind: 'segments', segments: run })
+      run = []
+    }
+  }
+  for (const s of segments) {
+    if (s.kind === 'text') {
+      if (s.text) run.push({ kind: 'text', text: s.text })
+      continue
+    }
+    if (!s.toolName) continue
+    if (isStepWidgetTool(s.toolName)) {
+      const widget = parseStepWidget(s.toolName, s.payload)
+      if (widget) {
+        flushRun()
+        blocks.push({ kind: 'widget', instance: widget })
+      }
+      continue
+    }
+    run.push({ kind: 'tool', toolName: s.toolName })
+  }
+  flushRun()
+  return blocks
+}
+
+// Render a turn's interleaved blocks: inline runs via the shared InlineSegments,
+// step cards inline between them.
+export function TurnBlocks({
+  blocks,
+  slug,
+  toolLabel,
+}: {
+  blocks: TurnBlock[]
+  slug: string
+  toolLabel: (toolName: string) => string | null
+}): React.JSX.Element {
+  return (
+    <>
+      {blocks.map((block, i) =>
+        block.kind === 'widget' ? (
+          <StepWidgetBlocks key={i} widgets={[block.instance]} slug={slug} />
+        ) : (
+          <InlineSegments
+            key={i}
+            segments={block.segments}
+            toolLabel={toolLabel}
+          />
+        ),
+      )}
+    </>
+  )
+}
 
 export function StepWidgetBlocks({
   widgets,

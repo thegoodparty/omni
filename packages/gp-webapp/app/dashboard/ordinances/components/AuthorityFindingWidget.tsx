@@ -5,6 +5,7 @@ import {
   TriangleAlertIcon,
 } from '@styleguide/components/ui/icons'
 import type { OrdinanceAuthorityFinding } from '@goodparty_org/contracts'
+import { CardMarkdown } from '../../shared/agent-chat/chatUI'
 import SourceLine from './SourceLine'
 
 // pass = authority confirmed, attention = authority with a caveat worth
@@ -56,13 +57,13 @@ export default function AuthorityFindingWidget({
         <p className="text-sm font-semibold text-foreground">
           {finding.headline}
         </p>
-        <p className="text-sm leading-6 text-foreground">
+        <CardMarkdown className="text-sm leading-6 text-foreground">
           {finding.explanation}
-        </p>
+        </CardMarkdown>
         {finding.confirmation ? (
-          <p className="text-sm leading-6 text-foreground">
+          <CardMarkdown className="text-sm leading-6 text-foreground">
             {finding.confirmation}
-          </p>
+          </CardMarkdown>
         ) : null}
         <div className="mt-1">
           <SourceLine source={finding.source} />

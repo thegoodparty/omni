@@ -322,10 +322,9 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     expect(screen.queryByText(/Nowhere/)).not.toBeInTheDocument()
   })
 
-  it('keeps every live widget mounted while later text in the same turn types out', async () => {
+  it("shows a turn's cards together below its lead-in, once the text types out", async () => {
     // Mount load is empty (kickoff); the post-stream refetch returns the
-    // persisted turn so the commit swap resolves (the client waits for the
-    // finished turn to appear before swapping away the live render).
+    // persisted turn so the commit swap resolves.
     mocks.listMessages.mockResolvedValueOnce([]).mockResolvedValue([
       assistantTurn('m1', [
         { kind: 'text', text: 'Here is the chapter.' },
@@ -339,28 +338,19 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
           toolName: 'present_legislative_history',
           payload: historyPayload,
         },
-        {
-          kind: 'tool',
-          toolName: 'present_comparables',
-          payload: comparablesPayload,
-        },
       ]),
     ])
-    let releaseMid: (() => void) | undefined
-    const midGate = new Promise<void>((resolve) => {
-      releaseMid = resolve
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
     })
-    let releaseEnd: (() => void) | undefined
-    const endGate = new Promise<void>((resolve) => {
-      releaseEnd = resolve
-    })
-    const closing =
-      'Now that we have looked at the chapter itself and how past councils reasoned about it, we can line this up against the peer cities that solved the same problem before we move on.'
     mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
       ChatStreamEvent,
       void,
       void
     > {
+      // Lead-in text first, then the present_* tools, then the turn ends — no
+      // prose after the cards (the step ends with the offer button, not text).
       yield { type: 'text', delta: 'Here is the chapter.' }
       yield {
         type: 'tool_call',
@@ -372,14 +362,7 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
         toolName: 'present_legislative_history',
         args: historyPayload,
       }
-      yield {
-        type: 'tool_call',
-        toolName: 'present_comparables',
-        args: comparablesPayload,
-      }
-      await midGate
-      yield { type: 'text', delta: closing }
-      await endGate
+      await gate
       yield { type: 'done' }
     })
 
@@ -387,32 +370,17 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
       <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
     )
 
-    // All three widgets from one live turn mount once the lead-in reveals,
-    // and the thinking shimmer is gone while they are on screen.
+    // The lead-in types out first, then both cards appear together below it.
     expect(
       await screen.findByText('What it does today', undefined, {
         timeout: 4000,
       }),
     ).toBeVisible()
     expect(screen.getByText('Intent and history')).toBeVisible()
-    expect(screen.getByText(/Edgewater, Oregon/)).toBeVisible()
+    expect(screen.getByText('Here is the chapter.')).toBeVisible()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
 
-    releaseMid?.()
-
-    // While the closing prose is still typing out, the widgets must stay
-    // mounted — the reveal gate may delay a widget's first appearance but
-    // must never unmount one already shown.
-    await waitFor(() =>
-      expect(
-        screen.getByText((content) => content.includes('Now that we')),
-      ).toBeInTheDocument(),
-    )
-    expect(screen.getByText('What it does today')).toBeVisible()
-    expect(screen.getByText('Intent and history')).toBeVisible()
-    expect(screen.getByText(/Edgewater, Oregon/)).toBeVisible()
-
-    releaseEnd?.()
+    release?.()
     await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2), {
       timeout: 8000,
     })

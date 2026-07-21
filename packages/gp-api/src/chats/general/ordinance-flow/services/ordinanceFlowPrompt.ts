@@ -193,6 +193,9 @@ const ASK_QUESTION_RULES = `ASK QUESTION RULES (whenever you call \`ask_clarify_
 - Offer 2-4 options. A factual option must carry a source whose cited excerpt directly establishes that option's specific claim (the exact threshold, ratio, or number); if the source backs only the general practice and not that specific figure, present the option as a policy choice WITHOUT a source rather than implying the source states a number it does not. This applies to rationales too: never assert an empirical or legal fact (what peer cities commonly do, what state law defines, a statistic) in a label or rationale without a real source — reframe as a pure policy preference instead. A pure-judgment option may omit a source. Never add an "Or write your own..." option yourself, the UI adds it.
 - After the user answers, the answer is recorded for you automatically; just continue.`
 
+const PRESENT_CARD_RULES = `PRESENT-CARD ORDERING (whenever you call a present_* tool):
+- Write the one-line lead-in sentence as your visible reply FIRST, then call the present_* tool. Never call a present_* tool before that lead-in — the app types the lead-in in and shows the card below it, so a tool-first turn makes the card pop up before any text. One short sentence is enough; the card's content goes in the tool call, not in prose. If you research first (e.g. \`web_search\`), the lead-in still comes before the present_* call, not after the tool pills and not skipped.`
+
 const CURRENT_LAW_RULES = `CURRENT LAW RULES (this step):
 - Start with \`get_code_source\` to find where the municipality's code lives, and route on its dataQuality: if it is not_found, rely on \`web_search\` and the user; if it is uncodified the record may still carry a pointer worth one \`fetch_url\` attempt before falling back to search.
 - Use \`fetch_url\` to read the most specific relevant chapters from the source url, and cite section numbers for every claim about current law.
@@ -267,6 +270,9 @@ export const buildOrdinanceFlowSystemPrompt = (args: {
     // rulebook already includes it.
     ...(toolNames.includes('ask_clarify_question') && ctx.step !== 'clarify'
       ? [ASK_QUESTION_RULES]
+      : []),
+    ...(toolNames.some((name) => name.startsWith('present_'))
+      ? [PRESENT_CARD_RULES]
       : []),
     ...(toolNames.includes('fetch_url') ? [CURRENT_LAW_RULES] : []),
     ...(toolNames.includes('present_authority_finding')
