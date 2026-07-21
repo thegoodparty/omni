@@ -50,6 +50,12 @@ export default function NativeDoorKnockingPage({
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
   const [drawPointCount, setDrawPointCount] = useState(0)
+  // Landing-map legend filter: chip clicks narrow the dots to those
+  // statuses. Deliberately inert while the create flow is open — the flow's
+  // own filter draft drives the preview there.
+  const [statusFilter, setStatusFilter] = useState<Set<DoorKnockStatus>>(
+    new Set(),
+  )
   const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [walkTurf, setWalkTurf] = useState<{
@@ -59,13 +65,26 @@ export default function NativeDoorKnockingPage({
 
   // The filter draft narrows the preview only while the create flow is open;
   // the landing map always shows the whole district.
-  const selections = useMemo(
-    () =>
-      flowStep && packQuery.data
-        ? filtersToDimSelections(filters, packQuery.data.manifest)
-        : new Map<string, Set<number>>(),
-    [flowStep, filters, packQuery.data],
-  )
+  const selections = useMemo(() => {
+    if (!packQuery.data) return new Map<string, Set<number>>()
+    if (flowStep) {
+      return filtersToDimSelections(filters, packQuery.data.manifest)
+    }
+    if (statusFilter.size > 0) {
+      const dim = packQuery.data.manifest.dims.find(
+        (d) => d.key === 'canvassStatus',
+      )
+      const indexes = new Set(
+        [...statusFilter]
+          .map((status) => dim?.values.indexOf(status) ?? -1)
+          .filter((index) => index >= 0),
+      )
+      if (indexes.size > 0) {
+        return new Map<string, Set<number>>([['canvassStatus', indexes]])
+      }
+    }
+    return new Map<string, Set<number>>()
+  }, [flowStep, filters, statusFilter, packQuery.data])
   const filterResult = useMemo(
     () => (packQuery.data ? runFilter(packQuery.data, selections) : null),
     [packQuery.data, selections],
@@ -170,9 +189,23 @@ export default function NativeDoorKnockingPage({
           </div>
           <div className="flex flex-wrap gap-1.5">
             {DOOR_KNOCK_STATUSES.map((status) => (
-              <span
+              <button
                 key={status}
-                className="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs"
+                type="button"
+                aria-pressed={statusFilter.has(status)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+                  statusFilter.has(status)
+                    ? 'border-tertiary-dark bg-tertiary-dark/10 font-medium'
+                    : 'border-border'
+                }`}
+                onClick={() =>
+                  setStatusFilter((current) => {
+                    const next = new Set(current)
+                    if (next.has(status)) next.delete(status)
+                    else next.add(status)
+                    return next
+                  })
+                }
               >
                 <span
                   className="h-2 w-2 rounded-full"
@@ -182,7 +215,7 @@ export default function NativeDoorKnockingPage({
                 <span className="font-semibold tabular-nums">
                   {(statusCounts[status] ?? 0).toLocaleString()}
                 </span>
-              </span>
+              </button>
             ))}
           </div>
         </section>
