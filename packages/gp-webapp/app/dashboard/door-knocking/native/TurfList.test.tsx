@@ -46,6 +46,7 @@ describe('TurfList', () => {
 
     render(
       <TurfList
+        selectedTurfId={null}
         onFocusTurf={onFocusTurf}
         onShowDetails={onShowDetails}
         onKnockTurf={onKnockTurf}

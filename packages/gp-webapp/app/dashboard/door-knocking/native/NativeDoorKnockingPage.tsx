@@ -14,8 +14,12 @@ import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
 import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { voterPackQueryOptions } from './useVoterPack'
-import { polygonStats, runFilter } from './filterEngine'
-import { routeQueryOptions, turfsQueryOptions } from './turfQueries'
+import { maskToPolygon, polygonStats, runFilter } from './filterEngine'
+import {
+  routeQueryOptions,
+  savedListsQueryOptions,
+  turfsQueryOptions,
+} from './turfQueries'
 import CreateListFlow, { CreateFlowStep } from './createFlow/CreateListFlow'
 import { filtersToDimSelections } from './createFlow/voterFilterPreview'
 import KnockTurfDialog from './KnockTurfDialog'
@@ -59,6 +63,12 @@ export default function NativeDoorKnockingPage({
     new Set(),
   )
   const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
+  // Landing-map turf scope: selecting a saved list shows only its dots —
+  // the list's saved filters recolor, the polygon masks everything else.
+  const [selectedTurf, setSelectedTurf] = useState<DoorKnockingTurf | null>(
+    null,
+  )
+  const savedListsQuery = useQuery(savedListsQueryOptions)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [detailsTurf, setDetailsTurf] = useState<DoorKnockingTurf | null>(null)
   const [walkTurf, setWalkTurf] = useState<{
@@ -72,6 +82,17 @@ export default function NativeDoorKnockingPage({
     if (!packQuery.data) return new Map<string, Set<number>>()
     if (flowStep) {
       return filtersToDimSelections(filters, packQuery.data.manifest)
+    }
+    if (selectedTurf) {
+      const list = savedListsQuery.data?.find(
+        (candidate) => candidate.id === selectedTurf.voterFileFilterId,
+      )
+      const listFilters = Object.fromEntries(
+        Object.entries(list ?? {}).filter(
+          ([, value]) => typeof value === 'boolean',
+        ),
+      ) as Record<string, boolean>
+      return filtersToDimSelections(listFilters, packQuery.data.manifest)
     }
     if (statusFilter.size > 0) {
       const dim = packQuery.data.manifest.dims.find(
@@ -87,11 +108,26 @@ export default function NativeDoorKnockingPage({
       }
     }
     return new Map<string, Set<number>>()
-  }, [flowStep, filters, statusFilter, packQuery.data])
-  const filterResult = useMemo(
-    () => (packQuery.data ? runFilter(packQuery.data, selections) : null),
-    [packQuery.data, selections],
-  )
+  }, [
+    flowStep,
+    filters,
+    statusFilter,
+    selectedTurf,
+    savedListsQuery.data,
+    packQuery.data,
+  ])
+  const filterResult = useMemo(() => {
+    if (!packQuery.data) return null
+    const result = runFilter(packQuery.data, selections)
+    if (!flowStep && selectedTurf) {
+      return maskToPolygon(
+        packQuery.data,
+        result,
+        (selectedTurf.geoPoly.coordinates[0] ?? []) as [number, number][],
+      )
+    }
+    return result
+  }, [packQuery.data, selections, flowStep, selectedTurf])
   // Unfiltered pass for turf-details area stats (doors/voters in polygon).
   const fullResult = useMemo(
     () =>
@@ -158,6 +194,7 @@ export default function NativeDoorKnockingPage({
       setDrawHintDismissed(false)
     }
     setFlowStep(next)
+    setSelectedTurf(null)
   }
   const closeFlow = () => {
     setFlowStep(null)
@@ -191,7 +228,13 @@ export default function NativeDoorKnockingPage({
     return (
       <aside className="flex h-full w-96 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border bg-background p-4">
         <TurfList
-          onFocusTurf={setFocusTurf}
+          selectedTurfId={selectedTurf?.id ?? null}
+          onFocusTurf={(turf) => {
+            setSelectedTurf((current) =>
+              current?.id === turf.id ? null : turf,
+            )
+            setFocusTurf(turf)
+          }}
           onShowDetails={setDetailsTurf}
           onKnockTurf={(turf) => {
             // Knock is idempotent: a knocked turf opens its existing route,
@@ -202,10 +245,24 @@ export default function NativeDoorKnockingPage({
         />
         <section className="flex flex-col gap-2">
           <div>
-            <h2 className="text-sm font-semibold">District voters</h2>
+            <h2 className="text-sm font-semibold">
+              {selectedTurf ? selectedTurf.name : 'District voters'}
+            </h2>
             {filterResult && (
               <p className="text-xs text-muted-foreground">
-                {filterResult.people.toLocaleString()} voters in your district
+                {filterResult.people.toLocaleString()}{' '}
+                {selectedTurf
+                  ? 'voters in this list'
+                  : 'voters in your district'}
+                {selectedTurf && (
+                  <button
+                    type="button"
+                    className="ml-2 underline"
+                    onClick={() => setSelectedTurf(null)}
+                  >
+                    Show all
+                  </button>
+                )}
               </p>
             )}
           </div>

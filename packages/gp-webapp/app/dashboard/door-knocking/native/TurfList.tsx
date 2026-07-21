@@ -6,6 +6,8 @@ import { Button } from '@styleguide'
 import { turfsQueryOptions } from './turfQueries'
 
 interface TurfListProps {
+  // Highlights the list whose dots are currently scoped on the map.
+  selectedTurfId: number | null
   onFocusTurf: (turf: DoorKnockingTurf) => void
   onShowDetails: (turf: DoorKnockingTurf) => void
   // Knock on an unknocked turf builds the route; on a knocked turf it opens
@@ -14,6 +16,7 @@ interface TurfListProps {
 }
 
 export default function TurfList({
+  selectedTurfId,
   onFocusTurf,
   onShowDetails,
   onKnockTurf,
@@ -29,7 +32,11 @@ export default function TurfList({
       {turfs.map((turf) => (
         <div
           key={turf.id}
-          className="flex items-center gap-2 rounded-md border border-border p-2.5"
+          className={`flex items-center gap-2 rounded-md border p-2.5 ${
+            turf.id === selectedTurfId
+              ? 'border-tertiary-dark bg-tertiary-dark/5'
+              : 'border-border'
+          }`}
         >
           <span
             className="h-3 w-3 shrink-0 rounded-full"
