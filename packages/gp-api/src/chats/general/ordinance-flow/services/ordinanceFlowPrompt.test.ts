@@ -38,6 +38,25 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('Reduce late-night construction noise')
   })
 
+  it('keeps vendors and research mechanics out of user-facing prose on every step', () => {
+    for (const step of [
+      'clarify',
+      'authority',
+      'current_law',
+      'comparables',
+      'draft',
+    ] as const) {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: baseCtx({ step }),
+        toolNames: [],
+      })
+      expect(prompt).toContain(
+        'never name the vendors, platforms, or tools behind your research',
+      )
+      expect(prompt).toContain("your city's published code")
+    }
+  })
+
   it('names the current step and its goal', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'clarify' }),
