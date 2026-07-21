@@ -24,7 +24,10 @@ module owns the records and everything that grades or revises them.
 
 Prisma: `prisma/schema/ordinance.prisma` (both machines' columns) +
 `prisma/schema/ordinanceQualityIteration.prisma` (per-pass history — the
-what-changed UI, position-resolution substrate, and offline eval corpus).
+handler's position-resolution substrate, the terminal best-restore source,
+and the offline eval corpus; the webapp shows no outcome/history UI — per
+the design, the quality report card is the only quality surface, so the
+`quality-iterations` endpoint currently has no webapp consumer).
 
 ## Two state machines — do not conflate them
 
