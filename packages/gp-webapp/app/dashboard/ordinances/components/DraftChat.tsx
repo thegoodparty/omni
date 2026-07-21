@@ -11,6 +11,7 @@ import {
 } from '../../shared/agent-chat/chatUI'
 import { segmentsToLive } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
@@ -40,7 +41,6 @@ export default function DraftChat({
     onChange: setComposer,
     analyticsLabel: 'ordinance-draft-chat',
   })
-  const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Opened from the launcher's mic: begin dictation on mount, while the opening
   // tap is still a fresh gesture for the permission prompt. Keyed on autoDictate
@@ -115,17 +115,10 @@ export default function DraftChat({
     if (seedNonce !== 0 && conversationId) inputRef.current?.focus()
   }, [seedNonce, conversationId])
 
-  // A new persisted turn scrolls in smoothly.
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
-
-  // Stay pinned to the bottom as the live turn streams. visibleSegments updates
-  // ~40x/s, so use an instant scroll (a smooth one would restart its animation
-  // every tick and never settle).
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'auto' })
-  }, [visibleSegments])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+  ])
 
   const working = sending && visibleSegments.length === 0
 
@@ -148,7 +141,11 @@ export default function DraftChat({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto"
+      >
         {history.map((m) =>
           m.live === null ? (
             <UserBubble key={m.id}>{m.content}</UserBubble>
@@ -172,8 +169,6 @@ export default function DraftChat({
         ) : null}
 
         {working ? <ThinkingRow /> : null}
-
-        <div ref={bottomRef} />
       </div>
 
       <ChatComposer

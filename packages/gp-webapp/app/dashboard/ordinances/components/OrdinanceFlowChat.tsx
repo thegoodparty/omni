@@ -30,6 +30,7 @@ import {
   segmentsToLive,
 } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
@@ -174,7 +175,6 @@ export default function OrdinanceFlowChat({
     analyticsLabel: 'ordinance-flow-chat',
   })
   const [streamError, setStreamError] = useState<string | null>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
@@ -351,9 +351,14 @@ export default function OrdinanceFlowChat({
     }
   }, [slug, stepValue])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, visibleSegments, liveClarify])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+    liveClarify,
+    // The next-step offer is consumed by onEvent (never hits visibleSegments),
+    // so include it or the offer widget renders below the fold unscrolled.
+    liveOffer,
+  ])
 
   if (phase === 'loading') {
     return (
@@ -474,7 +479,11 @@ export default function OrdinanceFlowChat({
     <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
       {/* Everything but the composer scrolls together — the stepper scrolls
           away with the conversation, matching the prototype. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
           <header className="flex flex-col gap-3">
             <OrdinanceStepper current={stepValue} />
@@ -546,8 +555,6 @@ export default function OrdinanceFlowChat({
             {streamError ? (
               <p className="text-sm text-destructive">{streamError}</p>
             ) : null}
-
-            <div ref={bottomRef} />
           </div>
         </div>
       </div>
