@@ -105,8 +105,9 @@ export default function CampaignManagerHome({
       const { conversationId: id } =
         await campaignManagerChatApi.createConversation()
       setConversationId(id)
-      // A conversation now exists, so refresh history: the footer picker shows
-      // it and the first-run "meet" card drops away.
+      // A conversation now exists, so refresh history so the footer picker
+      // shows it. (The first-run "meet" card is dismissed only by clicking it,
+      // not by a conversation existing, so it is unaffected here.)
       void queryClient.invalidateQueries({
         queryKey: CAMPAIGN_MANAGER_HISTORY_KEY,
       })

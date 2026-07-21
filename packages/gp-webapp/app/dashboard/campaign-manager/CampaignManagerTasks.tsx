@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { Button } from '@styleguide'
 import {
@@ -25,12 +25,15 @@ import {
   useOutreachComposeFlow,
 } from 'app/dashboard/outreach/hooks/useOutreachComposeFlow'
 import CountModal from '../components/tasks/CountModal'
-import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
-import {
-  CAMPAIGN_MANAGER_HISTORY_KEY,
-  campaignManagerChatApi,
-} from './campaignManagerChat'
+
+// The first-run "meet your campaign manager" card is dismissed only when the
+// candidate clicks it (persisted so it stays dismissed across reloads). It must
+// NOT key off whether a conversation exists: the story card opens the same
+// manager conversation, so gating on conversation existence would hide the meet
+// card the moment someone starts the story flow, before they ever met the
+// manager.
+const MEET_CARD_DISMISSED_KEY = 'campaign-manager-meet-dismissed'
 
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
@@ -123,16 +126,35 @@ export default function CampaignManagerTasks({
     setCountTask(null)
   }
 
-  // First-run onboarding card: show it only once we know the candidate has
-  // never opened the manager (no conversation yet). Opening it eagerly creates
-  // one, so the card drops away afterward. Gate on the loaded-and-empty state so
-  // a returning candidate never sees it flash while history loads.
-  const { data: conversations } = useChatHistory(
-    true,
-    campaignManagerChatApi,
-    CAMPAIGN_MANAGER_HISTORY_KEY,
+  // First-run onboarding card: shown until the candidate clicks it, then hidden
+  // for good (persisted). `undefined` until we have read localStorage, so the
+  // card never flashes before we know the dismissed state.
+  const [meetDismissed, setMeetDismissed] = useState<boolean | undefined>(
+    undefined,
   )
-  const showMeetCard = conversations !== undefined && conversations.length === 0
+  useEffect(() => {
+    try {
+      setMeetDismissed(
+        window.localStorage.getItem(MEET_CARD_DISMISSED_KEY) === '1',
+      )
+    } catch {
+      setMeetDismissed(false)
+    }
+  }, [])
+  const showMeetCard = meetDismissed === false
+
+  // Clicking the meet card is the only thing that dismisses it. Persist first,
+  // then open the manager.
+  const onMeetCardClick = (): void => {
+    try {
+      window.localStorage.setItem(MEET_CARD_DISMISSED_KEY, '1')
+    } catch {
+      // Storage disabled (private mode): the card reappears next load, which is
+      // acceptable for a first-run nudge.
+    }
+    setMeetDismissed(true)
+    onMeetManager()
+  }
 
   return (
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
@@ -145,7 +167,7 @@ export default function CampaignManagerTasks({
               to help you decide what to do next.
             </p>
           </div>
-          <Button className="self-start" onClick={onMeetManager}>
+          <Button className="self-start" onClick={onMeetCardClick}>
             Meet your campaign manager
           </Button>
         </div>

@@ -127,6 +127,7 @@ function makeStream(events: ChatStreamEvent[]): AsyncIterable<ChatStreamEvent> {
 }
 
 beforeEach(() => {
+  window.localStorage.clear()
   createMock.mockReset()
   listMessagesMock.mockReset()
   streamMessageMock.mockReset()

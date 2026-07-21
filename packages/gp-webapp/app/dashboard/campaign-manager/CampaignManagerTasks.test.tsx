@@ -33,11 +33,10 @@ vi.mock('app/dashboard/outreach/hooks/useOutreachComposeFlow', () => ({
   }),
 }))
 
-// The first-run "meet" card gates on whether the candidate has ever opened the
-// manager (a conversation exists). Control that here; default to none.
-const mockHistory = vi.fn<() => { data: unknown[] | undefined }>()
+// The meet card no longer keys off chat history; keep the module stubbed so no
+// child pulls the real query into jsdom.
 vi.mock('../chief-of-staff/data/use-chat-history', () => ({
-  useChatHistory: () => mockHistory(),
+  useChatHistory: () => ({ data: [] }),
 }))
 
 // The story card gates on story completion; default to incomplete so it
@@ -73,7 +72,7 @@ const meetButton = () =>
   screen.queryByRole('button', { name: /meet your campaign manager/i })
 
 beforeEach(() => {
-  mockHistory.mockReturnValue({ data: [] })
+  window.localStorage.clear()
   mockToggle.mockClear()
   mockOpenOutreach.mockClear()
 })
@@ -247,13 +246,17 @@ describe('CampaignManagerTasks', () => {
     expect(onMeet).toHaveBeenCalledOnce()
   })
 
-  it('hides the meet card once the candidate has opened the manager', () => {
+  it('hides the meet card after it is clicked (not before)', async () => {
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
-    // A conversation exists → they have opened the manager before.
-    mockHistory.mockReturnValue({ data: [{ conversationId: 'c1' }] })
+    const user = userEvent.setup()
 
     render(
       <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+    )
+    expect(meetButton()).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: /meet your campaign manager/i }),
     )
 
     expect(meetButton()).not.toBeInTheDocument()
@@ -261,9 +264,9 @@ describe('CampaignManagerTasks', () => {
     expect(screen.getByText('A task')).toBeInTheDocument()
   })
 
-  it('does not show the meet card until the history has loaded', () => {
+  it('keeps the meet card dismissed across reloads once it has been clicked', () => {
+    window.localStorage.setItem('campaign-manager-meet-dismissed', '1')
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
-    mockHistory.mockReturnValue({ data: undefined })
 
     render(
       <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
