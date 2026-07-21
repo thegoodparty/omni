@@ -4,24 +4,30 @@ import {
   RecordDoorKnockInteractionResponse,
 } from '@goodparty_org/contracts'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
+import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { Organization } from '../../generated/prisma'
 import { deriveKnockStatus } from '../utils/knockStatus.util'
 
 @Injectable()
 export class DoorKnockingInteractionService extends createPrismaBase(
-  MODELS.ContactInteractionDoorKnock,
+  MODELS.DoorKnockingStopTarget,
 ) {
+  constructor(
+    private readonly doorKnockInteractions: ContactInteractionDoorKnockService,
+  ) {
+    super()
+  }
+
   // The phone sends only the frozen stopTargetId + answers + clientKey;
   // personId resolves from the stop target, org comes from auth, occurredAt
-  // is server-stamped. The upsert on (organizationSlug, sourceId=clientKey)
-  // makes dead-zone replays return the original row — never a duplicate,
-  // never an update (the first write wins; a retry is evidence of a lost
-  // response, not a changed answer).
+  // is server-stamped. The write goes through the CRM's recordIdempotent
+  // (upsert on (organizationSlug, sourceId=clientKey), conflict enforced at
+  // the DB): a replayed clientKey re-syncs the same row — never a duplicate.
   async record(
     organization: Organization,
     input: RecordDoorKnockInteraction,
   ): Promise<RecordDoorKnockInteractionResponse> {
-    const target = await this.client.doorKnockingStopTarget.findFirst({
+    const target = await this.findFirst({
       where: {
         id: input.stopTargetId,
         stop: {
@@ -38,25 +44,16 @@ export class DoorKnockingInteractionService extends createPrismaBase(
       throw new NotFoundException('Stop target not found')
     }
 
-    const interaction = await this.model.upsert({
-      where: {
-        organizationSlug_sourceId: {
-          organizationSlug: organization.slug,
-          sourceId: input.clientKey,
-        },
-      },
-      create: {
-        organizationSlug: organization.slug,
-        personId: target.personId,
-        occurredAt: new Date(),
-        outcome: input.outcome,
-        supportAnswer: input.supportAnswer ?? null,
-        willVote: input.willVote ?? null,
-        note: input.note ?? null,
-        sourceId: input.clientKey,
-        manual: false,
-      },
-      update: {},
+    const interaction = await this.doorKnockInteractions.recordIdempotent({
+      organizationSlug: organization.slug,
+      personId: target.personId,
+      occurredAt: new Date(),
+      outcome: input.outcome,
+      supportAnswer: input.supportAnswer ?? null,
+      willVote: input.willVote ?? null,
+      note: input.note ?? null,
+      sourceId: input.clientKey,
+      manual: false,
     })
 
     return {

@@ -785,7 +785,7 @@ describe('door-knocking routes', () => {
       expect(row.occurredAt).toBeInstanceOf(Date)
     })
 
-    it('replaying the same clientKey returns the original row, never a duplicate', async () => {
+    it('replaying the same clientKey re-syncs one row, never a duplicate', async () => {
       const target = await knockAndGetTarget()
 
       const first = await record({
@@ -802,13 +802,17 @@ describe('door-knocking routes', () => {
 
       expect(first.status).toBe(201)
       expect(replay.status).toBe(201)
-      // First write wins — the retry is a lost response, not a new answer.
-      expect(replay.data.knockStatus).toBe('supporter')
-      expect(
-        await service.prisma.contactInteractionDoorKnock.count({
-          where: { organizationSlug: orgSlug },
-        }),
-      ).toBe(1)
+      // Re-sync semantics (the CRM's recordIdempotent): the latest sync of
+      // this clientKey wins, still exactly one row.
+      expect(replay.data.knockStatus).toBe('not_home')
+      const rows = await service.prisma.contactInteractionDoorKnock.findMany({
+        where: { organizationSlug: orgSlug },
+      })
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        outcome: 'not_home',
+        supportAnswer: null,
+      })
     })
 
     it('accepts the extended vocabulary end to end', async () => {
