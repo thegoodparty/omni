@@ -42,12 +42,16 @@ const person = (
   displayAddress: `${index} W Elm St`,
 })
 
+// Production addressKey format — the serve payload's frozen address is the
+// key's first segment.
+const PIPED_KEY = '1200 W ELM ST|SPRINGFIELD|IL|62704'
+
 // Three distinct coordinates inside the polygon, two people sharing one of
 // them (dedupes to one stop), plus one person inside the bbox but OUTSIDE
 // the polygon corner cut — the ray-cast must drop them.
 const insidePeople = [
-  person(1, 41.9, -87.65),
-  person(2, 41.9, -87.65, 'KEY-1'),
+  person(1, 41.9, -87.65, PIPED_KEY),
+  person(2, 41.9, -87.65, PIPED_KEY),
   person(3, 41.901, -87.651),
   person(4, 41.902, -87.652),
 ]
@@ -258,8 +262,8 @@ describe('door-knocking routes', () => {
       expect(stops[1]?.legSeconds).toBe(60)
       const dedupedStop = stops.find((stop) => stop.targets.length === 2)
       expect(dedupedStop?.targets.map((t) => t.addressKey)).toEqual([
-        'KEY-1',
-        'KEY-1',
+        PIPED_KEY,
+        PIPED_KEY,
       ])
       // The bbox-only person sits outside the polygon: never frozen.
       const allTargets = stops.flatMap((stop) => stop.targets)
@@ -502,7 +506,7 @@ describe('door-knocking routes', () => {
     const liveResidents = {
       addresses: [
         {
-          addressKey: 'KEY-1',
+          addressKey: PIPED_KEY,
           targets: [
             {
               personId: PERSON_1,
@@ -571,8 +575,9 @@ describe('door-knocking routes', () => {
       }>
       const dedupedAddress = stops
         .flatMap((s) => s.addresses)
-        .find((a) => a.addressKey === 'KEY-1')
-      expect(dedupedAddress?.address).toBe('KEY-1')
+        .find((a) => a.addressKey === PIPED_KEY)
+      // The frozen display address is the key's street-line segment.
+      expect(dedupedAddress?.address).toBe('1200 W ELM ST')
       expect(dedupedAddress?.targets).toHaveLength(2)
       expect(dedupedAddress?.targets[0]).toMatchObject({
         personId: PERSON_1,
@@ -644,7 +649,7 @@ describe('door-knocking routes', () => {
         }>
       ).flatMap((stop) => stop.addresses.map((address) => ({ stop, address })))
 
-      const key1 = entries.find((e) => e.address.addressKey === 'KEY-1')
+      const key1 = entries.find((e) => e.address.addressKey === PIPED_KEY)
       const statusFor = (personId: string) =>
         key1?.address.targets.find((t) => t.personId === personId)?.knockStatus
       // Latest row wins: the newer not_home beats the older supporter.

@@ -180,7 +180,10 @@ export class DoorKnockingServeService extends createPrismaBase(
     const interactions = await this.client.contactInteractionDoorKnock.findMany(
       {
         where: { organizationSlug, personId: { in: personIds } },
-        orderBy: { occurredAt: Prisma.SortOrder.desc },
+        orderBy: [
+          { occurredAt: Prisma.SortOrder.desc },
+          { id: Prisma.SortOrder.desc },
+        ],
         select: { personId: true, outcome: true, supportAnswer: true },
       },
     )
