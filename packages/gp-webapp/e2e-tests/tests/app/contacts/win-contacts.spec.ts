@@ -127,19 +127,16 @@ test.describe('Win Contacts', () => {
     // --- Download from the detail-sheet footer: the request must succeed
     // (pro-gated on the server). Assert the response rather than the
     // streamed file event, which is not deterministically observable. ---
-    // The export is generated server-side (people-api query -> CSV) before the
-    // response headers, which the app's own toast bills at "10-15 seconds" on a
-    // warm stack; a cold per-PR preview runs longer, so give it room (the test
-    // budget is 5 min).
-    const downloadResponsePromise = page.waitForResponse(
-      (response) =>
-        response.url().includes('/api/v1/contacts/download') &&
-        response.request().method() === 'GET',
-      { timeout: 90000 },
-    )
+    // "Download list" is an <a download> click (useContactsDownload.ts), so the
+    // browser's download machinery consumes the response and it isn't reliably
+    // surfaced to waitForResponse on a cold preview. Wait on the download event
+    // — the correct primitive for an anchor download; its start (a .csv
+    // attachment) proves the pro-gated download was allowed. The export is
+    // generated server-side (~10-15s per the app's toast), so allow room.
+    const downloadPromise = page.waitForEvent('download', { timeout: 90_000 })
     await detailSheet.getByRole('button', { name: 'Download list' }).click()
-    const downloadResponse = await downloadResponsePromise
-    expect(downloadResponse.ok()).toBeTruthy()
+    const download = await downloadPromise
+    expect(download.suggestedFilename()).toMatch(/\.csv$/)
 
     await detailSheet.getByRole('button', { name: 'Close' }).click()
     await expect(detailSheet).toBeHidden({ timeout: 10_000 })
