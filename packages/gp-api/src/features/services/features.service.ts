@@ -41,28 +41,30 @@ export class FeaturesService {
   /**
    * Determines if the specified feature is enabled for the given user.
    *
-   * If Amplitude can't be reached, degrades instead of throwing so a flag
-   * outage never 500s a gated route: fail closed (off) with a real key, and
-   * default on with the local placeholder key so gated features stay
-   * developable on a dev box that has no real Amplitude.
+   * The local placeholder key defaults every gated feature on without ever
+   * calling Amplitude, so features stay developable on a dev box that has no
+   * real key. With a real key, an unreachable Amplitude degrades instead of
+   * throwing — fail closed (off) — so a flag outage never 500s a gated route.
    */
   async isFeatureEnabled(params: {
     user: number | User
     feature: string
   }): Promise<boolean> {
+    // The placeholder key always 401s upstream — skip the doomed round-trip
+    // (its retries cost real seconds per gated request, enough to push CI
+    // tests into their timeout) and go straight to the local-box default.
+    // Before the user lookup: the answer doesn't depend on the user, so the
+    // DB read would be wasted too.
+    if (usingPlaceholderKey) {
+      return true
+    }
+
     const user =
       typeof params.user === 'number'
         ? await this.usersService.findUniqueOrThrow({
             where: { id: params.user },
           })
         : params.user
-
-    // The placeholder key always 401s upstream — skip the doomed round-trip
-    // (its retries cost real seconds per gated request, enough to push CI
-    // tests into their timeout) and go straight to the local-box default.
-    if (usingPlaceholderKey) {
-      return true
-    }
 
     try {
       const variants = await amplitude.fetchV2({
@@ -83,14 +85,15 @@ export class FeaturesService {
 
       return value
     } catch (err) {
+      // Only reachable with a real key (placeholder short-circuits above):
+      // fail closed so a flag outage never 500s a gated route.
       this.logger.warn({
         err,
         userId: user.id,
         feature: params.feature,
-        fallback: usingPlaceholderKey,
-        msg: 'Amplitude flag evaluation failed; using fallback',
+        msg: 'Amplitude flag evaluation failed; failing closed',
       })
-      return usingPlaceholderKey
+      return false
     }
   }
 
