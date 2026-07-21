@@ -1,6 +1,11 @@
 import type {
   CreateDoorKnockingTurf,
+  DoorKnockingKnockRequest,
+  DoorKnockingKnockResponse,
+  DoorKnockingRoutePayload,
   DoorKnockingTurf,
+  RecordDoorKnockInteraction,
+  RecordDoorKnockInteractionResponse,
   UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
@@ -690,6 +695,18 @@ export type APIEndpoints = {
   'DELETE /v1/door-knocking/turfs/:id': {
     Request: {}
     Response: undefined
+  }
+  'POST /v1/door-knocking/turfs/:id/knock': {
+    Request: DoorKnockingKnockRequest
+    Response: DoorKnockingKnockResponse
+  }
+  'GET /v1/door-knocking/turfs/:id/route': {
+    Request: {}
+    Response: DoorKnockingRoutePayload
+  }
+  'POST /v1/door-knocking/interactions': {
+    Request: RecordDoorKnockInteraction
+    Response: RecordDoorKnockInteractionResponse
   }
   'GET /v1/contacts/list-detail': {
     Request: { segment: number }

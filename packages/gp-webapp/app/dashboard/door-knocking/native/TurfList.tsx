@@ -2,15 +2,21 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { DoorKnockingTurf } from '@goodparty_org/contracts'
-import { Badge, IconButton, Trash2Icon } from '@styleguide'
+import { Button, IconButton, Trash2Icon } from '@styleguide'
 import { clientRequest } from 'gpApi/typed-request'
 import { turfsQueryOptions } from './turfQueries'
 
 interface TurfListProps {
   onFocusTurf: (turf: DoorKnockingTurf) => void
+  onKnockTurf: (turf: DoorKnockingTurf) => void
+  onOpenRoute: (turf: DoorKnockingTurf) => void
 }
 
-export default function TurfList({ onFocusTurf }: TurfListProps) {
+export default function TurfList({
+  onFocusTurf,
+  onKnockTurf,
+  onOpenRoute,
+}: TurfListProps) {
   const queryClient = useQueryClient()
   const turfsQuery = useQuery(turfsQueryOptions)
   const deleteTurf = useMutation({
@@ -44,15 +50,26 @@ export default function TurfList({ onFocusTurf }: TurfListProps) {
             {turf.name}
           </button>
           {turf.locked ? (
-            <Badge variant="outline">Knocked</Badge>
-          ) : (
-            <IconButton
-              aria-label={`Delete turf ${turf.name}`}
-              disabled={deleteTurf.isPending}
-              onClick={() => deleteTurf.mutate(turf.id)}
+            <Button
+              size="small"
+              variant="outline"
+              onClick={() => onOpenRoute(turf)}
             >
-              <Trash2Icon size={14} />
-            </IconButton>
+              Route
+            </Button>
+          ) : (
+            <>
+              <Button size="small" onClick={() => onKnockTurf(turf)}>
+                Knock
+              </Button>
+              <IconButton
+                aria-label={`Delete turf ${turf.name}`}
+                disabled={deleteTurf.isPending}
+                onClick={() => deleteTurf.mutate(turf.id)}
+              >
+                <Trash2Icon size={14} />
+              </IconButton>
+            </>
           )}
         </div>
       ))}

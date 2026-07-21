@@ -123,7 +123,11 @@ import { dirname, join, relative } from 'node:path'
 // SaveTurfDialog (dialog form state + create mutation) and TurfList
 // (react-query turfs read + delete mutation) are both interactive and live
 // inside the client-only map page.
-const BASELINE = 558
+// 2026-07-21: 558 -> 561 for the door-knocking walk flow: KnockTurfDialog
+// (mode/loop form + knock mutation), WalkView (route query + per-stop
+// expand/record state), RecordKnockForm (answer state + interaction
+// mutation) — all interactive, all inside the client-only map page.
+const BASELINE = 561
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
