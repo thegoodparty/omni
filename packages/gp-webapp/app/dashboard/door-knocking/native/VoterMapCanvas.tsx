@@ -82,13 +82,14 @@ export default function VoterMapCanvas({
   onPolygonChange,
 }: VoterMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
   const overlayRef = useRef<MapboxOverlay | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const onPolygonChangeRef = useRef(onPolygonChange)
   onPolygonChangeRef.current = onPolygonChange
 
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!containerRef.current || !hasTilesKey) return
 
     const map = new maplibregl.Map({
       container: containerRef.current,
@@ -149,7 +150,7 @@ export default function VoterMapCanvas({
     }
     // The map mounts once per pack — everything dynamic flows through the
     // overlay effect below.
-  }, [pack])
+  }, [pack, hasTilesKey])
 
   useEffect(() => {
     const overlay = overlayRef.current
@@ -177,6 +178,17 @@ export default function VoterMapCanvas({
       ],
     })
   }, [pack, filterResult])
+
+  // A missing key would otherwise render a silent blank map (401s from the
+  // tile CDN) — fail loudly for developers instead.
+  if (!hasTilesKey) {
+    return (
+      <div className="flex h-full w-full items-center justify-center p-8 text-center text-sm text-muted-foreground">
+        Set NEXT_PUBLIC_GEOAPIFY_TILES_KEY (a domain-restricted Geoapify tiles
+        key) to render the map.
+      </div>
+    )
+  }
 
   return <div ref={containerRef} className="h-full w-full" />
 }

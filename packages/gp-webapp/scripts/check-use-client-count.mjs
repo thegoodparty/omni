@@ -115,7 +115,11 @@ import { dirname, join, relative } from 'node:path'
 // assistantChat) hold composer/drawer state, stream SSE turns through the
 // shared agent-chat client, and invalidate react-query caches — none can be
 // server components.
-const BASELINE = 560
+// 2026-07-21: 560 -> 556 locking in a 7-file drop elsewhere while ADDING the
+// three native door-knocking client files (page gate, map page, map canvas —
+// the canvas is behind next/dynamic ssr:false so the heavy libs stay out of
+// shared bundles).
+const BASELINE = 556
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])
