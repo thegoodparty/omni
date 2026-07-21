@@ -168,13 +168,12 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
           firstName: row.firstName,
           lastName: row.lastName,
           age: mapAge(row),
-          // Unlike /v1/people output (null → 'Other'), no party data stays
-          // null here — the contract distinguishes "no data" from an actual
-          // third-party registration.
-          politicalParty:
-            row.Parties_Description != null
-              ? (mapPoliticalParty(row.Parties_Description) ?? null)
-              : null,
+          // Unlike /v1/people output (null → 'Other'), no party data (null
+          // or empty) stays null here — the contract distinguishes "no
+          // data" from an actual third-party registration.
+          politicalParty: row.Parties_Description
+            ? (mapPoliticalParty(row.Parties_Description) ?? null)
+            : null,
         })
       } else {
         address.otherResidents.push({
