@@ -19,6 +19,7 @@ import {
   useTrackerTasks,
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import PersonalizeStoryCard from './PersonalizeStoryCard'
 import {
   type ComposeFlowType,
   useOutreachComposeFlow,
@@ -87,10 +88,12 @@ const formatDue = (iso: string): string =>
 
 interface Props {
   onMeetManager: () => void
+  onPersonalize: () => void
 }
 
 export default function CampaignManagerTasks({
   onMeetManager,
+  onPersonalize,
 }: Props): React.JSX.Element {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
@@ -147,6 +150,8 @@ export default function CampaignManagerTasks({
           </Button>
         </div>
       )}
+
+      <PersonalizeStoryCard onPersonalize={onPersonalize} />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">

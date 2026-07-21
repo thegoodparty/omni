@@ -16,6 +16,7 @@ import {
 import { ZodValidationPipe } from 'nestjs-zod'
 import {
   OrdinanceListResponseSchema,
+  OrdinanceQualityIterationsResponseSchema,
   OrdinanceQualityRunSchema,
   OrdinanceSchema,
 } from '@goodparty_org/contracts'
@@ -106,6 +107,37 @@ export class OrdinanceFlowController {
     @Param() { slug }: OrdinanceSlugParamDto,
   ) {
     return this.ordinances.getQualityRun(electedOffice, slug)
+  }
+
+  @Post(':slug/quality-loop')
+  @UseElectedOffice()
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ResponseSchema(OrdinanceSchema)
+  async startQualityLoop(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.startQualityLoop(electedOffice, slug)
+  }
+
+  @Delete(':slug/quality-loop')
+  @UseElectedOffice()
+  @ResponseSchema(OrdinanceSchema)
+  async cancelQualityLoop(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.cancelQualityLoop(electedOffice, slug)
+  }
+
+  @Get(':slug/quality-iterations')
+  @UseElectedOffice()
+  @ResponseSchema(OrdinanceQualityIterationsResponseSchema)
+  async listQualityIterations(
+    @ReqElectedOffice() electedOffice: ElectedOffice,
+    @Param() { slug }: OrdinanceSlugParamDto,
+  ) {
+    return this.ordinances.listQualityIterations(electedOffice, slug)
   }
 
   @Get(':slug/export')

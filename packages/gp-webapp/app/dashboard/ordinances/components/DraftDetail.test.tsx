@@ -12,6 +12,9 @@ const mocks = vi.hoisted(() => ({
   fetchQualityRun: vi.fn(),
   deleteOrdinance: vi.fn(),
   downloadOrdinanceExport: vi.fn(),
+  fetchOrdinanceBySlug: vi.fn(),
+  cancelQualityLoop: vi.fn(),
+  fetchQualityIterations: vi.fn(),
   draftChatProps: {
     current: null as {
       seedText?: string
@@ -27,6 +30,9 @@ vi.mock('../data/ordinances-api', () => ({
   fetchQualityRun: mocks.fetchQualityRun,
   deleteOrdinance: mocks.deleteOrdinance,
   downloadOrdinanceExport: mocks.downloadOrdinanceExport,
+  fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
+  cancelQualityLoop: mocks.cancelQualityLoop,
+  fetchQualityIterations: mocks.fetchQualityIterations,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
@@ -430,19 +436,31 @@ describe('DraftDetail quality report flush', () => {
     expect(mocks.startQualityReport).not.toHaveBeenCalled()
   })
 
-  it('shows the stale banner after an edit', () => {
-    render(
-      <DraftDetail
-        ordinance={makeOrdinance({
-          qualityReport: sampleReport,
-        } as Partial<Ordinance>)}
-      />,
-    )
+  it('shows the stale banner once a real edit settles', async () => {
+    // Dirty is decided at the debounce (where the reserialization check
+    // lives), not on the raw input event — a no-op input must never stale
+    // the report, so a real edit's banner appears when the autosave fires.
+    vi.useFakeTimers()
+    try {
+      render(
+        <DraftDetail
+          ordinance={makeOrdinance({
+            qualityReport: sampleReport,
+          } as Partial<Ordinance>)}
+        />,
+      )
 
-    expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
 
-    editBody('a new edit')
-    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+      editBody('a new edit')
+      expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100)
+      })
+      expect(screen.getByText(/the draft changed/i)).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('clears the stale banner after a successful re-run', async () => {

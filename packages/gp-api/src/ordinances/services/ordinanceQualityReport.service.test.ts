@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { LlmService } from '@/llm/services/llm.service'
 import { Ordinance } from '../../generated/prisma'
 import {
+  QUALITY_LOOP_LLM_RETRIES,
+  QUALITY_LOOP_MODELS,
+} from '../ordinances.constants'
+import {
   OrdinanceQualityReportService,
   qualityReportInputHash,
 } from './ordinanceQualityReport.service'
@@ -46,7 +50,7 @@ const fullResponse = {
 
 describe('OrdinanceQualityReportService', () => {
   it('assembles the six fixed checks in order with fixed labels', async () => {
-    const report = await build(
+    const { report } = await build(
       vi.fn().mockResolvedValue(fullResponse),
     ).generate(record(), 7)
 
@@ -69,7 +73,7 @@ describe('OrdinanceQualityReportService', () => {
   })
 
   it('computes the tally from the check statuses', async () => {
-    const report = await build(
+    const { report } = await build(
       vi.fn().mockResolvedValue(fullResponse),
     ).generate(record(), 7)
 
@@ -79,7 +83,7 @@ describe('OrdinanceQualityReportService', () => {
   it('stamps a fresh report with the current body hash', async () => {
     const draft = record()
 
-    const report = await build(
+    const { report } = await build(
       vi.fn().mockResolvedValue(fullResponse),
     ).generate(draft, 7)
 
@@ -124,7 +128,7 @@ describe('OrdinanceQualityReportService', () => {
       model: 'claude-sonnet-4-6',
     })
 
-    const report = await build(jsonCompletion).generate(record(), 7)
+    const { report } = await build(jsonCompletion).generate(record(), 7)
 
     expect(report.checks).toHaveLength(6)
     expect(report.checks.find((c) => c.id === 'voice')?.status).toBe(
@@ -140,7 +144,7 @@ describe('OrdinanceQualityReportService', () => {
       model: 'claude-sonnet-4-6',
     })
 
-    const report = await build(jsonCompletion).generate(record(), 7)
+    const { report } = await build(jsonCompletion).generate(record(), 7)
 
     expect(report.checks).toHaveLength(6)
     expect(report.checks.every((c) => c.status === 'attention')).toBe(true)
@@ -163,7 +167,7 @@ describe('OrdinanceQualityReportService', () => {
       model: 'claude-sonnet-4-6',
     })
 
-    const report = await build(jsonCompletion).generate(record(), 7)
+    const { report } = await build(jsonCompletion).generate(record(), 7)
 
     const authority = report.checks.find((c) => c.id === 'authority')
     // The report is persisted through OrdinanceSchema, so a source with no id
@@ -181,10 +185,108 @@ describe('OrdinanceQualityReportService', () => {
       model: 'claude-sonnet-4-6',
     })
 
-    const report = await build(jsonCompletion).generate(record(), 7)
+    const { report } = await build(jsonCompletion).generate(record(), 7)
 
     expect(report.checks.find((c) => c.id === 'authority')?.note).toBe(
       'This check could not be evaluated.',
+    )
+  })
+
+  it('returns the tokens the LLM call consumed', async () => {
+    const { tokens } = await build(
+      vi.fn().mockResolvedValue(fullResponse),
+    ).generate(record(), 7)
+
+    expect(tokens).toBe(10)
+  })
+
+  it('reports no degraded checks for a fully-evaluated response', async () => {
+    const { degradedCheckIds } = await build(
+      vi.fn().mockResolvedValue(fullResponse),
+    ).generate(record(), 7)
+
+    expect(degradedCheckIds).toEqual([])
+  })
+
+  it('marks checks the model omitted as degraded', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue({
+      object: { checks: [{ id: 'authority', status: 'pass', note: 'ok' }] },
+      tokens: 10,
+      model: 'claude-sonnet-4-6',
+    })
+
+    const { degradedCheckIds } = await build(jsonCompletion).generate(
+      record(),
+      7,
+    )
+
+    expect(degradedCheckIds).toEqual([
+      'legal_conflict',
+      'precedent_grounding',
+      'completeness',
+      'clarity',
+      'voice',
+    ])
+  })
+
+  it('marks a check whose note fell back to the placeholder as degraded', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue({
+      object: {
+        checks: [
+          { id: 'authority', status: 'pass', note: '  ' },
+          { id: 'legal_conflict', status: 'flag', note: 'Real problem.' },
+          { id: 'precedent_grounding', status: 'pass', note: 'Grounded.' },
+          { id: 'completeness', status: 'pass', note: 'Complete.' },
+          { id: 'clarity', status: 'pass', note: 'Clear.' },
+          { id: 'voice', status: 'pass', note: 'Fine.' },
+        ],
+      },
+      tokens: 10,
+      model: 'claude-sonnet-4-6',
+    })
+
+    const { report, degradedCheckIds } = await build(jsonCompletion).generate(
+      record(),
+      7,
+    )
+
+    expect(degradedCheckIds).toEqual(['authority'])
+    expect(report.checks.find((c) => c.id === 'authority')?.note).toBe(
+      'This check could not be evaluated.',
+    )
+  })
+
+  it('keeps the default two-model cascade when no options are given', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue(fullResponse)
+
+    await build(jsonCompletion).generate(record(), 7)
+
+    expect(jsonCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: ['claude-sonnet-4-6', 'claude-opus-4-7'],
+      }),
+    )
+    const options = jsonCompletion.mock.calls[0]?.[0]
+    expect(options?.retries).toBeUndefined()
+    expect(options?.abortSignal).toBeUndefined()
+  })
+
+  it('threads loop options (models, retries, abortSignal) to the LLM', async () => {
+    const jsonCompletion = vi.fn().mockResolvedValue(fullResponse)
+    const abortSignal = AbortSignal.timeout(60_000)
+
+    await build(jsonCompletion).generate(record(), 7, {
+      models: QUALITY_LOOP_MODELS,
+      retries: QUALITY_LOOP_LLM_RETRIES,
+      abortSignal,
+    })
+
+    expect(jsonCompletion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        models: QUALITY_LOOP_MODELS,
+        retries: QUALITY_LOOP_LLM_RETRIES,
+        abortSignal,
+      }),
     )
   })
 })
