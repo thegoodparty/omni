@@ -474,6 +474,36 @@ def test_judge_candidates_uses_forced_tool_and_parses():
     assert sent["system"].startswith("RUBRIC")
 
 
+class _PerChunkClient:
+    """Returns is_gap verdicts for exactly the ids present in the request, so a chunked
+    call sees only its own chunk's verdicts (mirrors parse_judge_response's id filter)."""
+    def __init__(self):
+        self.messages = self
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        content = kwargs["messages"][0]["content"]
+        ids = [c["id"] for c in json.loads(content.split("\n\n", 1)[1])]
+        return _FakeResp([_FakeBlock({"results": [
+            {"id": i, "is_gap": True, "rubric_rule": "r", "dashboard_question": "q",
+             "rank": 1, "reason": "x"} for i in ids]})])
+
+
+def test_judge_all_chunks_and_merges():
+    cands = [{"id": f"/x{i}", "surface_type": "route", "location": f"{i}.tsx", "snippet": ""}
+             for i in range(5)]
+    client = _PerChunkClient()
+    out = ig.judge_all(cands, "RUBRIC", client=client, model="m", chunk_size=2)
+    assert set(out) == {f"/x{i}" for i in range(5)}
+    assert client.calls == 3  # 2 + 2 + 1
+
+
+def test_select_candidates_limit_none_returns_all():
+    gaps = [{"id": f"/x{i}", "surface_type": "route", "location": f"{i}.tsx"} for i in range(40)]
+    assert len(ig.select_candidates(gaps, {}, limit=None)) == 40
+
+
 def test_run_judgment_skips_without_key(tmp_path):
     cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
     out, status = ig.run_judgment(cands, api_key=None, model="m", rubric_path=tmp_path / "r.md")

@@ -239,18 +239,19 @@ _TRIAGED = {"open", "accepted", "dismissed"}
 
 
 def select_candidates(
-    gaps: Sequence[dict], prior_state: Mapping[str, dict], limit: int = 25
+    gaps: Sequence[dict], prior_state: Mapping[str, dict], limit: int | None = 25
 ) -> list[dict]:
     """The bounded set the judge sees: gaps not already triaged by a human, top-N by the
     heuristic rank. Skipping triaged ids keeps cost down and never re-judges a decided
-    surface (which also means the judge can never overturn a human dismissal)."""
+    surface (which also means the judge can never overturn a human dismissal). limit=None
+    returns every eligible gap uncapped, for the whole-repo seed."""
     eligible = [
         g
         for g in gaps
         if prior_state.get(g["id"], {}).get("disposition") not in _TRIAGED
     ]
     eligible.sort(key=lambda g: (rank_gap(g), g["id"]))
-    return eligible[:limit]
+    return eligible if limit is None else eligible[:limit]
 
 
 # --- judge prompt + response parsing (pure, no network) ----------------------
@@ -330,6 +331,19 @@ def judge_candidates(
         messages=build_judge_messages(candidates),
     )
     return parse_judge_response(resp, [c["id"] for c in candidates])
+
+
+def judge_all(
+    candidates: Sequence[dict], rubric: str, *, client, model: str, chunk_size: int = 25
+) -> dict[str, dict]:
+    """Judge candidates in bounded chunks, merging verdicts. One call per chunk keeps each
+    request within the token/response budget on a whole-repo seed; the weekly run (<=25
+    candidates) is exactly one chunk."""
+    out: dict[str, dict] = {}
+    for i in range(0, len(candidates), chunk_size):
+        chunk = candidates[i : i + chunk_size]
+        out.update(judge_candidates(chunk, rubric, client=client, model=model))
+    return out
 
 
 def run_judgment(
