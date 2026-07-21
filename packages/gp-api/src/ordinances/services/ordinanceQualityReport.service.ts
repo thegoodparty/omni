@@ -12,6 +12,14 @@ import { Ordinance } from '../../generated/prisma'
 // context, so QC runs Claude-only.
 const QC_MODELS = ['claude-sonnet-4-6', 'claude-opus-4-7']
 
+const UNEVALUATED_NOTE = 'This check could not be evaluated.'
+
+export interface OrdinanceQcOptions {
+  models?: string[]
+  retries?: number
+  abortSignal?: AbortSignal
+}
+
 // The six fixed rubric checks. Labels and order are fixed here so the rubric
 // can't drift; the model only supplies each check's status, note, and source.
 const QC_CHECKS = [
@@ -159,33 +167,43 @@ export class OrdinanceQualityReportService {
   async generate(
     record: Ordinance,
     userId: number,
-  ): Promise<OrdinanceQualityReport> {
-    const { object } = await this.llm.jsonCompletion({
+    opts?: OrdinanceQcOptions,
+  ): Promise<{
+    report: OrdinanceQualityReport
+    degradedCheckIds: string[]
+    tokens: number
+  }> {
+    const { object, tokens } = await this.llm.jsonCompletion({
       messages: [
         { role: 'system', content: QC_SYSTEM_PROMPT },
         { role: 'user', content: buildQcUserPrompt(record) },
       ],
       schema: QcGenerationSchema,
-      models: QC_MODELS,
+      models: opts?.models ?? QC_MODELS,
+      retries: opts?.retries,
+      abortSignal: opts?.abortSignal,
       userId: String(userId),
     })
 
     const byId = new Map(object.checks.map((c) => [c.id, c]))
+    const degradedCheckIds: string[] = []
     const checks = QC_CHECKS.map(({ id, label }) => {
       const generated = byId.get(id)
       const source = normalizeSource(generated?.source, id)
       const note = generated?.note?.trim()
+      if (!generated || !note || note.length === 0) {
+        degradedCheckIds.push(id)
+      }
       return {
         id,
         label,
         status: generated?.status ?? 'attention',
-        note:
-          note && note.length > 0 ? note : 'This check could not be evaluated.',
+        note: note && note.length > 0 ? note : UNEVALUATED_NOTE,
         ...(source ? { source } : {}),
       }
     })
 
-    return {
+    const report: OrdinanceQualityReport = {
       checks,
       tally: {
         pass: checks.filter((c) => c.status === 'pass').length,
@@ -195,5 +213,6 @@ export class OrdinanceQualityReportService {
       stale: false,
       ranAgainstBodyHash: qualityReportInputHash(record),
     }
+    return { report, degradedCheckIds, tokens }
   }
 }

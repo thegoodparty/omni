@@ -169,9 +169,17 @@ webapp widget replays from), and `execute` persists the artifact subset where a
 column exists. `present_authority_finding` (authority step, persists
 `authority`); `present_current_law_summary` + `present_legislative_history`
 (current_law step, display-only); `present_comparables` (comparables step,
-persists `comparables`). Payload shapes are the `Ordinance*Schema` /
+persists `comparables`); `present_draft` (draft step, persists
+`draftTitle`/`draftBody`/`draftSources` and advances the ordinance to
+`draft`). Payload shapes are the `Ordinance*Schema` /
 `OrdinancePresentComparablesSchema` contracts consumed by `stepWidgets.tsx` in
-gp-webapp. The draft step has no `present_*` tool yet.
+gp-webapp.
+
+`present_draft`'s persist also auto-starts the **ordinance quality loop** — a
+background SQS job in gp-api (not the CAP background system) that QCs and
+revises the draft outside chat, so the draft can change between a chat turn's
+reads (the review scope's rules tell the model to re-read before quoting).
+Detail: `packages/gp-api/src/ordinances/CLAUDE.md`.
 
 COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 (`list_briefings`/`get_briefing`, `read_community_issues`). Tool-calling chat is
