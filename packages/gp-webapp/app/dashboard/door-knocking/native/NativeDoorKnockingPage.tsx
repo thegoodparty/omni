@@ -257,6 +257,7 @@ export default function NativeDoorKnockingPage({
       )}
       {knockTurf && (
         <KnockTurfDialog
+          key={knockTurf.id}
           turf={knockTurf}
           open={true}
           onOpenChange={(open) => {

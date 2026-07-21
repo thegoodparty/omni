@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
+  DoorKnockingRoutePayload,
   DoorKnockStatus,
   RoutePayloadStop,
 } from '@goodparty_org/contracts'
@@ -53,16 +54,17 @@ const formatDuration = (seconds: number): string => {
 const formatDistance = (meters: number): string =>
   `${(meters / 1609.344).toFixed(1)} mi`
 
-// Most-actionable-first rollup, mirroring the server's: an 'unknown' person
-// keeps the whole stop knockable.
+// Most-actionable-first rollup, mirroring the server's rollupStopStatus:
+// an 'unknown' person keeps the whole stop knockable, and an empty stop
+// rolls up to 'unknown' — no seed value, so no divergence from the server.
 const rollupStatus = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
-  statuses.reduce<DoorKnockStatus>(
-    (best, status) =>
-      DOOR_KNOCK_STATUSES.indexOf(status) < DOOR_KNOCK_STATUSES.indexOf(best)
-        ? status
-        : best,
-    'not_a_voter',
-  )
+  statuses.length === 0
+    ? 'unknown'
+    : statuses.reduce((best, status) =>
+        DOOR_KNOCK_STATUSES.indexOf(status) < DOOR_KNOCK_STATUSES.indexOf(best)
+          ? status
+          : best,
+      )
 
 interface WalkViewProps {
   turfId: number
@@ -71,6 +73,7 @@ interface WalkViewProps {
 }
 
 export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
+  const queryClient = useQueryClient()
   const routeQuery = useQuery({
     queryKey: ['door-knocking-route', turfId],
     queryFn: () =>
@@ -78,20 +81,47 @@ export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
         id: String(turfId),
       }).then((res) => res.data),
   })
-  // Statuses recorded this session overlay the served ones, so dots and
-  // chips recolor without refetching the route.
-  const [statusOverrides, setStatusOverrides] = useState<
-    Map<string, DoorKnockStatus>
-  >(new Map())
+  // Recorded statuses patch the route query cache itself (not component
+  // state), so they survive leaving and re-opening the walk view within the
+  // cache window; a real refetch replaces them with the server's derivation.
+  const applyKnockStatus = (personId: string, knockStatus: DoorKnockStatus) => {
+    queryClient.setQueryData<DoorKnockingRoutePayload>(
+      ['door-knocking-route', turfId],
+      (old) =>
+        old && {
+          ...old,
+          stops: old.stops.map((stop) => ({
+            ...stop,
+            addresses: stop.addresses.map((address) => ({
+              ...address,
+              targets: address.targets.map((target) =>
+                target.personId === personId
+                  ? { ...target, knockStatus }
+                  : target,
+              ),
+            })),
+          })),
+        },
+    )
+  }
   const [openStopId, setOpenStopId] = useState<number | null>(null)
   const [recordingTargetId, setRecordingTargetId] = useState<number | null>(
     null,
   )
+  // One replay key per target, minted when its form first opens and kept
+  // across close→reopen (a remounted form must retry with the SAME key or
+  // the server-side upsert can't dedupe). Cleared on success so a later,
+  // genuinely new knock gets a fresh key instead of overwriting history.
+  const [clientKeys, setClientKeys] = useState<Map<number, string>>(new Map())
 
-  const statusFor = (
-    personId: string,
-    served: DoorKnockStatus,
-  ): DoorKnockStatus => statusOverrides.get(personId) ?? served
+  const toggleRecorder = (targetId: number) => {
+    setClientKeys((current) =>
+      current.has(targetId)
+        ? current
+        : new Map(current).set(targetId, crypto.randomUUID()),
+    )
+    setRecordingTargetId((current) => (current === targetId ? null : targetId))
+  }
 
   const stops = useMemo(
     () => (routeQuery.data?.stops ?? []).slice().sort((a, b) => a.seq - b.seq),
@@ -101,9 +131,7 @@ export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
   const stopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
     rollupStatus(
       stop.addresses.flatMap((address) =>
-        address.targets.map((target) =>
-          statusFor(target.personId, target.knockStatus),
-        ),
+        address.targets.map((target) => target.knockStatus),
       ),
     )
 
@@ -190,21 +218,12 @@ export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
                                     </span>
                                   )}
                                 </span>
-                                <StatusChip
-                                  status={statusFor(
-                                    target.personId,
-                                    target.knockStatus,
-                                  )}
-                                />
+                                <StatusChip status={target.knockStatus} />
                                 <Button
                                   size="small"
                                   variant="outline"
                                   onClick={() =>
-                                    setRecordingTargetId(
-                                      recordingTargetId === target.stopTargetId
-                                        ? null
-                                        : target.stopTargetId,
-                                    )
+                                    toggleRecorder(target.stopTargetId)
                                   }
                                 >
                                   Record
@@ -215,20 +234,27 @@ export default function WalkView({ turfId, turfName, onBack }: WalkViewProps) {
                                   May have moved since this route was built.
                                 </p>
                               )}
-                              {recordingTargetId === target.stopTargetId && (
-                                <RecordKnockForm
-                                  target={target}
-                                  onRecorded={(personId, knockStatus) => {
-                                    setStatusOverrides((current) =>
-                                      new Map(current).set(
-                                        personId,
-                                        knockStatus,
-                                      ),
-                                    )
-                                    setRecordingTargetId(null)
-                                  }}
-                                />
-                              )}
+                              {recordingTargetId === target.stopTargetId &&
+                                clientKeys.get(target.stopTargetId) !==
+                                  undefined && (
+                                  <RecordKnockForm
+                                    target={target}
+                                    clientKey={
+                                      clientKeys.get(
+                                        target.stopTargetId,
+                                      ) as string
+                                    }
+                                    onRecorded={(personId, knockStatus) => {
+                                      applyKnockStatus(personId, knockStatus)
+                                      setClientKeys((current) => {
+                                        const next = new Map(current)
+                                        next.delete(target.stopTargetId)
+                                        return next
+                                      })
+                                      setRecordingTargetId(null)
+                                    }}
+                                  />
+                                )}
                             </div>
                           ))}
                           {address.otherResidents.length > 0 && (

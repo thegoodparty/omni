@@ -148,6 +148,42 @@ describe('WalkView', () => {
     )
   })
 
+  it('replays the same clientKey when the form is closed and reopened', async () => {
+    const keys: string[] = []
+    let failFirst = true
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      keys.push((body as { clientKey: string }).clientKey)
+      if (failFirst) {
+        failFirst = false
+        return { status: 500, data: {} }
+      }
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'not_home' },
+      }
+    })
+
+    render(<WalkView turfId={3} turfName="Elm loop" onBack={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByText('105 Elm St'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    await waitFor(() => expect(keys).toHaveLength(1))
+
+    // Close and reopen the form — the remount must not mint a new key,
+    // or the server-side upsert can't dedupe the retry.
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    await waitFor(() => expect(keys).toHaveLength(2))
+    expect(keys[1]).toBe(keys[0])
+  })
+
   it('never sends answers with a non-answered outcome', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {

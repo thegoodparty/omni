@@ -39,6 +39,9 @@ const WILL_VOTE_OPTIONS: Array<[WillVoteAnswer, string]> = [
 
 interface RecordKnockFormProps {
   target: RoutePayloadTarget
+  // Owned by WalkView so close→reopen of the form replays the SAME key:
+  // dead-zone retries upsert server-side instead of duplicating the knock.
+  clientKey: string
   onRecorded: (personId: string, knockStatus: DoorKnockStatus) => void
 }
 
@@ -77,6 +80,7 @@ const ChoiceRow = <T extends string>({
 
 export default function RecordKnockForm({
   target,
+  clientKey,
   onRecorded,
 }: RecordKnockFormProps) {
   const [outcome, setOutcome] = useState<DoorKnockOutcome | undefined>()
@@ -85,9 +89,6 @@ export default function RecordKnockForm({
   >()
   const [willVote, setWillVote] = useState<WillVoteAnswer | undefined>()
   const [note, setNote] = useState('')
-  // Minted once per form mount: retrying a failed save replays the SAME key,
-  // so dead-zone retries upsert instead of duplicating the knock.
-  const [clientKey] = useState(() => crypto.randomUUID())
 
   const record = useMutation({
     mutationFn: () => {
