@@ -148,7 +148,7 @@ const VALUE_MAPPERS = {
         return value
     }
   },
-  politicalParty: (value: string): string => {
+  politicalParty: (value: string): string | null => {
     switch (value) {
       case 'Democratic':
         return 'Democratic'
@@ -156,8 +156,12 @@ const VALUE_MAPPERS = {
         return 'Republican'
       case 'Independent':
         return 'Non-Partisan'
+      // Parties_Description holds no literal 'Unknown' rows — unknown party
+      // is a NULL column, so map to null like the other VALUE_MAPPERS
+      // (buildMappedFieldFilter turns it into IS NULL). Passing 'Unknown'
+      // through matched zero rows and silently emptied the filter.
       case 'Unknown':
-        return 'Unknown'
+        return null
       default:
         return value
     }

@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { DoorKnockingPackManifestSchema } from './DoorKnockingPack.schema'
 import { BboxSchema } from '../shared/Bbox.schema'
-import { DoorKnockingEvaluateRequestSchema } from './DoorKnockingEvaluation.schema'
+import {
+  DoorKnockingEvaluateRequestSchema,
+  DoorKnockingEvaluateResponseSchema,
+} from './DoorKnockingEvaluation.schema'
+import {
+  DoorKnockingResidentsRequestSchema,
+  DoorKnockingResidentsResponseSchema,
+} from './DoorKnockingResidents.schema'
 
 const validManifest = {
   version: 1,
@@ -139,5 +146,115 @@ describe('DoorKnockingEvaluateRequestSchema', () => {
   it('rejects an _or range with neither gte nor lte', () => {
     const request = { ...base, filters: { ageInt: { _or: [{}] } } }
     expect(() => DoorKnockingEvaluateRequestSchema.parse(request)).toThrow()
+  })
+})
+
+describe('DoorKnockingEvaluateResponseSchema', () => {
+  const person = {
+    id: '11111111-1111-1111-1111-111111111111',
+    firstName: 'Marisol',
+    lastName: 'Vega',
+    lat: 41.8781,
+    lng: -87.6298,
+    addressKey: '1200 W ELM ST|SPRINGFIELD|IL|62704',
+    displayAddress: '1200 W Elm St',
+  }
+
+  it('accepts a roster with nullable names', () => {
+    const response = { people: [person, { ...person, firstName: null }] }
+    expect(() =>
+      DoorKnockingEvaluateResponseSchema.parse(response),
+    ).not.toThrow()
+  })
+
+  it('rejects an empty addressKey', () => {
+    const response = { people: [{ ...person, addressKey: '' }] }
+    expect(() => DoorKnockingEvaluateResponseSchema.parse(response)).toThrow()
+  })
+})
+
+describe('DoorKnockingResidents schemas', () => {
+  const request = {
+    districtId: '457a1cd7-4184-f823-49d3-f207af693521',
+    addressKeys: ['1200 W ELM ST|SPRINGFIELD|IL|62704'],
+    targetPersonIds: ['11111111-1111-1111-1111-111111111111'],
+  }
+
+  it('accepts a minimal request', () => {
+    expect(() =>
+      DoorKnockingResidentsRequestSchema.parse(request),
+    ).not.toThrow()
+  })
+
+  it('rejects empty addressKeys and targetPersonIds arrays', () => {
+    expect(() =>
+      DoorKnockingResidentsRequestSchema.parse({ ...request, addressKeys: [] }),
+    ).toThrow()
+    expect(() =>
+      DoorKnockingResidentsRequestSchema.parse({
+        ...request,
+        targetPersonIds: [],
+      }),
+    ).toThrow()
+  })
+
+  it('rejects addressKeys beyond the 5,000 cap', () => {
+    const tooMany = Array.from({ length: 5_001 }, (_, i) => `key-${i}`)
+    expect(() =>
+      DoorKnockingResidentsRequestSchema.parse({
+        ...request,
+        addressKeys: tooMany,
+      }),
+    ).toThrow()
+  })
+
+  it('accepts a response with live targets and name-only residents', () => {
+    const response = {
+      addresses: [
+        {
+          addressKey: request.addressKeys[0],
+          targets: [
+            {
+              personId: request.targetPersonIds[0],
+              firstName: 'Marisol',
+              lastName: 'Vega',
+              age: 47,
+              politicalParty: 'Independent',
+            },
+          ],
+          otherResidents: [
+            {
+              personId: '22222222-2222-2222-2222-222222222222',
+              firstName: 'Teo',
+              lastName: 'Vega',
+            },
+          ],
+        },
+      ],
+    }
+    expect(() =>
+      DoorKnockingResidentsResponseSchema.parse(response),
+    ).not.toThrow()
+  })
+
+  it('rejects a party value outside the person-output vocabulary', () => {
+    const response = {
+      addresses: [
+        {
+          addressKey: request.addressKeys[0],
+          targets: [
+            {
+              personId: request.targetPersonIds[0],
+              firstName: 'Marisol',
+              lastName: 'Vega',
+              age: 47,
+              politicalParty: 'Unknown',
+            },
+          ],
+          otherResidents: [],
+        },
+      ],
+    }
+    expect(() => DoorKnockingResidentsResponseSchema.parse(response)).toThrow()
   })
 })
