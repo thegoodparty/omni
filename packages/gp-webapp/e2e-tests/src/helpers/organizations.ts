@@ -5,6 +5,7 @@ import {
   type AuthenticatedUser,
   type TestUserOptions,
 } from 'tests/utils/api-registration'
+import { withGatewayRetry } from 'tests/utils/headless-user'
 import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually, wait } from 'tests/utils/eventually'
 
@@ -136,7 +137,9 @@ export const setupProCampaignUser = async (
     race,
   })
 
-  await client.post('/v1/campaigns/mine/test-set-pro', {})
+  await withGatewayRetry('POST /v1/campaigns/mine/test-set-pro', () =>
+    client.post('/v1/campaigns/mine/test-set-pro', {}),
+  )
 
   return { user, client }
 }
