@@ -56,7 +56,7 @@ export = async () => {
   })
 
   const secretMeta = await aws.secretsmanager.getSecret({
-    secretId: secretName,
+    name: secretName,
   })
 
   const secret: Record<string, string> = JSON.parse(
