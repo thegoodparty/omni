@@ -3,11 +3,13 @@
 import { useMemo, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useQuery } from '@tanstack/react-query'
+import { DoorKnockingTurf } from '@goodparty_org/contracts'
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
+  Button,
   Checkbox,
 } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
@@ -15,6 +17,9 @@ import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
 import { voterPackQueryOptions } from './useVoterPack'
 import { DimSelections, polygonStats, runFilter } from './filterEngine'
+import { turfsQueryOptions } from './turfQueries'
+import SaveTurfDialog from './SaveTurfDialog'
+import TurfList from './TurfList'
 import type { PolygonRing } from './VoterMapCanvas'
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
@@ -65,8 +70,12 @@ export default function NativeDoorKnockingPage({
   campaign,
 }: NativeDoorKnockingPageProps) {
   const packQuery = useQuery(voterPackQueryOptions)
+  const turfsQuery = useQuery(turfsQueryOptions)
   const [selections, setSelections] = useState<DimSelections>(new Map())
   const [ring, setRing] = useState<PolygonRing | null>(null)
+  const [saveOpen, setSaveOpen] = useState(false)
+  const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
+  const [clearDrawToken, setClearDrawToken] = useState(0)
 
   const filterResult = useMemo(
     () => (packQuery.data ? runFilter(packQuery.data, selections) : null),
@@ -153,8 +162,17 @@ export default function NativeDoorKnockingPage({
                       Over the 150-stop limit — draw a smaller area.
                     </p>
                   )}
+                  <Button
+                    size="small"
+                    className="mt-2 w-full"
+                    disabled={turfStats.stops === 0 || turfStats.stops > 150}
+                    onClick={() => setSaveOpen(true)}
+                  >
+                    Save turf
+                  </Button>
                 </div>
               )}
+              <TurfList onFocusTurf={setFocusTurf} />
               <Accordion type="multiple" className="w-full">
                 {PANEL_DIMS.map(([key, label]) => {
                   const dim = packQuery.data.manifest.dims.find(
@@ -196,11 +214,22 @@ export default function NativeDoorKnockingPage({
             <VoterMapCanvas
               pack={packQuery.data}
               filterResult={filterResult}
+              turfs={turfsQuery.data ?? []}
+              focusTurf={focusTurf}
+              clearDrawToken={clearDrawToken}
               onPolygonChange={setRing}
             />
           )}
         </div>
       </div>
+      {ring && (
+        <SaveTurfDialog
+          ring={ring}
+          open={saveOpen}
+          onOpenChange={setSaveOpen}
+          onSaved={() => setClearDrawToken((token) => token + 1)}
+        />
+      )}
     </DashboardLayout>
   )
 }

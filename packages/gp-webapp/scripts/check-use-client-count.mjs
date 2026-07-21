@@ -119,7 +119,11 @@ import { dirname, join, relative } from 'node:path'
 // three native door-knocking client files (page gate, map page, map canvas —
 // the canvas is behind next/dynamic ssr:false so the heavy libs stay out of
 // shared bundles).
-const BASELINE = 556
+// 2026-07-21: 556 -> 558 for the door-knocking turf save flow:
+// SaveTurfDialog (dialog form state + create mutation) and TurfList
+// (react-query turfs read + delete mutation) are both interactive and live
+// inside the client-only map page.
+const BASELINE = 558
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

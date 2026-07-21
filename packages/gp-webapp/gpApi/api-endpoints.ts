@@ -1,4 +1,7 @@
 import type {
+  CreateDoorKnockingTurf,
+  DoorKnockingTurf,
+  UpdateDoorKnockingTurf,
   CreateOrdinanceRequest,
   ExperimentVariantsResponse,
   Ordinance,
@@ -671,6 +674,22 @@ export type APIEndpoints = {
   'GET /v1/door-knocking/pack': {
     Request: undefined
     Response: ArrayBuffer
+  }
+  'GET /v1/door-knocking/turfs': {
+    Request: { voterFileFilterId?: number }
+    Response: DoorKnockingTurf[]
+  }
+  'POST /v1/door-knocking/turfs': {
+    Request: CreateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'PUT /v1/door-knocking/turfs/:id': {
+    Request: UpdateDoorKnockingTurf
+    Response: DoorKnockingTurf
+  }
+  'DELETE /v1/door-knocking/turfs/:id': {
+    Request: {}
+    Response: undefined
   }
   'GET /v1/contacts/list-detail': {
     Request: { segment: number }
