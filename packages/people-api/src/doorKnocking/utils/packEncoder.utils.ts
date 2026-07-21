@@ -68,7 +68,9 @@ const AGE_VALUES = [UNKNOWN, '18_25', '25_35', '35_50', '50_plus']
 const encodeAge = (age: number | null): number => {
   // Bucket bounds mirror gp-api's saved-filter age ranges (18-25, 25-35,
   // 35-50, 50+ — shared inclusive edges resolve to the younger bucket).
-  if (age === null) return 0
+  // Under-18 rows (pre-registrants, bad data) read unknown: no age filter
+  // matches them, so no pack bucket may either.
+  if (age === null || age < 18) return 0
   if (age <= 25) return 1
   if (age <= 35) return 2
   if (age <= 50) return 3

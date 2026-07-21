@@ -12,6 +12,7 @@ import {
   Bbox,
   DoorKnockingEvaluateResponse,
   DoorKnockingEvaluateResponseSchema,
+  DoorKnockingPackRequest,
   DoorKnockingResidentsResponse,
   DoorKnockingResidentsResponseSchema,
 } from '@goodparty_org/contracts'
@@ -34,8 +35,8 @@ const TOKEN_REFRESH_BUFFER_SECONDS = 60
 const EVALUATE_MAX_PEOPLE = 20_000
 
 // The S2S JWT mint duplicates ContactsService's private implementation —
-// there is deliberately no shared helper yet (two callers); extract one if a
-// third appears.
+// there is deliberately no shared helper yet; every door-knocking S2S call
+// goes through this client so the mint isn't copied again.
 @Injectable()
 export class DoorKnockingPeopleApiService {
   private cachedToken: string | null = null
@@ -138,6 +139,33 @@ export class DoorKnockingPeopleApiService {
         'people-api door-knocking residents failed',
       )
       throw new BadGatewayException('Residents lookup failed')
+    }
+  }
+
+  // A worst-city pack takes tens of seconds to build upstream.
+  async pack(request: DoorKnockingPackRequest): Promise<Buffer> {
+    try {
+      const response = await lastValueFrom(
+        this.httpService.post<ArrayBuffer>(
+          `${PEOPLE_API_URL}/v1/door-knocking/pack`,
+          request,
+          {
+            headers: { Authorization: `Bearer ${this.s2sToken()}` },
+            responseType: 'arraybuffer',
+            timeout: 120_000,
+          },
+        ),
+      )
+      return Buffer.from(response.data)
+    } catch (error) {
+      this.logger.error(
+        {
+          status: isAxiosError(error) ? error.response?.status : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        },
+        'people-api pack build failed',
+      )
+      throw new BadGatewayException('Map data build failed')
     }
   }
 }

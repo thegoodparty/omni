@@ -16,7 +16,8 @@ export const DoorKnockingPackRequestSchema = z
   .object({
     districtId: z.guid(),
     // gp-api's org-wide latest-per-person knock statuses; bounded by doors
-    // actually knocked, so far smaller than the district.
+    // actually knocked, so far smaller than the district. The cap fits
+    // people-api's 32 MiB body limit with headroom.
     knockStatuses: z
       .array(
         z
@@ -26,7 +27,7 @@ export const DoorKnockingPackRequestSchema = z
           })
           .strict(),
       )
-      .max(500_000)
+      .max(200_000)
       .optional(),
   })
   .strict()
