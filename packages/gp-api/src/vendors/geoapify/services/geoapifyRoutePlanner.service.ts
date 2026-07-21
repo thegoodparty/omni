@@ -1,6 +1,7 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
 import { PinoLogger } from 'nestjs-pino'
+import { isAxiosError } from 'axios'
 import { lastValueFrom } from 'rxjs'
 
 const GEOAPIFY_ROUTEPLANNER_URL = 'https://api.geoapify.com/v1/routeplanner'
@@ -91,7 +92,14 @@ export class GeoapifyRoutePlannerService {
       )
       data = response.data
     } catch (error) {
-      this.logger.error({ error }, 'Geoapify route planner request failed')
+      // Never log the raw AxiosError: its config.url carries ?apiKey=<key>.
+      this.logger.error(
+        {
+          status: isAxiosError(error) ? error.response?.status : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        },
+        'Geoapify route planner request failed',
+      )
       throw new BadGatewayException('Route optimization failed')
     }
 

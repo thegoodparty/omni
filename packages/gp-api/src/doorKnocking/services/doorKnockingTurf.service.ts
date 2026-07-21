@@ -95,7 +95,7 @@ export class DoorKnockingTurfService extends createPrismaBase(
     const turf = await this.client.$transaction(async (tx) => {
       await this.assertNotLocked(tx, id, organizationSlug)
       return tx.doorKnockingTurf.update({
-        where: { id },
+        where: { id, voterFileFilter: { organizationSlug } },
         data: input,
         include: ROUTE_ID_INCLUDE,
       })
@@ -106,7 +106,9 @@ export class DoorKnockingTurfService extends createPrismaBase(
   async delete(id: number, organizationSlug: string): Promise<void> {
     await this.client.$transaction(async (tx) => {
       await this.assertNotLocked(tx, id, organizationSlug)
-      await tx.doorKnockingTurf.delete({ where: { id } })
+      await tx.doorKnockingTurf.delete({
+        where: { id, voterFileFilter: { organizationSlug } },
+      })
     })
   }
 
