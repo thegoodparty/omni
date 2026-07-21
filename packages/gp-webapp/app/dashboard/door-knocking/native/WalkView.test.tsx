@@ -16,6 +16,7 @@ const routePayload: DoorKnockingRoutePayload = {
     stopCount: 2,
     createdAt: new Date('2026-07-21T00:00:00Z'),
   },
+  pathGeometry: null,
   stops: [
     // Served out of order on purpose: the view must sort by seq.
     {
