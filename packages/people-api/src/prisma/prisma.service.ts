@@ -31,7 +31,8 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
-    this.activeClient = await this.buildClient(this.databaseUrl.current)
+    const url = await this.databaseUrl.ensureLoaded()
+    this.activeClient = await this.buildClient(url)
     this.unsubscribe = this.databaseUrl.onChange((url) => {
       void this.swap(url)
     })
