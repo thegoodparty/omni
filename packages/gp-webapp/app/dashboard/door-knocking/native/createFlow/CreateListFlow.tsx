@@ -21,10 +21,10 @@ import { TURF_COLORS } from '../turfQueries'
 import type { PolygonRing } from '../VoterMapCanvas'
 import type { PolygonStats } from '../filterEngine'
 
-// The demo's pill look, compacted for the flow panel (same selected-state
-// convention as the CRM wizard's PILL_TOGGLE_ITEM_CLASSNAME).
+// The demo's pill look (same selected-state convention as the CRM wizard's
+// PILL_TOGGLE_ITEM_CLASSNAME).
 const PILL_CLASSNAME =
-  'rounded-full border border-components-input-border bg-transparent px-3 py-1.5 text-xs font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
+  'rounded-full border border-components-input-border bg-transparent px-3.5 py-1.5 text-sm font-normal text-foreground data-[state=on]:border-tertiary-dark data-[state=on]:bg-tertiary-dark data-[state=on]:text-tertiary-foreground data-[state=on]:hover:bg-tertiary-dark/90'
 
 export type CreateFlowStep = 'filters' | 'draw' | 'confirm'
 
@@ -45,7 +45,7 @@ interface CreateListFlowProps {
 const STEP_META: Record<CreateFlowStep, { title: string; caption: string }> = {
   filters: {
     title: 'Filter voters',
-    caption: 'Refine who to reach, then draw your turf on the map.',
+    caption: 'Refine who to reach, then draw your route on the map.',
   },
   draw: {
     title: 'Draw your door knocking boundaries',
@@ -53,11 +53,57 @@ const STEP_META: Record<CreateFlowStep, { title: string; caption: string }> = {
   },
   confirm: {
     title: 'Confirm your list',
-    caption: 'Review the turf, give it a name and color, then save it.',
+    caption: 'Review the route, give it a name and color, then save it.',
   },
 }
 
 const STEP_ORDER: CreateFlowStep[] = ['filters', 'draw', 'confirm']
+
+const StepHeader = ({
+  step,
+  onBack,
+  onClose,
+}: {
+  step: CreateFlowStep
+  onBack: (() => void) | null
+  onClose: () => void
+}) => {
+  const stepIndex = STEP_ORDER.indexOf(step)
+  const meta = STEP_META[step]
+  return (
+    <div className="border-b border-border bg-background px-6 py-4">
+      <div className="mx-auto w-full max-w-2xl">
+        <div className="flex items-start gap-3">
+          {onBack && (
+            <Button size="small" variant="ghost" onClick={onBack}>
+              Back
+            </Button>
+          )}
+          <div className="min-w-0 flex-1">
+            <h2 className="text-lg font-semibold">{meta.title}</h2>
+            <p className="text-sm text-muted-foreground">{meta.caption}</p>
+          </div>
+          <IconButton aria-label="Close list creation" onClick={onClose}>
+            <XMarkIcon size={18} />
+          </IconButton>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          {STEP_ORDER.map((name, index) => (
+            <span
+              key={name}
+              className={`h-1 flex-1 rounded-full ${
+                index <= stepIndex ? 'bg-info' : 'bg-muted'
+              }`}
+            />
+          ))}
+          <span className="shrink-0 text-xs text-muted-foreground">
+            Step {stepIndex + 1} of 3
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function CreateListFlow({
   step,
@@ -119,8 +165,6 @@ export default function CreateListFlow({
     },
   })
 
-  const stepIndex = STEP_ORDER.indexOf(step)
-  const meta = STEP_META[step]
   const overCap = (turfStats?.stops ?? 0) > 150
 
   const toggleGroupValues = (
@@ -140,37 +184,62 @@ export default function CreateListFlow({
     onFiltersChange(next)
   }
 
-  return (
-    <div className="flex h-full w-96 shrink-0 flex-col border-l border-border bg-background">
-      <div className="flex items-start gap-2 border-b border-border p-4">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold">{meta.title}</h2>
-          <p className="text-sm text-muted-foreground">{meta.caption}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Step {stepIndex + 1} of 3
-          </p>
+  // The draw step frames the live map: chrome on top and bottom, the map
+  // itself (rendered by the page underneath) does the work in between.
+  if (step === 'draw') {
+    return (
+      <div className="pointer-events-none absolute inset-0 z-20 flex flex-col">
+        <div className="pointer-events-auto">
+          <StepHeader
+            step={step}
+            onBack={() => onStepChange('filters')}
+            onClose={onClose}
+          />
         </div>
-        {stepIndex > 0 && (
-          <Button
-            size="small"
-            variant="ghost"
-            onClick={() => onStepChange(STEP_ORDER[stepIndex - 1] ?? 'filters')}
-          >
-            Back
-          </Button>
-        )}
-        <IconButton aria-label="Close list creation" onClick={onClose}>
-          <XMarkIcon size={16} />
-        </IconButton>
+        <div className="flex-1" />
+        <div className="pointer-events-auto border-t border-border bg-background px-6 py-4">
+          <div className="mx-auto flex w-full max-w-2xl items-center gap-4">
+            <p className="min-w-0 flex-1 text-sm">
+              <span className="font-semibold tabular-nums">
+                {matchingHouseholds.toLocaleString()}
+              </span>{' '}
+              matching households ·{' '}
+              <span className="font-semibold tabular-nums">
+                {(turfStats?.stops ?? 0).toLocaleString()}
+              </span>{' '}
+              selected doors
+              {overCap && (
+                <span className="block text-destructive">
+                  Over the 150-stop limit — draw a smaller area.
+                </span>
+              )}
+            </p>
+            <Button
+              disabled={!ring || (turfStats?.stops ?? 0) === 0 || overCap}
+              onClick={() => onStepChange('confirm')}
+            >
+              Continue ({(turfStats?.stops ?? 0).toLocaleString()} doors)
+            </Button>
+          </div>
+        </div>
       </div>
+    )
+  }
 
-      <div className="flex-1 overflow-y-auto p-4">
-        {step === 'filters' && (
-          <div className="flex flex-col gap-5">
-            {filterSections.map((section) =>
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col bg-background">
+      <StepHeader
+        step={step}
+        onBack={step === 'confirm' ? () => onStepChange('draw') : null}
+        onClose={onClose}
+      />
+      <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+          {step === 'filters' &&
+            filterSections.map((section) =>
               section.fields.map((field) => (
-                <div key={field.key} className="flex flex-col gap-1.5">
-                  <span className="text-xs font-semibold text-foreground">
+                <div key={field.key} className="flex flex-col gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-foreground">
                     {field.label}
                   </span>
                   <ToggleGroup
@@ -180,7 +249,7 @@ export default function CreateListFlow({
                       setGroupValues(field.options, values)
                     }
                     aria-label={field.label}
-                    className="flex flex-wrap justify-start gap-1.5"
+                    className="flex flex-wrap justify-start gap-2"
                   >
                     {field.options.map((option) => (
                       <ToggleGroupItem
@@ -195,115 +264,92 @@ export default function CreateListFlow({
                 </div>
               )),
             )}
-          </div>
-        )}
 
-        {step === 'draw' && (
-          <div className="flex flex-col gap-4">
-            <div className="rounded-md border border-border p-3 text-sm">
-              <span className="font-semibold tabular-nums">
-                {matchingHouseholds.toLocaleString()}
-              </span>{' '}
-              matching households ·{' '}
-              <span className="font-semibold tabular-nums">
-                {(turfStats?.stops ?? 0).toLocaleString()}
-              </span>{' '}
-              selected doors
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Click the map to drop boundary points around the doors you want to
-              knock. Double-click to close the shape.
-            </p>
-            {overCap && (
-              <p className="text-sm text-destructive">
-                Over the 150-stop limit — draw a smaller area.
-              </p>
-            )}
-          </div>
-        )}
-
-        {step === 'confirm' && (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="turf-name">Turf name</Label>
-              <Input
-                id="turf-name"
-                value={name}
-                maxLength={120}
-                placeholder="Name this list"
-                onChange={(e) => setName(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>List color</Label>
-              <div className="flex gap-2">
-                {TURF_COLORS.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    aria-label={`Turf color ${option}`}
-                    aria-pressed={color === option}
-                    className={`h-7 w-7 rounded-full border-2 ${
-                      color === option
-                        ? 'border-foreground'
-                        : 'border-transparent'
-                    }`}
-                    style={{ backgroundColor: option }}
-                    onClick={() => setColor(option)}
-                  />
-                ))}
+          {step === 'confirm' && (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <Label
+                  htmlFor="turf-name"
+                  className="text-xs font-semibold uppercase tracking-wide"
+                >
+                  Route name
+                </Label>
+                <Input
+                  id="turf-name"
+                  value={name}
+                  maxLength={120}
+                  placeholder="Name this list"
+                  onChange={(e) => setName(e.target.value)}
+                />
               </div>
-            </div>
-            <div className="flex items-center justify-between rounded-md border border-border p-3 text-sm">
-              <span className="font-semibold">Stops</span>
-              <span className="tabular-nums">
-                {(turfStats?.stops ?? 0).toLocaleString()} doors ·{' '}
-                {(turfStats?.people ?? 0).toLocaleString()} voters
-              </span>
-            </div>
-            {save.isError && (
-              <p className="text-sm text-destructive">
-                Saving failed — check the shape and try again.
-              </p>
-            )}
-          </div>
-        )}
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs font-semibold uppercase tracking-wide">
+                  List color
+                </Label>
+                <div className="flex gap-2.5">
+                  {TURF_COLORS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-label={`Turf color ${option}`}
+                      aria-pressed={color === option}
+                      className={`h-8 w-8 rounded-full border-2 ${
+                        color === option
+                          ? 'border-foreground'
+                          : 'border-transparent'
+                      }`}
+                      style={{ backgroundColor: option }}
+                      onClick={() => setColor(option)}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-baseline justify-between border-t border-border pt-4">
+                <span className="text-sm font-semibold">Stops</span>
+                <span className="text-sm tabular-nums text-muted-foreground">
+                  {(turfStats?.stops ?? 0).toLocaleString()} doors ·{' '}
+                  {(turfStats?.people ?? 0).toLocaleString()} voters
+                </span>
+              </div>
+              {save.isError && (
+                <p className="text-sm text-destructive">
+                  Saving failed — check the shape and try again.
+                </p>
+              )}
+            </>
+          )}
+        </div>
       </div>
-
-      <div className="flex gap-2 border-t border-border p-4">
-        {step === 'filters' && (
-          <Button className="w-full" onClick={() => onStepChange('draw')}>
-            Continue
-          </Button>
-        )}
-        {step === 'draw' && (
-          <Button
-            className="w-full"
-            disabled={!ring || (turfStats?.stops ?? 0) === 0 || overCap}
-            onClick={() => onStepChange('confirm')}
-          >
-            Continue ({(turfStats?.stops ?? 0).toLocaleString()} doors)
-          </Button>
-        )}
-        {step === 'confirm' && (
-          <>
+      <div className="border-t border-border bg-background px-6 py-4">
+        <div className="mx-auto flex w-full max-w-2xl justify-center gap-3">
+          {step === 'filters' && (
             <Button
-              variant="outline"
-              className="flex-1"
-              disabled={name.trim().length === 0 || save.isPending}
-              onClick={() => save.mutate(true)}
+              className="w-full max-w-xs"
+              onClick={() => onStepChange('draw')}
             >
-              Save and draw another
+              Continue
             </Button>
-            <Button
-              className="flex-1"
-              disabled={name.trim().length === 0 || save.isPending}
-              onClick={() => save.mutate(false)}
-            >
-              {save.isPending ? 'Saving…' : 'Save and exit'}
-            </Button>
-          </>
-        )}
+          )}
+          {step === 'confirm' && (
+            <>
+              <Button
+                className="flex-1"
+                disabled={name.trim().length === 0 || save.isPending}
+                onClick={() => save.mutate(false)}
+              >
+                {save.isPending ? 'Saving…' : 'Save and exit'}
+              </Button>
+              <Button
+                variant="secondary"
+                className="flex-1"
+                disabled={name.trim().length === 0 || save.isPending}
+                onClick={() => save.mutate(true)}
+              >
+                Save and draw another
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

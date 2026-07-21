@@ -145,21 +145,8 @@ export default function NativeDoorKnockingPage({
         />
       )
     }
-    if (flowStep) {
-      return (
-        <CreateListFlow
-          step={flowStep}
-          filters={filters}
-          onFiltersChange={setFilters}
-          onStepChange={changeFlowStep}
-          onClose={closeFlow}
-          matchingHouseholds={filterResult?.households ?? 0}
-          ring={ring}
-          turfStats={turfStats}
-          onSaved={handleSaved}
-        />
-      )
-    }
+    // The create flow renders as a full-width overlay, not a rail.
+    if (flowStep) return null
     return (
       <aside className="flex h-full w-96 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border bg-background p-4">
         <TurfList
@@ -217,7 +204,7 @@ export default function NativeDoorKnockingPage({
             </Button>
           )}
         </div>
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
           <div className="relative min-w-0 flex-1">
             {packQuery.isPending && (
               <div className="flex h-full items-center justify-center">
@@ -242,7 +229,7 @@ export default function NativeDoorKnockingPage({
               />
             )}
             {flowStep === 'draw' && (
-              <div className="pointer-events-none absolute left-4 top-4 max-w-xs rounded-md border border-border bg-background/95 p-3 text-sm shadow-sm">
+              <div className="pointer-events-none absolute left-4 top-32 max-w-xs rounded-md border border-border bg-background/95 p-3 text-sm shadow-sm">
                 <p className="font-semibold">Draw your knocking boundaries</p>
                 <p className="text-muted-foreground">
                   Click the map to drop boundary points, then double-click to
@@ -252,6 +239,19 @@ export default function NativeDoorKnockingPage({
             )}
           </div>
           {rightRail()}
+          {flowStep && (
+            <CreateListFlow
+              step={flowStep}
+              filters={filters}
+              onFiltersChange={setFilters}
+              onStepChange={changeFlowStep}
+              onClose={closeFlow}
+              matchingHouseholds={filterResult?.households ?? 0}
+              ring={ring}
+              turfStats={turfStats}
+              onSaved={handleSaved}
+            />
+          )}
         </div>
       </div>
       {knockTurf && (

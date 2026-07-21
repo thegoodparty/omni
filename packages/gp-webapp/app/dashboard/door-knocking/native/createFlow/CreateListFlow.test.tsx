@@ -65,7 +65,7 @@ describe('CreateListFlow', () => {
       />,
     )
 
-    fireEvent.change(screen.getByLabelText('Turf name'), {
+    fireEvent.change(screen.getByLabelText('Route name'), {
       target: { value: 'Lakeview blitz' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
@@ -126,7 +126,7 @@ describe('CreateListFlow', () => {
 
     render(<CreateListFlow {...baseProps} step="confirm" onSaved={onSaved} />)
 
-    fireEvent.change(screen.getByLabelText('Turf name'), {
+    fireEvent.change(screen.getByLabelText('Route name'), {
       target: { value: 'Retry turf' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'Save and exit' }))
