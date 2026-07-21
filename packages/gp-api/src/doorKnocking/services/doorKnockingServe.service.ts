@@ -118,6 +118,7 @@ export class DoorKnockingServeService extends createPrismaBase(
       stops: route.stops.map((stop) => {
         const addresses = this.buildAddresses(
           stop.targets,
+          stop.displayAddress,
           liveByAddressKey,
           statusByPersonId,
         )
@@ -142,6 +143,7 @@ export class DoorKnockingServeService extends createPrismaBase(
 
   private buildAddresses(
     targets: DoorKnockingStopTarget[],
+    stopDisplayAddress: string,
     liveByAddressKey: Map<string, LiveAddress>,
     statusByPersonId: Map<string, DoorKnockStatus>,
   ): RoutePayloadAddress[] {
@@ -163,7 +165,9 @@ export class DoorKnockingServeService extends createPrismaBase(
         // never re-derived from live data, so the walk view matches what
         // was routed. The unit key is HOUSE|PREFIXDIR|STREET|DESIGNATOR|
         // SUFFIXDIR|APT|ZIP (DOOR_KNOCKING_UNIT_KEY_COLUMNS order).
-        address: renderUnitAddress(addressKey),
+        // An all-NULL-components key renders to '' — fall back to the
+        // stop's frozen display line rather than serving a blank address.
+        address: renderUnitAddress(addressKey) || stopDisplayAddress,
         targets: group.map((target) => {
           const livePerson = liveTargetsById.get(target.personId)
           return {
