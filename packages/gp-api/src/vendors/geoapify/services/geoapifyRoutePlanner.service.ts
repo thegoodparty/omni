@@ -1,13 +1,27 @@
 import { BadGatewayException, Injectable } from '@nestjs/common'
 import { PinoLogger } from 'nestjs-pino'
-import {
-  Agent,
-  AgentPlan,
-  Job,
-  RoutePlanner,
-  RoutePlannerError,
-  RoutePlannerResult,
-} from '@geoapify/route-planner-sdk'
+import type { AgentPlan, RoutePlannerResult } from '@geoapify/route-planner-sdk'
+
+// The SDK's package.json says type:module, which makes Node parse its
+// "require" entry (CJS content, .js extension) as ESM — requiring it from
+// our CJS runtime crashes at boot. A true dynamic import() loads the real
+// ESM build instead; the Function indirection stops SWC from downleveling
+// import() to require(). Types load statically (erased at runtime).
+type GeoapifySdk = typeof import('@geoapify/route-planner-sdk')
+// Function() returns an untypable value; the module shape is pinned by the
+// literal-import fallback below, which TS checks against the same type.
+// eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+const importSdkAtRuntime = new Function(
+  "return import('@geoapify/route-planner-sdk')",
+) as () => Promise<GeoapifySdk>
+let sdkPromise: Promise<GeoapifySdk> | null = null
+const loadSdk = (): Promise<GeoapifySdk> =>
+  (sdkPromise ??= importSdkAtRuntime().catch(
+    // Vitest's sandbox has no dynamic-import callback for Function-scoped
+    // code; a literal import() goes through vite instead (where the module
+    // is aliased to the SDK's bundled ESM entry).
+    () => import('@geoapify/route-planner-sdk'),
+  ))
 
 // The SDK's fetch has no timeout option, so the plan call races a deadline:
 // the knock endpoint must fail visibly rather than hold its transaction open.
@@ -79,9 +93,10 @@ export class GeoapifyRoutePlannerService {
     agent: RoutePlannerAgent
     jobs: RoutePlannerJob[]
   }): Promise<RoutePlannerPlan> {
-    const planner = new RoutePlanner({ apiKey: this.apiKey() })
+    const sdk = await loadSdk()
+    const planner = new sdk.RoutePlanner({ apiKey: this.apiKey() })
     planner.setMode(args.mode)
-    const agent = new Agent()
+    const agent = new sdk.Agent()
     if (args.agent.start_location) {
       agent.setStartLocation(...args.agent.start_location)
     }
@@ -90,7 +105,7 @@ export class GeoapifyRoutePlannerService {
     }
     planner.addAgent(agent)
     for (const job of args.jobs) {
-      planner.addJob(new Job().setId(job.id).setLocation(...job.location))
+      planner.addJob(new sdk.Job().setId(job.id).setLocation(...job.location))
     }
 
     let result: RoutePlannerResult
@@ -109,7 +124,7 @@ export class GeoapifyRoutePlannerService {
       // original error object — the request URL carries ?apiKey=<key>.
       this.logger.error(
         {
-          name: error instanceof RoutePlannerError ? error.name : undefined,
+          name: error instanceof Error ? error.name : undefined,
           message: error instanceof Error ? error.message : String(error),
         },
         'Geoapify route planner request failed',
