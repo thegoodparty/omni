@@ -5,7 +5,9 @@ import { BaseDbPerson } from '../people.select'
 // @goodparty_org/contracts as Person (consumed by gp-api and gp-webapp).
 export type PersonOutputFormat = Person
 
-const mapAge = (person: BaseDbPerson): PersonOutputFormat['age'] => {
+export const mapAge = (
+  person: Pick<BaseDbPerson, 'Age' | 'Age_Int'>,
+): PersonOutputFormat['age'] => {
   if (typeof person.Age_Int === 'number' && Number.isFinite(person.Age_Int))
     return person.Age_Int
   if (person.Age && Number.isFinite(parseInt(String(person.Age), 10)))
@@ -99,7 +101,7 @@ const mapVeteranStatus = (
   return null
 }
 
-const mapPoliticalParty = (
+export const mapPoliticalParty = (
   value: string | null | undefined,
 ): PersonOutputFormat['politicalParty'] => {
   if (!value) return 'Other'
