@@ -58,28 +58,57 @@ const insidePeople = [
 ]
 const bboxOnlyPerson = person(9, 41.9, -87.6401)
 
+type PostBody = {
+  jobs: Array<{ id: string; location?: [number, number] }>
+  agents?: Array<Record<string, unknown>>
+}
+
 // Geoapify visits the jobs in REVERSED id order so tests prove seq comes
 // from the vendor plan, not from input order.
-const geoapifyPlan = (body: { jobs: Array<{ id: string }> }) => {
+// Response-faithful FeatureCollection: the SDK's result converter reads
+// properties.params (the input echo) and each feature's agent_index.
+const geoapifyPlan = (body: PostBody) => {
   const ordered = [...body.jobs].reverse()
   return {
+    type: 'FeatureCollection',
+    properties: {
+      mode: 'walk',
+      params: {
+        mode: 'walk',
+        agents: body.agents ?? [{}],
+        jobs: body.jobs,
+        shipments: [],
+        locations: [],
+      },
+    },
     features: [
       {
+        type: 'Feature',
         properties: {
+          agent_index: 0,
           time: 900,
           distance: 1200,
+          mode: 'walk',
           actions: ordered.map((job) => ({ type: 'job', job_id: job.id })),
           legs: ordered.map((_, i) => ({ time: 60 + i, distance: 100 + i })),
+          waypoints: ordered.map((job) => ({
+            original_location: job.location ?? [0, 0],
+            location: job.location ?? [0, 0],
+            actions: [],
+          })),
         },
       },
     ],
   }
 }
 
-type PostBody = {
-  jobs: Array<{ id: string }>
-  agents?: Array<Record<string, unknown>>
-}
+// people-api rides HttpService/axios; the Geoapify SDK rides global fetch —
+// two seams. stubVendors sets both and returns the FETCH spy, whose first
+// call arg is the routeplanner URL (the geoapify-call-count assertions
+// filter on it, same as the old HttpService spy).
+// Captured before any spy replaces it — a later capture inside stubVendors
+// would grab the previous test's spy and recurse.
+const realFetch = globalThis.fetch.bind(globalThis)
 
 const stubVendors = (
   overrides: {
@@ -87,10 +116,9 @@ const stubVendors = (
     geoapify?: (body: PostBody) => unknown
     residents?: { addresses: Array<Record<string, unknown>> }
   } = {},
-) =>
+) => {
   vi.spyOn(service.app.get(HttpService), 'post').mockImplementation(((
     url: string,
-    body: PostBody,
   ) => {
     if (url.includes('/v1/door-knocking/evaluate')) {
       return of({
@@ -102,12 +130,43 @@ const stubVendors = (
     if (url.includes('/v1/door-knocking/residents')) {
       return of({ data: overrides.residents ?? { addresses: [] } })
     }
-    if (url.includes('routeplanner')) {
-      const build = overrides.geoapify ?? geoapifyPlan
-      return of({ data: build(body) })
-    }
     return of({ data: {} })
   }) as never)
+  return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+    if (String(url).includes('/v1/routing')) {
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              type: 'Feature',
+              geometry: {
+                type: 'MultiLineString',
+                coordinates: [
+                  [
+                    [-87.65, 41.9],
+                    [-87.651, 41.901],
+                  ],
+                ],
+              },
+              properties: {},
+            },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }
+    if (!String(url).includes('routeplanner')) {
+      // Clerk enrichment etc. still ride real fetch.
+      return realFetch(url as Parameters<typeof fetch>[0], init)
+    }
+    const body = JSON.parse(String(init?.body)) as PostBody
+    const build = overrides.geoapify ?? geoapifyPlan
+    return new Response(JSON.stringify(build(body)), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  })
+}
 
 describe('door-knocking routes', () => {
   let campaign: Campaign
@@ -244,6 +303,11 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(201)
       expect(res.data.created).toBe(true)
       expect(res.data.route.stopCount).toBe(3)
+
+      const frozen = await service.prisma.doorKnockingRoute.findFirstOrThrow({
+        where: { doorKnockingTurfId: turf.id },
+      })
+      expect(frozen.pathGeometry).toMatchObject({ type: 'MultiLineString' })
       expect(res.data.route.totalSeconds).toBe(900)
 
       const route = await service.prisma.doorKnockingRoute.findUniqueOrThrow({
@@ -334,6 +398,7 @@ describe('door-knocking routes', () => {
         }
         return throwError(() => new Error('vendor down'))
       }) as never)
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('vendor down'))
 
       const failed = await knock(turf.id)
       expect(failed.status).toBe(502)
@@ -362,7 +427,9 @@ describe('door-knocking routes', () => {
       // The frozen route keeps its original settings — the new mode/loop are
       // ignored, not applied.
       expect(again.data.route.mode).toBe('walk')
-      expect(spy.mock.calls).toHaveLength(0)
+      expect(
+        spy.mock.calls.filter(([url]) => String(url).includes('routeplanner')),
+      ).toHaveLength(0)
     })
 
     it('loop knock anchors start=end and legs align from the anchor', async () => {
@@ -373,11 +440,25 @@ describe('door-knocking routes', () => {
           agentSent = body.agents?.[0]
           const ordered = [...body.jobs].reverse()
           return {
+            type: 'FeatureCollection',
+            properties: {
+              mode: 'walk',
+              params: {
+                mode: 'walk',
+                agents: body.agents ?? [{}],
+                jobs: body.jobs,
+                shipments: [],
+                locations: [],
+              },
+            },
             features: [
               {
+                type: 'Feature',
                 properties: {
+                  agent_index: 0,
                   time: 1200,
                   distance: 1500,
+                  mode: 'walk',
                   actions: ordered.map((job) => ({
                     type: 'job',
                     job_id: job.id,
@@ -387,6 +468,11 @@ describe('door-knocking routes', () => {
                   legs: [...ordered, null].map((_, i) => ({
                     time: 60 + i,
                     distance: 100 + i,
+                  })),
+                  waypoints: ordered.map((job) => ({
+                    original_location: job.location ?? [0, 0],
+                    location: job.location ?? [0, 0],
+                    actions: [],
                   })),
                 },
               },
@@ -698,7 +784,16 @@ describe('door-knocking routes', () => {
       expect(res.status).toBe(200)
       expect(res.data.stops[0].addresses).toEqual([])
       expect(res.data.stops[0].knockStatus).toBe('unknown')
-      expect(spy.mock.calls).toHaveLength(0)
+      // No vendor traffic: neither Geoapify (fetch) nor people-api
+      // (HttpService — the fetch spy only sees passthrough Clerk calls).
+      expect(
+        spy.mock.calls.filter(([url]) =>
+          String(url).includes('api.geoapify.com'),
+        ),
+      ).toHaveLength(0)
+      expect(
+        vi.mocked(service.app.get(HttpService).post).mock.calls,
+      ).toHaveLength(0)
     })
 
     it('404s for a turf that has not been knocked', async () => {
