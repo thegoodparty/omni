@@ -35,9 +35,13 @@ const rollupStatus = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
 
 interface WalkViewProps {
   turfId: number
+  // Lets the page refetch the voter pack after the walk: the landing map's
+  // statuses are baked into the cached pack, so new knocks are invisible
+  // there until it reloads.
+  onKnockRecorded?: () => void
 }
 
-export default function WalkView({ turfId }: WalkViewProps) {
+export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   const queryClient = useQueryClient()
   const routeQuery = useQuery(routeQueryOptions(turfId))
   // Recorded statuses patch the route query cache itself (not component
@@ -297,6 +301,7 @@ export default function WalkView({ turfId }: WalkViewProps) {
           clientKeyFor={clientKeyFor}
           onRecorded={(targetId, personId, knockStatus) => {
             applyKnockStatus(personId, knockStatus)
+            onKnockRecorded?.()
             setClientKeys((current) => {
               const next = new Map(current)
               next.delete(targetId)

@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   DOOR_KNOCK_STATUSES,
   DoorKnockingTurf,
@@ -47,7 +47,11 @@ export default function NativeDoorKnockingPage({
   pathname,
   campaign,
 }: NativeDoorKnockingPageProps) {
+  const queryClient = useQueryClient()
   const packQuery = useQuery(voterPackQueryOptions)
+  // Set while a walk records knocks; leaving the walk then refetches the
+  // pack so the landing dots pick up the new statuses.
+  const packDirtyRef = useRef(false)
   const turfsQuery = useQuery(turfsQueryOptions)
   const [flowStep, setFlowStep] = useState<CreateFlowStep | null>(null)
   const [filters, setFilters] = useState<VoterFileFilters>({})
@@ -221,7 +225,14 @@ export default function NativeDoorKnockingPage({
 
   const rightRail = () => {
     if (walkTurf) {
-      return <WalkView turfId={walkTurf.id} />
+      return (
+        <WalkView
+          turfId={walkTurf.id}
+          onKnockRecorded={() => {
+            packDirtyRef.current = true
+          }}
+        />
+      )
     }
     // The create flow renders as a full-width overlay, not a rail.
     if (flowStep) return null
@@ -314,7 +325,15 @@ export default function NativeDoorKnockingPage({
             {walkTurf && (
               <IconButton
                 aria-label="Back to the map"
-                onClick={() => setWalkTurf(null)}
+                onClick={() => {
+                  setWalkTurf(null)
+                  if (packDirtyRef.current) {
+                    packDirtyRef.current = false
+                    void queryClient.invalidateQueries({
+                      queryKey: voterPackQueryOptions.queryKey,
+                    })
+                  }
+                }}
               >
                 <ArrowLeftIcon size={18} />
               </IconButton>
