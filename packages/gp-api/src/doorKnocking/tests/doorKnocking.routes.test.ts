@@ -828,6 +828,27 @@ describe('door-knocking routes', () => {
       expect(res.data.knockStatus).toBe('inaccessible')
     })
 
+    it('rejects answers from doors that were not answered', async () => {
+      const target = await knockAndGetTarget()
+
+      const support = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'inaccessible',
+        supportAnswer: 'supporter',
+      })
+      const gotv = await record({
+        stopTargetId: target.id,
+        clientKey: CLIENT_KEY,
+        outcome: 'not_home',
+        willVote: 'yes',
+      })
+
+      expect(support.status).toBe(400)
+      expect(gotv.status).toBe(400)
+      expect(await service.prisma.contactInteractionDoorKnock.count()).toBe(0)
+    })
+
     it("404s for another organization's stop target", async () => {
       const target = await knockAndGetTarget()
       const suffix = Date.now()

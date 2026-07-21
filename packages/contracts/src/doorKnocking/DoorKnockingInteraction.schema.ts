@@ -21,6 +21,28 @@ export const RecordDoorKnockInteractionSchema = z
     note: z.string().max(2_000).optional(),
   })
   .strict()
+  // Only an answered door can yield answers: without this, a payload like
+  // {outcome: inaccessible, supportAnswer: supporter} would persist and
+  // permanently color the dot as a supporter nobody spoke with
+  // (deriveKnockStatus checks supportAnswer before outcome).
+  .refine(
+    (v) =>
+      v.supportAnswer === undefined ||
+      v.outcome === DoorKnockOutcomeSchema.enum.answered,
+    {
+      message: 'supportAnswer is only valid when outcome is answered',
+      path: ['supportAnswer'],
+    },
+  )
+  .refine(
+    (v) =>
+      v.willVote === undefined ||
+      v.outcome === DoorKnockOutcomeSchema.enum.answered,
+    {
+      message: 'willVote is only valid when outcome is answered',
+      path: ['willVote'],
+    },
+  )
 
 export type RecordDoorKnockInteraction = z.infer<
   typeof RecordDoorKnockInteractionSchema
