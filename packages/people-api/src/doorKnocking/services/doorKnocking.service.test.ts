@@ -40,7 +40,7 @@ describe('DoorKnockingService', () => {
   })
 
   const lastQuerySql = (): Prisma.Sql =>
-    mockClient.$queryRaw.mock.calls[0][0] as Prisma.Sql
+    mockClient.$queryRaw.mock.calls[0]?.[0] as Prisma.Sql
 
   describe('evaluate', () => {
     const dto = {
@@ -78,6 +78,22 @@ describe('DoorKnockingService', () => {
       await service.evaluate(dto as never)
 
       expect(lastQuerySql().values).toContain(4)
+    })
+
+    it('drops the DistrictVoter join for statewide districts', async () => {
+      mockDistrictService.findDistrictById.mockResolvedValueOnce({
+        id: DISTRICT_ID,
+        type: 'State',
+        name: 'IL',
+        state: 'IL',
+      })
+      mockClient.$queryRaw.mockResolvedValueOnce([])
+
+      await service.evaluate(dto as never)
+
+      const sqlStr = lastQuerySql().strings.join('?')
+      expect(sqlStr).not.toContain('JOIN')
+      expect(lastQuerySql().values.flat()).not.toContain(DISTRICT_ID)
     })
 
     it('rejects instead of truncating when the cap is exceeded', async () => {
@@ -121,7 +137,7 @@ describe('DoorKnockingService', () => {
 
       expect(result.addresses).toHaveLength(1)
       const [address] = result.addresses
-      expect(address.targets).toEqual([
+      expect(address?.targets).toEqual([
         {
           personId: TARGET_ID,
           firstName: 'Marisol',
@@ -130,9 +146,19 @@ describe('DoorKnockingService', () => {
           politicalParty: 'Independent',
         },
       ])
-      expect(address.otherResidents).toEqual([
+      expect(address?.otherResidents).toEqual([
         { personId: OTHER_ID, firstName: 'Marisol', lastName: 'Vega' },
       ])
+    })
+
+    it('emits null party for a target with no party data, not Other', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { ...residentRow(TARGET_ID), Parties_Description: null },
+      ])
+
+      const result = await service.residents(dto as never)
+
+      expect(result.addresses[0]?.targets[0]?.politicalParty).toBeNull()
     })
 
     it('omits requested addressKeys that have no current residents', async () => {
@@ -160,8 +186,8 @@ describe('DoorKnockingService', () => {
       const result = await service.residents(dto as never)
 
       const [address] = result.addresses
-      expect(address.targets).toEqual([])
-      expect(address.otherResidents).toHaveLength(1)
+      expect(address?.targets).toEqual([])
+      expect(address?.otherResidents).toHaveLength(1)
     })
   })
 })

@@ -65,13 +65,30 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
     super()
   }
 
+  // Statewide districts take the voter-only path: DistrictVoter has no rows
+  // for the whole-state pseudo-district, so the join must be dropped and the
+  // query scoped by State alone (same rule as findPeople).
+  private async resolveScope(districtId: string) {
+    const resolved = await resolveDistrict(this.districtService, {
+      districtId,
+    })
+    const effectiveDistrictId = resolved.useVoterOnlyPath ? null : districtId
+    return {
+      state: resolved.state,
+      effectiveDistrictId,
+      joinClause: effectiveDistrictId ? DV_JOIN : Prisma.empty,
+    }
+  }
+
   async evaluate(
     dto: DoorKnockingEvaluateDTO,
   ): Promise<DoorKnockingEvaluateResponse> {
-    const { state } = await resolveDistrict(this.districtService, dto)
+    const { state, effectiveDistrictId, joinClause } = await this.resolveScope(
+      dto.districtId,
+    )
     const whereClause = buildVoterWhereSql({
       state,
-      districtId: dto.districtId,
+      districtId: effectiveDistrictId,
       filters: dto.filters,
       extraConditions: [ROOFTOP_ONLY, buildBboxSql(dto.bbox)],
     })
@@ -89,7 +106,7 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
         ${buildHouseholdKeySql('v')} AS "addressKey",
         COALESCE(v."Residence_Addresses_AddressLine", '') AS "displayAddress"
       FROM ${VOTER_TABLE} v
-      ${DV_JOIN}
+      ${joinClause}
       ${whereClause}
       LIMIT ${dto.maxPeople + 1}`)
 
@@ -106,10 +123,12 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
   async residents(
     dto: DoorKnockingResidentsDTO,
   ): Promise<DoorKnockingResidentsResponse> {
-    const { state } = await resolveDistrict(this.districtService, dto)
+    const { state, effectiveDistrictId, joinClause } = await this.resolveScope(
+      dto.districtId,
+    )
     const whereClause = buildVoterWhereSql({
       state,
-      districtId: dto.districtId,
+      districtId: effectiveDistrictId,
       filters: EMPTY_FILTERS,
       extraConditions: [
         Prisma.sql`${buildHouseholdKeySql('v')} = ANY(${dto.addressKeys}::text[])`,
@@ -125,7 +144,7 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
         v."Parties_Description",
         ${buildHouseholdKeySql('v')} AS "addressKey"
       FROM ${VOTER_TABLE} v
-      ${DV_JOIN}
+      ${joinClause}
       ${whereClause}`)
 
     const targetIds = new Set<string>(dto.targetPersonIds)
@@ -149,7 +168,13 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
           firstName: row.firstName,
           lastName: row.lastName,
           age: mapAge(row),
-          politicalParty: mapPoliticalParty(row.Parties_Description) ?? null,
+          // Unlike /v1/people output (null → 'Other'), no party data stays
+          // null here — the contract distinguishes "no data" from an actual
+          // third-party registration.
+          politicalParty:
+            row.Parties_Description != null
+              ? (mapPoliticalParty(row.Parties_Description) ?? null)
+              : null,
         })
       } else {
         address.otherResidents.push({
