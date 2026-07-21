@@ -102,12 +102,9 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         run: uv run amplitude_event_provenance_backfill.py walk
 
-      - name: Health monitor + Slack digest
-        working-directory: packages/runbooks/scripts/python
-        run: |
-          uv run analytics_event_health.py --slack \
-            --json instrumentation_data/analytics_event_health_report.json
-
+      # Runs before the health monitor (DATA-2151 Task 6) so its --slack-out run-data
+      # file exists in time to be folded into the health digest post below. Also emits
+      # the Slack run-data file consumed by the health step (--gap-slack).
       - name: Instrumentation gap sweep (recommendations)
         working-directory: packages/runbooks/scripts/python
         continue-on-error: true
@@ -119,7 +116,17 @@ jobs:
           # "skipped: ANTHROPIC_API_KEY unset" and the run continues (DATA-2151).
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
         run: |
-          uv run instrumentation_gaps.py --today "$(date -u +%F)"
+          uv run instrumentation_gaps.py --today "$(date -u +%F)" \
+            --slack-out "$RUNNER_TEMP/gap_slack.json"
+
+      - name: Health monitor + Slack digest
+        working-directory: packages/runbooks/scripts/python
+        run: |
+          # --gap-slack degrades to a health-only post when the file is absent (e.g. the
+          # gap sweep step above failed) — never fails this step.
+          uv run analytics_event_health.py --slack \
+            --gap-slack "$RUNNER_TEMP/gap_slack.json" \
+            --json instrumentation_data/analytics_event_health_report.json
 
       - name: Commit state and keep the auto-merge PR fresh
         env:
