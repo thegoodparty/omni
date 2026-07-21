@@ -9,6 +9,7 @@ import { PathLayer, PolygonLayer, TextLayer } from '@deck.gl/layers'
 import {
   DOOR_KNOCK_STATUSES,
   DoorKnockingTurf,
+  DoorKnockStatus,
   RoutePathGeometry,
 } from '@goodparty_org/contracts'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
@@ -32,6 +33,7 @@ export interface RoutePin {
   seq: number
   lat: number
   lng: number
+  status: DoorKnockStatus
 }
 
 interface VoterMapCanvasProps {
@@ -327,7 +329,10 @@ export default function VoterMapCanvas({
           id: 'route-pins',
           data: routePins,
           getPosition: (pin) => [pin.lng, pin.lat],
-          getFillColor: [11, 21, 40, 235],
+          getFillColor: (pin) => [...STATUS_RGB[pin.status], 235],
+          updateTriggers: {
+            getFillColor: routePins,
+          },
           getLineColor: [255, 255, 255, 255],
           lineWidthMinPixels: 2,
           stroked: true,

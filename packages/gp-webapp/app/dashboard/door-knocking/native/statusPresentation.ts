@@ -1,4 +1,4 @@
-import { DoorKnockStatus } from '@goodparty_org/contracts'
+import { DOOR_KNOCK_STATUSES, DoorKnockStatus } from '@goodparty_org/contracts'
 
 // 'unknown' is not "never knocked" — it also covers answered-but-unsure
 // (deriveKnockStatus), so the label matches the filter vocabulary.
@@ -37,3 +37,15 @@ export const STATUS_DOT_COLORS: Record<DoorKnockStatus, string> =
       toHex(rgb as [number, number, number]),
     ]),
   ) as Record<DoorKnockStatus, string>
+
+// Most-actionable-first rollup, mirroring the server's rollupStopStatus:
+// an 'unknown' person keeps the whole stop knockable, and an empty stop
+// rolls up to 'unknown' — no seed value, so no divergence from the server.
+export const rollupStatuses = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
+  statuses.length === 0
+    ? 'unknown'
+    : statuses.reduce((best, status) =>
+        DOOR_KNOCK_STATUSES.indexOf(status) < DOOR_KNOCK_STATUSES.indexOf(best)
+          ? status
+          : best,
+      )

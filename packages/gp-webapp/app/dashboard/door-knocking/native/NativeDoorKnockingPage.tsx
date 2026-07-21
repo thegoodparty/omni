@@ -26,7 +26,11 @@ import KnockTurfDialog from './KnockTurfDialog'
 import TurfDetailsSheet from './TurfDetailsSheet'
 import TurfList from './TurfList'
 import WalkView from './WalkView'
-import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
+import {
+  rollupStatuses,
+  STATUS_DOT_COLORS,
+  STATUS_LABELS,
+} from './statusPresentation'
 import type { PolygonRing } from './VoterMapCanvas'
 
 const VoterMapCanvas = dynamic(() => import('./VoterMapCanvas'), {
@@ -180,6 +184,8 @@ export default function NativeDoorKnockingPage({
     ...routeQueryOptions(walkTurf?.id ?? 0),
     enabled: walkTurf !== null,
   })
+  // Pins derive color from the route query cache, which recording a knock
+  // patches — so the map pin recolors the moment a door is logged.
   const routePins = useMemo(
     () =>
       walkTurf && walkRouteQuery.data
@@ -187,6 +193,11 @@ export default function NativeDoorKnockingPage({
             seq: stop.seq,
             lat: stop.lat,
             lng: stop.lng,
+            status: rollupStatuses(
+              stop.addresses.flatMap((address) =>
+                address.targets.map((target) => target.knockStatus),
+              ),
+            ),
           }))
         : [],
     [walkTurf, walkRouteQuery.data],

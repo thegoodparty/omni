@@ -13,25 +13,17 @@ import { ChevronDownIcon, ChevronRightIcon } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import PersonSheet from './PersonSheet'
 import { routeQueryOptions } from './turfQueries'
-import { STATUS_DOT_COLORS, STATUS_LABELS } from './statusPresentation'
+import {
+  rollupStatuses,
+  STATUS_DOT_COLORS,
+  STATUS_LABELS,
+} from './statusPresentation'
 
 const formatDuration = (seconds: number): string => {
   const minutes = Math.round(seconds / 60)
   if (minutes < 60) return `${minutes}m`
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
-
-// Most-actionable-first rollup, mirroring the server's rollupStopStatus:
-// an 'unknown' person keeps the whole stop knockable, and an empty stop
-// rolls up to 'unknown' — no seed value, so no divergence from the server.
-const rollupStatus = (statuses: DoorKnockStatus[]): DoorKnockStatus =>
-  statuses.length === 0
-    ? 'unknown'
-    : statuses.reduce((best, status) =>
-        DOOR_KNOCK_STATUSES.indexOf(status) < DOOR_KNOCK_STATUSES.indexOf(best)
-          ? status
-          : best,
-      )
 
 interface WalkViewProps {
   turfId: number
@@ -102,7 +94,7 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
     allTargets(stopList).filter((target) => target.knockStatus === status)
       .length
   const stopStatus = (stop: RoutePayloadStop): DoorKnockStatus =>
-    rollupStatus(
+    rollupStatuses(
       stop.addresses.flatMap((address) =>
         address.targets.map((target) => target.knockStatus),
       ),
