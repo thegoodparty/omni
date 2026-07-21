@@ -38,14 +38,14 @@ cp .env.example .env
 
 Required vars (see `.env.example`):
 
-| Var | Default for local | Notes |
-|-----|-------------------|-------|
-| `DATABASE_URL` | `postgresql://postgres:postgres@localhost:5432/...` | Postgres connection string. The DB will host `green` and `public` schemas. |
-| `PEOPLE_API_S2S_SECRET` | `some-secret` | Shared with `gp-api` for Bearer JWT validation. Any non-empty value works locally. |
-| `S2S_ALLOW_LOCALHOST` | `false` (ships as `false` in `.env.example`) | Set to `true` locally to skip JWT signing on localhost requests. **Don't set this on hosted envs.** |
-| `PORT` | `3002` | App port |
-| `CORS_ORIGIN` | `http://localhost:4000` | Origin allowed by Fastify CORS |
-| `LOG_LEVEL` | `debug` | Pino log level |
+| Var                     | Default for local                                   | Notes                                                                                                                                                                                                                                                            |
+| ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LOCAL_DATABASE_URL`    | `postgresql://postgres:postgres@localhost:5432/...` | Postgres connection string for local dev and the Prisma CLI (`generate`/`migrate`/`seed`). The DB will host `green` and `public` schemas. Deployed environments ignore this and resolve the URL from SSM at runtime — see `src/prisma/database-url.provider.ts`. |
+| `PEOPLE_API_S2S_SECRET` | `some-secret`                                       | Shared with `gp-api` for Bearer JWT validation. Any non-empty value works locally.                                                                                                                                                                               |
+| `S2S_ALLOW_LOCALHOST`   | `false` (ships as `false` in `.env.example`)        | Set to `true` locally to skip JWT signing on localhost requests. **Don't set this on hosted envs.**                                                                                                                                                              |
+| `PORT`                  | `3002`                                              | App port                                                                                                                                                                                                                                                         |
+| `CORS_ORIGIN`           | `http://localhost:4000`                             | Origin allowed by Fastify CORS                                                                                                                                                                                                                                   |
+| `LOG_LEVEL`             | `debug`                                             | Pino log level                                                                                                                                                                                                                                                   |
 
 ## Database setup
 

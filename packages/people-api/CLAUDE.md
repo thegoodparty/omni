@@ -71,7 +71,9 @@ src/<feature>/
 
 ## PrismaBase pattern
 
-Services backed by a Prisma model **must** extend `createPrismaBase(MODELS.ModelName)` from `src/prisma/util/prisma.util.ts`. Provides `this.model`, `this.client`, `this.logger`, and bound passthroughs (`findMany`, `findFirst`, `findUnique`, `count`, etc.). **Never inject `PrismaService` directly into a new service.**
+Services backed by a Prisma model **must** extend `createPrismaBase(MODELS.ModelName)` from `src/prisma/util/prisma.util.ts`. Provides `this.model`, `this.client`, `this.logger`, and passthroughs (`findMany`, `findFirst`, `findUnique`, `count`, etc.). **Never inject `PrismaService` directly into a new service.**
+
+`this.model`/`this.client` and the passthroughs resolve the live client through `PrismaService.instance` on every call — never cache a delegate reference, because the underlying client is rebuilt and swapped when the database URL changes (see Environment). If you must inject `PrismaService`, reach the client via `prismaService.instance`.
 
 ## Voter queries are raw SQL
 
@@ -123,4 +125,5 @@ district resolves to NC/DC/WY, or set `organization.override_district_id`
 - Node `v22.12` (`.nvmrc`)
 - npm
 - Postgres for local dev. The DB needs `green` and `public` schemas (`schemas = ["green", "public"]` in `prisma/schema/schema.prisma`); `npm run migrate:dev` creates them.
-- Required env vars: `DATABASE_URL`, `PEOPLE_API_S2S_SECRET`, `PORT` (code default 3000; `.env.example` sets 3002), `S2S_ALLOW_LOCALHOST` (dev only). See `.env.example`.
+- Required env vars: `LOCAL_DATABASE_URL`, `PEOPLE_API_S2S_SECRET`, `PORT` (code default 3000; `.env.example` sets 3002), `S2S_ALLOW_LOCALHOST` (dev only). See `.env.example`.
+- **Database URL:** deployed environments do **not** get a `DATABASE_URL` env var — `DatabaseUrlProvider` (`src/prisma/database-url.provider.ts`) resolves it at runtime from the SSM parameter `people-db-connection-string-<env>` (`OTEL_SERVICE_ENVIRONMENT`), revalidating every 5 min and hot-swapping the Prisma client + CSV pool when it changes (the service crashes on startup if the parameter is unreadable). Locally, and for the Prisma CLI, set `LOCAL_DATABASE_URL` instead — the provider and the schema's datasource both read it.

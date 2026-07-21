@@ -97,7 +97,7 @@ describe('PeopleService', () => {
     )
 
     Object.defineProperty(service, '_prisma', {
-      get: () => mockClient,
+      get: () => ({ instance: mockClient }),
       configurable: true,
     })
   })

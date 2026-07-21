@@ -324,6 +324,18 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('present_legislative_history:')
   })
 
+  it('tells the review step an automated quality pass may revise the draft', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'review' }),
+      toolNames: [],
+    })
+    expect(prompt).toContain('REVIEW RULES')
+    expect(prompt).toContain('automated quality pass')
+    // The step itself still may not change the draft; only the background
+    // loop does.
+    expect(prompt).toContain('You cannot regenerate or overwrite the draft')
+  })
+
   it('directs the current_law step to actively research and present the history timeline', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),

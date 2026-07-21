@@ -26,11 +26,28 @@ export default async function Page({
 }): Promise<React.JSX.Element> {
   await serveAccess()
   const { id } = await params
-  const poll = await getPoll(id)
+  // Both reads depend only on `id`, so fetch them concurrently. A missing poll
+  // still redirects before the (now already in-flight) top-issues result is
+  // touched, and any failure from either call is re-surfaced exactly as the
+  // serial version would have thrown it — the only cost is a rare wasted
+  // top-issues fetch when the poll doesn't exist.
+  const [pollResult, issuesResult] = await Promise.allSettled([
+    getPoll(id),
+    getPollTopIssues(id),
+  ])
+  if (pollResult.status === 'rejected') {
+    throw pollResult.reason
+  }
+  const poll = pollResult.value
   if (!poll) {
     redirect('/dashboard/polls')
   }
-  const issues = (await getPollTopIssues(id)).results
+  if (issuesResult.status === 'rejected') {
+    throw issuesResult.reason
+  }
+  // `getPollTopIssues` resolves (doesn't throw) on a 2xx with an empty/missing
+  // body (e.g. 204), so guard the payload like the sibling issue page does.
+  const issues = issuesResult.value?.results ?? []
 
   return (
     <PollProvider poll={poll}>

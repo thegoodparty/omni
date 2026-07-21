@@ -105,7 +105,16 @@ export default function MyOrdinancesSection({
                     {o.draftTitle || o.goalText || 'Untitled ordinance'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {rowTimestamp(o.updatedAt)}
+                    {/* Machine writes churn updatedAt while the loop runs, so
+                        name the activity instead of a misleading "edited 2
+                        minutes ago" — and warn before the locked editor. */}
+                    {o.qualityLoopStatus === 'running' ? (
+                      <span className="font-medium text-primary">
+                        Improving draft…
+                      </span>
+                    ) : (
+                      rowTimestamp(o.updatedAt)
+                    )}
                   </p>
                 </div>
                 <Badge className={cn('shrink-0 rounded-full', meta.pillClass)}>

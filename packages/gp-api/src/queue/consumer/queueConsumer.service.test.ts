@@ -9,6 +9,7 @@ import { RaceOpponentResearchPersistService } from '@/raceOpponent/services/race
 import { AnnotationAttachmentService } from '@/annotations/services/annotationAttachment.service'
 import { CommunityIssueService } from '@/communityIssues/services/communityIssue.service'
 import { OrdinanceCodePersistService } from '@/ordinances/services/ordinanceCodePersist.service'
+import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
 import { AiContentService } from '@/campaigns/ai/content/aiContent.service'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
 import { AiGenerationService } from '@/campaigns/tasks/services/aiGeneration.service'
@@ -121,6 +122,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
   let contactsService: {
     findContacts: ReturnType<typeof vi.fn>
     findPersonByPhone: ReturnType<typeof vi.fn>
+    resolveProAccess: ReturnType<typeof vi.fn>
   }
   let pollIssuesService: {
     model: { deleteMany: ReturnType<typeof vi.fn> }
@@ -184,6 +186,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         .fn()
         .mockResolvedValue({ pagination: { totalResults: 100 } }),
       findPersonByPhone: vi.fn().mockResolvedValue(null),
+      resolveProAccess: vi.fn().mockResolvedValue(true),
     }
     pollIssuesService = {
       model: { deleteMany: vi.fn().mockResolvedValue(undefined) },
@@ -232,6 +235,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
       electedOfficeService as never,
       contactsService as never,
       s3Service as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,
@@ -306,6 +310,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(contactsService.findPersonByPhone).toHaveBeenCalledWith(
       '5559999999',
       expect.anything(),
+      expect.anything(),
     )
     expect(pollIndividualMessage.client.$transaction).toHaveBeenCalled()
     const txCb = firstOrThrow(
@@ -344,6 +349,7 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
     expect(contactsService.findPersonByPhone).toHaveBeenCalledWith(
       '5559999999',
       expect.anything(),
+      expect.anything(),
     )
     const txCb = firstOrThrow(
       pollIndividualMessage.client.$transaction.mock.calls,
@@ -361,6 +367,73 @@ describe('QueueConsumerService - handlePollAnalysisComplete', () => {
         }),
       ]),
     })
+  })
+
+  it('maps each unmapped phone to its own person regardless of lookup resolution order (bounded fan-out is order-independent)', async () => {
+    pollIndividualMessage.findMany.mockResolvedValue([])
+
+    const phones = Array.from(
+      { length: 40 },
+      (_, i) => `+1555${String(i).padStart(7, '0')}`,
+    )
+    const expectedPersonId = (normalized: string): string =>
+      `person-${normalized.replace(/^\+1/, '')}`
+
+    // Resolve out of order: later phones resolve first. If the fan-out ever
+    // mismatched a result to the wrong phone (e.g. by relying on completion
+    // order), this shuffled timing would surface it.
+    contactsService.findPersonByPhone.mockImplementation(
+      async (digitsOnly: string) => {
+        const index = Number(digitsOnly.slice(-4))
+        await new Promise((resolve) =>
+          setTimeout(resolve, (phones.length - index) % 7),
+        )
+        return { id: `person-${digitsOnly}` }
+      },
+    )
+
+    const json = createPollAnalysisJson(
+      phones.map((phoneNumber, i) => ({
+        phoneNumber,
+        receivedAt: `2024-01-15T10:00:${String(i).padStart(2, '0')}Z`,
+        originalMessage: `Reply ${i}`,
+        clusterId: 1,
+      })),
+    )
+    s3Service.getFile.mockResolvedValue(json)
+    const message = createPollAnalysisCompleteMessage({ pollId })
+
+    const result = await service.processMessage(message)
+
+    expect(result).toBe(true)
+    // Pro-access resolved once, not once per phone.
+    expect(contactsService.resolveProAccess).toHaveBeenCalledTimes(1)
+    expect(contactsService.findPersonByPhone).toHaveBeenCalledTimes(
+      phones.length,
+    )
+
+    const txCb = firstOrThrow(
+      pollIndividualMessage.client.$transaction.mock.calls,
+    )[0]
+    const captured: Array<{ personCellPhone: string; personId: string }> = []
+    const mockTx = {
+      pollIndividualMessage: {
+        deleteMany: vi.fn(),
+        createMany: vi.fn((args: { data: typeof captured }) => {
+          captured.push(...args.data)
+        }),
+      },
+      $executeRaw: vi.fn(),
+    }
+    await txCb(mockTx)
+
+    const mapping = new Map(
+      captured.map((row) => [row.personCellPhone, row.personId]),
+    )
+    expect(mapping.size).toBe(phones.length)
+    for (const normalized of phones) {
+      expect(mapping.get(normalized)).toBe(expectedPersonId(normalized))
+    }
   })
 
   it('does not call People DB fallback when every response phone maps to outreach', async () => {
@@ -932,6 +1005,7 @@ describe('QueueConsumerService - handleDomainEmailForwardingMessage', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1124,6 +1198,7 @@ describe('QueueConsumerService - triggerPollExecution', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
       createMockLogger(),
     )
   })
@@ -1291,6 +1366,10 @@ describe('QueueConsumerService - message type routing', () => {
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
         {
+          provide: OrdinanceQualityLoopService,
+          useValue: { handleStep: vi.fn() },
+        },
+        {
           provide: AnnotationAttachmentService,
           useValue: { runOcr: vi.fn() },
         },
@@ -1353,6 +1432,52 @@ describe('QueueConsumerService - message type routing', () => {
     const result = await service.processMessage(message)
 
     expect(result).toBe(true)
+  })
+
+  it('routes ordinanceQualityLoop messages to the loop handler', async () => {
+    const loop = module.get(OrdinanceQualityLoopService)
+    const handleSpy = vi.spyOn(loop, 'handleStep').mockResolvedValue(true)
+    const data = {
+      ordinanceId: 'ord-1',
+      loopRunId: 'run-1',
+      iteration: 0,
+      phase: 'qc',
+      expectedInputHash: 'hash-1',
+      attempt: 1,
+    }
+
+    const result = await service.processMessage({
+      MessageId: 'msg-quality-loop',
+      Body: JSON.stringify({
+        type: QueueType.ORDINANCE_QUALITY_LOOP,
+        data,
+      }),
+    })
+
+    expect(result).toBe(true)
+    expect(handleSpy).toHaveBeenCalledWith(data)
+  })
+
+  it('propagates a requeue signal from the loop handler', async () => {
+    const loop = module.get(OrdinanceQualityLoopService)
+    vi.spyOn(loop, 'handleStep').mockResolvedValue(false)
+
+    const result = await service.processMessage({
+      MessageId: 'msg-quality-loop-requeue',
+      Body: JSON.stringify({
+        type: QueueType.ORDINANCE_QUALITY_LOOP,
+        data: {
+          ordinanceId: 'ord-1',
+          loopRunId: 'run-1',
+          iteration: 1,
+          phase: 'revise',
+          expectedInputHash: 'hash-2',
+          attempt: 1,
+        },
+      }),
+    })
+
+    expect(result).toBe(false)
   })
 
   it('routes weeklyTasksDigest messages to the handler', async () => {
@@ -1659,6 +1784,10 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
           provide: OrdinanceCodePersistService,
           useValue: { onExperimentRunCompleted: vi.fn() },
         },
+        {
+          provide: OrdinanceQualityLoopService,
+          useValue: { handleStep: vi.fn() },
+        },
         { provide: AnnotationAttachmentService, useValue: { runOcr: vi.fn() } },
         { provide: PinoLogger, useValue: createMockLogger() },
       ],
@@ -1745,5 +1874,77 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(result).toBe(true)
     expect(runs.get('run-superseded')?.status).toBe('SUPERSEDED')
     expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
+  })
+})
+
+describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
+  const buildService = (handleStep: ReturnType<typeof vi.fn>) =>
+    new QueueConsumerService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { handleStep } as never,
+      createMockLogger(),
+    )
+
+  const loopMessage = (data: unknown): Message => ({
+    MessageId: 'msg-loop-1',
+    Body: JSON.stringify({ type: QueueType.ORDINANCE_QUALITY_LOOP, data }),
+  })
+
+  it('dispatches a valid quality loop step to handleStep', async () => {
+    const handleStep = vi.fn().mockResolvedValue(true)
+    const service = buildService(handleStep)
+    const payload = {
+      ordinanceId: 'o1',
+      loopRunId: 'run-1',
+      iteration: 1,
+      phase: 'qc',
+      expectedInputHash: 'hash-1',
+      attempt: 1,
+    }
+
+    const result = await service.processMessage(loopMessage(payload))
+
+    expect(result).toBe(true)
+    expect(handleStep).toHaveBeenCalledWith(payload)
+  })
+
+  it('acks and drops a malformed quality loop message instead of requeueing', async () => {
+    const handleStep = vi.fn()
+    const service = buildService(handleStep)
+
+    // A malformed message can never become valid; requeueing it would block
+    // the ordinance's FIFO group with redeliveries until the DLQ limit.
+    const result = await service.processMessage(
+      loopMessage({ ordinanceId: 'o1' }),
+    )
+
+    expect(result).toBe(true)
+    expect(handleStep).not.toHaveBeenCalled()
   })
 })

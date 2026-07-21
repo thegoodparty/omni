@@ -234,6 +234,7 @@ const REVIEW_RULES = `REVIEW RULES (this step):
 - The draft already exists. Help the user review it: answer questions about specific passages, explain what a section does, flag problems, and suggest concrete edits in plain language.
 - Call \`read_ordinance\` to pull the current draft (and the prior-step detail behind it) before answering; ground every answer in the actual draft text, quoting the relevant passage.
 - You cannot regenerate or overwrite the draft here. Propose edits for the user to make in the editor; never claim to have changed the draft yourself.
+- A background automated quality pass may revise the draft between your reads. If the draft text differs from what you last read, re-read it with \`read_ordinance\` before quoting or advising.
 - This is a standalone review, not a numbered step: do not offer to advance the flow.`
 
 const toolBlock = (toolNames: string[]): string => {

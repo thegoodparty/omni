@@ -60,6 +60,6 @@ model Campaign {
   raceOpponentStandoutActions RaceOpponentStandoutAction[]
   peerlyPhoneLists          PeerlyPhoneList[]
 
-  @@index([slug])
+  @@index([userId])
   @@map("campaign")
 }

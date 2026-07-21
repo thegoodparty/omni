@@ -1,5 +1,7 @@
 import {
+  BadGatewayException,
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
@@ -12,6 +14,7 @@ import {
   type Ordinance as OrdinanceResponse,
   type OrdinanceClarifyAnswer,
   type OrdinanceListResponse,
+  type OrdinanceQualityIterationsResponse,
   type OrdinanceQualityReport,
   type OrdinanceQualityRun,
   type OrdinanceStatusCounts,
@@ -22,7 +25,14 @@ import {
   OrdinanceSchema,
   OrdinanceSummarySchema,
 } from '@goodparty_org/contracts'
-import { ElectedOffice, Ordinance, Prisma } from '../../generated/prisma'
+import {
+  ElectedOffice,
+  Ordinance,
+  OrdinanceQualityLoopStatus,
+  OrdinanceStatus,
+  Prisma,
+} from '../../generated/prisma'
+import { MANUAL_RUN_STALE_MINUTES } from '../ordinances.constants'
 import { OrdinanceExportFormat } from '../schemas/ordinances.schema'
 import {
   OrdinanceExportResult,
@@ -32,12 +42,14 @@ import {
   OrdinanceQualityReportService,
   qualityReportInputHash,
 } from './ordinanceQualityReport.service'
+import { OrdinanceQualityLoopService } from './ordinanceQualityLoop.service'
+import { type OrdinanceQualityLoopStartReason } from './ordinanceQualityLoop.types'
 
 const SERVE_ORDINANCES_FLAG = 'serve-ordinances'
 
 // A 'running' claim older than this is an interrupted run (the server died
 // mid-run and the background writer never came back), not a live one.
-const STALE_RUN_MS = 10 * 60_000
+const STALE_RUN_MS = MANUAL_RUN_STALE_MINUTES * 60_000
 
 const INTERRUPTED_RUN_MESSAGE =
   'The last run was interrupted. Please try again.'
@@ -52,6 +64,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     private readonly features: FeaturesService,
     private readonly qualityReports: OrdinanceQualityReportService,
     private readonly exporter: OrdinanceExportService,
+    private readonly qualityLoop: OrdinanceQualityLoopService,
   ) {
     super()
   }
@@ -127,6 +140,23 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
   ): Promise<OrdinanceResponse> {
     await this.assertEnabled(electedOffice.userId)
     const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    // A user edit that changes the loop's graded inputs (or advances the
+    // ordinance past draft) invalidates any running quality loop. Changed
+    // means changed: a PATCH that resends the current text must not retire a
+    // healthy run. The flip happens AFTER the write lands — superseded_by_edit
+    // is a write-once terminal, so flipping first would permanently kill the
+    // loop if the write then threw; the loop's content-fenced terminals
+    // guarantee a not-yet-superseded run still can't overwrite the new draft
+    // in the gap.
+    const changesHashInput =
+      (dto.draftTitle !== undefined &&
+        dto.draftTitle !== existing.draftTitle) ||
+      (dto.draftBody !== undefined && dto.draftBody !== existing.draftBody)
+    // Any status move off `draft` — forward (in_review, ...) or backward
+    // (in_progress) — takes the record out of the loop's operating domain;
+    // a run left alive would write its terminal over the moved record.
+    const leavesDraft =
+      dto.status !== undefined && dto.status !== OrdinanceStatus.draft
     const record = await this.model.update({
       where: { id: existing.id },
       data: {
@@ -139,6 +169,17 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
         lastViewedStep: dto.lastViewedStep,
       },
     })
+    if (
+      existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running &&
+      (changesHashInput || leavesDraft)
+    ) {
+      await this.qualityLoop.supersedeOnEdit(existing.id)
+      // Re-read so the response carries the superseded loop, not the
+      // pre-flip snapshot from the write above.
+      return this.toResponse(
+        await this.model.findUniqueOrThrow({ where: { id: existing.id } }),
+      )
+    }
     return this.toResponse(record)
   }
 
@@ -173,10 +214,29 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       ...answers.filter((a) => a.questionId !== answer.questionId),
       answer,
     ]
+    // Changed means changed: both sides are Zod-normalized (stored answers
+    // re-parsed above, the incoming answer by the controller pipe), so a
+    // same-content re-submit serializes identically and must not retire a
+    // healthy running loop via the write-once superseded_by_edit terminal.
+    const changed = JSON.stringify(next) !== JSON.stringify(answers)
     const record = await this.model.update({
       where: { id: existing.id },
       data: { clarifyAnswers: next },
     })
+    // clarifyAnswers is a quality-report hash input, so a new answer
+    // invalidates a running loop the same way a draft edit does. Flipped
+    // AFTER the write: superseded_by_edit is write-once, so flipping first
+    // would strand a dead loop if the write threw, and the loop's fenced
+    // terminals already keep a not-yet-superseded run off the changed record.
+    if (
+      changed &&
+      existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running
+    ) {
+      await this.qualityLoop.supersedeOnEdit(existing.id)
+      return this.toResponse(
+        await this.model.findUniqueOrThrow({ where: { id: existing.id } }),
+      )
+    }
     return this.toResponse(record)
   }
 
@@ -202,6 +262,13 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     if ((existing.draftBody ?? '').trim().length === 0) {
       throw new BadRequestException(
         'Cannot run quality checks on an empty draft',
+      )
+    }
+    // The loop writes qualityReport itself; a concurrent manual run would
+    // race those fenced writes. Server-side guard — button state is not one.
+    if (existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running) {
+      throw new ConflictException(
+        'A quality-improvement loop is running for this draft',
       )
     }
     const currentRun = this.toQualityRun(existing)
@@ -271,6 +338,78 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     )
   }
 
+  async startQualityLoop(
+    electedOffice: ElectedOffice,
+    slug: string,
+  ): Promise<OrdinanceResponse> {
+    await this.assertEnabled(electedOffice.userId)
+    const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    const result = await this.qualityLoop.start({
+      ordinance: existing,
+      userId: electedOffice.userId,
+      trigger: 'manual',
+    })
+    if (!result.started) {
+      this.throwForLoopStartReason(result.reason)
+    }
+    return this.toResponse(await this.findOwnedOrThrow(electedOffice, slug))
+  }
+
+  async cancelQualityLoop(
+    electedOffice: ElectedOffice,
+    slug: string,
+  ): Promise<OrdinanceResponse> {
+    await this.assertEnabled(electedOffice.userId)
+    const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    await this.qualityLoop.cancel(existing.id)
+    return this.toResponse(await this.findOwnedOrThrow(electedOffice, slug))
+  }
+
+  async listQualityIterations(
+    electedOffice: ElectedOffice,
+    slug: string,
+  ): Promise<OrdinanceQualityIterationsResponse> {
+    await this.assertEnabled(electedOffice.userId)
+    const existing = await this.findOwnedOrThrow(electedOffice, slug)
+    return this.qualityLoop.listIterations(existing.id)
+  }
+
+  private throwForLoopStartReason(
+    reason: OrdinanceQualityLoopStartReason | undefined,
+  ): never {
+    switch (reason) {
+      case 'already_running':
+      case 'manual_run_active':
+        throw new ConflictException(
+          'A quality run is already in progress for this draft',
+        )
+      case 'flag_off':
+      case 'env_off':
+        throw new ForbiddenException('Quality loop is not enabled')
+      case 'enqueue_failed':
+        throw new BadGatewayException(
+          'Could not queue the quality loop. Please try again.',
+        )
+      case 'status_beyond_draft':
+        throw new BadRequestException(
+          'Quality loop only runs while the ordinance is a draft',
+        )
+      case 'redline_draft':
+        throw new BadRequestException(
+          'Quality loop does not support redline drafts',
+        )
+      case 'already_passing':
+        throw new BadRequestException(
+          'The current draft already passes all quality checks',
+        )
+      case 'empty_draft':
+      default:
+        throw new BadRequestException(
+          'Cannot run quality checks on an empty draft',
+        )
+    }
+  }
+
   // Runs after the HTTP response; must never throw (an unhandled rejection
   // here would take down the process). The startedAt-equals-claimedAt guard on
   // both writes means a superseded zombie run can never clobber a newer claim.
@@ -280,7 +419,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     claimedAt: Date,
   ): Promise<void> {
     try {
-      const report = await this.qualityReports.generate(record, userId)
+      const { report } = await this.qualityReports.generate(record, userId)
       await this.model.updateMany({
         where: { id: record.id, qualityRunStartedAt: claimedAt },
         data: {
@@ -387,13 +526,32 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     return { status: 'idle', report, error: null, startedAt }
   }
 
-  private toResponse(record: Ordinance): OrdinanceResponse {
+  private async toResponse(record: Ordinance): Promise<OrdinanceResponse> {
+    // Phase derivation needs the frontier iteration row, but only a running
+    // loop has a phase — never pay the extra query otherwise.
+    const latestIteration =
+      record.qualityLoopStatus === OrdinanceQualityLoopStatus.running &&
+      record.qualityLoopRunId !== null
+        ? await this.client.ordinanceQualityIteration.findUnique({
+            where: {
+              ordinanceId_loopRunId_iteration: {
+                ordinanceId: record.id,
+                loopRunId: record.qualityLoopRunId,
+                iteration: record.qualityLoopIteration,
+              },
+            },
+          })
+        : null
     return OrdinanceSchema.parse({
       ...record,
       qualityReport: this.qualityReportWithStaleness(record),
       // The spread leaves the raw claim column (string | null) here; the
       // schema requires the derived enum, so this must override after it.
       qualityRunStatus: this.toQualityRun(record).status,
+      qualityLoop: this.qualityLoop.qualityLoopForResponse({
+        ...record,
+        latestIteration,
+      }),
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
     })
@@ -433,6 +591,7 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       draftTitle: record.draftTitle,
       goalText: record.goalText,
       lastViewedStep: record.lastViewedStep,
+      qualityLoopStatus: record.qualityLoopStatus,
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),
     })
