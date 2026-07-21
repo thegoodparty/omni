@@ -6,7 +6,6 @@ import {
   CUSTOM_PURPOSES,
   VoterFileType,
 } from '../voterFile.types'
-import { ALLOWED_COLUMNS } from '../../constants/allowedColumns.const'
 import { CampaignTaskType } from 'src/campaigns/tasks/campaignTasks.types'
 import { parseJsonString } from 'src/shared/util/zod.util'
 import { OutreachType } from '../../../generated/prisma'
@@ -17,13 +16,6 @@ const LOWER_CASE_TYPE_MAP = {
   digitalads: VoterFileType.digitalAds,
   telemarketing: VoterFileType.telemarketing,
 }
-
-const SelectedColumnSchema = z.object({
-  // Zod z.enum() requires non-empty tuple — Object.values() returns string[], not [string, ...]
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-  db: z.enum(ALLOWED_COLUMNS as [string, ...string[]]),
-  label: z.string().optional(),
-})
 
 export class GetVoterFileSchema extends createZodDto(
   z.object({
@@ -51,15 +43,6 @@ export class GetVoterFileSchema extends createZodDto(
         .optional(),
     ),
     countOnly: z.coerce.boolean().optional(),
-    selectedColumns: parseJsonString(
-      z
-        .array(SelectedColumnSchema)
-        .min(1)
-        .max(50)
-        .refine((cols) => new Set(cols.map((c) => c.db)).size === cols.length)
-        .optional(),
-    ),
-    limit: z.coerce.number().optional(),
     slug: z.string().optional(),
   }),
 ) {}

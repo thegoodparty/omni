@@ -234,7 +234,7 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
             county.Races = getDedupedRacesBySlug(county.Races)
           }
         }
-        for (const other of place.counties ?? []) {
+        for (const other of place.others ?? []) {
           if (hasRaces(other)) {
             other.Races = getDedupedRacesBySlug(other.Races)
           }

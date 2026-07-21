@@ -1,3 +1,5 @@
+import type { PersonOutput } from '@/contacts/schemas/person.schema'
+
 const CSV_FORMULA_PREFIXES = ['=', '+', '-', '@']
 
 /**
@@ -9,3 +11,22 @@ const CSV_FORMULA_PREFIXES = ['=', '+', '-', '@']
  */
 export const neutralizeCsvFormula = (value: string): string =>
   CSV_FORMULA_PREFIXES.includes(value[0] ?? '') ? `'${value}` : value
+
+/**
+ * RFC 4180 field quoting: wraps a value in double quotes (doubling any
+ * embedded quote) when it contains a comma, quote, or newline. Without this a
+ * comma in a name/address cell silently shifts every column after it.
+ */
+// A '+'/'-'-prefixed value of only digits and phone punctuation (an E.164
+// phone, a negative number) can't call a function or reference a cell, so
+// neutralizing it would only corrupt real data (phones become "'+1555...").
+const INERT_NUMERIC = /^[+-][\d\s()./-]+$/
+
+export const csvEscape = (value: PersonOutput[keyof PersonOutput]): string => {
+  if (value === null || value === undefined) return ''
+  const raw = String(value)
+  const str = INERT_NUMERIC.test(raw) ? raw : neutralizeCsvFormula(raw)
+  const mustQuote = /[",\n]/.test(str)
+  const escaped = str.replace(/"/g, '""')
+  return mustQuote ? `"${escaped}"` : escaped
+}

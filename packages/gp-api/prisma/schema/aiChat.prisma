@@ -12,5 +12,6 @@ model AiChat {
   data       Json      @default("{}") @db.JsonB
 
   @@index([threadId])
+  @@index([userId, campaignId])
   @@map("ai_chat")
 }

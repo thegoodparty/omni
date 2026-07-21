@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 
-const POLL_INTERVAL_MS = 5000
-const MAX_POLL_ATTEMPTS = 60 // 5s x 60 = 5 min ceiling
+const POLL_INTERVAL_MS = 30000
+const MAX_POLL_ATTEMPTS = 40 // 30s x 40 = 20 min ceiling
 
 /**
  * Non-blocking landing catch-up: fires once after the dashboard has already
@@ -18,7 +18,7 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
   const [pendingMeetingDate, setPendingMeetingDate] = useState<string | null>(
     null,
   )
-  const [pollAttempts, setPollAttempts] = useState(0)
+  const pollAttempts = useRef(0)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -51,29 +51,31 @@ export default function BriefingDispatchBanner(): React.JSX.Element | null {
     const meeting = meetings.meetings.find(
       (m) => m.meetingDate === pendingMeetingDate,
     )
-    const nextAttempts = pollAttempts + 1
-    if (meeting?.hasBriefing || nextAttempts >= MAX_POLL_ATTEMPTS) {
-      if (meeting?.hasBriefing) {
-        void queryClient.invalidateQueries({
-          queryKey: ['chief-of-staff', 'cards'],
-        })
-      }
+    pollAttempts.current += 1
+    if (meeting?.hasBriefing || pollAttempts.current >= MAX_POLL_ATTEMPTS) {
+      // Invalidate on both paths (ready and timeout): a briefing that lands
+      // near the ceiling still generated cards, and useDashboardCards has no
+      // refetchInterval, so without this they stay hidden until a reload.
+      void queryClient.invalidateQueries({
+        queryKey: ['chief-of-staff', 'cards'],
+      })
+      pollAttempts.current = 0
       setPendingMeetingDate(null)
-      setPollAttempts(0)
-    } else {
-      setPollAttempts(nextAttempts)
     }
-  }, [meetings, pendingMeetingDate, pollAttempts, queryClient])
+  }, [meetings, pendingMeetingDate, queryClient])
 
   if (!pendingMeetingDate) return null
 
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground">
-      <span className="relative flex size-2">
+    <div className="flex items-start gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm text-foreground">
+      <span className="relative mt-1 flex size-2">
         <span className="absolute inline-flex size-full animate-ping rounded-full bg-info-600 opacity-75" />
         <span className="relative inline-flex size-2 rounded-full bg-info-600" />
       </span>
-      Generating your briefing...
+      <span>
+        Generating your briefing. This takes a few minutes — you can leave this
+        page, and we&apos;ll email you when it&apos;s ready.
+      </span>
     </div>
   )
 }

@@ -344,18 +344,6 @@ export const apiRoutes = {
         path: '/voters/voter-file',
         method: 'GET',
       },
-      wakeUp: {
-        path: '/voters/voter-file/wake-up',
-        method: 'GET',
-      },
-      helpMessage: {
-        path: '/voters/voter-file/help-message',
-        method: 'POST',
-      },
-      canDownload: {
-        path: '/voters/voter-file/can-download',
-        method: 'GET',
-      },
     },
   },
   voterFileFilter: {

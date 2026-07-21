@@ -30,12 +30,14 @@ import {
   segmentsToLive,
 } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
+import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
 import { fetchOrdinanceBySlug, saveClarifyAnswer } from '../data/ordinances-api'
 import { ordinanceToolLabel } from '../data/toolLabels'
 import {
-  ORDINANCE_STEP_LABELS,
+  ORDINANCE_NEXT_STEP_CTA,
   isOrdinanceStep,
   nextOrdinanceStep,
 } from '../data/steps'
@@ -67,10 +69,29 @@ const GENERATING_LABELS: Record<string, string> = {
 }
 
 // Hidden opener sent once for a brand-new conversation so the agent takes the
-// first turn and asks its opening clarifying question without the user having to
-// type. Filtered out of the transcript on both live send and reload.
-const KICKOFF =
+// first turn without the user having to type. Step-specific: the clarify
+// opener invites a question, but sending that same line on the draft step told
+// the model to interview instead of drafting (a real session got a six-question
+// prose interview and no saved draft out of it). Filtered out of the
+// transcript on both live send and reload.
+const CLARIFY_KICKOFF =
   "Let's begin. Ask me your first clarifying question about this ordinance."
+const KICKOFFS: Record<string, string> = {
+  intro:
+    "Let's begin. Walk me through what this flow will do for this ordinance.",
+  clarify: CLARIFY_KICKOFF,
+  authority:
+    "Let's begin. Check whether we have the legal authority to enact this.",
+  current_law:
+    "Let's begin. Show me what current law already does here and the gaps.",
+  comparables: "Let's begin. Show me how comparable cities handled this.",
+  draft: "Let's begin. Draft the ordinance from what the prior steps settled.",
+  review: "Let's begin. Give me a quick orientation to this draft.",
+}
+const kickoffFor = (step: string): string => KICKOFFS[step] ?? CLARIFY_KICKOFF
+// Reload filter must hide every kickoff variant, or an old conversation's
+// opener resurfaces as a visible user message after the text changes.
+const KICKOFF_TEXTS = new Set([CLARIFY_KICKOFF, ...Object.values(KICKOFFS)])
 
 type Phase = 'loading' | 'ready' | 'error'
 
@@ -106,13 +127,6 @@ const parseOffer = (value: unknown): OrdinanceNextStepOffer | null => {
 // True when a persisted assistant turn offered to advance to the next step.
 const hasOfferSegment = (segments: ChatMessageSegment[]): boolean =>
   segments.some((s) => s.toolName === OFFER_TOOL)
-
-const offerLabelFromSegments = (
-  segments: ChatMessageSegment[],
-): string | undefined => {
-  const segment = segments.find((s) => s.toolName === OFFER_TOOL)
-  return segment ? (parseOffer(segment.payload)?.label ?? undefined) : undefined
-}
 
 const buildAnchor = (
   ordinance: Ordinance,
@@ -155,8 +169,12 @@ export default function OrdinanceFlowChat({
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
   const [composer, setComposer] = useState('')
+  const dictation = useDictationAppend({
+    value: composer,
+    onChange: setComposer,
+    analyticsLabel: 'ordinance-flow-chat',
+  })
   const [streamError, setStreamError] = useState<string | null>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
@@ -318,7 +336,10 @@ export default function OrdinanceFlowChat({
         setPhase('ready')
         // Brand-new conversation: let the agent take the first turn.
         if (history.length === 0) {
-          void sendRef.current(KICKOFF, { hidden: true, idOverride: id })
+          void sendRef.current(kickoffFor(step), {
+            hidden: true,
+            idOverride: id,
+          })
         }
       } catch {
         if (!cancelled) setPhase('error')
@@ -330,13 +351,18 @@ export default function OrdinanceFlowChat({
     }
   }, [slug, stepValue])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, visibleSegments, liveClarify])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+    liveClarify,
+    // The next-step offer is consumed by onEvent (never hits visibleSegments),
+    // so include it or the offer widget renders below the fold unscrolled.
+    liveOffer,
+  ])
 
   if (phase === 'loading') {
     return (
-      <div className="flex h-full w-full flex-col bg-background">
+      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
         <div
           className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4"
           aria-busy="true"
@@ -362,7 +388,7 @@ export default function OrdinanceFlowChat({
 
   if (phase === 'error' || !stepValue) {
     return (
-      <div className="flex h-full w-full flex-col bg-background">
+      <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
         <div className="mx-auto flex h-full w-full max-w-3xl flex-1 flex-col items-center justify-center p-6 text-center text-tertiary">
           We couldn&apos;t open this ordinance step. Check the link and try
           again.
@@ -414,7 +440,8 @@ export default function OrdinanceFlowChat({
   })
   const visibleMessages = messages.filter(
     (m) =>
-      !(m.role === 'user' && m.content === KICKOFF) && !hiddenIds.has(m.id),
+      !(m.role === 'user' && KICKOFF_TEXTS.has(m.content)) &&
+      !hiddenIds.has(m.id),
   )
   // Only the most recent clarify question is interactive; earlier ones render
   // read-only in place.
@@ -449,104 +476,112 @@ export default function OrdinanceFlowChat({
     (generatingTool && GENERATING_LABELS[generatingTool]) || 'Thinking...'
 
   return (
-    <div className="flex h-full w-full flex-col bg-background">
-      <div className="mx-auto flex h-full w-full max-w-3xl flex-col gap-4 p-4">
-        <header className="flex flex-col gap-3">
-          <OrdinanceStepper current={stepValue} />
-          {ordinanceTitle ? (
-            <h1 className="text-xl font-semibold text-foreground">
-              {ordinanceTitle}
-            </h1>
-          ) : null}
-        </header>
+    <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
+      {/* Everything but the composer scrolls together — the stepper scrolls
+          away with the conversation, matching the prototype. */}
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+          <header className="flex flex-col gap-3">
+            <OrdinanceStepper current={stepValue} />
+            {ordinanceTitle ? (
+              <h1 className="text-xl font-semibold text-foreground">
+                {ordinanceTitle}
+              </h1>
+            ) : null}
+          </header>
 
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto">
-          {visibleMessages.map((message) =>
-            message.role === 'user' ? (
-              <UserBubble key={message.id}>{message.content}</UserBubble>
-            ) : (
-              <AssistantMessage
-                key={message.id}
-                message={message}
-                slug={slug}
-                answer={answerByMessageId[message.id]}
-                interactive={
-                  message.id === activeClarifyId &&
-                  !answerByMessageId[message.id] &&
-                  !sending
-                }
-                onAnswerClarify={answerClarify}
-                {...(nextStep
-                  ? {
-                      onAdvance: goToNextStep,
-                      nextLabel: ORDINANCE_STEP_LABELS[nextStep],
-                    }
-                  : {})}
+          <div className="flex flex-col gap-3">
+            {visibleMessages.map((message) =>
+              message.role === 'user' ? (
+                <UserBubble key={message.id}>{message.content}</UserBubble>
+              ) : (
+                <AssistantMessage
+                  key={message.id}
+                  message={message}
+                  slug={slug}
+                  answer={answerByMessageId[message.id]}
+                  interactive={
+                    message.id === activeClarifyId &&
+                    !answerByMessageId[message.id] &&
+                    !sending
+                  }
+                  onAnswerClarify={answerClarify}
+                  {...(nextStep
+                    ? {
+                        onAdvance: goToNextStep,
+                        nextLabel: ORDINANCE_NEXT_STEP_CTA[nextStep],
+                      }
+                    : {})}
+                />
+              ),
+            )}
+
+            {(visibleSegments.length > 0 ||
+              showClarify ||
+              showWidgets ||
+              working) && (
+              <AssistantRow>
+                {visibleSegments.length > 0 ? (
+                  <InlineSegments
+                    segments={visibleSegments}
+                    toolLabel={ordinanceToolLabel}
+                  />
+                ) : null}
+                {showWidgets ? (
+                  <StepWidgetBlocks widgets={shownWidgets} slug={slug} />
+                ) : null}
+                {showClarify && liveClarify ? (
+                  <ClarifyQuestionWidget
+                    question={liveClarify}
+                    disabled
+                    onAnswer={() => undefined}
+                  />
+                ) : null}
+                {working ? <ThinkingRow label={workingLabel} /> : null}
+              </AssistantRow>
+            )}
+
+            {showOffer && liveOffer && nextStep ? (
+              <NextStepButton
+                nextLabel={ORDINANCE_NEXT_STEP_CTA[nextStep]}
+                onAdvance={goToNextStep}
               />
-            ),
-          )}
+            ) : null}
 
-          {(visibleSegments.length > 0 ||
-            showClarify ||
-            showWidgets ||
-            working) && (
-            <AssistantRow>
-              {visibleSegments.length > 0 ? (
-                <InlineSegments
-                  segments={visibleSegments}
-                  toolLabel={ordinanceToolLabel}
-                />
-              ) : null}
-              {showWidgets ? (
-                <StepWidgetBlocks widgets={shownWidgets} slug={slug} />
-              ) : null}
-              {showClarify && liveClarify ? (
-                <ClarifyQuestionWidget
-                  question={liveClarify}
-                  disabled
-                  onAnswer={() => undefined}
-                />
-              ) : null}
-              {working ? <ThinkingRow label={workingLabel} /> : null}
-            </AssistantRow>
-          )}
-
-          {showOffer && liveOffer && nextStep ? (
-            <NextStepButton
-              label={liveOffer.label}
-              nextLabel={ORDINANCE_STEP_LABELS[nextStep]}
-              onAdvance={goToNextStep}
-            />
-          ) : null}
-
-          {streamError ? (
-            <p className="text-sm text-destructive">{streamError}</p>
-          ) : null}
-
-          <div ref={bottomRef} />
+            {streamError ? (
+              <p className="text-sm text-destructive">{streamError}</p>
+            ) : null}
+          </div>
         </div>
+      </div>
 
-        <ChatComposer
-          value={composer}
-          onChange={setComposer}
-          onSubmit={() => {
-            const text = composer
-            setComposer('')
-            void send(text)
-          }}
-          disabled={sending}
-        />
+      <div className="shrink-0 border-t border-border bg-background">
+        <div className="mx-auto w-full max-w-3xl px-4 py-3">
+          <ChatComposer
+            value={composer}
+            onChange={setComposer}
+            onSubmit={() => {
+              const text = composer
+              setComposer('')
+              void send(text)
+            }}
+            disabled={sending}
+            dictation={dictation}
+          />
+        </div>
       </div>
     </div>
   )
 }
 
 function NextStepButton({
-  label,
   nextLabel,
   onAdvance,
 }: {
-  label?: string
   nextLabel: string
   onAdvance: () => void
 }): React.JSX.Element {
@@ -557,7 +592,7 @@ function NextStepButton({
       onClick={onAdvance}
       className="h-auto w-full justify-between rounded-lg border-border bg-card px-4 py-3 text-sm text-foreground shadow-sm hover:border-foreground/20 hover:bg-muted/50 hover:text-foreground"
     >
-      <span>{label ?? `Continue to ${nextLabel}`}</span>
+      <span>{nextLabel}</span>
       <ChevronRightIcon
         className="size-4 shrink-0 text-muted-foreground"
         aria-hidden
@@ -611,11 +646,7 @@ function AssistantMessage({
         ) : null}
       </AssistantRow>
       {hasOfferSegment(segments) && onAdvance && nextLabel ? (
-        <NextStepButton
-          label={offerLabelFromSegments(segments)}
-          nextLabel={nextLabel}
-          onAdvance={onAdvance}
-        />
+        <NextStepButton nextLabel={nextLabel} onAdvance={onAdvance} />
       ) : null}
     </>
   )

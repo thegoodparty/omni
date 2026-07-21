@@ -5,6 +5,7 @@ import serveAccess from '../shared/serveAccess'
 import DashboardLayout from '../shared/DashboardLayout'
 import MyOrdinancesSection from './components/MyOrdinancesSection'
 import MyPriorityIssuesSection from './components/MyPriorityIssuesSection'
+import OrdinancesChatDock from './components/OrdinancesChatDock'
 
 const meta = pageMetaData({
   title: 'Ordinances | GoodParty.org',
@@ -32,13 +33,14 @@ export default async function Page(): Promise<React.JSX.Element> {
       wrapperClassName="!p-0"
       navHeader={{ icon: 'scroll', label: 'Ordinances' }}
     >
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 px-4 py-6 md:px-6 md:py-8">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-10 px-4 pb-28 pt-6 md:px-6 md:pt-8">
         <MyOrdinancesSection
           items={ordinances.data.items}
           counts={ordinances.data.counts}
         />
         <MyPriorityIssuesSection priorities={priorities} />
       </div>
+      <OrdinancesChatDock />
     </DashboardLayout>
   )
 }

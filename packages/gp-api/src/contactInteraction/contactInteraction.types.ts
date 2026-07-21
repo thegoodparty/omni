@@ -4,6 +4,7 @@ import {
   ContactInteractionText,
   SupportAnswer,
 } from '@/generated/prisma'
+import type { SupportStatusRollup } from '@goodparty_org/contracts'
 
 /**
  * The contact interaction convention (2026-07-14 design review, CRM tech
@@ -38,9 +39,10 @@ import {
  *    in `services/`, registered in `ContactInteractionModule`, whose writes
  *    enforce the idempotency key at the DB (upsert on the unique, or
  *    `createMany` with `skipDuplicates`) — never read-then-write.
- * 7. A feed-render variant for the channel, registered with the activity
- *    feed (feature 3 owns that registry; until it lands this is a named
- *    obligation, not code).
+ * 7. A feed-mapping branch for the channel in
+ *    `ContactEngagementService.getIndividualActivities` (feature 3,
+ *    `src/contactEngagement/`), plus a matching `ConstituentActivity` variant
+ *    in `contactEngagement.types.ts`.
  * 8. Filter conditions must be able to resolve the table into person-id sets
  *    with plain SQL (`SELECT person_id FROM contact_interaction_<channel>
  *    WHERE organization_slug = ... AND <channel predicates>`), so keep
@@ -62,15 +64,18 @@ export type ContactInteraction = SatisfiesRecord<
   | ContactInteractionRobocall
 >
 
-export const SUPPORT_STATUS_UNKNOWN = 'unknown' as const
+export const SUPPORT_STATUS_UNKNOWN: SupportStatusRollup = 'unknown'
 
 // The single source for the answer → rollup derivation. Both
 // SupportStatusService methods (display and filter resolution) compile
-// their SQL CASE from this constant so the two can never disagree.
+// their SQL CASE from this constant so the two can never disagree. The
+// `satisfies` clause pins every arm to contracts' SupportStatusRollup — the
+// same vocabulary the person-detail response serializes (ENG-10696) — so the
+// derivation can't silently drift from what the contract promises.
 export const SUPPORT_ANSWER_ROLLUP = {
   [SupportAnswer.supporter]: 'supporter',
   [SupportAnswer.non_supporter]: 'non_supporter',
   [SupportAnswer.unsure]: SUPPORT_STATUS_UNKNOWN,
-} as const satisfies Record<SupportAnswer, string>
+} as const satisfies Record<SupportAnswer, SupportStatusRollup>
 
-export type SupportStatusRollup = (typeof SUPPORT_ANSWER_ROLLUP)[SupportAnswer]
+export type { SupportStatusRollup }

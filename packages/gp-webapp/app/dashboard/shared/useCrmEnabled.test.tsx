@@ -6,16 +6,11 @@ import { api } from 'helpers/test-utils/api-mocking'
 import { setCookie, deleteCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { electedOfficeQueryOptions } from '@shared/hooks/useElectedOffice'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useWinCrmFlag } from '@shared/experiments/winCrmFlag'
 import { useServeCrmFlag } from '@shared/experiments/serveCrmFlag'
 import { useOrganization } from '@shared/organization-picker'
 import { useCrmEnabled } from './useCrmEnabled'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
-
-vi.mock('@shared/experiments/winVoterDataFlag', () => ({
-  useWinVoterDataFlag: vi.fn(),
-}))
 
 vi.mock('@shared/experiments/winCrmFlag', () => ({
   useWinCrmFlag: vi.fn(),
@@ -29,7 +24,6 @@ vi.mock('@shared/organization-picker', () => ({
   useOrganization: vi.fn(),
 }))
 
-const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
 const mockedUseWinCrmFlag = vi.mocked(useWinCrmFlag)
 const mockedUseServeCrmFlag = vi.mocked(useServeCrmFlag)
 const mockedUseOrganization = vi.mocked(useOrganization)
@@ -81,11 +75,9 @@ const renderForOrg = (slug: string, trackExposure?: boolean) => {
 
 beforeEach(() => {
   sharedClient.clear()
-  mockedUseWinVoterDataFlag.mockReset()
   mockedUseWinCrmFlag.mockReset()
   mockedUseServeCrmFlag.mockReset()
   mockedUseOrganization.mockReset()
-  mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
   mockedUseWinCrmFlag.mockReturnValue({ ready: true, enabled: false })
   mockedUseServeCrmFlag.mockReturnValue({ ready: true, enabled: false })
   // The Serve (eo-) org resolves an elected office; the Win org has none.
@@ -150,26 +142,6 @@ describe('useCrmEnabled — mode × flag matrix', () => {
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(result.current.enabled).toBe(false)
   })
-
-  it('never lets serve-crm decide for a Win org with win-voter-data off', async () => {
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
-    mockedUseServeCrmFlag.mockReturnValue({ ready: true, enabled: true })
-
-    const { result } = renderForOrg(WIN_SLUG)
-
-    await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(result.current.enabled).toBe(false)
-  })
-
-  it('keeps win-voter-data as a layered gate: win-crm on alone does not enable a Win org', async () => {
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
-    mockedUseWinCrmFlag.mockReturnValue({ ready: true, enabled: true })
-
-    const { result } = renderForOrg(WIN_SLUG)
-
-    await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(result.current.enabled).toBe(false)
-  })
 })
 
 describe('useCrmEnabled — readiness', () => {
@@ -227,15 +199,5 @@ describe('useCrmEnabled — exposure', () => {
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(mockedUseServeCrmFlag).toHaveBeenLastCalledWith(true)
     expect(mockedUseWinCrmFlag).toHaveBeenLastCalledWith(false)
-  })
-
-  it('with trackExposure, exposes neither flag on a Win org with win-voter-data off', async () => {
-    mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: false })
-
-    const { result } = renderForOrg(WIN_SLUG, true)
-
-    await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(mockedUseWinCrmFlag).toHaveBeenLastCalledWith(false)
-    expect(mockedUseServeCrmFlag).toHaveBeenLastCalledWith(false)
   })
 })

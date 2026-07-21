@@ -4,6 +4,9 @@
  * Example JSON structure:
  * {
  *   "hasCellPhone": true,                          // Boolean filter (true = IS NOT NULL)
+ *   "hasAddress": true,                            // Boolean filter (true = IS NOT NULL)
+ *   "id": { "in": ["<uuid>"] },                    // Id filter with 'in' operator
+ *   "id": { "notIn": ["<uuid>"] },                 // Id filter with 'notIn' operator
  *   "voterStatus": { "in": ["Super", "Likely"] }, // Enum filter with 'in' operator
  *   "politicalParty": { "eq": "Democratic" }, // Enum filter with 'eq' operator
  *   "maritalStatus": { "is": "not_null" },        // Enum filter with 'is' operator
@@ -19,7 +22,8 @@
  * }
  *
  * Filter Types:
- * - Boolean filters: hasCellPhone, hasLandline (true = IS NOT NULL, false = IS NULL)
+ * - Boolean filters: hasCellPhone, hasLandline, hasAddress (true = IS NOT NULL, false = IS NULL)
+ * - Id filter: id — Operators: { in: string[] }, { notIn: string[] } (exactly one, each 1-100000 uuids)
  * - Enum filters: voterStatus, politicalParty, maritalStatus, veteranStatus, educationLevel,
  *   ethnicity, businessOwner, presenceOfChildren, homeowner, gender
  *   Operators: { in: string[] }, { eq: string }, { is: "not_null" | "null" }
@@ -33,6 +37,7 @@
 import { z } from 'zod'
 import {
   createEnumFilterSchema,
+  createIdFilterSchema,
   createNumericFilterSchema,
   transformFilters,
   type TransformFiltersResult,
@@ -88,6 +93,8 @@ export const FILTER_VALUE_ENUMS = {
 const filtersSchemaObject = z.object({
   hasCellPhone: z.boolean().optional(),
   hasLandline: z.boolean().optional(),
+  hasAddress: z.boolean().optional(),
+  id: createIdFilterSchema().optional(),
   maritalStatus: createEnumFilterSchema(
     FILTER_VALUE_ENUMS.maritalStatus,
   ).optional(),

@@ -27,6 +27,20 @@ export const getNormalizedPhoneNumber = (phone: string): string | null => {
 }
 
 /**
+ * True when `search` will produce name-token LIKE predicates in
+ * `buildVoterWhereSql` (as opposed to the phone-equality predicate or no
+ * search at all). Callers use this to decide whether the rare-pattern
+ * timeout guard applies — only name LIKE patterns can mislead the planner.
+ */
+export const isNameSearch = (search?: string): boolean => {
+  const trimmed = search?.trim()
+  if (!trimmed) {
+    return false
+  }
+  return getNormalizedPhoneNumber(trimmed) === null
+}
+
+/**
  * Build the WHERE clause shared by the people list, count, and CSV-download
  * SQL. Returns `Prisma.empty` when there are no predicates.
  *

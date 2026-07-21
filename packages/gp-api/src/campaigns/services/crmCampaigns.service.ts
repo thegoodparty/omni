@@ -201,7 +201,7 @@ export class CrmCampaignsService {
     ] = await Promise.all([
       this.users.findByCampaign(campaign),
       userId
-        ? this.aiChat.count({ where: { id: userId } })
+        ? this.aiChat.count({ where: { userId, campaignId } })
         : Promise.resolve(0),
       this.campaigns.fetchLiveRaceTargetMetrics(campaign),
       campaign.organizationSlug
@@ -548,41 +548,6 @@ export class CrmCampaignsService {
     }
 
     return crmCompanyId
-  }
-
-  async handleUpdateCampaign(
-    campaign: Campaign,
-    propertyName: string,
-    propertyValue: string,
-  ) {
-    const campaignData = campaign.data
-    const hubSpotUpdates = campaignData.hubSpotUpdates || {}
-    // propertyName is a dynamic HubSpot field name supplied at runtime.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    hubSpotUpdates[propertyName as HubSpot.IncomingProperty] = propertyValue
-
-    const updatePayload: Prisma.CampaignUpdateInput = {
-      data: {
-        ...campaignData,
-        hubSpotUpdates,
-      },
-    }
-
-    if (propertyName === String(HubSpot.IncomingProperty.verified_candidates)) {
-      updatePayload.isVerified =
-        propertyValue.toLowerCase() === String(HubSpot.VerifiedCandidate.YES)
-    }
-
-    if (propertyName === String(HubSpot.IncomingProperty.election_results)) {
-      updatePayload.didWin =
-        propertyValue.toLowerCase() ===
-        String(HubSpot.ElectionResult.WON_GENERAL)
-    }
-
-    this.campaigns.update({
-      where: { id: campaign.id },
-      data: updatePayload,
-    })
   }
 
   /** Pushes campaign data to Hubspot record

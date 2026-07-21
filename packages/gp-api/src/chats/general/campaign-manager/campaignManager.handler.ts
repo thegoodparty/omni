@@ -30,6 +30,11 @@ import {
   type StoryState,
 } from './campaignStoryIntake.service'
 import { buildCampaignStoryTool } from './campaignStoryTool'
+import { ContactsService } from '@/contacts/services/contacts.service'
+import { buildDescribeFilterDimensionsTool } from '../crm-tools/describeFilterDimensions.tool'
+import { buildCountContactsTool } from '../crm-tools/countContacts.tool'
+import { buildCrudSavedFiltersTool } from '../crm-tools/crudSavedFilters.tool'
+import { VoterFileFilterService } from '@/voters/services/voterFileFilter.service'
 
 // Sensitive scope: the agent is grounded in the candidate's own campaign data,
 // so it runs Anthropic-only. The registry fails closed on any non-claude model.
@@ -98,6 +103,12 @@ export const CM_CONSTITUENT_DATA_TOOL_FLAG = 'cm-constituent-data-tool'
 export const CM_CONSTITUENT_DATA_PROVIDER = 'CM_CONSTITUENT_DATA_PROVIDER'
 export const CM_CONSTITUENT_TABLES_CONFIG = 'CM_CONSTITUENT_TABLES_CONFIG'
 
+// Win's CRM rollout flag (same key the webapp's contacts page reads). The
+// contact describe/count tools require it, mirroring the webapp's
+// useCrmEnabled gate, so the assistant capability ramps with exactly the
+// same cohorts as the UI.
+export const WIN_CRM_FLAG = 'win-crm'
+
 const EMPTY_CONTEXT: CampaignManagerContext = {
   candidateFirstName: null,
   candidateName: '',
@@ -108,6 +119,9 @@ const EMPTY_CONTEXT: CampaignManagerContext = {
   topTasks: [],
   districtFilters: null,
   constituentToolEnabled: false,
+  organization: null,
+  crmToolsEnabled: false,
+  savedFilterToolsEnabled: false,
   story: null,
   plan: null,
 }
@@ -133,6 +147,10 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     private readonly features?: FeaturesService,
     @Optional()
     private readonly storyIntake?: CampaignStoryIntakeService,
+    @Optional()
+    private readonly contacts?: ContactsService,
+    @Optional()
+    private readonly voterFileFilters?: VoterFileFilterService,
   ) {}
 
   // The manager is a single ongoing conversation, not one per open: resume the
@@ -246,7 +264,25 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
     const constituentToolEnabled =
       !!this.constituentProvider &&
       this.constituentTables.length > 0 &&
-      (await this.isConstituentToolFlagOn(userId))
+      (await this.isFlagOn(userId, CM_CONSTITUENT_DATA_TOOL_FLAG))
+
+    // The org row the CRM contact tools bind counts to. Folding the service
+    // presence into crmToolsEnabled keeps prompt advertising and tool
+    // registration on one signal; only look up the org and hit Amplitude when
+    // the tools could otherwise register.
+    const organization = this.contacts
+      ? await this.campaigns.client.organization.findFirst({
+          where: { slug: organizationSlug },
+        })
+      : null
+    const crmToolsEnabled =
+      !!this.contacts &&
+      !!organization &&
+      (await this.isFlagOn(userId, WIN_CRM_FLAG))
+    // The saved-filter write tool additionally needs VoterFileFilterService;
+    // folding its presence in keeps prompt advertising and tool registration
+    // on one signal, same as crmToolsEnabled itself.
+    const savedFilterToolsEnabled = crmToolsEnabled && !!this.voterFileFilters
 
     return {
       candidateFirstName: campaign.user?.firstName ?? null,
@@ -263,21 +299,21 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
       })),
       districtFilters,
       constituentToolEnabled,
+      organization,
+      crmToolsEnabled,
+      savedFilterToolsEnabled,
       story,
       plan,
     }
   }
 
   // FeaturesService.isFeatureEnabled throws if Amplitude fails to return a
-  // value. Resolving the flag is on the critical path of loadContext, so a
+  // value. Resolving a flag is on the critical path of loadContext, so a
   // flag-service outage must degrade to "tool off", never take down the chat.
-  private async isConstituentToolFlagOn(userId: number): Promise<boolean> {
+  private async isFlagOn(userId: number, feature: string): Promise<boolean> {
     if (!this.features) return false
     try {
-      return await this.features.isFeatureEnabled({
-        user: userId,
-        feature: CM_CONSTITUENT_DATA_TOOL_FLAG,
-      })
+      return await this.features.isFeatureEnabled({ user: userId, feature })
     } catch {
       return false
     }
@@ -332,6 +368,31 @@ export class CampaignManagerHandler implements ChatScopeHandler<CampaignManagerC
         campaignId: ctx.campaignId,
         candidateName: ctx.candidateName,
       })
+    }
+
+    // Aggregate-only CRM reads (describe dimensions + count), gated on the
+    // win-crm flag so the assistant capability ramps with the CRM UI. The
+    // org is bound from the resolved context; ContactsService enforces the
+    // pro gate and every other filter rule.
+    if (this.contacts && ctx.crmToolsEnabled && ctx.organization) {
+      tools.describe_filter_dimensions = buildDescribeFilterDimensionsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      tools.count_contacts = buildCountContactsTool({
+        contacts: this.contacts,
+        organization: ctx.organization,
+      })
+      // Saved-filter CRUD goes through the same VoterFileFilterService paths
+      // as the voter-file routes (Pro gate, completed-outreach validation,
+      // org scoping, locked-filter conflict all inherited).
+      if (this.voterFileFilters && ctx.savedFilterToolsEnabled) {
+        tools.crud_saved_filters = buildCrudSavedFiltersTool({
+          voterFileFilters: this.voterFileFilters,
+          contacts: this.contacts,
+          organization: ctx.organization,
+        })
+      }
     }
 
     return tools
