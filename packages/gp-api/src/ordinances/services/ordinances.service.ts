@@ -213,6 +213,11 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
       ...answers.filter((a) => a.questionId !== answer.questionId),
       answer,
     ]
+    // Changed means changed: both sides are Zod-normalized (stored answers
+    // re-parsed above, the incoming answer by the controller pipe), so a
+    // same-content re-submit serializes identically and must not retire a
+    // healthy running loop via the write-once superseded_by_edit terminal.
+    const changed = JSON.stringify(next) !== JSON.stringify(answers)
     const record = await this.model.update({
       where: { id: existing.id },
       data: { clarifyAnswers: next },
@@ -222,7 +227,10 @@ export class OrdinancesService extends createPrismaBase(MODELS.Ordinance) {
     // AFTER the write: superseded_by_edit is write-once, so flipping first
     // would strand a dead loop if the write threw, and the loop's fenced
     // terminals already keep a not-yet-superseded run off the changed record.
-    if (existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running) {
+    if (
+      changed &&
+      existing.qualityLoopStatus === OrdinanceQualityLoopStatus.running
+    ) {
       await this.qualityLoop.supersedeOnEdit(existing.id)
       return this.toResponse(
         await this.model.findUniqueOrThrow({ where: { id: existing.id } }),

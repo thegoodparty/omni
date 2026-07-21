@@ -404,6 +404,29 @@ describe('supersession on edit', () => {
     expect(res.status).toBe(201)
     expect(res.data.qualityLoop.status).toBe('superseded_by_edit')
   })
+
+  it('keeps the loop running when the identical clarify answer is re-submitted', async () => {
+    const orgSlug = 'eo-qloop-clarify-noop'
+    await seedElectedOffice(orgSlug)
+    const header = orgHeader(orgSlug)
+    const { slug } = await seedDraftOrdinance(header)
+    const answer = { questionId: 'q1', question: 'Scope?', answer: 'Citywide' }
+    await service.client.post(
+      `/v1/ordinances/${slug}/clarify-answers`,
+      answer,
+      header,
+    )
+    await startLoop(slug, header)
+
+    const res = await service.client.post(
+      `/v1/ordinances/${slug}/clarify-answers`,
+      answer,
+      header,
+    )
+
+    expect(res.status).toBe(201)
+    expect(res.data.qualityLoop.status).toBe('running')
+  })
 })
 
 describe('loop state on reads', () => {

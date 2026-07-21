@@ -1805,3 +1805,75 @@ describe('QueueConsumerService - handleAgentExperimentResult', () => {
     expect(mockExperimentRuns.optimisticLockingUpdate).not.toHaveBeenCalled()
   })
 })
+
+describe('QueueConsumerService - ORDINANCE_QUALITY_LOOP', () => {
+  const buildService = (handleStep: ReturnType<typeof vi.fn>) =>
+    new QueueConsumerService(
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { handleStep } as never,
+      createMockLogger(),
+    )
+
+  const loopMessage = (data: unknown): Message => ({
+    MessageId: 'msg-loop-1',
+    Body: JSON.stringify({ type: QueueType.ORDINANCE_QUALITY_LOOP, data }),
+  })
+
+  it('dispatches a valid quality loop step to handleStep', async () => {
+    const handleStep = vi.fn().mockResolvedValue(true)
+    const service = buildService(handleStep)
+    const payload = {
+      ordinanceId: 'o1',
+      loopRunId: 'run-1',
+      iteration: 1,
+      phase: 'qc',
+      expectedInputHash: 'hash-1',
+      attempt: 1,
+    }
+
+    const result = await service.processMessage(loopMessage(payload))
+
+    expect(result).toBe(true)
+    expect(handleStep).toHaveBeenCalledWith(payload)
+  })
+
+  it('acks and drops a malformed quality loop message instead of requeueing', async () => {
+    const handleStep = vi.fn()
+    const service = buildService(handleStep)
+
+    // A malformed message can never become valid; requeueing it would block
+    // the ordinance's FIFO group with redeliveries until the DLQ limit.
+    const result = await service.processMessage(
+      loopMessage({ ordinanceId: 'o1' }),
+    )
+
+    expect(result).toBe(true)
+    expect(handleStep).not.toHaveBeenCalled()
+  })
+})
