@@ -45,7 +45,7 @@ describe('DoorKnockingPackService', () => {
     mockClient = { $queryRaw: vi.fn() }
     service = new DoorKnockingPackService(mockDistrictService as never)
     Object.defineProperty(service, '_prisma', {
-      get: () => mockClient,
+      get: () => ({ instance: mockClient }),
       configurable: true,
     })
   })
