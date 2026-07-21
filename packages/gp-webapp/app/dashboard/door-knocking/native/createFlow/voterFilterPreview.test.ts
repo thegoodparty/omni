@@ -27,10 +27,15 @@ describe('filtersToDimSelections', () => {
 
   it('maps the exclusive age picker onto the pack legacy buckets', () => {
     const selections = filtersToDimSelections(
-      { age18_24: true, age65Plus: true },
+      { age18_24: true, age50_64: true },
       manifest,
     )
     expect(selections.get('age')).toEqual(new Set([0, 3]))
+  })
+
+  it('65+ does not narrow: the legacy buckets cannot express it', () => {
+    const selections = filtersToDimSelections({ age65Plus: true }, manifest)
+    expect(selections.has('age')).toBe(false)
   })
 
   it('maps income pills through the shared range names', () => {

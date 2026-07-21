@@ -22,14 +22,20 @@ const FILTER_KEY_TO_DIM: Record<string, { dim: string; candidates: string[] }> =
     age25_34: { dim: 'age', candidates: ['25_35', '25-35'] },
     age35_49: { dim: 'age', candidates: ['35_50', '35-50'] },
     age50_64: { dim: 'age', candidates: ['50_plus', '50+'] },
-    age65Plus: { dim: 'age', candidates: ['50_plus', '50+'] },
+    // The pack's legacy buckets can't distinguish 65+ from 50-64; mapping
+    // both to 50_plus would preview identical cohorts for different pills,
+    // so 65+ deliberately doesn't narrow (an unmapped pill previews a
+    // superset, which is the honest failure mode).
     ageUnknown: { dim: 'age', candidates: ['Unknown', 'unknown'] },
     genderMale: { dim: 'gender', candidates: ['M', 'Male'] },
     genderFemale: { dim: 'gender', candidates: ['F', 'Female'] },
     genderUnknown: { dim: 'gender', candidates: ['Unknown', 'unknown'] },
     audienceSuperVoters: { dim: 'voterStatus', candidates: ['Super'] },
     audienceLikelyVoters: { dim: 'voterStatus', candidates: ['Likely'] },
-    audienceUnreliableVoters: { dim: 'voterStatus', candidates: ['Unlikely'] },
+    audienceUnreliableVoters: {
+      dim: 'voterStatus',
+      candidates: ['Unreliable'],
+    },
     audienceUnlikelyVoters: { dim: 'voterStatus', candidates: ['Unlikely'] },
     audienceFirstTimeVoters: {
       dim: 'voterStatus',

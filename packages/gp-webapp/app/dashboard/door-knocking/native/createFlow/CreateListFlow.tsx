@@ -119,6 +119,12 @@ export default function CreateListFlow({
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const [color, setColor] = useState<string>(TURF_COLORS[0])
+  // Filters step only: pulled down to a bottom sheet so the dots stay
+  // visible and recolor live while pills are toggled.
+  const [peeked, setPeeked] = useState(false)
+  useEffect(() => {
+    setPeeked(false)
+  }, [step])
   // If the turf POST fails after the filter was created, the retry reuses
   // the existing filter instead of minting an orphan list per attempt. The
   // ref is only valid for the confirm step it was minted in — leaving the
@@ -226,8 +232,27 @@ export default function CreateListFlow({
     )
   }
 
+  const peekable = step === 'filters'
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-background">
+    <div
+      className={
+        peekable && peeked
+          ? 'absolute inset-x-0 bottom-0 z-20 flex h-[45%] flex-col rounded-t-xl border-t border-border bg-background shadow-lg'
+          : 'absolute inset-0 z-20 flex flex-col bg-background'
+      }
+    >
+      {peekable && (
+        <button
+          type="button"
+          aria-label={
+            peeked ? 'Expand the filters' : 'Pull down to see the map'
+          }
+          className="flex w-full items-center justify-center py-2"
+          onClick={() => setPeeked((current) => !current)}
+        >
+          <span className="h-1.5 w-12 rounded-full bg-muted" />
+        </button>
+      )}
       <StepHeader
         step={step}
         onBack={step === 'confirm' ? () => onStepChange('draw') : null}
@@ -323,12 +348,20 @@ export default function CreateListFlow({
       <div className="border-t border-border bg-background px-6 py-4">
         <div className="mx-auto flex w-full max-w-2xl justify-center gap-3">
           {step === 'filters' && (
-            <Button
-              className="w-full max-w-xs"
-              onClick={() => onStepChange('draw')}
-            >
-              Continue
-            </Button>
+            <>
+              <p className="flex-1 self-center text-sm text-muted-foreground">
+                <span className="font-semibold tabular-nums text-foreground">
+                  {matchingHouseholds.toLocaleString()}
+                </span>{' '}
+                matching households
+              </p>
+              <Button
+                className="w-full max-w-xs"
+                onClick={() => onStepChange('draw')}
+              >
+                Continue
+              </Button>
+            </>
           )}
           {step === 'confirm' && (
             <>

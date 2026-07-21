@@ -122,6 +122,10 @@ export default function NativeDoorKnockingPage({
     setClearDrawToken((token) => token + 1)
   }
   const handleSaved = (drawAnother: boolean) => {
+    // Clear the ring in the same batch: the canvas effect that emits null
+    // runs after paint, and a committed render with the stale ring would
+    // briefly enable Continue against the just-saved polygon.
+    setRing(null)
     if (drawAnother) {
       // The start-draw effect wipes the previous shape itself; bumping the
       // clear token too would run deleteAll AFTER draw_polygon is entered
