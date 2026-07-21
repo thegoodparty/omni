@@ -30,8 +30,6 @@ import {
 } from '../../generated/prisma'
 import { addDays, differenceInCalendarDays } from 'date-fns'
 import { formatInTimeZone, fromZonedTime } from 'date-fns-tz'
-import { chunk } from 'es-toolkit'
-import ms from 'ms'
 import pMap from 'p-map'
 import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import { rrulestr } from 'rrule'
@@ -137,12 +135,11 @@ type DispatchContext = {
 }
 
 const CRON_CONFIG = {
-  batchSize: 100,
-  every: '20m' as const,
-  // Max offices dispatched in parallel WITHIN a batch. Bounds the fan-out to
-  // the DB / election-api / S3 / dispatch queue while collapsing the
-  // previously fully-serial per-office latency. The inter-batch `every` sleep
-  // below is the intended throttle and is preserved unchanged.
+  // Max offices dispatched in parallel. Bounds the fan-out to the DB /
+  // election-api / S3 / dispatch queue and keeps the cron from bursting the
+  // whole population's per-office work through gp-api at once. The agent job
+  // system does its own internal queueing, so there is no inter-batch sleep —
+  // we enqueue as fast as this concurrency bound allows.
   concurrency: 10,
 }
 
@@ -855,31 +852,22 @@ export class MeetingBriefingsService extends createPrismaBase(
       select: { id: true, organizationSlug: true, userId: true },
     })
 
-    const chunks = chunk(offices, CRON_CONFIG.batchSize)
-
-    for (const [i, batch] of chunks.entries()) {
-      // Bounded concurrency WITHIN a batch: each office's dispatch work is
-      // independent (distinct org), so we fan out up to `concurrency` at a
-      // time instead of awaiting them one by one.
-      await pMap(
-        batch,
-        (eo) =>
-          this.dispatchBriefingIfNeeded(eo, now).catch((err: unknown) =>
-            this.logger.error(
-              { err, electedOfficeId: eo.id },
-              'dispatchBriefingIfNeeded failed, continuing',
-            ),
+    // Bounded concurrency over the whole candidate set: each office's dispatch
+    // work is independent (distinct org), so we fan out up to `concurrency` at
+    // a time instead of awaiting them one by one. There is no inter-batch
+    // throttle — the agent job system queues internally, so we enqueue as fast
+    // as the concurrency bound allows.
+    await pMap(
+      offices,
+      (eo) =>
+        this.dispatchBriefingIfNeeded(eo, now).catch((err: unknown) =>
+          this.logger.error(
+            { err, electedOfficeId: eo.id },
+            'dispatchBriefingIfNeeded failed, continuing',
           ),
-        { concurrency: CRON_CONFIG.concurrency },
-      )
-      // Intentional inter-batch throttle — preserved as-is so we don't burst
-      // the whole population at the queue at once.
-      if (i < chunks.length - 1) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, ms(CRON_CONFIG.every)),
-        )
-      }
-    }
+        ),
+      { concurrency: CRON_CONFIG.concurrency },
+    )
 
     // Mark the claim complete so a crashed-run takeover (see CronLockService)
     // is only triggered when the loop did not finish.
