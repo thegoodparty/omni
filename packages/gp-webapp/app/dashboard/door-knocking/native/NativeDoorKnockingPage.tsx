@@ -49,6 +49,7 @@ export default function NativeDoorKnockingPage({
   const [ring, setRing] = useState<PolygonRing | null>(null)
   const [startDrawToken, setStartDrawToken] = useState(0)
   const [clearDrawToken, setClearDrawToken] = useState(0)
+  const [drawPointCount, setDrawPointCount] = useState(0)
   const [focusTurf, setFocusTurf] = useState<DoorKnockingTurf | null>(null)
   const [knockTurf, setKnockTurf] = useState<DoorKnockingTurf | null>(null)
   const [walkTurf, setWalkTurf] = useState<{
@@ -230,15 +231,23 @@ export default function NativeDoorKnockingPage({
                 startDrawToken={startDrawToken}
                 clearDrawToken={clearDrawToken}
                 onPolygonChange={setRing}
+                onDrawPointCount={setDrawPointCount}
               />
             )}
-            {flowStep === 'draw' && (
-              <div className="pointer-events-none absolute left-4 top-32 max-w-xs rounded-md border border-border bg-background/95 p-3 text-sm shadow-sm">
-                <p className="font-semibold">Draw your knocking boundaries</p>
-                <p className="text-muted-foreground">
-                  Each click drops a boundary point — the shape closes itself as
-                  you go.
-                </p>
+            {flowStep === 'draw' && drawPointCount === 0 && (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                <div className="max-w-sm rounded-xl border border-border bg-background p-5 text-center shadow-lg">
+                  <p className="font-semibold">
+                    Draw your knocking boundaries.
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Tap on the map to drop boundary points, then drag any point
+                    to outline the doors you want to knock.
+                  </p>
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-info">
+                    Tap the map to get started
+                  </p>
+                </div>
               </div>
             )}
           </div>

@@ -6,24 +6,17 @@ import { MapboxOverlay } from '@deck.gl/mapbox'
 import { ScatterplotLayer } from '@deck.gl/layers'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { PolygonLayer, TextLayer } from '@deck.gl/layers'
-import { DoorKnockingTurf } from '@goodparty_org/contracts'
+import { DOOR_KNOCK_STATUSES, DoorKnockingTurf } from '@goodparty_org/contracts'
 import { NEXT_PUBLIC_GEOAPIFY_TILES_KEY } from 'appEnv'
+import { STATUS_RGB } from './statusPresentation'
 import { DecodedPack } from './packDecoder'
 import { FilterResult } from './filterEngine'
 
-// Canvas colors, not DOM: deck.gl consumes raw RGBA arrays, so these are
-// hand-picked to sit near the theme families (teal=unknowns/knockable,
-// amber=not home, green=supporter, red=non-supporter, slate=inaccessible /
-// not a voter, violet=refused). Indexes match DOOR_KNOCK_STATUSES order.
-const STATUS_COLORS: Array<[number, number, number, number]> = [
-  [13, 148, 136, 200], // unknown
-  [217, 119, 6, 210], // not_home
-  [22, 163, 74, 210], // supporter
-  [220, 38, 38, 210], // non_supporter
-  [100, 116, 139, 200], // inaccessible
-  [124, 58, 237, 210], // refused
-  [100, 116, 139, 160], // not_a_voter
-]
+// Dots and legend chips share one palette (statusPresentation.ts) so they
+// cannot disagree; indexes match DOOR_KNOCK_STATUSES order (the status
+// bytes in the filter result are array indexes).
+const STATUS_COLORS: Array<[number, number, number, number]> =
+  DOOR_KNOCK_STATUSES.map((status) => [...STATUS_RGB[status], 210])
 const UNMATCHED_COLOR: [number, number, number, number] = [190, 195, 200, 60]
 // The demo's action blue for the in-progress boundary.
 const DRAW_BLUE: [number, number, number, number] = [19, 81, 216, 255]
@@ -49,6 +42,9 @@ interface VoterMapCanvasProps {
   // Bump to clear the in-progress drawing (e.g. after a turf is saved).
   clearDrawToken: number
   onPolygonChange: (ring: PolygonRing | null) => void
+  // Fires with the vertex count as points are placed (0 on start/clear) —
+  // the page uses it to dismiss the draw instructions on the first click.
+  onDrawPointCount?: (count: number) => void
 }
 
 const hexToRgba = (
@@ -112,6 +108,7 @@ export default function VoterMapCanvas({
   startDrawToken,
   clearDrawToken,
   onPolygonChange,
+  onDrawPointCount,
 }: VoterMapCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const hasTilesKey = NEXT_PUBLIC_GEOAPIFY_TILES_KEY.length > 0
@@ -127,13 +124,15 @@ export default function VoterMapCanvas({
   const justDraggedRef = useRef(false)
   const onPolygonChangeRef = useRef(onPolygonChange)
   onPolygonChangeRef.current = onPolygonChange
+  const onDrawPointCountRef = useRef(onDrawPointCount)
+  onDrawPointCountRef.current = onDrawPointCount
 
   useEffect(() => {
     if (!containerRef.current || !hasTilesKey) return
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: `https://maps.geoapify.com/v1/styles/positron/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
+      style: `https://maps.geoapify.com/v1/styles/osm-bright/style.json?apiKey=${NEXT_PUBLIC_GEOAPIFY_TILES_KEY}`,
       center: [-98, 39],
       zoom: 4,
       attributionControl: { compact: true },
@@ -160,6 +159,7 @@ export default function VoterMapCanvas({
       const next = [...drawPointsRef.current, point]
       drawPointsRef.current = next
       setDrawPoints(next)
+      onDrawPointCountRef.current?.(next.length)
       onPolygonChangeRef.current(next.length >= 3 ? next : null)
     })
 
@@ -360,6 +360,7 @@ export default function VoterMapCanvas({
     dragIndexRef.current = null
     drawPointsRef.current = []
     setDrawPoints([])
+    onDrawPointCountRef.current?.(0)
     onPolygonChangeRef.current(null)
     // Adding vertices shouldn't fight the zoom gesture.
     mapRef.current?.doubleClickZoom.disable()
@@ -371,6 +372,7 @@ export default function VoterMapCanvas({
     dragIndexRef.current = null
     drawPointsRef.current = []
     setDrawPoints([])
+    onDrawPointCountRef.current?.(0)
     onPolygonChangeRef.current(null)
     mapRef.current?.doubleClickZoom.enable()
   }, [clearDrawToken])
