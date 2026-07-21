@@ -216,7 +216,14 @@ export class CrmCampaignsService {
           }),
       this.campaigns.client.tcrCompliance.findUnique({
         where: { campaignId },
-        select: { email: true, phone: true, filingUrl: true },
+        select: {
+          email: true,
+          phone: true,
+          filingUrl: true,
+          pinDeliveryMethod: true,
+          pinDeliveryDestination: true,
+          pinSentDetectedAt: true,
+        },
       }),
       this.ecanvasser.findByCampaignId(campaignId),
     ])
@@ -345,6 +352,13 @@ export class CrmCampaignsService {
       n10_dlc_filing_email: tcrCompliance?.email,
       n10_dlc_filing_phone: tcrCompliance?.phone,
       n10_dlc_filing_url: tcrCompliance?.filingUrl,
+      n10_dlc_pin_delivery_method:
+        tcrCompliance?.pinDeliveryMethod ?? undefined,
+      n10_dlc_pin_sent_at: formatDateForCRM(
+        tcrCompliance?.pinSentDetectedAt?.toISOString(),
+      ),
+      n10_dlc_pin_delivery_destination:
+        tcrCompliance?.pinDeliveryDestination ?? undefined,
 
       // election details
       br_position_id: ballotReadyPositionId ?? undefined,

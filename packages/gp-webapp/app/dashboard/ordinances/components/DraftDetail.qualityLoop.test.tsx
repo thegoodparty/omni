@@ -206,17 +206,15 @@ describe('DraftDetail quality loop polling', () => {
     })
     expect(mocks.fetchOrdinanceBySlug).toHaveBeenCalledTimes(2)
 
-    // Terminal: the banner is gone, the outcome line is honest about the
-    // remaining attention items, and the history is fetched.
+    // Terminal: the running banner clears and the report card is the only
+    // state left — no outcome box, no history fetch. The design keeps the
+    // report as the single quality surface so loops can run repeatedly
+    // without a stale receipt lingering between them.
     expect(
       screen.queryByText(/rewriting flagged sections/i),
     ).not.toBeInTheDocument()
-    expect(
-      screen.getByText('No blocking problems — 2 items worth a look'),
-    ).toBeVisible()
-    expect(mocks.fetchQualityIterations).toHaveBeenCalledWith(
-      'public-safety-cameras',
-    )
+    expect(screen.queryByText(/no blocking problems/i)).not.toBeInTheDocument()
+    expect(mocks.fetchQualityIterations).not.toHaveBeenCalled()
 
     // The editor unlocked and was re-seeded with the revised draft.
     expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
@@ -275,7 +273,7 @@ describe('DraftDetail quality loop polling', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('shows the stopped_* outcome copy with the remaining flag count', async () => {
+  it('unlocks with no outcome box after a stopped_* terminal', async () => {
     mocks.fetchOrdinanceBySlug.mockResolvedValue(
       makeOrdinance({
         qualityLoop: loop({ status: 'stopped_not_improving', phase: null }),
@@ -289,11 +287,10 @@ describe('DraftDetail quality loop polling', () => {
       await vi.advanceTimersByTimeAsync(LOOP_POLL_MS)
     })
 
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
     expect(
-      screen.getByText(
-        'Kept your strongest version — 1 check still needs your attention',
-      ),
-    ).toBeVisible()
+      screen.queryByText(/kept your strongest version/i),
+    ).not.toBeInTheDocument()
   })
 
   it('keeps unsaved edits when a re-check discovers a loop started elsewhere', async () => {
@@ -427,9 +424,7 @@ describe('DraftDetail quality loop stop and edit', () => {
       expect(bodyEditor()).toHaveAttribute('contenteditable', 'true'),
     )
     expect(screen.queryByText(/checking your draft/i)).not.toBeInTheDocument()
-    expect(
-      screen.getByText('Improvements stopped — your draft is ready to edit.'),
-    ).toBeVisible()
+    expect(screen.queryByText(/improvements stopped/i)).not.toBeInTheDocument()
   })
 
   it('surfaces an error and stays locked when the cancel fails', async () => {
@@ -486,13 +481,8 @@ describe('DraftDetail quality loop focus re-check', () => {
   })
 })
 
-describe('DraftDetail loop outcome on load', () => {
-  it('shows the finished outcome and change history for a loop that ended while the page was closed', async () => {
-    mocks.fetchQualityIterations.mockResolvedValue({
-      loopRunId: 'run-1',
-      iterations: [iteration()],
-    })
-
+describe('DraftDetail loop terminal on load', () => {
+  it('shows no outcome box and fetches no history for a loop that ended while the page was closed', async () => {
     render(
       <DraftDetail
         ordinance={makeOrdinance({
@@ -502,179 +492,12 @@ describe('DraftDetail loop outcome on load', () => {
       />,
     )
 
-    // The transition path (running -> terminal) never fires for a loop that
-    // finished before this page existed, so the outcome must seed from the
-    // server snapshot.
-    expect(
-      await screen.findByText('No blocking problems — 2 items worth a look'),
-    ).toBeVisible()
-    expect(mocks.fetchQualityIterations).toHaveBeenCalledWith(
-      'public-safety-cameras',
-    )
-    expect(
-      await screen.findByRole('button', { name: /what changed/i }),
-    ).toBeVisible()
-  })
-})
-
-describe('DraftDetail what changed panel', () => {
-  const settleToCancelled = async (): Promise<void> => {
-    mocks.cancelQualityLoop.mockResolvedValue(
-      makeOrdinance({
-        qualityLoop: loop({ status: 'cancelled', phase: null }),
-        qualityReport: report(),
-      }),
-    )
-    mocks.fetchQualityIterations.mockResolvedValue({
-      loopRunId: 'run-1',
-      iterations: [iteration()],
-    })
-
-    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
-    fireEvent.click(screen.getByRole('button', { name: /stop and edit/i }))
-    await screen.findByText(
-      'Improvements stopped — your draft is ready to edit.',
-    )
-  }
-
-  it('lists each pass with its revision notes and before/after texts', async () => {
-    await settleToCancelled()
-
-    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
-
-    expect(
-      await screen.findByText('Removed the conflicting clause.'),
-    ).toBeVisible()
-    // The note carries the flagged check's label (from the iteration report).
-    expect(screen.getByText('Legal conflict:')).toBeVisible()
-
-    // Before/after texts expand on demand.
-    fireEvent.click(
-      screen.getByRole('button', { name: /show before and after/i }),
-    )
-    expect(screen.getByText('Original body.')).toBeVisible()
-    expect(screen.getByText('Improved body.')).toBeVisible()
-  })
-
-  it('restores the original draft from iteration 0 and re-seeds the editor', async () => {
-    mocks.updateOrdinance.mockResolvedValue(
-      makeOrdinance({
-        draftTitle: 'Original title',
-        draftBody: 'Original body.',
-      }),
-    )
-    await settleToCancelled()
-
-    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
-    fireEvent.click(
-      screen.getByRole('button', { name: /restore original draft/i }),
-    )
-
-    await waitFor(() =>
-      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
-        'public-safety-cameras',
-        {
-          draftTitle: 'Original title',
-          draftBody: 'Original body.',
-          // The sources graded with the restored draft ride along — leaving
-          // the accumulation would pair the old text with citations it
-          // never references.
-          draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
-        },
-      ),
-    )
-    await waitFor(() => expect(bodyEditor().innerText).toBe('Original body.'))
-    expect(titleEditor().innerText).toBe('Original title')
-  })
-
-  it('drops a pending autosave of the discarded text when restoring', async () => {
-    mocks.updateOrdinance.mockResolvedValue(
-      makeOrdinance({
-        draftTitle: 'Original title',
-        draftBody: 'Original body.',
-        // The server echoes the full record — the kept report rides along.
-        qualityReport: report(),
-      }),
-    )
-    await settleToCancelled()
-
-    // An edit of the soon-to-be-discarded text sits in the debounce window;
-    // firing after the restore it would PATCH the old draft back over it.
-    bodyEditor().innerText = 'Edited final text the restore discards.'
-    fireEvent.input(bodyEditor())
-
-    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
-    fireEvent.click(
-      screen.getByRole('button', { name: /restore original draft/i }),
-    )
-    await waitFor(() => expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1))
-
-    await new Promise((r) => setTimeout(r, AUTOSAVE_DELAY_MS + 150))
-    expect(mocks.updateOrdinance).toHaveBeenCalledTimes(1)
-    expect(mocks.updateOrdinance).toHaveBeenCalledWith(
-      'public-safety-cameras',
-      {
-        draftTitle: 'Original title',
-        draftBody: 'Original body.',
-        draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
-      },
-    )
-    // The kept report was graded against the discarded final text, so the
-    // restored original must surface the stale banner.
-    expect(
-      screen.getByText(/draft changed since this report ran/i),
-    ).toBeVisible()
-    // And the outcome banner + restore affordance describe a result the user
-    // just undid — they must clear rather than contradict the editor.
-    await waitFor(() =>
-      expect(
-        screen.queryByText(
-          'Improvements stopped — your draft is ready to edit.',
-        ),
-      ).not.toBeInTheDocument(),
-    )
-    expect(
-      screen.queryByRole('button', { name: /restore original draft/i }),
-    ).not.toBeInTheDocument()
-  })
-
-  it('restores body-only when the original iteration has no title', async () => {
-    mocks.cancelQualityLoop.mockResolvedValue(
-      makeOrdinance({
-        qualityLoop: loop({ status: 'cancelled', phase: null }),
-        qualityReport: report(),
-      }),
-    )
-    mocks.fetchQualityIterations.mockResolvedValue({
-      loopRunId: 'run-1',
-      iterations: [iteration({ draftTitle: '   ' })],
-    })
-    mocks.updateOrdinance.mockResolvedValue(
-      makeOrdinance({ draftBody: 'Original body.' }),
-    )
-
-    render(<DraftDetail ordinance={makeOrdinance({ qualityLoop: loop() })} />)
-    fireEvent.click(screen.getByRole('button', { name: /stop and edit/i }))
-    await screen.findByText(
-      'Improvements stopped — your draft is ready to edit.',
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: /what changed/i }))
-    fireEvent.click(
-      screen.getByRole('button', { name: /restore original draft/i }),
-    )
-
-    // The wire contract 400s on an empty draftTitle — the restore must omit
-    // the field rather than fail outright.
-    await waitFor(() =>
-      expect(mocks.updateOrdinance).toHaveBeenCalledWith(
-        'public-safety-cameras',
-        {
-          draftBody: 'Original body.',
-          draftSources: [{ id: 's0', title: 'N.C.G.S. § 160A-174' }],
-        },
-      ),
-    )
+    // The report card is the only quality surface; a long-finished loop
+    // must not greet a fresh load with a stale receipt.
+    expect(bodyEditor()).toHaveAttribute('contenteditable', 'true')
+    expect(screen.queryByText(/no blocking problems/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/what changed/i)).not.toBeInTheDocument()
+    expect(mocks.fetchQualityIterations).not.toHaveBeenCalled()
   })
 })
 

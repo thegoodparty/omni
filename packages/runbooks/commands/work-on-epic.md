@@ -306,7 +306,11 @@ For each ready ticket (skip any already in a closed/done status):
     with the recommended approach.
 
     **Dispatch a subagent per ticket** (or per PR group) to do the implementation.
-    Give each subagent:
+    **Dispatch on Sonnet** (`model: sonnet`), not the session's model — implementers
+    inherit the orchestrator's model by default, and an orchestrator on a
+    higher-tier model silently makes every implementation turn slower and several
+    times more expensive. Escalate a single ticket's subagent to a stronger model
+    only when the plan explicitly marks that ticket as hard. Give each subagent:
     - The ticket ID, name, and full body (all tickets' bodies, for a PR group).
     - The worktree path it must work in.
     - A **context pack**: paste the relevant recon/plan findings into the dispatch
