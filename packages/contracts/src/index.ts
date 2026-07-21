@@ -694,3 +694,20 @@ export {
   DoorKnockingPackManifestSchema,
   type DoorKnockingPackManifest,
 } from './doorKnocking/DoorKnockingPack.schema'
+
+export {
+  GeoJsonPolygonSchema,
+  type GeoJsonPolygon,
+  CreateDoorKnockingTurfSchema,
+  type CreateDoorKnockingTurf,
+  UpdateDoorKnockingTurfSchema,
+  type UpdateDoorKnockingTurf,
+  DoorKnockingTurfSchema,
+  type DoorKnockingTurf,
+  DoorKnockingKnockRequestSchema,
+  type DoorKnockingKnockRequest,
+  DoorKnockingRouteHeaderSchema,
+  type DoorKnockingRouteHeader,
+  DoorKnockingKnockResponseSchema,
+  type DoorKnockingKnockResponse,
+} from './doorKnocking/DoorKnockingTurf.schema'
