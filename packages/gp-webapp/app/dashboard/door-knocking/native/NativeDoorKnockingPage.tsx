@@ -180,6 +180,7 @@ export default function NativeDoorKnockingPage({
                 </div>
               )}
               <TurfList
+                walkingTurfId={walkTurf?.id}
                 onFocusTurf={(turf) => {
                   setWalkTurf(null)
                   setFocusTurf(turf)

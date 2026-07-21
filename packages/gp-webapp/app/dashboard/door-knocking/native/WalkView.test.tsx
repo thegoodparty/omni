@@ -184,6 +184,37 @@ describe('WalkView', () => {
     expect(keys[1]).toBe(keys[0])
   })
 
+  it('mints a fresh clientKey for the next knock after a success', async () => {
+    const keys: string[] = []
+    api.mock('POST /v1/door-knocking/interactions', ({ body }) => {
+      keys.push((body as { clientKey: string }).clientKey)
+      return {
+        status: 200,
+        data: { personId: 'person-1', knockStatus: 'not_home' },
+      }
+    })
+
+    render(<WalkView turfId={3} turfName="Elm loop" onBack={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('105 Elm St')).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByText('105 Elm St'))
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    await waitFor(() => expect(keys).toHaveLength(1))
+
+    // A confirmed save retires the key: a later, genuinely new knock on the
+    // same person must NOT replay it, or the upsert would overwrite the
+    // first interaction instead of recording a second one.
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    fireEvent.click(screen.getByRole('radio', { name: 'Not home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save knock' }))
+    await waitFor(() => expect(keys).toHaveLength(2))
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
   it('never sends answers with a non-answered outcome', async () => {
     const posted: unknown[] = []
     api.mock('POST /v1/door-knocking/interactions', ({ body }) => {

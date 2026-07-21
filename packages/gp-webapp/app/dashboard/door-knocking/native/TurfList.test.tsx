@@ -72,6 +72,28 @@ describe('TurfList', () => {
     ).toBeNull()
   })
 
+  it('treats the turf being walked as locked before the refetch settles', async () => {
+    api.mock('GET /v1/door-knocking/turfs', {
+      status: 200,
+      data: [turf({ id: 1, name: 'Elm St & 5th', locked: false })],
+    })
+
+    render(
+      <TurfList
+        walkingTurfId={1}
+        onFocusTurf={vi.fn()}
+        onKnockTurf={vi.fn()}
+        onOpenRoute={vi.fn()}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Elm St & 5th')).toBeInTheDocument(),
+    )
+    expect(screen.queryByRole('button', { name: 'Knock' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Route' })).toBeInTheDocument()
+  })
+
   it('deletes an unlocked turf and refetches the list', async () => {
     let deleted = false
     api.mock('GET /v1/door-knocking/turfs', () => ({

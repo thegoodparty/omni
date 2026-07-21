@@ -7,12 +7,17 @@ import { clientRequest } from 'gpApi/typed-request'
 import { turfsQueryOptions } from './turfQueries'
 
 interface TurfListProps {
+  // The turf whose route is open right now: its knock already succeeded, so
+  // treat it as locked even before the invalidated turfs query settles —
+  // otherwise the stale `locked: false` row briefly re-offers Knock.
+  walkingTurfId?: number
   onFocusTurf: (turf: DoorKnockingTurf) => void
   onKnockTurf: (turf: DoorKnockingTurf) => void
   onOpenRoute: (turf: DoorKnockingTurf) => void
 }
 
 export default function TurfList({
+  walkingTurfId,
   onFocusTurf,
   onKnockTurf,
   onOpenRoute,
@@ -49,7 +54,7 @@ export default function TurfList({
           >
             {turf.name}
           </button>
-          {turf.locked ? (
+          {turf.locked || turf.id === walkingTurfId ? (
             <Button
               size="small"
               variant="outline"
