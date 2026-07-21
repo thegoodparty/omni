@@ -1,41 +1,7 @@
-import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
-import pageMetaData from 'helpers/metadataHelper'
-import candidateAccess from '../shared/candidateAccess'
-import VoterRecordsPage from './components/VoterRecordsPage'
-import { getServerUser } from 'helpers/userServerHelper'
 import { redirect } from 'next/navigation'
-import { fetchCanDownload } from './utils'
 
-const meta = pageMetaData({
-  title: 'Voter Data | GoodParty.org',
-  description: 'Voter Data',
-  slug: '/dashboard/voter-records',
-})
-export const metadata = meta
-
-export const dynamic = 'force-dynamic'
-
-export default async function Page(): Promise<React.JSX.Element> {
-  await candidateAccess()
-
-  // `getServerUser` (door-knocking admin gate) and `fetchUserCampaign` are
-  // independent reads, so fetch them concurrently instead of serially.
-  const [user, campaign] = await Promise.all([
-    getServerUser(), // can be removed when door knocking app is not for admins only
-    fetchUserCampaign(),
-  ])
-  if (!campaign?.isPro) {
-    redirect('/dashboard/pro-upgrade')
-  }
-
-  return (
-    <VoterRecordsPage
-      {...{
-        pathname: '/dashboard/voter-records',
-        user,
-        campaign,
-        canDownload: await fetchCanDownload(),
-      }}
-    />
-  )
+// The legacy Voter Data page was replaced by the People-API-backed Contacts
+// experience; this stub keeps old bookmarks and stale links working.
+export default function Page() {
+  redirect('/dashboard/contacts')
 }

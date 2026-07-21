@@ -1,9 +1,37 @@
-import { fetchVoterFile } from 'app/dashboard/voter-records/components/VoterRecordsPage'
 import { format } from 'date-fns'
+import { apiRoutes } from 'gpApi/routes'
+import { clientFetch } from 'gpApi/clientFetch'
 import { VoterFileFilters } from 'helpers/types'
 
 interface DownloadFilters extends VoterFileFilters {
   filters?: string[]
+}
+
+interface VoterFileResponse {
+  ok?: boolean
+  blob?: () => Promise<Blob>
+}
+
+const fetchVoterFile = async (
+  type: string,
+  customFilters?: { filters?: string[] },
+): Promise<VoterFileResponse | false> => {
+  try {
+    const payload: { type: string; customFilters?: string } = {
+      type,
+    }
+
+    if (customFilters) {
+      payload.customFilters = JSON.stringify(customFilters)
+    }
+
+    return await clientFetch(apiRoutes.voters.voterFile.get, payload, {
+      returnFullResponse: true,
+    })
+  } catch (e) {
+    console.error('error', e)
+    return false
+  }
 }
 
 export const voterFileDownload = async (

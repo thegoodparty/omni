@@ -1,10 +1,10 @@
 'use client'
 import {
+  Badge,
   Button,
   Card,
   CardContent,
   CardHeader,
-  CardTitle,
   Sheet,
   SheetContent,
   SheetTitle,
@@ -16,27 +16,39 @@ import {
   LuCircleX,
   LuClipboardList,
   LuContact,
-  LuDoorOpen,
   LuFolderOpen,
   LuFrown,
   LuMessageSquareMore,
-  LuPhone,
-  LuShare2,
   LuSmile,
 } from 'react-icons/lu'
-import { format } from 'date-fns'
 import { useContactsTable } from '../ContactsTableProvider'
 import {
   ConstituentActivity,
-  OutreachChannel,
   OutreachConstituentActivity,
   Person,
+  PollConstituentActivity,
 } from '../shared/contacts-types'
+import {
+  OUTREACH_CHANNEL_ICONS,
+  OUTREACH_CHANNEL_LABELS,
+} from '../shared/outreachChannelLabels'
 import { isNotNil } from 'es-toolkit'
 import { ReactNode, useEffect, useRef } from 'react'
 import Map from '@shared/utils/Map'
 import { useFlagOn } from '@shared/experiments/FeatureFlagsProvider'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { useCrmEnabled } from '../../../shared/useCrmEnabled'
+import { useWinVoterContext } from '../../../shared/useWinVoterContext'
+import { InfoSection } from './InfoSection'
+import NotesSection from './NotesSection'
+import {
+  DoorKnockActivityRow,
+  formatDateTime,
+  NoteActivityRow,
+  RobocallActivityRow,
+  TextActivityRow,
+} from './ActivityFeedEntry'
+import type { SupportStatusRollup } from '../shared/contacts-types'
 
 export const formatPersonName = (person: Person) =>
   [person.firstName, person.lastName, person.nameSuffix]
@@ -44,43 +56,23 @@ export const formatPersonName = (person: Person) =>
     .map((n) => n!.trim())
     .join(' ')
 
-const formatDateTime = (dateStr: string): string => {
-  const d = new Date(dateStr)
-  return format(d, "EEEE, MMMM d, yyyy, 'at' h:mm a")
-    .replace(' AM', ' a.m.')
-    .replace(' PM', ' p.m.')
-}
-
 const ACTIVITY_EVENT_LABELS: Record<string, string> = {
   SENT: 'Sent',
   RESPONDED: 'Responded',
   OPTED_OUT: 'Opted Out',
 }
 
-// Honest send-time labels per channel. v1 outreach attribution is send-time
-// (segmentDerived) for everything except door knocking (per-recipient), so the
-// label says what we did, not what was delivered.
-const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
-  text: 'Texted',
-  p2p: 'Texted',
-  doorKnocking: 'Knocked',
-  phoneBanking: 'Called',
-  robocall: 'Called',
-  socialMedia: 'Digital',
-}
-
-const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> = {
-  text: <LuMessageSquareMore size={16} className="shrink-0 text-foreground" />,
-  p2p: <LuMessageSquareMore size={16} className="shrink-0 text-foreground" />,
-  doorKnocking: <LuDoorOpen size={16} className="shrink-0 text-foreground" />,
-  phoneBanking: <LuPhone size={16} className="shrink-0 text-foreground" />,
-  robocall: <LuPhone size={16} className="shrink-0 text-foreground" />,
-  socialMedia: <LuShare2 size={16} className="shrink-0 text-foreground" />,
-}
-
 const isOutreachActivity = (
   activity: ConstituentActivity,
 ): activity is OutreachConstituentActivity => activity.type === 'OUTREACH'
+
+// ENG-10695 unioned ContactInteraction*/ContactNote entries into the feed
+// response; ENG-10698 (task 07) widened rendering to draw them via
+// ActivityFeedEntry. Gated on the CRM flag below — CRM-off keeps the interim
+// pre-CRM behavior of skipping them so the old overlay is unchanged.
+const isPollActivity = (
+  activity: ConstituentActivity,
+): activity is PollConstituentActivity => activity.type === 'POLL_INTERACTIONS'
 
 const OutreachActivityRow: React.FC<{
   activity: OutreachConstituentActivity
@@ -105,18 +97,62 @@ const OutreachActivityRow: React.FC<{
   </div>
 )
 
-const InfoSection: React.FC<{
-  title: string
-  icon: React.ReactNode
-  children: React.ReactNode
-}> = ({ title, icon, children }) => (
-  <Card className="p-4">
-    <div className="flex items-center justify-between">
-      <CardTitle className="text-lg font-semibold">{title}</CardTitle>
-      {icon}
-    </div>
-    <div className="flex flex-col gap-4">{children}</div>
-  </Card>
+const PollActivityRow: React.FC<{ activity: PollConstituentActivity }> = ({
+  activity,
+}) => (
+  <div className="flex flex-col gap-1 mb-3">
+    <Link
+      className="font-medium text-info underline mb-2"
+      href={`/dashboard/polls/${activity.data.pollId}`}
+      target="_blank"
+    >
+      {activity.data.pollTitle}
+    </Link>
+    {activity.data.events?.length ? (
+      <div className="mt-1 flex flex-col text-sm font-normal text-muted-foreground">
+        {activity.data.events.map((evt, i) => {
+          return (
+            <div key={i} className="flex flex-col">
+              <div className="flex items-center gap-2">
+                {evt.type === 'SENT' && (
+                  <LuCircleCheck
+                    size={16}
+                    className="shrink-0 text-foreground"
+                  />
+                )}
+                {evt.type === 'RESPONDED' && (
+                  <LuMessageSquareMore
+                    size={16}
+                    className="shrink-0 text-foreground"
+                  />
+                )}
+                {evt.type === 'OPTED_OUT' && (
+                  <LuCircleX size={16} className="shrink-0 text-foreground" />
+                )}
+
+                <p className="text-sm font-semibold text-foreground">
+                  {ACTIVITY_EVENT_LABELS[evt.type] ?? evt.type}
+                </p>
+              </div>
+
+              <div className="flex gap-2 h-7">
+                <div className="flex items-center gap-2">
+                  <div className="flex w-4 shrink-0 justify-center">
+                    {i < activity.data.events.length - 1 ? (
+                      <div className="h-5 w-px bg-border my-1" />
+                    ) : null}
+                  </div>
+                </div>
+                <p className="text-sm font-normal text-muted-foreground justify-self-start">
+                  {evt.date ? formatDateTime(evt.date) : ''}
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    ) : null}
+  </div>
 )
 
 const Field: React.FC<{ label: string; value: ReactNode | string | null }> = ({
@@ -211,8 +247,26 @@ const ActivitiesContent: React.FC = () => {
     isWinContext,
     isWinContextReady,
   } = useContactsTable()
+  // trackExposure=false: this reads the flag to decide what to render, it
+  // isn't the CRM treatment surface (ContactsPageGate is).
+  const { enabled: crmEnabled, ready: crmReady } = useCrmEnabled()
+  const canRenderNewEntryTypes = crmReady && crmEnabled
 
-  const hasActivities = activities.length > 0
+  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries; ENG-10698
+  // widened rendering to draw them via ActivityFeedEntry, gated on the CRM
+  // flag so the pre-CRM overlay's empty-state/pagination behavior (and the
+  // Outreach Timeline Viewed event below) is unchanged when the flag is off.
+  const hasActivities = canRenderNewEntryTypes
+    ? activities.length > 0
+    : activities.some(
+        (activity) => isOutreachActivity(activity) || isPollActivity(activity),
+      )
+
+  // "Did a Win user see attributed outreach" is a narrower question than
+  // "does the feed have any rows" — scoped to legacy OUTREACH rows
+  // specifically so the CRM-widened entry types (manual door knocks, texts,
+  // notes, ...) can't inflate this pre-existing adoption metric.
+  const hasOutreachRows = activities.some(isOutreachActivity)
 
   // Fire once per opened person when the Win outreach timeline actually
   // renders rows (not while loading and not for an empty/error feed), so the
@@ -227,7 +281,7 @@ const ActivitiesContent: React.FC = () => {
       isWinContextReady &&
       isWinContext &&
       currentlySelectedPersonId &&
-      hasActivities &&
+      hasOutreachRows &&
       !isError &&
       firedForPersonRef.current !== currentlySelectedPersonId
     ) {
@@ -241,11 +295,21 @@ const ActivitiesContent: React.FC = () => {
     isWinContextReady,
     isWinContext,
     currentlySelectedPersonId,
-    hasActivities,
+    hasOutreachRows,
     isError,
   ])
 
-  if (isError || activities.length === 0) {
+  // Not gated on isError: a failed background refetch (activities already
+  // loaded from a prior successful fetch) must keep showing those rows, not
+  // blank a populated feed. First-fetch failure still lands here because
+  // hasActivities is false in that case. Not gated on hasActivities alone
+  // either: a page that happens to hold only new (unrenderable, CRM-off)
+  // entry types can still have a next page of real OUTREACH/POLL_INTERACTIONS
+  // rows — hiding "View more" there would permanently strand them. Not while
+  // isLoading either — the initial fetch starts with hasActivities and
+  // hasNextPage both false, so without this the empty state would flash
+  // before the loading skeleton ever gets a chance to render.
+  if (!isLoading && !hasActivities && !hasNextPage) {
     return (
       <div className="flex flex-col items-center gap-3">
         <Image
@@ -270,68 +334,35 @@ const ActivitiesContent: React.FC = () => {
   }
   return (
     <div className="flex flex-col gap-3">
-      {activities.map((activity, idx) =>
-        isOutreachActivity(activity) ? (
-          <OutreachActivityRow key={idx} activity={activity} />
-        ) : (
-          <div key={idx} className="flex flex-col gap-1 mb-3">
-            <Link
-              className="font-medium text-info underline mb-2"
-              href={`/dashboard/polls/${activity.data.pollId}`}
-              target="_blank"
-            >
-              {activity.data.pollTitle}
-            </Link>
-            {activity.data.events?.length ? (
-              <div className="mt-1 flex flex-col text-sm font-normal text-muted-foreground">
-                {activity.data.events.map((evt, i) => {
-                  return (
-                    <div key={i} className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        {evt.type === 'SENT' && (
-                          <LuCircleCheck
-                            size={16}
-                            className="shrink-0 text-foreground"
-                          />
-                        )}
-                        {evt.type === 'RESPONDED' && (
-                          <LuMessageSquareMore
-                            size={16}
-                            className="shrink-0 text-foreground"
-                          />
-                        )}
-                        {evt.type === 'OPTED_OUT' && (
-                          <LuCircleX
-                            size={16}
-                            className="shrink-0 text-foreground"
-                          />
-                        )}
-
-                        <p className="text-sm font-semibold text-foreground">
-                          {ACTIVITY_EVENT_LABELS[evt.type] ?? evt.type}
-                        </p>
-                      </div>
-
-                      <div className="flex gap-2 h-7">
-                        <div className="flex items-center gap-2">
-                          <div className="flex w-4 shrink-0 justify-center">
-                            {i < activity.data.events.length - 1 ? (
-                              <div className="h-5 w-px bg-border my-1" />
-                            ) : null}
-                          </div>
-                        </div>
-                        <p className="text-sm font-normal text-muted-foreground justify-self-start">
-                          {evt.date ? formatDateTime(evt.date) : ''}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ) : null}
-          </div>
-        ),
-      )}
+      {activities.map((activity, idx) => {
+        if (isOutreachActivity(activity)) {
+          return <OutreachActivityRow key={idx} activity={activity} />
+        }
+        if (isPollActivity(activity)) {
+          return <PollActivityRow key={idx} activity={activity} />
+        }
+        // CRM-off: keep the pre-CRM interim behavior of skipping rather than
+        // crashing on these entry types.
+        if (!canRenderNewEntryTypes) return null
+        switch (activity.type) {
+          case 'DOOR_KNOCK':
+            return <DoorKnockActivityRow key={idx} activity={activity} />
+          case 'TEXT':
+            return <TextActivityRow key={idx} activity={activity} />
+          case 'ROBOCALL':
+            return <RobocallActivityRow key={idx} activity={activity} />
+          case 'NOTE':
+            return <NoteActivityRow key={idx} activity={activity} />
+          default:
+            // Exhaustiveness guard: a new ConstituentActivityType added to
+            // the contract without a render branch here fails the build
+            // instead of silently dropping rows. satisfies erases at runtime,
+            // so an unknown server type must still return null, not the raw
+            // object (React would throw on an object child).
+            void (activity satisfies never)
+            return null
+        }
+      })}
       {hasNextPage ? (
         <Button
           type="button"
@@ -372,6 +403,34 @@ const getIncomeBucket = (income: number | null) => {
   )
 }
 
+// Buckets shown read-only in the demographics block (ENG-10698). Status is
+// derived server-side (SupportStatusService) and never set from the UI.
+const SUPPORT_STATUS_LABELS: Record<SupportStatusRollup, string> = {
+  supporter: 'Supporter',
+  non_supporter: 'Non-supporter',
+  unknown: 'Support unknown',
+}
+
+// Header chip (ENG-10732): Opted Out when any of the org's text interactions
+// for this person carries optedOutAt (server-derived,
+// ContactInteractionTextService), Opted In otherwise. Not conflated with
+// Support Status above — an opted-out person can still be a supporter.
+const OptedInChip: React.FC<{ optedOutAt: string | null }> = ({
+  optedOutAt,
+}) => (
+  <Badge
+    variant="outline"
+    shape="pill"
+    className={
+      optedOutAt
+        ? 'border-destructive/40 bg-destructive/10 text-destructive-dark'
+        : 'border-success/40 bg-success/10 text-success-dark'
+    }
+  >
+    {optedOutAt ? 'Opted Out' : 'Opted In'}
+  </Badge>
+)
+
 const PersonContent: React.FC<{
   person: Person
   hidePoliticalParty: boolean
@@ -380,6 +439,32 @@ const PersonContent: React.FC<{
   const { on: showActivitiesAndIssues } = useFlagOn(
     'serve-contacts-activities-and-issues',
   )
+  // trackExposure=false: these surfaces read the flag to decide whether to
+  // render, they aren't the CRM treatment surface (ContactsPageGate is).
+  const { enabled: crmEnabled, ready: crmReady } = useCrmEnabled()
+  const { isWin, isReady: isWinContextReady } = useWinVoterContext()
+  const showCrmSurfaces = crmReady && crmEnabled
+
+  // Fires once per person open (this component remounts per person via the
+  // `key={person.id}` on PersonContent below — a fresh person always gets a
+  // fresh `firedContactViewed` ref). Distinct from `Contacts.Viewed`, which
+  // only fires from the pre-CRM page.
+  const firedContactViewedRef = useRef(false)
+  useEffect(() => {
+    if (
+      showCrmSurfaces &&
+      isWinContextReady &&
+      !firedContactViewedRef.current
+    ) {
+      firedContactViewedRef.current = true
+      trackEvent(
+        isWin
+          ? EVENTS.VoterData.ContactViewed
+          : EVENTS.ConstituentData.ContactViewed,
+      )
+    }
+  }, [showCrmSurfaces, isWinContextReady, isWin])
+
   // Serve keeps its poll-interaction timeline behind its own flag (unchanged);
   // Win adds the outreach timeline for campaigns (not elected officials). The
   // Win decision (flag on, not an elected official, elected-office load
@@ -391,13 +476,24 @@ const PersonContent: React.FC<{
     .filter(isNotNil)
     .join(', ')
 
+  // Serve (elected-office) orgs have no texting and therefore no opt-out
+  // data — hidePoliticalParty is the same Serve signal the party field above
+  // already gates on (isElectedOfficial, ENG-10696), so the chip reuses it
+  // rather than threading a second identical prop (ENG-10732).
+  const showOptedInChip = showCrmSurfaces && !hidePoliticalParty
+
   return (
     <div>
-      <h2 className="text-3xl font-semibold pt-4 pb-2">
-        {formatPersonName(person)}
-      </h2>
+      <div className="flex items-center gap-2 pt-4 pb-2">
+        <h2 className="text-3xl font-semibold">{formatPersonName(person)}</h2>
+        {showOptedInChip ? (
+          <OptedInChip optedOutAt={person.optedOutAt ?? null} />
+        ) : null}
+      </div>
       <p className="text-xl font-semibold mb-6">{details}</p>
       <div className="flex flex-col gap-6">
+        <NotesSection personId={person.id} />
+
         {showActivitiesAndIssues ? (
           <InfoSection title="Top Issues" icon={<LuFrown size={24} />}>
             <TopIssuesContent />
@@ -446,6 +542,12 @@ const PersonContent: React.FC<{
           title="Voter Demographics"
           icon={<LuClipboardList size={24} />}
         >
+          {showCrmSurfaces ? (
+            <Field
+              label="Support Status"
+              value={SUPPORT_STATUS_LABELS[person.supportStatus ?? 'unknown']}
+            />
+          ) : null}
           <Field label="Registered Voter" value={person.registeredVoter} />
           <Field label="Voter Status" value={person.voterStatus} />
           {!hidePoliticalParty && (
@@ -551,6 +653,7 @@ export default function PersonOverlay(): React.JSX.Element {
           ) : (
             person && (
               <PersonContent
+                key={person.id}
                 person={person}
                 hidePoliticalParty={isElectedOfficial}
                 showWinActivities={isWinContext}

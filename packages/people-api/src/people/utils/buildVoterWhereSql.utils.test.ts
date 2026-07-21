@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildVoterWhereSql } from './buildVoterWhereSql.utils'
+import { buildVoterWhereSql, isNameSearch } from './buildVoterWhereSql.utils'
 import { FilterData } from '../schemas/filters.schema'
 
 const EMPTY_FILTERS: FilterData = {
@@ -117,5 +117,21 @@ describe('buildVoterWhereSql name search', () => {
     expect(sql).toContain('v."VoterTelephones_CellPhoneFormatted" = ?')
     expect(sql).not.toContain('LIKE')
     expect(values).toContain('(415) 555-1234')
+  })
+})
+
+describe('isNameSearch', () => {
+  it('is true exactly when the search routes to the name LIKE branch', () => {
+    expect(isNameSearch('mar')).toBe(true)
+    expect(isNameSearch('  jane doe  ')).toBe(true)
+    expect(isNameSearch('j')).toBe(true)
+  })
+
+  it('is false for phone searches, empty, and missing input', () => {
+    expect(isNameSearch('4155551234')).toBe(false)
+    expect(isNameSearch('14155551234')).toBe(false)
+    expect(isNameSearch('   ')).toBe(false)
+    expect(isNameSearch('')).toBe(false)
+    expect(isNameSearch(undefined)).toBe(false)
   })
 })

@@ -38,6 +38,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
   const ctx: ContextValue = {
     filteredContacts: [],
     currentlySelectedPersonId: null,
+    currentlySelectedListId: null,
     currentlySelectedPerson: {
       person: null,
       isLoadingPerson: false,
@@ -74,6 +75,7 @@ function setContext(overrides: Partial<ContextValue> = {}) {
     goToPage: vi.fn(),
     setPageSize: vi.fn(),
     selectPerson: vi.fn(),
+    selectList: vi.fn(),
     selectSegment: vi.fn(),
     searchContacts: vi.fn(),
     refreshCustomSegments: vi.fn().mockResolvedValue(undefined),

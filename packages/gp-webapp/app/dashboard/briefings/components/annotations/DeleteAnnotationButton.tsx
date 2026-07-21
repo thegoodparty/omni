@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button, Trash2Icon } from '@styleguide'
 import type { Annotation } from '@shared/briefings/types'
 import type { EnrichedAnnotation } from './enrichForCycler'
-import { ConfirmDeleteDialog } from './ConfirmDeleteDialog'
+import { ConfirmDeleteDialog } from '../../../shared/ConfirmDeleteDialog'
 
 interface Props {
   /**

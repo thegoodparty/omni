@@ -7,9 +7,16 @@ import { EVENTS } from '@/vendors/segment/segment.types'
 import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { differenceInCalendarDays } from 'date-fns'
-import { ElectedOffice, ExperimentRunStatus } from '../../generated/prisma'
+import {
+  ElectedOffice,
+  ExperimentRunStatus,
+  Prisma,
+} from '../../generated/prisma'
 import { createPrismaBase, MODELS } from 'src/prisma/util/prisma.util'
-import { isInactiveUser } from '@/shared/util/userActivity.util'
+import {
+  INACTIVITY_THRESHOLD_DAYS,
+  isInactiveUser,
+} from '@/shared/util/userActivity.util'
 import {
   bucketForSlug,
   topIssuesBucketForDate,
@@ -223,10 +230,17 @@ export class CommunityIssueDispatchService extends createPrismaBase(
 
   /**
    * Self-serve landing catch-up: dispatch both experiment types for the
-   * caller's own org, skipping the 30-day-inactivity gate (landing on the
-   * dashboard already proves activity). ICP eligibility and the in-flight
-   * check still apply, same as every other dispatch path. Distinct from
+   * caller's own org, skipping the inactivity gate (landing on the dashboard
+   * already proves activity). ICP eligibility and the in-flight check still
+   * apply, same as every other dispatch path. Distinct from
    * `dispatchSelfServe` (staff-only, single type, manual refresh button).
+   *
+   * Freshness gate: only re-generate a list whose last completed run is older
+   * than the active window. The window is INACTIVITY_THRESHOLD_DAYS — the same
+   * threshold the cron uses to stop dispatching for an inactive user — so the
+   * two are one concept: while a user is active the cron keeps their issues
+   * fresh, and once they've been away long enough for the cron to have stopped,
+   * their return regenerates immediately.
    */
   async dispatchIfNeeded(orgSlug: string): Promise<DispatchSummary> {
     const ctx = await this.resolveContext(orgSlug)
@@ -241,7 +255,10 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         orgSlug,
         experimentType,
         ctx,
-        { skipActivityGate: true },
+        {
+          skipActivityGate: true,
+          freshnessWindowDays: INACTIVITY_THRESHOLD_DAYS,
+        },
       )
       if (didDispatch) {
         dispatched++
@@ -256,7 +273,10 @@ export class CommunityIssueDispatchService extends createPrismaBase(
     orgSlug: string,
     experimentType: CommunityIssueExperimentType,
     ctx: ResolvedDispatchContext,
-    { skipActivityGate = true }: { skipActivityGate?: boolean } = {},
+    {
+      skipActivityGate = true,
+      freshnessWindowDays,
+    }: { skipActivityGate?: boolean; freshnessWindowDays?: number } = {},
   ): Promise<boolean> {
     const inFlight = await this.client.experimentRun.findFirst({
       where: {
@@ -278,6 +298,33 @@ export class CommunityIssueDispatchService extends createPrismaBase(
         'dispatchTypeForOrg: skipping org with in-flight run',
       )
       return false
+    }
+
+    // Freshness gate (on-demand landing path only): skip if a completed run is
+    // newer than the window. Same measure isInactiveUser applies to a user's
+    // lastVisited, so "issues are still fresh" and "user is still active" stay
+    // one concept. Cron/admin/staff paths omit the window and never skip here.
+    if (freshnessWindowDays !== undefined) {
+      const lastCompleted = await this.client.experimentRun.findFirst({
+        where: {
+          organizationSlug: orgSlug,
+          experimentType,
+          status: ExperimentRunStatus.COMPLETED,
+        },
+        orderBy: { updatedAt: Prisma.SortOrder.desc },
+        select: { updatedAt: true },
+      })
+      if (
+        lastCompleted &&
+        differenceInCalendarDays(new Date(), lastCompleted.updatedAt) <=
+          freshnessWindowDays
+      ) {
+        this.logger.info(
+          { orgSlug, experimentType, lastCompletedAt: lastCompleted.updatedAt },
+          'dispatchTypeForOrg: skipping org with fresh completed run',
+        )
+        return false
+      }
     }
 
     // Activity gate: skip on the cron path when the user hasn't opened the

@@ -6,7 +6,7 @@ Pure functions only — no Databricks, no filesystem. Run from scripts/python wi
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import analytics_event_health as eh
 
@@ -167,23 +167,58 @@ def test_detect_anomaly_zero_baseline_returns_none():
 # --- classify_status ---------------------------------------------------------
 
 
+def _classify(**kw):
+    base = {"in_code": True, "firing_recent": True, "retired_date": None, "last_seen_date": None, "today": TODAY}
+    base.update(kw)
+    return eh.classify_status(**base)
+
+
 def test_classify_status_branches():
+    assert _classify(in_code=None) == "code_unknown"
+    assert _classify(retired_date=None, firing_recent=True) == "active"
+    assert _classify(retired_date=None, firing_recent=False) == "dormant"
+    # code removed + firing after retirement -> orphaned
+    assert _classify(retired_date=date(2026, 6, 1), firing_recent=True, last_seen_date=date(2026, 6, 24)) == "orphaned_firing"
+    # code removed + firing but last_seen missing (data gap) -> ambiguous, fall back to firing -> orphaned
+    assert _classify(retired_date=date(2026, 6, 1), firing_recent=True, last_seen_date=None) == "orphaned_firing"
+    # code removed + last_seen missing but NOT firing -> still quiet, deprecating/retired
+    assert _classify(retired_date=date(2026, 6, 20), firing_recent=False, last_seen_date=None) == "deprecating"
+    # code removed, within 30d holding window, quiet -> deprecating
+    assert _classify(retired_date=date(2026, 6, 20), firing_recent=False, last_seen_date=date(2026, 6, 19)) == "deprecating"
+    # code removed, past the window, quiet -> retired
+    assert _classify(retired_date=date(2026, 1, 1), firing_recent=False, last_seen_date=date(2025, 12, 30)) == "retired"
+
+
+def test_classify_status_recent_retiree_quiet_before_retirement_not_orphaned():
+    # DATA-2140: a nonzero 30-day count whose last fire predates retirement is NOT orphaned —
+    # the window merely straddles the retirement date. Within 30d of retirement -> deprecating.
     assert (
-        eh.classify_status(in_code=None, firing_recent=True, retired_date=None, today=TODAY) == "code_unknown"
+        _classify(
+            firing_recent=True, retired_date=date(2026, 6, 20), last_seen_date=date(2026, 6, 10)
+        )
+        == "deprecating"
     )
-    assert eh.classify_status(in_code=True, firing_recent=True, retired_date=None, today=TODAY) == "active"
-    assert eh.classify_status(in_code=True, firing_recent=False, retired_date=None, today=TODAY) == "dormant"
+
+
+def test_classify_status_grace_window_absorbs_deploy_lag():
+    # Firing exactly at / within the grace window after retirement is the expected deploy /
+    # client-drain tail, not an orphan.
     assert (
-        eh.classify_status(in_code=True, firing_recent=True, retired_date=date(2026, 6, 1), today=TODAY)
+        _classify(
+            firing_recent=True,
+            retired_date=date(2026, 6, 20),
+            last_seen_date=date(2026, 6, 20) + timedelta(days=eh.ORPHAN_GRACE_DAYS),
+        )
+        == "deprecating"
+    )
+    # One day past the grace window -> genuine orphan.
+    assert (
+        _classify(
+            firing_recent=True,
+            retired_date=date(2026, 6, 20),
+            last_seen_date=date(2026, 6, 20) + timedelta(days=eh.ORPHAN_GRACE_DAYS + 1),
+        )
         == "orphaned_firing"
-    )
-    assert (
-        eh.classify_status(in_code=True, firing_recent=False, retired_date=date(2026, 6, 20), today=TODAY)
-        == "deprecating"  # within 30d holding window
-    )
-    assert (
-        eh.classify_status(in_code=True, firing_recent=False, retired_date=date(2026, 1, 1), today=TODAY)
-        == "retired"  # past the window
     )
 
 
@@ -196,6 +231,25 @@ def test_divergence_flags():
     )
     assert "code removed" in eh.divergence({"intent": "in_use", "supersession": None}, "retired", False)
     assert eh.divergence(None, "active", True) is None
+
+
+def test_divergence_not_in_use_requires_firing_after_declaration():
+    # DATA-2140 twin: "still firing" must mean fired AFTER the not-in-use declaration, not merely a
+    # nonzero 30d count straddling that date.
+    dated = {"intent": "not_in_use", "intent_date": "2026-06-20", "supersession": None}
+    # last fire predates the declaration -> not still firing
+    assert eh.divergence(dated, "active", True, last_seen_date=date(2026, 6, 10)) is None
+    # fired after the declaration (past the grace) -> genuine divergence
+    assert eh.divergence(dated, "active", True, last_seen_date=date(2026, 6, 25)).endswith("still firing")
+    # within the grace window after declaration -> pipeline-lag tail, not a divergence
+    assert eh.divergence(
+        dated, "active", True, last_seen_date=date(2026, 6, 20) + timedelta(days=eh.ORPHAN_GRACE_DAYS)
+    ) is None
+    # last_seen missing (data gap) with a declaration date -> ambiguous, fall back to firing_recent
+    assert eh.divergence(dated, "active", True, last_seen_date=None).endswith("still firing")
+    # no declaration date -> cannot verify temporally, fall back to firing_recent
+    undated = {"intent": "not_in_use", "intent_date": None, "supersession": None}
+    assert eh.divergence(undated, "active", True, last_seen_date=date(2026, 6, 10)).endswith("still firing")
 
 
 def test_rank_record_priority():
@@ -458,6 +512,75 @@ def test_reconcile_watchlist_elevates_and_proposes():
     assert rec["on_watchlist"] and rec["elevated"]
     assert rec["rank"] == 6  # dormant + elevated
     assert result["proposals"] == []  # already on the watchlist
+
+
+def test_reconcile_recent_retiree_quiet_before_retirement_is_not_orphaned():
+    # DATA-2140 regression: an event whose LAST fire predates its retirement is retired-and-quiet,
+    # not orphaned. The 30-day count straddles the retirement date (126 fires, all pre-retirement),
+    # which must NOT read as post-retirement firing. Expected: deprecating (within the 30d holding
+    # window), and NOT flagged. This is the PR #732 bulk-retirement false-positive.
+    today = date(2026, 7, 16)
+    catalog = [
+        {
+            "event_type": "Dashboard - Campaign Plan: Community Events Displayed",
+            "family": "win_dashboard", "is_win": True,
+            "first_seen_date": date(2026, 1, 1), "last_seen_date": date(2026, 6, 27),
+            "event_count": 5000, "event_count_30d": 126,
+            "govern_description": None, "in_govern_taxonomy": True,
+        },
+    ]
+    code = {
+        "Dashboard - Campaign Plan: Community Events Displayed": {
+            "retired_date": "2026-07-13", "instrumented_pr": "#700", "retired_pr": "#732",
+        },
+    }
+    result = eh.reconcile(catalog, [], code, today)
+    rec = result["records"][0]
+    assert rec["status"] == "deprecating"
+    assert [r["event_type"] for r in result["flagged"]] == []
+
+
+def test_reconcile_genuine_orphan_fires_after_retirement():
+    # Control: an event STILL firing after its code was removed (stale clients emitting the old
+    # half of a rename) is a real orphan. last_seen is well past retirement -> orphaned_firing,
+    # flagged rank 1.
+    today = date(2026, 7, 16)
+    catalog = [
+        {
+            "event_type": "Old Rename Half",
+            "family": "win_voter_data", "is_win": True,
+            "first_seen_date": date(2026, 1, 1), "last_seen_date": date(2026, 7, 15),
+            "event_count": 5000, "event_count_30d": 300,
+            "govern_description": None, "in_govern_taxonomy": True,
+        },
+    ]
+    code = {"Old Rename Half": {"retired_date": "2026-06-01", "instrumented_pr": "#1"}}
+    result = eh.reconcile(catalog, [], code, today)
+    rec = result["records"][0]
+    assert rec["status"] == "orphaned_firing"
+    assert rec["rank"] == 1
+
+
+def test_reconcile_not_in_use_quiet_before_declaration_no_divergence():
+    # DATA-2140 twin on the gp-meta intent axis: an event declared not-in-use on 2026-07-01 whose
+    # last fire (2026-06-25) predates that declaration is NOT "still firing" — the 30d count merely
+    # straddles the declaration date. Must yield no divergence and not flag at rank 1.
+    today = date(2026, 7, 16)
+    desc = "<!-- gp-meta -->\npurpose line\nnot in use: 2026-07-01 (#123)\n<!-- /gp-meta -->"
+    catalog = [
+        {
+            "event_type": "Legacy Step Completed",
+            "family": "win_dashboard", "is_win": True,
+            "first_seen_date": date(2026, 1, 1), "last_seen_date": date(2026, 6, 25),
+            "event_count": 5000, "event_count_30d": 50,
+            "govern_description": desc, "in_govern_taxonomy": True,
+        },
+    ]
+    code = {"Legacy Step Completed": {"retired_date": "", "instrumented_pr": "#1"}}
+    result = eh.reconcile(catalog, [], code, today)
+    rec = result["records"][0]
+    assert rec["divergence"] is None
+    assert [r["event_type"] for r in result["flagged"]] == []
 
 
 # --- diff_flagged ------------------------------------------------------------

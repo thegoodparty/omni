@@ -32,6 +32,18 @@ vi.mock('./person/PersonOverlay', () => ({ default: () => null }))
 vi.mock('./ContactTypeahead', () => ({
   ContactTypeahead: () => <div data-testid="typeahead" />,
 }))
+vi.mock('./wizard/CreateListWizard', () => ({
+  default: () => null,
+}))
+vi.mock('./lists/ListsIndex', () => ({
+  default: () => <div data-testid="lists-index" />,
+}))
+vi.mock('./lists/ListDetailSheet', () => ({
+  default: () => null,
+}))
+vi.mock('./DistrictStatCard', () => ({
+  default: () => <div data-testid="district-stat" />,
+}))
 vi.mock('../[[...attr]]/components/ContactSearch', () => ({
   ContactSearch: () => <div data-testid="search" />,
 }))
@@ -61,7 +73,10 @@ beforeEach(() => {
     isVoterDataUnavailable: false,
     isWinContext: true,
     isWinContextReady: true,
-  } as ContextValue)
+    customSegments: [],
+    currentlySelectedListId: null,
+    selectList: vi.fn(),
+  } as unknown as ContextValue)
 })
 
 describe('ContactsPageGate — whole-page CRM gate', () => {

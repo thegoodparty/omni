@@ -1,0 +1,61 @@
+{
+  "name": "oil-spill",
+  "seedType": "new",
+  "issueSlug": null,
+  "goalText": "oil spill gas tanks",
+  "clarifyAnswers": [
+    {
+      "answer": "Vehicles or equipment leaking oil or fuel on public streets, parking lots, or municipal property",
+      "question": "What is the primary subject of this ordinance \u2014 what kind of \"gas tanks\" and \"oil spill\" situation are you trying to regulate?",
+      "questionId": "q1_subject"
+    },
+    {
+      "answer": "Prohibit operating or parking a leaking vehicle/equipment and require prompt removal or repair",
+      "question": "What is the primary duty this ordinance should impose on the owner or operator of a leaking vehicle or equipment?",
+      "questionId": "q2_core_duty"
+    },
+    {
+      "answer": "Administrative towing and cost recovery \u2014 the city removes the vehicle and bills the owner, with fines as secondary",
+      "question": "How should the ordinance be enforced against a violator?",
+      "questionId": "enforcement"
+    },
+    {
+      "answer": "Owner must arrange and pay for cleanup within a set deadline, with city stepping in if they fail (and billing them)",
+      "question": "Should the ordinance require the vehicle/equipment owner to pay for cleaning up the spilled oil or fuel on public property \u2014 not just towing \u2014 or is cleanup handled separately by the city?",
+      "questionId": "q4_spill_cleanup"
+    },
+    {
+      "answer": "Immediately for acute spills; 24 hours for residual contamination",
+      "question": "What deadline should the owner have to complete or arrange cleanup of spilled oil or fuel on public property before the city steps in?",
+      "questionId": "cleanup_deadline"
+    },
+    {
+      "answer": "Exempt minor, incidental drips below a defined threshold (e.g., less than one pint on the ground)",
+      "question": "Should any vehicles or situations be exempt from this ordinance?",
+      "questionId": "exemptions"
+    }
+  ],
+  "authority": {
+    "source": {
+      "id": "mrsc-nuisance-abatement",
+      "url": "https://mrsc.org/explore-topics/code-enforcement/nuisances/nuisances-on-public-property",
+      "kind": "external",
+      "title": "MRSC \u2014 Nuisances on Public Property and Public Ways",
+      "excerpt": "the right of summary action (immediate action) exists in common law under the police power",
+      "publisher": "Municipal Research and Services Center (MRSC)"
+    },
+    "status": "pass",
+    "explanation": "Municipal councils across the United States derive authority to regulate leaking vehicles on public streets from two well-established sources that are closely aligned with this ordinance's design:\n\n1. General police power / general welfare authority. States broadly delegate to their municipalities the power to enact ordinances protecting public health, safety, and welfare. As a leading municipal law resource puts it, \"there is a general principle that cities and counties have the authority to declare and abate nuisances and that the right of summary action (immediate action) exists in common law under the police power.\" Oil and fuel spills on public streets are a textbook nuisance \u2014 they create slip hazards, environmental contamination, and potential fire risk \u2014 placing this ordinance squarely within that authority.\n\n2. Nuisance abatement with cost recovery. The towing-and-cost-recovery enforcement mechanism you chose is well-grounded in law. Municipal codes in jurisdictions coast to coast treat leaking vehicles as a public nuisance subject to summary impoundment at the owner's expense. West Jordan, Utah, for example, has codified exactly that: \"any vehicle parked or stored on the public streets in violation of this section may be summarily impounded, at the expense of the owner.\" Cost recovery for city-performed abatement is similarly standard, typically structured as a debt owed to the city enforceable in any court of competent jurisdiction.\n\n3. Federal Clean Water Act stormwater context. While the Clean Water Act (33 U.S.C. \u00a7 1251 et seq.) does not directly authorize this ordinance, municipalities operating under EPA stormwater permits are required to detect and eliminate illicit discharges \u2014 which oil/fuel runoff into storm drains constitutes. That obligation gives you additional policy rationale and, in many jurisdictions, additional administrative pressure to act.\n\nOne important caveat: Because no state has been identified for this ordinance, your city attorney should verify (a) whether your state follows Dillon's Rule or home-rule principles, as Dillon's Rule states require an express or fairly implied statutory grant; and (b) whether any state vehicle code provisions preempt local regulation of vehicle mechanical condition on public roads. Both points are resolvable in virtually all states, but the specific enabling statutes will vary."
+  },
+  "comparables": null,
+  "existingLaw": {
+    "text": "Henderson, NC Code of Ordinances is hosted on Municode (library.municode.com/nc/henderson). Municode pages are browser-rendered and do not return substantive text via direct fetch; content below is drawn from URL node IDs confirmed by search and from NC General Statutes.\n\nCHAPTER 7 \u2014 MOTOR VEHICLES AND TRAFFIC\n- Article VI addresses street/parking regulations (node: TITIIPO_CH7MOVETR_ARTVISTSTPAGE_S7-96PRVI). Section 7-96 is labeled \"PRVI\" \u2014 likely \"Private Vehicle\" \u2014 indicating parking and stopping provisions exist, but the substantive text is not retrievable.\n- No provision specifically prohibiting operation or parking of leaking/fluid-dripping vehicles was found in search results for Henderson, NC.\n\nCHAPTER 23 \u2014 PUBLIC NUISANCES\n- Chapter 23 exists (node: TITVINPL_CH23PUNU_S23-1COPUNU). Section 23-1 is titled \"COPUNU\" \u2014 likely the general definition of public nuisances.\n- The city's Code Compliance Department (est. 2004) enforces Chapter 23 (Weeds nuisance code) and Chapter 21/21A (housing). Its stated mandate does not include vehicle fluid spills on public streets.\n- No provision in Chapter 23 specifically addresses oil or fuel spills from vehicles on public streets, parking lots, or municipal property.\n\nNC GENERAL STATUTES \u2014 STATE-LAW CONTEXT\n- N.C.G.S. Ch. 143, Article 21A: Authorizes localities to exercise police powers to prevent and control oil or hazardous substances discharges to sewers or disposal systems (\u00a7 143-215.83 area). Expressly preserves local ordinance authority: \"Nothing in the Article shall be construed to deny any county, municipality \u2026 from exercising police powers with reference to the prevention and control of oil or other hazardous substances discharges.\" (23-1, ncleg.net)\n- State law imposes cost-recovery liability on persons having control of discharged oil (\u00a7 143-215.83 area), reinforcing the ordinance's owner-pays-cleanup approach.\n\nGAPS IDENTIFIED\n1. No Henderson city ordinance specifically prohibits operating or parking a vehicle/equipment that is actively leaking oil or fuel on public streets, parking lots, or municipal property.\n2. No Henderson city ordinance imposes a deadline on vehicle owners to arrange or complete cleanup of leaked fluids on public property.\n3. No Henderson city ordinance authorizes administrative towing of leaking vehicles at owner expense.\n4. No Henderson city ordinance authorizes city-performed emergency cleanup with cost recovery billed to the vehicle owner.\n5. No de minimis threshold (e.g., less than one pint) is defined to exempt incidental drips.\n6. Chapter 23's nuisance framework, while potentially applicable in theory, is not explicitly extended to vehicle fluid spills and does not provide the specific enforcement tools (towing, cleanup deadlines, cost recovery) this ordinance requires.",
+    "fetchedAt": "2026-07-18T21:55:45-06:00",
+    "sourceUrl": "https://library.municode.com/nc/henderson/codes/code_of_ordinances",
+    "chapterLabel": "Ch. 7 (Motor Vehicles & Traffic) and Ch. 23 (Public Nuisances)"
+  },
+  "draftTitle": null,
+  "draftBody": null,
+  "draftSources": null,
+  "qualityReport": null
+}

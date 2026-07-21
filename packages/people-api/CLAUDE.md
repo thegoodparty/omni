@@ -77,6 +77,13 @@ Services backed by a Prisma model **must** extend `createPrismaBase(MODELS.Model
 
 Almost all `Voter` queries go through `Prisma.sql` / `$queryRaw`, not Prisma ORM CRUD. The Voter table has 100+ L2 columns and partitioning by state — the ORM path is too coarse. Filter Zod → `transformFilters` → `buildVoterFiltersSql` → `Prisma.sql` WHERE clauses → execute. Output is normalized via `transformToPersonOutput` before leaving the service.
 
+Name-search list AND count queries run under a 2.5s `SET LOCAL
+statement_timeout`; on cancellation (SQLSTATE 57014) `people.service.ts`
+retries once with a trigram-fenced subquery — Postgres floors LIKE selectivity
+estimates, so rare patterns otherwise mislead the planner into a
+full-partition scan. The fenced count is exact for fence-triggering (rare)
+patterns and a 10k floor otherwise.
+
 `District` and `DistrictStats` use ORM methods — they're small lookup tables.
 
 See `docs/data-pipeline.md` for the full pipeline.
@@ -99,6 +106,17 @@ See `docs/data-pipeline.md` for the full pipeline.
 - Never bypass `S2SAuthGuard` except via the `@Public()` decorator on health-check routes.
 - Never query the `Voter` table via Prisma ORM in new code — use `Prisma.sql` / `$queryRaw`.
 - Never disable `unused-imports/no-unused-imports` without an inline comment justifying it.
+
+## Dev data coverage (QA gotcha)
+
+The dev people-db has voter rows for **NC, DC, and WY only**. Districts in every
+other state have a `DistrictStats` row but zero `DistrictVoter` rows, so
+unfiltered counts (stats shortcut) look healthy while ANY filter returns 0 —
+people-api logs a structured warning when a zero filtered count hits such a
+district (ENG-10745). QA of contacts filters on dev must use an org whose
+district resolves to NC/DC/WY, or set `organization.override_district_id`
+(gp-api dev DB) to a loaded district, e.g. CHEYENNE CITY
+`c6b12896-93cb-b360-221f-ca61318afe43`.
 
 ## Environment
 

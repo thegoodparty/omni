@@ -4,6 +4,7 @@ import * as React from 'react'
 import * as RadioGroupPrimitive from '@radix-ui/react-radio-group'
 
 import { cn } from '@styleguide/lib/utils'
+import { CheckIcon } from './icons'
 import { Label } from './label'
 
 function RadioGroup({
@@ -86,6 +87,10 @@ interface RadioCardItemProps {
   title: string
   description?: string
   className?: string
+  titleClassName?: string
+  // 'check': the circle fills with the primary color and shows a check mark
+  // when selected, instead of the default radio dot.
+  indicator?: 'radio' | 'check'
   disabled?: boolean
 }
 
@@ -95,6 +100,8 @@ function RadioCardItem({
   title,
   description,
   className,
+  titleClassName,
+  indicator = 'radio',
   disabled,
 }: RadioCardItemProps) {
   return (
@@ -111,10 +118,25 @@ function RadioCardItem({
         value={value}
         id={id}
         disabled={disabled}
-        className="shrink-0 disabled:opacity-100"
-      />
+        className={cn(
+          'shrink-0 disabled:opacity-100',
+          indicator === 'check' &&
+            'border-2 text-primary-foreground data-[state=checked]:border-2 data-[state=checked]:bg-primary',
+        )}
+      >
+        {indicator === 'check' && (
+          <RadioGroupPrimitive.Indicator className="flex items-center justify-center">
+            <CheckIcon className="size-3" />
+          </RadioGroupPrimitive.Indicator>
+        )}
+      </RadioGroupItem>
       <div className="flex flex-col gap-px">
-        <span className="text-sm font-normal leading-5 text-foreground">
+        <span
+          className={cn(
+            'text-sm font-normal leading-5 text-foreground',
+            titleClassName,
+          )}
+        >
           {title}
         </span>
         {description && (

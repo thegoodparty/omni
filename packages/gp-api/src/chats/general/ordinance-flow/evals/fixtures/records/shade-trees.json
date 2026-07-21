@@ -1,0 +1,60 @@
+{
+  "name": "shade-trees",
+  "seedType": "new",
+  "issueSlug": null,
+  "goalText": "Require shade trees in new parking lots",
+  "clarifyAnswers": null,
+  "authority": null,
+  "comparables": null,
+  "existingLaw": null,
+  "draftTitle": "An ordinance requiring shade trees in new commercial parking lots",
+  "draftBody": "Section 1. Purpose. The City finds that shade trees in parking areas reduce heat, improve stormwater absorption, and improve air quality.\n\nSection 2. Requirement. All new commercial parking lots with ten or more spaces shall include one canopy tree per eight spaces, distributed so that no space is more than sixty feet from a tree.\n\nSection 3. Species and maintenance. Trees shall be selected from the approved planting list and maintained by the property owner; a dead tree shall be replaced within one planting season.\n\nSection 4. Enforcement. Violations are a civil infraction of one hundred dollars per day after notice and a thirty-day cure period.\n\nSection 5. Effective date. This ordinance takes effect ninety days after adoption.\n\nSection 6. Severability. If any provision is held invalid, the remainder continues in effect.",
+  "draftSources": null,
+  "qualityReport": {
+    "stale": false,
+    "tally": {
+      "flag": 1,
+      "pass": 2,
+      "attention": 3
+    },
+    "checks": [
+      {
+        "id": "authority",
+        "note": "Authority finding supports council power to regulate land use and site improvements for commercial development. No changes needed, but consider citing the specific enabling statute or charter section in the ordinance text itself (e.g., 'pursuant to [State Statute \u00a7XX]') to make the authority self-evident on the face of the document.",
+        "label": "Authority",
+        "status": "pass"
+      },
+      {
+        "id": "legal_conflict",
+        "note": "Verify that the one-tree-per-eight-spaces ratio and the sixty-foot distribution rule do not conflict with any existing landscaping, zoning, or site-plan standards already in the municipal code. If the city already has a general landscaping ordinance, this section may need a 'more restrictive controls' clause or an explicit amendment to that chapter to avoid ambiguity about which standard governs.",
+        "label": "Legal conflict",
+        "status": "attention"
+      },
+      {
+        "id": "precedent_grounding",
+        "note": "No comparable-jurisdiction material was provided to evaluate this. Before finalizing, confirm that the chosen ratio (1:8 spaces) and the sixty-foot proximity rule align with peer-city standards. Many jurisdictions use a 1:4 or 1:6 ratio; if your ratio is less stringent, note the policy rationale. Attaching a brief staff memo citing one or two comparable ordinances would strengthen the record.",
+        "label": "Precedent grounding",
+        "status": "attention"
+      },
+      {
+        "id": "completeness",
+        "note": "Several gaps need to be closed: (1) 'Approved planting list' is referenced but not attached or cross-referenced to a specific document or department\u2014add a citation or delegation clause (e.g., 'as maintained by the City Arborist/Public Works Director'). (2) The ordinance covers only new commercial lots; consider whether it applies to expansions or reconstructions of existing lots, and state that explicitly. (3) There is no variance or waiver process for constrained sites (e.g., brownfields, small urban infill lots). (4) No permit or inspection trigger is specified\u2014tie compliance to the site-plan or building-permit review process.",
+        "label": "Completeness",
+        "status": "flag"
+      },
+      {
+        "id": "clarity",
+        "note": "The draft is generally readable, but two points need tightening: (1) 'One planting season' is undefined\u2014specify a calendar deadline (e.g., 'by the next October 31 following the tree's death') to avoid disputes. (2) Clarify whether the sixty-foot rule is measured from the trunk or the canopy edge, and whether it is a straight-line or walking-path distance.",
+        "label": "Clarity",
+        "status": "attention"
+      },
+      {
+        "id": "voice",
+        "note": "The text is appropriately neutral and code-style throughout\u2014no campaign language or political framing detected. The purpose clause is factual and concise. Minor suggestion: replace 'The City finds that' with 'The Council finds that' for precision, since it is the legislative body making the finding.",
+        "label": "Voice",
+        "status": "pass"
+      }
+    ],
+    "ranAgainstBodyHash": "cbf13da3cca6df135f79d40df20882397546eebc3949304634c4d56ee75d0da3"
+  }
+}

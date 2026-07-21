@@ -50,13 +50,11 @@ const readVisibleAddresses = async (table: Locator): Promise<string[]> => {
   return addresses
 }
 
-// @dev-only: same gating as win-contacts.spec.ts — the Win Contacts surface is
-// reachable only when win-voter-data is on for the user AND the campaign is pro
-// (gp-api ContactsService.assertContactsAccess hard-gates every /v1/contacts
-// route for campaign orgs on flag + isPro, and selecting a non-default segment
-// is pro-gated). An ephemeral per-PR preview can't guarantee that flag state or
-// the pro provisioning, so this runs on the post-merge develop e2e (and on
-// demand), not on PRs. See e2e-tests/CLAUDE.md ("@dev-only").
+// @dev-only: same gating as win-contacts.spec.ts — selecting a non-default
+// segment is pro-gated, and the flow needs the warm dev stack's real district
+// voter data. An ephemeral per-PR preview can't guarantee the pro provisioning
+// or the data, so this runs on the post-merge develop e2e (and on demand), not
+// on PRs. See e2e-tests/CLAUDE.md ("@dev-only").
 test.describe('Door Knocking household dedupe @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)

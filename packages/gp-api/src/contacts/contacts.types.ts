@@ -25,3 +25,11 @@ export type StatsResponse = {
     estimatedIncomeRange: DistrictStatCategory
   }
 }
+
+// people-api's POST /v1/people/aggregates response (ENG-10706) — a filtered
+// COUNT/AVG(age)/AVG(income) over a list's membership.
+export type PeopleAggregatesResponse = {
+  count: number
+  avgAge: number | null
+  avgIncome: number | null
+}

@@ -12,4 +12,7 @@ model Stance {
     issueId     String     @map("issue_id") @db.Uuid
     Candidacy   Candidacy? @relation(fields: [candidacyId], references: [id])
     candidacyId String?    @map("candidacy_id") @db.Uuid
+
+    @@index([candidacyId])
+    @@index([issueId])
 }
