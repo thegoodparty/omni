@@ -69,13 +69,20 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
   // the server-side upsert can't dedupe). Cleared on success so a later,
   // genuinely new knock gets a fresh key instead of overwriting history.
   const [clientKeys, setClientKeys] = useState<Map<number, string>>(new Map())
-  const clientKeyFor = (targetId: number): string => {
-    const existing = clientKeys.get(targetId)
-    if (existing) return existing
-    const minted = crypto.randomUUID()
-    setClientKeys((current) => new Map(current).set(targetId, minted))
-    return minted
+  // Keys mint in the open handler (never during render — a discarded
+  // concurrent render would mint throwaway UUIDs and break replay).
+  const openSheet = (stopId: number, targetIds: number[], targetId: number) => {
+    setClientKeys((current) => {
+      const missing = targetIds.filter((id) => !current.has(id))
+      if (missing.length === 0) return current
+      const next = new Map(current)
+      for (const id of missing) next.set(id, crypto.randomUUID())
+      return next
+    })
+    setSheet({ stopId, targetId })
   }
+  const clientKeyFor = (targetId: number): string =>
+    clientKeys.get(targetId) ?? ''
 
   const stops = useMemo(
     () => (routeQuery.data?.stops ?? []).slice().sort((a, b) => a.seq - b.seq),
@@ -195,10 +202,11 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                       // expand so the canvasser picks (the demo's behavior).
                       const stopTargets = targetsForStop(stop)
                       if (stopTargets.length === 1 && stopTargets[0]) {
-                        setSheet({
-                          stopId: stop.id,
-                          targetId: stopTargets[0].stopTargetId,
-                        })
+                        openSheet(
+                          stop.id,
+                          stopTargets.map((t) => t.stopTargetId),
+                          stopTargets[0].stopTargetId,
+                        )
                         return
                       }
                       setOpenStopId(openStopId === stop.id ? null : stop.id)
@@ -255,10 +263,11 @@ export default function WalkView({ turfId, onKnockRecorded }: WalkViewProps) {
                           type="button"
                           className="flex items-center gap-2 px-4 py-2.5 pl-14 text-left text-sm hover:bg-muted/60"
                           onClick={() =>
-                            setSheet({
-                              stopId: stop.id,
-                              targetId: target.stopTargetId,
-                            })
+                            openSheet(
+                              stop.id,
+                              targetsForStop(stop).map((t) => t.stopTargetId),
+                              target.stopTargetId,
+                            )
                           }
                         >
                           <span className="min-w-0 flex-1 truncate">

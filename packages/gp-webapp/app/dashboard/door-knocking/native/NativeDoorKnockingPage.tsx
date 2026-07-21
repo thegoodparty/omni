@@ -12,7 +12,11 @@ import { ArrowLeftIcon, Button, IconButton } from '@styleguide'
 import { LoadingAnimation } from 'app/shared/utils/LoadingAnimation'
 import DashboardLayout from 'app/dashboard/shared/DashboardLayout'
 import { Campaign } from 'helpers/types'
-import type { VoterFileFilters } from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
+import {
+  INCOME_KEY_TO_RANGE,
+  LANGUAGE_KEY_TO_CODE,
+  type VoterFileFilters,
+} from 'app/dashboard/contacts/crm/shared/voterFileFilterTransform.util'
 import { voterPackQueryOptions } from './useVoterPack'
 import { maskToPolygon, polygonStats, runFilter } from './filterEngine'
 import {
@@ -100,6 +104,23 @@ export default function NativeDoorKnockingPage({
           ([, value]) => typeof value === 'boolean',
         ),
       ) as Record<string, boolean>
+      // The backend stores income/language selections as string arrays, not
+      // booleans — re-expand them to option keys or the scoped preview
+      // silently ignores those filters.
+      const rangeToKey = Object.fromEntries(
+        Object.entries(INCOME_KEY_TO_RANGE).map(([key, range]) => [range, key]),
+      )
+      for (const range of (list?.incomeRanges as string[] | undefined) ?? []) {
+        const key = rangeToKey[range]
+        if (key) listFilters[key] = true
+      }
+      const codeToKey = Object.fromEntries(
+        Object.entries(LANGUAGE_KEY_TO_CODE).map(([key, code]) => [code, key]),
+      )
+      for (const code of (list?.languageCodes as string[] | undefined) ?? []) {
+        const key = codeToKey[code]
+        if (key) listFilters[key] = true
+      }
       return filtersToDimSelections(listFilters, packQuery.data.manifest)
     }
     if (statusFilter.size > 0) {
@@ -227,6 +248,7 @@ export default function NativeDoorKnockingPage({
       // and kill the fresh drawing session.
       setFlowStep('draw')
       setStartDrawToken((token) => token + 1)
+      setDrawHintDismissed(false)
     } else {
       setFlowStep(null)
       setFilters({})

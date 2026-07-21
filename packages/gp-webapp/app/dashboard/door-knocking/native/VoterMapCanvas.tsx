@@ -134,6 +134,7 @@ export default function VoterMapCanvas({
   const drawPointsRef = useRef<PolygonRing>([])
   const dragIndexRef = useRef<number | null>(null)
   const justDraggedRef = useRef(false)
+  const endDragRef = useRef<(() => void) | null>(null)
   const onPolygonChangeRef = useRef(onPolygonChange)
   onPolygonChangeRef.current = onPolygonChange
   const onDrawPointCountRef = useRef(onDrawPointCount)
@@ -204,34 +205,58 @@ export default function VoterMapCanvas({
       })
       return info && info.index >= 0 ? info.index : null
     }
-    map.on('mousedown', (event) => {
-      if (!drawActiveRef.current) return
-      const index = pickVertex(event.point.x, event.point.y)
-      if (index === null) return
+    const beginDrag = (point: { x: number; y: number }): boolean => {
+      if (!drawActiveRef.current) return false
+      const index = pickVertex(point.x, point.y)
+      if (index === null) return false
       dragIndexRef.current = index
       map.dragPan.disable()
-      event.preventDefault()
-    })
-    map.on('mousemove', (event) => {
-      if (!drawActiveRef.current) return
-      if (dragIndexRef.current !== null) {
-        const next = [...drawPointsRef.current]
-        next[dragIndexRef.current] = [event.lngLat.lng, event.lngLat.lat]
-        drawPointsRef.current = next
-        setDrawPoints(next)
-        return
-      }
-      map.getCanvas().style.cursor =
-        pickVertex(event.point.x, event.point.y) !== null ? 'move' : ''
-    })
-    map.on('mouseup', () => {
+      return true
+    }
+    const moveDrag = (lngLat: { lng: number; lat: number }) => {
+      if (dragIndexRef.current === null) return false
+      const next = [...drawPointsRef.current]
+      next[dragIndexRef.current] = [lngLat.lng, lngLat.lat]
+      drawPointsRef.current = next
+      setDrawPoints(next)
+      return true
+    }
+    const endDrag = () => {
       if (dragIndexRef.current === null) return
       dragIndexRef.current = null
       justDraggedRef.current = true
       map.dragPan.enable()
       const points = drawPointsRef.current
       onPolygonChangeRef.current(points.length >= 3 ? points : null)
+    }
+    endDragRef.current = endDrag
+
+    map.on('mousedown', (event) => {
+      if (beginDrag(event.point)) event.preventDefault()
     })
+    map.on('mousemove', (event) => {
+      if (!drawActiveRef.current) return
+      if (moveDrag(event.lngLat)) return
+      map.getCanvas().style.cursor =
+        pickVertex(event.point.x, event.point.y) !== null ? 'move' : ''
+    })
+    map.on('mouseup', endDrag)
+    // Releasing outside the canvas (or the window) never fires the map's
+    // mouseup — without this, dragPan stays disabled for the session.
+    const canvas = map.getCanvas()
+    canvas.addEventListener('mouseleave', endDrag)
+    window.addEventListener('mouseup', endDrag)
+    // MapLibre does not synthesize mouse events from touch drags — mirror
+    // the drag handlers so vertices are repositionable on phones.
+    map.on('touchstart', (event) => {
+      if (event.points.length !== 1) return
+      if (beginDrag(event.point)) event.preventDefault()
+    })
+    map.on('touchmove', (event) => {
+      moveDrag(event.lngLat)
+    })
+    map.on('touchend', endDrag)
+    map.on('touchcancel', endDrag)
 
     const bounds = packBounds(pack.positions)
     if (bounds) {
@@ -239,6 +264,9 @@ export default function VoterMapCanvas({
     }
 
     return () => {
+      canvas.removeEventListener('mouseleave', endDrag)
+      window.removeEventListener('mouseup', endDrag)
+      endDragRef.current = null
       overlayRef.current = null
       mapRef.current = null
       map.remove()
@@ -424,8 +452,8 @@ export default function VoterMapCanvas({
 
   useEffect(() => {
     if (startDrawToken === 0) return
+    endDragRef.current?.()
     drawActiveRef.current = true
-    dragIndexRef.current = null
     drawPointsRef.current = []
     setDrawPoints([])
     onDrawPointCountRef.current?.(0)
@@ -436,8 +464,10 @@ export default function VoterMapCanvas({
 
   useEffect(() => {
     if (clearDrawToken === 0) return
+    // Finish any in-flight vertex drag first — nulling the index without
+    // ending the drag would leave dragPan disabled for the session.
+    endDragRef.current?.()
     drawActiveRef.current = false
-    dragIndexRef.current = null
     drawPointsRef.current = []
     setDrawPoints([])
     onDrawPointCountRef.current?.(0)

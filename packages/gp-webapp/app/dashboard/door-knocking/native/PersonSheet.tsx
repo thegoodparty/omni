@@ -144,9 +144,7 @@ export default function PersonSheet({
                   </span>
                   <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
                     <StatusDot status={statusFor(member)} />
-                    {statusFor(member) === 'unknown'
-                      ? 'Not visited'
-                      : STATUS_LABELS[statusFor(member)]}
+                    {STATUS_LABELS[statusFor(member)]}
                   </span>
                 </div>
               ))}
