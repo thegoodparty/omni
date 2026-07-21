@@ -104,3 +104,30 @@ def test_main_override_threads_into_assemble(tmp_path, monkeypatch, capsys):
     rc = gs.main(["refresh", "--dry-run", "--override", str(ov_file)])
     assert rc == 0
     assert seen["overrides"] == override
+
+
+def test_build_gap_values_header_sorted_rows_and_surface_maps_to_id():
+    state = {
+        "/b": {"id": "/b", "surface_type": "route", "disposition": "new", "reason": "",
+               "judge_reason": "jr", "rubric_rule": "rr", "dashboard_question": "q",
+               "location": "b.tsx", "first_seen": "2026-07-01", "last_seen": "2026-07-21",
+               "rank": 3},
+        "/a": {"id": "/a", "surface_type": "wizard_stage", "disposition": "dismissed",
+               "reason": "chrome", "judge_reason": "jr2", "rubric_rule": "flow",
+               "dashboard_question": "q2", "location": "a.tsx", "first_seen": "2026-07-01",
+               "last_seen": "2026-07-21", "rank": 0},
+    }
+    values = gs.build_gap_values(state)
+    assert values[0] == list(gs.GAPS_COLUMNS)
+    # sorted by (rank, id): /a (rank 0) before /b (rank 3)
+    assert values[1][gs.GAPS_COLUMNS.index("surface")] == "/a"
+    assert values[1][gs.GAPS_COLUMNS.index("rank")] == "0"
+    assert values[2][gs.GAPS_COLUMNS.index("surface")] == "/b"
+
+
+def test_build_gap_values_missing_cell_becomes_blank():
+    state = {"/a": {"id": "/a", "rank": 1}}  # most fields absent
+    values = gs.build_gap_values(state)
+    row = values[1]
+    assert row[gs.GAPS_COLUMNS.index("reason")] == ""
+    assert row[gs.GAPS_COLUMNS.index("surface")] == "/a"

@@ -56,6 +56,30 @@ def build_values(rows: list[dict]) -> list[list[str]]:
     return matrix
 
 
+GAPS_COLUMNS = [
+    "rank", "surface", "surface_type", "disposition", "reason",
+    "judge_reason", "rubric_rule", "dashboard_question", "location",
+    "first_seen", "last_seen",
+]
+# The tab column name "surface" is the entry's user-facing id; every other column is a
+# direct state key.
+_GAP_COL_KEY = {"surface": "id"}
+
+
+def build_gap_values(state: dict) -> list[list[str]]:
+    """GAPS_COLUMNS header + one stringified row per gap, sorted by (rank, id). Mirrors
+    build_values: every cell a string, None/missing -> "" for a RAW Sheets write."""
+    rows = sorted(state.values(), key=lambda e: (e.get("rank", 5), e.get("id", "")))
+    matrix: list[list[str]] = [list(GAPS_COLUMNS)]
+    for e in rows:
+        line = []
+        for col in GAPS_COLUMNS:
+            val = e.get(_GAP_COL_KEY.get(col, col))
+            line.append("" if val is None else str(val))
+        matrix.append(line)
+    return matrix
+
+
 def write_sheet(rows: list[dict], *, service: Any, spreadsheet_id: str, tab: str = SHEET_TAB) -> int:
     """Full-overwrite `tab` with the assembled rows. Returns the data row count (excl. header).
     `service` is a googleapiclient Sheets resource (injected in tests).
