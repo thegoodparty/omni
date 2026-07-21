@@ -1,4 +1,5 @@
 import { HttpService } from '@nestjs/axios'
+import { Readable } from 'stream'
 import { of, throwError } from 'rxjs'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTestService } from '@/test-service'
@@ -937,7 +938,7 @@ describe('door-knocking routes', () => {
       ) => {
         if (url.includes('/v1/door-knocking/pack')) {
           packBody = body
-          return of({ data: packBytes })
+          return of({ data: Readable.from([packBytes]) })
         }
         return of({ data: {} })
       }) as never)

@@ -4,6 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import { HttpService } from '@nestjs/axios'
+import type { Readable } from 'stream'
 import { PinoLogger } from 'nestjs-pino'
 import { isAxiosError } from 'axios'
 import * as jwt from 'jsonwebtoken'
@@ -142,21 +143,23 @@ export class DoorKnockingPeopleApiService {
     }
   }
 
-  // A worst-city pack takes tens of seconds to build upstream.
-  async pack(request: DoorKnockingPackRequest): Promise<Buffer> {
+  // A worst-city pack takes tens of seconds to build upstream and tens of
+  // megabytes on the wire — proxied as a stream so gp-api never double-
+  // buffers the binary and transfer chunks keep the client connection warm.
+  async pack(request: DoorKnockingPackRequest): Promise<Readable> {
     try {
       const response = await lastValueFrom(
-        this.httpService.post<ArrayBuffer>(
+        this.httpService.post<Readable>(
           `${PEOPLE_API_URL}/v1/door-knocking/pack`,
           request,
           {
             headers: { Authorization: `Bearer ${this.s2sToken()}` },
-            responseType: 'arraybuffer',
+            responseType: 'stream',
             timeout: 120_000,
           },
         ),
       )
-      return Buffer.from(response.data)
+      return response.data
     } catch (error) {
       this.logger.error(
         {
