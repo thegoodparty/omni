@@ -44,7 +44,10 @@ const person = (
 
 // Production addressKey format — the serve payload's frozen address is the
 // key's first segment.
-const PIPED_KEY = '1200 W ELM ST|SPRINGFIELD|IL|62704'
+// Production unit-key format: HOUSE|PREFIXDIR|STREET|DESIGNATOR|SUFFIXDIR|
+// APT|ZIP (DOOR_KNOCKING_UNIT_KEY_COLUMNS order) — exercises the 7-segment
+// address rendering, apartment suffix included.
+const PIPED_KEY = '1200|W|ELM|ST||3B|62704'
 
 // Three distinct coordinates inside the polygon, two people sharing one of
 // them (dedupes to one stop), plus one person inside the bbox but OUTSIDE
@@ -663,7 +666,7 @@ describe('door-knocking routes', () => {
         .flatMap((s) => s.addresses)
         .find((a) => a.addressKey === PIPED_KEY)
       // The frozen display address is the key's street-line segment.
-      expect(dedupedAddress?.address).toBe('1200 W ELM ST')
+      expect(dedupedAddress?.address).toBe('1200 W ELM ST Apt 3B')
       expect(dedupedAddress?.targets).toHaveLength(2)
       expect(dedupedAddress?.targets[0]).toMatchObject({
         personId: PERSON_1,
