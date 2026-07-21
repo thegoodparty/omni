@@ -416,6 +416,40 @@ describe('door-knocking routes', () => {
       expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
     })
 
+    it('rejects a knock when the organization has no resolvable district', async () => {
+      const suffix = Date.now()
+      const noDistrictSlug = `no-district-dk-${suffix}`
+      await service.prisma.organization.create({
+        data: { slug: noDistrictSlug, ownerId: service.user.id },
+      })
+      const ndFilter = await service.prisma.voterFileFilter.create({
+        data: { organizationSlug: noDistrictSlug, name: 'ND audience' },
+      })
+      const turfRes = await service.client.post(
+        '/v1/door-knocking/turfs',
+        {
+          voterFileFilterId: ndFilter.id,
+          name: 'ND turf',
+          color: '#ff0000',
+          geoPoly: GEO_POLY,
+        },
+        { headers: { 'x-organization-slug': noDistrictSlug } },
+      )
+      expect(turfRes.status).toBe(201)
+
+      const res = await service.client.post(
+        `/v1/door-knocking/turfs/${turfRes.data.id}/knock`,
+        { mode: 'walk', loop: false },
+        {
+          headers: { 'x-organization-slug': noDistrictSlug },
+          validateStatus: () => true,
+        },
+      )
+
+      expect(res.status).toBe(400)
+      expect(await service.prisma.doorKnockingRoute.count()).toBe(0)
+    })
+
     it('an organization without a campaign gets a route but no envelope', async () => {
       const suffix = Date.now()
       const eoSlug = `eo-dk-${suffix}`

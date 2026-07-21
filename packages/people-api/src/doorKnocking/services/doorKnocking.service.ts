@@ -135,6 +135,7 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
       ],
     })
 
+    const residentsCap = dto.targetPersonIds.length * 10
     const rows = await this.client.$queryRaw<ResidentRow[]>(Prisma.sql`
       SELECT v."id",
         v."FirstName" AS "firstName",
@@ -145,7 +146,17 @@ export class DoorKnockingService extends createPrismaBase(MODELS.Voter) {
         ${buildHouseholdKeySql('v')} AS "addressKey"
       FROM ${VOTER_TABLE} v
       ${joinClause}
-      ${whereClause}`)
+      ${whereClause}
+      LIMIT ${residentsCap + 1}`)
+
+    // Mirrors evaluate's guard: reject rather than silently truncate — a
+    // truncated response would serve wrong rosters. The cap is generous
+    // (unit-level addressKeys hold household-sized populations).
+    if (rows.length > residentsCap) {
+      throw new BadRequestException(
+        'Residents lookup exceeded the expected population for this route',
+      )
+    }
 
     const targetIds = new Set<string>(dto.targetPersonIds)
     const byAddress = new Map<
