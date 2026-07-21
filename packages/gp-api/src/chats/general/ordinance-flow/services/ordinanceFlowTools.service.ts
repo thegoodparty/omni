@@ -161,8 +161,12 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     authority: OrdinanceAuthority,
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
-    await this.supersedeRunningLoop(o)
+    // Write first: superseding is a write-once terminal, so flipping it
+    // before a write that then fails would strand the loop dead with the
+    // edit never persisted. The loop's own fenced writes tolerate the
+    // reverse race (a draft write bumps @updatedAt → redelivery re-checks).
     await this.model.update({ where: { id: o.id }, data: { authority } })
+    await this.supersedeRunningLoop(o)
     return { saved: true }
   }
 
@@ -172,8 +176,8 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     comparables: OrdinanceComparables,
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
-    await this.supersedeRunningLoop(o)
     await this.model.update({ where: { id: o.id }, data: { comparables } })
+    await this.supersedeRunningLoop(o)
     return { saved: true }
   }
 
@@ -225,12 +229,12 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     law: { sourceUrl: string; chapterLabel?: string; text: string },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
-    await this.supersedeRunningLoop(o)
     const existingLaw = OrdinanceExistingLawSchema.parse({
       ...law,
       fetchedAt: formatISO(new Date()),
     })
     await this.model.update({ where: { id: o.id }, data: { existingLaw } })
+    await this.supersedeRunningLoop(o)
     return { saved: true }
   }
 

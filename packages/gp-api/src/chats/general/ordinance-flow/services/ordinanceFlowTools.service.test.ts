@@ -615,6 +615,52 @@ describe('ordinance-flow present_* tool builders', () => {
       )
     })
 
+    it('saveAuthority leaves the loop intact when the write itself fails', async () => {
+      await seedRunningLoop()
+      vi.spyOn(service.prisma.ordinance, 'update').mockRejectedValueOnce(
+        new Error('db exploded'),
+      )
+
+      await expect(
+        tools.saveAuthority(ordinanceId, electedOfficeId, {
+          status: 'pass',
+          explanation: 'Within council power.',
+          source: { id: 'gs-160a', title: 'N.C.G.S. § 160A-4' },
+        }),
+      ).rejects.toThrow('db exploded')
+
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
+    })
+
+    it('saveComparables leaves the loop intact when the write itself fails', async () => {
+      await seedRunningLoop()
+      vi.spyOn(service.prisma.ordinance, 'update').mockRejectedValueOnce(
+        new Error('db exploded'),
+      )
+
+      await expect(
+        tools.saveComparables(ordinanceId, electedOfficeId, []),
+      ).rejects.toThrow('db exploded')
+
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
+    })
+
+    it('saveExistingLaw leaves the loop intact when the write itself fails', async () => {
+      await seedRunningLoop()
+      vi.spyOn(service.prisma.ordinance, 'update').mockRejectedValueOnce(
+        new Error('db exploded'),
+      )
+
+      await expect(
+        tools.saveExistingLaw(ordinanceId, electedOfficeId, {
+          sourceUrl: 'https://library.municode.com/nc/hendersonville',
+          text: 'Chapter 12 regulates surveillance.',
+        }),
+      ).rejects.toThrow('db exploded')
+
+      expect(await loopStatus()).toBe(OrdinanceQualityLoopStatus.running)
+    })
+
     it('saveAuthority leaves a non-running loop status untouched', async () => {
       await seedRunningLoop()
       await service.prisma.ordinance.update({
