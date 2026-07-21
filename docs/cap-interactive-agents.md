@@ -81,10 +81,17 @@ methods — `src/polls/` (poll bias analysis), `src/topIssues/`, and the
 `src/chats/services/chatStream.service.ts` adapts `LlmService` streaming to HTTP SSE:
 it appends the user message, loads up to `MAX_CHAT_HISTORY_MESSAGES = 40` prior
 messages, calls `streamChatCompletion`, and pumps deltas/tool events through a
-backpressure-bounded `ChunkQueue` (max 256). Controllers write `data: <JSON>\n\n`
-frames with a 300s timeout and an `AbortController` on client disconnect. Error codes:
+backpressure-bounded `ChunkQueue` (max 256). While a turn is open the service also
+emits a `{ type: 'ping' }` keep-alive every 15s (`CHAT_STREAM_HEARTBEAT_MS`) —
+tool-arg generation (e.g. an ordinance draft body) streams nothing else for
+minutes, and without wire traffic client idle watchdogs and LB idle timeouts kill
+the healthy stream. Controllers write `data: <JSON>\n\n` frames with a 300s
+timeout and an `AbortController` on client disconnect. Error codes:
 `conversation_not_found`, `rate_limited`, `upstream_unavailable`, `aborted`,
-`internal`.
+`internal`. On the webapp side, `useStreamingTurn` treats any event as watchdog
+activity (60s idle = stalled), and when a stream ends without `done` it polls the
+transcript for up to 3 minutes for the still-generating turn before falling back
+to rendering the partial locally.
 
 ### The chat-scope abstraction
 
@@ -122,6 +129,25 @@ chat registers none. All tools are the `LlmStreamTool` shape defined in
   user's own annotations.
 - **`crud_priorities`** — the only **write** tool; CRUD on durable COS `Priority`
   records.
+- **`describe_filter_dimensions` / `count_contacts`** — aggregate-only CRM reads
+  shared by Campaign Manager (Win) and Chief of Staff (Serve), built in
+  `src/chats/general/crm-tools/`. `describe` returns the mode-filtered
+  filter-dimension catalog (`ContactsService.getFilterDimensions` — party stripped
+  for `eo-` orgs); `count` takes the same `voterFilterBaseSchema` shape as
+  `POST /v1/contacts/count` and calls the same `ContactsService.countContacts`,
+  inheriting the Win pro gate and the Serve party-filter rejection (surfaced as
+  structured tool errors). Registration is gated per handler on the org's CRM
+  flag (`win-crm` / `serve-crm`) via `FeaturesService`, and the prompt advertises
+  them only when registered.
+- **`crud_saved_filters`** — saved-filter (contact list) **write** tool shared by
+  the same two handlers under the same CRM flag gates, mirroring
+  `crud_priorities`' single-tool-with-`action` shape (`list`/`create`/`update`/
+  `delete`). It calls the same `VoterFileFilterService` paths as the
+  `voters/voter-file` filter routes, so the Win Pro gate, completed-outreach
+  validation, org scoping, and the locked-filter conflict are inherited; the
+  locked-filter 409 surfaces as a structured "duplicate it to edit" tool error.
+  Aggregate-only returns: ids, names, and counts (create counts via
+  `ContactsService.countContacts` before persisting), never person rows.
 - **`web_search`** — Anthropic native `webSearch_20250305`, `maxUses: 5`.
 
 The **ordinance flow** scope (`src/chats/general/ordinance-flow/`) registers
@@ -143,9 +169,17 @@ webapp widget replays from), and `execute` persists the artifact subset where a
 column exists. `present_authority_finding` (authority step, persists
 `authority`); `present_current_law_summary` + `present_legislative_history`
 (current_law step, display-only); `present_comparables` (comparables step,
-persists `comparables`). Payload shapes are the `Ordinance*Schema` /
+persists `comparables`); `present_draft` (draft step, persists
+`draftTitle`/`draftBody`/`draftSources` and advances the ordinance to
+`draft`). Payload shapes are the `Ordinance*Schema` /
 `OrdinancePresentComparablesSchema` contracts consumed by `stepWidgets.tsx` in
-gp-webapp. The draft step has no `present_*` tool yet.
+gp-webapp.
+
+`present_draft`'s persist also auto-starts the **ordinance quality loop** — a
+background SQS job in gp-api (not the CAP background system) that QCs and
+revises the draft outside chat, so the draft can change between a chat turn's
+reads (the review scope's rules tell the model to re-read before quoting).
+Detail: `packages/gp-api/src/ordinances/CLAUDE.md`.
 
 COS-specific tool ports live in `src/chats/general/chief-of-staff/services/`
 (`list_briefings`/`get_briefing`, `read_community_issues`). Tool-calling chat is

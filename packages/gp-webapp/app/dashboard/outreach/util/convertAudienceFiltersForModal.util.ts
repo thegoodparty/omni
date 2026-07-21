@@ -1,4 +1,4 @@
-import { AudienceFiltersState } from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
+import { AudienceFiltersState } from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 import { VoterFileFilters } from 'helpers/types'
 import {
   VOTER_FILE_FILTER_KEY_MAP,

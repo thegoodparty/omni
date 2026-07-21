@@ -43,14 +43,33 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
       electionDateEnd,
       isPrimary,
       isRunoff,
+      page,
+      pageSize,
       raceColumns,
       placeColumns,
       candidacyColumns,
     } = filterDto
 
+    // Resolve placeSlug to a scalar placeId up front rather than filtering on
+    // the `Place` relation. The `where` below is reused by the slug `groupBy`
+    // that bounds the page, and keeping every filter scalar avoids relying on
+    // relation-filter support in `groupBy` (and lets both queries use the
+    // placeId index directly).
+    let placeIdFilter: string | undefined
+    if (placeSlug) {
+      const place = await this.client.place.findUnique({
+        where: { slug: placeSlug },
+        select: { id: true },
+      })
+      if (!place) {
+        throw new NotFoundException(`No place found for slug: ${placeSlug}`)
+      }
+      placeIdFilter = place.id
+    }
+
     const where: Prisma.RaceWhereInput = {
       ...(state ? { state } : {}),
-      ...(placeSlug ? { Place: { slug: placeSlug } } : {}),
+      ...(placeIdFilter ? { placeId: placeIdFilter } : {}),
       ...(positionLevel ? { positionLevel } : {}),
       ...(raceSlug ? { slug: raceSlug } : {}),
       ...(isPrimary !== undefined ? { isPrimary } : {}),
@@ -83,21 +102,58 @@ export class RacesService extends createPrismaBase(MODELS.Race) {
       ...(includeCandidacies && { Candidacies: candidacyInclude }),
     }
 
-    const races = raceSelectBase
-      ? await this.model.findMany({
-          where,
-          select: raceQueryObj,
-        })
-      : await this.model.findMany({
-          where,
-          include: raceQueryObj,
-        })
+    // Bound the result set. Pagination is over DISTINCT slugs rather than raw
+    // rows: this endpoint collapses same-slug Race rows via
+    // getDedupedRacesBySlug (merging positionNames), so a plain row-level
+    // skip/take could split a slug group across a page boundary and hand
+    // callers the same slug twice with a partial positionNames union. Instead
+    // resolve the page's slugs first with a grouped query — GROUP BY slug with
+    // LIMIT/OFFSET is pushed down to Postgres and reads only the indexed slug
+    // column, so it stays memory-bounded — then fetch every row for exactly
+    // those slugs so each returned slug is fully merged.
+    const slugGroups = await this.model.groupBy({
+      by: ['slug'],
+      where,
+      orderBy: { slug: 'asc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    })
+    const pageSlugs = slugGroups.map((group) => group.slug)
 
-    if (!races || races.length === 0) {
+    if (pageSlugs.length === 0) {
+      // An empty page past the last result is a normal end-of-data signal for
+      // an offset-paginated API, not a missing resource. Preserve the historic
+      // 404 only for the first page genuinely matching nothing.
+      if (page > 1) {
+        return []
+      }
       throw new NotFoundException(
         `No races found for query: ${JSON.stringify(where)}`,
       )
     }
+
+    const pagedWhere: Prisma.RaceWhereInput = {
+      ...where,
+      slug: { in: pageSlugs },
+    }
+    // `id` is the deterministic tiebreaker; slug order keeps same-slug rows
+    // adjacent for the dedupe below.
+    const orderBy: Prisma.RaceOrderByWithRelationInput[] = [
+      { slug: 'asc' },
+      { id: 'asc' },
+    ]
+
+    const races = raceSelectBase
+      ? await this.model.findMany({
+          where: pagedWhere,
+          select: raceQueryObj,
+          orderBy,
+        })
+      : await this.model.findMany({
+          where: pagedWhere,
+          include: raceQueryObj,
+          orderBy,
+        })
 
     if (!races[0]?.positionNames || !races[0]?.slug) {
       return races

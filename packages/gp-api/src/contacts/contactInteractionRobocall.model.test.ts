@@ -67,4 +67,46 @@ describe('ContactInteractionRobocall model', () => {
       }),
     )
   })
+
+  it('creates and reads back a manual row with a null outreachId', async () => {
+    const org = await service.prisma.organization.create({
+      data: { slug: 'crm-robo-manual', ownerId: service.user.id },
+    })
+    const created = await service.prisma.contactInteractionRobocall.create({
+      data: {
+        organizationSlug: org.slug,
+        personId: 'person-1',
+        occurredAt: new Date(),
+        outreachId: null,
+        manual: true,
+        note: 'Left a voicemail in person, logging by hand',
+      },
+    })
+
+    expect(created.outreachId).toBeNull()
+    expect(created.manual).toBe(true)
+    expect(created.note).toBe('Left a voicemail in person, logging by hand')
+  })
+
+  it('allows two manual rows for the same (org, person)', async () => {
+    const org = await service.prisma.organization.create({
+      data: { slug: 'crm-robo-manual-dup', ownerId: service.user.id },
+    })
+    const data = {
+      organizationSlug: org.slug,
+      personId: 'person-1',
+      occurredAt: new Date(),
+      outreachId: null,
+      manual: true,
+    }
+    await service.prisma.contactInteractionRobocall.create({ data })
+    // Postgres treats NULLs as distinct, so a second manual log for the
+    // same person never collides on (outreachId, personId).
+    await service.prisma.contactInteractionRobocall.create({ data })
+
+    const count = await service.prisma.contactInteractionRobocall.count({
+      where: { organizationSlug: org.slug },
+    })
+    expect(count).toBe(2)
+  })
 })

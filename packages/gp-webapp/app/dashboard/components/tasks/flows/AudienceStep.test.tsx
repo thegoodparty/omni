@@ -3,12 +3,12 @@ import { useState } from 'react'
 import { act, screen, waitFor, fireEvent } from '@testing-library/react'
 import { render } from 'helpers/test-utils/render'
 import AudienceStep from './AudienceStep'
-import type { AudienceFiltersState } from 'app/dashboard/voter-records/components/CustomVoterAudienceFilters'
+import type { AudienceFiltersState } from 'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters'
 
 const mockCountVoterFile = vi.fn()
 const mockClientRequest = vi.fn()
 
-vi.mock('app/dashboard/voter-records/[type]/components/RecordCount', () => ({
+vi.mock('app/dashboard/components/tasks/flows/RecordCount', () => ({
   countVoterFile: (...args: unknown[]) => mockCountVoterFile(...args),
 }))
 
@@ -28,7 +28,7 @@ vi.mock(
 )
 
 vi.mock(
-  'app/dashboard/voter-records/components/CustomVoterAudienceFilters',
+  'app/dashboard/components/tasks/flows/CustomVoterAudienceFilters',
   () => ({
     default: () => null,
     TRACKING_KEYS: { scheduleCampaign: 'scheduleCampaign' },
@@ -183,11 +183,47 @@ describe('AudienceStep saved-list selector', () => {
     expect(onCreateVoterFileFilter).not.toHaveBeenCalled()
     expect(onCreatePhoneList).toHaveBeenCalledWith(
       expect.objectContaining({ id: 42 }),
+      42,
     )
     expect(onChangeCallback).toHaveBeenLastCalledWith({
       voterFileFilter: expect.objectContaining({ id: 42 }),
       phoneListToken: 'phone-token',
     })
+  })
+
+  it('sends no voterFileFilterId when building a new audience from checkboxes', async () => {
+    mockClientRequest.mockResolvedValue({ data: [] })
+    mockCountVoterFile.mockResolvedValue(150)
+
+    const onCreateVoterFileFilter = vi
+      .fn()
+      .mockResolvedValue({ id: 999, audienceSuperVoters: true })
+    const onCreatePhoneList = vi.fn().mockResolvedValue('phone-token')
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{ audience_superVoters: true }}
+        onChangeCallback={vi.fn()}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={onCreateVoterFileFilter}
+        onCreatePhoneList={onCreatePhoneList}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('150')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    await waitFor(() => expect(nextCallback).toHaveBeenCalled())
+
+    expect(onCreateVoterFileFilter).toHaveBeenCalled()
+    expect(onCreatePhoneList).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 999 }),
+      undefined,
+    )
   })
 
   it('hides auto-generated date-named throwaway lists', async () => {

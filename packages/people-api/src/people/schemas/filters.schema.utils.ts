@@ -23,6 +23,26 @@ const rangeConditionSchema = z.object({
   lte: z.coerce.number().optional(),
 })
 
+// ID filter is a separate surface from createEnumFilterSchema: it takes an id
+// set (in/notIn), not eq/is, and caps the array (the first array-length cap
+// in the grammar — id sets can arrive from arbitrarily large upstream
+// resolutions, unlike samplePeopleSchema.excludeIds). 100k is safe only
+// because buildIdFilter binds the set as a single array parameter; per-value
+// binding would hit PostgreSQL's 65,535 bind-parameter limit.
+const MAX_ID_FILTER_VALUES = 100_000
+
+export const createIdFilterSchema = () => {
+  return z
+    .object({
+      in: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
+      notIn: z.array(z.guid()).min(1).max(MAX_ID_FILTER_VALUES).optional(),
+    })
+    .refine((data) => {
+      const operatorCount = [data.in, data.notIn].filter(Boolean).length
+      return operatorCount === 1
+    }, 'Exactly one operator (in or notIn) must be specified')
+}
+
 export const createNumericFilterSchema = () => {
   return z
     .object({
@@ -99,6 +119,18 @@ export const transformFilters = <T extends string>(
       filterList.push(key as T)
       filterValues[key] = value.in.map(String)
       filterOperators[key] = { operator: 'in', values: value.in, includeNull }
+    } else if (
+      value &&
+      typeof value === 'object' &&
+      'notIn' in value &&
+      Array.isArray(value.notIn) &&
+      value.notIn.length > 0
+    ) {
+      filterList.push(key as T)
+      // id is not an enum field — filterValues drives text-based enum
+      // mapping elsewhere in the pipeline, which notIn's uuid set has no use
+      // for, so it is intentionally left unpopulated.
+      filterOperators[key] = { operator: 'notIn', values: value.notIn }
     } else if (
       value &&
       typeof value === 'object' &&

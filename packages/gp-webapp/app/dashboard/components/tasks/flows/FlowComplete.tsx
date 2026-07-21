@@ -51,7 +51,7 @@ const FlowComplete = ({
           <div className="col-span-6 text-right mt-3">
             <Button asChild className="w-full">
               <Link
-                href="/dashboard/voter-records"
+                href="/dashboard/contacts"
                 onClick={() => {
                   trackEvent(
                     EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign
@@ -60,7 +60,7 @@ const FlowComplete = ({
                   resetCallback()
                 }}
               >
-                Return to Voter File
+                Return to Voter Data
               </Link>
             </Button>
           </div>

@@ -11,6 +11,7 @@ const base = {
   seedType: 'new' as const,
   createdAt: '2026-07-01T00:00:00.000Z',
   updatedAt: '2026-07-01T00:00:00.000Z',
+  qualityLoopStatus: null,
 }
 
 const inProgress: OrdinanceSummary = {
@@ -73,6 +74,26 @@ describe('MyOrdinancesSection', () => {
       'href',
       '/dashboard/ordinances/draft/sugar-tax',
     )
+  })
+
+  it('shows an improving indicator while a quality loop is running on a draft', () => {
+    render(
+      <MyOrdinancesSection
+        items={[{ ...drafted, qualityLoopStatus: 'running' }]}
+        counts={counts}
+      />,
+    )
+    expect(screen.getByText('Improving draft…')).toBeVisible()
+  })
+
+  it('shows no improving indicator when the loop is not running', () => {
+    render(
+      <MyOrdinancesSection
+        items={[drafted, { ...inProgress, qualityLoopStatus: 'converged' }]}
+        counts={counts}
+      />,
+    )
+    expect(screen.queryByText('Improving draft…')).not.toBeInTheDocument()
   })
 
   it('resumes at clarify when an in-progress ordinance has no recorded step', () => {

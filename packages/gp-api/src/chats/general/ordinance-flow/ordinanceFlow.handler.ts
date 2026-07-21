@@ -232,6 +232,10 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
     // persists it to the ordinance's draft columns.
     if (ctx.step === 'draft') {
       tools.present_draft = buildPresentDraftTool(deps)
+      // For the rare drafting-blocker question only (DRAFT RULES cap it at
+      // one) — so even that question rides the widget and persists as a
+      // clarify answer instead of a prose interview the record never sees.
+      tools.ask_clarify_question = buildAskClarifyQuestionTool()
     }
 
     // A numbered flow step can offer a button to advance. The terminal draft

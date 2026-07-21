@@ -6,16 +6,23 @@ import {
   Post,
   Query,
   Res,
+  UseInterceptors,
   UsePipes,
 } from '@nestjs/common'
-import { Organization, User } from '../generated/prisma'
+import {
+  ListDetailContactsResponseSchema,
+  PersonSchema,
+} from '@goodparty_org/contracts'
+import { Organization } from '../generated/prisma'
 import { FastifyReply } from 'fastify'
 import { ZodValidationPipe } from 'nestjs-zod'
-import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
 import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.decorator'
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
+import { ResponseSchema } from '@/shared/decorators/ResponseSchema.decorator'
+import { ZodResponseInterceptor } from '@/shared/interceptors/ZodResponse.interceptor'
 import { CountContactsDTO } from './schemas/countContacts.schema'
 import { GetPersonParamsDTO } from './schemas/getPerson.schema'
+import { ListDetailContactsDTO } from './schemas/listDetailContacts.schema'
 import {
   DownloadContactsDTO,
   ListContactsDTO,
@@ -25,6 +32,7 @@ import { ContactsService } from './services/contacts.service'
 @Controller('contacts')
 @UseOrganization()
 @UsePipes(ZodValidationPipe)
+@UseInterceptors(ZodResponseInterceptor)
 export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
 
@@ -32,9 +40,7 @@ export class ContactsController {
   async listContacts(
     @Query() filterDto: ListContactsDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ) {
-    await this.contactsService.assertContactsAccess(organization, user)
     return this.contactsService.findContacts(filterDto, organization)
   }
 
@@ -42,10 +48,8 @@ export class ContactsController {
   async downloadContacts(
     @Query() dto: DownloadContactsDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
     @Res() res: FastifyReply,
   ) {
-    await this.contactsService.assertContactsAccess(organization, user)
     // Headers (Content-Type, Content-Disposition, Set-Cookie) are written and
     // flushed inside the service AFTER pre-flight checks pass and the
     // upstream people-api stream is in hand. That keeps a structured 4xx/5xx
@@ -56,11 +60,7 @@ export class ContactsController {
   }
 
   @Get('stats')
-  async getContactsStats(
-    @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
-  ) {
-    await this.contactsService.assertContactsAccess(organization, user)
+  async getContactsStats(@ReqOrganization() organization: Organization) {
     return this.contactsService.getDistrictStats(organization)
   }
 
@@ -68,9 +68,7 @@ export class ContactsController {
   async countContacts(
     @Body() filters: CountContactsDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ) {
-    await this.contactsService.assertContactsAccess(organization, user)
     const count = await this.contactsService.countContacts(
       filters,
       organization,
@@ -78,13 +76,21 @@ export class ContactsController {
     return { count }
   }
 
+  @Get('list-detail')
+  @ResponseSchema(ListDetailContactsResponseSchema)
+  async getListDetail(
+    @Query() dto: ListDetailContactsDTO,
+    @ReqOrganization() organization: Organization,
+  ) {
+    return this.contactsService.getListDetail(dto, organization)
+  }
+
   @Get(':id')
+  @ResponseSchema(PersonSchema)
   async getContact(
     @Param() params: GetPersonParamsDTO,
     @ReqOrganization() organization: Organization,
-    @ReqUser() user: User,
   ) {
-    await this.contactsService.assertContactsAccess(organization, user)
     return this.contactsService.findPerson(params.id, organization)
   }
 }

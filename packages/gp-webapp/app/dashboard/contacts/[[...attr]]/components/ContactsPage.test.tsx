@@ -105,9 +105,8 @@ describe('ContactsPage — Contacts Viewed analytics', () => {
 
   it('fires once with win context after readiness settles, with no spurious serve event', () => {
     // Reproduces the production sequence for a Win user: isWinContext reads
-    // false while isWinContextReady is false (elected-office query or
-    // win-voter-data flag still resolving), then both flip once everything
-    // settles. The event must fire exactly once, with win — never a serve event
+    // false while isWinContextReady is false (elected-office query still
+    // resolving), then both flip once everything settles. The event must fire exactly once, with win — never a serve event
     // on the not-ready render.
     setContext({ isWinContext: false, isWinContextReady: false })
 

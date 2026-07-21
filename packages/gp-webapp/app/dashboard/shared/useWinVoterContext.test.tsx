@@ -5,20 +5,14 @@ import { queryClientConfig } from '@shared/query-client'
 import { api } from 'helpers/test-utils/api-mocking'
 import { setCookie, deleteCookie } from 'helpers/cookieHelper'
 import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
-import { useWinVoterDataFlag } from '@shared/experiments/winVoterDataFlag'
 import { useOrganization } from '@shared/organization-picker'
 import { useWinVoterContext } from './useWinVoterContext'
 import type { ElectedOffice, Organization } from 'gpApi/api-endpoints'
-
-vi.mock('@shared/experiments/winVoterDataFlag', () => ({
-  useWinVoterDataFlag: vi.fn(),
-}))
 
 vi.mock('@shared/organization-picker', () => ({
   useOrganization: vi.fn(),
 }))
 
-const mockedUseWinVoterDataFlag = vi.mocked(useWinVoterDataFlag)
 const mockedUseOrganization = vi.mocked(useOrganization)
 
 const SERVE_SLUG = 'eo-serve-org'
@@ -74,9 +68,7 @@ const renderForOrg = (slug: string) => {
 
 beforeEach(() => {
   sharedClient.clear()
-  mockedUseWinVoterDataFlag.mockReset()
   mockedUseOrganization.mockReset()
-  mockedUseWinVoterDataFlag.mockReturnValue({ ready: true, enabled: true })
   // The Serve (eo-) org resolves an elected office; the Win org has none.
   api.mock('GET /v1/elected-office/current', ({ headers }) =>
     headers['x-organization-slug'] === SERVE_SLUG

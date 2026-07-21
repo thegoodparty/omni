@@ -5,6 +5,7 @@ import { useClerk } from '@clerk/nextjs'
 import { useUser } from '@shared/hooks/useUser'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { buttonVariants } from '@styleguide/components/ui/button'
 import {
   Alert,
@@ -30,6 +31,7 @@ export default function DeleteAccountPage(): React.JSX.Element {
 
   const handleDeleteConfirm = async () => {
     if (!user?.id) return
+    trackEvent(EVENTS.Settings.DeleteAccount.SubmitDelete)
     setLoading(true)
     setError(null)
 
@@ -74,6 +76,7 @@ export default function DeleteAccountPage(): React.JSX.Element {
           variant="destructive"
           className="shrink-0"
           onClick={() => {
+            trackEvent(EVENTS.Settings.DeleteAccount.ClickDelete)
             setError(null)
             setModalOpen(true)
           }}
@@ -103,7 +106,14 @@ export default function DeleteAccountPage(): React.JSX.Element {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel
+              disabled={loading}
+              onClick={() =>
+                trackEvent(EVENTS.Settings.DeleteAccount.CancelDelete)
+              }
+            >
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               className={buttonVariants({ variant: 'destructive' })}
               onClick={handleDeleteConfirm}

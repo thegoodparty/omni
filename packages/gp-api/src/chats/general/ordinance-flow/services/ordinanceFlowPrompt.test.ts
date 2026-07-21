@@ -187,6 +187,44 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).not.toContain('CURRENT LAW RULES')
   })
 
+  it('routes follow-up and confirmation questions through the widget', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'clarify' }),
+      toolNames: [
+        'read_ordinance',
+        'save_note',
+        'web_search',
+        'ask_clarify_question',
+        'save_synthesis',
+        'offer_next_step',
+      ],
+    })
+    expect(prompt).toContain(
+      'Follow-ups, confirmations, and disambiguations are still questions',
+    )
+    expect(prompt).toContain('Never ask for a decision in prose')
+    expect(prompt).toContain('defers to your judgment')
+  })
+
+  it('keeps the clarify rulebook off the draft step and forbids interviewing', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'draft' }),
+      toolNames: [
+        'read_ordinance',
+        'save_note',
+        'web_search',
+        'ask_clarify_question',
+        'present_draft',
+      ],
+    })
+    expect(prompt).not.toContain('CLARIFY RULES')
+    expect(prompt).toContain('ASK QUESTION RULES')
+    expect(prompt).toContain('ONLY in the \`ask_clarify_question\` call')
+    expect(prompt).toContain('Do not interview')
+    expect(prompt).toContain('at most ONE')
+    expect(prompt).toContain('never write ordinance text as chat prose')
+  })
+
   it('never mentions the removed get_current_code tool', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'current_law' }),
@@ -284,6 +322,18 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     })
     expect(prompt).toContain('present_current_law_summary:')
     expect(prompt).toContain('present_legislative_history:')
+  })
+
+  it('tells the review step an automated quality pass may revise the draft', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'review' }),
+      toolNames: [],
+    })
+    expect(prompt).toContain('REVIEW RULES')
+    expect(prompt).toContain('automated quality pass')
+    // The step itself still may not change the draft; only the background
+    // loop does.
+    expect(prompt).toContain('You cannot regenerate or overwrite the draft')
   })
 
   it('directs the current_law step to actively research and present the history timeline', () => {

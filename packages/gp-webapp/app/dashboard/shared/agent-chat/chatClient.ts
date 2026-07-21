@@ -92,6 +92,10 @@ export type ChatStreamEvent =
   | { type: 'tool_input_start'; toolName: string }
   | { type: 'tool_call'; toolName: string; args?: unknown }
   | { type: 'tool_result'; toolName: string; result?: unknown }
+  // Server keep-alive during silent stretches (tool-arg generation emits no
+  // other traffic for minutes). Carries no content — it must reach consumers
+  // (not be guard-dropped) so their idle watchdogs reset.
+  | { type: 'ping' }
   | { type: 'done'; assistantMessageId?: string }
   | {
       type: 'error'
@@ -149,6 +153,7 @@ function isChatStreamEvent(value: unknown): value is ChatStreamEvent {
     type === 'tool_input_start' ||
     type === 'tool_call' ||
     type === 'tool_result' ||
+    type === 'ping' ||
     type === 'done' ||
     type === 'error'
   )

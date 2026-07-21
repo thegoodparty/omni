@@ -34,6 +34,11 @@ export interface AudienceState {
   age_25_35?: boolean
   age_35_50?: boolean
   age_50_plus?: boolean
+  age_18_24?: boolean
+  age_25_34?: boolean
+  age_35_49?: boolean
+  age_50_64?: boolean
+  age_65_plus?: boolean
   gender_male?: boolean
   gender_female?: boolean
   gender_unknown?: boolean
@@ -190,8 +195,9 @@ export const handleCreatePhoneList =
   (errorSnackbar: (message: string) => void = noop) =>
   async (
     voterFileFilter: PhoneListInput | undefined,
+    voterFileFilterId?: number,
   ): Promise<string | undefined> => {
-    const result = await createP2pPhoneList(voterFileFilter)
+    const result = await createP2pPhoneList(voterFileFilter, voterFileFilterId)
 
     if (!result.ok) {
       const fallback =

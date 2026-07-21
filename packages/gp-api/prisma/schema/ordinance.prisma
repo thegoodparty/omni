@@ -29,12 +29,35 @@ model Ordinance {
   draftTitle String? @map("draft_title")
   draftBody  String? @map("draft_body") @db.Text
 
+  // Async quality-report run state. The QC LLM review takes 30-90s, so POST
+  // /quality-report claims a run here and returns immediately; a background
+  // task writes the result and the client polls GET /quality-report. Status is
+  // the raw claim ('running' | 'done' | 'error', null = never ran async);
+  // staleness/interruption is derived on read from startedAt, never stored.
+  qualityRunStatus    String?   @map("quality_run_status")
+  qualityRunStartedAt DateTime? @map("quality_run_started_at")
+  qualityRunError     String?   @map("quality_run_error")
+
+  // Async quality-improvement loop (QC -> revise -> QC over SQS). Separate
+  // state machine from qualityRun* above: the loop mints a runId per start,
+  // steps heartbeat qualityLoopUpdatedAt, and every write is fenced on
+  // (status running + runId). Terminal statuses are write-once.
+  qualityLoopStatus    OrdinanceQualityLoopStatus? @map("quality_loop_status")
+  qualityLoopRunId     String?                     @map("quality_loop_run_id")
+  qualityLoopIteration Int                         @default(0) @map("quality_loop_iteration")
+  qualityLoopUpdatedAt DateTime?                   @map("quality_loop_updated_at")
+
+  qualityIterations OrdinanceQualityIteration[]
+
   lastViewedStep String? @map("last_viewed_step")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  // The sweepStalled cron isolates the tiny `running` subset every 10 min;
+  // without this it seq-scans the table.
+  @@index([qualityLoopStatus, qualityLoopUpdatedAt])
   @@index([electedOfficeId, deletedAt, updatedAt])
   @@map("ordinance")
 }
@@ -51,4 +74,16 @@ enum OrdinanceStatus {
 enum OrdinanceSeedType {
   issue
   new
+}
+
+// Not `passed` for convergence — that would collide with
+// OrdinanceStatus.passed (council passage), a different concept.
+enum OrdinanceQualityLoopStatus {
+  running
+  converged
+  stopped_max_iterations
+  stopped_not_improving
+  superseded_by_edit
+  cancelled
+  failed
 }

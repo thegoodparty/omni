@@ -25,6 +25,11 @@ const EXPECTED_SNAKE_TO_CAMEL: Record<string, string> = {
   age_25_35: 'age25_35',
   age_35_50: 'age35_50',
   age_50_plus: 'age50Plus',
+  age_18_24: 'age18_24',
+  age_25_34: 'age25_34',
+  age_35_49: 'age35_49',
+  age_50_64: 'age50_64',
+  age_65_plus: 'age65Plus',
   gender_male: 'genderMale',
   gender_female: 'genderFemale',
   gender_unknown: 'genderUnknown',
@@ -52,8 +57,8 @@ describe('audienceFilterKeyMap', () => {
     expect(AUDIENCE_FILTER_CAMEL_KEYS).toEqual(
       Object.values(EXPECTED_SNAKE_TO_CAMEL),
     )
-    expect(AUDIENCE_FILTER_SNAKE_KEYS).toHaveLength(15)
-    expect(AUDIENCE_FILTER_CAMEL_KEYS).toHaveLength(15)
+    expect(AUDIENCE_FILTER_SNAKE_KEYS).toHaveLength(20)
+    expect(AUDIENCE_FILTER_CAMEL_KEYS).toHaveLength(20)
   })
 
   it('round-trips every key snake -> camel -> snake', () => {

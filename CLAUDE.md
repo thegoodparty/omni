@@ -45,6 +45,7 @@ demand when you open files in that package) and in `docs/`. Follow the pointers.
 | Writing or fixing a test               | `docs/testing.md`                             |
 | Deploys, branches, CI                  | `docs/deployment.md`                          |
 | Debugging a prod issue / incident      | `docs/observability.md`                       |
+| The CRM (contacts) — flows, debugging  | `packages/gp-api/src/contacts/CLAUDE.md`      |
 | Which MCP tools exist + their env vars | `docs/mcp.md`                                 |
 | Querying analytics data / Databricks   | `docs/databricks.md`                          |
 | AI code-review rule files              | `ai-rules/` (git submodule)                   |

@@ -61,14 +61,11 @@ const selectFilterCheckbox = async (
 }
 
 // @dev-only: same gate as win-contacts.spec.ts. The saved-list lifecycle lives
-// on the Win contacts surface, reachable only when win-voter-data is on for the
-// user AND the campaign is pro (gp-api ContactsService.assertContactsAccess
-// hard-gates every /v1/contacts route, and Create-list / search / named-segment
-// actions are pro-gated). The staged rollout enables win-voter-data for
-// @test.goodparty.org users on the warm dev stack only; an ephemeral per-PR
-// preview can't guarantee that flag state or pro provisioning, so this runs on
-// the post-merge develop e2e (and on demand), not on PRs. See
-// e2e-tests/CLAUDE.md ("@dev-only") and contacts-staged-rollout.md.
+// on the Win contacts surface — Create-list / search / named-segment actions
+// are pro-gated, and the flow needs the warm dev stack's real district voter
+// data. An ephemeral per-PR preview can't guarantee the pro provisioning or
+// the data, so this runs on the post-merge develop e2e (and on demand), not
+// on PRs. See e2e-tests/CLAUDE.md ("@dev-only").
 test.describe('Saved list lifecycle @dev-only', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
