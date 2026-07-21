@@ -33,22 +33,16 @@ describe('DatabaseUrlProvider', () => {
     process.env = { ...originalEnv }
   })
 
-  it('throws when accessed before initialization', () => {
-    expect(() => provider.current).toThrow(/before initialization/)
-  })
-
   it('uses LOCAL_DATABASE_URL without calling SSM', async () => {
     process.env.LOCAL_DATABASE_URL = 'postgres://local/db'
-    await provider.onModuleInit()
-    expect(provider.current).toBe('postgres://local/db')
+    expect(await provider.ensureLoaded()).toBe('postgres://local/db')
     expect(mockSend).not.toHaveBeenCalled()
   })
 
   it('reads the env-specific SSM parameter with decryption', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     mockSend.mockResolvedValue({ Parameter: { Value: 'postgres://ssm/dev' } })
-    await provider.onModuleInit()
-    expect(provider.current).toBe('postgres://ssm/dev')
+    expect(await provider.ensureLoaded()).toBe('postgres://ssm/dev')
     const firstCall = mockSend.mock.calls[0]
     expect(firstCall?.[0].input).toEqual({
       Name: 'people-db-connection-string-dev',
@@ -56,20 +50,42 @@ describe('DatabaseUrlProvider', () => {
     })
   })
 
+  it('memoizes the load so concurrent consumers do not re-fetch', async () => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+    mockSend.mockResolvedValue({ Parameter: { Value: 'postgres://ssm/dev' } })
+    const [a, b] = await Promise.all([
+      provider.ensureLoaded(),
+      provider.ensureLoaded(),
+    ])
+    expect(a).toBe('postgres://ssm/dev')
+    expect(b).toBe('postgres://ssm/dev')
+    expect(await provider.ensureLoaded()).toBe('postgres://ssm/dev')
+    expect(mockSend).toHaveBeenCalledTimes(1)
+  })
+
   it('throws when neither LOCAL_DATABASE_URL nor OTEL_SERVICE_ENVIRONMENT is set', async () => {
-    await expect(provider.onModuleInit()).rejects.toThrow(/LOCAL_DATABASE_URL/)
+    await expect(provider.ensureLoaded()).rejects.toThrow(/LOCAL_DATABASE_URL/)
   })
 
   it('throws when the SSM parameter has no value', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'prod'
     mockSend.mockResolvedValue({ Parameter: {} })
-    await expect(provider.onModuleInit()).rejects.toThrow(/no value/)
+    await expect(provider.ensureLoaded()).rejects.toThrow(/no value/)
+  })
+
+  it('retries the load after a failure rather than memoizing the rejection', async () => {
+    process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
+    mockSend.mockRejectedValueOnce(new Error('SSM throttled'))
+    await expect(provider.ensureLoaded()).rejects.toThrow(/SSM throttled/)
+
+    mockSend.mockResolvedValueOnce({ Parameter: { Value: 'postgres://ok' } })
+    expect(await provider.ensureLoaded()).toBe('postgres://ok')
   })
 
   it('notifies subscribers when the value changes on revalidation', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     mockSend.mockResolvedValueOnce({ Parameter: { Value: 'postgres://one' } })
-    await provider.onModuleInit()
+    await provider.ensureLoaded()
 
     const listener = vi.fn()
     provider.onChange(listener)
@@ -78,13 +94,13 @@ describe('DatabaseUrlProvider', () => {
     await revalidate(provider)
 
     expect(listener).toHaveBeenCalledWith('postgres://two')
-    expect(provider.current).toBe('postgres://two')
+    expect(await provider.ensureLoaded()).toBe('postgres://two')
   })
 
   it('does not notify when the value is unchanged', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     mockSend.mockResolvedValue({ Parameter: { Value: 'postgres://same' } })
-    await provider.onModuleInit()
+    await provider.ensureLoaded()
 
     const listener = vi.fn()
     provider.onChange(listener)
@@ -96,7 +112,7 @@ describe('DatabaseUrlProvider', () => {
   it('keeps the last-known-good value when revalidation fails', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     mockSend.mockResolvedValueOnce({ Parameter: { Value: 'postgres://good' } })
-    await provider.onModuleInit()
+    await provider.ensureLoaded()
 
     const listener = vi.fn()
     provider.onChange(listener)
@@ -104,14 +120,14 @@ describe('DatabaseUrlProvider', () => {
     mockSend.mockRejectedValueOnce(new Error('SSM throttled'))
     await revalidate(provider)
 
-    expect(provider.current).toBe('postgres://good')
+    expect(await provider.ensureLoaded()).toBe('postgres://good')
     expect(listener).not.toHaveBeenCalled()
   })
 
   it('closes the SSM client on destroy', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     mockSend.mockResolvedValue({ Parameter: { Value: 'postgres://one' } })
-    await provider.onModuleInit()
+    await provider.ensureLoaded()
 
     provider.onModuleDestroy()
 
@@ -121,7 +137,7 @@ describe('DatabaseUrlProvider', () => {
   it('stops notifying after unsubscribe', async () => {
     process.env.OTEL_SERVICE_ENVIRONMENT = 'dev'
     mockSend.mockResolvedValueOnce({ Parameter: { Value: 'postgres://one' } })
-    await provider.onModuleInit()
+    await provider.ensureLoaded()
 
     const listener = vi.fn()
     const unsubscribe = provider.onChange(listener)
