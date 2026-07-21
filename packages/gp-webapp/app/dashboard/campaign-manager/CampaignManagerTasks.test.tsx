@@ -130,7 +130,11 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     // top 3 by date asc among incomplete dynamic latest-gen
@@ -157,7 +161,11 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     expect(screen.getByRole('link', { name: 'Knock doors' })).toHaveAttribute(
@@ -184,7 +192,11 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     const cta = screen.getByRole('link', { name: 'Open' })
@@ -199,7 +211,11 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     expect(screen.getByRole('link', { name: 'See details' })).toHaveAttribute(
@@ -221,7 +237,11 @@ describe('CampaignManagerTasks', () => {
     )
 
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
@@ -231,13 +251,17 @@ describe('CampaignManagerTasks', () => {
     expect(screen.getByText('Knock 60 doors in Maplewood')).toBeInTheDocument()
   })
 
-  it('shows the "meet your campaign manager" button and fires the callback', async () => {
+  it('shows the meet button (when showMeetCard) and fires the callback', async () => {
     const onMeet = vi.fn()
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
 
     const user = userEvent.setup()
     render(
-      <CampaignManagerTasks onMeetManager={onMeet} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={onMeet}
+        onPersonalize={vi.fn()}
+      />,
     )
     await user.click(
       screen.getByRole('button', { name: /meet your campaign manager/i }),
@@ -246,33 +270,20 @@ describe('CampaignManagerTasks', () => {
     expect(onMeet).toHaveBeenCalledOnce()
   })
 
-  it('hides the meet card after it is clicked (not before)', async () => {
+  it('does not render the meet card when showMeetCard is false', () => {
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
-    const user = userEvent.setup()
 
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
-    )
-    expect(meetButton()).toBeInTheDocument()
-
-    await user.click(
-      screen.getByRole('button', { name: /meet your campaign manager/i }),
+      <CampaignManagerTasks
+        showMeetCard={false}
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     expect(meetButton()).not.toBeInTheDocument()
     // The priorities still render.
     expect(screen.getByText('A task')).toBeInTheDocument()
-  })
-
-  it('keeps the meet card dismissed across reloads once it has been clicked', () => {
-    window.localStorage.setItem('campaign-manager-meet-dismissed', '1')
-    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
-
-    render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
-    )
-
-    expect(meetButton()).not.toBeInTheDocument()
   })
 
   it('marks a non-count task done directly, without a voter count', async () => {
@@ -284,7 +295,11 @@ describe('CampaignManagerTasks', () => {
     mockResult.mockReturnValue(settled([t]))
     const user = userEvent.setup()
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     await user.click(screen.getByRole('button', { name: 'Mark done' }))
@@ -302,7 +317,11 @@ describe('CampaignManagerTasks', () => {
     mockResult.mockReturnValue(settled([t]))
     const user = userEvent.setup()
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     // Completing an events task opens the count prompt instead of completing.
@@ -328,7 +347,11 @@ describe('CampaignManagerTasks', () => {
     })
 
     render(
-      <CampaignManagerTasks onMeetManager={vi.fn()} onPersonalize={vi.fn()} />,
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
     )
 
     expect(screen.getByText(/preparing/i)).toBeInTheDocument()
@@ -340,6 +363,7 @@ describe('CampaignManagerTasks', () => {
 
     render(
       <CampaignManagerTasks
+        showMeetCard
         onMeetManager={vi.fn()}
         onPersonalize={onPersonalize}
       />,
@@ -366,6 +390,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
     )
     render(
       <CampaignManagerTasks
+        showMeetCard
         onMeetManager={() => undefined}
         onPersonalize={vi.fn()}
       />,
@@ -393,6 +418,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
     )
     render(
       <CampaignManagerTasks
+        showMeetCard
         onMeetManager={() => undefined}
         onPersonalize={vi.fn()}
       />,
@@ -420,6 +446,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
     )
     render(
       <CampaignManagerTasks
+        showMeetCard
         onMeetManager={() => undefined}
         onPersonalize={vi.fn()}
       />,

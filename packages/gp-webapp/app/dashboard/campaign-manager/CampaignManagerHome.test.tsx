@@ -413,3 +413,78 @@ describe('CampaignManagerHome story auto-launch', () => {
     expect(mockRouterReplace).not.toHaveBeenCalled()
   })
 })
+
+describe('CampaignManagerHome meet-card dismissal', () => {
+  // Query including aria-hidden: an open chat drawer aria-hides the dashboard
+  // behind it, so a still-mounted (undismissed) meet card would otherwise read
+  // as absent. This distinguishes "removed from the DOM" (dismissed) from
+  // "present but behind the open chat" (not dismissed).
+  const meetHeading = () =>
+    screen.queryByRole('heading', {
+      name: 'Your campaign manager',
+      level: 1,
+      hidden: true,
+    })
+
+  it('shows the meet card for a fresh candidate', () => {
+    render(<CampaignManagerHome firstName="Renee" />)
+    expect(meetHeading()).toBeInTheDocument()
+  })
+
+  it('keeps the meet card when only the story flow is started', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    streamMessageMock.mockReturnValue(
+      makeStream([
+        { type: 'text', delta: 'Tell me your why.' },
+        { type: 'done', assistantMessageId: 'a1' },
+      ]),
+    )
+    const user = userEvent.setup()
+    render(<CampaignManagerHome firstName="Renee" />)
+    expect(meetHeading()).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: 'Personalize your campaign' }),
+    )
+    await waitFor(() =>
+      expect(latestSurfaceProps().pendingKickoff).toBe(
+        CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+      ),
+    )
+
+    // Starting the story is not "meeting the manager", so the card stays.
+    expect(meetHeading()).toBeInTheDocument()
+  })
+
+  it('dismisses the meet card when the manager is opened via the footer chat box', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    const user = userEvent.setup()
+    render(<CampaignManagerHome firstName="Renee" />)
+    expect(meetHeading()).toBeInTheDocument()
+
+    await user.click(
+      screen.getByRole('button', { name: /open campaign manager chat/i }),
+    )
+
+    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
+  })
+
+  it('dismisses the meet card on its own click and keeps it dismissed on remount', async () => {
+    createMock.mockResolvedValue({ conversationId: 'conv_1' })
+    listMessagesMock.mockResolvedValue([])
+    const user = userEvent.setup()
+    const { unmount } = render(<CampaignManagerHome firstName="Renee" />)
+
+    await user.click(
+      screen.getByRole('button', { name: /meet your campaign manager/i }),
+    )
+    await waitFor(() => expect(meetHeading()).not.toBeInTheDocument())
+
+    // Persisted: a fresh mount does not bring it back.
+    unmount()
+    render(<CampaignManagerHome firstName="Renee" />)
+    expect(meetHeading()).not.toBeInTheDocument()
+  })
+})

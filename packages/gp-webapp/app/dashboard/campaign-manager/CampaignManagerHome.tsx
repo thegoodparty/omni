@@ -26,6 +26,14 @@ interface Props {
   firstName?: string
 }
 
+// The first-run "meet your campaign manager" card is dismissed once the
+// candidate opens the manager in its GENERAL mode (the meet card itself or the
+// footer chat box, which both land on the same manager greeting), persisted so
+// it stays dismissed across reloads. It is deliberately NOT dismissed by the
+// story flow (the story card / personalize deep link): that opens the same
+// conversation but into the story intake, which is not "meeting the manager".
+const MEET_CARD_DISMISSED_KEY = 'campaign-manager-meet-dismissed'
+
 /**
  * The Campaign Manager dashboard home for the campaign-story cohort: the top
  * tracker tasks, a persistent chat bar, and a "meet your campaign manager"
@@ -56,6 +64,30 @@ export default function CampaignManagerHome({
   )
   const composerRef = useRef<HTMLInputElement | null>(null)
   const personalizeDeepLinkFiredRef = useRef(false)
+
+  // `undefined` until localStorage is read, so the meet card never flashes
+  // before we know whether it was already dismissed.
+  const [meetDismissed, setMeetDismissed] = useState<boolean | undefined>(
+    undefined,
+  )
+  useEffect(() => {
+    try {
+      setMeetDismissed(
+        window.localStorage.getItem(MEET_CARD_DISMISSED_KEY) === '1',
+      )
+    } catch {
+      setMeetDismissed(false)
+    }
+  }, [])
+  const dismissMeetCard = useCallback(() => {
+    try {
+      window.localStorage.setItem(MEET_CARD_DISMISSED_KEY, '1')
+    } catch {
+      // Storage disabled (private mode): the card reappears next load, which is
+      // acceptable for a first-run nudge.
+    }
+    setMeetDismissed(true)
+  }, [])
 
   // Entering via the story flow (the story card / personalize deep link) sets
   // pendingKickoff before the conversation opens. On that entry the kickoff
@@ -161,18 +193,29 @@ export default function CampaignManagerHome({
             </CampaignUpdateHistoryProvider>
           </VoterContactsProvider>
         </div>
-        {/* onPersonalize opens the manager and auto-launches the story-intake
-            chat flow (the hidden story sentinel), same as the deep link the
-            plan-tab gate links use. */}
+        {/* onMeetManager is a general open, so it dismisses the meet card.
+            onPersonalize opens the manager and auto-launches the story-intake
+            chat flow (the hidden story sentinel) without dismissing the meet
+            card, same as the deep link the plan-tab gate links use. */}
         <CampaignManagerTasks
-          onMeetManager={() => void openManager()}
+          showMeetCard={meetDismissed === false}
+          onMeetManager={() => {
+            dismissMeetCard()
+            void openManager()
+          }}
           onPersonalize={startStory}
         />
       </div>
       <FooterChatBar
         firstName={firstName}
-        onOpen={() => void openManager()}
-        onOpenConversation={openConversation}
+        onOpen={() => {
+          dismissMeetCard()
+          void openManager()
+        }}
+        onOpenConversation={(id) => {
+          dismissMeetCard()
+          openConversation(id)
+        }}
         chatApi={campaignManagerChatApi}
         historyKey={CAMPAIGN_MANAGER_HISTORY_KEY}
         openLabel="Open campaign manager chat"
