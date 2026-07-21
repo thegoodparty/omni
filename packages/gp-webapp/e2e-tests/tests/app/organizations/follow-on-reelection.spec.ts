@@ -139,12 +139,6 @@ test('same-office re-election follow-on: derived date, active org, duplicate blo
   ).toHaveCount(0)
   await clickContinue(page)
 
-  // voter-demographics.
-  await expect(
-    page.getByRole('heading', { level: 1, name: /voter insights/i }),
-  ).toBeVisible({ timeout: 15_000 })
-  await clickContinue(page)
-
   // 6: pledge -> launch -> dashboard.
   await expect(
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),

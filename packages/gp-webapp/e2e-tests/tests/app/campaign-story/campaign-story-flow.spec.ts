@@ -52,11 +52,12 @@ test.describe('campaign-story flag flow', () => {
 
     await completeOnboardingUpToPledge(page)
 
-    // For campaign-story users the pledge CTA points at writing the story, not
-    // generating a plan — and submitting lands on the Campaign Manager home
-    // (/dashboard), whose chat opens with the story intake.
+    // For campaign-story users the pledge CTA is "Agree & Continue"; submitting
+    // lands on the Campaign Manager home (/dashboard), which shows the "meet
+    // your campaign manager" card for a brand-new candidate (no ?personalize,
+    // so the chat does not auto-open here).
     const submit = page
-      .getByRole('button', { name: /let's create your story/i })
+      .getByRole('button', { name: /agree & continue/i })
       .first()
     await expect(submit).toBeVisible({ timeout: 15000 })
     await expect(submit).toBeEnabled()
@@ -86,15 +87,16 @@ test.describe('campaign-story flag flow', () => {
       }),
     ).toBeVisible({ timeout: 30000 })
 
-    // The gate's incomplete-state CTA now sends the user to the Campaign
-    // Manager home to author their story there (onboarding), not to a
-    // standalone story route.
+    // The gate's incomplete-state CTA links to /dashboard?personalize=1, which
+    // opens the Campaign Manager chat straight into the story intake (rather
+    // than showing the meet-card home), so assert the intake copy the chat
+    // streams, not the meet-card heading (which is hidden once the chat opens).
     await page
       .getByRole('link', { name: /open your campaign manager/i })
       .click()
-    await page.waitForURL('**/dashboard', { timeout: 30000 })
-    await expect(
-      page.getByRole('heading', { name: 'Your campaign manager', level: 1 }),
-    ).toBeVisible({ timeout: 30000 })
+    await page.waitForURL('**/dashboard**', { timeout: 30000 })
+    await expect(page.getByText(/get your Campaign Story down/i)).toBeVisible({
+      timeout: 30000,
+    })
   })
 })
