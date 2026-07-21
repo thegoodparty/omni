@@ -12,7 +12,6 @@ import {
   MdSensorDoor,
 } from 'react-icons/md'
 import {
-  BookOpen,
   Bot,
   Circle,
   CircleUserRound,
@@ -265,15 +264,6 @@ const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   v2Category: 'campaign',
 }
 
-const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
-  id: 'campaign-story-dashboard',
-  label: 'Campaign Story',
-  link: '/dashboard/campaign-story',
-  icon: <MdFileOpen />,
-  v2Icon: BookOpen,
-  v2Category: 'campaign',
-}
-
 export const getDashboardMenuItems = (
   serveAccessEnabled: boolean,
   isElectedOffice: boolean,
@@ -324,20 +314,15 @@ export const getDashboardMenuItems = (
 
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
   // unshifted above it: BRIEFINGS for an elected office, COMMUNITY_ISSUES when
-  // its flag is on, then Chief of Staff when shown. Insert campaign items right
-  // after Campaign Manager (and Story before Plan, so the Plan splice lands
-  // first) to render the campaign-category nav as [Campaign Manager, Campaign
-  // Plan, Campaign Story, …].
+  // its flag is on, then Chief of Staff when shown. Insert the Plan/Tracker
+  // item right after Campaign Manager to render the campaign-category nav as
+  // [Campaign Manager, Campaign Plan, …].
   const afterCampaignManager =
     1 +
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
     (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
-
-  if (campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
-  }
 
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that

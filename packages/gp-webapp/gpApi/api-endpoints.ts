@@ -3,6 +3,7 @@ import type {
   ExperimentVariantsResponse,
   Ordinance,
   OrdinanceListResponse,
+  OrdinanceQualityIterationsResponse,
   OrdinanceQualityRun,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
@@ -511,6 +512,21 @@ export type APIEndpoints = {
   'GET /v1/ordinances/:slug/quality-report': {
     Request: {}
     Response: OrdinanceQualityRun
+  }
+
+  'POST /v1/ordinances/:slug/quality-loop': {
+    Request: {}
+    Response: Ordinance
+  }
+
+  'DELETE /v1/ordinances/:slug/quality-loop': {
+    Request: {}
+    Response: Ordinance
+  }
+
+  'GET /v1/ordinances/:slug/quality-iterations': {
+    Request: {}
+    Response: OrdinanceQualityIterationsResponse
   }
 
   'GET /v1/contacts/stats': {

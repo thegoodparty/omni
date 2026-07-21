@@ -114,6 +114,12 @@ hand, put it under `.worktrees/` and remove it with `git worktree remove`, never
 `rm` — `rm` leaves git's worktree metadata dangling. After a worktree's PR merges,
 run `git worktree prune`.
 
+Provision a fresh worktree with `scripts/worktree-setup.sh` (run from inside it):
+copies untracked `.env` files from the main checkout, runs `npm ci`, builds the
+workspace-internal packages, and regenerates the Prisma clients. Never symlink
+`.env` files or `node_modules` across worktrees — tracked env files show up as
+typechanges, and stale workspace-package `dist/` causes phantom lint/type errors.
+
 ## Observability and debugging (use the MCPs)
 
 When investigating a bug or incident, use the MCP tools rather than guessing.

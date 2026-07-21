@@ -1,0 +1,40 @@
+// One QC(+revision) pass of the ordinance quality loop. The rows are the
+// what-changed UI, the handler's position-resolution substrate (via
+// revisedInputHash), and the offline eval corpus of (before, flags, after)
+// triples. `report`/`revisionNotes` are JsonB per rules.mdc Rule 25's
+// exception: contracts-validated at write time, never queried by shape.
+model OrdinanceQualityIteration {
+  id          String    @id @default(uuid(7))
+  ordinanceId String    @map("ordinance_id")
+  ordinance   Ordinance @relation(fields: [ordinanceId], references: [id], onDelete: Cascade)
+
+  loopRunId String @map("loop_run_id")
+  iteration Int
+
+  inputHash  String @map("input_hash")
+  qcAttempts Int    @default(1) @map("qc_attempts")
+
+  // The draft as graded by this iteration's QC pass. draftSources snapshots
+  // the record's sources alongside the text: later revise steps append
+  // sources the earlier body never cites, so a terminal restore must put
+  // back the sources graded with the restored text, not the accumulation.
+  draftTitle   String  @map("draft_title")
+  draftBody    String  @map("draft_body") @db.Text
+  draftSources Json?   @map("draft_sources") @db.JsonB
+  report       Json?   @db.JsonB
+  model        String?
+  tokens       Int?
+
+  // Set by the revise step; revisedInputHash is the record's
+  // qualityReportInputHash after the revision landed.
+  revisedTitle     String? @map("revised_title")
+  revisedBody      String? @map("revised_body") @db.Text
+  revisedInputHash String? @map("revised_input_hash")
+  revisionNotes    Json?   @map("revision_notes") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([ordinanceId, loopRunId, iteration])
+  @@map("ordinance_quality_iteration")
+}

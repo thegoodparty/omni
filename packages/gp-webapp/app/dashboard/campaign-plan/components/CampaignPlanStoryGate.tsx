@@ -83,7 +83,11 @@ const CampaignPlanStoryGate = ({
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/campaign-story">Go to Campaign Story</Link>
+          {/* Deep link: CampaignManagerHome auto-launches the story-intake
+              chat flow on `?personalize=1`, same as its own story card. */}
+          <Link href="/dashboard?personalize=1">
+            Open your campaign manager
+          </Link>
         </Button>
       </Card>
     )
@@ -149,7 +153,7 @@ const CampaignPlanStoryGate = ({
           Generate my Campaign Plan
         </Button>
         <Button variant="ghost" className="sm:ml-auto" asChild>
-          <Link href="/dashboard/campaign-story">Edit my Story</Link>
+          <Link href="/dashboard?personalize=1">Edit in campaign manager</Link>
         </Button>
       </div>
 

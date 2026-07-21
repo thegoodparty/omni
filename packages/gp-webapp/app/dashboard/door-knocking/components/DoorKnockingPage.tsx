@@ -1,11 +1,12 @@
 'use client'
+import dynamic from 'next/dynamic'
 import DashboardLayout from '../../shared/DashboardLayout'
 import InteractionsSummary from './InteractionsSummary'
-import { apiRoutes } from 'gpApi/routes'
 import InteractionsSummaryPie from './InteractionsSummaryPie'
-import InteractionsByDay from './InteractionsByDay'
-import RatingSummary from './RatingSummary'
+import { apiRoutes } from 'gpApi/routes'
 import H1 from '@shared/typography/H1'
+import H2 from '@shared/typography/H2'
+import Paper from '@shared/utils/Paper'
 import { dateWithTime } from 'helpers/dateHelper'
 import { Button } from '@styleguide'
 import { clientFetch } from 'gpApi/clientFetch'
@@ -15,6 +16,45 @@ import { syncEcanvasser } from '@shared/utils/syncEcanvasser'
 import DoorKnockingTabs from '../shared/DoorKnockingTabs'
 import { Campaign } from 'helpers/types'
 import type { EcanvasserSummary } from './types'
+
+// chart.js + react-chartjs-2 is the heaviest dependency this route pulls in, and
+// every chart sits below the fold. InteractionsByDay and RatingSummary are
+// chart-only panels, so the whole panel loads lazily with a placeholder that
+// mirrors its Paper + heading + fixed-height slot. InteractionsSummaryPie also
+// renders a legend table (visible in the initial viewport on xl), so it stays
+// in the first load and defers only its chart internally to avoid a layout
+// shift. Either way chart.js is kept out of the route's first-load bundle.
+const ChartPanelFallback = ({
+  title,
+  className,
+}: {
+  title: string
+  className: string
+}): React.JSX.Element => (
+  <Paper className={className}>
+    <H2 className="mb-8">{title}</H2>
+    <div className="h-[400px] flex items-center justify-center">
+      <div className="text-gray-500">Loading…</div>
+    </div>
+  </Paper>
+)
+
+const InteractionsByDay = dynamic(() => import('./InteractionsByDay'), {
+  ssr: false,
+  loading: () => (
+    <ChartPanelFallback
+      title="Interactions Over Time"
+      className="md:p-6 mt-4"
+    />
+  ),
+})
+
+const RatingSummary = dynamic(() => import('./RatingSummary'), {
+  ssr: false,
+  loading: () => (
+    <ChartPanelFallback title="Rating Distribution" className="md:p-6 mt-4" />
+  ),
+})
 
 interface DoorKnockingPageProps {
   pathname: string

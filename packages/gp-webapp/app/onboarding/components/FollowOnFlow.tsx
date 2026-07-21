@@ -27,7 +27,6 @@ import { getVisibleOnboardingSteps } from './onboardingHelpers'
 import { OfficeSelectionStep } from './OfficeSelectionStep'
 import { ManualOfficeEntryStep } from './ManualOfficeEntryStep'
 import { PathToVictoryStep } from './PathToVictoryStep'
-import { VoterDemographicsStep } from './VoterDemographicsStep'
 import { PledgeStep } from './PledgeStep'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
 import type {
@@ -569,18 +568,6 @@ export default function FollowOnFlow({
               campaign={liveCampaign}
               officeName={p2vOfficeName}
               onLoadingChange={setIsP2vLoading}
-            />
-          )}
-
-          {activeStep.id === 'voter-demographics' && (
-            <VoterDemographicsStep
-              ballotReadyPositionId={answers.structuredOffice?.positionId}
-              orgPositionId={
-                liveCampaign?.organization?.positionId ?? undefined
-              }
-              city={answers.structuredOffice?.city}
-              state={answers.structuredOffice?.state}
-              office={answers.structuredOffice?.positionName}
             />
           )}
 

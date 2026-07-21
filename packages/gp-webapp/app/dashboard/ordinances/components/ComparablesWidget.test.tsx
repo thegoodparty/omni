@@ -151,6 +151,32 @@ describe('ComparablesWidget', () => {
     expect(screen.queryByText('Outcome.')).not.toBeInTheDocument()
   })
 
+  it('renders no blockquote when the card has an empty quote', () => {
+    const { container } = render(
+      <ComparablesWidget
+        presentation={{
+          comparables: [
+            {
+              city: 'Fairview',
+              state: 'Ohio',
+              headline: 'Adopted a bike parking minimum',
+              quote: '',
+              status: 'passed',
+              source: {
+                id: 'fairview-bike',
+                title: 'Municipal Code ch. 8',
+                publisher: 'City of Fairview',
+                url: 'https://fairview.gov/code/8',
+              },
+            },
+          ],
+        }}
+      />,
+    )
+    expect(container.querySelector('blockquote')).toBeNull()
+    expect(screen.getByText('Adopted a bike parking minimum')).toBeVisible()
+  })
+
   it('renders the year in the meta line when population is absent', () => {
     const [first] = presentation.comparables
     if (!first) throw new Error('fixture requires a comparable')

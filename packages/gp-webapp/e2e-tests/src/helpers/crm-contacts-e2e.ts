@@ -60,6 +60,34 @@ export const selectWizardPill = async (
 export const wizardBuildButton = (page: Page): Locator =>
   page.getByRole('button', { name: /build your list/i })
 
+// A chip row on the wizard's ACTIVITY branch (ENG-10757). ActivityStep mixes
+// single-type ToggleGroups (channel "Previous activity", "Campaign") with a
+// multiple-type one ("Activity" outcomes), and Radix gives the two different
+// accessible roles (radio items vs toolbar buttons) — so these anchor on the
+// aria-label and the element tag instead of a role. With stacked conditions
+// the same label repeats per condition; scope with .nth(i) at the call site.
+export const activityPillGroup = (scope: Locator, label: string): Locator =>
+  scope.locator(`[aria-label="${label}"]`)
+
+const escapeForRegex = (text: string): string =>
+  text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// Radix renders every ToggleGroupItem as a <button> in both group types, and
+// data-state "on"/"off" is the one selected-state contract shared by both.
+export const activityPill = (group: Locator, option: string): Locator =>
+  group
+    .locator('button')
+    .filter({ hasText: new RegExp(`^${escapeForRegex(option)}$`) })
+
+export const selectActivityPill = async (
+  group: Locator,
+  option: string,
+): Promise<void> => {
+  const pill = activityPill(group, option)
+  await pill.click()
+  await expect(pill).toHaveAttribute('data-state', 'on')
+}
+
 const parseWizardCount = (label: string | null): number | undefined => {
   const digits = label?.match(/\(([\d,]+)\)/)?.[1]
   if (!digits) return undefined
