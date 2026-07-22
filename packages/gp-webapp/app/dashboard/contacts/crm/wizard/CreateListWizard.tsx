@@ -275,7 +275,11 @@ export default function CreateListWizard({
   })
 
   const trimmedName = name.trim()
-  const canSubmit = trimmedName.length > 0 && !createMutation.isPending
+  // !isLoading: a save that races the debounced count would omit voterCount
+  // and let the server default it to 0 — the exact display bug ENG-10769
+  // fixes. A failed count still submits (count stays a nice-to-have).
+  const canSubmit =
+    trimmedName.length > 0 && !createMutation.isPending && !isLoading
 
   const handleSubmit = () => {
     if (!canSubmit) return

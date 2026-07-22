@@ -309,6 +309,32 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     })
   })
 
+  it('keeps Save list disabled while the live count is still resolving (ENG-10769)', async () => {
+    const user = userEvent.setup()
+    // A count that never settles: saving now would omit voterCount and let
+    // the server default it to 0 — the display bug this ticket fixes.
+    api.mock(
+      'POST /v1/contacts/count',
+      () => new Promise<never>(() => undefined),
+    )
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Racy list')
+
+    expect(screen.getByRole('button', { name: 'Save list' })).toBeDisabled()
+  })
+
   it('hides the Political Party section for an elected official', async () => {
     setContext({ isElectedOfficial: true })
     const user = userEvent.setup()

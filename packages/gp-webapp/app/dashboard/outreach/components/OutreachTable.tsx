@@ -90,7 +90,7 @@ const getP2pStatusLabel = (row: OutreachRow): string | null => {
 const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   pending: 'In review',
   approved: 'In review',
-  denied: 'In review',
+  denied: 'Denied',
   paid: 'Scheduled',
   in_progress: 'Scheduled',
   completed: 'Sent',
