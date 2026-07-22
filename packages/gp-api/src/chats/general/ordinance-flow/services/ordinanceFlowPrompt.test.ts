@@ -267,6 +267,75 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(without).not.toContain('AUTHORITY RULES')
   })
 
+  it('makes the authority step search for preemption affirmatively and block when found', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'authority' }),
+      toolNames: ['present_authority_finding', 'web_search', 'offer_next_step'],
+    })
+    // The stress-test failure: the check inferred authority from the absence
+    // of a bar. The rule must require an affirmative preemption search and
+    // forbid inferring safety from absence.
+    expect(prompt).toContain('AFFIRMATIVELY')
+    expect(prompt).toContain('preempt')
+    expect(prompt).toContain('ABSENCE of a bar')
+    // A found preemption must not be a passing verdict.
+    expect(prompt).toContain('likely preempted')
+  })
+
+  it('tells later steps to surface law that contradicts a standing verdict', () => {
+    const afterAuthority = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({
+        step: 'comparables',
+        authority: {
+          status: 'pass',
+          explanation: 'Home-rule authority covers this.',
+          source: { id: 's1', title: 'City Charter 3.2' },
+        },
+      }),
+      toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
+    })
+    expect(afterAuthority).toContain('STANDING AUTHORITY VERDICT')
+    expect(afterAuthority).toContain('save_note')
+
+    // Not on the authority step itself (it owns the verdict), and not before
+    // any verdict exists.
+    const onAuthority = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({
+        step: 'authority',
+        authority: {
+          status: 'pass',
+          explanation: 'Home-rule authority covers this.',
+          source: { id: 's1', title: 'City Charter 3.2' },
+        },
+      }),
+      toolNames: ['present_authority_finding', 'offer_next_step'],
+    })
+    expect(onAuthority).not.toContain('STANDING AUTHORITY VERDICT')
+    const noVerdict = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables', authority: null }),
+      toolNames: ['present_comparables', 'offer_next_step'],
+    })
+    expect(noVerdict).not.toContain('STANDING AUTHORITY VERDICT')
+  })
+
+  it('marks advanceable steps as required and forbids fake navigation promises', () => {
+    const advanceable = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'authority' }),
+      toolNames: ['present_authority_finding', 'offer_next_step'],
+    })
+    expect(advanceable).toContain('STEP REQUIREMENTS')
+    expect(advanceable).toContain('Do not offer to skip this step')
+    expect(advanceable).toContain('cannot move the user between steps')
+
+    // The terminal draft and the standalone review have nowhere to advance, so
+    // they never carry offer_next_step and must not claim the step is skippable.
+    const draft = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'draft' }),
+      toolNames: ['read_ordinance', 'present_draft'],
+    })
+    expect(draft).not.toContain('STEP REQUIREMENTS')
+  })
+
   it('includes present-card ordering rules when any present_* tool is offered', () => {
     const withTool = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'authority' }),
