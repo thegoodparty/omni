@@ -18,6 +18,7 @@ const baseCtx = (
   seedType: 'new',
   issueSlug: null,
   goalText: 'Reduce late-night construction noise',
+  sourceLink: null,
   clarifyAnswers: [],
   authority: null,
   comparables: null,
@@ -354,6 +355,30 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     })
     expect(prompt).toContain('present_current_law_summary:')
     expect(prompt).toContain('present_legislative_history:')
+  })
+
+  it('surfaces the source link and update rules only when one is on file', () => {
+    const updating = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({
+        step: 'current_law',
+        sourceLink: 'https://library.municode.com/nc/hendersonville/ch-42',
+      }),
+      toolNames: ['fetch_url', 'save_existing_law'],
+    })
+    expect(updating).toContain(
+      'Existing ordinance to update: ' +
+        'https://library.municode.com/nc/hendersonville/ch-42',
+    )
+    expect(updating).toContain('UPDATING AN EXISTING ORDINANCE')
+    // The update rule reuses the same redline markup the draft step expects.
+    expect(updating).toContain('{-struck old text-}{+inserted new text+}')
+
+    const fromScratch = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'current_law', sourceLink: null }),
+      toolNames: ['fetch_url', 'save_existing_law'],
+    })
+    expect(fromScratch).toContain('Existing ordinance to update: —')
+    expect(fromScratch).not.toContain('UPDATING AN EXISTING ORDINANCE')
   })
 
   it('tells the review step an automated quality pass may revise the draft', () => {
