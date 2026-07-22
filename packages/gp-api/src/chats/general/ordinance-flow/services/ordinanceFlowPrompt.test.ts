@@ -39,6 +39,29 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('Reduce late-night construction noise')
   })
 
+  it('forbids reciting unverified legal specifics on every step, in prose', () => {
+    // The abstain-and-point rule is always-on (not tool- or step-gated): it must
+    // appear even on a bare session with no tools, so prose answers on any step
+    // are held to the same sourcing standard as the cards.
+    for (const step of [
+      'intro',
+      'clarify',
+      'authority',
+      'current_law',
+      'comparables',
+      'draft',
+      'review',
+    ] as const) {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: baseCtx({ step }),
+        toolNames: [],
+      })
+      expect(prompt).toContain('SPECIFIC LEGAL VALUES')
+      expect(prompt).toContain('came from a source you consulted in THIS')
+      expect(prompt).toContain('say so and POINT')
+    }
+  })
+
   it('keeps vendors and research mechanics out of user-facing prose on every step', () => {
     for (const step of [
       'clarify',
