@@ -53,8 +53,8 @@ const renderCards = ({
 
 // ENG-10762 (Bugbot follow-up): the deep-linked preselectedListId is
 // consume-once, but only flows whose audience step actually applies it
-// (text, and robocall as of ENG-10764) clear it on close — it survives a
-// non-consuming flow's close (door knocking, phone banking).
+// (text, robocall as of ENG-10764, and phone banking as of ENG-10765) clear
+// it on close — it survives a non-consuming flow's close (door knocking).
 describe('OutreachCreateCards — ENG-10762 consume-once preselectedListId', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -105,6 +105,22 @@ describe('OutreachCreateCards — ENG-10762 consume-once preselectedListId', () 
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
 
     await user.click(screen.getByText('Robocall'))
+    const secondFlow = await screen.findByTestId('task-flow')
+    expect(secondFlow).toHaveAttribute('data-preselected-list-id', '')
+  })
+
+  it('clears the pending id once a phone banking flow closes (ENG-10765)', async () => {
+    const user = userEvent.setup()
+    renderCards({ preselectedListId: 42 })
+
+    await user.click(screen.getByText('Phone banking'))
+    const firstFlow = await screen.findByTestId('task-flow')
+    expect(firstFlow).toHaveAttribute('data-preselected-list-id', '42')
+
+    await user.click(screen.getByRole('button', { name: 'close' }))
+    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('Phone banking'))
     const secondFlow = await screen.findByTestId('task-flow')
     expect(secondFlow).toHaveAttribute('data-preselected-list-id', '')
   })

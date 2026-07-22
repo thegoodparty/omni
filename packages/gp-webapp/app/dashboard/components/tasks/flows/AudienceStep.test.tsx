@@ -794,8 +794,31 @@ describe('AudienceStep robocall saved-list selector', () => {
     expect(screen.queryByText('Build a new audience')).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
+})
 
-  it('stays dropdown-free for phone banking (ENG-10765 territory) even when saved lists exist', async () => {
+// ENG-10765: phone banking gets the same saved-list selector as robocall
+// (real count fetch, zero-member Next guard) but has no cost preview and no
+// phone list — and its download step needs to know a saved list was picked.
+describe('AudienceStep phone banking saved-list selector', () => {
+  const mockListDetail = (people: number) => ({
+    demographics: { people, avgAge: null, avgIncome: null },
+    reachability: {
+      sms: 0,
+      robocall: 0,
+      phoneBanking: 0,
+      doorKnocking: 0,
+      email: null,
+      metaAds: null,
+    },
+    outreachHistory: [],
+  })
+
+  beforeEach(() => {
+    mockCountVoterFile.mockReset()
+    mockClientRequest.mockReset()
+  })
+
+  it('shows the saved-list dropdown for phone banking when saved lists exist', async () => {
     mockClientRequest.mockResolvedValue({
       data: [{ id: 42, name: 'My Super Voters' }],
     })
@@ -810,8 +833,212 @@ describe('AudienceStep robocall saved-list selector', () => {
       />,
     )
 
-    await waitFor(() => expect(mockClientRequest).not.toHaveBeenCalled())
+    await waitFor(() =>
+      expect(screen.getByText('Build a new audience')).toBeInTheDocument(),
+    )
+  })
+
+  it('looks like today (checkbox-only, no dropdown) when phone banking has no saved lists', async () => {
+    mockClientRequest.mockResolvedValue({ data: [] })
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+      />,
+    )
+
+    await waitFor(() => expect(mockClientRequest).toHaveBeenCalled())
     expect(screen.queryByText('Build a new audience')).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
+  })
+
+  it('selecting a saved list fetches its real count, skips throwaway filter creation, and reports savedListId', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockListDetail(500) })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const onCreateVoterFileFilter = vi.fn().mockResolvedValue({ id: 999 })
+    const onCreatePhoneList = vi.fn().mockResolvedValue('phone-token')
+    const onChangeCallback = vi.fn()
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{}}
+        onChangeCallback={onChangeCallback}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={onCreateVoterFileFilter}
+        onCreatePhoneList={onCreatePhoneList}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Build a new audience')).toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByRole('combobox'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('option', { name: 'My Super Voters' }),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.click(screen.getByRole('option', { name: 'My Super Voters' }))
+
+    await waitFor(() => expect(screen.getByText('500')).toBeInTheDocument())
+    // No cost preview for phone banking — only the voters-selected number.
+    expect(screen.queryByText(/Estimated cost/)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(nextCallback).toHaveBeenCalled())
+
+    expect(onCreateVoterFileFilter).not.toHaveBeenCalled()
+    // Phone banking has no phone list — onCreatePhoneList must stay out of this path.
+    expect(onCreatePhoneList).not.toHaveBeenCalled()
+    expect(onChangeCallback).toHaveBeenLastCalledWith({
+      voterFileFilter: expect.objectContaining({ id: 42 }),
+      phoneListToken: null,
+      savedListId: 42,
+    })
+  })
+
+  it('surfaces an error and blocks Next when the list-detail count fetch fails', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.reject(new Error('list-detail 500'))
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+
+    await waitFor(() =>
+      expect(screen.getByText('Voter data unavailable')).toBeInTheDocument(),
+    )
+
+    const nextButton = screen.getByRole('button', { name: 'Next' })
+    expect(nextButton).toBeDisabled()
+
+    fireEvent.click(nextButton)
+    expect(nextCallback).not.toHaveBeenCalled()
+  })
+
+  it('blocks Next when the selected saved list has zero members', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockListDetail(0) })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    await waitFor(() => expect(screen.getByText('0')).toBeInTheDocument())
+
+    const nextButton = screen.getByRole('button', { name: 'Next' })
+    expect(nextButton).toBeDisabled()
+
+    fireEvent.click(nextButton)
+    expect(nextCallback).not.toHaveBeenCalled()
+  })
+
+  it('checkbox-filter path is unchanged for phone banking and reports no savedListId', async () => {
+    mockClientRequest.mockResolvedValue({ data: [] })
+    mockCountVoterFile.mockResolvedValue(150)
+
+    const nextCallback = vi.fn()
+    const onChangeCallback = vi.fn()
+    const onCreateVoterFileFilter = vi.fn().mockResolvedValue({ id: 999 })
+    const onCreatePhoneList = vi.fn().mockResolvedValue('phone-token')
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{ audience_superVoters: true }}
+        onChangeCallback={onChangeCallback}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={onCreateVoterFileFilter}
+        onCreatePhoneList={onCreatePhoneList}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('150')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(nextCallback).toHaveBeenCalled())
+
+    expect(onCreateVoterFileFilter).toHaveBeenCalled()
+    expect(onCreatePhoneList).not.toHaveBeenCalled()
+    expect(onChangeCallback).toHaveBeenLastCalledWith({
+      voterFileFilter: expect.objectContaining({ id: 999 }),
+      phoneListToken: null,
+      savedListId: undefined,
+    })
+  })
+
+  it('applies preselectedListId once the matching saved list loads for phone banking', async () => {
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockListDetail(200) })
+      }
+      return Promise.resolve({
+        data: [
+          { id: 42, name: 'My Super Voters' },
+          { id: 43, name: 'Other List' },
+        ],
+      })
+    })
+
+    render(
+      <AudienceStep
+        type="phoneBanking"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    expect(await screen.findByText(/Using your saved list/)).toBeInTheDocument()
+    expect(screen.getAllByText('My Super Voters')).toHaveLength(2)
+    expect(await screen.findByText('200')).toBeInTheDocument()
   })
 })

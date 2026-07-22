@@ -24,6 +24,10 @@ interface DownloadStepProps {
   scriptText: string
   onCreateOutreach?: () => Promise<void>
   voterCount?: number
+  // ENG-10765: set only when the audience step's selection was a saved list
+  // (phone banking). Door knocking never passes this — the segment-export
+  // branch stays inert for it.
+  savedListId?: number
 }
 
 export default function DownloadStep({
@@ -32,6 +36,7 @@ export default function DownloadStep({
   scriptText,
   onCreateOutreach = noopAsync,
   voterCount = 0,
+  savedListId,
 }: DownloadStepProps): React.JSX.Element {
   useSingleEffect(doCreateOutReachEffectHandler(onCreateOutreach), [])
 
@@ -76,6 +81,7 @@ export default function DownloadStep({
       {
         voterFileFilter: audience,
         outreachType: type,
+        savedListId,
       },
       setDownloading,
       errorSnackbar,

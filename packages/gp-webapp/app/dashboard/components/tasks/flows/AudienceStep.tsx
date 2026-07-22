@@ -69,6 +69,7 @@ interface AudienceStepProps {
       | {
           voterFileFilter?: VoterFileFilterResult
           phoneListToken: string | null | undefined
+          savedListId?: number
         },
     value?: AudienceFiltersState | number,
   ) => void
@@ -118,10 +119,17 @@ export default function AudienceStep({
   const isTextType = type === LEGACY_TASK_TYPES.sms || type === TASK_TYPES.text
   const isRobocallType =
     type === LEGACY_TASK_TYPES.telemarketing || type === TASK_TYPES.robocall
-  // ENG-10764: robocall gets the same saved-list selector as text. Door
-  // knocking (being rewritten) and phone banking (ENG-10765) stay
-  // checkbox-only, so this is a named-types union, not type-agnostic.
-  const showsSavedListSelector = isTextType || isRobocallType
+  const isPhoneBankingType = type === TASK_TYPES.phoneBanking
+  // ENG-10764/10765: robocall and phone banking get the same saved-list
+  // selector as text. Door knocking (being rewritten) stays checkbox-only, so
+  // this is a named-types union, not type-agnostic.
+  const showsSavedListSelector =
+    isTextType || isRobocallType || isPhoneBankingType
+  // Robocall and phone banking both have no live checkbox-driven count for a
+  // saved list, so both fetch the list's refreshed people count instead of
+  // leaving the estimate blank. Text deliberately leaves count at 0 (the
+  // phone-list build owns its real count later).
+  const fetchesSavedListCount = isRobocallType || isPhoneBankingType
 
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
   // Empty string = "build a new audience from the checkboxes" (the default).
@@ -232,6 +240,12 @@ export default function AudienceStep({
     onChangeCallback({
       voterFileFilter,
       phoneListToken,
+      // ENG-10765: DownloadStep needs to tell a saved list (segment export)
+      // apart from a throwaway checkbox-built filter (both carry an `id`),
+      // so phone banking always reports the current selection — present but
+      // undefined when the user switches back to "build a new audience" —
+      // so a stale selection from an earlier Next press can't linger.
+      ...(isPhoneBankingType ? { savedListId: selectedList?.id } : {}),
     })
     nextCallback()
   }
@@ -245,7 +259,7 @@ export default function AudienceStep({
     // A selected saved list drives the audience server-side from its persisted
     // fields; the checkbox-based live count doesn't apply to it.
     if (selectedList) {
-      if (!isRobocallType) {
+      if (!fetchesSavedListCount) {
         setCountError(null)
         setCount(0)
         setLoading(false)
@@ -254,7 +268,9 @@ export default function AudienceStep({
       }
 
       // Robocall's cost preview (CALL_PRICE / CALL_W_VOICEMAIL_PRICE) needs a
-      // real count even for a saved list, so fetch the list's refreshed
+      // real count even for a saved list; phone banking has no cost preview
+      // but still needs the real voters-selected number and the zero-member
+      // Next guard on its download path. Both fetch the list's refreshed
       // people count instead of leaving the estimate blank. Shares the fetch
       // with the CRM lists index (see fetchListDetail) instead of a second
       // hand-rolled call.
@@ -336,7 +352,7 @@ export default function AudienceStep({
     type,
     hasValues,
     selectedList,
-    isRobocallType,
+    fetchesSavedListCount,
     onChangeCallback,
   ])
 
@@ -373,15 +389,16 @@ export default function AudienceStep({
       : countError.message || GENERIC_COUNT_ERROR_MESSAGE
     : null
   const hasCountError = !!countError
-  // The zero-count guard only applies where a real count exists: robocall
-  // fetches the saved list's count; the text saved-list branch deliberately
-  // leaves count at 0 (the phone-list build owns its real count later).
+  // The zero-count guard only applies where a real count exists: robocall and
+  // phone banking fetch the saved list's count; the text saved-list branch
+  // deliberately leaves count at 0 (the phone-list build owns its real count
+  // later).
   const isNextDisabled = selectedList
-    ? loading || hasCountError || (isRobocallType && count === 0)
+    ? loading || hasCountError || (fetchesSavedListCount && count === 0)
     : !hasValues || loading || hasCountError || (hasValues && count === 0)
 
-  // Shared by the checkbox-built audience and (robocall only) the
-  // saved-list branch, which fetches a real count instead of leaving this
+  // Shared by the checkbox-built audience and (robocall/phone banking only)
+  // the saved-list branch, which fetches a real count instead of leaving this
   // blank — see the count useEffect above.
   const votersAndCostSummary = (
     <div className="p-4 text-sm">
@@ -459,7 +476,7 @@ export default function AudienceStep({
               Using your saved list:{' '}
               <span className="font-bold text-black">{selectedList.name}</span>
             </div>
-            {isRobocallType && (
+            {fetchesSavedListCount && (
               <>
                 {votersAndCostSummary}
                 {inlineCountErrorMessage ? (
