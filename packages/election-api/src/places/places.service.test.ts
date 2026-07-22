@@ -7,10 +7,12 @@ describe('PlacesService', () => {
   let service: PlacesService
   let findUnique: ReturnType<typeof vi.fn>
   let findMany: ReturnType<typeof vi.fn>
+  let queryRaw: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     findUnique = vi.fn()
     findMany = vi.fn()
+    queryRaw = vi.fn()
     service = new PlacesService()
     Object.defineProperty(service, '_prisma', {
       value: {
@@ -20,6 +22,7 @@ describe('PlacesService', () => {
         place: {
           findMany,
         },
+        $queryRaw: queryRaw,
       },
     })
   })
@@ -65,6 +68,38 @@ describe('PlacesService', () => {
         'No place associated with position id=00000000-0000-0000-0000-000000000001',
       ),
     )
+  })
+
+  describe('getPlacesWithMostElections', () => {
+    it('pushes the LIMIT into SQL with the count as a bound parameter', async () => {
+      const rows = [
+        { slug: 'st/city', name: 'City', race_count: 5 },
+        { slug: 'st/county', name: 'County', race_count: 3 },
+      ]
+      queryRaw.mockResolvedValue(rows)
+
+      const minRaces = 2
+      const count = 10
+      const result = await service.getPlacesWithMostElections(minRaces, count)
+
+      expect(queryRaw).toHaveBeenCalledTimes(1)
+
+      // Prisma tagged-template call: (strings, ...values)
+      const [strings, ...values] = queryRaw.mock.calls[0] as [
+        TemplateStringsArray,
+        ...unknown[],
+      ]
+      const sql = strings.join('?')
+
+      // LIMIT is applied in SQL, not sliced in JS afterwards.
+      expect(sql).toMatch(/LIMIT/i)
+      // count is parameterized (bound value), never string-interpolated.
+      expect(values).toContain(count)
+      expect(values).toContain(minRaces)
+
+      // Service returns exactly what the DB returned — no JS-side slicing.
+      expect(result).toBe(rows)
+    })
   })
 
   describe('getPlaces dedupes races across categorized children', () => {

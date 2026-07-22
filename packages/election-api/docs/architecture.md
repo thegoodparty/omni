@@ -50,6 +50,8 @@ Swagger is mounted at `/api` (no prefix) for ad-hoc exploration in non-prod.
 
 There is no application-level auth. `election-api` is an **internal** service — the only callers are `gp-api` and other internal services inside the VPC. Network-level controls (VPC, security groups in `deploy/components/`) are the boundary. Don't add public endpoints without first changing this assumption.
 
+Unlike sibling `people-api` (which enforces a global `S2SAuthGuard` because it serves L2 voter PII), `election-api` relies on network isolation because it serves only public election/candidate data. This divergence is intentional — see [ADR-0001](adr/0001-no-app-level-auth.md).
+
 CORS is open (`origin: '*'`) for the same reason — change `CORS_ORIGIN` in env if/when this is no longer internal-only.
 
 ## Cross-service edges
