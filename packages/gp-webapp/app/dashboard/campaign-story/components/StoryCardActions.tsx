@@ -44,68 +44,82 @@ export default function StoryCardActions({
   const showSave = isDirty || hasSavedContent
 
   return (
-    <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
-      <div>
-        {showSave && (
-          <Button
-            variant="outline"
-            size="small"
-            icon={hasSavedContent && !isDirty ? <CheckIcon /> : undefined}
-            loading={isSaving}
-            loadingText="Saving…"
-            disabled={!isDirty || isSaving}
-            onClick={onSave}
-          >
-            {hasSavedContent && !isDirty ? 'Saved' : 'Save'}
-          </Button>
-        )}
-      </div>
+    <div className="flex flex-col gap-2 border-t border-border pt-3">
+      {(dictation.error || dictation.partialTranscript) && (
+        <p className="text-sm">
+          {dictation.error ? (
+            <span className="text-destructive">{dictation.error}</span>
+          ) : (
+            <span className="italic text-muted-foreground">
+              {dictation.partialTranscript}
+            </span>
+          )}
+        </p>
+      )}
 
-      <div className="flex items-center gap-2">
-        {rewrite.isRewriting ? (
-          <span className="flex items-center gap-2 text-sm text-muted-foreground">
-            <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
-            Improving…
-          </span>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void rewrite.requestRewrite('initial')}
-            disabled={improveDisabled || rewrite.limitReached}
-            className="flex items-center gap-1.5 text-sm font-medium text-foreground transition-opacity hover:opacity-80 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <SparklesIcon className="size-4" aria-hidden />
-            Improve with AI
-          </button>
-        )}
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          {showSave && (
+            <Button
+              variant="outline"
+              size="small"
+              icon={hasSavedContent && !isDirty ? <CheckIcon /> : undefined}
+              loading={isSaving}
+              loadingText="Saving…"
+              disabled={!isDirty || isSaving}
+              onClick={onSave}
+            >
+              {hasSavedContent && !isDirty ? 'Saved' : 'Save'}
+            </Button>
+          )}
+        </div>
 
-        {isRecording ? (
-          <button
-            type="button"
-            aria-label="Stop recording"
-            onClick={() => void dictation.toggle()}
-            disabled={dictation.busy}
-            className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-white disabled:opacity-50"
-          >
-            <SquareIcon className="size-4" aria-hidden />
-          </button>
-        ) : (
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="small"
-            aria-label="Record voice"
-            disabled={dictation.busy}
-            onClick={() => void dictation.toggle()}
-            className="shrink-0"
-          >
-            {dictation.busy ? (
-              <LoaderCircleIcon className="size-5 animate-spin" aria-hidden />
-            ) : (
-              <MicIcon className="size-5" aria-hidden />
-            )}
-          </IconButton>
-        )}
+        <div className="flex items-center gap-2">
+          {rewrite.isRewriting ? (
+            <span className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted-foreground">
+              <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
+              Improving…
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void rewrite.requestRewrite('initial')}
+              disabled={improveDisabled || rewrite.limitReached}
+              className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-grayscale-100 disabled:pointer-events-none disabled:opacity-50 disabled:hover:bg-transparent"
+            >
+              <SparklesIcon className="size-4" aria-hidden />
+              Improve with AI
+            </button>
+          )}
+
+          {isRecording ? (
+            <button
+              type="button"
+              aria-label="Stop recording"
+              onClick={() => void dictation.toggle()}
+              disabled={dictation.busy}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-white disabled:opacity-50"
+            >
+              <SquareIcon className="size-4" aria-hidden />
+            </button>
+          ) : (
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="small"
+              aria-label="Record voice"
+              disabled={dictation.busy}
+              onClick={() => void dictation.toggle()}
+              className="shrink-0"
+            >
+              {dictation.busy ? (
+                <LoaderCircleIcon className="size-5 animate-spin" aria-hidden />
+              ) : (
+                <MicIcon className="size-5" aria-hidden />
+              )}
+            </IconButton>
+          )}
+        </div>
       </div>
     </div>
   )
