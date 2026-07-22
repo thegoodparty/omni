@@ -432,7 +432,10 @@ export = async () => {
     preview: '',
     dev: 'campaign-plan-input-dev.fifo',
     qa: 'campaign-plan-input-qa.fifo',
-    prod: '',
+    // IAM grant provisioned ahead of the (currently disabled) prod
+    // CAMPAIGN_PLAN_INPUT_QUEUE_URL env var so enabling prod later doesn't
+    // 403 on SQS. An Allow on an unused queue ARN is harmless.
+    prod: 'campaign-plan-input-prod.fifo',
   })
   const agentDispatchQueueName = select({
     preview: '',
