@@ -3,7 +3,6 @@ import * as pulumi from '@pulumi/pulumi'
 
 interface PreviewSharedClusterConfig {
   vpcId: string
-  vpcCidr: string
   privateSubnetIds: string[]
   appSecurityGroupIds: string[]
   dbPassword: string
@@ -15,7 +14,6 @@ interface PreviewSharedClusterConfig {
 // cluster per PR.
 export const createPreviewSharedCluster = ({
   vpcId,
-  vpcCidr,
   privateSubnetIds,
   appSecurityGroupIds,
   dbPassword,
@@ -31,14 +29,14 @@ export const createPreviewSharedCluster = ({
           protocol: 'tcp',
           fromPort: 5432,
           toPort: 5432,
+          description: 'gp-api preview tasks (shared app security group)',
           securityGroups: appSecurityGroupIds,
         },
-        {
-          protocol: 'tcp',
-          fromPort: 5432,
-          toPort: 5432,
-          cidrBlocks: [vpcCidr],
-        },
+        // The previous whole-VPC-CIDR rule (cidrBlocks: ['10.0.0.0/16']) was
+        // removed: it let anything in the VPC reach the cluster that holds every
+        // PR-preview database. Preview tasks already reach it via the app
+        // security group rule above, so the broad CIDR grant only widened the
+        // blast radius.
         {
           protocol: 'tcp',
           fromPort: 5432,
