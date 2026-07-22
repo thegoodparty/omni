@@ -10,6 +10,7 @@ import cors from '@fastify/cors'
 import multipart from '@fastify/multipart'
 import websocket from '@fastify/websocket'
 import { AppModule } from './app.module'
+import { Logger as NestLogger } from '@nestjs/common'
 import { Logger, PinoLogger } from 'nestjs-pino'
 import fastifyStatic from '@fastify/static'
 import { join } from 'path'
@@ -87,13 +88,35 @@ export const bootstrap = async (
     .setVersion('1.0')
     .build()
 
-  const document = SwaggerModule.createDocument(app, swaggerConfig)
-  SwaggerModule.setup('api', app, document)
+  // Do not expose the Swagger UI in production. It leaks the full API surface
+  // and schema details. Keep it available in dev/qa (or when explicitly
+  // enabled via SWAGGER_ENABLED).
+  const swaggerEnabled =
+    process.env.SWAGGER_ENABLED === 'true' ||
+    process.env.NODE_ENV !== 'production'
+  if (swaggerEnabled) {
+    const document = SwaggerModule.createDocument(app, swaggerConfig)
+    SwaggerModule.setup('api', app, document)
+  }
 
   await app.register(helmet)
 
+  // Fail closed on CORS: `credentials: true` combined with a wildcard origin
+  // is a fail-open combination, so we require an explicit CORS_ORIGIN allow
+  // list at boot rather than defaulting to '*'. Mirrors the AUTH_SECRET boot
+  // check in authentication.module.ts.
+  if (!process.env.CORS_ORIGIN) {
+    const msg =
+      'CORS_ORIGIN is required for application startup (wildcard origin is not allowed with credentials)'
+    new NestLogger('bootstrap').error(msg)
+    throw new Error(msg)
+  }
+  const corsOrigin = process.env.CORS_ORIGIN.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+
   await app.register(cors, {
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: corsOrigin.length === 1 ? corsOrigin[0] : corsOrigin,
     credentials: true,
   })
 
