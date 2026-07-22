@@ -65,7 +65,10 @@ test.describe('campaign-story flag flow', () => {
 
     await page.waitForURL('**/dashboard', { timeout: 30000 })
     await expect(
-      page.getByRole('heading', { name: 'Your campaign manager', level: 1 }),
+      page.getByRole('heading', {
+        name: 'Meet your virtual Campaign Manager',
+        level: 2,
+      }),
     ).toBeVisible({ timeout: 30000 })
   })
 
