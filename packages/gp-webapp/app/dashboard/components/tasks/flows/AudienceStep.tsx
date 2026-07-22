@@ -133,10 +133,13 @@ export default function AudienceStep({
   }, [])
 
   // ENG-10763: applies the CRM "Send outreach" list link's preselectedListId
-  // exactly once, on the first successful fetch — never again after, so a
-  // user who deliberately switches lists (or back to "Build a new audience")
-  // doesn't get snapped back to it on a later re-render.
-  const appliedPreselectRef = useRef(false)
+  // whenever a NEW id arrives that hasn't been applied yet (tracked by value,
+  // not a one-shot boolean — a caller like OutreachCreateCards can update the
+  // id it threads down, e.g. a later deep link while this step stays
+  // mounted, and that new id must still take). Never re-applies the SAME id
+  // again, so a user who deliberately switches lists (or back to "Build a
+  // new audience") doesn't get snapped back to it on a later re-render.
+  const lastAppliedPreselectListIdRef = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     if (!isTextType) return
@@ -150,10 +153,13 @@ export default function AudienceStep({
             !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
         )
         setSavedLists(filtered)
-        if (!appliedPreselectRef.current && preselectedListId !== undefined) {
+        if (
+          preselectedListId !== undefined &&
+          preselectedListId !== lastAppliedPreselectListIdRef.current
+        ) {
           const match = filtered.find((list) => list.id === preselectedListId)
           if (match) {
-            appliedPreselectRef.current = true
+            lastAppliedPreselectListIdRef.current = preselectedListId
             // Reuse the exact same code path a manual dropdown pick takes —
             // no separate "preselected" state to keep in sync.
             handleSelectList(match.id.toString())

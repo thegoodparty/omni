@@ -357,6 +357,49 @@ describe('AudienceStep saved-list selector', () => {
     expect(screen.queryByText(/Using your saved list/)).not.toBeInTheDocument()
   })
 
+  it('applies a changed preselectedListId that arrives while mounted (e.g. a caller updating the id it threads down)', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [
+        { id: 42, name: 'My Super Voters' },
+        { id: 99, name: 'A Different List' },
+      ],
+    })
+
+    const { rerender } = render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(screen.getAllByText('My Super Voters')).toHaveLength(2)
+
+    rerender(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={99}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getAllByText('A Different List')).toHaveLength(2),
+    )
+    expect(screen.queryByText('My Super Voters')).not.toBeInTheDocument()
+  })
+
   it('without preselectedListId renders identically to today (defaults to build-new)', async () => {
     mockClientRequest.mockResolvedValue({
       data: [{ id: 42, name: 'My Super Voters' }],

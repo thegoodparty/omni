@@ -1,5 +1,5 @@
 'use client'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense } from 'react'
 import DashboardLayout from '../../shared/DashboardLayout'
 import { OutreachHeader } from './OutreachHeader'
 import FreeTextsBanner from './FreeTextsBanner'
@@ -35,25 +35,6 @@ export const OutreachPage = ({
     trackEvent(EVENTS.Outreach.ViewAccessed)
   }, [])
 
-  // ENG-10762 (Bugbot follow-up): OutreachComposeDeepLink strips ?listId from
-  // the address bar via router.replace, which re-fetches this force-dynamic
-  // route's RSC payload with the param gone — so `preselectedListId` arrives
-  // as undefined on that second render. Capture the first defined value into
-  // state (survives across that refresh for this mounted component instance)
-  // instead of reading the prop directly downstream. A later deep link that
-  // arrives with a different defined id (the page instance stays mounted)
-  // still updates the capture.
-  const [capturedPreselectedListId, setCapturedPreselectedListId] =
-    useState(preselectedListId)
-  useEffect(() => {
-    if (
-      preselectedListId !== undefined &&
-      preselectedListId !== capturedPreselectedListId
-    ) {
-      setCapturedPreselectedListId(preselectedListId)
-    }
-  }, [preselectedListId, capturedPreselectedListId])
-
   return (
     <OutreachProvider initValue={outreaches}>
       <DashboardLayout pathname={pathname} campaign={campaign}>
@@ -61,7 +42,7 @@ export const OutreachPage = ({
         <FreeTextsBanner tcrCompliance={tcrCompliance} />
         <OutreachCreateCards
           tcrCompliance={tcrCompliance}
-          preselectedListId={capturedPreselectedListId}
+          preselectedListId={preselectedListId}
         />
         <Suspense>
           <OutreachComposeDeepLink tcrCompliance={tcrCompliance} />
