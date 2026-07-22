@@ -283,31 +283,31 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
   })
 
   it('tells later steps to surface law that contradicts a standing verdict', () => {
-    const afterAuthority = buildOrdinanceFlowSystemPrompt({
-      ctx: baseCtx({
-        step: 'comparables',
-        authority: {
-          status: 'pass',
-          explanation: 'Home-rule authority covers this.',
-          source: { id: 's1', title: 'City Charter 3.2' },
-        },
-      }),
+    const authority = {
+      status: 'pass' as const,
+      explanation: 'Home-rule authority covers this.',
+      source: { id: 's1', title: 'City Charter 3.2' },
+    }
+
+    // current_law is the first post-authority step and the most likely to
+    // surface a contradicting statute, so it must carry the rule too.
+    const onCurrentLaw = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'current_law', authority }),
+      toolNames: ['fetch_url', 'save_existing_law', 'save_note'],
+    })
+    expect(onCurrentLaw).toContain('STANDING AUTHORITY VERDICT')
+    expect(onCurrentLaw).toContain('save_note')
+
+    const onComparables = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'comparables', authority }),
       toolNames: ['present_comparables', 'web_search', 'offer_next_step'],
     })
-    expect(afterAuthority).toContain('STANDING AUTHORITY VERDICT')
-    expect(afterAuthority).toContain('save_note')
+    expect(onComparables).toContain('STANDING AUTHORITY VERDICT')
 
     // Not on the authority step itself (it owns the verdict), and not before
     // any verdict exists.
     const onAuthority = buildOrdinanceFlowSystemPrompt({
-      ctx: baseCtx({
-        step: 'authority',
-        authority: {
-          status: 'pass',
-          explanation: 'Home-rule authority covers this.',
-          source: { id: 's1', title: 'City Charter 3.2' },
-        },
-      }),
+      ctx: baseCtx({ step: 'authority', authority }),
       toolNames: ['present_authority_finding', 'offer_next_step'],
     })
     expect(onAuthority).not.toContain('STANDING AUTHORITY VERDICT')
