@@ -422,7 +422,7 @@ describe('new onboarding flow shell', () => {
     ).toBeInTheDocument()
 
     const skipButton = await screen.findByRole('button', {
-      name: 'Skip for now',
+      name: 'Skip',
     })
     fireEvent.click(skipButton)
 
@@ -497,7 +497,7 @@ describe('new onboarding flow shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
 
     const skipButton = await screen.findByRole('button', {
-      name: 'Skip for now',
+      name: 'Skip',
     })
     fireEvent.click(skipButton)
 
@@ -539,7 +539,7 @@ describe('new onboarding flow shell', () => {
       }),
     ).toBeInTheDocument()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -547,7 +547,7 @@ describe('new onboarding flow shell', () => {
 
     // Back to the (still-incomplete) story step, then skip a second time.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -559,7 +559,7 @@ describe('new onboarding flow shell', () => {
     expect(skippedCalls).toHaveLength(1)
   })
 
-  it('labels the pledge button "Agree & Continue" for the campaign-story cohort', async () => {
+  it('labels the pledge button "Meet your campaign manager" for the campaign-story cohort', async () => {
     setCampaignStoryFlag(true, true)
     mswServer.use(
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
@@ -577,18 +577,18 @@ describe('new onboarding flow shell', () => {
     await advancePastManualOfficeEntry()
 
     // On the (incomplete) story step, skip to the pledge.
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
-    // Story comes before the pledge and submit routes to the Campaign Manager,
-    // so the old "Let's Create Your Story" copy is gone.
+    // Story comes before the pledge and submit routes into the Campaign
+    // Manager, so the pledge CTA is labeled to match that destination.
     expect(
-      screen.getByRole('button', { name: 'Agree & Continue' }),
+      screen.getByRole('button', { name: 'Meet your campaign manager' }),
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: "Let's Create Your Story" }),
+      screen.queryByRole('button', { name: 'Agree & Continue' }),
     ).not.toBeInTheDocument()
   })
 
@@ -664,7 +664,7 @@ describe('new onboarding flow shell', () => {
       }),
     ).toBeInTheDocument()
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -688,9 +688,12 @@ describe('new onboarding flow shell', () => {
     queryClient.removeQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
 
+    // Continue unlocks only once the re-fetched (now complete) story reports
+    // done, so wait for it to enable before clicking.
     const continueButton = await screen.findByRole('button', {
       name: 'Continue',
     })
+    await waitFor(() => expect(continueButton).toBeEnabled())
     fireEvent.click(continueButton)
 
     expect(
