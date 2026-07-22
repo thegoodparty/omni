@@ -43,7 +43,7 @@ describe('PlacesService', () => {
     const result = await service.getPlaceByPositionId(positionId)
 
     expect(raceFindFirst).toHaveBeenCalledWith({
-      where: { positionId },
+      where: { positionId, placeId: { not: null } },
       select: { Place: true },
     })
     expect(result).toEqual(place)

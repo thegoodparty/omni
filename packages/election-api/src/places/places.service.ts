@@ -133,10 +133,11 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
     if (!position) {
       throw new NotFoundException(`Position not found for id=${positionId}`)
     }
-    // Position carries no place FK; resolve through the position's races, whose
-    // place_id is always populated (the race mart inner-joins Place).
+    // Position carries no place FK; resolve through the position's races. Only
+    // consider races that actually have a Place — Race.placeId is nullable, so
+    // an unfiltered pick could return a placeless race and 404 spuriously.
     const race = await this.client.race.findFirst({
-      where: { positionId },
+      where: { positionId, placeId: { not: null } },
       select: { Place: true },
     })
     if (!race?.Place) {
