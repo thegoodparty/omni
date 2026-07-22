@@ -61,7 +61,13 @@ export const OutreachComposeDeepLink = ({
   // router.replace already clears the whole query string (including
   // listId) — skip here so the two effects don't race on the same replace.
   useEffect(() => {
-    if (!listIdParam || composeType || listIdConsumedRef.current) return
+    // Re-arm when the param goes absent (post-strip), same as consumedRef
+    // below, so a second ?listId= navigation while mounted still strips.
+    if (!listIdParam) {
+      listIdConsumedRef.current = false
+      return
+    }
+    if (composeType || listIdConsumedRef.current) return
     listIdConsumedRef.current = true
     router.replace('/dashboard/outreach', { scroll: false })
   }, [listIdParam, composeType, router])

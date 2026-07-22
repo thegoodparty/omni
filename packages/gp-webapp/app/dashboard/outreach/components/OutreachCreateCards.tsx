@@ -179,8 +179,10 @@ const OutreachCreateCards = ({
           onClose={() => {
             setFlowModalTask(null)
             // Consume-once: whatever id this flow carried (if any) doesn't
-            // ride into the next flow the user opens.
+            // ride into the next flow the user opens. Reset the ref too so a
+            // later deep link re-firing the identical id re-syncs.
             setPendingPreselectedListId(undefined)
+            lastSyncedPropListIdRef.current = undefined
           }}
         />
       )}
