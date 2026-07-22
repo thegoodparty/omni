@@ -79,12 +79,20 @@ Services backed by a Prisma model **must** extend `createPrismaBase(MODELS.Model
 
 Almost all `Voter` queries go through `Prisma.sql` / `$queryRaw`, not Prisma ORM CRUD. The Voter table has 100+ L2 columns and partitioning by state — the ORM path is too coarse. Filter Zod → `transformFilters` → `buildVoterFiltersSql` → `Prisma.sql` WHERE clauses → execute. Output is normalized via `transformToPersonOutput` before leaving the service.
 
-Name-search list AND count queries run under a 2.5s `SET LOCAL
-statement_timeout`; on cancellation (SQLSTATE 57014) `people.service.ts`
-retries once with a trigram-fenced subquery — Postgres floors LIKE selectivity
-estimates, so rare patterns otherwise mislead the planner into a
-full-partition scan. The fenced count is exact for fence-triggering (rare)
-patterns and a 10k floor otherwise.
+Every `/people` count AND the filtered aggregates (`getAggregates`) run under
+a 2.5s `SET LOCAL statement_timeout` (`SLOW_QUERY_TIMEOUT_MS`); on
+cancellation (SQLSTATE 57014) `people.service.ts` retries once with a fenced
+subquery capped at `FENCE_LIMIT` (10k), via the shared `queryWithTimeoutFence`
+helper — not just name-search: a broad/low-selectivity filter can force the
+same pathological `DistrictVoter` → `Voter` nested loop that a rare
+name-search LIKE pattern does. The fenced count is exact when the query
+completes under the timeout and a `FENCE_LIMIT` floor otherwise; the fenced
+aggregates fallback computes AVG age/income over that same capped subquery, so
+they become a sample rather than an exact figure when the fence binds.
+
+The voter LIST fence stays name-search-only: fencing a broad filter's list
+would silently drop rows from an ordered, paginated page, whereas a count has
+no ordering to preserve.
 
 `District` and `DistrictStats` use ORM methods — they're small lookup tables.
 
