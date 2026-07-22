@@ -19,11 +19,11 @@ export class HttpClient {
     try {
       return await ofetch<T>(path, {
         baseURL: this.baseUrl,
+        ...init,
         headers: {
           Authorization: `Bearer ${await this.getToken()}`,
           ...(init?.headers ?? {}),
         },
-        ...init,
       })
     } catch (error: unknown) {
       if (error instanceof FetchError) {
