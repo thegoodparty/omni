@@ -296,7 +296,9 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
       toolNames: ['fetch_url', 'save_existing_law', 'save_note'],
     })
     expect(onCurrentLaw).toContain('STANDING AUTHORITY VERDICT')
-    expect(onCurrentLaw).toContain('save_note')
+    // Target text unique to the rule body, not the bare `save_note` tool name
+    // (which the tool block renders whenever the tool is offered anyway).
+    expect(onCurrentLaw).toContain('`save_note` to record the contradiction')
 
     const onComparables = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'comparables', authority }),
