@@ -210,13 +210,20 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       districtId: effectiveDistrictId,
       filters: dto.filters,
     })
-    const rows = await this.client.$queryRaw<
-      Array<{
-        count: bigint
-        avgAge: number | null
-        avgIncome: number | null
-      }>
-    >(sql)
+    // Same DistrictVoter -> Voter join as rawCountForDistrict, so it shares the
+    // same pathological-plan exposure; the fenced fallback trades an exact
+    // AVG for a sampled one over the capped row set (see buildAggregatesSql).
+    const fencedSql = buildAggregatesSql({
+      state,
+      districtId: effectiveDistrictId,
+      filters: dto.filters,
+      fenceLimit: FENCE_LIMIT,
+    })
+    const rows = await this.queryWithTimeoutFence<{
+      count: bigint
+      avgAge: number | null
+      avgIncome: number | null
+    }>(sql, fencedSql)
     const row = rows[0]
     const count = Number(row?.count ?? 0n)
     if (count === 0 && effectiveDistrictId) {
@@ -291,7 +298,10 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     // slow.
     const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
       FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) v`
-    const rows = await this.countWithTimeoutGuard(countSql, fencedCountSql)
+    const rows = await this.queryWithTimeoutFence<{ voter_count: bigint }>(
+      countSql,
+      fencedCountSql,
+    )
 
     const count = Number(rows[0]?.voter_count ?? 0n)
     if (count === 0 && districtId) {
@@ -329,10 +339,15 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     )
   }
 
-  private async countWithTimeoutGuard(
-    countSql: Prisma.Sql,
-    fencedCountSql: Prisma.Sql,
-  ): Promise<Array<{ voter_count: bigint }>> {
+  // Shared by every guarded raw query (the count and the aggregates): attempt
+  // primarySql under a statement timeout; if Postgres cancels it (SQLSTATE
+  // 57014), retry once with fencedSql. SET LOCAL only holds for the
+  // transaction it runs in, and Prisma batch transactions execute on a single
+  // connection, so the timeout scopes to exactly this query.
+  private async queryWithTimeoutFence<T>(
+    primarySql: Prisma.Sql,
+    fencedSql: Prisma.Sql,
+  ): Promise<T[]> {
     const startedAt = Date.now()
     try {
       const [, rows] = await this.client.$transaction([
@@ -341,7 +356,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
             `SET LOCAL statement_timeout = '${SLOW_QUERY_TIMEOUT_MS}ms'`,
           ),
         ),
-        this.client.$queryRaw<Array<{ voter_count: bigint }>>(countSql),
+        this.client.$queryRaw<T[]>(primarySql),
       ])
       return rows
     } catch (error) {
@@ -350,11 +365,9 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       }
       this.logger.warn(
         { elapsedMs: Date.now() - startedAt },
-        'Count hit the statement timeout; retrying with fenced subquery',
+        'Query hit the statement timeout; retrying with fenced subquery',
       )
-      return this.client.$queryRaw<Array<{ voter_count: bigint }>>(
-        fencedCountSql,
-      )
+      return this.client.$queryRaw<T[]>(fencedSql)
     }
   }
 

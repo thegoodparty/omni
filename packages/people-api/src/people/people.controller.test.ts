@@ -124,7 +124,7 @@ const baseFakePrisma = {
     const take = Number(values[values.length - 2] ?? dataset.length)
     return dataset.slice(skip, skip + take)
   }),
-  // Every count now runs through countWithTimeoutGuard: $transaction([SET LOCAL
+  // Every count now runs through queryWithTimeoutFence: $transaction([SET LOCAL
   // statement_timeout, count]). Resolve the batch so the count still flows through $queryRaw.
   $executeRaw: vi.fn(async () => 0),
   $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),

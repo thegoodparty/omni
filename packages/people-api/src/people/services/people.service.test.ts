@@ -47,6 +47,14 @@ const makeDbPerson = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   }) as never
 
+// Mirrors the real Prisma raw-query error for SQLSTATE 57014 (statement
+// cancelled by statement_timeout).
+const statementTimeoutError = () =>
+  new Prisma.PrismaClientKnownRequestError(
+    'Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`',
+    { code: 'P2010', clientVersion: 'test', meta: { code: '57014' } },
+  )
+
 describe('PeopleService', () => {
   let service: PeopleService
   let mockSampleService: { samplePeople: ReturnType<typeof vi.fn> }
@@ -270,14 +278,6 @@ describe('PeopleService', () => {
       (call as { sql?: string })?.sql ?? ''
     const valuesOf = (call: unknown): unknown[] =>
       (call as { values?: unknown[] })?.values ?? []
-
-    // Mirrors the real Prisma raw-query error for SQLSTATE 57014
-    // (statement cancelled by statement_timeout).
-    const statementTimeoutError = () =>
-      new Prisma.PrismaClientKnownRequestError(
-        'Raw query failed. Code: `57014`. Message: `canceling statement due to statement timeout`',
-        { code: 'P2010', clientVersion: 'test', meta: { code: '57014' } },
-      )
 
     const searchDto = (overrides: Record<string, unknown> = {}) =>
       ({
@@ -784,6 +784,56 @@ describe('PeopleService', () => {
       const arg = (call as { strings?: readonly string[] }) ?? {}
       return arg.strings ? arg.strings.join('?') : ''
     }
+    const sqlOf = (call: unknown): string =>
+      (call as { sql?: string })?.sql ?? ''
+    const valuesOf = (call: unknown): unknown[] =>
+      (call as { values?: unknown[] })?.values ?? []
+
+    it('runs the aggregates query through the same statement-timeout guard as the count', async () => {
+      mockClient.$queryRaw.mockResolvedValueOnce([
+        { count: 1n, avgAge: 45, avgIncome: 50000 },
+      ])
+
+      await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      expect(sqlOf(mockClient.$executeRaw.mock.calls[0]?.[0])).toBe(
+        "SET LOCAL statement_timeout = '2500ms'",
+      )
+    })
+
+    it('retries with the fenced aggregate SQL on statement cancellation (57014), yielding a sampled AVG', async () => {
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([]) // primary aggregate (cancelled inside the txn)
+        .mockResolvedValueOnce([
+          { count: 10000n, avgAge: 41, avgIncome: 48000 },
+        ]) // fenced retry
+      mockClient.$transaction.mockRejectedValueOnce(statementTimeoutError())
+
+      const result = await service.getAggregates({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: { filters: [], filterOperators: {} },
+      } as never)
+
+      expect(result).toEqual({ count: 10000, avgAge: 41, avgIncome: 48000 })
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
+
+      const primarySql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
+      expect(primarySql).not.toContain('SELECT v.*')
+
+      // The fenced retry wraps the same FROM+WHERE in an unordered, capped
+      // subquery: the aggregates then run over that sample, not the full
+      // filtered set.
+      const fenced = mockClient.$queryRaw.mock.calls[1]?.[0]
+      const fencedSql = sqlTextOf(fenced)
+      expect(fencedSql).toContain('FROM (SELECT v.* FROM')
+      expect(fencedSql).toContain('LIMIT')
+      expect(valuesOf(fenced).slice(-1)).toEqual([10000])
+    })
 
     it('resolves the district and returns count/avgAge/avgIncome', async () => {
       // A seeded set of 3 matching voters: ages [20, 30, 40] avg to 30;
