@@ -398,6 +398,31 @@ export const EVENTS = {
     SegmentUpdated: 'Contacts - Segment Updated',
     SegmentViewed: 'Contacts - Segment Viewed',
     OutreachTimelineViewed: 'Contacts - Outreach Timeline Viewed',
+    // ENG-10767: the CRM contacts assistant (crm/assistant/). Opened fires
+    // once per drawer open with { context, source: 'message' | 'history' }
+    // (a bar submit opens with a message; a history pick opens a past
+    // conversation); MessageSent fires per user send ({ context }) — the
+    // initial bar submit and every composer follow-up — so open-to-send
+    // drop-off is visible.
+    AssistantChatOpened: 'Contacts - Assistant Chat Opened',
+    AssistantMessageSent: 'Contacts - Assistant Message Sent',
+    // ENG-10767: per-stage funnel for the URL-stable create-list wizard
+    // (crm/wizard/CreateListWizard.tsx) — RouteTracker page views can't see
+    // its stages. Viewed fires on every stage entry (including Back
+    // re-entry); Completed fires on advance (Name Completed on a successful
+    // create, alongside the List Created outcome event — funnel completion
+    // and outcome answer different questions). All carry { context }; the
+    // conditions/name stages add { branch: 'voterFile' | 'activity' }.
+    // Serve's 2-step wizard never fires the Method stage (no branch
+    // chooser, ENG-10750).
+    ListWizard: {
+      MethodViewed: 'Contacts - List Wizard Method Viewed',
+      MethodCompleted: 'Contacts - List Wizard Method Completed',
+      ConditionsViewed: 'Contacts - List Wizard Conditions Viewed',
+      ConditionsCompleted: 'Contacts - List Wizard Conditions Completed',
+      NameViewed: 'Contacts - List Wizard Name Viewed',
+      NameCompleted: 'Contacts - List Wizard Name Completed',
+    },
   },
   // ENG-10688: the CRM brief specs the typeahead search events as
   // product-specific by nav surface — "Voter Data" (Win) vs "Constituent
@@ -435,6 +460,15 @@ export const EVENTS = {
     ListCreated: 'Voter Data - List Created',
     ActivityListCreated: 'Voter Data - Activity List Created',
     ListExported: 'Voter Data - List Exported',
+    // ENG-10767: entry point of the CRM list → outreach funnel. Fires on
+    // every "Send outreach" click in the CRM with
+    // { surface: 'listCard' | 'listDetail' | 'universeRow' } plus { listId }
+    // for the two saved-list surfaces (the universe row links bare). Joins to
+    // the outreach wizard's audienceSource: 'deepLink' property on the
+    // audience-step Next and Voter Outreach - Campaign Completed events.
+    // Win-only by construction (ENG-10749 hides the button for Serve), so
+    // there is no ConstituentData variant.
+    SendOutreachClicked: 'Voter Data - Send Outreach Clicked',
     ClickNeedHelp: 'Voter Data: Click Need Help',
     NeedHelp: {
       Exit: 'Voter Data - Need Help: Exit modal',

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { Button, Card, UserIcon } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { districtStatsQueryOptions } from 'app/dashboard/polls/shared/queries'
 import { useContactsTable } from '../ContactsTableProvider'
 import { getContactsLabels } from '../../../shared/contactsLabels'
@@ -37,7 +38,18 @@ const AllContactsCard = ({
         </span>
         {showSendOutreach && (
           <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-            <Link href="/dashboard/outreach">Send outreach</Link>
+            <Link
+              href="/dashboard/outreach"
+              onClick={() =>
+                // No listId: the universe row links bare (there is no saved
+                // segment behind the unfiltered universe).
+                trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                  surface: 'universeRow',
+                })
+              }
+            >
+              Send outreach
+            </Link>
           </Button>
         )}
       </div>
