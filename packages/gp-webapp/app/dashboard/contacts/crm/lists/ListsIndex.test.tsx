@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ListsIndex from './ListsIndex'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useListRowDetail } from './useListRowDetail'
@@ -10,6 +11,10 @@ import { useDuplicateList } from './useDuplicateList'
 
 vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 vi.mock('./useListRowDetail', () => ({
   useListRowDetail: vi.fn(),
@@ -187,6 +192,31 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
     expect(
       screen.queryByRole('link', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+// ENG-10767: the CRM list → outreach funnel entry event.
+describe('ListsIndex — Send Outreach Clicked analytics', () => {
+  it('fires with surface universeRow (no listId) from the universe row and surface listCard + listId from a card', async () => {
+    setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    const outreachLinks = screen.getAllByRole('link', {
+      name: 'Send outreach',
+    })
+    await user.click(outreachLinks[0]!)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { surface: 'universeRow' },
+    )
+
+    await user.click(outreachLinks[1]!)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { listId: 42, surface: 'listCard' },
+    )
   })
 })
 

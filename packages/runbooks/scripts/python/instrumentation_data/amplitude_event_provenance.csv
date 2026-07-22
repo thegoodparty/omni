@@ -90,9 +90,17 @@ Constituent Data - Contact Viewed,constituent_data_contact_viewed,4caf631aca9e57
 Constituent Data - List Created,constituent_data_list_created,a0eb41932492f5c96a88f169f5552cfe1591ed17,https://github.com/thegoodparty/omni/pull/852,2026-07-17,tomer@goodparty.org,,,,,2026-07-17,1,,2026-07-20T11:56:25
 Constituent Data - List Exported,constituent_data_list_exported,a0eb41932492f5c96a88f169f5552cfe1591ed17,https://github.com/thegoodparty/omni/pull/852,2026-07-17,tomer@goodparty.org,,,,,2026-07-17,1,,2026-07-20T11:56:25
 Constituent Data - Note Added,constituent_data_note_added,54343bfe5bc2c22bd5db8f7faaa98208d7c8017f,,2026-07-16,tomer@goodparty.org,,,,,2026-07-16,1,,2026-07-20T11:56:25
+Contacts - Assistant Chat Opened,contacts_assistant_chat_opened,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:42
+Contacts - Assistant Message Sent,contacts_assistant_message_sent,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:42
 Contacts - Column Edited,contacts_column_edited,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,58821b65733bc3b6da57c261c7602ee7e8f1c6e5,https://github.com/thegoodparty/omni/pull/732,2026-07-13,tristan@goodparty.org,2026-07-13,,,2026-07-13T21:45:27
 Contacts - Contacts Viewed,contacts_contacts_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,52380560+tomer-tgp@users.noreply.github.com,,,,,2026-07-17,1,,2026-07-20T11:56:25
 Contacts - Download,contacts_download,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,2026-06-30T20:12:33
+Contacts - List Wizard Conditions Completed,contacts_list_wizard_conditions_completed,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:42
+Contacts - List Wizard Conditions Viewed,contacts_list_wizard_conditions_viewed,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:42
+Contacts - List Wizard Method Completed,contacts_list_wizard_method_completed,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:42
+Contacts - List Wizard Method Viewed,contacts_list_wizard_method_viewed,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:42
+Contacts - List Wizard Name Completed,contacts_list_wizard_name_completed,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:43
+Contacts - List Wizard Name Viewed,contacts_list_wizard_name_viewed,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:43
 Contacts - Outreach Timeline Viewed,contacts_outreach_timeline_viewed,89f97d0c41382d4c48e72db3ffe591be4694d12a,https://github.com/thegoodparty/omni/pull/194,2026-06-17,52380560+tomer-tgp@users.noreply.github.com,,,,,2026-06-17,1,,2026-06-30T20:12:33
 Contacts - Segment Created,contacts_segment_created,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,2026-06-30T20:12:33
 Contacts - Segment Deleted,contacts_segment_deleted,e54c02097e3c70880d05b8a7479f7889f87cdd99,https://github.com/thegoodparty/omni/pull/958,2025-09-14,tomer@goodparty.org,,,,,2025-09-14,1,,2026-06-30T20:12:33
@@ -443,6 +451,7 @@ Voter Data - Need Help: Exit modal,voter_data_need_help_exit_modal,1170c2777b41a
 Voter Data - Need Help: Select Voter File type,voter_data_need_help_select_voter_file_type,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33
 Voter Data - Need Help: Submit,voter_data_need_help_submit,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33
 Voter Data - Note Added,voter_data_note_added,54343bfe5bc2c22bd5db8f7faaa98208d7c8017f,,2026-07-16,tomer@goodparty.org,,,,,2026-07-16,,,2026-07-20T11:56:25
+Voter Data - Send Outreach Clicked,voter_data_send_outreach_clicked,,,2026-07-22,,,,,,2026-07-22,,,2026-07-22T15:10:43
 Voter Data: Click Create Custom Voter File,voter_data_click_create_custom_voter_file,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33
 Voter Data: Click Detail View,voter_data_click_detail_view,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33
 Voter Data: Click Need Help,voter_data_click_need_help,1170c2777b41a1baf9f50650655aa705fdf7bbb3,,2025-02-26,snayak00@gmail.com,,,,,2025-02-26,,,2026-06-30T20:12:33

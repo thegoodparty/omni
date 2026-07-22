@@ -188,6 +188,10 @@ describe('AudienceStep saved-list selector', () => {
     expect(onChangeCallback).toHaveBeenLastCalledWith({
       voterFileFilter: expect.objectContaining({ id: 42 }),
       phoneListToken: 'phone-token',
+      // ENG-10767: a manual dropdown pick reports 'savedList', never
+      // 'deepLink'.
+      audienceSource: 'savedList',
+      audienceListId: 42,
     })
   })
 
@@ -253,7 +257,7 @@ describe('AudienceStep saved-list selector', () => {
     expect(screen.getAllByText('My Super Voters')).toHaveLength(2)
   })
 
-  it('proceeding with the preselected list produces the same payload as manual selection', async () => {
+  it('proceeding with the preselected list produces the manual-selection payload, attributed to the deep link', async () => {
     const savedList = { id: 42, name: 'My Super Voters', hasCellPhone: true }
     mockClientRequest.mockResolvedValue({ data: [savedList] })
 
@@ -289,6 +293,63 @@ describe('AudienceStep saved-list selector', () => {
     expect(onChangeCallback).toHaveBeenLastCalledWith({
       voterFileFilter: expect.objectContaining({ id: 42 }),
       phoneListToken: 'phone-token',
+      // ENG-10767: the only payload difference from a manual pick — the
+      // deep-linked preselect attributes the audience to the CRM link.
+      audienceSource: 'deepLink',
+      audienceListId: 42,
+    })
+  })
+
+  it('reports customFilters after switching from the deep-linked list back to build-new (ENG-10767)', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [{ id: 42, name: 'My Super Voters' }],
+    })
+    mockCountVoterFile.mockResolvedValue(150)
+
+    const onChangeCallback = vi.fn()
+    const nextCallback = vi.fn()
+
+    let setAudience!: (value: AudienceFiltersState) => void
+    const Wrapper = () => {
+      const [audience, setState] = useState<AudienceFiltersState>({})
+      setAudience = setState
+      return (
+        <AudienceStep
+          type="text"
+          audience={audience}
+          onChangeCallback={onChangeCallback}
+          nextCallback={nextCallback}
+          backCallback={vi.fn()}
+          onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+          onCreatePhoneList={vi.fn().mockResolvedValue('phone-token')}
+          preselectedListId={42}
+        />
+      )
+    }
+
+    render(<Wrapper />)
+
+    await screen.findByText(/Using your saved list/)
+
+    fireEvent.click(screen.getByRole('combobox'))
+    fireEvent.click(
+      await screen.findByRole('option', { name: 'Build a new audience' }),
+    )
+    act(() => {
+      setAudience({ audience_superVoters: true })
+    })
+    await waitFor(() => expect(screen.getByText('150')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await waitFor(() => expect(nextCallback).toHaveBeenCalled())
+
+    // The consumed deep link must not leave a stale 'deepLink' attribution
+    // on an audience the user rebuilt from checkboxes.
+    expect(onChangeCallback).toHaveBeenLastCalledWith({
+      voterFileFilter: expect.objectContaining({ id: 999 }),
+      phoneListToken: 'phone-token',
+      audienceSource: 'customFilters',
+      audienceListId: null,
     })
   })
 
@@ -600,6 +661,8 @@ describe('AudienceStep robocall saved-list selector', () => {
     expect(onChangeCallback).toHaveBeenLastCalledWith({
       voterFileFilter: expect.objectContaining({ id: 42 }),
       phoneListToken: null,
+      audienceSource: 'savedList',
+      audienceListId: 42,
     })
   })
 
@@ -907,6 +970,8 @@ describe('AudienceStep phone banking saved-list selector', () => {
     expect(onChangeCallback).toHaveBeenLastCalledWith({
       voterFileFilter: expect.objectContaining({ id: 42 }),
       phoneListToken: null,
+      audienceSource: 'savedList',
+      audienceListId: 42,
       savedListId: 42,
     })
   })
@@ -1009,6 +1074,8 @@ describe('AudienceStep phone banking saved-list selector', () => {
     expect(onChangeCallback).toHaveBeenLastCalledWith({
       voterFileFilter: expect.objectContaining({ id: 999 }),
       phoneListToken: null,
+      audienceSource: 'customFilters',
+      audienceListId: null,
       savedListId: undefined,
     })
   })

@@ -62,6 +62,14 @@ const isAudienceFilterKey = (
 
 type VoterFileFilterResult = PhoneListInput & { id?: number }
 
+// ENG-10767: how the audience was chosen, carried as a property on the
+// audience-step Next and Voter Outreach - Campaign Completed events so the
+// CRM list → outreach funnel is attributable end to end. 'deepLink' means
+// the CRM "Send outreach" link's preselected list was still the selection at
+// advance time; a manual dropdown pick (even of the same list) is
+// 'savedList'; no saved list means the checkbox-built audience.
+export type AudienceSource = 'savedList' | 'deepLink' | 'customFilters'
+
 interface AudienceStepProps {
   onChangeCallback: (
     keyOrData:
@@ -70,6 +78,8 @@ interface AudienceStepProps {
           voterFileFilter?: VoterFileFilterResult
           phoneListToken: string | null | undefined
           savedListId?: number
+          audienceSource: AudienceSource
+          audienceListId: number | null
         },
     value?: AudienceFiltersState | number,
   ) => void
@@ -134,6 +144,13 @@ export default function AudienceStep({
   const [savedLists, setSavedLists] = useState<SavedList[]>([])
   // Empty string = "build a new audience from the checkboxes" (the default).
   const [selectedListId, setSelectedListId] = useState('')
+  // ENG-10767: whether the current saved-list selection came from the CRM
+  // deep link's preselect or a manual dropdown pick — a user who manually
+  // re-picks (or switches away from) the deep-linked list is reporting their
+  // own choice, not the link's.
+  const [selectionSource, setSelectionSource] = useState<
+    'manual' | 'deepLink' | null
+  >(null)
 
   const selectedList = useMemo(
     () =>
@@ -143,9 +160,13 @@ export default function AudienceStep({
     [selectedListId, savedLists],
   )
 
-  const handleSelectList = useCallback((value: string) => {
-    setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
-  }, [])
+  const handleSelectList = useCallback(
+    (value: string, source: 'manual' | 'deepLink' = 'manual') => {
+      setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
+      setSelectionSource(value === NEW_FROM_FILTERS ? null : source)
+    },
+    [],
+  )
 
   // ENG-10763: applies the CRM "Send outreach" list link's preselectedListId
   // whenever a NEW id arrives that hasn't been applied yet (tracked by value,
@@ -177,7 +198,7 @@ export default function AudienceStep({
             lastAppliedPreselectListIdRef.current = preselectedListId
             // Reuse the exact same code path a manual dropdown pick takes —
             // no separate "preselected" state to keep in sync.
-            handleSelectList(match.id.toString())
+            handleSelectList(match.id.toString(), 'deepLink')
           }
         }
       })
@@ -240,6 +261,15 @@ export default function AudienceStep({
     onChangeCallback({
       voterFileFilter,
       phoneListToken,
+      // ENG-10767: reported on every advance (not just when a list is
+      // selected) so a Back-then-switch to custom filters overwrites the
+      // earlier value instead of leaving a stale saved-list attribution.
+      audienceSource: selectedList
+        ? selectionSource === 'deepLink'
+          ? 'deepLink'
+          : 'savedList'
+        : 'customFilters',
+      audienceListId: selectedList?.id ?? null,
       // ENG-10765: DownloadStep needs to tell a saved list (segment export)
       // apart from a throwaway checkbox-built filter (both carry an `id`),
       // so phone banking always reports the current selection — present but
