@@ -77,7 +77,8 @@ FROM public.ecr.aws/docker/library/node:22.23.0-alpine
 
 RUN apk add --no-cache \
     libc6-compat \
-    openssl
+    openssl \
+    libcap
 
 WORKDIR /app
 
@@ -113,5 +114,13 @@ RUN chmod +x ./entrypoint.sh
 
 # Set the NODE_ENV to production
 ENV NODE_ENV=production
+
+# Run as a non-root user (defense-in-depth hardening). The stock node image
+# ships an unprivileged `node` user (uid 1000). The app binds container port 80,
+# which is privileged, so grant the node binary CAP_NET_BIND_SERVICE (a targeted
+# capability, not root) so it can still bind < 1024 after dropping privileges.
+RUN setcap 'cap_net_bind_service=+ep' "$(command -v node)"
+USER node
+
 # Use the entrypoint script as the container's entrypoint
 ENTRYPOINT [ "./entrypoint.sh" ]
