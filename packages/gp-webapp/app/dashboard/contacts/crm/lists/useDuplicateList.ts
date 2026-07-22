@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { clientRequest } from 'gpApi/typed-request'
 import { useOrganization } from '@shared/organization-picker'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useSnackbar } from 'helpers/useSnackbar'
 import { trimCustomSegmentName } from '../shared/segments.util'
 import type { SegmentResponse } from '../shared/contacts-types'
@@ -16,7 +17,7 @@ import { useContactsTable } from '../ContactsTableProvider'
 // { outreachType, outreachId, actions } (its own id/voterFileFilterId are
 // server-only too).
 export const useDuplicateList = () => {
-  const { selectList } = useContactsTable()
+  const { selectList, isWinContext, isWinContextReady } = useContactsTable()
   const orgSlug = useOrganization()?.slug
   const queryClient = useQueryClient()
   const { successSnackbar, errorSnackbar } = useSnackbar()
@@ -56,6 +57,16 @@ export const useDuplicateList = () => {
       )
     },
     onSuccess: async (response) => {
+      // ENG-10767: a duplicate creates a segment, so it rides the existing
+      // Segment Created event with source: 'duplicate' (the wizard's
+      // product-specific List Created events stay a pure wizard-outcome
+      // metric). Ready-gated like the surface's other events.
+      if (isWinContextReady) {
+        trackEvent(EVENTS.Contacts.SegmentCreated, {
+          source: 'duplicate',
+          context: isWinContext ? 'win' : 'serve',
+        })
+      }
       successSnackbar('List duplicated')
       await queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],

@@ -474,6 +474,36 @@ def test_judge_candidates_uses_forced_tool_and_parses():
     assert sent["system"].startswith("RUBRIC")
 
 
+class _PerChunkClient:
+    """Returns is_gap verdicts for exactly the ids present in the request, so a chunked
+    call sees only its own chunk's verdicts (mirrors parse_judge_response's id filter)."""
+    def __init__(self):
+        self.messages = self
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        content = kwargs["messages"][0]["content"]
+        ids = [c["id"] for c in json.loads(content.split("\n\n", 1)[1])]
+        return _FakeResp([_FakeBlock({"results": [
+            {"id": i, "is_gap": True, "rubric_rule": "r", "dashboard_question": "q",
+             "rank": 1, "reason": "x"} for i in ids]})])
+
+
+def test_judge_all_chunks_and_merges():
+    cands = [{"id": f"/x{i}", "surface_type": "route", "location": f"{i}.tsx", "snippet": ""}
+             for i in range(5)]
+    client = _PerChunkClient()
+    out = ig.judge_all(cands, "RUBRIC", client=client, model="m", chunk_size=2)
+    assert set(out) == {f"/x{i}" for i in range(5)}
+    assert client.calls == 3  # 2 + 2 + 1
+
+
+def test_select_candidates_limit_none_returns_all():
+    gaps = [{"id": f"/x{i}", "surface_type": "route", "location": f"{i}.tsx"} for i in range(40)]
+    assert len(ig.select_candidates(gaps, {}, limit=None)) == 40
+
+
 def test_run_judgment_skips_without_key(tmp_path):
     cands = [{"id": "/a", "surface_type": "route", "location": "a.tsx", "snippet": ""}]
     out, status = ig.run_judgment(cands, api_key=None, model="m", rubric_path=tmp_path / "r.md")
@@ -579,3 +609,308 @@ def test_main_no_judge_writes_empty_state_with_pending_note(tmp_path):
     assert rc == 0
     assert json.loads(state.read_text()) == {}
     assert "Judgment unavailable" in log.read_text()
+
+
+def test_gaps_urls_env_overrides_and_derivation(monkeypatch):
+    monkeypatch.delenv("GP_GAPS_BROWSE_URL", raising=False)
+    monkeypatch.delenv("GP_GAPS_TAB_GID", raising=False)
+    monkeypatch.setenv("GP_EVENT_STATE_SHEET_ID", "SID")
+    assert ig.gaps_browse_url() == "https://docs.google.com/spreadsheets/d/SID/edit"
+    monkeypatch.setenv("GP_GAPS_TAB_GID", "42")
+    assert ig.gaps_browse_url().endswith("#gid=42")
+    monkeypatch.setenv("GP_GAPS_BROWSE_URL", "https://x")
+    assert ig.gaps_browse_url() == "https://x"
+    monkeypatch.setenv("GP_GAPS_FEEDBACK_URL", "https://fb")
+    assert ig.gaps_feedback_url() == "https://fb"
+
+
+def test_build_slack_payload_caps_and_shapes_new_gaps():
+    run_date = "2026-07-21"
+    state = {
+        f"/r{i}": {"id": f"/r{i}", "surface_type": "route", "disposition": "new",
+                   "rubric_rule": "rr", "dashboard_question": "q", "location": f"r{i}.tsx",
+                   "rank": i % 3, "first_seen": run_date}
+        for i in range(15)
+    }
+    state["/done"] = {"id": "/done", "surface_type": "route", "disposition": "accepted", "rank": 0}
+    # carried-over untriaged gap: disposition "new" but first_seen from an earlier run —
+    # must be excluded from new_count/new_gaps (delta, not existence, based).
+    state["/carried"] = {"id": "/carried", "surface_type": "route", "disposition": "new",
+                         "rubric_rule": "rr", "dashboard_question": "q", "location": "old.tsx",
+                         "rank": 0, "first_seen": "2026-07-01"}
+    payload = ig.build_slack_payload(state, run_date, "ok", 0,
+                                     browse_url="b", feedback_url="f", top_n=10)
+    assert payload["new_count"] == 15          # accepted excluded, carried-over excluded
+    assert len(payload["new_gaps"]) == 10      # capped
+    assert payload["new_gaps"][0]["rank"] <= payload["new_gaps"][-1]["rank"]
+    assert all(g["id"] != "/carried" for g in payload["new_gaps"])
+    assert payload["status"] == "ok" and payload["browse_url"] == "b"
+
+
+def test_build_slack_payload_excludes_carried_over_new_gaps():
+    run_date = "2026-07-21"
+    state = {
+        "/fresh": {"id": "/fresh", "surface_type": "route", "disposition": "new",
+                   "rubric_rule": "rr", "dashboard_question": "q", "location": "fresh.tsx",
+                   "rank": 0, "first_seen": run_date},
+        "/carried": {"id": "/carried", "surface_type": "route", "disposition": "new",
+                     "rubric_rule": "rr", "dashboard_question": "q", "location": "old.tsx",
+                     "rank": 0, "first_seen": "2026-07-01"},
+    }
+    payload = ig.build_slack_payload(state, run_date, "ok", 0,
+                                     browse_url="b", feedback_url="f", top_n=10)
+    assert payload["new_count"] == 1
+    assert [g["id"] for g in payload["new_gaps"]] == ["/fresh"]
+
+
+def test_main_writes_slack_out_file(tmp_path, monkeypatch):
+    # a fake repo with one untracked route gap + a fake judge confirming it
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    (tmp_path / "packages/gp-api/src").mkdir(parents=True)
+    cfg = tmp_path / "cfg.yaml"; cfg.write_text("exclude_globs: []\n")
+    rubric = tmp_path / "rub.md"; rubric.write_text("RUBRIC")
+    state = tmp_path / "state.json"
+    out = tmp_path / "gap_slack.json"
+    payload = {"results": [{"id": "/foo", "is_gap": True, "rubric_rule": "route",
+                            "dashboard_question": "q", "rank": 3, "reason": "r"}]}
+    monkeypatch.setattr(ig, "make_anthropic_client", lambda k: _FakeClient(payload=payload))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    rc = ig.main(["--repo", str(tmp_path), "--config", str(cfg), "--state", str(state),
+                  "--rubric", str(rubric), "--no-log", "--today", "2026-07-21",
+                  "--slack-out", str(out)])
+    assert rc == 0
+    data = json.loads(out.read_text())
+    assert data["status"] == "ok"
+    assert any(g["id"] == "/foo" for g in data["new_gaps"])
+
+
+def test_render_seed_artifact_has_parseable_blocks():
+    state = {"/a": {"id": "/a", "surface_type": "route", "rank": 0, "location": "a.tsx",
+                    "rubric_rule": "flow", "dashboard_question": "q", "judge_reason": "jr",
+                    "disposition": "new", "reason": ""}}
+    md = ig.render_seed_artifact(state)
+    assert "## /a" in md
+    assert "- disposition:" in md and "- reason:" in md
+    assert "- location: a.tsx" in md
+
+
+def test_run_seed_scans_whole_repo_and_confirms(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    (tmp_path / "packages/gp-api/src").mkdir(parents=True)
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    rub = tmp_path / "r.md"; rub.write_text("RUBRIC")
+    payload = {"results": [{"id": "/foo", "is_gap": True, "rubric_rule": "route",
+                            "dashboard_question": "q", "rank": 3, "reason": "r"}]}
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=rub,
+        client_factory=lambda _k: _FakeClient(payload=payload))
+    assert status == "ok"
+    assert new_state["/foo"]["disposition"] == "new"
+    assert judged == 1
+
+
+def test_run_seed_no_candidates(tmp_path):
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=tmp_path / "r.md",
+        client_factory=lambda _k: _FakeClient(payload=_VERDICT_PAYLOAD))
+    assert status == "no-candidates"
+    assert judged == 0
+    assert new_state == {}
+
+
+def test_run_seed_skips_without_key(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    prior = {"/keep": {"id": "/keep", "disposition": "accepted"}}
+    state_path = tmp_path / "s.json"
+    state_path.write_text(json.dumps(prior))
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, state_path, date(2026, 7, 21),
+        api_key=None, model="m", rubric_path=tmp_path / "r.md",
+    )
+    assert status == "skipped: ANTHROPIC_API_KEY unset"
+    assert judged == 0
+    assert new_state == prior
+    assert new_state is not prior  # must not alias the prior mapping
+
+
+def test_run_seed_skips_when_rubric_unreadable(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=tmp_path,  # a directory -> OSError
+    )
+    assert status == "skipped: rubric unavailable"
+    assert judged == 0
+    assert new_state == {}
+
+
+def test_run_seed_swallows_judge_exception(tmp_path):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    cfg = tmp_path / "c.yaml"; cfg.write_text("exclude_globs: []\n")
+    rub = tmp_path / "r.md"; rub.write_text("RUBRIC")
+    boom = _FakeClient(raise_exc=RuntimeError("429 overloaded"))
+    new_state, status, judged = ig.run_seed(
+        tmp_path, cfg, tmp_path / "s.json", date(2026, 7, 21),
+        api_key="sk-ant-x", model="m", rubric_path=rub,
+        client_factory=lambda _k: boom,
+    )
+    assert status.startswith("failed:")
+    assert judged == 0
+    assert new_state == {}
+
+
+def test_main_seed_writes_state_and_artifact(tmp_path, monkeypatch):
+    (tmp_path / "packages/gp-webapp/app/foo").mkdir(parents=True)
+    (tmp_path / "packages/gp-webapp/app/foo/page.tsx").write_text("export default () => <div/>")
+    (tmp_path / "packages/gp-api/src").mkdir(parents=True)
+    cfg = tmp_path / "cfg.yaml"; cfg.write_text("exclude_globs: []\n")
+    rubric = tmp_path / "rub.md"; rubric.write_text("RUBRIC")
+    state = tmp_path / "state.json"
+    log = tmp_path / "log.md"
+    artifact = tmp_path / "seed.md"
+    payload = {"results": [{"id": "/foo", "is_gap": True, "rubric_rule": "route",
+                            "dashboard_question": "q", "rank": 3, "reason": "r"}]}
+    monkeypatch.setattr(ig, "make_anthropic_client", lambda k: _FakeClient(payload=payload))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    rc = ig.main(["--repo", str(tmp_path), "--config", str(cfg), "--state", str(state),
+                  "--rubric", str(rubric), "--log", str(log), "--today", "2026-07-21",
+                  "--seed", "--seed-artifact", str(artifact)])
+    assert rc == 0
+    data = json.loads(state.read_text())
+    assert data["/foo"]["disposition"] == "new"
+    assert not log.exists()  # --seed skips the log write
+    md = artifact.read_text()
+    assert "## /foo" in md
+    assert "- disposition:" in md
+
+
+def test_parse_seed_artifact_reads_filled_only():
+    md = (
+        "# header\n\n"
+        "## /a\n- surface_type: route\n- disposition: dismissed\n- reason: chrome\n\n"
+        "## /b\n- surface_type: route\n- disposition:\n- reason:\n\n"
+    )
+    parsed = ig.parse_seed_artifact(md)
+    assert set(parsed) == {"/a"}
+    assert parsed["/a"] == {"disposition": "dismissed", "reason": "chrome"}
+
+
+def test_apply_seed_dispositions_updates_known_ids_only():
+    state = {"/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01"}}
+    parsed = {"/a": {"disposition": "dismissed", "reason": "chrome"},
+              "/gone": {"disposition": "accepted", "reason": ""}}
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 7, 21))
+    assert applied == 1
+    assert new_state["/a"]["disposition"] == "dismissed"
+    assert new_state["/a"]["reason"] == "chrome"
+    assert new_state["/a"]["first_seen"] == "2026-07-01"  # preserved
+    assert "/gone" not in new_state
+
+
+def test_apply_seed_dispositions_skips_invalid_value(capsys):
+    state = {
+        "/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+        "/b": {"id": "/b", "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+    }
+    parsed = {
+        "/a": {"disposition": "dismissed", "reason": "chrome"},
+        "/b": {"disposition": "dismiss", "reason": "typo'd disposition"},  # invalid
+    }
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 7, 21))
+    assert applied == 1
+    assert new_state["/a"]["disposition"] == "dismissed"
+    assert new_state["/b"]["disposition"] == "new"  # invalid value never applied
+    err = capsys.readouterr().err
+    assert "/b" in err and "dismiss" in err
+
+
+def test_seed_artifact_round_trip_after_hand_edit():
+    """Render an artifact, hand-edit one disposition/reason in the raw text, parse it back —
+    the round trip must recover exactly the edited fields without needing the original dict."""
+    state = {
+        "/a": {"id": "/a", "surface_type": "route", "rank": 0, "location": "a.tsx",
+               "rubric_rule": "flow", "dashboard_question": "q", "judge_reason": "jr",
+               "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+        "/b": {"id": "/b", "surface_type": "route", "rank": 3, "location": "b.tsx",
+               "rubric_rule": "flow", "dashboard_question": "q", "judge_reason": "jr",
+               "disposition": "new", "reason": "", "first_seen": "2026-07-01"},
+    }
+    md = ig.render_seed_artifact(state)
+    edited = md.replace("## /a\n- surface_type: route\n- rank: 0\n- location: a.tsx\n"
+                         "- rubric_rule: flow\n- dashboard_question: q\n- judge_reason: jr\n"
+                         "- disposition:\n- reason:",
+                         "## /a\n- surface_type: route\n- rank: 0\n- location: a.tsx\n"
+                         "- rubric_rule: flow\n- dashboard_question: q\n- judge_reason: jr\n"
+                         "- disposition: accepted\n- reason: real gap")
+    parsed = ig.parse_seed_artifact(edited)
+    assert set(parsed) == {"/a"}  # /b left blank -> skipped
+    new_state, applied = ig.apply_seed_dispositions(state, parsed, date(2026, 7, 21))
+    assert applied == 1
+    assert new_state["/a"]["disposition"] == "accepted"
+    assert new_state["/a"]["reason"] == "real gap"
+    assert new_state["/a"]["last_seen"] == "2026-07-21"
+    assert new_state["/b"]["disposition"] == "new"  # untouched
+
+
+def test_main_load_seed_applies_dispositions_and_prints_counts(tmp_path, capsys):
+    state = tmp_path / "state.json"
+    prior = {
+        "/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01",
+               "last_seen": "2026-07-01"},
+    }
+    state.write_text(json.dumps(prior, indent=2, sort_keys=True) + "\n")
+    artifact = tmp_path / "seed.md"
+    artifact.write_text(
+        "## /a\n- disposition: dismissed\n- reason: chrome\n\n"
+        "## /gone\n- disposition: accepted\n- reason:\n\n"
+    )
+
+    rc = ig.main(["--state", str(state), "--load-seed", str(artifact), "--today", "2026-07-21"])
+
+    assert rc == 0
+    new_state = json.loads(state.read_text())
+    assert new_state["/a"]["disposition"] == "dismissed"
+    assert new_state["/a"]["reason"] == "chrome"
+    assert new_state["/a"]["last_seen"] == "2026-07-21"
+    assert "/gone" not in new_state
+    out = capsys.readouterr().out
+    assert "applied 1" in out and "skipped 1" in out
+
+
+def test_main_load_seed_skips_on_corrupt_state(tmp_path, capsys):
+    state = tmp_path / "state.json"
+    state.write_text("{ not valid json")
+    before = state.read_text()
+    artifact = tmp_path / "seed.md"
+    artifact.write_text("## /a\n- disposition: dismissed\n- reason: chrome\n\n")
+
+    rc = ig.main(["--state", str(state), "--load-seed", str(artifact), "--today", "2026-07-21"])
+
+    assert rc == 0
+    assert state.read_text() == before
+    err = capsys.readouterr().err
+    assert "unreadable" in err or "corrupt" in err.lower()
+
+
+def test_main_load_seed_missing_file_is_graceful(tmp_path, capsys):
+    state = tmp_path / "state.json"
+    prior = {"/a": {"id": "/a", "disposition": "new", "reason": "", "first_seen": "2026-07-01"}}
+    state.write_text(json.dumps(prior, indent=2, sort_keys=True) + "\n")
+    missing = tmp_path / "does-not-exist.md"
+
+    rc = ig.main(["--state", str(state), "--load-seed", str(missing), "--today", "2026-07-21"])
+
+    assert rc == 0
+    assert json.loads(state.read_text()) == prior  # untouched
+    err = capsys.readouterr().err
+    assert str(missing) in err

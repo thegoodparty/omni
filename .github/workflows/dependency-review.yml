@@ -1,0 +1,39 @@
+name: dependency-review
+
+# PR-scoped dependency vulnerability gate. Uses GitHub's dependency-review-action
+# (no install step, reads the dependency graph — free on this public repo) and
+# only inspects dependencies ADDED/CHANGED by the PR, so it never goes
+# perpetually red on pre-existing advisories in the base branch. Fails the check
+# when a PR introduces a dependency with a HIGH (or critical) severity advisory.
+# Chosen over `npm audit` because audit scans the whole tree (flaky: any
+# unfixable transitive advisory would block every PR).
+
+on:
+  pull_request:
+    branches-ignore: [qa, master]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: dependency-review-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dependency-review:
+    name: Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+        with:
+          # Only fail on newly introduced high/critical advisories.
+          fail-on-severity: high
+          # Post a summary comment only when the check fails, so clean PRs stay
+          # quiet.
+          comment-summary-in-pr: on-failure

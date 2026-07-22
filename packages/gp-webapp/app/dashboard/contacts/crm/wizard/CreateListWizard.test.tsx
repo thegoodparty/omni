@@ -49,6 +49,12 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
 const pillForOption = (label: string): HTMLElement =>
   screen.getByRole('button', { name: label })
 
+// ENG-10767: stage Viewed/Completed events fire alongside the outcome
+// events, so assertions filter by event name instead of counting every
+// trackEvent call.
+const eventCalls = (event: string) =>
+  vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
+
 beforeEach(() => {
   api.reset()
   vi.clearAllMocks()
@@ -582,7 +588,10 @@ describe('CreateListWizard — error handling', () => {
 
     await vi.waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
-    expect(trackEvent).not.toHaveBeenCalled()
+    // Stage Viewed/Completed events fired on the way in (ENG-10767), but a
+    // failed create must emit neither the outcome nor the funnel completion.
+    expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(0)
+    expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(0)
   })
 })
 
@@ -615,7 +624,9 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
     await user.click(screen.getByRole('button', { name: 'Save list' }))
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
       variableCount: 3,
       hasParty: true,
@@ -646,12 +657,14 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
     await user.click(screen.getByRole('button', { name: 'Save list' }))
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.ConstituentData.ListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ConstituentData.ListCreated,
       { variableCount: 1 },
     )
-    const [, properties] = vi.mocked(trackEvent).mock.calls[0]!
+    const [, properties] = eventCalls(EVENTS.ConstituentData.ListCreated)[0]!
     expect(properties).not.toHaveProperty('hasParty')
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
@@ -699,7 +712,9 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
     await user.click(screen.getByRole('button', { name: 'Save list' }))
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.ActivityListCreated,
       { sourceCampaign: 'GOTV blast', actionFilter: ['no_response'] },
@@ -753,7 +768,9 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
     await user.click(screen.getByRole('button', { name: 'Save list' }))
 
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.VoterData.ActivityListCreated,
       {
@@ -763,7 +780,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
   })
 
-  it('never fires analytics on wizard abandon (closed via X before completing)', async () => {
+  it('never fires outcome analytics on wizard abandon (closed via X before completing)', async () => {
     const user = userEvent.setup()
     render(<CreateListWizard open onOpenChange={vi.fn()} />)
 
@@ -774,7 +791,152 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
     )
     await user.click(screen.getByRole('button', { name: 'Close' }))
 
-    expect(trackEvent).not.toHaveBeenCalled()
+    // Stage Viewed events legitimately fired (ENG-10767); the outcome and
+    // funnel-completion events must not.
+    expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(0)
+    expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(0)
+    expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(0)
+  })
+})
+
+describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
+  it('fires Method Viewed on open, Method Completed + Conditions Viewed on advance (Win)', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        1,
+      ),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.MethodViewed,
+      { context: 'win' },
+    )
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    // Picking a branch re-renders the branch stage — the Viewed must not
+    // re-fire on that unrelated re-render.
+    expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.MethodCompleted,
+      { context: 'win', branch: 'voterFile' },
+    )
+    await vi.waitFor(() =>
+      expect(
+        eventCalls(EVENTS.Contacts.ListWizard.ConditionsViewed),
+      ).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.ConditionsViewed,
+      { context: 'win', branch: 'voterFile' },
+    )
+  })
+
+  it('re-fires the stage Viewed when navigating Back into an already-visited stage', async () => {
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: 'Back' }))
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        2,
+      ),
+    )
+  })
+
+  it('fires the Conditions Completed on advance to name, and Name Completed alongside List Created on save', async () => {
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 101, name: 'Funnel list' },
+    })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
+
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.ConditionsCompleted,
+      { context: 'win', branch: 'voterFile' },
+    )
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.NameViewed)).toHaveLength(1),
+    )
+
+    await user.type(screen.getByLabelText(/list name/i), 'Funnel list')
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(
+        1,
+      ),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.NameCompleted,
+      { context: 'win', branch: 'voterFile' },
+    )
+    // The funnel completion and the outcome are separate events by design.
+    expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1)
+  })
+
+  it('fires a fresh Method Viewed when the wizard is reopened on the same stage', async () => {
+    const onOpenChange = vi.fn()
+    const { rerender } = render(
+      <CreateListWizard open onOpenChange={onOpenChange} />,
+    )
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        1,
+      ),
+    )
+
+    rerender(<CreateListWizard open={false} onOpenChange={onOpenChange} />)
+    rerender(<CreateListWizard open onOpenChange={onOpenChange} />)
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(
+        2,
+      ),
+    )
+  })
+
+  it('opens Serve on Conditions Viewed with branch voterFile and never fires the Method stage', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await vi.waitFor(() =>
+      expect(
+        eventCalls(EVENTS.Contacts.ListWizard.ConditionsViewed),
+      ).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.Contacts.ListWizard.ConditionsViewed,
+      { context: 'serve', branch: 'voterFile' },
+    )
+    expect(eventCalls(EVENTS.Contacts.ListWizard.MethodViewed)).toHaveLength(0)
   })
 })
 
@@ -824,7 +986,9 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
     // The create DID happen server-side — onSuccess must still run exactly
     // once: the analytics event, the navigation, and the success snackbar
     // all fire despite the drawer no longer being visible.
-    await vi.waitFor(() => expect(trackEvent).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
+    )
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListCreated, {
       variableCount: 1,
       hasParty: false,
