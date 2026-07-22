@@ -370,8 +370,11 @@ export default function AudienceStep({
       : countError.message || GENERIC_COUNT_ERROR_MESSAGE
     : null
   const hasCountError = !!countError
+  // The zero-count guard only applies where a real count exists: robocall
+  // fetches the saved list's count; the text saved-list branch deliberately
+  // leaves count at 0 (the phone-list build owns its real count later).
   const isNextDisabled = selectedList
-    ? loading || hasCountError
+    ? loading || hasCountError || (isRobocallType && count === 0)
     : !hasValues || loading || hasCountError || (hasValues && count === 0)
 
   // Shared by the checkbox-built audience and (robocall only) the

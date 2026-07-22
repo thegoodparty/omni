@@ -638,6 +638,58 @@ describe('AudienceStep robocall saved-list selector', () => {
     expect(nextCallback).not.toHaveBeenCalled()
   })
 
+  it('blocks Next when the selected saved list has zero members', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockImplementation((route: string) => {
+      if (route === 'GET /v1/contacts/list-detail') {
+        return Promise.resolve({ data: mockListDetail(0) })
+      }
+      return Promise.resolve({ data: [savedList] })
+    })
+
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="robocall"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    await waitFor(() => expect(screen.getByText('0')).toBeInTheDocument())
+
+    const nextButton = screen.getByRole('button', { name: 'Next' })
+    expect(nextButton).toBeDisabled()
+
+    fireEvent.click(nextButton)
+    expect(nextCallback).not.toHaveBeenCalled()
+  })
+
+  it('keeps Next enabled for a text saved list, whose branch leaves the internal count at zero', async () => {
+    const savedList = { id: 42, name: 'My Super Voters' }
+    mockClientRequest.mockResolvedValue({ data: [savedList] })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+
+    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled()
+  })
+
   it('shows the voicemail-adjusted cost for a selected saved list', async () => {
     const savedList = { id: 42, name: 'My Super Voters' }
     mockClientRequest.mockImplementation((route: string) => {
