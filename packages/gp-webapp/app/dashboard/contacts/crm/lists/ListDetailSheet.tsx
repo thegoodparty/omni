@@ -409,12 +409,15 @@ export default function ListDetailSheet({
                             never the activity-feed verb ("Called"). */}
                         {entry.name ||
                           (entry.date
-                            ? `${OUTREACH_CHANNEL_NOUNS[entry.outreachType]} — ${dateUsHelper(entry.date)}`
+                            ? `${OUTREACH_CHANNEL_NOUNS[entry.outreachType] ?? entry.outreachType} — ${dateUsHelper(entry.date)}`
                             : '—')}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         <Badge variant="soft" shape="pill">
-                          {OUTREACH_CHANNEL_NOUNS[entry.outreachType]}
+                          {/* ?? guards the deploy-skew window where the API
+                              serves a channel newer than this bundle's map. */}
+                          {OUTREACH_CHANNEL_NOUNS[entry.outreachType] ??
+                            entry.outreachType}
                         </Badge>
                       </TableCell>
                     </TableRow>

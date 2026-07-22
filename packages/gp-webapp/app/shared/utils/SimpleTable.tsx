@@ -61,11 +61,20 @@ const SimpleTable = <T extends object>({
         </tr>
       </thead>
       <tbody>
-        {data.map((row, rowIndex) => (
-          <tr
-            key={rowIndex}
-            id={rowId?.(row)}
-            className={`
+        {data.map((row, rowIndex) => {
+          const extraClassName = rowClassName?.(row) || ''
+          // hover:bg-gray-50 sits later than base utilities in Tailwind's
+          // sheet at equal specificity, so it would override a caller-set
+          // row background (e.g. a highlight) on hover — drop it then.
+          const hoverClassName =
+            enableRowClick && !extraClassName.includes('bg-')
+              ? 'hover:bg-gray-50'
+              : ''
+          return (
+            <tr
+              key={rowIndex}
+              id={rowId?.(row)}
+              className={`
               h-14
               ${
                 rowIndex === data.length - 1
@@ -73,21 +82,22 @@ const SimpleTable = <T extends object>({
                   : 'border-b border-gray-200'
               }
 
-              ${enableRowClick ? 'cursor-pointer hover:bg-gray-50' : ''}
-              ${rowClassName?.(row) || ''}
+              ${enableRowClick ? 'cursor-pointer' : ''}
+              ${hoverClassName}
+              ${extraClassName}
             `}
-            {...{
-              ...(enableRowClick
-                ? {
-                    onClick: (e) => onRowClick(row, e),
-                  }
-                : {}),
-            }}
-          >
-            {columns.map((column, colIndex) => (
-              <td
-                key={colIndex}
-                className="
+              {...{
+                ...(enableRowClick
+                  ? {
+                      onClick: (e) => onRowClick(row, e),
+                    }
+                  : {}),
+              }}
+            >
+              {columns.map((column, colIndex) => (
+                <td
+                  key={colIndex}
+                  className="
                   text-sm
                   font-normal
                   px-2.5
@@ -96,16 +106,17 @@ const SimpleTable = <T extends object>({
                   first:rounded-bl-xl
                   last:rounded-br-xl
                 "
-              >
-                {column.cell
-                  ? column.cell({ row })
-                  : column.accessorKey
-                    ? String(row[column.accessorKey] ?? '')
-                    : null}
-              </td>
-            ))}
-          </tr>
-        ))}
+                >
+                  {column.cell
+                    ? column.cell({ row })
+                    : column.accessorKey
+                      ? String(row[column.accessorKey] ?? '')
+                      : null}
+                </td>
+              ))}
+            </tr>
+          )
+        })}
       </tbody>
     </table>
   )
