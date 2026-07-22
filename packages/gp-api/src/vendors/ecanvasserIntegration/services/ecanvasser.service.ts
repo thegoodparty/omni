@@ -1,7 +1,11 @@
 // documentation https://public-api.ecanvasser.com/
 
 import { HttpService } from '@nestjs/axios'
-import { BadGatewayException, Injectable } from '@nestjs/common'
+import {
+  BadGatewayException,
+  GatewayTimeoutException,
+  Injectable,
+} from '@nestjs/common'
 import { lastValueFrom } from 'rxjs'
 import {
   ApiEcanvasserContact,
@@ -16,10 +20,16 @@ import {
 import { Methods } from 'http-constants-ts'
 import { UpdateSurveySchema } from '../schemas/updateSurvey.schema'
 import { UpdateSurveyQuestionSchema } from '../schemas/updateSurveyQuestion.schema'
-import { AxiosResponse } from 'axios'
+import { AxiosResponse, isAxiosError } from 'axios'
 import { PinoLogger } from 'nestjs-pino'
 
 const DEFAULT_PAGE_SIZE = 1000
+
+// The Ecanvasser public API can stall; without an explicit per-request timeout
+// the underlying axios call hangs indefinitely, which wedges the whole sync and
+// the DB transaction that wraps it. Cap every outbound request so a slow/dead
+// upstream surfaces a clear error instead of hanging.
+export const ECANVASSER_REQUEST_TIMEOUT_MS = 30_000
 
 @Injectable()
 export class EcanvasserService {
@@ -225,6 +235,7 @@ export class EcanvasserService {
         headers: {
           Authorization: `Bearer ${apiKey}`,
         },
+        timeout: ECANVASSER_REQUEST_TIMEOUT_MS,
       }
 
       let response: AxiosResponse<T>
@@ -250,10 +261,23 @@ export class EcanvasserService {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       return response.data as ApiResponse<T>
     } catch (error) {
-      this.logger.error(
-        { error },
-        `Failed to ${options.method || Methods.GET} ${endpoint}`,
-      )
+      const method = options.method || Methods.GET
+      // Surface a timeout as a distinct, clear error rather than a generic bad
+      // gateway, so a slow/hanging upstream is diagnosable and never blocks
+      // indefinitely.
+      if (
+        isAxiosError(error) &&
+        (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT')
+      ) {
+        this.logger.error(
+          { error },
+          `Ecanvasser API request timed out after ${ECANVASSER_REQUEST_TIMEOUT_MS}ms during ${method} ${endpoint}`,
+        )
+        throw new GatewayTimeoutException(
+          `Ecanvasser API request timed out after ${ECANVASSER_REQUEST_TIMEOUT_MS}ms`,
+        )
+      }
+      this.logger.error({ error }, `Failed to ${method} ${endpoint}`)
       throw new BadGatewayException('Failed to communicate with Ecanvasser API')
     }
   }

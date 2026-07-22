@@ -11,11 +11,15 @@ import { ClerkModule } from '@/vendors/clerk/clerk.module'
 import { ContactsModule } from '@/contacts/contacts.module'
 import { VoterOutreachActivityModule } from '@/voterOutreachActivity/voterOutreachActivity.module'
 import { ECANVASSER_ATTRIBUTION_SERVICE } from './ecanvasserIntegration.types'
+import { ECANVASSER_REQUEST_TIMEOUT_MS } from './services/ecanvasser.service'
 
 @Module({
   imports: [
     forwardRef(() => CampaignsModule),
-    HttpModule,
+    // Default a request timeout for all outbound Ecanvasser HTTP calls so a
+    // slow/hanging upstream can't wedge the sync indefinitely. EcanvasserService
+    // also sets this per-request as defense in depth.
+    HttpModule.register({ timeout: ECANVASSER_REQUEST_TIMEOUT_MS }),
     SlackModule,
     ClerkModule,
     forwardRef(() => ContactsModule),
