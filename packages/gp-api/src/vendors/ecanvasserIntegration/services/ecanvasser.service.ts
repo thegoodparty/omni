@@ -55,6 +55,11 @@ export class EcanvasserService {
 
       return response.data
     } catch (error) {
+      // Preserve the distinct timeout signal that fetchFromApi raises instead
+      // of collapsing it back into a generic 502.
+      if (error instanceof GatewayTimeoutException) {
+        throw error
+      }
       this.logger.error({ error }, 'Failed to create survey')
       throw new BadGatewayException('Failed to create survey in Ecanvasser')
     }

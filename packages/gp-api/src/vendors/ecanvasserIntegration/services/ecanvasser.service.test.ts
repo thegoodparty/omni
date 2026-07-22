@@ -50,6 +50,15 @@ describe('EcanvasserService HTTP timeout + error handling', () => {
     )
   })
 
+  it('throws GatewayTimeoutException on a TCP-level ETIMEDOUT', async () => {
+    const etimedoutError = new AxiosError('connect ETIMEDOUT', 'ETIMEDOUT')
+    httpService.get.mockReturnValue(throwError(() => etimedoutError))
+
+    await expect(service.findTeams('api-key')).rejects.toBeInstanceOf(
+      GatewayTimeoutException,
+    )
+  })
+
   it('throws BadGatewayException for non-timeout failures', async () => {
     httpService.get.mockReturnValue(
       throwError(() => new AxiosError('boom', 'ERR_BAD_RESPONSE')),
