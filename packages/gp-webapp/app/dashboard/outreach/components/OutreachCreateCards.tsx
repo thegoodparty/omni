@@ -88,6 +88,8 @@ const OutreachCreateCards = ({
   // `lastSyncedPropListIdRef` tracks the last PROP value already pulled in —
   // not the (post-close) pending state — so clearing pending on close can't
   // immediately get re-synced back from an unchanged prop.
+  // ENG-10764: robocall's AudienceStep now applies preselectedListId too, so
+  // closing a robocall flow must also consume it — see `isConsumingFlow`.
   const [pendingPreselectedListId, setPendingPreselectedListId] =
     useState(preselectedListId)
   const lastSyncedPropListIdRef = useRef(preselectedListId)
@@ -177,13 +179,18 @@ const OutreachCreateCards = ({
           campaign={campaign}
           preselectedListId={pendingPreselectedListId}
           onClose={() => {
-            const wasTextFlow = flowModalTask.flowType === OUTREACH_TYPES.text
+            // ENG-10764: robocall's AudienceStep now applies the preselect
+            // too, so it must consume it on close the same as text — door
+            // knocking/phone banking still pass it through untouched.
+            const isConsumingFlow =
+              flowModalTask.flowType === OUTREACH_TYPES.text ||
+              flowModalTask.flowType === OUTREACH_TYPES.robocall
             setFlowModalTask(null)
-            // Consume-once, but only the text flow's audience step actually
-            // applies the id — closing a non-text flow must not burn it.
-            // Reset the ref too so a later deep link re-firing the identical
-            // id re-syncs.
-            if (wasTextFlow) {
+            // Consume-once, but only flows whose audience step actually
+            // applies the id — closing a non-consuming flow must not burn
+            // it. Reset the ref too so a later deep link re-firing the
+            // identical id re-syncs.
+            if (isConsumingFlow) {
               setPendingPreselectedListId(undefined)
               lastSyncedPropListIdRef.current = undefined
             }
