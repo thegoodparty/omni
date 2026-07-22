@@ -6,6 +6,7 @@ Pure functions only — no Databricks, no filesystem. Run from scripts/python wi
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 
 import analytics_event_health as eh
@@ -804,3 +805,81 @@ def test_render_shows_call_site_removed_evidence():
     assert "| 2 call site removed, name constant remains |" in out
     assert "Dashboard - Candidate Dashboard Viewed" in out
     assert "call_sites=0 (removed 2026-06-13)" in out
+
+
+# --- main --gap-slack (DATA-2151 Task 6) -------------------------------------
+
+
+def _stub_run_monitor(*_args, **_kwargs):
+    result = {
+        "run_date": "2026-07-21",
+        "current_week_basis": "complete weeks before 2026-07-21",
+        "flagged": [],
+        "status_counts": {},
+        "total_events": 0,
+    }
+    changes = {"new": [], "escalated": [], "resolved": [], "still_open": []}
+    return result, changes
+
+
+def test_main_passes_gap_slack_to_post_digest(monkeypatch, tmp_path):
+    monkeypatch.setattr(eh, "run_monitor", _stub_run_monitor)
+    import event_state_slack as slk
+
+    captured = {}
+    monkeypatch.setattr(slk, "post_digest", lambda *a, **k: captured.update(k) or "1.1")
+    monkeypatch.setenv(slk.TOKEN_ENV, "t")
+    monkeypatch.setenv(slk.CHANNEL_ENV, "c")
+
+    gap_file = tmp_path / "gap.json"
+    gap_file.write_text(
+        json.dumps(
+            {
+                "new_count": 2,
+                "status": "ok",
+                "pending_count": 0,
+                "new_gaps": [],
+                "browse_url": None,
+                "feedback_url": None,
+            }
+        )
+    )
+    rc = eh.main(
+        [
+            "--no-log",
+            "--slack",
+            "--gap-slack",
+            str(gap_file),
+            "--today",
+            "2026-07-21",
+            "--state",
+            str(tmp_path / "s.json"),
+        ]
+    )
+    assert rc == 0
+    assert captured.get("gap", {}).get("new_count") == 2
+
+
+def test_main_gap_slack_missing_file_is_graceful(monkeypatch, tmp_path):
+    monkeypatch.setattr(eh, "run_monitor", _stub_run_monitor)
+    import event_state_slack as slk
+
+    captured = {}
+    monkeypatch.setattr(slk, "post_digest", lambda *a, **k: captured.update(k) or None)
+    monkeypatch.setenv(slk.TOKEN_ENV, "t")
+    monkeypatch.setenv(slk.CHANNEL_ENV, "c")
+
+    rc = eh.main(
+        [
+            "--no-log",
+            "--slack",
+            "--gap-slack",
+            str(tmp_path / "nope.json"),
+            "--today",
+            "2026-07-21",
+            "--state",
+            str(tmp_path / "s.json"),
+        ]
+    )
+    assert rc == 0
+    assert captured.get("gap") is None

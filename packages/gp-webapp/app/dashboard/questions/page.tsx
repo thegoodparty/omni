@@ -26,11 +26,15 @@ export default async function Page({
   await candidateAccess()
   const { generate } = await searchParams
 
-  const campaign = await fetchUserCampaign()
+  // fetchUserCampaign and serverFetchIssues are independent, so run them
+  // concurrently; the campaign-dependent position load runs afterwards.
+  const [campaign, topIssues] = await Promise.all([
+    fetchUserCampaign(),
+    serverFetchIssues(),
+  ])
   const candidatePositions = campaign
     ? await serverLoadCandidatePosition(campaign.id)
     : []
-  const topIssues = await serverFetchIssues()
 
   const childProps = {
     campaign,

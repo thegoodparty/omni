@@ -141,14 +141,70 @@ def _new_anomalies(result: dict, prior_anomalous: set[str] | None = None) -> lis
             if r.get("anomaly") and r["event_type"] not in prior_anomalous]
 
 
-def should_post(result: dict, changes: dict, prior_anomalous: set[str] | None = None) -> bool:
+_JUDGE_OK = ("ok", "no-candidates")
+
+
+def gap_has_news(gap: dict | None) -> bool:
+    """True iff the Task 4 gap-sweep run-data dict is present and found new gaps."""
+    return bool(gap) and gap.get("new_count", 0) > 0
+
+
+def build_gap_summary_line(gap: dict) -> str:
+    """The parent's one-line gaps status, always coherent with the thread below it. Three
+    states: N new gaps, no new gaps, or the judge run didn't produce a verdict this run
+    (``status`` outside ``_JUDGE_OK``) — surfaced distinctly so silence isn't mistaken for
+    a clean sweep."""
+    status = gap.get("status", "ok")
+    if status not in _JUDGE_OK:
+        return (f"🧭 Instrumentation gaps: judgment unavailable this run "
+                f"({gap.get('pending_count', 0)} pending)")
+    n = gap.get("new_count", 0)
+    if n == 0:
+        return "🧭 No new instrumentation gaps"
+    return f"🧭 {n} new instrumentation gap{'' if n == 1 else 's'}"
+
+
+def build_gap_thread_blocks(gap: dict) -> list[dict]:
+    """Threaded detail for the gap section: the ranked list of new gaps plus a context
+    block linking out to the full browse view and the disposition-feedback form. ``[]``
+    when there are no new gaps, so the thread doesn't grow an empty section every run."""
+    new_gaps = gap.get("new_gaps") or []
+    if not new_gaps:
+        return []
+    rows = "\n".join(
+        f"• [{g.get('rank', 5)}] `{g['id']}` ({g['surface_type']}) — {g.get('dashboard_question') or '—'}"
+        for g in new_gaps
+    )
+    body = f"*New instrumentation gaps*\n{rows}"
+    # new_gaps is pre-capped at top_n by build_slack_payload, so the thread can't tell
+    # overflow occurred from its own length alone — new_count carries the true this-run
+    # total (falling back to len(new_gaps) when absent, so older payloads still render).
+    new_count = gap.get("new_count", len(new_gaps))
+    if new_count > len(new_gaps):
+        body += f"\n…and {new_count - len(new_gaps)} more (see the gaps tab)"
+    blocks = [_section(body)]
+    links = [b for b in (
+        f"<{gap['browse_url']}|📄 Browse gaps>" if gap.get("browse_url") else None,
+        f"<{gap['feedback_url']}|✍️ Set disposition>" if gap.get("feedback_url") else None,
+    ) if b]
+    if links:
+        blocks.append(_context(" · ".join(links)))
+    return blocks
+
+
+def should_post(
+    result: dict, changes: dict, prior_anomalous: set[str] | None = None, gap: dict | None = None
+) -> bool:
     """Quiet gate: post only when something changed. True if any event was newly flagged,
     escalated (status changed), or resolved, or if any flagged event carries an anomaly it
-    did not have last run. ``still_open`` alone (same flags, same status, same anomaly
-    state as last run) is not news."""
+    did not have last run, or if the gap sweep (Task 4) found new instrumentation gaps.
+    ``still_open`` alone (same flags, same status, same anomaly state as last run) is not
+    news."""
     if any(changes.get(k) for k in ("new", "escalated", "resolved")):
         return True
-    return bool(_new_anomalies(result, prior_anomalous))
+    if _new_anomalies(result, prior_anomalous):
+        return True
+    return gap_has_news(gap)
 
 
 def _transition_lines(result: dict, changes: dict, prior_state: dict | None) -> list[str]:
@@ -172,7 +228,11 @@ def _pct(current: float, baseline: float) -> str:
 
 
 def build_digest_blocks(
-    result: dict, changes: dict, prior_state: dict | None, prior_anomalous: set[str] | None = None
+    result: dict,
+    changes: dict,
+    prior_state: dict | None,
+    prior_anomalous: set[str] | None = None,
+    gap: dict | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Return ``(parent_blocks, thread_blocks)`` for a Source B health-digest post.
 
@@ -182,14 +242,19 @@ def build_digest_blocks(
     status breakdown. ``prior_state`` (``{event_type: status}`` from the last run) lets
     escalated events render as ``prior → current``; ``None`` (first run) degrades to ``?``.
     ``prior_anomalous`` scopes the headline to *newly* anomalous events (the thread still
-    lists all of them).
+    lists all of them). ``gap`` is the Task 4 run-data dict for the instrumentation-gap
+    sweep — ``None`` (the digest's only caller today) leaves this byte-identical to the
+    health-only digest; when present, its one-line summary is appended to the parent and
+    its ranked detail to the thread, so the two sweeps read as one post.
     """
     n_changes = sum(len(changes.get(k, [])) for k in ("new", "escalated", "resolved"))
     anomalies = _new_anomalies(result, prior_anomalous)
     proposals = result.get("proposals") or []
     link = sheet_url()
 
-    parent: list[dict] = [_header(f"📊 Analytics event health — {result.get('run_date')}")]
+    parent: list[dict] = [
+        _header(f"📊 Analytics event health & instrumentation gaps — {result.get('run_date')}")
+    ]
     lines = _transition_lines(result, changes, prior_state)
     if lines:
         shown = lines[:TRANSITION_CAP]
@@ -238,6 +303,11 @@ def build_digest_blocks(
         thread.append(_section(f"*Status breakdown*\n{breakdown}"))
     if not thread:
         thread.append(_section("No additional detail."))
+
+    if gap is not None:
+        parent.append(_context(build_gap_summary_line(gap)))
+        thread.extend(build_gap_thread_blocks(gap))
+
     return parent, thread
 
 
@@ -288,14 +358,19 @@ def post_digest(
     channel: str,
     transport: Callable[..., Any] | None = None,
     prior_anomalous: set[str] | None = None,
+    gap: dict | None = None,
 ) -> str | None:
     """Post the health digest: parent message, then the detail as a threaded reply.
-    No-op (returns None) when the quiet gate says nothing changed."""
-    if not should_post(result, changes, prior_anomalous):
+    No-op (returns None) when the quiet gate says nothing changed. ``gap`` (Task 4's
+    instrumentation-gap run-data dict) threads through to both the quiet gate and the
+    block builder, so new gaps alone are enough to post even when the health side is
+    quiet."""
+    if not should_post(result, changes, prior_anomalous, gap):
         return None
-    parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous)
+    parent, thread = build_digest_blocks(result, changes, prior_state, prior_anomalous, gap)
     ts = post_message(parent, token=token, channel=channel,
-                      text=f"Analytics event health — {result.get('run_date')}", transport=transport)
+                      text=f"Analytics event health & instrumentation gaps — {result.get('run_date')}",
+                      transport=transport)
     # The parent is meaningful on its own and already advertises "details in thread", so a
     # failed reply is a partial success, not a whole-digest failure: log it and still return
     # the parent ts rather than propagating (which the monitor would report as the post failing).

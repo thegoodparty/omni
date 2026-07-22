@@ -16,6 +16,7 @@ import {
   Trash2Icon,
   UserIcon,
 } from '@styleguide'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -133,7 +134,17 @@ export default function ListCard({ segment }: ListCardProps) {
               the button at a Serve user while the mode resolves. */}
           {isWinContextReady && isWinContext && (
             <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-              <Link href="/dashboard/outreach">Send outreach</Link>
+              <Link
+                href={`/dashboard/outreach?listId=${segment.id}`}
+                onClick={() =>
+                  trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                    listId: segment.id,
+                    surface: 'listCard',
+                  })
+                }
+              >
+                Send outreach
+              </Link>
             </Button>
           )}
         </div>

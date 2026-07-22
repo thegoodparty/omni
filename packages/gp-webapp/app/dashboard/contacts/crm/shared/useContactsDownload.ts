@@ -4,17 +4,22 @@ import { dateUsHelper } from 'helpers/dateHelper'
 import { deleteCookie, getCookie } from 'helpers/cookieHelper'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
-const DOWNLOAD_COOKIE_NAME = 'gp_download'
-const DOWNLOAD_COOKIE_POLL_MS = 250
+// Exported (not just used internally) so downloadVoterList.util's saved-list
+// branch (ENG-10765) can poll the same cookie on the same schedule instead of
+// hand-rolling a second copy of this timing-sensitive handshake — the two
+// callers hit the identical GET /api/v1/contacts/download endpoint and must
+// not drift on the interval or fallback window.
+export const DOWNLOAD_COOKIE_NAME = 'gp_download'
+export const DOWNLOAD_COOKIE_POLL_MS = 250
 // Fallback in case the server-side cookie handshake is missing (older deploy,
 // proxy stripped Set-Cookie, etc.). Long enough to overlap with first byte on
 // large districts, short enough to avoid leaving a stuck spinner forever.
-const DOWNLOAD_FALLBACK_TIMEOUT_MS = 15000
+export const DOWNLOAD_FALLBACK_TIMEOUT_MS = 15000
 
 // `getCookie` returns `string | false`; normalize to `string | null` and
 // guard against `decodeURI` throwing on a malformed cookie value (which
 // would otherwise surface as an uncaught error inside the 250ms poll).
-const readDownloadCookie = (): string | null => {
+export const readDownloadCookie = (): string | null => {
   try {
     const value = getCookie(DOWNLOAD_COOKIE_NAME)
     return value === false ? null : value

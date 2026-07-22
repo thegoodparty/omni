@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common'
 import { PassThrough } from 'stream'
 import { Pool } from 'pg'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { DOWNLOAD_COLUMNS } from '../people.select'
 import { PeopleDownloadService } from './peopleDownload.service'
 
 const mockRelease = vi.fn()
@@ -122,7 +123,7 @@ describe('PeopleDownloadService', () => {
   })
 
   describe('streamPeopleCsv', () => {
-    it('builds COPY SQL with the voter join, where clause, and election constants', async () => {
+    it('builds COPY SQL with the voter join and where clause', async () => {
       const { to: copyTo } = await import('pg-copy-streams')
 
       const { res, raw } = makeRawResponse()
@@ -147,13 +148,42 @@ describe('PeopleDownloadService', () => {
       expect(sql).toContain(
         `v."State" = CAST('WY'::text AS "public"."USState")`,
       )
-      expect(sql).toContain(`'CHEYENNE CITY WARD 1' AS "electionLocation"`)
-      expect(sql).toContain(`'City_Ward' AS "electionType"`)
-      expect(sql).toContain('v."LALVOTERID" AS "LALVOTERID"')
-      expect(sql).toContain('v."Primary_2026" AS "Primary_2026"')
+      expect(sql).toContain('v."LALVOTERID" AS "Voter ID"')
+      expect(sql).toContain('v."Primary_2026" AS "Voted in 2026 Primary"')
       // The party column is exported by default — this is the fact that
       // makes the exclusion mechanism below necessary (ENG-10696).
-      expect(sql).toContain('v."Parties_Description" AS "Parties_Description"')
+      expect(sql).toContain('v."Parties_Description" AS "Registered Party"')
+      // ENG-10766: curated legacy subset only — no raw L2 turnout dump.
+      expect(sql).not.toContain('"AnyElection_')
+      expect(sql).not.toContain('"OtherElection_')
+      expect(sql).not.toContain('"PresidentialPrimary_')
+      expect(sql).not.toContain('"electionLocation"')
+      expect(sql).not.toContain('"electionType"')
+    })
+
+    it('selects exactly DOWNLOAD_COLUMNS, in order, with their friendly-header aliases', async () => {
+      const { to: copyTo } = await import('pg-copy-streams')
+
+      const { res, raw } = makeRawResponse()
+      const completion = service.streamPeopleCsv(
+        {
+          districtId: DISTRICT_UUID,
+          filters: { filters: [], filterOperators: {} },
+        } as never,
+        res,
+      )
+
+      copyStream.end()
+      raw.destroy()
+
+      await completion
+
+      const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
+      const expectedSelectList = DOWNLOAD_COLUMNS.map(
+        ({ column, header }) =>
+          `v."${column}" AS "${header.replace(/"/g, '""')}"`,
+      ).join(', ')
+      expect(sql).toContain(`SELECT ${expectedSelectList}`)
     })
 
     // ENG-10696: the CSV is a Postgres COPY stream gp-api can't post-process,
@@ -179,8 +209,9 @@ describe('PeopleDownloadService', () => {
 
       const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
       expect(sql).not.toContain('"Parties_Description"')
+      expect(sql).not.toContain('"Registered Party"')
       // Every other base column stays untouched.
-      expect(sql).toContain('v."LALVOTERID" AS "LALVOTERID"')
+      expect(sql).toContain('v."LALVOTERID" AS "Voter ID"')
     })
 
     it('keeps the party column when excludeColumns is not provided', async () => {
@@ -201,7 +232,7 @@ describe('PeopleDownloadService', () => {
       await completion
 
       const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
-      expect(sql).toContain('v."Parties_Description" AS "Parties_Description"')
+      expect(sql).toContain('v."Parties_Description" AS "Registered Party"')
     })
 
     it('omits the DistrictVoter join for state-only districts', async () => {

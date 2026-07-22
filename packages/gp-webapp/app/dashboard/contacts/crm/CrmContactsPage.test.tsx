@@ -3,11 +3,16 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { router } from 'helpers/test-utils/router-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { CrmContactsPage } from './CrmContactsPage'
 import { useContactsTable } from './ContactsTableProvider'
 
 vi.mock('./ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 const mockCampaign = vi.hoisted(() => ({
   current: null as {
@@ -116,6 +121,40 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
 beforeEach(() => {
   setContext()
   mockCampaign.current = null
+  vi.mocked(trackEvent).mockClear()
+})
+
+// ENG-10767: parity with the pre-CRM page's Contacts Viewed (flag-on users
+// vanished from that chart) — same event, distinguished by surface: 'crm'.
+describe('CrmContactsPage — Contacts Viewed analytics', () => {
+  it('fires once on mount with the settled context and surface crm', () => {
+    const { rerender } = render(<CrmContactsPage />)
+
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'win',
+      surface: 'crm',
+    })
+
+    // A later re-render (e.g. an isWinContext revalidation flicker) must not
+    // re-fire.
+    setContext({ isWinContext: false })
+    rerender(<CrmContactsPage />)
+    expect(trackEvent).toHaveBeenCalledTimes(1)
+  })
+
+  it('waits for the Win/Serve mode to settle before firing (Serve)', () => {
+    setContext({ isWinContext: false, isWinContextReady: false })
+    const { rerender } = render(<CrmContactsPage />)
+    expect(trackEvent).not.toHaveBeenCalled()
+
+    setContext({ isWinContext: false, isWinContextReady: true })
+    rerender(<CrmContactsPage />)
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.Viewed, {
+      context: 'serve',
+      surface: 'crm',
+    })
+  })
 })
 
 describe('CrmContactsPage — mode-aware universe title', () => {

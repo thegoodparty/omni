@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement } from 'react'
 import { IoArrowForward } from 'react-icons/io5'
 import InstructionsStep from './InstructionsStep'
-import AudienceStep from './AudienceStep'
+import AudienceStep, { type AudienceSource } from './AudienceStep'
 import AddScriptStep from './AddScriptStep/AddScriptStep'
 import ScheduleStep from './ScheduleStep'
 import ImageStep from './ImageStep'
@@ -56,6 +56,16 @@ interface TaskFlowState extends FlowState {
   voterCount: number
   phoneListToken: string | null
   leadsLoaded: number | null
+  // ENG-10765: distinguishes a saved-list selection from a throwaway
+  // checkbox-built filter (both carry an `id` on voterFileFilter) so
+  // DownloadStep knows to hit the segment export instead of the checkbox
+  // voter-file download.
+  savedListId: number | null
+  // ENG-10767: how the audience was chosen, reported by AudienceStep on
+  // advance and carried onto the Campaign Completed events so a campaign is
+  // attributable to the CRM list → outreach funnel.
+  audienceSource: AudienceSource | null
+  audienceListId: number | null
 }
 
 const DEFAULT_STATE: TaskFlowState = {
@@ -71,6 +81,9 @@ const DEFAULT_STATE: TaskFlowState = {
   phoneListToken: '',
   phoneListId: null,
   leadsLoaded: null,
+  savedListId: null,
+  audienceSource: null,
+  audienceListId: null,
 }
 
 type TaskFlowProps = {
@@ -84,6 +97,7 @@ type TaskFlowProps = {
   defaultAiTemplateId?: string | number
   campaignPlanDueDate?: string
   initialScriptText?: string
+  preselectedListId?: number
 }
 
 const TaskFlow = ({
@@ -97,6 +111,7 @@ const TaskFlow = ({
   defaultAiTemplateId,
   campaignPlanDueDate,
   initialScriptText,
+  preselectedListId,
 }: TaskFlowProps): React.JSX.Element => {
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [open, setOpen] = useState(forceOpen)
@@ -132,12 +147,29 @@ const TaskFlow = ({
     [type],
   )
 
+  // ENG-10767: mirrors the audience attribution outside React state — the
+  // audience step reports it via onChangeCallback and calls nextCallback in
+  // the same tick, so handleNext's trackEvent would otherwise read the
+  // pre-update state.
+  const audienceTrackingRef = useRef<{
+    audienceSource?: AudienceSource
+    listId?: number
+  }>({})
+
   const handleChange = useCallback(
     (
       changeSetOrKey: Partial<TaskFlowState> | keyof TaskFlowState | string,
       value?: TaskFlowState[keyof TaskFlowState],
     ) => {
       if (typeof changeSetOrKey === 'object') {
+        if (changeSetOrKey.audienceSource) {
+          audienceTrackingRef.current = {
+            audienceSource: changeSetOrKey.audienceSource,
+            ...(changeSetOrKey.audienceListId != null
+              ? { listId: changeSetOrKey.audienceListId }
+              : {}),
+          }
+        }
         setState((prevState) => ({
           ...prevState,
           ...changeSetOrKey,
@@ -191,6 +223,9 @@ const TaskFlow = ({
     }
     trackEvent(EVENTS.Dashboard.VoterContact.Texting.ScheduleCampaign.Next, {
       step: stepName,
+      // ENG-10767: the audience advance carries how the audience was chosen
+      // (read from the ref, not state — see audienceTrackingRef above).
+      ...(stepName === STEPS.audience ? audienceTrackingRef.current : {}),
     })
     setState((prevState) => ({
       ...prevState,
@@ -218,6 +253,7 @@ const TaskFlow = ({
   const handleReset = () => {
     setState(DEFAULT_STATE)
     setDraftOutreachId(null)
+    audienceTrackingRef.current = {}
   }
 
   const handleAddScriptOnComplete = async (
@@ -337,6 +373,15 @@ const TaskFlow = ({
         medium: type,
         price: state.budget,
         voterContacts: state.audience?.count || 0,
+        // ENG-10767: closes the CRM list → outreach funnel (joins to
+        // Voter Data - Send Outreach Clicked via listId). Fires well after
+        // the audience advance, so state is committed here.
+        ...(state.audienceSource
+          ? { audienceSource: state.audienceSource }
+          : {}),
+        ...(state.audienceListId != null
+          ? { listId: state.audienceListId }
+          : {}),
       })
       successSnackbar('Request submitted successfully.')
 
@@ -436,6 +481,7 @@ const TaskFlow = ({
             withVoicemail={!!state.voicemail}
             audience={state.audience}
             isCustom={isCustom}
+            preselectedListId={preselectedListId}
             {...callbackProps}
             onCreateVoterFileFilter={onCreateVoterFileFilter}
             onCreatePhoneList={onCreatePhoneList}
@@ -485,6 +531,12 @@ const TaskFlow = ({
                         medium: type,
                         price: state.budget,
                         voterContacts: state.audience?.count || 0,
+                        ...(state.audienceSource
+                          ? { audienceSource: state.audienceSource }
+                          : {}),
+                        ...(state.audienceListId != null
+                          ? { listId: state.audienceListId }
+                          : {}),
                       },
                     )
                     successSnackbar('Request submitted successfully.')
@@ -525,6 +577,7 @@ const TaskFlow = ({
               type,
               scriptText: state.scriptText,
               audience: state.audience,
+              savedListId: state.savedListId ?? undefined,
               ...callbackProps,
               onCreateOutreach: async () => {
                 await onCreateOutreach()

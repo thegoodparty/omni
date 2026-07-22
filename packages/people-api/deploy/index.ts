@@ -143,6 +143,7 @@ export = async () => {
     vpcId,
     securityGroupIds: vpcSecurityGroupIds,
     publicSubnetIds: vpcSubnetIds.public,
+    privateSubnetIds: vpcSubnetIds.private,
     hostedZoneId,
     domain: select({
       dev: 'people-api-dev.goodparty.org',

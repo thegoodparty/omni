@@ -59,8 +59,13 @@ COPY packages/election-api ./packages/election-api
 
 # Set the docker build args into environment variables on runner.
 ARG STAGE
-ARG DATABASE_URL
-ENV DATABASE_URL=$DATABASE_URL
+# DATABASE_URL is intentionally NOT a build arg: passing the real secret at
+# build time bakes it into the image/build history and cache (the audit
+# finding). `prisma generate` reads the datasource url but never connects, so a
+# non-secret placeholder is sufficient here — mirroring people-api. The running
+# service resolves the real DATABASE_URL from Secrets Manager at runtime (see
+# deploy/index.ts secrets wiring).
+ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 
 WORKDIR /app/packages/election-api
 
@@ -75,7 +80,8 @@ FROM public.ecr.aws/docker/library/node:22.23.0-alpine
 
 RUN apk add --no-cache \
     libc6-compat \
-    openssl
+    openssl \
+    libcap
 
 WORKDIR /app
 
@@ -110,6 +116,13 @@ RUN chmod +x ./entrypoint.sh
 
 # Set the NODE_ENV to production
 ENV NODE_ENV=production
+
+# Run as a non-root user (defense-in-depth hardening). The stock node image
+# ships an unprivileged `node` user (uid 1000). The app binds container port 80,
+# which is privileged, so grant the node binary CAP_NET_BIND_SERVICE (a targeted
+# capability, not root) so it can still bind < 1024 after dropping privileges.
+RUN setcap 'cap_net_bind_service=+ep' "$(command -v node)"
+USER node
 
 # Use the entrypoint script as the container's entrypoint
 ENTRYPOINT [ "./entrypoint.sh" ]

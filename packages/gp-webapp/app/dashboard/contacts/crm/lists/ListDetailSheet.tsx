@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -113,6 +113,32 @@ export default function ListDetailSheet({
         | undefined)
     : undefined
   const isLocked = Boolean(segment?.firstUsedForOutreachAt)
+
+  // ENG-10767: the legacy page fired Segment Viewed from its segment picker;
+  // this sheet is the CRM equivalent ("which lists get used"). One fire per
+  // sheet open, once the segment resolves (a deep link can open the sheet
+  // before the segments fetch lands) and the Win/Serve mode settles; the ref
+  // re-arms on close so reopening the same list fires again.
+  const firedViewedListIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (listId === null) {
+      firedViewedListIdRef.current = null
+      return
+    }
+    if (
+      firedViewedListIdRef.current === listId ||
+      !segment ||
+      !isWinContextReady
+    ) {
+      return
+    }
+    firedViewedListIdRef.current = listId
+    trackEvent(EVENTS.Contacts.SegmentViewed, {
+      segment: segment.name,
+      type: 'custom',
+      context: isWinContext ? 'win' : 'serve',
+    })
+  }, [listId, segment, isWinContextReady, isWinContext])
 
   const duplicateMutation = useDuplicateList()
 
@@ -241,7 +267,17 @@ export default function ListDetailSheet({
                 resolves. */}
             {isWinContextReady && isWinContext && (
               <Button className="h-11 flex-1 text-sm" asChild>
-                <Link href="/dashboard/outreach">Send outreach</Link>
+                <Link
+                  href={`/dashboard/outreach?listId=${segment.id}`}
+                  onClick={() =>
+                    trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                      listId: segment.id,
+                      surface: 'listDetail',
+                    })
+                  }
+                >
+                  Send outreach
+                </Link>
               </Button>
             )}
           </div>
