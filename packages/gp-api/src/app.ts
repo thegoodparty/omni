@@ -90,10 +90,12 @@ export const bootstrap = async (
 
   // Do not expose the Swagger UI in production. It leaks the full API surface
   // and schema details. Keep it available in dev/qa (or when explicitly
-  // enabled via SWAGGER_ENABLED).
+  // enabled via SWAGGER_ENABLED). Treat an unset NODE_ENV as production-
+  // equivalent so the gate stays fail-closed if the env is misconfigured.
   const swaggerEnabled =
     process.env.SWAGGER_ENABLED === 'true' ||
-    process.env.NODE_ENV !== 'production'
+    (process.env.NODE_ENV !== undefined &&
+      process.env.NODE_ENV !== 'production')
   if (swaggerEnabled) {
     const document = SwaggerModule.createDocument(app, swaggerConfig)
     SwaggerModule.setup('api', app, document)

@@ -230,13 +230,18 @@ export class PeerlyHttpService extends PeerlyBaseConfig {
     data: unknown,
     config: AxiosRequestConfig,
   ) {
+    // Never emit the bearer token to logs. This path fires on every outbound
+    // request, so strip the Authorization header before logging the config.
+    const { headers, ...safeConfig } = config
+    const safeHeaders: Record<string, unknown> = { ...headers }
+    delete safeHeaders.Authorization
     this.logger.debug(
       {
         data: {
           url,
           method,
           data,
-          config,
+          config: { ...safeConfig, headers: safeHeaders },
         },
       },
       'Initializing Peerly HTTP request:',
