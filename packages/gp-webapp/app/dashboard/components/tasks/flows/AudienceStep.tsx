@@ -82,6 +82,7 @@ interface AudienceStepProps {
     voterFileFilter: VoterFileFilterResult | undefined,
     voterFileFilterId?: number,
   ) => Promise<string | null | undefined>
+  preselectedListId?: number
 }
 
 export default function AudienceStep({
@@ -94,6 +95,7 @@ export default function AudienceStep({
   isCustom,
   onCreateVoterFileFilter = async () => ({}),
   onCreatePhoneList = async () => null,
+  preselectedListId,
 }: AudienceStepProps): React.JSX.Element {
   const [campaign] = useCampaign()
   const { p2pUxEnabled } = useP2pUxEnabled()
@@ -126,19 +128,37 @@ export default function AudienceStep({
     [selectedListId, savedLists],
   )
 
+  const handleSelectList = useCallback((value: string) => {
+    setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
+  }, [])
+
+  // ENG-10763: applies the CRM "Send outreach" list link's preselectedListId
+  // exactly once, on the first successful fetch — never again after, so a
+  // user who deliberately switches lists (or back to "Build a new audience")
+  // doesn't get snapped back to it on a later re-render.
+  const appliedPreselectRef = useRef(false)
+
   useEffect(() => {
     if (!isTextType) return
     let active = true
     clientRequest('GET /v1/voters/voter-file/filters', {})
       .then(({ data }) => {
         if (!active) return
-        setSavedLists(
-          (data || []).filter(
-            (list): list is SavedList =>
-              typeof list?.name === 'string' &&
-              !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
-          ),
+        const filtered = (data || []).filter(
+          (list): list is SavedList =>
+            typeof list?.name === 'string' &&
+            !AUTO_VOTER_FILTER_NAME_PATTERN.test(list.name),
         )
+        setSavedLists(filtered)
+        if (!appliedPreselectRef.current && preselectedListId !== undefined) {
+          const match = filtered.find((list) => list.id === preselectedListId)
+          if (match) {
+            appliedPreselectRef.current = true
+            // Reuse the exact same code path a manual dropdown pick takes —
+            // no separate "preselected" state to keep in sync.
+            handleSelectList(match.id.toString())
+          }
+        }
       })
       .catch(() => {
         // A failed list fetch must not block the build-new-from-checkboxes
@@ -148,7 +168,7 @@ export default function AudienceStep({
     return () => {
       active = false
     }
-  }, [isTextType])
+  }, [isTextType, preselectedListId, handleSelectList])
 
   const nextTrackingAttrs = useMemo(
     () => buildTrackingAttrs('Next Target Audience', { type }),
@@ -269,10 +289,6 @@ export default function AudienceStep({
   const handleChangeAudience = (newState: AudienceFiltersState) => {
     onChangeCallback('audience', newState)
   }
-
-  const handleSelectList = useCallback((value: string) => {
-    setSelectedListId(value === NEW_FROM_FILTERS ? '' : value)
-  }, [])
 
   let price: number | undefined
   // TODO: confirm these prices are correct for new task types!!!

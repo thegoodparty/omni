@@ -267,9 +267,11 @@ describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () =>
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
+    // ENG-10762: the footer link carries the saved list's id so the
+    // outreach page can preselect it.
     expect(
       await screen.findByRole('link', { name: 'Send outreach' }),
-    ).toHaveAttribute('href', '/dashboard/outreach')
+    ).toHaveAttribute('href', '/dashboard/outreach?listId=42')
   })
 
   it('hides Send outreach for Serve while keeping Download', async () => {

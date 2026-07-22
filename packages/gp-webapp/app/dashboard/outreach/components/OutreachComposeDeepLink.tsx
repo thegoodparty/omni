@@ -41,8 +41,23 @@ export const OutreachComposeDeepLink = ({
   const [flow, setFlow] = useState<OpenFlow | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const consumedRef = useRef(false)
+  const listIdConsumedRef = useRef(false)
 
   const composeType = COMPOSE_TYPES[searchParams?.get('compose') ?? '']
+  const listIdParam = searchParams?.get('listId')
+
+  // ENG-10762: the CRM "Send outreach" link carries ?listId=<id> so the
+  // server (page.tsx) can read it and thread preselectedListId down to the
+  // audience step. Once consumed server-side there's nothing left for the
+  // param to do client-side, so strip it from the address bar the same way
+  // `compose` is stripped. When `compose` is also present, its own
+  // router.replace already clears the whole query string (including
+  // listId) — skip here so the two effects don't race on the same replace.
+  useEffect(() => {
+    if (!listIdParam || composeType || listIdConsumedRef.current) return
+    listIdConsumedRef.current = true
+    router.replace('/dashboard/outreach', { scroll: false })
+  }, [listIdParam, composeType, router])
 
   useEffect(() => {
     // Once router.replace strips the params, composeType goes falsy: re-arm

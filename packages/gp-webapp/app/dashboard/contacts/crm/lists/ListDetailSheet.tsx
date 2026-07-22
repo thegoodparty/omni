@@ -241,7 +241,9 @@ export default function ListDetailSheet({
                 resolves. */}
             {isWinContextReady && isWinContext && (
               <Button className="h-11 flex-1 text-sm" asChild>
-                <Link href="/dashboard/outreach">Send outreach</Link>
+                <Link href={`/dashboard/outreach?listId=${segment.id}`}>
+                  Send outreach
+                </Link>
               </Button>
             )}
           </div>

@@ -15,6 +15,7 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 
 interface OutreachCreateCardsProps {
   tcrCompliance?: TcrCompliance
+  preselectedListId?: number
 }
 
 interface FlowModalTask {
@@ -68,6 +69,7 @@ export const OUTREACH_OPTIONS: OutreachOption[] = [
 
 const OutreachCreateCards = ({
   tcrCompliance,
+  preselectedListId,
 }: OutreachCreateCardsProps): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { isPro } = campaign || {}
@@ -149,6 +151,7 @@ const OutreachCreateCards = ({
           forceOpen
           type={flowModalTask.flowType}
           campaign={campaign}
+          preselectedListId={preselectedListId}
           onClose={() => setFlowModalTask(null)}
         />
       )}

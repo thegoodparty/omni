@@ -187,6 +187,38 @@ describe('OutreachComposeDeepLink', () => {
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
+  // ENG-10762: the CRM "Send outreach" link carries ?listId=<id> so the
+  // server can read it and thread it to the audience step — nothing left
+  // for it to do client-side, so it's stripped from the address bar the
+  // same way `compose` is.
+  it('strips a bare listId param from the address bar on mount', async () => {
+    mockSearchParams = new URLSearchParams('listId=123')
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
+        scroll: false,
+      }),
+    )
+    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+  })
+
+  it('consumes both compose and listId together in a single replace', async () => {
+    mockSearchParams = new URLSearchParams(
+      'compose=text&message=Hello%20voters&listId=123',
+    )
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    const taskFlow = await screen.findByTestId('task-flow')
+    expect(taskFlow).toHaveAttribute('data-type', 'text')
+    expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
+      scroll: false,
+    })
+    // Only the compose effect's replace fires — the listId-only effect
+    // defers to it rather than firing a second, redundant replace.
+    expect(mockReplace).toHaveBeenCalledTimes(1)
+  })
+
   it('does nothing without a compose param', async () => {
     renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
 

@@ -30,13 +30,29 @@ const meta = pageMetaData({
 export const metadata = meta
 export const dynamic = 'force-dynamic'
 
-export default async function Page(): Promise<React.JSX.Element> {
+interface PageParams {
+  searchParams: Promise<{ listId?: string }>
+}
+
+export default async function Page({
+  searchParams,
+}: PageParams): Promise<React.JSX.Element> {
   await candidateAccess()
   const campaign = await fetchUserCampaign()
 
   if (!campaign) {
     redirect(getMarketingUrl('/run-for-office'))
   }
+
+  const { listId } = await searchParams
+  // ENG-10762: carries the saved list's id from a CRM "Send outreach" link.
+  // Anything that isn't a positive integer (missing, malformed) is ignored
+  // so the page behaves exactly as it did before the listId param existed.
+  const parsedListId = listId !== undefined ? Number(listId) : NaN
+  const preselectedListId =
+    Number.isInteger(parsedListId) && parsedListId > 0
+      ? parsedListId
+      : undefined
 
   const [outreaches, tcrComplianceResponse] = await Promise.all([
     fetchOutreaches(),
@@ -59,6 +75,7 @@ export default async function Page(): Promise<React.JSX.Element> {
         outreaches,
         mockOutreaches,
         tcrCompliance,
+        preselectedListId,
       }}
     />
   )
