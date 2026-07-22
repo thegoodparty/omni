@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common'
 import { subMinutes } from 'date-fns'
 import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import {
   CommitteeType,
   ExperimentRunStatus,
@@ -1754,6 +1755,30 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       where: { id: existingRecord.id },
       data: { peerlyBillingBlockedAt: expect.any(Date) },
     })
+  })
+
+  it('marks the record rejected, fires the rejection event, and rethrows on a CV data rejection', async () => {
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    expect(mockTcrModel.update).toHaveBeenCalledWith({
+      where: { id: existingRecord.id },
+      data: { status: 'rejected' },
+    })
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({
+        rejection_source: 'cv_submit',
+        rejection_reason: cvErr.message,
+      }),
+    )
   })
 
   it('holds off re-submitting (no Peerly call) while the billing block is within cooldown', async () => {

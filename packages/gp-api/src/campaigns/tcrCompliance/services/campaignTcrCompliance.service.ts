@@ -66,6 +66,7 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -390,11 +391,40 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    const { pinDelivery } =
+    const { status: cvStatus, pinDelivery } =
       await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         peerlyIdentityId,
         campaign,
       )
+
+    // A CV that flipped to REJECTED after submission never gets a PIN, so
+    // without this the record would sit in the sweep set forever. Persist the
+    // rejected status (removing it from the sweep) via an atomic transition
+    // claim so the rejection event fires once; the DB write is the source of
+    // truth and the event is best-effort — a lost event still surfaces via
+    // the nightly 10DLC report's rejected section.
+    if (cvStatus === PeerlyCvVerificationStatus.REJECTED) {
+      const rejectedClaim = await this.model.updateMany({
+        where: {
+          id: tcrCompliance.id,
+          status: { not: TcrComplianceStatus.rejected },
+        },
+        data: { status: TcrComplianceStatus.rejected },
+      })
+      if (rejectedClaim.count > 0) {
+        void this.analytics
+          .track(campaign.user.id, EVENTS.Outreach.ComplianceRejected, {
+            rejection_source: 'cv_status_check',
+            peerly_identity_id: peerlyIdentityId,
+            ...(campaign.data.hubspotId
+              ? { company_hubspot_id: campaign.data.hubspotId }
+              : {}),
+          })
+          .catch(() => undefined)
+      }
+      return
+    }
+
     // No method yet = PIN not sent (or an unrecognized channel we don't
     // surface) — leave the record for a later sweep.
     if (!pinDelivery) {
@@ -981,6 +1011,16 @@ export class CampaignTcrComplianceService extends createPrismaBase(
               data: { peerlyBillingBlockedAt: new Date() },
             })
           }
+          if (error instanceof PeerlyCvRejectionException) {
+            // A CV data rejection re-fails deterministically until the
+            // candidate corrects their filing details, and createAgentic
+            // treats `rejected` as retryable (delete + recreate), so this is
+            // the designed lifecycle state — not a dead end.
+            await tx.tcrCompliance.update({
+              where: { id: existing.id },
+              data: { status: TcrComplianceStatus.rejected },
+            })
+          }
         })
       } catch (rollbackErr) {
         // If the rollback/stamp transaction itself fails, the claim TTL will
@@ -991,6 +1031,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           '[TCR Compliance] Failed to roll back Peerly submission claim; ' +
             'TTL will recover',
         )
+      }
+      if (error instanceof PeerlyCvRejectionException) {
+        void this.analytics
+          .track(user.id, EVENTS.Outreach.ComplianceRejected, {
+            rejection_source: 'cv_submit',
+            rejection_reason: error.message,
+            ...(campaign.data.hubspotId
+              ? { company_hubspot_id: campaign.data.hubspotId }
+              : {}),
+          })
+          .catch(() => undefined)
       }
       throw error
     }
