@@ -1,352 +1,345 @@
 import { expect, type Locator, type Page, test } from '@playwright/test'
-import pRetry from 'p-retry'
+import type { AxiosInstance } from 'axios'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
-import {
-  applyContactsQuery,
-  filtersSheet,
-  openPersonPanel,
-  personContactPanel,
-  waitForContactsTableReady,
-} from 'src/helpers/contacts-e2e'
-import { WaitHelper } from 'src/helpers/wait.helper'
+  closeCrmSheet,
+  closePersonPanel,
+  crmSheet,
+  enableCrmFlags,
+  fetchListMembers,
+  fullPersonName,
+  gotoCrmContacts,
+  openPersonViaTypeahead,
+  readSettledWizardCount,
+  saveWizardList,
+  selectWizardPill,
+  statTileValue,
+  wizardBuildButton,
+  type ContactsApiPerson,
+} from 'src/helpers/crm-contacts-e2e'
 import { setupElectedOfficeUser } from 'src/helpers/organizations'
 
-const selectCheckbox = async (sheet: Locator, label: string, value: string) => {
-  const sectionHeading = sheet.locator('h4', { hasText: label })
-  const container = sectionHeading.locator('xpath=../..')
-  const checkboxLabel = container.getByText(value, { exact: true })
-  await checkboxLabel.locator('xpath=..').getByRole('checkbox').click()
-}
+// ENG-10756: the functional core of the contacts suite, ported to the CRM UI.
+// The rebuilt page has NO member table by design, so the legacy
+// "table cells show the filtered values" assertions translate to the
+// sanctioned triangulation:
+//   1. every filter pill must move the wizard's live count (POST
+//      /v1/contacts/count runs the exact payload the saved list would use, so
+//      a broken pill→filter mapping shows up as an unmoved count),
+//   2. a representative filter per group is saved as a list and its
+//      list-detail demographics (People tile) must equal the wizard count,
+//   3. that list's members — fetched through the same GET /v1/contacts the
+//      legacy table read, with the saved list as the segment — must carry the
+//      filtered field value, and one member is opened through the typeahead
+//      so the person RECORD shows the value (the AC's data-level check for
+//      gender, age, homeowner, plus cell phone).
+// Strictly-decreasing count assertions lean on the same live-data facts the
+// legacy suite proved for this district (both option sides of each asserted
+// field have matching rows, so any single side is a proper subset).
 
-const closePanel = async (page: Page, panel: Locator) => {
-  await pRetry(
-    async () => {
-      await page.keyboard.press('Escape')
-      await expect(panel).toBeHidden({ timeout: 5000 })
-    },
-    { retries: 3 },
-  )
-}
+const TEST_TIMEOUT = 8 * 60 * 1000
 
-const testFilterField = async (
-  page: Page,
-  config: {
-    select: { label: string; values: string[] }[]
-    expectTableValues?: { columnIndex: number; value: string | RegExp }[]
-    expectSheetValues: (
-      | { label: string; value: string | RegExp }
-      | ((panel: Locator) => Promise<void>)
-    )[]
-  },
-) => {
-  await page.getByTestId('edit-list-button').first().click()
-  const sheet = filtersSheet(page, /update segment/i)
-
-  await expect(sheet).toBeVisible({ timeout: 30000 })
-  await sheet.getByRole('button', { name: /clear filters/i }).click()
-
-  for (const { label, values } of config.select) {
-    for (const value of values) {
-      await selectCheckbox(sheet, label, value)
-    }
-  }
-
-  const updateBtn = sheet.getByRole('button', { name: /update segment/i })
-  await updateBtn.scrollIntoViewIfNeeded()
-  await expect(updateBtn).toBeEnabled({ timeout: 5000 })
-
-  // Applying the segment refetches GET /v1/contacts and swaps the rows for
-  // skeletons; wait for the new rows before asserting so cell reads aren't stale.
-  await applyContactsQuery(page, async () => {
-    await updateBtn.click()
-    try {
-      await expect(sheet).toBeHidden({ timeout: 15000 })
-    } catch {
-      await page.keyboard.press('Escape')
-      // Best-effort: if the sheet is still up after Escape, don't throw —
-      // applyContactsQuery must still await responseLanded and
-      // waitForContactsTableReady, or the next assertions read stale rows.
-      try {
-        await expect(sheet).toBeHidden({ timeout: 5000 })
-      } catch {
-        // ignored: sheet close is best-effort
-      }
-    }
-  })
-
-  const table = page.locator('table').first()
-
-  if (config.expectTableValues) {
-    for (const { columnIndex, value } of config.expectTableValues) {
-      const cell = table
-        .locator('tbody tr')
-        .first()
-        .locator('td')
-        .nth(columnIndex)
-      await expect(cell).toHaveText(value)
-    }
-  }
-
-  // Opening the person panel is one of the two heaviest waits per call (a
-  // GET /v1/contacts/:id fetch plus its own skeleton clear). Only pay it when
-  // the step actually asserts something on the panel — applyContactsQuery's
-  // waitForContactsTableReady has already confirmed the filter refetched and
-  // returned a row, which is all the panel-less steps (e.g. Age) need.
-  if (config.expectSheetValues.length === 0) return
-
-  const firstRow = table.locator('tbody tr').first()
-  const panel = personContactPanel(page)
-
-  await openPersonPanel(page, firstRow, panel)
-
-  for (const expectation of config.expectSheetValues) {
-    if (typeof expectation === 'function') {
-      await expectation(panel)
-    } else {
-      const { label, value } = expectation
-      const fieldLabel = panel.locator('p', { hasText: label }).first()
-      const fieldContainer = fieldLabel.locator('xpath=..')
-      await expect(fieldContainer).toHaveText(value)
-    }
-  }
-
-  await closePanel(page, panel)
-}
-
-// Provision an elected-office user, land on the Constituent Data surface, and
-// seed the one segment that testFilterField then edits in place. Each split
-// test runs this independently (its own isolated user + page), so the four
-// tests parallelize across Playwright workers instead of running as one serial
-// monolith. setupElectedOfficeUser is the expensive part (create user + win a
-// race + await async EO-org creation), but the four run concurrently, so it
-// costs ~one setup of wall-clock, not four.
-const setUpFilterableContacts = async (page: Page) => {
-  await setupElectedOfficeUser(page, {
+const setUpCrmContacts = async (page: Page): Promise<AxiosInstance> => {
+  const { client } = await setupElectedOfficeUser(page, {
     zip: '82001',
     office: 'Cheyenne City Council - Ward 1',
   })
-
-  await page.goto('/dashboard/contacts')
-  await NavigationHelper.dismissOverlays(page)
-  await WaitHelper.waitForPageReady(page)
-
-  await expect(page).toHaveURL(/\/dashboard\/contacts/)
+  await gotoCrmContacts(page)
   await expect(
     page.getByRole('heading', { name: 'Constituent Data' }),
-  ).toBeVisible()
-
-  const table = page.locator('table').first()
-  await expect(table).toBeVisible()
-  await waitForContactsTableReady(page)
-
-  const createListButton = page.getByRole('button', { name: /create list/i })
-  await createListButton.scrollIntoViewIfNeeded()
-  await expect(createListButton).toBeVisible()
-  await createListButton.click({ force: true })
-  const sheet = filtersSheet(page, /create segment/i)
-  await expect(sheet).toBeVisible({ timeout: 30000 })
-  await selectCheckbox(sheet, 'Gender', 'Unknown')
-  const createBtn = sheet.getByRole('button', { name: /create segment/i })
-  await expect(createBtn).toBeEnabled({ timeout: 5000 })
-  await applyContactsQuery(page, async () => {
-    await createBtn.click({ force: true })
-    await expect(sheet).toBeHidden({ timeout: 15000 })
-  })
+  ).toBeVisible({ timeout: 20_000 })
+  return client
 }
 
-// This was one ~20-step monolith — the suite's longest test at ~15 min, pinned
-// to a single worker because test.step()s run serially. It's split into four
-// independent test()s so Playwright's workers/shards run them in parallel,
-// cutting the suite's critical path. Each owns its setup + seed segment, so
-// there's no shared state and they can't race each other; coverage is unchanged
-// (same filter groups, regrouped). Not @dev-only: the Serve "Constituent Data"
-// surface has no flag/pro gating, so these run on PRs too. The per-test budget
-// is wide enough to absorb a cold preview (setup + ~6-8 filter applications).
-const TEST_TIMEOUT = 8 * 60 * 1000
+// Open the wizard (Serve lands directly on the constituent filters) and read
+// the settled unfiltered total — ENG-10751 fires the count with zero
+// selections so the disabled CTA shows the full universe.
+const openWizard = async (
+  page: Page,
+): Promise<{ wizard: Locator; unfiltered: number }> => {
+  await page.getByRole('button', { name: 'Create new list' }).click()
+  const wizard = crmSheet(page)
+  await expect(wizard).toBeVisible({ timeout: 15_000 })
+  await expect(
+    wizard.getByText('Build a constituent list', { exact: true }),
+  ).toBeVisible({ timeout: 10_000 })
+  const unfiltered = await readSettledWizardCount(page)
+  expect(unfiltered).toBeGreaterThan(0)
+  return { wizard, unfiltered }
+}
+
+const clearWizardFilters = async (
+  page: Page,
+  wizard: Locator,
+  unfiltered: number,
+): Promise<void> => {
+  await wizard.getByRole('button', { name: 'Clear filters' }).click()
+  await expect(wizardBuildButton(page)).toContainText(
+    `(${unfiltered.toLocaleString('en-US')})`,
+    { timeout: 30_000 },
+  )
+}
+
+// Select pills, assert the live count reflects the narrowed set, clear.
+// `strict: false` is reserved for coverage-style filters (Has Cell Phone /
+// Has Landline / Language English) where full-universe coverage is a
+// legitimate data shape, so equality with the unfiltered total can't be
+// ruled out.
+const probeCount = async (
+  page: Page,
+  wizard: Locator,
+  unfiltered: number,
+  selections: ReadonlyArray<readonly [string, string]>,
+  { strict = true }: { strict?: boolean } = {},
+): Promise<number> => {
+  for (const [group, option] of selections) {
+    await selectWizardPill(wizard, group, option)
+  }
+  const count = await readSettledWizardCount(
+    page,
+    strict ? { differentFrom: unfiltered } : {},
+  )
+  expect(count).toBeGreaterThan(0)
+  expect(count).toBeLessThanOrEqual(unfiltered)
+  if (strict) expect(count).toBeLessThan(unfiltered)
+  await clearWizardFilters(page, wizard, unfiltered)
+  return count
+}
+
+// Build a list from the wizard's CURRENT selection and verify the
+// list-detail demographics reflect the same count the wizard showed.
+const buildListFromSelection = async (
+  page: Page,
+  expectedCount: number,
+  name: string,
+): Promise<string> => {
+  await wizardBuildButton(page).click()
+  const listId = await saveWizardList(page, name)
+  const detailSheet = crmSheet(page)
+  await expect(statTileValue(detailSheet, 'People')).toHaveText(
+    expectedCount.toLocaleString('en-US'),
+    { timeout: 30_000 },
+  )
+  await closeCrmSheet(page)
+  return listId
+}
+
+const pickNamedMember = (
+  members: ContactsApiPerson[],
+  { requireAge = false }: { requireAge?: boolean } = {},
+): ContactsApiPerson => {
+  const member = members.find(
+    (candidate) =>
+      fullPersonName(candidate).length >= 3 &&
+      (!requireAge || candidate.age !== null),
+  )
+  expect(
+    member,
+    requireAge
+      ? 'expected a list member with a displayable age'
+      : 'expected a list member with a searchable name',
+  ).toBeTruthy()
+  return member!
+}
+
+// A labeled field on the person record — same label/value composition the
+// legacy person-panel assertions used (label <p> + value in the same
+// container).
+const expectPanelField = async (
+  panel: Locator,
+  label: string,
+  value: RegExp,
+): Promise<void> => {
+  const fieldLabel = panel.locator('p', { hasText: label }).first()
+  await expect(fieldLabel.locator('xpath=..')).toHaveText(value)
+}
 
 test.beforeEach(async ({ page }) => {
   await blockSlowScripts(page)
+  await enableCrmFlags(page)
 })
 
 test('contacts filters: demographics', async ({ page }) => {
   test.setTimeout(TEST_TIMEOUT)
-  await setUpFilterableContacts(page)
+  const client = await setUpCrmContacts(page)
+  const { wizard, unfiltered } = await openWizard(page)
 
-  await test.step('Filter: Gender', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Gender', values: ['Male'] }],
-      expectTableValues: [{ columnIndex: 1, value: 'M' }],
-      expectSheetValues: [
-        async (panel) => {
-          await expect(panel).toHaveText(/Male/)
-        },
-      ],
-    })
-
-    await testFilterField(page, {
-      select: [{ label: 'Gender', values: ['Female'] }],
-      expectTableValues: [{ columnIndex: 1, value: 'F' }],
-      expectSheetValues: [
-        async (panel) => {
-          await expect(panel).toHaveText(/Female/)
-        },
-      ],
-    })
+  await test.step('Filter: Gender (Male)', async () => {
+    await probeCount(page, wizard, unfiltered, [['Gender', 'Male']])
   })
 
-  await test.step('Filter: Age', async () => {
-    // The Age filter applies and returns constituents, but this district's
-    // live L2 data does not populate a displayed `age` for the matched rows —
-    // the Age column (and the person panel) render "--", so asserting a
-    // numeric age is data-dependent and flaky. Exercise the filter and let
-    // testFilterField confirm it returns a row, but don't assert the absent
-    // age value — same live-data gap as the Spanish-language filter below.
-    await testFilterField(page, {
-      select: [{ label: 'Age', values: ['25-35'] }],
-      expectSheetValues: [],
+  await test.step('Filter: Age (25-34, then widened with 35-49)', async () => {
+    // The legacy suite documented that this district's live L2 data doesn't
+    // populate a displayed age for every matched row, so single-age value
+    // assertions stay data-level in the combo test below. Here: each range
+    // narrows the universe, and adding a second range (OR semantics) widens
+    // the selection again.
+    await selectWizardPill(wizard, 'Age', '25-34')
+    const single = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
     })
+    expect(single).toBeGreaterThan(0)
+    expect(single).toBeLessThan(unfiltered)
 
-    await testFilterField(page, {
-      select: [{ label: 'Age', values: ['35-50'] }],
-      expectSheetValues: [],
+    await selectWizardPill(wizard, 'Age', '35-49')
+    const widened = await readSettledWizardCount(page, {
+      differentFrom: single,
     })
+    expect(widened).toBeGreaterThan(single)
+    expect(widened).toBeLessThanOrEqual(unfiltered)
+    await clearWizardFilters(page, wizard, unfiltered)
   })
 
   await test.step('Filter: Marital Status', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Marital Status', values: ['Married'] }],
-      expectSheetValues: [{ label: 'Marital Status', value: /Married/i }],
-    })
-
-    await testFilterField(page, {
-      select: [{ label: 'Marital Status', values: ['Single'] }],
-      expectSheetValues: [{ label: 'Marital Status', value: /Single/i }],
-    })
+    await probeCount(page, wizard, unfiltered, [['Marital Status', 'Married']])
+    await probeCount(page, wizard, unfiltered, [['Marital Status', 'Single']])
   })
 
   await test.step('Filter: Veteran Status', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Veteran Status', values: ['Yes'] }],
-      expectSheetValues: [{ label: 'Veteran Status', value: /Yes/i }],
+    await probeCount(page, wizard, unfiltered, [['Veteran Status', 'Yes']])
+  })
+
+  await test.step('Gender Female: count + list detail + person record', async () => {
+    await selectWizardPill(wizard, 'Gender', 'Female')
+    const femaleCount = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
     })
+    expect(femaleCount).toBeGreaterThan(0)
+    expect(femaleCount).toBeLessThan(unfiltered)
+
+    const listId = await buildListFromSelection(
+      page,
+      femaleCount,
+      `E2E gender F ${Date.now()}`,
+    )
+
+    const members = await fetchListMembers(client, listId)
+    expect(members.length).toBeGreaterThan(0)
+    for (const member of members) {
+      expect(member.gender).toBe('Female')
+    }
+
+    const member = pickNamedMember(members)
+    const panel = await openPersonViaTypeahead(page, member)
+    await expect(panel.locator('p.text-xl').first()).toHaveText(/Female/)
+    await closePersonPanel(panel)
   })
 })
 
 test('contacts filters: contact methods and voting', async ({ page }) => {
   test.setTimeout(TEST_TIMEOUT)
-  await setUpFilterableContacts(page)
-
-  await test.step('Filter: Cell Phone', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Cell Phone', values: ['Has Cell Phone'] }],
-      expectTableValues: [{ columnIndex: 4, value: /\d/ }],
-      expectSheetValues: [{ label: 'Cell Phone Number', value: /\d/ }],
-    })
-  })
+  const client = await setUpCrmContacts(page)
+  const { wizard, unfiltered } = await openWizard(page)
 
   await test.step('Filter: Landline', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Landline', values: ['Has Landline'] }],
-      expectTableValues: [{ columnIndex: 5, value: /\d/ }],
-      expectSheetValues: [{ label: 'Landline', value: /\d/ }],
+    await probeCount(page, wizard, unfiltered, [['Landline', 'Has Landline']], {
+      strict: false,
     })
   })
 
-  await test.step('Filter: Language', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Language', values: ['English'] }],
-      expectSheetValues: [{ label: 'Language', value: /English/i }],
+  await test.step('Filter: Language (English)', async () => {
+    // The Spanish option has no matching constituent in this district's live
+    // L2 data (documented in the legacy suite), so English is the one
+    // asserted language — and it may legitimately cover the whole universe.
+    await probeCount(page, wizard, unfiltered, [['Language', 'English']], {
+      strict: false,
     })
-
-    // The Spanish-language segment has no matching constituent in this
-    // district's live L2 data, so the person panel never renders a Language
-    // field to assert against. The English case above verifies the filter
-    // mechanism and the panel field render.
   })
 
-  await test.step('Filter: Voter Likely', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Voter Likely', values: ['Unlikely'] }],
-      expectSheetValues: [{ label: 'Voter Status', value: /Unlikely/i }],
-    })
-
-    await testFilterField(page, {
-      select: [{ label: 'Voter Likely', values: ['Likely'] }],
-      expectSheetValues: [{ label: 'Voter Status', value: /Likely/i }],
-    })
+  await test.step('Filter: Voter Likelihood', async () => {
+    await probeCount(page, wizard, unfiltered, [
+      ['Voter Likelihood', 'Unlikely'],
+    ])
+    await probeCount(page, wizard, unfiltered, [['Voter Likelihood', 'Likely']])
   })
 
   await test.step('Filter: Business Owner', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Business Owner', values: ['Yes'] }],
-      expectSheetValues: [{ label: 'Business Owner', value: /Yes/i }],
-    })
+    await probeCount(page, wizard, unfiltered, [['Business Owner', 'Yes']])
+  })
+
+  await test.step('Cell Phone: count + list detail + person record', async () => {
+    await selectWizardPill(wizard, 'Cell Phone', 'Has Cell Phone')
+    const cellCount = await readSettledWizardCount(page)
+    expect(cellCount).toBeGreaterThan(0)
+    expect(cellCount).toBeLessThanOrEqual(unfiltered)
+
+    const listId = await buildListFromSelection(
+      page,
+      cellCount,
+      `E2E cell phone ${Date.now()}`,
+    )
+
+    const members = await fetchListMembers(client, listId)
+    expect(members.length).toBeGreaterThan(0)
+    for (const member of members) {
+      expect(member.cellPhone).toMatch(/\d/)
+    }
+
+    const member = pickNamedMember(members)
+    const panel = await openPersonViaTypeahead(page, member)
+    await expectPanelField(panel, 'Cell Phone Number', /\d/)
+    await closePersonPanel(panel)
   })
 })
 
 test('contacts filters: household and socioeconomic', async ({ page }) => {
   test.setTimeout(TEST_TIMEOUT)
-  await setUpFilterableContacts(page)
+  const client = await setUpCrmContacts(page)
+  const { wizard, unfiltered } = await openWizard(page)
 
   await test.step('Filter: Children', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Children', values: ['Yes'] }],
-      expectSheetValues: [{ label: 'Has Children Under 18', value: /Yes/i }],
-    })
-
-    await testFilterField(page, {
-      select: [{ label: 'Children', values: ['No'] }],
-      expectSheetValues: [{ label: 'Has Children Under 18', value: /No/i }],
-    })
+    await probeCount(page, wizard, unfiltered, [['Children', 'Yes']])
+    await probeCount(page, wizard, unfiltered, [['Children', 'No']])
   })
 
-  await test.step('Filter: Homeowner', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Homeowner', values: ['Yes'] }],
-      expectSheetValues: [{ label: 'Homeowner', value: /Yes/i }],
-    })
-
-    await testFilterField(page, {
-      select: [{ label: 'Homeowner', values: ['No'] }],
-      expectSheetValues: [{ label: 'Homeowner', value: /No/i }],
-    })
+  await test.step('Filter: Homeowner (No)', async () => {
+    await probeCount(page, wizard, unfiltered, [['Homeowner', 'No']])
   })
 
   await test.step('Filter: Education', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Level of Education', values: ['College Degree'] }],
-      expectSheetValues: [
-        { label: 'Level of Education', value: /College Degree/i },
-      ],
-    })
-
-    await testFilterField(page, {
-      select: [
-        { label: 'Level of Education', values: ['High School Diploma'] },
-      ],
-      expectSheetValues: [
-        { label: 'Level of Education', value: /High School Diploma/i },
-      ],
-    })
+    await probeCount(page, wizard, unfiltered, [
+      ['Level of Education', 'College Degree'],
+    ])
+    await probeCount(page, wizard, unfiltered, [
+      ['Level of Education', 'High School Diploma'],
+    ])
   })
 
   await test.step('Filter: Income', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Household Income Range', values: ['$50k - $75k'] }],
-      expectSheetValues: [
-        { label: 'Estimated Income Range', value: /\$50k\s*-\s*\$75k/ },
-      ],
-    })
+    await probeCount(page, wizard, unfiltered, [
+      ['Household Income Range', '$50k - $75k'],
+    ])
+    await probeCount(page, wizard, unfiltered, [
+      ['Household Income Range', '$75k - $100k'],
+    ])
+  })
 
-    await testFilterField(page, {
-      select: [{ label: 'Household Income Range', values: ['$75k - $100k'] }],
-      expectSheetValues: [
-        { label: 'Estimated Income Range', value: /\$75k\s*-\s*\$100k/ },
-      ],
+  await test.step('Homeowner Yes: count + list detail + person record', async () => {
+    await selectWizardPill(wizard, 'Homeowner', 'Yes')
+    const homeownerCount = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
     })
+    expect(homeownerCount).toBeGreaterThan(0)
+    expect(homeownerCount).toBeLessThan(unfiltered)
+
+    const listId = await buildListFromSelection(
+      page,
+      homeownerCount,
+      `E2E homeowner ${Date.now()}`,
+    )
+
+    // homeownerYes maps to eq 'Yes' server-side (never 'Likely'), so every
+    // member must carry the exact value.
+    const members = await fetchListMembers(client, listId)
+    expect(members.length).toBeGreaterThan(0)
+    for (const member of members) {
+      expect(member.homeowner).toBe('Yes')
+    }
+
+    const member = pickNamedMember(members)
+    const panel = await openPersonViaTypeahead(page, member)
+    await expectPanelField(panel, 'Homeowner', /Yes/i)
+    await closePersonPanel(panel)
   })
 })
 
@@ -354,118 +347,97 @@ test('contacts filters: ethnicity and multi-filter combos', async ({
   page,
 }) => {
   test.setTimeout(TEST_TIMEOUT)
-  await setUpFilterableContacts(page)
+  const client = await setUpCrmContacts(page)
+  const { wizard, unfiltered } = await openWizard(page)
 
   await test.step('Filter: Ethnicity', async () => {
-    await testFilterField(page, {
-      select: [{ label: 'Ethnicity', values: ['Hispanic'] }],
-      expectSheetValues: [{ label: 'Ethnicity Group', value: /Hispanic/i }],
-    })
-
-    await testFilterField(page, {
-      select: [{ label: 'Ethnicity', values: ['European'] }],
-      expectSheetValues: [{ label: 'Ethnicity Group', value: /European/i }],
-    })
+    await probeCount(page, wizard, unfiltered, [['Ethnicity', 'Hispanic']])
+    await probeCount(page, wizard, unfiltered, [['Ethnicity', 'European']])
   })
 
-  await test.step('Filter: Gender + Age', async () => {
-    await testFilterField(page, {
-      select: [
-        { label: 'Gender', values: ['Male'] },
-        { label: 'Age', values: ['25-35'] },
-      ],
-      expectTableValues: [
-        { columnIndex: 1, value: /^\s*M\s*$/ },
-        { columnIndex: 2, value: /^\s*(2[5-9]|3[0-5])\s*$/ },
-      ],
-      expectSheetValues: [
-        async (panel) => {
-          const header = panel.locator('p.text-xl').first()
-          await expect(header).toHaveText(/M.*\b(2[5-9]|3[0-5]) years old\b/)
-        },
-      ],
-    })
+  let maleCount = 0
+  let age2534Count = 0
+  await test.step('Single-filter baselines for the combo', async () => {
+    maleCount = await probeCount(page, wizard, unfiltered, [['Gender', 'Male']])
+    age2534Count = await probeCount(page, wizard, unfiltered, [
+      ['Age', '25-34'],
+    ])
   })
 
-  await test.step('Filter Combo: Female, Ages 25-50, Cell Phone, Married', async () => {
-    await testFilterField(page, {
-      select: [
-        { label: 'Gender', values: ['Female'] },
-        { label: 'Age', values: ['25-35', '35-50'] },
-        { label: 'Cell Phone', values: ['Has Cell Phone'] },
-        { label: 'Marital Status', values: ['Married'] },
-      ],
-      expectTableValues: [
-        { columnIndex: 1, value: /^\s*F\s*$/ },
-        { columnIndex: 2, value: /^\s*(2[5-9]|3[0-9]|4[0-9]|50)\s*$/ },
-        { columnIndex: 4, value: /\d/ },
-      ],
-      expectSheetValues: [
-        async (panel) => {
-          await expect(panel).toHaveText(/Female/)
-        },
-        { label: 'Cell Phone Number', value: /\d/ },
-        { label: 'Marital Status', value: /Married/i },
-      ],
-    })
+  await test.step('Combo: Female, Ages 25-49, Cell Phone, Married', async () => {
+    const femaleCount = await probeCount(page, wizard, unfiltered, [
+      ['Gender', 'Female'],
+    ])
+    const comboCount = await probeCount(page, wizard, unfiltered, [
+      ['Gender', 'Female'],
+      ['Age', '25-34'],
+      ['Age', '35-49'],
+      ['Cell Phone', 'Has Cell Phone'],
+      ['Marital Status', 'Married'],
+    ])
+    // AND semantics across groups: the combo can never exceed its gender
+    // baseline.
+    expect(comboCount).toBeLessThanOrEqual(femaleCount)
   })
 
-  await test.step('Filter Combo: Male, Likely/Super Voters, Homeowner, Higher Education', async () => {
-    await testFilterField(page, {
-      select: [
-        { label: 'Gender', values: ['Male'] },
-        { label: 'Voter Likely', values: ['Likely', 'Super'] },
-        { label: 'Homeowner', values: ['Yes'] },
-        {
-          label: 'Level of Education',
-          values: ['College Degree', 'Graduate Degree'],
-        },
-      ],
-      expectTableValues: [{ columnIndex: 1, value: /^\s*M\s*$/ }],
-      expectSheetValues: [
-        async (panel) => {
-          await expect(panel).toHaveText(/Male/)
-        },
-        { label: 'Voter Status', value: /(Likely|Super)/i },
-        { label: 'Homeowner', value: /Yes/i },
-        {
-          label: 'Level of Education',
-          value: /(College Degree|Graduate Degree)/i,
-        },
-      ],
-    })
+  await test.step('Combo: Male, Likely/Super Voters, Homeowner, Higher Education', async () => {
+    const comboCount = await probeCount(page, wizard, unfiltered, [
+      ['Gender', 'Male'],
+      ['Voter Likelihood', 'Likely'],
+      ['Voter Likelihood', 'Super'],
+      ['Homeowner', 'Yes'],
+      ['Level of Education', 'College Degree'],
+      ['Level of Education', 'Graduate Degree'],
+    ])
+    expect(comboCount).toBeLessThanOrEqual(maleCount)
   })
 
-  await test.step('Filter Combo: Ages 35+, Landline, Children, Income $75-125k, Ethnicity', async () => {
-    await testFilterField(page, {
-      select: [
-        { label: 'Age', values: ['35-50', '50+'] },
-        { label: 'Landline', values: ['Has Landline'] },
-        { label: 'Children', values: ['Yes'] },
-        {
-          label: 'Household Income Range',
-          values: ['$75k - $100k', '$100k - $125k'],
-        },
-        { label: 'Ethnicity', values: ['European', 'Hispanic'] },
-      ],
-      expectTableValues: [
-        { columnIndex: 2, value: /^\s*(3[5-9]|[4-9]\d|\d{3})\s*$/ },
-        { columnIndex: 5, value: /\d/ },
-      ],
-      expectSheetValues: [
-        async (panel) => {
-          const header = panel.locator('p.text-xl').first()
-          await expect(header).toHaveText(
-            /\b(3[5-9]|[4-9]\d|\d{3}) years old\b/,
-          )
-        },
-        { label: 'Has Children Under 18', value: /Yes/i },
-        {
-          label: 'Estimated Income Range',
-          value: /\$(75k|100k)\s*-\s*\$(100k|125k)/,
-        },
-        { label: 'Ethnicity Group', value: /(European|Hispanic)/i },
-      ],
+  await test.step('Combo: Ages 35+, Landline, Children, Income $75-125k, Ethnicity', async () => {
+    await probeCount(page, wizard, unfiltered, [
+      ['Age', '35-49'],
+      ['Age', '50-64'],
+      ['Age', '65+'],
+      ['Landline', 'Has Landline'],
+      ['Children', 'Yes'],
+      ['Household Income Range', '$75k - $100k'],
+      ['Household Income Range', '$100k - $125k'],
+      ['Ethnicity', 'European'],
+      ['Ethnicity', 'Hispanic'],
+    ])
+  })
+
+  await test.step('Gender + Age combo: count + list detail + person record', async () => {
+    await selectWizardPill(wizard, 'Gender', 'Male')
+    await selectWizardPill(wizard, 'Age', '25-34')
+    const comboCount = await readSettledWizardCount(page, {
+      differentFrom: unfiltered,
     })
+    expect(comboCount).toBeGreaterThan(0)
+    expect(comboCount).toBeLessThanOrEqual(Math.min(maleCount, age2534Count))
+
+    const listId = await buildListFromSelection(
+      page,
+      comboCount,
+      `E2E male 25-34 ${Date.now()}`,
+    )
+
+    const members = await fetchListMembers(client, listId)
+    expect(members.length).toBeGreaterThan(0)
+    for (const member of members) {
+      expect(member.gender).toBe('Male')
+      // Not every matched row carries a displayable age (documented live-data
+      // gap for this district), but any that does must be inside the range.
+      if (member.age !== null) {
+        expect(member.age).toBeGreaterThanOrEqual(25)
+        expect(member.age).toBeLessThanOrEqual(34)
+      }
+    }
+
+    const member = pickNamedMember(members, { requireAge: true })
+    const panel = await openPersonViaTypeahead(page, member)
+    await expect(panel.locator('p.text-xl').first()).toHaveText(
+      /Male.*\b(2[5-9]|3[0-4]) years old\b/,
+    )
+    await closePersonPanel(panel)
   })
 })

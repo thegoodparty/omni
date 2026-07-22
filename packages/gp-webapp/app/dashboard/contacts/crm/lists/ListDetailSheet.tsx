@@ -235,9 +235,17 @@ export default function ListDetailSheet({
                 <DownloadIcon className="size-4" />
               )}
             </Button>
-            <Button className="h-11 flex-1 text-sm" asChild>
-              <Link href="/dashboard/outreach">Send outreach</Link>
-            </Button>
+            {/* ENG-10749: Win-only — Serve outreach is deferred and the
+                link dead-ends for an eo- org; the readiness gate avoids
+                flashing the button at a Serve user while the mode
+                resolves. */}
+            {isWinContextReady && isWinContext && (
+              <Button className="h-11 flex-1 text-sm" asChild>
+                <Link href={`/dashboard/outreach?listId=${segment.id}`}>
+                  Send outreach
+                </Link>
+              </Button>
+            )}
           </div>
         ) : undefined
       }

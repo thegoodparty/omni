@@ -282,6 +282,49 @@ describe('buildVoterFiltersSql', () => {
     })
   })
 
+  describe('politicalParty value mapping', () => {
+    it('maps Unknown to IS NULL, not a literal string match', () => {
+      const filterData: FilterData = {
+        filters: ['politicalParty'],
+        filterValues: { politicalParty: ['Unknown'] },
+        filterOperators: {
+          politicalParty: {
+            operator: 'in',
+            values: ['Unknown'],
+            includeNull: false,
+          },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('Parties_Description')
+      expect(sqlStr).toContain('IS NULL')
+      expect(result?.values.flat()).not.toContain('Unknown')
+    })
+
+    it('combines Unknown with mapped party values as IN ... OR IS NULL', () => {
+      const filterData: FilterData = {
+        filters: ['politicalParty'],
+        filterValues: { politicalParty: ['Independent', 'Unknown'] },
+        filterOperators: {
+          politicalParty: {
+            operator: 'in',
+            values: ['Independent', 'Unknown'],
+            includeNull: false,
+          },
+        },
+      }
+
+      const result = buildVoterFiltersSql(filterData)
+      const sqlStr = sqlToString(result)
+
+      expect(sqlStr).toContain('IS NULL')
+      expect(result?.values.flat()).toContain('Non-Partisan')
+    })
+  })
+
   describe('id filter', () => {
     it('emits = ANY with ::uuid[] for the in operator', () => {
       const filterData: FilterData = {

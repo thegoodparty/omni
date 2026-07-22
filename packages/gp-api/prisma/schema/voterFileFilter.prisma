@@ -18,6 +18,11 @@ model VoterFileFilter {
   age25_35                   Boolean?                           @default(false) @map("age_25_35")
   age35_50                   Boolean?                           @default(false) @map("age_35_50")
   age50Plus                  Boolean?                           @default(false) @map("age_50_plus")
+  age18_24                   Boolean?                           @default(false) @map("age_18_24")
+  age25_34                   Boolean?                           @default(false) @map("age_25_34")
+  age35_49                   Boolean?                           @default(false) @map("age_35_49")
+  age50_64                   Boolean?                           @default(false) @map("age_50_64")
+  age65Plus                  Boolean?                           @default(false) @map("age_65_plus")
   ageUnknown                 Boolean?                           @default(false) @map("age_unknown")
   genderMale                 Boolean?                           @default(false) @map("gender_male")
   genderFemale               Boolean?                           @default(false) @map("gender_female")
@@ -62,6 +67,7 @@ model VoterFileFilter {
   homeownerUnknown           Boolean?                           @default(false) @map("homeowner_unknown")
   voterCount                 Int?                               @map("voter_count")
   outreaches                 Outreach[]
+  doorKnockingTurfs          DoorKnockingTurf[]
   organizationSlug           String                             @map("organization_slug")
   organization               Organization                       @relation(fields: [organizationSlug], references: [slug], onDelete: Cascade)
   supportStatus              SupportStatusRollup[]              @default([]) @map("support_status")

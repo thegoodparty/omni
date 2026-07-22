@@ -2,14 +2,12 @@ import { HttpService } from '@nestjs/axios'
 import {
   BadGatewayException,
   BadRequestException,
-  ForbiddenException,
   HttpException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
 import type { ListDetailContactsResponse } from '@goodparty_org/contracts'
-import { Organization, User } from '../../generated/prisma'
-import { FeaturesService } from 'src/features/services/features.service'
+import { Organization } from '../../generated/prisma'
 import { isAxiosError } from 'axios'
 import { FastifyReply } from 'fastify'
 import jwt from 'jsonwebtoken'
@@ -58,12 +56,8 @@ import { buildPreviewContacts } from '../utils/previewContacts.utils'
 
 const { PEOPLE_API_URL, PEOPLE_API_S2S_SECRET } = process.env
 
-// Exported so the campaign-manager chat handler can mirror the webapp's CRM
-// gate (useCrmEnabled): a Win surface needs win-voter-data AND win-crm.
-export const WIN_VOTER_DATA_FLAG_KEY = 'win-voter-data'
-
 // The default, unfiltered view. It (and the district stats) are visible to any
-// Win campaign with the flag on, pro or not. A non-pro candidate sees the real
+// Win campaign, pro or not. A non-pro candidate sees the real
 // district aggregates but a synthetic (fake) people preview — never real voter
 // PII (see previewContacts.utils) — before being upsold. Search, custom/named
 // segments, and download stay pro-only.
@@ -110,38 +104,12 @@ export class ContactsService {
     private readonly campaigns: CampaignsService,
     private readonly organizations: OrganizationsService,
     private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
-    private readonly features: FeaturesService,
     private readonly supportStatusService: SupportStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly activityConditionResolution: ActivityConditionResolutionService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
-  }
-
-  // Authz gate for the user-facing Contacts surface. Elected-office (Serve)
-  // orgs predate the Win rollout and are not flag-gated. Win (campaign) orgs
-  // are reachable when win-voter-data is on for the user — pro and non-pro
-  // alike, so a non-pro candidate lands on the page and sees the district
-  // aggregates and a synthetic people preview. Pro is NOT gated here; it is
-  // enforced per-action instead (real people data on the base list, search and
-  // named/custom segments in findContacts, download in downloadContacts) so
-  // those surface the upgrade prompt. Ownership
-  // is enforced upstream by @UseOrganization(). Internal callers (polls, queue
-  // consumer) call the service methods directly and are intentionally not gated.
-  async assertContactsAccess(
-    organization: Organization,
-    user: User,
-  ): Promise<void> {
-    if (this.hasElectedOfficeAccess(organization)) return
-
-    const flagEnabled = await this.features.isFeatureEnabled({
-      user,
-      feature: WIN_VOTER_DATA_FLAG_KEY,
-    })
-    if (!flagEnabled) {
-      throw new ForbiddenException('Voter data access is not enabled')
-    }
   }
 
   private hasElectedOfficeAccess(organization: Organization): boolean {
@@ -211,6 +179,14 @@ export class ContactsService {
       select: { isPro: true },
     })
     return campaign?.isPro ?? false
+  }
+
+  // Pro-access depends only on the organization, so callers fanning out over
+  // many phones for one org (e.g. the poll-analysis consumer) can resolve it
+  // once and pass it into findContacts/findPersonByPhone instead of paying a
+  // campaign lookup per phone.
+  async resolveProAccess(organization: Organization): Promise<boolean> {
+    return this.isProAccess(organization)
   }
 
   // Shared pro gate for record-level contact features (e.g. notes) that hang
@@ -288,10 +264,14 @@ export class ContactsService {
   async findContacts(
     { resultsPerPage, page, search, segment }: ListContactsDTO,
     organization: Organization,
+    // Optional pre-resolved pro-access. Batch callers (e.g. the poll-analysis
+    // consumer fanning out over many phones for one org) resolve it once via
+    // resolveProAccess() and pass it in; falls back to resolving here.
+    proAccess?: boolean,
   ) {
     const wantsProOnlyView =
       !!search || (segment !== undefined && segment !== ALL_CONTACTS_SEGMENT)
-    const isPro = await this.isProAccess(organization)
+    const isPro = proAccess ?? (await this.isProAccess(organization))
     if (wantsProOnlyView && !isPro) {
       throw new BadRequestException(
         'Search and segments are only available for pro campaigns',
@@ -692,10 +672,12 @@ export class ContactsService {
   async findPersonByPhone(
     phone: string,
     organization: Organization,
+    proAccess?: boolean,
   ): Promise<PersonOutput | null> {
     const result = await this.findContacts(
       { search: phone, segment: 'all', resultsPerPage: 1, page: 1 },
       organization,
+      proAccess,
     )
     return result.people[0] ?? null
   }
@@ -773,95 +755,6 @@ export class ContactsService {
       throw new BadRequestException('Campaign is not pro')
     }
 
-    const downloadPeople = async (
-      districtParams: { districtId: string },
-      filters: FilterObject,
-      groupByHousehold: boolean,
-      excludeColumns: string[] | undefined,
-    ) => {
-      let response: { data: Readable }
-      try {
-        response = await lastValueFrom(
-          this.httpService.post<Readable>(
-            `${PEOPLE_API_URL}/v1/people/download`,
-            { ...districtParams, filters, groupByHousehold, excludeColumns },
-            {
-              headers: {
-                Authorization: `Bearer ${this.getValidS2SToken()}`,
-              },
-              responseType: 'stream',
-            },
-          ),
-        )
-      } catch (error) {
-        this.logger.error(
-          { error },
-          'Failed to download contacts from people API',
-        )
-
-        throw new BadGatewayException(
-          'Failed to download contacts from people API',
-        )
-      }
-
-      // Upstream is live. Only now do we commit our own response headers,
-      // because once these are flushed the connection becomes a binary
-      // download that any error response would corrupt (browser would save
-      // the JSON error blob as `contacts.csv`). All earlier failures
-      // (`isProAccess`, district resolution, axios POST) still produce a
-      // structured 4xx/5xx because nothing has been written to the wire yet.
-      this.setDownloadResponseHeaders(res)
-
-      return new Promise<void>((resolve) => {
-        let settled = false
-        const settle = (fn: () => void) => {
-          if (settled) return
-          settled = true
-          fn()
-        }
-        const destroyUpstream = () => {
-          if (!response.data.destroyed) {
-            response.data.destroy()
-          }
-        }
-
-        response.data.pipe(res.raw)
-        response.data.on('end', () => settle(resolve))
-        // Once `flushHeaders()` above committed our HTTP headers to the wire,
-        // a mid-transfer upstream error must NOT propagate as a rejection.
-        // Nest's global exception filter would call
-        // `httpAdapter.reply(res.raw, jsonBody, 500)` on a response whose
-        // headers are already sent, producing either an
-        // `ERR_HTTP_HEADERS_SENT` warning or a corrupt CSV+JSON blob saved as
-        // `contacts.csv`. Instead: log, tear down both ends, and resolve so
-        // the controller's await falls through cleanly. The browser sees a
-        // truncated download and the operator sees the cause in the logs.
-        response.data.on('error', (err: Error) =>
-          settle(() => {
-            this.logger.error(
-              { err },
-              'Upstream stream error after download headers committed',
-            )
-            destroyUpstream()
-            if (!res.raw.destroyed) {
-              res.raw.destroy(err)
-            }
-            resolve()
-          }),
-        )
-        // Browser canceled / network closed mid-download: tear down the
-        // upstream people-api stream so the gp-api → people-api socket and
-        // the underlying pg COPY connection are released promptly instead of
-        // waiting for an idle-timeout.
-        res.raw.on('close', () =>
-          settle(() => {
-            destroyUpstream()
-            resolve()
-          }),
-        )
-      })
-    }
-
     const { filters, empty } = await this.segmentToFilters(
       segment,
       organization,
@@ -874,7 +767,170 @@ export class ContactsService {
     return this.withOrgDistrictResolution(organization, (params) =>
       empty
         ? this.emptyDownload(res)
-        : downloadPeople(params, filters, groupByHousehold, excludeColumns),
+        : this.streamPeopleDownload(
+            params,
+            filters,
+            groupByHousehold,
+            excludeColumns,
+            res,
+          ),
+    )
+  }
+
+  private async streamPeopleDownload(
+    districtParams: { districtId: string },
+    filters: FilterObject,
+    groupByHousehold: boolean,
+    excludeColumns: string[] | undefined,
+    res: FastifyReply,
+  ): Promise<void> {
+    let response: { data: Readable }
+    try {
+      response = await lastValueFrom(
+        this.httpService.post<Readable>(
+          `${PEOPLE_API_URL}/v1/people/download`,
+          { ...districtParams, filters, groupByHousehold, excludeColumns },
+          {
+            headers: {
+              Authorization: `Bearer ${this.getValidS2SToken()}`,
+            },
+            responseType: 'stream',
+          },
+        ),
+      )
+    } catch (error) {
+      this.logger.error(
+        { error },
+        'Failed to download contacts from people API',
+      )
+
+      throw new BadGatewayException(
+        'Failed to download contacts from people API',
+      )
+    }
+
+    // Upstream is live. Only now do we commit our own response headers,
+    // because once these are flushed the connection becomes a binary
+    // download that any error response would corrupt (browser would save
+    // the JSON error blob as `contacts.csv`). All earlier failures
+    // (`isProAccess`, district resolution, axios POST) still produce a
+    // structured 4xx/5xx because nothing has been written to the wire yet.
+    this.setDownloadResponseHeaders(res)
+
+    return new Promise<void>((resolve) => {
+      let settled = false
+      const settle = (fn: () => void) => {
+        if (settled) return
+        settled = true
+        fn()
+      }
+      const destroyUpstream = () => {
+        if (!response.data.destroyed) {
+          response.data.destroy()
+        }
+      }
+
+      response.data.pipe(res.raw)
+      response.data.on('end', () => settle(resolve))
+      // Once `flushHeaders()` above committed our HTTP headers to the wire,
+      // a mid-transfer upstream error must NOT propagate as a rejection.
+      // Nest's global exception filter would call
+      // `httpAdapter.reply(res.raw, jsonBody, 500)` on a response whose
+      // headers are already sent, producing either an
+      // `ERR_HTTP_HEADERS_SENT` warning or a corrupt CSV+JSON blob saved as
+      // `contacts.csv`. Instead: log, tear down both ends, and resolve so
+      // the controller's await falls through cleanly. The browser sees a
+      // truncated download and the operator sees the cause in the logs.
+      response.data.on('error', (err: Error) =>
+        settle(() => {
+          this.logger.error(
+            { err },
+            'Upstream stream error after download headers committed',
+          )
+          destroyUpstream()
+          if (!res.raw.destroyed) {
+            res.raw.destroy(err)
+          }
+          resolve()
+        }),
+      )
+      // Browser canceled / network closed mid-download: tear down the
+      // upstream people-api stream so the gp-api → people-api socket and
+      // the underlying pg COPY connection are released promptly instead of
+      // waiting for an idle-timeout.
+      res.raw.on('close', () =>
+        settle(() => {
+          destroyUpstream()
+          resolve()
+        }),
+      )
+    })
+  }
+
+  // The legacy voter-file endpoint (GET /voters/voter-file — task-flow record
+  // counts and the outreach audience CSV) resolved through the same people-api
+  // pipeline as the CRM (ENG-5032). Deliberately NOT pro-gated: that endpoint
+  // has never required pro — CanDownloadVoterFileGuard on its controller owns
+  // access, and free campaigns read task-flow counts through it. Voter-file
+  // inputs are demographic booleans only, so the activity-condition
+  // resolution engine is skipped.
+  async countVoterFilePeople(
+    filterInput: Partial<VoterFileFilter>,
+    groupByHousehold: boolean,
+    organization: Organization,
+  ): Promise<number> {
+    const filters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
+
+    return this.withOrgDistrictResolution(
+      organization,
+      async (districtParams) => {
+        try {
+          const response = await lastValueFrom(
+            this.httpService.post(
+              `${PEOPLE_API_URL}/v1/people`,
+              {
+                ...districtParams,
+                resultsPerPage: 1,
+                page: 1,
+                filters,
+                groupByHousehold,
+              },
+              {
+                headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+              },
+            ),
+          )
+          // People API response is untyped — external API returns unknown shape
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
+          return (response.data as PeopleListResponse).pagination.totalResults
+        } catch (error) {
+          this.logger.error({ error }, 'Failed to count from people API')
+          throw new BadGatewayException('Failed to count from people API')
+        }
+      },
+    )
+  }
+
+  async downloadVoterFilePeople(
+    filterInput: Partial<VoterFileFilter>,
+    groupByHousehold: boolean,
+    organization: Organization,
+    res: FastifyReply,
+  ): Promise<void> {
+    const filters = convertVoterFileFilterToFilters(filterInput)
+    this.assertNoPartyFilterForElectedOffice(organization, filters)
+
+    return this.withOrgDistrictResolution(organization, (params) =>
+      this.streamPeopleDownload(
+        params,
+        filters,
+        groupByHousehold,
+        this.hasElectedOfficeAccess(organization)
+          ? [PARTY_DOWNLOAD_COLUMN]
+          : undefined,
+        res,
+      ),
     )
   }
 

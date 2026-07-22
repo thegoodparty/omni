@@ -53,6 +53,9 @@ jobs:
       # a base64 of the personal OAuth token pickle. Absent -> step skips.
       GP_SHEETS_TOKEN_B64: ${{ secrets.GP_SHEETS_TOKEN_B64 }}
       GP_EVENT_STATE_SHEET_ID: ${{ vars.GP_EVENT_STATE_SHEET_ID }}
+      # Deep-links the Slack "browse gaps" link to the gaps tab; unset -> the
+      # browse link falls back to the sheet's default tab (DATA-2151 Phase 3).
+      GP_GAPS_TAB_GID: ${{ vars.GP_GAPS_TAB_GID }}
     steps:
       - name: Preflight required config
         env:
@@ -102,10 +105,30 @@ jobs:
         working-directory: packages/runbooks/scripts/python
         run: uv run amplitude_event_provenance_backfill.py walk
 
+      # Runs before the health monitor (DATA-2151 Task 6) so its --slack-out run-data
+      # file exists in time to be folded into the health digest post below. Also emits
+      # the Slack run-data file consumed by the health step (--gap-slack).
+      - name: Instrumentation gap sweep (recommendations)
+        working-directory: packages/runbooks/scripts/python
+        continue-on-error: true
+        env:
+          OMNI_REPO: ${{ github.workspace }}
+          # Phase 2 judgment key, scoped to this analytics-governance cron (repo secret
+          # ANTHROPIC_PRODUCT_ANALYTICS_API_KEY, mapped into the SDK-standard ANTHROPIC_API_KEY
+          # env var). Unset until an omni repo admin adds it; run_judgment then reports
+          # "skipped: ANTHROPIC_API_KEY unset" and the run continues (DATA-2151).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_PRODUCT_ANALYTICS_API_KEY }}
+        run: |
+          uv run instrumentation_gaps.py --today "$(date -u +%F)" \
+            --slack-out "$RUNNER_TEMP/gap_slack.json"
+
       - name: Health monitor + Slack digest
         working-directory: packages/runbooks/scripts/python
         run: |
+          # --gap-slack degrades to a health-only post when the file is absent (e.g. the
+          # gap sweep step above failed) — never fails this step.
           uv run analytics_event_health.py --slack \
+            --gap-slack "$RUNNER_TEMP/gap_slack.json" \
             --json instrumentation_data/analytics_event_health_report.json
 
       - name: Commit state and keep the auto-merge PR fresh
@@ -161,6 +184,7 @@ jobs:
           fi
           printf '%s' "$GP_SHEETS_TOKEN_B64" | base64 -d > "$GP_SHEETS_TOKEN_PATH"
           uv run event_state_gsheet.py refresh
+          uv run event_state_gsheet.py refresh-gaps
 
       - name: Upload run report
         if: always()

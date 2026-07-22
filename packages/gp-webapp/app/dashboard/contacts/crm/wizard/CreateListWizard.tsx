@@ -13,6 +13,7 @@ import CrmSheet from '../shared/CrmSheet'
 import type { SupportStatusRollup } from '../shared/contacts-types'
 import {
   countSelectedFilterCategories,
+  hasAnyVoterFileSelection,
   hasPartyFilterSelection,
   transformVoterFileFiltersForBackend,
   type VoterFileFilters,
@@ -28,18 +29,19 @@ import ActivityStep, {
 import NameStep from './NameStep'
 import { useListWizardCount } from './useListWizardCount'
 
-const TOTAL_STEPS = 3
-
-type WizardStep = 1 | 2 | 3
+type WizardStepName = 'branch' | 'conditions' | 'name'
 
 interface CreateListWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-// The 3-step list creation wizard (ENG-10708 locked design): branch chooser
-// -> branch-specific conditions -> name + build. Both Win and Serve get the
-// identical surface; only the constituent/voter noun differs.
+// The list creation wizard (ENG-10708 locked design): branch chooser ->
+// branch-specific conditions -> name + build. Serve has no outreach
+// (deferred by design, ENG-10750), so its flow drops the branch chooser and
+// opens directly on the constituent-file filters as a 2-step wizard — this
+// derived `steps` array is THE Serve gate; when Serve outreach ships,
+// reopen the branch here.
 export default function CreateListWizard({
   open,
   onOpenChange,
@@ -54,7 +56,13 @@ export default function CreateListWizard({
   const { successSnackbar, errorSnackbar } = useSnackbar()
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  const [step, setStep] = useState<WizardStep>(1)
+  // The page's "Create new list" button is disabled until isWinContextReady,
+  // so the wizard never opens on an unsettled mode.
+  const steps: readonly WizardStepName[] = isWinContext
+    ? ['branch', 'conditions', 'name']
+    : ['conditions', 'name']
+
+  const [stepIndex, setStepIndex] = useState(0)
   const [branch, setBranch] = useState<ListWizardBranch | null>(null)
   const [demographicFilters, setDemographicFilters] =
     useState<VoterFileFilters>({})
@@ -64,11 +72,19 @@ export default function CreateListWizard({
   >(() => [blankActivityCondition()])
   const [name, setName] = useState('')
 
+  // Serve never renders the branch chooser, so its branch is a constant —
+  // derived, not set on open, so no frame can render the activity branch
+  // while a reset effect is still pending.
+  const activeBranch: ListWizardBranch | null = isWinContext
+    ? branch
+    : 'voterFile'
+  const stepName: WizardStepName = steps[stepIndex] ?? 'conditions'
+
   // Fresh wizard state every time it opens — a cancelled-then-reopened
   // wizard must not resume a half-built prior list.
   useEffect(() => {
     if (!open) return
-    setStep(1)
+    setStepIndex(0)
     setBranch(null)
     setDemographicFilters({})
     setSupportStatus([])
@@ -78,50 +94,56 @@ export default function CreateListWizard({
 
   // Multi-step flow: reset scroll to the top of the sheet's own scrollable
   // body (not window) on every step change (app/dashboard/CLAUDE.md
-  // convention), so a long filter list on step 2 doesn't leave step 3 opening
-  // mid-scroll.
+  // convention), so a long filter list on the conditions step doesn't leave
+  // the name step opening mid-scroll.
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0
-  }, [step])
+  }, [stepIndex])
 
   const backendPayload = useMemo(() => {
-    if (branch === 'voterFile') {
+    if (activeBranch === 'voterFile') {
       return {
         ...transformVoterFileFiltersForBackend(demographicFilters),
         ...(supportStatus.length ? { supportStatus } : {}),
       }
     }
-    if (branch === 'activity') {
+    if (activeBranch === 'activity') {
       return {
         activityConditions: toActivityConditionPayload(activityConditions),
       }
     }
     return {}
-  }, [branch, demographicFilters, supportStatus, activityConditions])
+  }, [activeBranch, demographicFilters, supportStatus, activityConditions])
 
-  const isStep2Valid =
-    branch === 'voterFile'
-      ? true
-      : branch === 'activity'
+  // ENG-10751: an empty voter-file selection would just recreate the
+  // pre-built "All voters" list, so zero filters blocks the build (reversing
+  // the ENG-10725 valid-unfiltered-submission stance).
+  const isConditionsStepValid =
+    activeBranch === 'voterFile'
+      ? hasAnyVoterFileSelection(demographicFilters, supportStatus)
+      : activeBranch === 'activity'
         ? isActivityStepValid(activityConditions)
         : false
 
-  // Gate the count on a valid selection: an activity branch with no complete
+  // The activity count stays gated on a valid selection: an incomplete
   // condition would send activityConditions: [] — the backend treats that as
-  // unfiltered and the cached total would render on the build button.
+  // unfiltered and the cached total would render on the build button. The
+  // voter-file count deliberately fires with zero selections (ENG-10751):
+  // the disabled build button still shows the live unfiltered total.
   const { count, isLoading, isCapError, errorMessage } = useListWizardCount(
     backendPayload,
-    branch !== null && isStep2Valid,
+    activeBranch === 'voterFile' ||
+      (activeBranch === 'activity' && isConditionsStepValid),
   )
 
   const handleNext = () => {
-    if (step === 1 && branch) setStep(2)
-    else if (step === 2 && isStep2Valid) setStep(3)
+    if (stepName === 'branch' && branch) setStepIndex(stepIndex + 1)
+    else if (stepName === 'conditions' && isConditionsStepValid)
+      setStepIndex(stepIndex + 1)
   }
 
   const handleBack = () => {
-    if (step === 2) setStep(1)
-    else if (step === 3) setStep(2)
+    setStepIndex(Math.max(stepIndex - 1, 0))
   }
 
   const createMutation = useMutation({
@@ -137,7 +159,7 @@ export default function CreateListWizard({
       // product-specific events in this surface, so a not-yet-settled mode
       // can't emit the wrong variant.
       if (isWinContextReady) {
-        if (branch === 'voterFile') {
+        if (activeBranch === 'voterFile') {
           const variableCount =
             countSelectedFilterCategories(demographicFilters) +
             (supportStatus.length > 0 ? 1 : 0)
@@ -152,10 +174,11 @@ export default function CreateListWizard({
                 : {}),
             },
           )
-        } else if (branch === 'activity') {
-          // Filtered defensively (isStep2Valid already guarantees every row
-          // has a channel by submit time) so a stray blank row can't produce
-          // an 'any' entry that didn't come from a real condition.
+        } else if (activeBranch === 'activity') {
+          // Filtered defensively (isConditionsStepValid already guarantees
+          // every row has a channel by submit time) so a stray blank row
+          // can't produce an 'any' entry that didn't come from a real
+          // condition.
           const validConditions = activityConditions.filter(
             (condition) => condition.outreachType !== '',
           )
@@ -211,27 +234,19 @@ export default function CreateListWizard({
   const peopleNoun = isWinContext ? 'voters' : 'constituents'
   const labels = getContactsLabels(isWinContext)
 
-  // Lovable-locked titles (ENG-10725): step 1 and step 3 are mode-neutral;
-  // step 2 shares ONE heading across both branches — "Build a voter list" /
-  // "Build a constituent list" (via contactsLabels.ts, the one place that
-  // copy lives), matching the prototype's single step-2 title.
+  // Lovable-locked titles (ENG-10725): the branch and name steps are
+  // mode-neutral; the conditions step shares ONE heading across both
+  // branches — "Build a voter list" / "Build a constituent list" (via
+  // contactsLabels.ts, the one place that copy lives), matching the
+  // prototype's single step-2 title.
   const stepTitle =
-    step === 1
+    stepName === 'branch'
       ? 'How do you want to build this list?'
-      : step === 3
+      : stepName === 'name'
         ? 'Name your list'
         : labels.wizardVoterFileStepTitle
 
-  // Step 2's footer CTA always reads "Build your list (N)" (both branches
-  // share the same slot); the muted/saturated distinction from the prototype
-  // only applies to the voter-file branch, where an empty selection is still
-  // a valid (unfiltered) submission — the activity branch's disabled state
-  // already communicates "not ready yet" via isStep2Valid.
-  const hasVoterFileSelection =
-    Object.values(demographicFilters).some(Boolean) || supportStatus.length > 0
-  const isStep2Muted = branch === 'voterFile' && !hasVoterFileSelection
-
-  const step2Label =
+  const buildLabel =
     isLoading || count === undefined
       ? 'Build your list'
       : `Build your list (${numberFormatter(count)})`
@@ -240,7 +255,7 @@ export default function CreateListWizard({
     <CrmSheet
       open={open}
       onOpenChange={onOpenChange}
-      onBack={step > 1 ? handleBack : undefined}
+      onBack={stepIndex > 0 ? handleBack : undefined}
       bodyRef={bodyRef}
       header={
         <>
@@ -248,15 +263,15 @@ export default function CreateListWizard({
             {stepTitle}
           </DrawerTitle>
           <Stepper
-            currentStep={step}
-            totalSteps={TOTAL_STEPS}
+            currentStep={stepIndex + 1}
+            totalSteps={steps.length}
             labelClassName="text-xs"
           />
         </>
       }
       footer={
         <>
-          {step === 1 && (
+          {stepName === 'branch' && (
             <Button
               type="button"
               className="w-full text-sm"
@@ -266,19 +281,17 @@ export default function CreateListWizard({
               Continue
             </Button>
           )}
-          {step === 2 && (
+          {stepName === 'conditions' && (
             <Button
               type="button"
-              className={
-                isStep2Muted ? 'w-full text-sm opacity-50' : 'w-full text-sm'
-              }
+              className="w-full text-sm"
               onClick={handleNext}
-              disabled={!isStep2Valid}
+              disabled={!isConditionsStepValid}
             >
-              {step2Label}
+              {buildLabel}
             </Button>
           )}
-          {step === 3 && (
+          {stepName === 'name' && (
             <Button
               type="button"
               className="w-full text-sm"
@@ -292,14 +305,14 @@ export default function CreateListWizard({
         </>
       }
     >
-      {step === 1 && (
+      {stepName === 'branch' && (
         <BranchStep
           selected={branch}
           onSelect={setBranch}
           isWinContext={isWinContext}
         />
       )}
-      {step === 2 && branch === 'voterFile' && (
+      {stepName === 'conditions' && activeBranch === 'voterFile' && (
         <VoterFileStep
           filters={demographicFilters}
           onFiltersChange={setDemographicFilters}
@@ -308,13 +321,13 @@ export default function CreateListWizard({
           isElectedOfficial={isElectedOfficial}
         />
       )}
-      {step === 2 && branch === 'activity' && (
+      {stepName === 'conditions' && activeBranch === 'activity' && (
         <ActivityStep
           conditions={activityConditions}
           onChange={setActivityConditions}
         />
       )}
-      {step === 3 && (
+      {stepName === 'name' && (
         <NameStep
           name={name}
           onNameChange={setName}

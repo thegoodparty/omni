@@ -12,9 +12,11 @@ import {
   Post,
   Put,
   Query,
+  Res,
   UseGuards,
   UsePipes,
 } from '@nestjs/common'
+import { FastifyReply } from 'fastify'
 import { Campaign, Organization, User, UserRole } from '../../generated/prisma'
 import { ZodValidationPipe } from 'nestjs-zod'
 import { ReqUser } from 'src/authentication/decorators/ReqUser.decorator'
@@ -25,13 +27,11 @@ import { ReqOrganization } from 'src/organizations/decorators/ReqOrganization.de
 import { UseOrganization } from 'src/organizations/decorators/UseOrganization.decorator'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { userHasRole } from 'src/users/util/users.util'
-import { VoterFileDownloadAccessService } from '../../shared/services/voterFileDownloadAccess.service'
 import { CreateVoterFileFilterSchema } from '../schemas/CreateVoterFileFilterSchema'
 import { UpdateVoterFileFilterSchema } from '../schemas/UpdateVoterFileFilterSchema'
 import { VoterFileFilterService } from '../services/voterFileFilter.service'
 import { CanDownloadVoterFileGuard } from './guards/CanDownloadVoterFile.guard'
 import { GetVoterFileSchema } from './schemas/GetVoterFile.schema'
-import { HelpMessageSchema } from './schemas/HelpMessage.schema'
 import { VoterFileService } from './voterFile.service'
 import { PinoLogger } from 'nestjs-pino'
 
@@ -40,7 +40,6 @@ import { PinoLogger } from 'nestjs-pino'
 export class VoterFileController {
   constructor(
     private readonly voterFileService: VoterFileService,
-    private readonly voterFileDownloadAccess: VoterFileDownloadAccessService,
     private readonly campaigns: CampaignsService,
     private readonly voterFileFilterService: VoterFileFilterService,
     private readonly organizationsService: OrganizationsService,
@@ -58,6 +57,7 @@ export class VoterFileController {
     @ReqUser() user: User,
     @ReqCampaign() campaign: Campaign,
     @Query() { slug, ...query }: GetVoterFileSchema,
+    @Res() res: FastifyReply,
   ) {
     if (typeof slug === 'string' && campaign?.slug !== slug) {
       if (!userHasRole(user, [UserRole.admin])) {
@@ -71,49 +71,16 @@ export class VoterFileController {
       })
     } else if (!campaign) throw new NotFoundException('Campaign not found')
 
-    const district = campaign.organizationSlug
-      ? await this.organizationsService.getDistrictForOrgSlug(
-          campaign.organizationSlug,
-        )
-      : null
-    return this.voterFileService.getCsvOrCount(campaign, query, district)
-  }
+    const organization = await this.organizationsService.findFirstOrThrow({
+      where: { slug: campaign.organizationSlug },
+    })
 
-  @Get('wake-up')
-  wakeUp() {
-    return this.voterFileService.wakeUp()
-  }
-
-  @Post('help-message')
-  @UseCampaign()
-  @UseGuards(CanDownloadVoterFileGuard)
-  @HttpCode(HttpStatus.NO_CONTENT)
-  helpMessage(
-    @ReqUser() user: User,
-    @ReqCampaign() campaign: Campaign,
-    @Body() body: HelpMessageSchema,
-  ) {
-    return this.voterFileService.helpMessage(user, campaign, body)
-  }
-
-  @Get('can-download')
-  @UseCampaign({ continueIfNotFound: true })
-  async canDownload(
-    @ReqCampaign()
-    campaign?: Campaign,
-  ) {
-    const { district, ballotLevel } = campaign?.organizationSlug
-      ? await this.organizationsService.getDistrictAndBallotLevelForOrgSlug(
-          campaign.organizationSlug,
-        )
-      : { district: null, ballotLevel: null }
-    // Use the server-determined ballot level (same as CanDownloadVoterFileGuard)
-    // so this eligibility signal can't be flipped by editing details.ballotLevel.
-    return this.voterFileDownloadAccess.canDownload(
-      campaign,
-      district,
-      ballotLevel,
-    )
+    // @Res() puts this handler in manual-response mode (required for the CSV
+    // stream), so the count branch sends its own JSON body.
+    if (query.countOnly) {
+      return res.send(await this.voterFileService.getCount(organization, query))
+    }
+    await this.voterFileService.streamCsv(organization, query, res)
   }
 
   @Post('filter')

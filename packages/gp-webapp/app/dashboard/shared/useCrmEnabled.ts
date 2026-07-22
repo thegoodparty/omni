@@ -6,9 +6,9 @@ import { useWinVoterContext } from './useWinVoterContext'
 
 export interface CrmEnabled {
   // Mode-aware CRM gate layered on the existing gates: in a Serve context
-  // (elected office exists) serve-crm decides; in a Win context (win-voter-data
-  // on, no elected office) win-crm decides — so the two rollouts move on
-  // independent cadences without either flag leaking into the other mode.
+  // (elected office exists) serve-crm decides; in a Win context (no elected
+  // office) win-crm decides — so the two rollouts move on independent
+  // cadences without either flag leaking into the other mode.
   enabled: boolean
   // enabled reads false until every input that can flip it settles (the
   // Win-vs-Serve mode decision and the deciding flag). Branch user-facing
@@ -19,10 +19,10 @@ export interface CrmEnabled {
 
 export const useCrmEnabled = (trackExposure = false): CrmEnabled => {
   const { isWin, isReady: isModeReady } = useWinVoterContext()
-  // Serve is decided by elected-office existence, not by !isWin: a Win org
-  // with win-voter-data off also reads isWin false, and serve-crm must never
-  // decide for it. React Query dedupes this with useWinVoterContext's read of
-  // the same query.
+  // Serve is decided by elected-office existence, not by !isWin: while the
+  // elected-office query is still loading isWin reads false, and serve-crm
+  // must never decide for it. React Query dedupes this with
+  // useWinVoterContext's read of the same query.
   const { data: electedOffice } = useElectedOffice()
   const isServe = Boolean(electedOffice)
   // Only the mode's deciding flag may emit an exposure, and only once the mode

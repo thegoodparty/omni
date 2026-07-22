@@ -19,17 +19,13 @@ import {
   useTrackerTasks,
 } from '../campaign-plan/components/campaignStrategy/useTrackerTasks'
 import TaskCard from '../chief-of-staff/components/TaskCard'
+import PersonalizeStoryCard from './PersonalizeStoryCard'
 import {
   type ComposeFlowType,
   useOutreachComposeFlow,
 } from 'app/dashboard/outreach/hooks/useOutreachComposeFlow'
 import CountModal from '../components/tasks/CountModal'
-import { useChatHistory } from '../chief-of-staff/data/use-chat-history'
 import { selectTopDynamicTasks } from './selectTopDynamicTasks'
-import {
-  CAMPAIGN_MANAGER_HISTORY_KEY,
-  campaignManagerChatApi,
-} from './campaignManagerChat'
 
 // Fallback when a task has no action link of its own.
 const TRACKER_HREF = '/dashboard/campaign-plan'
@@ -86,11 +82,18 @@ const formatDue = (iso: string): string =>
   format(parseISO(iso.slice(0, 10)), 'EEE, MMM d')
 
 interface Props {
+  // Whether the first-run "meet your campaign manager" card is shown. Owned by
+  // CampaignManagerHome, which dismisses it on a general manager open (the meet
+  // card or the footer chat box), not on the story flow.
+  showMeetCard: boolean
   onMeetManager: () => void
+  onPersonalize: () => void
 }
 
 export default function CampaignManagerTasks({
+  showMeetCard,
   onMeetManager,
+  onPersonalize,
 }: Props): React.JSX.Element {
   const { tasks, isPending, isError, isGeneratingDynamic } = useTrackerTasks()
   const top = selectTopDynamicTasks(tasks)
@@ -120,17 +123,6 @@ export default function CampaignManagerTasks({
     setCountTask(null)
   }
 
-  // First-run onboarding card: show it only once we know the candidate has
-  // never opened the manager (no conversation yet). Opening it eagerly creates
-  // one, so the card drops away afterward. Gate on the loaded-and-empty state so
-  // a returning candidate never sees it flash while history loads.
-  const { data: conversations } = useChatHistory(
-    true,
-    campaignManagerChatApi,
-    CAMPAIGN_MANAGER_HISTORY_KEY,
-  )
-  const showMeetCard = conversations !== undefined && conversations.length === 0
-
   return (
     <section className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-4 py-6">
       {showMeetCard && (
@@ -147,6 +139,8 @@ export default function CampaignManagerTasks({
           </Button>
         </div>
       )}
+
+      <PersonalizeStoryCard onPersonalize={onPersonalize} />
 
       <div className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-muted-foreground">

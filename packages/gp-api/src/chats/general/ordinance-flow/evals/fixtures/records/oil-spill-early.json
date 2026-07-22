@@ -1,0 +1,40 @@
+{
+  "name": "oil-spill-early",
+  "seedType": "new",
+  "issueSlug": null,
+  "goalText": "oil spill",
+  "clarifyAnswers": [
+    {
+      "answer": "Prevention and preparedness \u2014 require local facilities (gas stations, storage tanks, marinas, etc.) to have spill prevention plans and equipment on hand",
+      "question": "What is the primary focus of this oil spill ordinance?",
+      "questionId": "q1_scope"
+    },
+    {
+      "answer": "All of the above, plus any facility within a set distance of a waterway or stormwater inlet",
+      "question": "Which facilities should this ordinance cover? This determines how broadly your prevention requirements apply.",
+      "questionId": "facility_scope"
+    },
+    {
+      "answer": "Tie compliance to business licensing \u2014 non-compliant facilities can have permits suspended or revoked",
+      "question": "How should the municipality enforce compliance with spill prevention plans and equipment requirements?",
+      "questionId": "enforcement"
+    },
+    {
+      "answer": "Moderate: written response procedures, on-site containment equipment, annual employee training, and an inspection log",
+      "question": "What should a facility's spill prevention plan be required to include at minimum?",
+      "questionId": "plan_content"
+    },
+    {
+      "answer": "Create a shared responsibility: Fire Marshal for plan review, Code Enforcement for permit actions",
+      "question": "Which municipal office or department should be the lead administrator responsible for reviewing spill prevention plans, conducting inspections, and initiating permit actions?",
+      "questionId": "q_administrator"
+    }
+  ],
+  "authority": null,
+  "comparables": null,
+  "existingLaw": null,
+  "draftTitle": null,
+  "draftBody": null,
+  "draftSources": null,
+  "qualityReport": null
+}

@@ -75,9 +75,6 @@ describe('ContactsService', () => {
       getDistrictAndBallotLevelForOrgSlug: ReturnType<typeof vi.fn>
     }
     let voterFileDownloadAccess: VoterFileDownloadAccessService
-    let mockFeaturesService: {
-      isFeatureEnabled: ReturnType<typeof vi.fn>
-    }
     let mockSupportStatusService: {
       statusForPeople: ReturnType<typeof vi.fn>
     }
@@ -120,9 +117,6 @@ describe('ContactsService', () => {
       } as never)
       ;(voterFileDownloadAccess as unknown as { logger: PinoLogger }).logger =
         createMockLogger()
-      mockFeaturesService = {
-        isFeatureEnabled: vi.fn().mockResolvedValue(true),
-      }
       mockSupportStatusService = {
         statusForPeople: vi.fn().mockResolvedValue(new Map()),
       }
@@ -140,7 +134,6 @@ describe('ContactsService', () => {
         mockCampaignsService as never,
         mockOrganizationsService as never,
         voterFileDownloadAccess,
-        mockFeaturesService as never,
         mockSupportStatusService as never,
         mockContactInteractionTextService as never,
         mockActivityConditionResolutionService as never,
@@ -526,6 +519,158 @@ describe('ContactsService', () => {
 
         await expect(completion).resolves.toBeUndefined()
         expect(mockStream.destroy).toHaveBeenCalledTimes(1)
+      })
+    })
+
+    describe('countVoterFilePeople', () => {
+      it('counts for a NON-pro campaign — the voter-file endpoint is gated by its controller guard, not pro', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({
+          isPro: false,
+          details: {},
+        })
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 1234 } } }),
+        )
+
+        const count = await service.countVoterFilePeople(
+          { hasCellPhone: true },
+          false,
+          org,
+        )
+
+        expect(count).toBe(1234)
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            resultsPerPage: 1,
+            page: 1,
+            filters: { hasCellPhone: true },
+            groupByHousehold: false,
+          }),
+          expect.anything(),
+        )
+      })
+
+      it('forwards groupByHousehold so doorKnocking counts households', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({
+          isPro: true,
+          details: {},
+        })
+        mockHttpService.post.mockReturnValue(
+          of({ data: { people: [], pagination: { totalResults: 7 } } }),
+        )
+
+        await service.countVoterFilePeople({}, true, org)
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining(PEOPLE_V1_PATH),
+          expect.objectContaining({ groupByHousehold: true }),
+          expect.anything(),
+        )
+      })
+
+      it('throws BadGateway when people-api fails', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({
+          isPro: true,
+          details: {},
+        })
+        mockHttpService.post.mockImplementation(() => {
+          throw new Error('connection refused')
+        })
+
+        await expect(
+          service.countVoterFilePeople({}, false, org),
+        ).rejects.toThrow('Failed to count from people API')
+      })
+    })
+
+    describe('downloadVoterFilePeople', () => {
+      it('streams the people-api CSV for a NON-pro campaign', async () => {
+        const org = makeOrganization({
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue({
+          isPro: false,
+          details: {},
+        })
+        const mockStream = {
+          destroyed: false,
+          pipe: vi.fn(),
+          destroy: vi.fn(),
+          on: vi.fn((event: string, cb: (err?: Error) => void) => {
+            if (event === 'end') setImmediate(() => cb())
+          }),
+        }
+        mockHttpService.post.mockReturnValue(of({ data: mockStream }))
+        const flushHeaders = vi.fn()
+        const setHeader = vi.fn()
+        const res = {
+          raw: { headersSent: false, flushHeaders, setHeader, on: vi.fn() },
+        } as never
+
+        await service.downloadVoterFilePeople(
+          { hasLandline: true },
+          false,
+          org,
+          res,
+        )
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining('/v1/people/download'),
+          expect.objectContaining({
+            districtId: OVERRIDE_DISTRICT_ID,
+            filters: { hasLandline: true },
+            groupByHousehold: false,
+            excludeColumns: undefined,
+          }),
+          expect.objectContaining({ responseType: 'stream' }),
+        )
+        expect(setHeader).toHaveBeenCalledWith('Content-Type', 'text/csv')
+        expect(mockStream.pipe).toHaveBeenCalledTimes(1)
+      })
+
+      it('excludes the party column for an elected-office org', async () => {
+        const org = makeOrganization({
+          slug: 'eo-office-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        const mockStream = {
+          destroyed: false,
+          pipe: vi.fn(),
+          destroy: vi.fn(),
+          on: vi.fn((event: string, cb: (err?: Error) => void) => {
+            if (event === 'end') setImmediate(() => cb())
+          }),
+        }
+        mockHttpService.post.mockReturnValue(of({ data: mockStream }))
+        const res = {
+          raw: {
+            headersSent: false,
+            flushHeaders: vi.fn(),
+            setHeader: vi.fn(),
+            on: vi.fn(),
+          },
+        } as never
+
+        await service.downloadVoterFilePeople({}, false, org, res)
+
+        expect(mockHttpService.post).toHaveBeenCalledWith(
+          expect.stringContaining('/v1/people/download'),
+          expect.objectContaining({
+            excludeColumns: ['Parties_Description'],
+          }),
+          expect.objectContaining({ responseType: 'stream' }),
+        )
       })
     })
 

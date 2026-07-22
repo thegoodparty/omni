@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
-import { screen, fireEvent, act } from '@testing-library/react'
+import { screen, fireEvent, act, waitFor } from '@testing-library/react'
 import type {
   OrdinanceQualityReport,
   OrdinanceQualityRun,
@@ -517,6 +517,106 @@ describe('QualityReport', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // Design contract (Lovable QualityReport): the panel's only control is a
+  // refresh that re-grades the draft via the async claim-and-poll run. The
+  // improvement loop has NO manual panel trigger — it auto-starts on draft.
+  it('re-runs the manual check from the header refresh — no loop trigger', async () => {
+    mocks.startQualityReport.mockResolvedValue(qualityRun())
+
+    render(<QualityReport {...props()} />)
+
+    expect(
+      screen.queryByRole('button', { name: /check & improve/i }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }))
+
+    await act(() => Promise.resolve())
+    expect(mocks.startQualityReport).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables the refresh while the background loop is running', () => {
+    render(<QualityReport {...props({ loopRunning: true })} />)
+
+    expect(screen.getByRole('button', { name: /re-run/i })).toBeDisabled()
+  })
+
+  it('disables the empty-state run while the background loop is running', () => {
+    render(
+      <QualityReport {...props({ initialReport: null, loopRunning: true })} />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /run quality checks/i }),
+    ).toBeDisabled()
+  })
+
+  it('adopts a fresh loop report even when its input hash is unchanged', () => {
+    const { rerender } = render(<QualityReport {...props()} />)
+    expect(screen.getByText('Conflicts with Chapter 12.')).toBeVisible()
+
+    // A loop re-run over unchanged inputs produces the SAME ranAgainstBodyHash
+    // with new check content — the parent's hash key never remounts this
+    // component, so the new report must arrive through the prop.
+    const fresh = report()
+    fresh.checks = fresh.checks.map((c) =>
+      c.id === 'legal_conflict'
+        ? { ...c, status: 'pass' as const, note: 'Resolved by revision.' }
+        : c,
+    )
+    rerender(<QualityReport {...props({ initialReport: fresh })} />)
+
+    expect(screen.getByText('Resolved by revision.')).toBeVisible()
+    expect(
+      screen.queryByText('Conflicts with Chapter 12.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps a fresh manual result over a prop that arrived mid-run', async () => {
+    let releaseRun!: (run: OrdinanceQualityRun) => void
+    mocks.startQualityReport.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseRun = resolve
+        }),
+    )
+
+    const { rerender } = render(<QualityReport {...props()} />)
+    fireEvent.click(
+      screen.getByRole('button', { name: /re-run quality checks/i }),
+    )
+    await waitFor(() => expect(mocks.startQualityReport).toHaveBeenCalled())
+
+    // A loop poll delivers a stale prop while the manual run is in flight —
+    // it predates the result about to settle and must never stomp it.
+    const stale = report()
+    stale.checks = stale.checks.map((c) =>
+      c.id === 'legal_conflict' ? { ...c, note: 'Stale mid-run prop.' } : c,
+    )
+    rerender(<QualityReport {...props({ initialReport: stale })} />)
+
+    const fresh = report()
+    fresh.checks = fresh.checks.map((c) =>
+      c.id === 'legal_conflict'
+        ? { ...c, status: 'pass' as const, note: 'Fresh manual result.' }
+        : c,
+    )
+    releaseRun(qualityRun({ report: fresh }))
+
+    expect(await screen.findByText('Fresh manual result.')).toBeVisible()
+    expect(screen.queryByText('Stale mid-run prop.')).not.toBeInTheDocument()
+  })
+
+  it('runs the manual claim-and-poll from the empty state', async () => {
+    mocks.startQualityReport.mockResolvedValue(qualityRun())
+
+    render(<QualityReport {...props({ initialReport: null })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /run quality checks/i }))
+
+    expect(await screen.findByText(/reviewed by 6 checks/i)).toBeVisible()
+    expect(mocks.startQualityReport).toHaveBeenCalledTimes(1)
   })
 
   it('shows a softer note and slows polling after three minutes of running', async () => {

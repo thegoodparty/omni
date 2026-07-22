@@ -36,7 +36,7 @@ interface ListCardProps {
 // selectList navigation — not a router.push — so the index stays mounted
 // underneath.
 export default function ListCard({ segment }: ListCardProps) {
-  const { selectList } = useContactsTable()
+  const { selectList, isWinContext, isWinContextReady } = useContactsTable()
   const { peopleCount, lastOutreach, isLoading, isError } = useListRowDetail(
     segment.id,
   )
@@ -128,9 +128,16 @@ export default function ListCard({ segment }: ListCardProps) {
           >
             Details
           </Button>
-          <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-            <Link href="/dashboard/outreach">Send outreach</Link>
-          </Button>
+          {/* ENG-10749: Win-only — Serve outreach is deferred and the link
+              dead-ends for an eo- org; the readiness gate avoids flashing
+              the button at a Serve user while the mode resolves. */}
+          {isWinContextReady && isWinContext && (
+            <Button size="small" className="h-8 px-3.5 text-xs" asChild>
+              <Link href={`/dashboard/outreach?listId=${segment.id}`}>
+                Send outreach
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 

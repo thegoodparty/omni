@@ -77,8 +77,9 @@ else
   echo "       Or: docker compose up -d  (per the repo's docker-compose.yml)"
 fi
 
-# DATABASE_URL resolution — same logic as explain.sh, but read-only.
-DBURL="${DATABASE_URL:-}"
+# Connection-string resolution — same logic as explain.sh, but read-only.
+# Prefer LOCAL_DATABASE_URL (the name in .env.example); fall back to DATABASE_URL.
+DBURL="${LOCAL_DATABASE_URL:-${DATABASE_URL:-}}"
 ENV_SRC=""
 if [[ -z "$DBURL" ]]; then
   if [[ -f ./.env ]]; then
@@ -98,7 +99,8 @@ if [[ -z "$DBURL" ]]; then
     # Match explain.sh's extract_database_url() so we don't silently report
     # GREEN for a value that explain.sh would reject. Handles single/double
     # quotes and trailing inline comments.
-    _raw="$(grep -E '^DATABASE_URL[[:space:]]*=' "$ENV_SRC" | head -1 || true)"
+    _raw="$(grep -E '^LOCAL_DATABASE_URL[[:space:]]*=' "$ENV_SRC" | head -1 || true)"
+    [[ -z "$_raw" ]] && _raw="$(grep -E '^DATABASE_URL[[:space:]]*=' "$ENV_SRC" | head -1 || true)"
     if [[ -n "$_raw" ]]; then
       _val="${_raw#*=}"
       if [[ "$_val" == \"* ]]; then
@@ -114,13 +116,13 @@ if [[ -z "$DBURL" ]]; then
 fi
 if [[ -n "$DBURL" ]]; then
   if [[ -n "$ENV_SRC" ]]; then
-    printf "  %s  DATABASE_URL resolvable (from %s)\n" "$OK" "$ENV_SRC"
+    printf "  %s  LOCAL_DATABASE_URL resolvable (from %s)\n" "$OK" "$ENV_SRC"
   else
-    printf "  %s  DATABASE_URL resolvable (from env)\n" "$OK"
+    printf "  %s  LOCAL_DATABASE_URL resolvable (from env)\n" "$OK"
   fi
 else
-  printf "  %s  DATABASE_URL not found in env, ./.env, or parent worktree .env\n" "$NO"
-  echo "       Set: export DATABASE_URL=postgres://..."
+  printf "  %s  LOCAL_DATABASE_URL not found in env, ./.env, or parent worktree .env\n" "$NO"
+  echo "       Set: export LOCAL_DATABASE_URL=postgres://..."
 fi
 
 echo

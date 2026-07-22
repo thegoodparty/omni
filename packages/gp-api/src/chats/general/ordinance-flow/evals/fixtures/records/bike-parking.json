@@ -1,0 +1,232 @@
+{
+  "name": "bike-parking",
+  "seedType": "new",
+  "issueSlug": null,
+  "goalText": "Require bike parking at new apartment buildings",
+  "clarifyAnswers": [
+    {
+      "answer": "20+ units \u2014 applies only to larger developments, easing burden on small builders",
+      "question": "What is the minimum building size that should trigger the bike parking requirement?",
+      "questionId": "q1_threshold"
+    },
+    {
+      "answer": "1 space per 2 units (0.5:1 ratio) \u2014 moderate standard, less burden on developers",
+      "question": "How many bike parking spaces should the ordinance require per dwelling unit?",
+      "questionId": "q2"
+    },
+    {
+      "answer": "Covered and secured (e.g., locked room or cage inside the building or parking structure)",
+      "question": "What location and security standard should the ordinance require for the bike parking spaces?",
+      "questionId": "q3_location"
+    },
+    {
+      "answer": "New construction plus substantial renovations (e.g., permit valuations exceeding 50% of building value)",
+      "question": "Should the bike parking requirement apply to existing buildings that are substantially renovated or expanded, or only to new construction?",
+      "questionId": "applicability_renovation"
+    },
+    {
+      "answer": "Allow administrative variance for documented hardship (e.g., site constraints, historic buildings)",
+      "question": "Should the ordinance allow any flexibility for developers who cannot meet the standard requirements, or should it be strictly mandatory with no exceptions?",
+      "questionId": "flexibility"
+    }
+  ],
+  "authority": {
+    "source": {
+      "id": "ncgs-160d-702",
+      "url": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/BySection/Chapter_160D/GS_160D-702.html",
+      "kind": "external",
+      "title": "NCGS \u00a7160D-702 \u2014 Grant of Power (Zoning Regulations)",
+      "excerpt": "a zoning regulation may regulate and restrict the height, number of stories, and size of buildings and other structures... the location and use of buildings, structures, and land.",
+      "publisher": "NC General Assembly"
+    },
+    "status": "pass",
+    "explanation": "North Carolina is a Dillon's Rule state, meaning municipalities may only act where the General Assembly has expressly granted authority. That authority is present here. NCGS \u00a7160D-702 \u2014 the core \"grant of power\" for municipal zoning \u2014 authorizes a local government to \"regulate and restrict the height, number of stories, and size of buildings and other structures; the percentage of lots that may be occupied; the size of yards, courts, and other open spaces; the density of population; the location and use of buildings, structures, and land.\" A bike parking requirement is a development standard governing the location and use of structures, which falls squarely within that grant. Additionally, NCGS \u00a7160D-703(a) authorizes jurisdiction-wide development standards that apply uniformly rather than only within particular zoning districts \u2014 meaning Henderson can enact this as a citywide standard rather than a district-by-district rule. Two statutory limits deserve attention but do not block this ordinance: (1) NCGS \u00a7160D-702(b) restricts \"building design elements,\" but that term is defined narrowly (exterior color, cladding, roof style, window placement, etc.) and does not include functional infrastructure like bike storage. A covered, secured bike room is a use-and-structure standard, not a design element. (2) SB 382 (Session Law 2024-57) restricts downzoning of existing property without owner consent, but this ordinance imposes a prospective development standard on new construction and substantial renovations \u2014 it does not rezone any existing property, so SB 382 is not implicated. No state preemption on bicycle parking has been identified. The ordinance should be enacted as an amendment to Henderson's zoning ordinance or unified development ordinance, following the legislative hearing process required by NCGS \u00a7160D-601."
+  },
+  "comparables": [
+    {
+      "city": "Durham",
+      "quote": "Uses within the SRP-C District (County Only), Downtown and Compact Neighborhood Tiers shall provide bicycle parking based on the category and square footage of each use.",
+      "state": "NC",
+      "source": {
+        "id": "durham-udo",
+        "url": "https://www.durhamnc.gov/DocumentCenter/View/24073/Sec-103-Required-Parking",
+        "kind": "external",
+        "title": "Durham Unified Development Ordinance, Sec. 10.3 Required Parking",
+        "publisher": "City of Durham, NC"
+      },
+      "status": "passed",
+      "govType": "City / Dillon's Rule (NC)",
+      "outcome": "Bicycle parking is an established development standard in Durham's UDO, but it applies only within designated high-density tiers \u2014 not as a citywide standard for all residential buildings. Smaller NC cities have not followed suit with a jurisdiction-wide residential mandate, leaving Henderson as a potential first mover at its size.",
+      "headline": "Bicycle parking required for residential and commercial uses within Downtown and Compact Neighborhood Tiers of the Unified Development Ordinance",
+      "population": 290000
+    },
+    {
+      "city": "New York City",
+      "year": 2023,
+      "quote": "For an apartment building, the requirement is 1 enclosed bicycle parking space per two dwelling units.",
+      "state": "NY",
+      "source": {
+        "id": "nyc-zoning-res",
+        "url": "https://groundcontrolsystems.com/new-york-city-bike-parking-code/",
+        "kind": "external",
+        "title": "NYC Bicycle Parking Code \u2014 Zoning Resolution \u00a725-811",
+        "publisher": "Ground Control Systems (reviewed against NYC Zoning Resolution, June 2026)"
+      },
+      "status": "passed",
+      "govType": "City",
+      "outcome": "The 0.5:1 enclosed-space ratio mirrors the ratio Henderson has selected. NYC allows up to half of required spaces to be unenclosed, but the floor is a secure, weather-protected room or enclosure \u2014 matching Henderson's covered-and-secured standard. The 10-unit threshold is lower than Henderson's proposed 20-unit floor.",
+      "headline": "Zoning Resolution requires 1 enclosed bike space per 2 dwelling units for apartment buildings above 10 units",
+      "population": 8336000
+    },
+    {
+      "city": "Rockville",
+      "quote": "Apartment Building: 1 per 50 dwelling units [short-term]; 1 per 3 dwelling units [long-term].",
+      "state": "MD",
+      "source": {
+        "id": "rockville-guide",
+        "url": "https://www.rockvillemd.gov/wp-content/uploads/2025/09/Rockville-Bicycle-Parking-Guide.pdf",
+        "kind": "external",
+        "title": "City of Rockville Bicycle Parking Guide (Zoning Ordinance Art. 16)",
+        "publisher": "City of Rockville, MD"
+      },
+      "status": "passed",
+      "govType": "City / Home Rule (MD)",
+      "outcome": "Rockville sets a long-term (secured) ratio of 1 per 3 units \u2014 more demanding than Henderson's proposed 1 per 2 \u2014 plus a lighter short-term rack requirement. The two-tier structure (long-term for residents, short-term for visitors) is a design approach Henderson could adopt in a future amendment if the initial standard proves popular.",
+      "headline": "Zoning Ordinance Article 16 requires long-term and short-term bicycle parking for apartment buildings",
+      "population": 68000
+    },
+    {
+      "city": "Portland",
+      "quote": "Secure and covered long-term bicycle parking is designed for residents and employees.",
+      "state": "OR",
+      "source": {
+        "id": "portland-bike-parking",
+        "url": "https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/bicycle-parking",
+        "kind": "external",
+        "title": "City of Portland \u2014 Bicycle Parking Zoning Code Overview",
+        "publisher": "Portland Bureau of Planning & Sustainability"
+      },
+      "status": "passed",
+      "govType": "City / Home Rule (OR)",
+      "outcome": "Portland's code requires both short-term and long-term spaces scaled by use category. Notably, it created a phased implementation: residential developments triggered by substantial renovations are exempt until January 1, 2029 \u2014 a structural compromise that mirrors the administrative flexibility Henderson is already building in through its variance provision. The e-bike electrical outlet requirement (5% of spaces) is a forward-looking detail Henderson could note for a future revision.",
+      "headline": "Zoning code mandates covered, secured long-term bicycle parking for most uses; residential renovation trigger temporarily delayed to 2029",
+      "population": 652000
+    },
+    {
+      "city": "San Francisco",
+      "quote": "Prohibits obtaining a variance for quantity of bicycle parking.",
+      "state": "CA",
+      "source": {
+        "id": "sf-planning-bike",
+        "url": "https://sfplanning.org/bicycle-parking-requirements",
+        "kind": "external",
+        "title": "San Francisco Planning \u2014 Bicycle Parking Requirements",
+        "publisher": "San Francisco Planning Department"
+      },
+      "status": "passed",
+      "govType": "City-County / Charter (CA)",
+      "outcome": "San Francisco's standard is among the strictest in the country, benchmarked against Vancouver, Portland, New York, and national standards. Unlike Henderson's proposed ordinance, SF allows no administrative variance on the number of spaces \u2014 a deliberate policy choice made after finding that variance requests were being used to eliminate bike parking wholesale. Henderson's choice to allow hardship variances is common among smaller cities but worth monitoring: if variance grants become routine, the waiver process can hollow out the requirement.",
+      "headline": "Planning Code \u00a7155.2 requires citywide bicycle parking for all new construction and certain renovations; variance on quantity expressly prohibited",
+      "population": 874000
+    }
+  ],
+  "existingLaw": {
+    "text": "Henderson maintains two parallel land development documents: (1) the Henderson Zoning Ordinance (last revised Aug. 5, 2025), which governs most of the city and ETJ, and (2) the Unified Development Ordinance (UDO, adopted Dec. 9, 2024, last revised July 14, 2025), which applies to certain newer/mixed-use development patterns.\n\nZONING ORDINANCE \u2014 PARKING (Article 500):\n- Section 501 requires off-street parking spaces for all uses; Section 510 (Table of Parking Standards) sets minimum auto parking ratios by use type. No bicycle parking is mentioned anywhere in the TOC or amendment list.\n- Article 500 covers parking space dimensions (\u00a7541), surfacing (\u00a7542), satellite parking (\u00a7520), shared parking (\u00a7530), and general design (\u00a7540). None of these address bicycle parking.\n- The amendment list for Article 500 reflects expansions of the Parking Overlay District but no bicycle parking additions.\n\nUDO \u2014 PARKING AND DRIVEWAY REQUIREMENTS:\n- The UDO states: \"There are no minimum parking requirements. Bicycle parking shall be provided as follows.\" followed by Table 2-4 (Bicycle Parking Requirements).\n- Table 2-4 establishes bicycle parking ratios by use type, but the specific ratios for multifamily/residential uses were not retrievable from available sources. The table is referenced alongside language that \"where two standards are listed, the greater\" applies.\n- The UDO's bicycle parking requirement applies where the UDO governs but does not appear to govern all new apartment construction citywide, particularly projects governed under the older Zoning Ordinance rather than the UDO.\n\nGAPS RELEVANT TO THE PROPOSED ORDINANCE:\n1. The Zoning Ordinance \u2014 which covers most of the city \u2014 contains NO bicycle parking requirement of any kind for apartment buildings or any residential use.\n2. Neither document specifies a coverage or security standard (covered, locked room/cage) for bicycle parking at apartment buildings.\n3. Neither document sets a minimum building size threshold (e.g., 20+ units) as a trigger for bicycle parking.\n4. Neither document addresses bicycle parking in the context of substantial renovations (permit valuation exceeding 50% of building value).\n5. Neither document provides a variance/hardship process specific to bicycle parking.\n6. The UDO bicycle parking provision (Table 2-4), even where it applies, does not specify security or coverage standards for residential bicycle parking.",
+    "fetchedAt": "2026-07-18T10:57:14-06:00",
+    "sourceUrl": "https://henderson.nc.gov/departments/development_services/zoning_subdivision_ordinances.php",
+    "chapterLabel": "Henderson Zoning Ordinance (rev. Aug. 5, 2025) \u2014 Article 500 (Parking) / Henderson UDO (adopted Dec. 9, 2024, rev. July 14, 2025) \u2014 Parking and Driveway Requirements / Table 2-4"
+  },
+  "draftTitle": "An Ordinance Amending the Henderson Zoning Ordinance to Add Article 560, Bicycle Parking Requirements for Multifamily Residential Buildings",
+  "draftBody": "ORDINANCE NO. ___-____\n\nAN ORDINANCE AMENDING THE HENDERSON ZONING ORDINANCE BY ADDING ARTICLE 560, BICYCLE PARKING REQUIREMENTS FOR MULTIFAMILY RESIDENTIAL BUILDINGS\n\nThe City Council of the City of Henderson, North Carolina, ordains:\n\nSECTION 1. FINDINGS AND PURPOSE\n\n1.1  The City of Henderson finds that adequate, secure, and weather-protected bicycle parking at multifamily residential buildings promotes active transportation, reduces automobile traffic and associated emissions, supports public health, and advances the general welfare of Henderson's constituents.\n\n1.2  The City of Henderson is authorized to enact this ordinance pursuant to N.C.G.S. \u00a7\u00a7 160D-702 and 160D-703, which grant municipalities the power to regulate and restrict the location and use of buildings and structures on a jurisdiction-wide basis.\n\n1.3  The City of Henderson finds that this ordinance is not a \"building design element\" within the meaning of N.C.G.S. \u00a7 160D-702(b) and does not rezone any existing property within the meaning of Session Law 2024-57 (S.B. 382).\n\nSECTION 2. AMENDMENT TO HENDERSON ZONING ORDINANCE \u2014 ADDITION OF ARTICLE 560\n\nThe Henderson Zoning Ordinance is hereby amended by adding a new Article 560 to read as follows:\n\n---\n\nARTICLE 560. BICYCLE PARKING REQUIREMENTS FOR MULTIFAMILY RESIDENTIAL BUILDINGS\n\n\u00a7 560.1  Purpose.\n\nThe purpose of this Article is to ensure that multifamily residential buildings provide sufficient, safe, and weather-protected bicycle parking to serve the needs of residents and to encourage bicycle use as a primary or supplemental mode of transportation.\n\n\u00a7 560.2  Definitions.\n\nAs used in this Article:\n\n(a)  \"Bicycle parking space\" means a designated, individually accessible space for the secure storage of one bicycle, located within a covered and secured bicycle parking facility as defined in subsection (b).\n\n(b)  \"Covered and secured bicycle parking facility\" means a fully enclosed, weather-protected room, cage, or structure dedicated to bicycle storage that is accessible only by key, key card, combination lock, or equivalent access-control mechanism. A facility satisfying this definition must:\n\n     (1)  Be located within or structurally attached to the principal building or an accessory parking structure on the same lot;\n\n     (2)  Provide sufficient interior clearance to allow residents to maneuver bicycles in and out of the facility;\n\n     (3)  Contain fixed racks, hooks, wall mounts, or floor anchors that allow each bicycle to be individually secured by the user; and\n\n     (4)  Be maintained in a clean, accessible, and properly lighted condition at all times.\n\n(c)  \"Dwelling unit\" has the meaning set forth in \u00a7 [Henderson Zoning Ordinance definition section \u2014 to be confirmed by city attorney].\n\n(d)  \"Multifamily residential building\" means any building containing 20 or more dwelling units, regardless of ownership or tenure structure, including but not limited to apartment buildings, condominiums, and mixed-use buildings in which 20 or more dwelling units are present.\n\n(e)  \"New construction\" means the erection of a new principal building or structure on a lot.\n\n(f)  \"Permit valuation\" means the total estimated cost of construction as stated on the building permit application, inclusive of all labor and materials.\n\n(g)  \"Substantial renovation\" means any renovation, addition, alteration, or reconstruction of an existing building for which the permit valuation equals or exceeds fifty percent (50%) of the most recent appraised value of the existing building as determined by the Vance County Tax Assessor at the time of permit application.\n\n\u00a7 560.3  Applicability.\n\n(a)  New construction.  This Article applies to every new construction project that results in a multifamily residential building containing 20 or more dwelling units.\n\n(b)  Substantial renovations.  This Article applies to every substantial renovation of a multifamily residential building containing 20 or more dwelling units. Where a substantial renovation does not involve modification of the floor area in which the bicycle parking facility is located, the owner shall bring that facility into compliance as part of the renovation project.\n\n(c)  Existing buildings.  This Article applies to all multifamily residential buildings containing 20 or more dwelling units that were lawfully erected or occupied before the effective date of this Article and that are not otherwise subject to subsections (a) or (b). Owners of such existing buildings shall achieve full compliance with this Article no later than [compliance deadline to be set by City Council].\n\n(d)  Exemptions.  Buildings with fewer than 20 dwelling units are exempt from this Article.\n\n\u00a7 560.4  Minimum Bicycle Parking Requirements.\n\n(a)  Required ratio.  Every multifamily residential building subject to this Article shall provide no fewer than two (2) covered and secured bicycle parking spaces per dwelling unit.\n\n     Example: A 20-unit building requires 40 bicycle parking spaces; a 50-unit building requires 100 bicycle parking spaces.\n\n(b)  Location.  All required bicycle parking spaces shall be located:\n\n     (1)  Within the principal building, an attached or detached parking structure on the same lot, or a separate accessory structure on the same lot; and\n\n     (2)  On a level accessible by elevator or ground-floor entry, unless the applicant demonstrates that this is not structurally feasible, in which case a stairway of no more than one floor may be used.\n\n(c)  Accessibility.  The bicycle parking facility shall be accessible to all residents of the building at all times. The owner shall post clear wayfinding signage from each principal building entrance to the bicycle parking facility.\n\n(d)  No substitution for automobile parking.  Required bicycle parking spaces may not be counted toward, or substituted for, any required automobile parking spaces.\n\n\u00a7 560.5  Design Standards.\n\n(a)  Space dimensions.  Each bicycle parking space shall provide a clear floor area of not less than two feet (2') in width and six feet (6') in length, with a minimum overhead clearance of seven feet (7'), or such greater dimensions as may be required to allow full use of the bicycle storage device.\n\n(b)  Lighting.  The bicycle parking facility shall be provided with artificial lighting that provides a minimum of five foot-candles (5 fc) at floor level throughout the facility.\n\n(c)  Ventilation.  The bicycle parking facility shall be ventilated to prevent moisture accumulation.\n\n(d)  Electrical outlet.  Each bicycle parking facility shall contain at least one (1) grounded 120-volt electrical outlet for every twenty (20) bicycle parking spaces, or fraction thereof, to accommodate electric bicycle charging.\n\n\u00a7 560.6  Administrative Variance.\n\n(a)  Authority.  The [Zoning Administrator / Development Services Director \u2014 title to be confirmed by city attorney] may grant an administrative variance from the requirements of this Article upon a written finding that strict compliance would cause documented hardship due to:\n\n     (1)  Demonstrated physical or structural constraints of the site or existing building that make it impossible to provide the required number of spaces or a compliant facility;\n\n     (2)  Historic preservation requirements imposed by a federal, state, or local authority that prohibit or materially limit interior alterations necessary to create a compliant facility; or\n\n     (3)  Such other extraordinary circumstances as the [Administrator] determines to be substantially equivalent to (1) or (2).\n\n(b)  Application.  An applicant seeking an administrative variance under this section shall submit a written application to the [Administrator] that includes:\n\n     (1)  A site plan or floor plan identifying the proposed location or locations considered for bicycle parking;\n\n     (2)  A written statement explaining the nature and extent of the hardship and the reasons why no alternative design or location can satisfy the requirements of this Article;\n\n     (3)  Any supporting documentation, including structural reports, historic designation records, or engineering assessments; and\n\n     (4)  A proposal for the maximum number of bicycle parking spaces and the highest level of security and weather protection the applicant can feasibly provide under the circumstances.\n\n(c)  Conditions.  The [Administrator] may approve a variance in whole or in part, and shall impose conditions requiring the applicant to provide the maximum feasible number of bicycle parking spaces and the greatest feasible degree of security and weather protection. A variance shall not be granted to reduce required bicycle parking spaces to zero unless the [Administrator] makes a written finding that no bicycle parking of any kind is physically achievable on the site.\n\n(d)  Appeal.  Any decision of the [Administrator] under this section may be appealed to the Board of Adjustment pursuant to N.C.G.S. \u00a7 160D-405 and Article [Board of Adjustment article \u2014 to be confirmed] of this Ordinance.\n\n(e)  Monitoring.  The [Administrator] shall maintain a public log of all variance applications received and decisions issued under this section. The log shall be reviewed by City Council no less than once every two (2) years to assess whether the variance process is being used in a manner consistent with the purposes of this Article.\n\n\u00a7 560.7  Compliance and Enforcement.\n\n(a)  Building permits.  No building permit shall be issued for a project subject to \u00a7 560.3(a) or \u00a7 560.3(b) unless the permit application includes plans demonstrating compliance with this Article.\n\n(b)  Certificate of occupancy.  No certificate of occupancy or certificate of compliance shall be issued for a multifamily residential building subject to \u00a7 560.3(a) or \u00a7 560.3(b) unless the required bicycle parking facility has been constructed and inspected in accordance with this Article.\n\n(c)  Existing buildings.  The [Administrator] shall have authority to inspect bicycle parking facilities in existing buildings subject to \u00a7 560.3(c) upon reasonable notice and to issue notices of violation and orders to correct in accordance with Article [Enforcement article \u2014 to be confirmed] of this Ordinance.\n\n(d)  Maintenance.  Owners of multifamily residential buildings subject to this Article shall maintain all required bicycle parking facilities in compliance with this Article at all times. Deterioration, removal, or conversion of a required bicycle parking facility to another use constitutes a continuing violation of this Ordinance.\n\n\u00a7 560.8  Relationship to the Unified Development Ordinance.\n\nTo the extent that a multifamily residential building is subject to both this Ordinance and the Henderson Unified Development Ordinance (UDO), the more stringent bicycle parking requirement shall apply.\n\n\u00a7 560.9  Severability.\n\nIf any provision of this Article or its application to any person or circumstance is held invalid, the remainder of the Article and the application of its provisions to other persons or circumstances shall not be affected.\n\n---\n\nSECTION 3. EFFECTIVE DATE\n\nThis ordinance shall become effective upon adoption and publication as required by N.C.G.S. \u00a7 160D-601.\n\nSECTION 4. SAVINGS CLAUSE\n\nAll rights, duties, and proceedings existing or pending under the Henderson Zoning Ordinance prior to the effective date of this ordinance are preserved and are not affected by the enactment of this Article.\n\nAdopted by the City Council of the City of Henderson, North Carolina, this ___ day of ________, 20___.\n\n_________________________________\nMayor, City of Henderson\n\nATTEST:\n_________________________________\nCity Clerk",
+  "draftSources": [
+    {
+      "id": "ncgs-160d-702",
+      "url": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/BySection/Chapter_160D/GS_160D-702.html",
+      "kind": "external",
+      "title": "NCGS \u00a7 160D-702 \u2014 Zoning Regulations: Grant of Power",
+      "excerpt": "A zoning regulation may regulate and restrict the location and use of buildings, structures, and land.",
+      "publisher": "NC General Assembly"
+    },
+    {
+      "id": "ncgs-160d-703",
+      "url": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/ByChapter/Chapter_160D.html",
+      "kind": "external",
+      "title": "NCGS \u00a7 160D-703 \u2014 Jurisdiction-Wide Development Standards",
+      "excerpt": "Authorizes municipalities to adopt development standards applicable throughout the jurisdiction rather than only within particular zoning districts.",
+      "publisher": "NC General Assembly"
+    },
+    {
+      "id": "ncgs-160d-601",
+      "url": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/ByChapter/Chapter_160D.html",
+      "kind": "external",
+      "title": "NCGS \u00a7 160D-601 \u2014 Legislative Hearing Requirement",
+      "excerpt": "Requires a legislative hearing before adoption of a zoning ordinance or amendment.",
+      "publisher": "NC General Assembly"
+    },
+    {
+      "id": "ncgs-160d-405",
+      "url": "https://www.ncleg.gov/EnactedLegislation/Statutes/HTML/ByChapter/Chapter_160D.html",
+      "kind": "external",
+      "title": "NCGS \u00a7 160D-405 \u2014 Board of Adjustment: Appeals",
+      "excerpt": "Authorizes board of adjustment to hear and decide appeals of administrative decisions.",
+      "publisher": "NC General Assembly"
+    },
+    {
+      "id": "sl-2024-57",
+      "url": "https://www.ncleg.gov/Sessions/2023/Bills/Senate/PDF/S382v6.pdf",
+      "kind": "external",
+      "title": "Session Law 2024-57 (S.B. 382) \u2014 Zoning Amendments",
+      "excerpt": "Restricts downzoning of existing property without owner consent; not applicable to prospective development standards.",
+      "publisher": "NC General Assembly"
+    },
+    {
+      "id": "henderson-zoning-ordinance",
+      "url": "https://henderson.nc.gov/departments/development_services/zoning_subdivision_ordinances.php",
+      "kind": "internal",
+      "title": "City of Henderson Zoning Ordinance (rev. Aug. 5, 2025)",
+      "excerpt": "Article 500 governs parking; no bicycle parking requirement exists for residential uses under the current Zoning Ordinance.",
+      "publisher": "City of Henderson, NC"
+    },
+    {
+      "id": "henderson-udo",
+      "url": "https://henderson.nc.gov/departments/development_services/zoning_subdivision_ordinances.php",
+      "kind": "internal",
+      "title": "City of Henderson Unified Development Ordinance (rev. July 14, 2025)",
+      "excerpt": "UDO Table 2-4 references bicycle parking but applies only where the UDO governs; no coverage or security standard specified for residential uses.",
+      "publisher": "City of Henderson, NC"
+    },
+    {
+      "id": "nyc-zoning-res",
+      "url": "https://groundcontrolsystems.com/new-york-city-bike-parking-code/",
+      "kind": "external",
+      "title": "NYC Zoning Resolution \u00a7 25-811 \u2014 Bicycle Parking",
+      "excerpt": "Requires 1 enclosed bicycle parking space per 2 dwelling units for apartment buildings above 10 units.",
+      "publisher": "NYC Department of City Planning"
+    },
+    {
+      "id": "rockville-guide",
+      "url": "https://www.rockvillemd.gov/wp-content/uploads/2025/09/Rockville-Bicycle-Parking-Guide.pdf",
+      "kind": "external",
+      "title": "City of Rockville Bicycle Parking Guide (Zoning Ordinance Art. 16)",
+      "excerpt": "Requires 1 long-term space per 3 dwelling units plus short-term visitor spaces for apartment buildings.",
+      "publisher": "City of Rockville, MD"
+    },
+    {
+      "id": "portland-bike-parking",
+      "url": "https://www.portland.gov/ppd/zoning-land-use/zoning-code-overview/bicycle-parking",
+      "kind": "external",
+      "title": "City of Portland \u2014 Bicycle Parking Zoning Code Overview",
+      "excerpt": "Requires covered, secured long-term bicycle parking; phased implementation for renovation-triggered requirements.",
+      "publisher": "Portland Bureau of Planning and Sustainability"
+    },
+    {
+      "id": "durham-udo",
+      "url": "https://www.durhamnc.gov/DocumentCenter/View/24073/Sec-103-Required-Parking",
+      "kind": "external",
+      "title": "Durham Unified Development Ordinance, Sec. 10.3 Required Parking",
+      "excerpt": "Bicycle parking required within Downtown and Compact Neighborhood Tiers; not a citywide residential standard.",
+      "publisher": "City of Durham, NC"
+    }
+  ],
+  "qualityReport": null
+}

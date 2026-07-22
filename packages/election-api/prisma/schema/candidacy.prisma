@@ -46,4 +46,5 @@ model Candidacy {
   personId String?  @map("person_id") @db.Uuid // = gpCandidateId, typed FK to Person
 
   @@index([personId])
+  @@index([raceId])
 }

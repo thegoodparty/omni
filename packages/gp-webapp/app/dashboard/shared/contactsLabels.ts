@@ -6,6 +6,14 @@ export const CONTACTS_DATA_TITLE = {
   serve: 'Constituent Data',
 } as const
 
+// ENG-10746: the Win voter-universe card carries two extra rows sourced from
+// campaign.raceTargetMetrics. They render only in Win mode (Serve keeps the
+// single constituents row), so they live outside the mode-keyed shape below.
+export const WIN_UNIVERSE_STAT_LABELS = {
+  projectedTurnout: 'Projected turnout',
+  votersNeededToWin: 'Voters needed to win',
+} as const
+
 export interface ContactsLabels {
   dataTitle: string
   universeTitle: string
@@ -49,7 +57,7 @@ export const getContactsLabels = (isWin: boolean): ContactsLabels =>
         percentLabel: '% of Voters',
         searchPlaceholder: 'Search for any voter contact',
         searchNoResults: 'No voters found',
-        districtTotalLabel: 'Total voters in your district',
+        districtTotalLabel: 'Voters in your district',
         listsSectionTitle: 'Voter Lists',
         listsSectionSubtitle:
           'Voter lists are segments you can create for targeted outreach',

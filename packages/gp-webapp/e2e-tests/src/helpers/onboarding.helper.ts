@@ -73,11 +73,15 @@ const completePathToVictoryStep = async (page: Page): Promise<void> => {
   await clickOnboardingContinue(page)
 }
 
-const completeVoterDemographicsStep = async (page: Page): Promise<void> => {
+// The campaign-story step replaced voter-demographics in the onboarding config.
+// This helper's only caller runs with the campaign-story flag on, so the step
+// is present here; skip it (the caller asserts routing/pledge behavior, not
+// story authoring). "Skip for now" is the footer CTA while the story is empty.
+const skipCampaignStoryStep = async (page: Page): Promise<void> => {
   await expect(
-    page.getByRole('heading', { level: 1, name: /voter insights/i }),
-  ).toBeVisible({ timeout: 15000 })
-  await clickOnboardingContinue(page)
+    page.getByRole('heading', { level: 1, name: /tell your campaign story/i }),
+  ).toBeVisible({ timeout: 30000 })
+  await page.getByRole('button', { name: /skip for now/i }).click()
 }
 
 export const completeOnboardingUpToPledge = async (
@@ -88,7 +92,7 @@ export const completeOnboardingUpToPledge = async (
   await completePartyAffiliationStep(page)
   await completeOfficeSelectionStep(page)
   await completePathToVictoryStep(page)
-  await completeVoterDemographicsStep(page)
+  await skipCampaignStoryStep(page)
   await expect(
     page.getByRole('heading', { level: 1, name: /take our pledge/i }),
   ).toBeVisible()

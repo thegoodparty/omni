@@ -12,8 +12,15 @@ const mocks = vi.hoisted(() => ({
   fetchQualityRun: vi.fn(),
   deleteOrdinance: vi.fn(),
   downloadOrdinanceExport: vi.fn(),
+  fetchOrdinanceBySlug: vi.fn(),
+  cancelQualityLoop: vi.fn(),
+  fetchQualityIterations: vi.fn(),
   draftChatProps: {
-    current: null as { seedText?: string; seedNonce?: number } | null,
+    current: null as {
+      seedText?: string
+      seedNonce?: number
+      autoDictate?: boolean
+    } | null,
   },
 }))
 
@@ -23,12 +30,19 @@ vi.mock('../data/ordinances-api', () => ({
   fetchQualityRun: mocks.fetchQualityRun,
   deleteOrdinance: mocks.deleteOrdinance,
   downloadOrdinanceExport: mocks.downloadOrdinanceExport,
+  fetchOrdinanceBySlug: mocks.fetchOrdinanceBySlug,
+  cancelQualityLoop: mocks.cancelQualityLoop,
+  fetchQualityIterations: mocks.fetchQualityIterations,
 }))
 
 // Stub the chat so the selection-toolbar tests can assert what the drawer
 // hands DraftChat (seed text + nonce) without mounting the real streaming chat.
 vi.mock('./DraftChat', () => ({
-  default: (props: { seedText?: string; seedNonce?: number }) => {
+  default: (props: {
+    seedText?: string
+    seedNonce?: number
+    autoDictate?: boolean
+  }) => {
     mocks.draftChatProps.current = props
     return null
   },
@@ -284,6 +298,25 @@ describe('DraftDetail selection toolbar', () => {
     expect(mocks.draftChatProps.current?.seedNonce ?? 0).toBeGreaterThan(0)
   })
 
+  it('the launcher mic opens the chat with dictation auto-started', () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate a message' }))
+
+    expect(mocks.draftChatProps.current?.autoDictate).toBe(true)
+  })
+
+  it('the launcher send button opens the chat without auto-dictation', () => {
+    render(<DraftDetail ordinance={makeOrdinance()} />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Ask about this draft' }),
+    )
+
+    expect(mocks.draftChatProps.current).not.toBeNull()
+    expect(mocks.draftChatProps.current?.autoDictate).toBe(false)
+  })
+
   it('"Flag a bug" seeds the chat with the problem template', () => {
     render(<DraftDetail ordinance={makeOrdinance()} />)
 
@@ -403,19 +436,31 @@ describe('DraftDetail quality report flush', () => {
     expect(mocks.startQualityReport).not.toHaveBeenCalled()
   })
 
-  it('shows the stale banner after an edit', () => {
-    render(
-      <DraftDetail
-        ordinance={makeOrdinance({
-          qualityReport: sampleReport,
-        } as Partial<Ordinance>)}
-      />,
-    )
+  it('shows the stale banner once a real edit settles', async () => {
+    // Dirty is decided at the debounce (where the reserialization check
+    // lives), not on the raw input event — a no-op input must never stale
+    // the report, so a real edit's banner appears when the autosave fires.
+    vi.useFakeTimers()
+    try {
+      render(
+        <DraftDetail
+          ordinance={makeOrdinance({
+            qualityReport: sampleReport,
+          } as Partial<Ordinance>)}
+        />,
+      )
 
-    expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
+      expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
 
-    editBody('a new edit')
-    expect(screen.getByText(/the draft changed/i)).toBeVisible()
+      editBody('a new edit')
+      expect(screen.queryByText(/the draft changed/i)).not.toBeInTheDocument()
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS + 100)
+      })
+      expect(screen.getByText(/the draft changed/i)).toBeVisible()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('clears the stale banner after a successful re-run', async () => {

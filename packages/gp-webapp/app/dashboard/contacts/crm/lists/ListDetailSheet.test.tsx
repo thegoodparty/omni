@@ -255,6 +255,58 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
   })
 })
 
+// ENG-10749: Serve outreach is deferred and /dashboard/outreach dead-ends
+// for an eo- org, so the sheet footer's outreach CTA is Win-only. The
+// Download affordance stays for both modes.
+describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () => {
+  it('shows the Send outreach footer link for Win', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    // ENG-10762: the footer link carries the saved list's id so the
+    // outreach page can preselect it.
+    expect(
+      await screen.findByRole('link', { name: 'Send outreach' }),
+    ).toHaveAttribute('href', '/dashboard/outreach?listId=42')
+  })
+
+  it('hides Send outreach for Serve while keeping Download', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('button', { name: 'Download list' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders no Send outreach while the mode is still resolving (no flash for Serve users)', async () => {
+    setContext({ isWinContextReady: false })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await screen.findByText('GOTV text list')
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
+  })
+})
+
 describe('ListDetailSheet — locked-state affordance (firstUsedForOutreachAt)', () => {
   it('shows a Rename affordance for an unlocked list', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {

@@ -122,12 +122,14 @@ Per-area `CLAUDE.md` files cover purpose, key files, patterns, and gotchas for t
 | Working in                               | Read                                        |
 | ---------------------------------------- | ------------------------------------------- |
 | Campaigns / plans / tasks                | `src/campaigns/CLAUDE.md`                   |
+| The CRM (contacts, saved filters, write-back, assistant) | `src/contacts/CLAUDE.md` (system-level doc) |
 | Contact interactions (per-channel models) | `src/contactInteraction/contactInteraction.types.ts` |
 | Campaign plan PDF sharing                | `src/campaignPlanShares/CLAUDE.md`          |
 | Voter file / L2 lookups                  | `src/voters/CLAUDE.md`                      |
 | Stripe payments / pro upgrades           | `src/payments/CLAUDE.md`                    |
 | Campaign websites / domains              | `src/websites/CLAUDE.md`                    |
 | Opposition research (Know Your Opponent) | `src/raceOpponent/CLAUDE.md`                |
+| Ordinances / drafting / quality loop     | `src/ordinances/CLAUDE.md`                  |
 | SQS producer/consumer / async            | `src/queue/CLAUDE.md`                       |
 | Auth, JWT, Clerk M2M, roles              | `src/authentication/CLAUDE.md`              |
 | Agent experiments                        | `src/agentExperiments/CLAUDE.md`            |

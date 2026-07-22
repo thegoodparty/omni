@@ -1,0 +1,28 @@
+enum DoorKnockingMode {
+  walk
+  drive
+}
+
+model DoorKnockingRoute {
+  id                 Int                    @id @default(autoincrement())
+  // createdAt is the generation moment; the row never mutates after the
+  // knock transaction commits (locked/idempotent both derive from its
+  // existence — see docs/door-knocking.md).
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+  // Unique: the route's only parent. Linear chain:
+  // voter_file_filter <- door_knocking_turf <- door_knocking_route.
+  turf               DoorKnockingTurf       @relation(fields: [doorKnockingTurfId], references: [id], onDelete: Cascade)
+  doorKnockingTurfId Int                    @unique @map("door_knocking_turf_id")
+  mode               DoorKnockingMode
+  // True -> the optimized route returns to its start (start = end anchor).
+  loop               Boolean
+  totalSeconds       Int                    @map("total_seconds")
+  totalMeters        Int                    @map("total_meters")
+  // Geoapify credits spent generating this route (locations x 10).
+  credits            Int
+  stops              DoorKnockingStop[]
+  outreach           Outreach?
+
+  @@map("door_knocking_route")
+}

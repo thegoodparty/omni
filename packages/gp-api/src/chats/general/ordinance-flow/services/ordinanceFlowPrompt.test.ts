@@ -38,6 +38,25 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(prompt).toContain('Reduce late-night construction noise')
   })
 
+  it('keeps vendors and research mechanics out of user-facing prose on every step', () => {
+    for (const step of [
+      'clarify',
+      'authority',
+      'current_law',
+      'comparables',
+      'draft',
+    ] as const) {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: baseCtx({ step }),
+        toolNames: [],
+      })
+      expect(prompt).toContain(
+        'never name the vendors, platforms, or tools behind your research',
+      )
+      expect(prompt).toContain("your city's published code")
+    }
+  })
+
   it('names the current step and its goal', () => {
     const prompt = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'clarify' }),
@@ -247,6 +266,19 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     expect(without).not.toContain('AUTHORITY RULES')
   })
 
+  it('includes present-card ordering rules when any present_* tool is offered', () => {
+    const withTool = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'authority' }),
+      toolNames: ['present_authority_finding', 'offer_next_step'],
+    })
+    expect(withTool).toContain('PRESENT-CARD ORDERING')
+    const without = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'clarify' }),
+      toolNames: ['ask_clarify_question', 'offer_next_step'],
+    })
+    expect(without).not.toContain('PRESENT-CARD ORDERING')
+  })
+
   it('includes comparables rules only when present_comparables is offered', () => {
     const withTool = buildOrdinanceFlowSystemPrompt({
       ctx: baseCtx({ step: 'comparables' }),
@@ -322,6 +354,18 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
     })
     expect(prompt).toContain('present_current_law_summary:')
     expect(prompt).toContain('present_legislative_history:')
+  })
+
+  it('tells the review step an automated quality pass may revise the draft', () => {
+    const prompt = buildOrdinanceFlowSystemPrompt({
+      ctx: baseCtx({ step: 'review' }),
+      toolNames: [],
+    })
+    expect(prompt).toContain('REVIEW RULES')
+    expect(prompt).toContain('automated quality pass')
+    // The step itself still may not change the draft; only the background
+    // loop does.
+    expect(prompt).toContain('You cannot regenerate or overwrite the draft')
   })
 
   it('directs the current_law step to actively research and present the history timeline', () => {

@@ -47,16 +47,24 @@ jobs:
         with:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: "true"
-          build-nest-common: "true"
+          build-contracts: 'true'
+          build-nest-common: 'true'
           prisma-generate-script: generate:prisma:gp-api
-          route-types: "true"
+          route-types: 'true'
 
       - name: Lint
         run: npm run lint -w ${{ env.WORKSPACE }}
 
       - name: Typecheck
         run: npm run types -w ${{ env.WORKSPACE }}
+
+      # The Pulumi program under deploy/ is excluded from the main tsconfig and
+      # is only otherwise compiled (transpile-only, via tsx) at deploy time, so
+      # type errors in it never surface until deploy. route-types is generated
+      # above by setup-node-workspace, so deploy/ imports of it resolve here.
+      - name: Typecheck deploy
+        working-directory: ${{ env.WORKSPACE }}
+        run: npx tsc -p tsconfig.deploy.json
 
       - name: Check Prisma migrations
         working-directory: ${{ env.WORKSPACE }}
@@ -83,10 +91,10 @@ jobs:
         with:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: "true"
-          build-nest-common: "true"
+          build-contracts: 'true'
+          build-nest-common: 'true'
           prisma-generate-script: generate:prisma:gp-api
-          route-types: "true"
+          route-types: 'true'
 
       - name: Test
         run: npm run test -w ${{ env.WORKSPACE }} -- --shard=${{ matrix.shard }}/2
@@ -121,10 +129,10 @@ jobs:
         with:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: "true"
-          build-nest-common: "true"
+          build-contracts: 'true'
+          build-nest-common: 'true'
           prisma-generate-script: generate:prisma:gp-api
-          route-types: "true"
+          route-types: 'true'
 
       - name: Determine deployment context
         id: ctx
@@ -218,10 +226,10 @@ jobs:
         with:
           app: gp-api
           workspace: ${{ env.WORKSPACE }}
-          build-contracts: "true"
-          build-nest-common: "true"
+          build-contracts: 'true'
+          build-nest-common: 'true'
           prisma-generate-script: generate:prisma:gp-api
-          route-types: "true"
+          route-types: 'true'
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v5

@@ -45,6 +45,7 @@ const setContext = (
   mockedUseContactsTable.mockReturnValue({
     customSegments: [],
     isWinContext: true,
+    isWinContextReady: true,
     selectList,
     ...overrides,
   } as unknown as ReturnType<typeof useContactsTable>)
@@ -123,6 +124,69 @@ describe('ListsIndex — the "All voters" universe row', () => {
     render(<ListsIndex />)
 
     expect(screen.getByText('All constituents')).toBeInTheDocument()
+  })
+})
+
+// ENG-10749: Serve outreach is deferred and /dashboard/outreach dead-ends
+// for an eo- org, so the outreach affordance is Win-only across the index.
+describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
+  it('shows Send outreach on the universe row and each list card for Win', () => {
+    setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+
+    render(<ListsIndex />)
+
+    const outreachLinks = screen.getAllByRole('link', {
+      name: 'Send outreach',
+    })
+    expect(outreachLinks).toHaveLength(2)
+  })
+
+  // ENG-10762: the "All voters" universe row has no saved-segment id, so
+  // its link carries no listId param — only a list card's link does.
+  it('carries listId on a list card link but keeps the universe row link bare', () => {
+    setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+
+    render(<ListsIndex />)
+
+    const outreachLinks = screen.getAllByRole('link', {
+      name: 'Send outreach',
+    })
+    expect(outreachLinks[0]).toHaveAttribute('href', '/dashboard/outreach')
+    expect(outreachLinks[1]).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?listId=42',
+    )
+  })
+
+  it('hides Send outreach everywhere for Serve while keeping Details, the count, and the options menu', () => {
+    setContext({
+      isWinContext: false,
+      customSegments: [{ id: 42, name: 'Constituent list' }],
+    })
+
+    render(<ListsIndex />)
+
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'List options' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText('250')).toBeInTheDocument()
+  })
+
+  it('renders no Send outreach while the mode is still resolving (no flash for Serve users)', () => {
+    setContext({
+      isWinContextReady: false,
+      customSegments: [{ id: 42, name: 'GOTV text list' }],
+    })
+
+    render(<ListsIndex />)
+
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
   })
 })
 

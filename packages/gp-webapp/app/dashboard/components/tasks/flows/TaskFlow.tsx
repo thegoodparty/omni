@@ -84,6 +84,7 @@ type TaskFlowProps = {
   defaultAiTemplateId?: string | number
   campaignPlanDueDate?: string
   initialScriptText?: string
+  preselectedListId?: number
 }
 
 const TaskFlow = ({
@@ -97,6 +98,7 @@ const TaskFlow = ({
   defaultAiTemplateId,
   campaignPlanDueDate,
   initialScriptText,
+  preselectedListId,
 }: TaskFlowProps): React.JSX.Element => {
   const { p2pUxEnabled } = useP2pUxEnabled()
   const [open, setOpen] = useState(forceOpen)
@@ -436,6 +438,7 @@ const TaskFlow = ({
             withVoicemail={!!state.voicemail}
             audience={state.audience}
             isCustom={isCustom}
+            preselectedListId={preselectedListId}
             {...callbackProps}
             onCreateVoterFileFilter={onCreateVoterFileFilter}
             onCreatePhoneList={onCreatePhoneList}

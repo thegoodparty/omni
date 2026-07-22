@@ -10,6 +10,7 @@ import type {
   CreateOrdinanceRequest,
   Ordinance,
   OrdinanceExportFormat,
+  OrdinanceQualityIterationsResponse,
   OrdinanceQualityRun,
   SaveOrdinanceClarifyAnswerRequest,
   UpdateOrdinanceRequest,
@@ -99,6 +100,28 @@ export async function fetchQualityRun(
     'GET /v1/ordinances/:slug/quality-report',
     { slug },
     opts?.signal ? { signal: opts.signal } : undefined,
+  )
+  return data
+}
+
+// The improvement loop has no client-side start: it auto-starts server-side
+// on saveDraft (design: the panel only re-grades). The POST
+// /v1/ordinances/:slug/quality-loop route still exists for API/ops use.
+export async function cancelQualityLoop(slug: string): Promise<Ordinance> {
+  const { data } = await clientRequest(
+    'DELETE /v1/ordinances/:slug/quality-loop',
+    { slug },
+  )
+  return data
+}
+
+// The latest loop run's per-pass history — the "what changed" panel's data.
+export async function fetchQualityIterations(
+  slug: string,
+): Promise<OrdinanceQualityIterationsResponse> {
+  const { data } = await clientRequest(
+    'GET /v1/ordinances/:slug/quality-iterations',
+    { slug },
   )
   return data
 }

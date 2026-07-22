@@ -1,96 +1,82 @@
 import { expect, test } from '@playwright/test'
+import { blockSlowScripts } from 'src/helpers/navigation.helper'
 import {
-  blockSlowScripts,
-  NavigationHelper,
-} from 'src/helpers/navigation.helper'
-import {
-  applyContactsQuery,
-  waitForContactsTableReady,
-} from 'src/helpers/contacts-e2e'
-import {
-  setupElectedOfficeUser,
-  switchOrganization,
-  getSelectedOrgName,
-  getOrgPickerOptions,
-} from 'src/helpers/organizations'
+  enableCrmFlags,
+  fetchListMembers,
+  fullPersonName,
+  gotoCrmContacts,
+  typeaheadInput,
+  type ContactsApiPerson,
+} from 'src/helpers/crm-contacts-e2e'
+import { personContactPanel } from 'src/helpers/contacts-e2e'
+import { setupProCampaignUser } from 'src/helpers/organizations'
 
-// @dev-only: the Voter Data search box is reachable only on the Win Contacts
-// surface for a pro campaign org, which requires win-voter-data ON (enabled for
-// internal/@test.goodparty.org users on the warm dev stack, not on ephemeral
-// per-PR previews) AND a pro campaign (gp-api findContacts hard-rejects search
-// requests for non-pro). Same gating as win-contacts.spec.ts. The CI workflow
-// greps @dev-only out on pull_request runs and includes it post-merge on
-// develop. See e2e-tests/CLAUDE.md ("@dev-only") and contacts-staged-rollout.md.
-test.describe('Voter Data contact search @dev-only', () => {
+// Contact search is reachable only for a pro campaign org (gp-api findContacts
+// hard-rejects search for non-pro). setupProCampaignUser provisions Pro via the
+// test-only endpoint (no Stripe webhook), and a per-PR preview's gp-api serves
+// the same real district voter data as dev, so this runs on PRs.
+//
+// ENG-10756 port: the flag-on CRM page replaces the "Search contacts" box +
+// member table with the persistent typeahead (crm/ContactTypeahead.tsx), so
+// "the matching row appears in the table" becomes "the exact person appears
+// as a typeahead result" — matched by the result's person-id data-value, so
+// a same-named neighbor can't satisfy the assertion.
+test.describe('Voter Data contact search', () => {
   test.beforeEach(async ({ page }) => {
     await blockSlowScripts(page)
+    await enableCrmFlags(page)
   })
 
-  test('full-name, case-insensitive, and partial search return the matching row without stale state', async ({
+  test('full-name, case-insensitive, and partial search surface the matching person', async ({
     page,
   }) => {
     test.setTimeout(3 * 60 * 1000)
 
-    // setupElectedOfficeUser leaves the EO org selected; the Win context is the
-    // campaign (non-eo) org, so switch to it. Mirrors win-contacts.spec.ts.
-    await setupElectedOfficeUser(page)
+    // A pro Win campaign org — the client is already scoped to it, so the name
+    // lookup below reads the same voter universe the page searches.
+    const { client } = await setupProCampaignUser(page)
 
-    const eoOrgName = await getSelectedOrgName(page)
-    const allOrgs = await getOrgPickerOptions(page)
-    const campaignOrgName = allOrgs.find((name) => name !== eoOrgName)
-    expect(campaignOrgName).toBeTruthy()
-    await switchOrganization(page, campaignOrgName!)
+    await gotoCrmContacts(page)
 
-    await page.goto('/dashboard/contacts', { waitUntil: 'domcontentloaded' })
-    await NavigationHelper.dismissOverlays(page)
-    await expect(page).toHaveURL(/\/dashboard\/contacts/)
+    // Read a real name from the base list (the same GET /v1/contacts the
+    // legacy table rendered) so the search query is deterministic against the
+    // seeded race's live L2 data — a hardcoded name may not exist here. The
+    // prefix query below drops one char, so the name must keep >= 3 chars
+    // (the typeahead's minimum) after that.
+    const people = await fetchListMembers(client, 'all')
+    const person = people.find(
+      (candidate: ContactsApiPerson) => fullPersonName(candidate).length >= 4,
+    )
+    expect(person).toBeTruthy()
+    const fullName = fullPersonName(person!)
 
-    const table = page.locator('table').first()
-    await expect(table).toBeVisible({ timeout: 20000 })
-    await waitForContactsTableReady(page)
+    const input = typeaheadInput(page)
+    await expect(input).toBeVisible({ timeout: 20_000 })
 
-    // Read a real name from the first row's Name cell (the first column) so the
-    // search query is deterministic against the seeded race's live L2 data (a
-    // hardcoded name may not exist in this district).
-    const firstRow = table.locator('tbody tr').first()
-    const nameCell = firstRow.locator('td').first()
-    await expect(nameCell).toHaveText(/.+/, { timeout: 25000 })
-    const fullName = ((await nameCell.textContent()) ?? '').trim()
-    expect(fullName.length).toBeGreaterThan(0)
+    const personOption = page.locator(
+      `[data-slot="command-item"][data-value="${person!.id}"]`,
+    )
 
-    const searchBox = page.getByPlaceholder('Search contacts')
-    await expect(searchBox).toBeVisible({ timeout: 10000 })
-
-    // Drive the search box for real and gate every assertion on the new
-    // GET /v1/contacts landing + the skeleton clearing, so the rows asserted are
-    // the freshly-queried ones (not the previous list's stale rows). Press Enter
-    // to skip the 1s debounce in ContactSearch.
-
-    // Full name, lowercased: case-insensitivity is the ENG-10513 fix under test.
-    const lowerFullName = fullName.toLowerCase()
-    await applyContactsQuery(page, async () => {
-      await searchBox.fill(lowerFullName)
-      await searchBox.press('Enter')
-    })
-    await expect(
-      table.locator('tbody tr', { hasText: fullName }).first(),
-    ).toBeVisible({ timeout: 25000 })
+    // Full name, lowercased: case-insensitivity is the ENG-10513 fix under
+    // test.
+    await input.fill(fullName.toLowerCase())
+    await expect(personOption).toBeVisible({ timeout: 30_000 })
 
     // Partial / prefix query (lowercase): the full name minus its last
-    // character still returns the matching row (case-insensitive prefix + LIKE
-    // behavior). Dropping just the last char keeps both name tokens intact, so
-    // the query stays as selective as the full-name search and the target row is
-    // reliably on page 1 (resultsPerPage defaults to 50). A short first-name
-    // prefix like "joh" would match thousands of voters in the API's own sort
-    // order, pushing the target off page 1 (false negative) or surfacing it by
-    // luck (tautology); see PR #384 review.
-    const prefix = lowerFullName.slice(0, -1)
-    await applyContactsQuery(page, async () => {
-      await searchBox.fill(prefix)
-      await searchBox.press('Enter')
+    // character still returns the person (case-insensitive prefix + LIKE
+    // behavior). Dropping just the last char keeps the query as selective as
+    // the full-name search, so the target stays inside the typeahead's
+    // 8-result page (see PR #384's review of short-prefix false negatives).
+    await input.fill(fullName.toLowerCase().slice(0, -1))
+    await expect(personOption).toBeVisible({ timeout: 30_000 })
+
+    // Selecting the result opens the person record — the CRM equivalent of
+    // the legacy "click the matching row" step.
+    await personOption.click()
+    const panel = personContactPanel(page)
+    await expect(panel).toBeVisible({ timeout: 15_000 })
+    await expect(panel.getByText(fullName, { exact: false })).toBeVisible({
+      timeout: 30_000,
     })
-    await expect(
-      table.locator('tbody tr', { hasText: fullName }).first(),
-    ).toBeVisible({ timeout: 25000 })
   })
 })
