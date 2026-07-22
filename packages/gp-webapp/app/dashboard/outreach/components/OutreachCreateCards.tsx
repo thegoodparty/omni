@@ -5,7 +5,7 @@ import {
   OUTREACH_TYPES,
 } from 'app/dashboard/outreach/constants'
 import TaskFlow from 'app/dashboard/components/tasks/flows/TaskFlow'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCampaign } from '@shared/hooks/useCampaign'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
@@ -15,6 +15,7 @@ import type { OutreachType } from 'gpApi/types/outreach.types'
 
 interface OutreachCreateCardsProps {
   tcrCompliance?: TcrCompliance
+  preselectedListId?: number
 }
 
 interface FlowModalTask {
@@ -68,12 +69,37 @@ export const OUTREACH_OPTIONS: OutreachOption[] = [
 
 const OutreachCreateCards = ({
   tcrCompliance,
+  preselectedListId,
 }: OutreachCreateCardsProps): React.JSX.Element => {
   const [campaign] = useCampaign()
   const { isPro } = campaign || {}
   const [flowModalTask, setFlowModalTask] = useState<FlowModalTask | null>(null)
   const [showProUpgradeModal, setShowProUpgradeModal] = useState(false)
   const { runTextGate, gateModals } = useTextOutreachGate(tcrCompliance)
+
+  // ENG-10762 (Bugbot follow-up): mirrors `preselectedListId` into state that
+  // survives OutreachComposeDeepLink's listId-strip (its router.replace
+  // re-fetches the force-dynamic outreach page's RSC payload without
+  // ?listId, so the prop reverts to undefined on that pass — this component
+  // instance's own state doesn't). Consume-once: cleared as soon as the
+  // TaskFlow that carried it closes, so a later-opened flow (any card)
+  // starts clean instead of inheriting a stale preselect. A later deep link
+  // that updates the id while this component stays mounted still applies.
+  // `lastSyncedPropListIdRef` tracks the last PROP value already pulled in —
+  // not the (post-close) pending state — so clearing pending on close can't
+  // immediately get re-synced back from an unchanged prop.
+  const [pendingPreselectedListId, setPendingPreselectedListId] =
+    useState(preselectedListId)
+  const lastSyncedPropListIdRef = useRef(preselectedListId)
+  useEffect(() => {
+    if (
+      preselectedListId !== undefined &&
+      preselectedListId !== lastSyncedPropListIdRef.current
+    ) {
+      lastSyncedPropListIdRef.current = preselectedListId
+      setPendingPreselectedListId(preselectedListId)
+    }
+  }, [preselectedListId])
 
   const openProUpgradeModal = () => {
     setShowProUpgradeModal(true)
@@ -149,7 +175,19 @@ const OutreachCreateCards = ({
           forceOpen
           type={flowModalTask.flowType}
           campaign={campaign}
-          onClose={() => setFlowModalTask(null)}
+          preselectedListId={pendingPreselectedListId}
+          onClose={() => {
+            const wasTextFlow = flowModalTask.flowType === OUTREACH_TYPES.text
+            setFlowModalTask(null)
+            // Consume-once, but only the text flow's audience step actually
+            // applies the id — closing a non-text flow must not burn it.
+            // Reset the ref too so a later deep link re-firing the identical
+            // id re-syncs.
+            if (wasTextFlow) {
+              setPendingPreselectedListId(undefined)
+              lastSyncedPropListIdRef.current = undefined
+            }
+          }}
         />
       )}
     </div>

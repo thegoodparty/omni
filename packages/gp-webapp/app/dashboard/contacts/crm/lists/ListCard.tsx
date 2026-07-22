@@ -133,7 +133,9 @@ export default function ListCard({ segment }: ListCardProps) {
               the button at a Serve user while the mode resolves. */}
           {isWinContextReady && isWinContext && (
             <Button size="small" className="h-8 px-3.5 text-xs" asChild>
-              <Link href="/dashboard/outreach">Send outreach</Link>
+              <Link href={`/dashboard/outreach?listId=${segment.id}`}>
+                Send outreach
+              </Link>
             </Button>
           )}
         </div>

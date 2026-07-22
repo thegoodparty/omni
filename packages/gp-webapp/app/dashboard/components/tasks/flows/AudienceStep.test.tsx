@@ -226,6 +226,231 @@ describe('AudienceStep saved-list selector', () => {
     )
   })
 
+  it('applies preselectedListId once the matching saved list loads', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [
+        { id: 42, name: 'My Super Voters' },
+        { id: 43, name: 'Other List' },
+      ],
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={42}
+      />,
+    )
+
+    expect(await screen.findByText(/Using your saved list/)).toBeInTheDocument()
+    // Appears both in the select trigger's value and the "Using your saved
+    // list:" sentence below it.
+    expect(screen.getAllByText('My Super Voters')).toHaveLength(2)
+  })
+
+  it('proceeding with the preselected list produces the same payload as manual selection', async () => {
+    const savedList = { id: 42, name: 'My Super Voters', hasCellPhone: true }
+    mockClientRequest.mockResolvedValue({ data: [savedList] })
+
+    const onCreateVoterFileFilter = vi.fn().mockResolvedValue({ id: 999 })
+    const onCreatePhoneList = vi.fn().mockResolvedValue('phone-token')
+    const onChangeCallback = vi.fn()
+    const nextCallback = vi.fn()
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={onChangeCallback}
+        nextCallback={nextCallback}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={onCreateVoterFileFilter}
+        onCreatePhoneList={onCreatePhoneList}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    await waitFor(() => expect(nextCallback).toHaveBeenCalled())
+
+    expect(onCreateVoterFileFilter).not.toHaveBeenCalled()
+    expect(onCreatePhoneList).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 42 }),
+      42,
+    )
+    expect(onChangeCallback).toHaveBeenLastCalledWith({
+      voterFileFilter: expect.objectContaining({ id: 42 }),
+      phoneListToken: 'phone-token',
+    })
+  })
+
+  it('ignores an unknown preselectedListId and falls back to the default state', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [{ id: 43, name: 'Other List' }],
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={99999}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Build a new audience')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Using your saved list/)).not.toBeInTheDocument()
+  })
+
+  it('lets the user switch away from the preselected list without snapping back', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [
+        { id: 42, name: 'My Super Voters' },
+        { id: 43, name: 'Other List' },
+      ],
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+
+    fireEvent.click(screen.getByRole('combobox'))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('option', { name: 'Build a new audience' }),
+      ).toBeInTheDocument(),
+    )
+    fireEvent.click(
+      screen.getByRole('option', { name: 'Build a new audience' }),
+    )
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Using your saved list/),
+      ).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Using your saved list/)).not.toBeInTheDocument()
+  })
+
+  it('applies a changed preselectedListId that arrives while mounted (e.g. a caller updating the id it threads down)', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [
+        { id: 42, name: 'My Super Voters' },
+        { id: 99, name: 'A Different List' },
+      ],
+    })
+
+    const { rerender } = render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={42}
+      />,
+    )
+
+    await screen.findByText(/Using your saved list/)
+    expect(screen.getAllByText('My Super Voters')).toHaveLength(2)
+
+    rerender(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={99}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getAllByText('A Different List')).toHaveLength(2),
+    )
+    expect(screen.queryByText('My Super Voters')).not.toBeInTheDocument()
+  })
+
+  it('without preselectedListId renders identically to today (defaults to build-new)', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [{ id: 42, name: 'My Super Voters' }],
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(screen.getByText('Build a new audience')).toBeInTheDocument(),
+    )
+    expect(screen.queryByText(/Using your saved list/)).not.toBeInTheDocument()
+  })
+
+  it('a locked list (firstUsedForOutreachAt set) is still pre-selectable', async () => {
+    mockClientRequest.mockResolvedValue({
+      data: [
+        {
+          id: 42,
+          name: 'Locked List',
+          firstUsedForOutreachAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+    })
+
+    render(
+      <AudienceStep
+        type="text"
+        audience={{}}
+        onChangeCallback={vi.fn()}
+        nextCallback={vi.fn()}
+        backCallback={vi.fn()}
+        onCreateVoterFileFilter={vi.fn().mockResolvedValue({ id: 999 })}
+        onCreatePhoneList={vi.fn().mockResolvedValue('t')}
+        preselectedListId={42}
+      />,
+    )
+
+    expect(await screen.findByText(/Using your saved list/)).toBeInTheDocument()
+    expect(screen.getAllByText('Locked List')).toHaveLength(2)
+  })
+
   it('hides auto-generated date-named throwaway lists', async () => {
     mockClientRequest.mockResolvedValue({
       data: [

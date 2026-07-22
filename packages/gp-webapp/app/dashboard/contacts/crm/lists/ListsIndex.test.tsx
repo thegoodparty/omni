@@ -139,8 +139,22 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
       name: 'Send outreach',
     })
     expect(outreachLinks).toHaveLength(2)
-    outreachLinks.forEach((link) =>
-      expect(link).toHaveAttribute('href', '/dashboard/outreach'),
+  })
+
+  // ENG-10762: the "All voters" universe row has no saved-segment id, so
+  // its link carries no listId param — only a list card's link does.
+  it('carries listId on a list card link but keeps the universe row link bare', () => {
+    setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+
+    render(<ListsIndex />)
+
+    const outreachLinks = screen.getAllByRole('link', {
+      name: 'Send outreach',
+    })
+    expect(outreachLinks[0]).toHaveAttribute('href', '/dashboard/outreach')
+    expect(outreachLinks[1]).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?listId=42',
     )
   })
 
