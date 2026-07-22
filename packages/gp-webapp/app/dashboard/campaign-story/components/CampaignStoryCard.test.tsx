@@ -29,27 +29,6 @@ const section: CampaignStorySection = {
 const emptyStory = { background: null }
 
 describe('CampaignStoryCard', () => {
-  it('shows the not-answered hint when empty', () => {
-    render(<CampaignStoryCard section={section} initialValue={null} />)
-    expect(
-      screen.getByText(
-        'Not answered yet. Even two sentences here unlocks a lot.',
-      ),
-    ).toBeInTheDocument()
-  })
-
-  it('shows the say-more hint for a short answer', () => {
-    render(<CampaignStoryCard section={section} initialValue="Short start." />)
-    expect(screen.getByText(/Worth saying more/)).toBeInTheDocument()
-  })
-
-  it('shows positive reinforcement once the answer is substantial', () => {
-    render(
-      <CampaignStoryCard section={section} initialValue={'x'.repeat(120)} />,
-    )
-    expect(screen.getByText(/That's great/)).toBeInTheDocument()
-  })
-
   it('autosaves the field on blur', async () => {
     const user = userEvent.setup()
     let putBody: { background?: string } | null = null
@@ -204,7 +183,7 @@ describe('CampaignStoryCard', () => {
   })
 
   describe('Save button', () => {
-    it('is disabled until the text changes, then saves on click', async () => {
+    it('appears once the text changes, then saves on click', async () => {
       const user = userEvent.setup()
       let putBody: { background?: string } | null = null
       api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
@@ -213,13 +192,16 @@ describe('CampaignStoryCard', () => {
       })
 
       render(<CampaignStoryCard section={section} initialValue={null} />)
-      const save = screen.getByRole('button', { name: 'Save' })
-      expect(save).toBeDisabled()
+      // No Save button until there's an unsaved edit.
+      expect(
+        screen.queryByRole('button', { name: 'Save' }),
+      ).not.toBeInTheDocument()
 
       await user.type(
         screen.getByPlaceholderText('Tap to write your background'),
         'Grew up here',
       )
+      const save = screen.getByRole('button', { name: 'Save' })
       expect(save).toBeEnabled()
 
       await user.click(save)
@@ -290,7 +272,7 @@ describe('CampaignStoryCard', () => {
       render(
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
-      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
       await screen.findByText('A sharper background.')
 
       expect(screen.getByRole('button', { name: /^Save/ })).toBeInTheDocument()
@@ -311,12 +293,12 @@ describe('CampaignStoryCard', () => {
     })
   })
 
-  describe('Help me rewrite', () => {
+  describe('Improve with AI', () => {
     it('disables the rewrite button until there is text', async () => {
       const user = userEvent.setup()
       render(<CampaignStoryCard section={section} initialValue={null} />)
 
-      const button = screen.getByRole('button', { name: /Help me rewrite/ })
+      const button = screen.getByRole('button', { name: /Improve with AI/ })
       expect(button).toBeDisabled()
 
       await user.type(
@@ -337,7 +319,7 @@ describe('CampaignStoryCard', () => {
       render(
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
-      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
 
       expect(
         await screen.findByText('A sharper background.'),
@@ -376,7 +358,7 @@ describe('CampaignStoryCard', () => {
       render(
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
-      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
       await screen.findByText('A sharper background.')
       await user.click(screen.getByRole('button', { name: /Use this/ }))
 
@@ -410,7 +392,7 @@ describe('CampaignStoryCard', () => {
       render(
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
-      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
       await screen.findByText('A sharper background.')
       await user.click(screen.getByRole('button', { name: /Discard/ }))
 
@@ -438,7 +420,7 @@ describe('CampaignStoryCard', () => {
       render(
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
-      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
 
       expect(
         await screen.findByText(/Couldn't generate a rewrite/),
@@ -455,13 +437,13 @@ describe('CampaignStoryCard', () => {
       render(
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
-      await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
 
       expect(
         await screen.findByText(/reached your AI rewrite limit/i),
       ).toBeInTheDocument()
       expect(
-        screen.getByRole('button', { name: /Help me rewrite/ }),
+        screen.getByRole('button', { name: /Improve with AI/ }),
       ).toBeDisabled()
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteLimitReached,

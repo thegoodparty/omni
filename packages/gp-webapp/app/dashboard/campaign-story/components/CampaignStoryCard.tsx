@@ -10,13 +10,12 @@ import {
   Button,
   Card,
   Textarea,
-  CheckIcon,
-  SparklesIcon,
-  WandSparklesIcon,
 } from '@styleguide'
 import { reportErrorToSentry } from '@shared/sentry'
 import { clientRequest } from 'gpApi/typed-request'
+import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
 import RewriteSuggestion from './RewriteSuggestion'
+import StoryCardActions from './StoryCardActions'
 import { useStoryRewrite } from './useStoryRewrite'
 
 export type CampaignStoryField = keyof CampaignStory
@@ -30,16 +29,6 @@ export interface CampaignStorySection {
   // copy until Terry supplies the "gold" examples — swap the text in sections.ts.
   example: string
 }
-
-const EMPTY_HINT = 'Not answered yet. Even two sentences here unlocks a lot.'
-const STARTED_HINT =
-  'Worth saying more: another 1-2 sentences will sharpen this a lot.'
-const ENOUGH_HINT = "That's great! The more you give us, the better!"
-
-// The counter denominator and the point where the nudge turns into positive
-// reinforcement. A suggestion shown to the writer, NOT an input cap — typing
-// past it is allowed (the textarea has no maxLength).
-const SUGGESTED_CHARS = 100
 
 interface CampaignStoryCardProps {
   section: CampaignStorySection
@@ -82,9 +71,6 @@ const CampaignStoryCard = ({
   }, [])
 
   const isDirty = value !== savedValue
-  // "Saved" only reads true once there's persisted content; an untouched empty
-  // field shows a plain disabled "Save" instead of claiming it saved nothing.
-  const saveLabel = !isDirty && savedValue.trim().length > 0 ? 'Saved' : 'Save'
 
   // Report the saved (persisted) state so onboarding can reveal the next
   // question once this one is saved, not merely typed.
@@ -92,20 +78,18 @@ const CampaignStoryCard = ({
     onSavedChange?.(savedValue.trim().length > 0)
   }, [savedValue, onSavedChange])
 
-  const trimmedLength = value.trim().length
-  const hint =
-    trimmedLength === 0
-      ? EMPTY_HINT
-      : trimmedLength < SUGGESTED_CHARS
-        ? STARTED_HINT
-        : ENOUGH_HINT
+  // One place to update the field, used by typing, dictation, and accepting a
+  // rewrite, so the ref + answered-state stay in sync however text arrives.
+  const applyValue = (next: string): void => {
+    valueRef.current = next
+    setValue(next)
+    onAnsweredChange?.(next.trim().length > 0)
+  }
 
   const handleChange = (
     event: React.ChangeEvent<HTMLTextAreaElement>,
   ): void => {
-    valueRef.current = event.target.value
-    setValue(event.target.value)
-    onAnsweredChange?.(event.target.value.trim().length > 0)
+    applyValue(event.target.value)
   }
 
   // Autosave on blur. The loop flushes any edits that arrived while a request
@@ -161,38 +145,19 @@ const CampaignStoryCard = ({
   // rather than waiting for a blur — the user accepted via a button click, so
   // there may be no blur to trigger the autosave.
   const acceptRewrite = (text: string): void => {
-    valueRef.current = text
-    setValue(text)
-    onAnsweredChange?.(text.trim().length > 0)
+    applyValue(text)
     void save()
   }
 
   const rewrite = useStoryRewrite(id, value, acceptRewrite)
 
-  const hintBox = (
-    <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
-      <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-      <div className="flex flex-col gap-0.5">
-        <span className="text-xs font-bold uppercase tracking-wide text-primary">
-          Campaign Manager
-        </span>
-        <span className="text-sm text-foreground">{hint}</span>
-      </div>
-    </div>
-  )
-
-  const saveButton = (
-    <Button
-      variant="outline"
-      icon={saveLabel === 'Saved' && !isSaving ? <CheckIcon /> : undefined}
-      loading={isSaving}
-      loadingText="Saving…"
-      disabled={!isDirty || isSaving}
-      onClick={save}
-    >
-      {saveLabel}
-    </Button>
-  )
+  // Voice capture appends the transcript into the field via applyValue; the
+  // candidate then reviews and saves (a save button appears once dirty).
+  const dictation = useDictationAppend({
+    analyticsLabel: `campaign_story_${id}`,
+    value,
+    onChange: applyValue,
+  })
 
   return (
     <Card className="p-6" data-testid={`campaign-story-card-${id}`}>
@@ -202,18 +167,13 @@ const CampaignStoryCard = ({
       </div>
 
       <div className="flex flex-col gap-4">
-        <div className="relative">
-          <Textarea
-            value={value}
-            onChange={handleChange}
-            onBlur={save}
-            placeholder={placeholder}
-            className="min-h-28 pb-7"
-          />
-          <span className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">
-            {value.length}/{SUGGESTED_CHARS}
-          </span>
-        </div>
+        <Textarea
+          value={value}
+          onChange={handleChange}
+          onBlur={save}
+          placeholder={placeholder}
+          className="min-h-28"
+        />
 
         {saveFailed && (
           <p className="text-sm text-destructive">
@@ -238,22 +198,15 @@ const CampaignStoryCard = ({
 
         {rewrite.rewriteActive && <RewriteSuggestion rewrite={rewrite} />}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          {hintBox}
-
-          <div className="flex flex-col gap-2 sm:shrink-0">
-            {saveButton}
-            {!rewrite.rewriteActive && (
-              <Button
-                icon={<WandSparklesIcon />}
-                onClick={() => rewrite.requestRewrite('initial')}
-                disabled={trimmedLength === 0 || rewrite.limitReached}
-              >
-                Help me rewrite
-              </Button>
-            )}
-          </div>
-        </div>
+        <StoryCardActions
+          isDirty={isDirty}
+          hasSavedContent={savedValue.trim().length > 0}
+          isSaving={isSaving}
+          onSave={save}
+          rewrite={rewrite}
+          improveDisabled={value.trim().length === 0}
+          dictation={dictation}
+        />
 
         <Accordion type="single" collapsible size="sm" className="-mt-2">
           <AccordionItem value="example">

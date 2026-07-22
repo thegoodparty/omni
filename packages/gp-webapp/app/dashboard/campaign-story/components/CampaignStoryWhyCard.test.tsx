@@ -78,7 +78,7 @@ describe('CampaignStoryWhyCard', () => {
     })
 
     render(<CampaignStoryWhyCard initialBio="rough why" />)
-    await user.click(screen.getByRole('button', { name: /Help me rewrite/ }))
+    await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
     await screen.findByText('A sharper why.')
     await user.click(screen.getByRole('button', { name: /Use this/ }))
 
@@ -94,7 +94,7 @@ describe('CampaignStoryWhyCard', () => {
   it('disables the rewrite button until there is text', async () => {
     render(<CampaignStoryWhyCard initialBio="" />)
 
-    const button = screen.getByRole('button', { name: /Help me rewrite/ })
+    const button = screen.getByRole('button', { name: /Improve with AI/ })
     expect(button).toBeDisabled()
 
     fireEvent.change(await screen.findByTestId('rich-editor'), {

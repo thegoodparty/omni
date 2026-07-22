@@ -11,16 +11,15 @@ import {
   AccordionTrigger,
   Button,
   Card,
-  CheckIcon,
-  SparklesIcon,
-  WandSparklesIcon,
 } from '@styleguide'
 import {
   saveAboutFields,
   USER_WEBSITE_QUERY_KEY,
 } from 'app/dashboard/website/util/website.util'
 import { WHY_RUNNING_PROMPT } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
+import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
 import RewriteSuggestion from './RewriteSuggestion'
+import StoryCardActions from './StoryCardActions'
 import { useStoryRewrite } from './useStoryRewrite'
 
 // The "why" is the candidate's website bio (shared with the Pro-upgrade flow),
@@ -35,14 +34,6 @@ const RichEditor = dynamic(() => import('app/shared/utils/RichEditor'), {
     </div>
   ),
 })
-
-const EMPTY_HINT = 'Not answered yet. Even two sentences here unlocks a lot.'
-const STARTED_HINT =
-  'Worth saying more: another 1-2 sentences will sharpen this a lot.'
-const ENOUGH_HINT = "That's great! The more you give us, the better!"
-
-// Soft suggestion shown to the writer — the nudge hints flip on this.
-const SUGGESTED_CHARS = 100
 
 const EXAMPLE =
   'I spent fifteen years running the family hardware store on Main Street, and I watched our downtown empty out while the council handed tax breaks to out-of-town developers. The last straw was when they cut funding for the after-school program my own kids relied on. I decided I was done complaining at the kitchen table and ready to do something about it.'
@@ -72,8 +63,8 @@ const CampaignStoryWhyCard = ({
     plainLength(initialBio),
   )
   // Drives RichEditor's `initialText`. Stable while typing (changing it re-pastes
-  // and would clobber in-progress edits); bumped only on accept so the suggestion
-  // replaces the editor contents.
+  // and would clobber in-progress edits); bumped only on accept/dictation so the
+  // new text replaces the editor contents.
   const [editorSeed, setEditorSeed] = useState(initialBio)
   // Refs mirror the latest and last-persisted HTML so the async save reads them
   // without stale closures.
@@ -95,20 +86,12 @@ const CampaignStoryWhyCard = ({
   }, [])
 
   const isDirty = bio !== savedValue
-  const saveLabel = !isDirty && plainLength(savedValue) > 0 ? 'Saved' : 'Save'
 
   // Report the saved (persisted) state so onboarding can reveal the next
   // question once this one is saved, not merely typed.
   useEffect(() => {
     onSavedChange?.(plainLength(savedValue) > 0)
   }, [savedValue, onSavedChange])
-
-  const hint =
-    bioPlainLength === 0
-      ? EMPTY_HINT
-      : bioPlainLength < SUGGESTED_CHARS
-        ? STARTED_HINT
-        : ENOUGH_HINT
 
   // Persists the bio to the website (shared with Pro-upgrade); saveAboutFields
   // creates the site on first write and serializes overlapping saves. The loop
@@ -162,25 +145,35 @@ const CampaignStoryWhyCard = ({
     onAnsweredChange?.(length > 0)
   }
 
+  // Replaces the editor contents with plain text (from a rewrite or dictation)
+  // by re-seeding it; the editor then re-emits the HTML via handleChange. The
+  // toolbar is hidden, so storing plain text is fine (it round-trips as HTML).
+  const applyText = (text: string): void => {
+    valueRef.current = text
+    setBio(text)
+    setEditorSeed(text)
+    setBioPlainLength(text.trim().length)
+    onAnsweredChange?.(text.trim().length > 0)
+  }
+
   // "Use this" re-seeds the editor with the suggestion and persists now — there
   // may be no blur to trigger the autosave.
   const acceptRewrite = (suggestion: string): void => {
-    valueRef.current = suggestion
-    setBio(suggestion)
-    setEditorSeed(suggestion)
-    // The suggestion is plain text; sync the length-driven UI (counter, hint,
-    // rewrite-disabled gate) now rather than waiting for the re-seeded editor's
-    // next onTextLengthChange.
-    setBioPlainLength(suggestion.trim().length)
-    onAnsweredChange?.(suggestion.trim().length > 0)
+    applyText(suggestion)
     void save()
   }
 
-  const rewrite = useStoryRewrite(
-    'why',
-    bio ? stripHtml(bio).result.trim() : '',
-    acceptRewrite,
-  )
+  const plainBio = bio ? stripHtml(bio).result : ''
+
+  const rewrite = useStoryRewrite('why', plainBio.trim(), acceptRewrite)
+
+  // Voice capture appends the transcript into the editor via applyText; the
+  // candidate reviews and saves (a save button appears once dirty).
+  const dictation = useDictationAppend({
+    analyticsLabel: 'campaign_story_why',
+    value: plainBio,
+    onChange: applyText,
+  })
 
   return (
     <Card className="p-6" data-testid="campaign-story-card-why">
@@ -190,17 +183,12 @@ const CampaignStoryWhyCard = ({
       </div>
 
       <div className="flex flex-col gap-4">
-        <div className="relative">
-          <RichEditor
-            initialText={editorSeed}
-            onChangeCallback={handleChange}
-            onTextLengthChange={handleLength}
-            hideToolbar
-          />
-          <span className="pointer-events-none absolute bottom-2 right-3 text-xs tabular-nums text-muted-foreground">
-            {bioPlainLength}/{SUGGESTED_CHARS}
-          </span>
-        </div>
+        <RichEditor
+          initialText={editorSeed}
+          onChangeCallback={handleChange}
+          onTextLengthChange={handleLength}
+          hideToolbar
+        />
 
         {saveFailed && (
           <p className="text-sm text-destructive">
@@ -225,41 +213,15 @@ const CampaignStoryWhyCard = ({
 
         {rewrite.rewriteActive && <RewriteSuggestion rewrite={rewrite} />}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex flex-1 items-start gap-2 rounded-lg bg-primary/5 p-3">
-            <SparklesIcon className="mt-0.5 size-4 shrink-0 text-primary" />
-            <div className="flex flex-col gap-0.5">
-              <span className="text-xs font-bold uppercase tracking-wide text-primary">
-                Campaign Manager
-              </span>
-              <span className="text-sm text-foreground">{hint}</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2 sm:shrink-0">
-            <Button
-              variant="outline"
-              icon={
-                saveLabel === 'Saved' && !isSaving ? <CheckIcon /> : undefined
-              }
-              loading={isSaving}
-              loadingText="Saving…"
-              disabled={!isDirty || isSaving}
-              onClick={save}
-            >
-              {saveLabel}
-            </Button>
-            {!rewrite.rewriteActive && (
-              <Button
-                icon={<WandSparklesIcon />}
-                onClick={() => rewrite.requestRewrite('initial')}
-                disabled={bioPlainLength === 0 || rewrite.limitReached}
-              >
-                Help me rewrite
-              </Button>
-            )}
-          </div>
-        </div>
+        <StoryCardActions
+          isDirty={isDirty}
+          hasSavedContent={plainLength(savedValue) > 0}
+          isSaving={isSaving}
+          onSave={save}
+          rewrite={rewrite}
+          improveDisabled={bioPlainLength === 0}
+          dictation={dictation}
+        />
 
         <Accordion type="single" collapsible size="sm" className="-mt-2">
           <AccordionItem value="example">
