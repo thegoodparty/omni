@@ -206,6 +206,53 @@ describe('OutreachComposeDeepLink', () => {
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
+  it('re-arms after the strip so a second listId navigation strips again', async () => {
+    mockSearchParams = new URLSearchParams('listId=123')
+    const view = renderDeepLink({
+      isPro: true,
+      tcrCompliance: approvedCompliance,
+    })
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1))
+
+    mockSearchParams = new URLSearchParams()
+    view.rerender(
+      <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
+        <P2pUxEnabledContext.Provider
+          value={{
+            p2pUxEnabled: true,
+            tcrCompliant: false,
+            proUpdatedAtDate: new Date(),
+            resetP2pUxEnabled: () => undefined,
+          }}
+        >
+          <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
+        </P2pUxEnabledContext.Provider>
+      </CampaignContext.Provider>,
+    )
+    expect(mockReplace).toHaveBeenCalledTimes(1)
+
+    mockSearchParams = new URLSearchParams('listId=456')
+    view.rerender(
+      <CampaignContext.Provider value={[{ id: 1, isPro: true } as Campaign]}>
+        <P2pUxEnabledContext.Provider
+          value={{
+            p2pUxEnabled: true,
+            tcrCompliant: false,
+            proUpdatedAtDate: new Date(),
+            resetP2pUxEnabled: () => undefined,
+          }}
+        >
+          <OutreachComposeDeepLink tcrCompliance={approvedCompliance} />
+        </P2pUxEnabledContext.Provider>
+      </CampaignContext.Provider>,
+    )
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(2))
+    expect(mockReplace).toHaveBeenLastCalledWith('/dashboard/outreach', {
+      scroll: false,
+    })
+  })
+
   it('consumes both compose and listId together in a single replace, preselecting the list on the TaskFlow it opens', async () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters&listId=123',
