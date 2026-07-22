@@ -361,7 +361,8 @@ export default function ListDetailSheet({
                 value={statValue(
                   detailQuery.data
                     ? lastOutreach
-                      ? OUTREACH_CHANNEL_NOUNS[lastOutreach.outreachType]
+                      ? (OUTREACH_CHANNEL_NOUNS[lastOutreach.outreachType] ??
+                        lastOutreach.outreachType)
                       : '—'
                     : undefined,
                 )}
