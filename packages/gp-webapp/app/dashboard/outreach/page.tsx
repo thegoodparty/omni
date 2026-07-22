@@ -32,7 +32,7 @@ export const metadata = meta
 export const dynamic = 'force-dynamic'
 
 interface PageParams {
-  searchParams: Promise<{ listId?: string }>
+  searchParams: Promise<{ listId?: string; outreachId?: string }>
 }
 
 export default async function Page({
@@ -45,11 +45,15 @@ export default async function Page({
     redirect(getMarketingUrl('/run-for-office'))
   }
 
-  const { listId } = await searchParams
+  const { listId, outreachId } = await searchParams
   // ENG-10762: carries the saved list's id from a CRM "Send outreach" link.
   // Anything that isn't a positive integer (missing, malformed) is ignored
   // so the page behaves exactly as it did before the listId param existed.
   const preselectedListId = parsePositiveListId(listId)
+  // ENG-10769: carries a campaign's id from the activity feed's "View
+  // outreach" link so the table can scroll to and highlight its row. Same
+  // positive-integer rule (the parser is id-agnostic despite its name).
+  const highlightOutreachId = parsePositiveListId(outreachId)
 
   const [outreaches, tcrComplianceResponse] = await Promise.all([
     fetchOutreaches(),
@@ -73,6 +77,7 @@ export default async function Page({
         mockOutreaches,
         tcrCompliance,
         preselectedListId,
+        highlightOutreachId,
       }}
     />
   )
