@@ -52,7 +52,7 @@ type StatusKey =
 const statusLabels: { [K in StatusKey]: string } = {
   pending: 'Draft',
   approved: 'In review',
-  denied: 'In review',
+  denied: 'Denied',
   paid: 'Scheduled',
   in_progress: 'Scheduled',
   completed: 'Sent',

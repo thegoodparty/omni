@@ -59,7 +59,7 @@ const statuslessRow: TableRow = {
   voterFileFilter: linkedFilter,
 }
 
-const STATUS_LABELS = ['Draft', 'In review', 'Scheduled', 'Sent']
+const STATUS_LABELS = ['Draft', 'In review', 'Denied', 'Scheduled', 'Sent']
 
 const renderTable = (
   rows: TableRow[],
