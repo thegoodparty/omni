@@ -1107,8 +1107,8 @@ export default function ChiefOfStaffChatBody({
         <div
           className={
             suggestionsAsCards
-              ? 'mx-auto flex w-full max-w-3xl flex-col gap-2 px-3 pb-1 pt-2'
-              : 'mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2'
+              ? 'mx-auto flex w-full max-w-[608px] flex-col gap-2 px-3 pb-1 pt-2'
+              : 'mx-auto flex w-full max-w-[608px] flex-wrap gap-2 px-3 pb-1 pt-2'
           }
         >
           {effectiveSuggestions.map((s) =>
@@ -1152,7 +1152,7 @@ export default function ChiefOfStaffChatBody({
 
       <div className="border-t border-border px-3 py-3">
         {quickPrompts && quickPrompts.length > 0 && showStarters && (
-          <div className="mx-auto mb-3 flex w-full max-w-3xl flex-wrap gap-2">
+          <div className="mx-auto mb-3 flex w-full max-w-[608px] flex-wrap gap-2">
             {quickPrompts.map((prompt) => (
               <Badge
                 key={prompt}
