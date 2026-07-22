@@ -421,8 +421,8 @@ describe('CampaignManagerHome meet-card dismissal', () => {
   // "present but behind the open chat" (not dismissed).
   const meetHeading = () =>
     screen.queryByRole('heading', {
-      name: 'Your campaign manager',
-      level: 1,
+      name: 'Meet your virtual Campaign Manager',
+      level: 2,
       hidden: true,
     })
 

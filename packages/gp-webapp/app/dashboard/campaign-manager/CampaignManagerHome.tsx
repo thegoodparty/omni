@@ -205,6 +205,7 @@ export default function CampaignManagerHome({
             dismissMeetCard()
             void openManager()
           }}
+          onSkipMeet={dismissMeetCard}
           onPersonalize={startStory}
         />
       </div>

@@ -133,6 +133,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -164,6 +165,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -195,6 +197,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -214,6 +217,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -240,6 +244,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -260,6 +265,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={onMeet}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -277,6 +283,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard={false}
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -298,6 +305,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -320,6 +328,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -350,6 +359,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -365,6 +375,7 @@ describe('CampaignManagerTasks', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
         onPersonalize={onPersonalize}
       />,
     )
@@ -392,6 +403,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -420,6 +432,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
@@ -448,6 +461,7 @@ describe('text/robocall cards open the outreach flow in place', () => {
       <CampaignManagerTasks
         showMeetCard
         onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
         onPersonalize={vi.fn()}
       />,
     )
