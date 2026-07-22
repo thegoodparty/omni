@@ -57,6 +57,7 @@ describe('ordinance step-entry fixtures', () => {
       'bike-parking-redraft',
       'oil-spill',
       'oil-spill-early',
+      'rent-cap-spokane',
     ] as const) {
       expect(loadOrdinanceFixture(name).name).toBe(name)
     }
