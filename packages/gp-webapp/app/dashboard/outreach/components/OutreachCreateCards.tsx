@@ -177,12 +177,16 @@ const OutreachCreateCards = ({
           campaign={campaign}
           preselectedListId={pendingPreselectedListId}
           onClose={() => {
+            const wasTextFlow = flowModalTask.flowType === OUTREACH_TYPES.text
             setFlowModalTask(null)
-            // Consume-once: whatever id this flow carried (if any) doesn't
-            // ride into the next flow the user opens. Reset the ref too so a
-            // later deep link re-firing the identical id re-syncs.
-            setPendingPreselectedListId(undefined)
-            lastSyncedPropListIdRef.current = undefined
+            // Consume-once, but only the text flow's audience step actually
+            // applies the id — closing a non-text flow must not burn it.
+            // Reset the ref too so a later deep link re-firing the identical
+            // id re-syncs.
+            if (wasTextFlow) {
+              setPendingPreselectedListId(undefined)
+              lastSyncedPropListIdRef.current = undefined
+            }
           }}
         />
       )}
