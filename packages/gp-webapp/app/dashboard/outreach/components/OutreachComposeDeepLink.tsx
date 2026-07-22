@@ -9,6 +9,7 @@ import { useCampaign } from '@shared/hooks/useCampaign'
 import { useTextOutreachGate } from 'app/dashboard/outreach/hooks/useTextOutreachGate'
 import { ProUpgradeModal, VARIANTS } from 'app/dashboard/shared/ProUpgradeModal'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
+import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import type { TcrCompliance } from 'helpers/types'
 
 interface OutreachComposeDeepLinkProps {
@@ -29,6 +30,7 @@ interface OpenFlow {
   type: OutreachType
   script?: string
   due?: string
+  listId?: number
 }
 
 export const OutreachComposeDeepLink = ({
@@ -45,6 +47,11 @@ export const OutreachComposeDeepLink = ({
 
   const composeType = COMPOSE_TYPES[searchParams?.get('compose') ?? '']
   const listIdParam = searchParams?.get('listId')
+  // ENG-10762 (delegate follow-up): when compose and listId arrive together,
+  // this component opens its own TaskFlow directly (never routes through
+  // OutreachCreateCards/OutreachPage), so it must parse and carry the
+  // preselected list itself rather than relying on the server-threaded prop.
+  const preselectedListId = parsePositiveListId(listIdParam)
 
   // ENG-10762: the CRM "Send outreach" link carries ?listId=<id> so the
   // server (page.tsx) can read it and thread preselectedListId down to the
@@ -84,7 +91,12 @@ export const OutreachComposeDeepLink = ({
     })
     if (composeType === OUTREACH_TYPES.text) {
       if (runTextGate()) {
-        setFlow({ type: composeType, script: message, due })
+        setFlow({
+          type: composeType,
+          script: message,
+          due,
+          listId: preselectedListId,
+        })
       }
       return
     }
@@ -97,8 +109,15 @@ export const OutreachComposeDeepLink = ({
       setShowProUpgradeModal(true)
       return
     }
-    setFlow({ type: composeType, due })
-  }, [composeType, campaign, searchParams, router, runTextGate])
+    setFlow({ type: composeType, due, listId: preselectedListId })
+  }, [
+    composeType,
+    campaign,
+    searchParams,
+    router,
+    runTextGate,
+    preselectedListId,
+  ])
 
   return (
     <>
@@ -109,6 +128,7 @@ export const OutreachComposeDeepLink = ({
           campaign={campaign}
           initialScriptText={flow.script || undefined}
           campaignPlanDueDate={flow.due}
+          preselectedListId={flow.listId}
           onClose={() => setFlow(null)}
         />
       )}

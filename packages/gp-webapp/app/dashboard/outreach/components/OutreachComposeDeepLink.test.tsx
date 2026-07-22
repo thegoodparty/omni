@@ -29,11 +29,13 @@ vi.mock('app/dashboard/components/tasks/flows/TaskFlow', () => ({
     forceOpen,
     initialScriptText,
     campaignPlanDueDate,
+    preselectedListId,
   }: {
     type: string
     forceOpen?: boolean
     initialScriptText?: string
     campaignPlanDueDate?: string
+    preselectedListId?: number
   }) => (
     <div
       data-testid="task-flow"
@@ -41,6 +43,7 @@ vi.mock('app/dashboard/components/tasks/flows/TaskFlow', () => ({
       data-force-open={String(forceOpen)}
       data-initial-script={initialScriptText ?? ''}
       data-due-date={campaignPlanDueDate ?? ''}
+      data-preselected-list-id={preselectedListId ?? ''}
     />
   ),
 }))
@@ -203,7 +206,7 @@ describe('OutreachComposeDeepLink', () => {
     expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
   })
 
-  it('consumes both compose and listId together in a single replace', async () => {
+  it('consumes both compose and listId together in a single replace, preselecting the list on the TaskFlow it opens', async () => {
     mockSearchParams = new URLSearchParams(
       'compose=text&message=Hello%20voters&listId=123',
     )
@@ -211,12 +214,26 @@ describe('OutreachComposeDeepLink', () => {
 
     const taskFlow = await screen.findByTestId('task-flow')
     expect(taskFlow).toHaveAttribute('data-type', 'text')
+    // This component opens its own TaskFlow directly (it never routes
+    // through OutreachPage/OutreachCreateCards), so it must parse and carry
+    // listId itself rather than relying on the server-threaded prop.
+    expect(taskFlow).toHaveAttribute('data-preselected-list-id', '123')
     expect(mockReplace).toHaveBeenCalledWith('/dashboard/outreach', {
       scroll: false,
     })
     // Only the compose effect's replace fires — the listId-only effect
     // defers to it rather than firing a second, redundant replace.
     expect(mockReplace).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores a malformed listId when combined with compose', async () => {
+    mockSearchParams = new URLSearchParams(
+      'compose=text&message=Hello%20voters&listId=not-a-number',
+    )
+    renderDeepLink({ isPro: true, tcrCompliance: approvedCompliance })
+
+    const taskFlow = await screen.findByTestId('task-flow')
+    expect(taskFlow).toHaveAttribute('data-preselected-list-id', '')
   })
 
   it('does nothing without a compose param', async () => {

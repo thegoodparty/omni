@@ -4,6 +4,7 @@ import candidateAccess from '../shared/candidateAccess'
 import { fetchUserCampaign } from 'app/onboarding/shared/getCampaign'
 import { NUM_OF_MOCK_OUTREACHES } from 'app/dashboard/outreach/constants'
 import { createOutreach } from 'app/dashboard/outreach/util/createOutreach.util'
+import { parsePositiveListId } from 'app/dashboard/outreach/util/parsePositiveListId.util'
 import { serverFetch } from 'gpApi/serverFetch'
 import { apiRoutes } from 'gpApi/routes'
 import { redirect } from 'next/navigation'
@@ -48,11 +49,7 @@ export default async function Page({
   // ENG-10762: carries the saved list's id from a CRM "Send outreach" link.
   // Anything that isn't a positive integer (missing, malformed) is ignored
   // so the page behaves exactly as it did before the listId param existed.
-  const parsedListId = listId !== undefined ? Number(listId) : NaN
-  const preselectedListId =
-    Number.isInteger(parsedListId) && parsedListId > 0
-      ? parsedListId
-      : undefined
+  const preselectedListId = parsePositiveListId(listId)
 
   const [outreaches, tcrComplianceResponse] = await Promise.all([
     fetchOutreaches(),
