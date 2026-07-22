@@ -198,6 +198,9 @@ export default function AudienceStep({
       return
     }
 
+    // Invalidate any in-flight count fetch so its .finally() can't flip
+    // loading back off (re-enabling Next) mid-submission.
+    countRequestIdRef.current += 1
     setLoading(true)
 
     // A selected saved list is reused as-is: its id links the outreach and its
