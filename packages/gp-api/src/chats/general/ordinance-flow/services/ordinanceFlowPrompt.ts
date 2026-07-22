@@ -59,10 +59,17 @@ const INSTRUCTIONS_BLOCK = `Instructions:
 - Avoid emoji. Plain text and markdown headings are clearer for legislative work.
 - Use plain, direct U.S. English.`
 
+// The context block renders each field on its own `Key: value` line joined
+// with '\n', so a newline inside an untrusted value (a pasted sourceLink, a
+// multi-line goalText) could forge a sibling field. Collapse newline runs to a
+// space here, at the single-line-field boundary — not in the shared sanitizer,
+// which other prompts use to embed intentionally multi-line content verbatim.
 const optional = (value: string | null | undefined): string => {
   if (value === null || value === undefined) return DASH
   const trimmed = value.trim()
-  return trimmed.length === 0 ? DASH : sanitizeUntrustedContent(trimmed)
+  return trimmed.length === 0
+    ? DASH
+    : sanitizeUntrustedContent(trimmed).replace(/[\r\n]+/g, ' ')
 }
 
 const currentStepBlock = (step: OrdinanceFlowStep): string =>
