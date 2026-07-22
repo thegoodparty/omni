@@ -279,7 +279,15 @@ export default function CreateListWizard({
 
   const handleSubmit = () => {
     if (!canSubmit) return
-    createMutation.mutate({ name: trimmedName, ...backendPayload })
+    // ENG-10769: persist the live count — the server defaults voterCount to
+    // 0, and the outreach page's Voters column reads the stored value, so a
+    // list saved without it shows every campaign as reaching 0 voters. A
+    // still-loading/error count is omitted rather than persisted wrong.
+    createMutation.mutate({
+      name: trimmedName,
+      ...backendPayload,
+      ...(typeof count === 'number' ? { voterCount: count } : {}),
+    })
   }
 
   const peopleNoun = isWinContext ? 'voters' : 'constituents'

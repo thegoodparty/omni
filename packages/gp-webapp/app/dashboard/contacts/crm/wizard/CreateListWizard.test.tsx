@@ -276,6 +276,39 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
+  it('persists the live count as voterCount on create (ENG-10769)', async () => {
+    const user = userEvent.setup()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 102, name: 'Counted list' } }
+    })
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    // Wait for the debounced live count to land in the build button so the
+    // submit below can't race the count fetch and silently omit voterCount.
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Counted list')
+    await user.click(screen.getByRole('button', { name: 'Save list' }))
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({
+      name: 'Counted list',
+      voterCount: 250,
+    })
+  })
+
   it('hides the Political Party section for an elected official', async () => {
     setContext({ isElectedOfficial: true })
     const user = userEvent.setup()

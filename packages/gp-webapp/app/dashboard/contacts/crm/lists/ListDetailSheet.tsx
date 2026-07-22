@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
+  Badge,
   Button,
   CalendarIcon,
   ClockIcon,
@@ -37,7 +38,7 @@ import { findCustomSegment } from '../shared/segments.util'
 import { useContactsDownload } from '../shared/useContactsDownload'
 import { useContactsTable } from '../ContactsTableProvider'
 import type { SegmentResponse } from '../shared/contacts-types'
-import { OUTREACH_CHANNEL_LABELS } from '../shared/outreachChannelLabels'
+import { OUTREACH_CHANNEL_NOUNS } from '../shared/outreachChannelLabels'
 import CrmSheet from '../shared/CrmSheet'
 import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
@@ -360,7 +361,7 @@ export default function ListDetailSheet({
                 value={statValue(
                   detailQuery.data
                     ? lastOutreach
-                      ? OUTREACH_CHANNEL_LABELS[lastOutreach.outreachType]
+                      ? OUTREACH_CHANNEL_NOUNS[lastOutreach.outreachType]
                       : '—'
                     : undefined,
                 )}
@@ -403,11 +404,18 @@ export default function ListDetailSheet({
                         {entry.date ? dateUsHelper(entry.date) : '—'}
                       </TableCell>
                       <TableCell className="font-medium">
+                        {/* Robocall/phone-banking campaigns are created with
+                            name null — fall back to a channel + date label,
+                            never the activity-feed verb ("Called"). */}
                         {entry.name ||
-                          OUTREACH_CHANNEL_LABELS[entry.outreachType]}
+                          (entry.date
+                            ? `${OUTREACH_CHANNEL_NOUNS[entry.outreachType]} — ${dateUsHelper(entry.date)}`
+                            : '—')}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {OUTREACH_CHANNEL_LABELS[entry.outreachType]}
+                        <Badge variant="soft" shape="pill">
+                          {OUTREACH_CHANNEL_NOUNS[entry.outreachType]}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   ))}

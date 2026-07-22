@@ -13,12 +13,16 @@ interface SimpleTableProps<T> {
   onRowClick?:
     | ((row: T, e: React.MouseEvent<HTMLTableRowElement>) => void)
     | null
+  rowId?: (row: T) => string | undefined
+  rowClassName?: (row: T) => string | undefined
 }
 
 const SimpleTable = <T extends object>({
   columns = [],
   data = [],
   onRowClick = null,
+  rowId,
+  rowClassName,
 }: SimpleTableProps<T>): React.JSX.Element => {
   const enableRowClick = typeof onRowClick === 'function'
   return (
@@ -60,6 +64,7 @@ const SimpleTable = <T extends object>({
         {data.map((row, rowIndex) => (
           <tr
             key={rowIndex}
+            id={rowId?.(row)}
             className={`
               h-14
               ${
@@ -67,8 +72,9 @@ const SimpleTable = <T extends object>({
                   ? 'border-none'
                   : 'border-b border-gray-200'
               }
-              
+
               ${enableRowClick ? 'cursor-pointer hover:bg-gray-50' : ''}
+              ${rowClassName?.(row) || ''}
             `}
             {...{
               ...(enableRowClick
