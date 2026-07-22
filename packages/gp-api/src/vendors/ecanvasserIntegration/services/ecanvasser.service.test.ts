@@ -10,11 +10,14 @@ import {
 } from './ecanvasser.service'
 
 describe('EcanvasserService HTTP timeout + error handling', () => {
-  let httpService: { get: ReturnType<typeof vi.fn> }
+  let httpService: {
+    get: ReturnType<typeof vi.fn>
+    post: ReturnType<typeof vi.fn>
+  }
   let service: EcanvasserService
 
   beforeEach(() => {
-    httpService = { get: vi.fn() }
+    httpService = { get: vi.fn(), post: vi.fn() }
     const logger = {
       setContext: vi.fn(),
       error: vi.fn(),
@@ -67,5 +70,32 @@ describe('EcanvasserService HTTP timeout + error handling', () => {
     await expect(service.findTeams('api-key')).rejects.toBeInstanceOf(
       BadGatewayException,
     )
+  })
+
+  // createSurvey is the one method that wraps fetchFromApi in its own catch, so
+  // it needs dedicated coverage to prove it re-throws the distinct timeout error
+  // (and still wraps everything else as a bad gateway).
+  describe('createSurvey', () => {
+    it('re-throws GatewayTimeoutException when the POST times out', async () => {
+      httpService.post.mockReturnValue(
+        throwError(
+          () => new AxiosError('timeout of 30000ms exceeded', 'ECONNABORTED'),
+        ),
+      )
+
+      await expect(
+        service.createSurvey('api-key', { name: 'test' } as never),
+      ).rejects.toBeInstanceOf(GatewayTimeoutException)
+    })
+
+    it('throws BadGatewayException for non-timeout POST failures', async () => {
+      httpService.post.mockReturnValue(
+        throwError(() => new AxiosError('boom', 'ERR_BAD_RESPONSE')),
+      )
+
+      await expect(
+        service.createSurvey('api-key', { name: 'test' } as never),
+      ).rejects.toBeInstanceOf(BadGatewayException)
+    })
   })
 })
