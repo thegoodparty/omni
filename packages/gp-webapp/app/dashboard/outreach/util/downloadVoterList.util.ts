@@ -7,6 +7,13 @@ import {
   snakeToCamelAudienceKey,
 } from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 import { dateUsHelper } from 'helpers/dateHelper'
+import { deleteCookie } from 'helpers/cookieHelper'
+import {
+  DOWNLOAD_COOKIE_NAME,
+  DOWNLOAD_COOKIE_POLL_MS,
+  DOWNLOAD_FALLBACK_TIMEOUT_MS,
+  readDownloadCookie,
+} from 'app/dashboard/contacts/crm/shared/useContactsDownload'
 
 interface DownloadVoterListParams {
   voterFileFilter?: VoterFileFilters | AudienceState
@@ -28,6 +35,41 @@ const isAudienceState = (
 ): filter is AudienceState =>
   AUDIENCE_FILTER_SNAKE_KEYS.some((key) => key in filter)
 
+// A top-level download navigation exposes no programmatic completion, so
+// this mirrors useContactsDownload's cookie handshake instead of resolving
+// synchronously: poll the gp_download cookie gp-api sets when it starts
+// streaming, and give up after the same 15s fallback if the handshake never
+// arrives. Callers must await this before clearing their own loading state —
+// resolving immediately after the click (the ENG-10765 delegate finding)
+// left the Download button's disabled guard cleared in the same JS task, so
+// a second click could fire a duplicate download on a slow server.
+//
+// `cookieBeforeClick` must be snapshotted by the caller BEFORE triggering the
+// download navigation (same ordering useContactsDownload uses) — snapshotting
+// it in here instead would risk capturing gp-api's own fresh cookie if the
+// response is fast enough to land before this function runs, permanently
+// hiding the real "started" transition.
+const awaitDownloadStarted = (
+  cookieBeforeClick: string | null,
+): Promise<void> =>
+  new Promise((resolve) => {
+    const finish = () => {
+      clearInterval(pollInterval)
+      clearTimeout(fallbackTimeout)
+      deleteCookie(DOWNLOAD_COOKIE_NAME)
+      resolve()
+    }
+
+    const pollInterval = setInterval(() => {
+      const current = readDownloadCookie()
+      if (current && current !== cookieBeforeClick) {
+        finish()
+      }
+    }, DOWNLOAD_COOKIE_POLL_MS)
+
+    const fallbackTimeout = setTimeout(finish, DOWNLOAD_FALLBACK_TIMEOUT_MS)
+  })
+
 export const downloadVoterList = async (
   {
     voterFileFilter = {},
@@ -46,6 +88,8 @@ export const downloadVoterList = async (
     // added automatically by the Next.js request-rewrite middleware. Known
     // quirk (not fixed here): this does not re-apply a stored `search` term,
     // so a saved list with one can download more rows than it displays.
+    const cookieBeforeClick = readDownloadCookie()
+
     const link = document.createElement('a')
     link.href = `/api/v1/contacts/download?segment=${encodeURIComponent(String(savedListId))}`
     link.setAttribute(
@@ -56,6 +100,11 @@ export const downloadVoterList = async (
     document.body.appendChild(link)
     link.click()
     link.remove()
+
+    // Keeps `loading` (and DownloadStep's disabled guard) true until gp-api
+    // confirms it started streaming or the fallback gives up — see
+    // awaitDownloadStarted for why.
+    await awaitDownloadStarted(cookieBeforeClick)
 
     setLoading(false)
     return
