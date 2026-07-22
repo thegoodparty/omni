@@ -1067,10 +1067,6 @@ export default function OnboardingFlow({
             <section
               className={`space-y-8${
                 activeStep.id === 'welcome' ? ' text-center' : ''
-              }${
-                activeStep.id === 'campaign-story'
-                  ? ' mx-auto w-full max-w-[605px]'
-                  : ''
               }`}
             >
               {isP2vBlocking ? null : (
@@ -1149,25 +1145,47 @@ export default function OnboardingFlow({
           >
             Back
           </Button>
-          <Button
-            type="button"
-            variant="default"
-            size="large"
-            onClick={goNext}
-            disabled={!canContinue}
-          >
-            {nextStep
-              ? activeStep.id === 'campaign-story'
-                ? storyComplete
-                  ? 'Continue'
-                  : 'Skip for now'
-                : 'Continue'
-              : activeStep.id === 'pledge'
-                ? campaignStoryEnabled
-                  ? 'Agree & Continue'
-                  : 'Agree & Create My Plan'
-                : 'Complete'}
-          </Button>
+          {activeStep.id === 'campaign-story' && nextStep ? (
+            // Story is skippable, so Skip always advances; Continue is the
+            // "I finished my story" path and unlocks once all three answers
+            // are saved. Both call goNext, which fires Completed vs Skipped
+            // analytics (and generation) from storyComplete.
+            <div className="flex items-center gap-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="large"
+                onClick={goNext}
+              >
+                Skip
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="large"
+                onClick={goNext}
+                disabled={!storyComplete}
+              >
+                Continue
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="default"
+              size="large"
+              onClick={goNext}
+              disabled={!canContinue}
+            >
+              {nextStep
+                ? 'Continue'
+                : activeStep.id === 'pledge'
+                  ? campaignStoryEnabled
+                    ? 'Meet your campaign manager'
+                    : 'Agree & Create My Plan'
+                  : 'Complete'}
+            </Button>
+          )}
         </div>
       </div>
     </div>

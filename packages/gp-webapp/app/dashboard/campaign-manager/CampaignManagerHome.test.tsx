@@ -203,6 +203,22 @@ describe('CampaignManagerHome', () => {
     ).toBeInTheDocument()
   })
 
+  it('renders the quick-prompt pills and personalized composer placeholder', async () => {
+    await openOnSeededGreeting()
+
+    expect(
+      screen.getByRole('button', { name: 'What should I focus on to win?' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', {
+        name: 'Which voters should I reach this week?',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('Hi Renee, how can I help?'),
+    ).toBeInTheDocument()
+  })
+
   it('hidden-sends the story sentinel when "Personalize your campaign" is clicked', async () => {
     await openOnSeededGreeting()
     const user = userEvent.setup()
@@ -421,8 +437,8 @@ describe('CampaignManagerHome meet-card dismissal', () => {
   // "present but behind the open chat" (not dismissed).
   const meetHeading = () =>
     screen.queryByRole('heading', {
-      name: 'Your campaign manager',
-      level: 1,
+      name: 'Meet your virtual Campaign Manager',
+      level: 2,
       hidden: true,
     })
 
