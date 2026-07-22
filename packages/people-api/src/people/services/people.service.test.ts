@@ -206,6 +206,42 @@ describe('PeopleService', () => {
       expect(dataSql).not.toContain('SELECT v.*')
     })
 
+    it('caps distinct households (not raw voters) in the grouped fenced count on 57014', async () => {
+      mockClient.$queryRaw
+        .mockRejectedValueOnce(statementTimeoutError())
+        .mockResolvedValueOnce([{ voter_count: 4000n }])
+        .mockResolvedValueOnce([
+          makeDbPerson({ id: 'hh-person', householdId: 'hh-1' }),
+        ])
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: {
+          filters: ['hasCellPhone'],
+          filterOperators: {
+            hasCellPhone: { operator: 'is', value: 'not_null' },
+          },
+        },
+        groupByHousehold: true,
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      // The fenced count (2nd $queryRaw, after the cancelled primary) must cap
+      // DISTINCT households, not raw voters: COUNT(DISTINCT hh) over a
+      // voter-capped set floors well below FENCE_LIMIT and under-reports totalPages.
+      const fenced = mockClient.$queryRaw.mock.calls[1]?.[0] as {
+        sql?: string
+        values?: unknown[]
+      }
+      const fencedSql = fenced?.sql ?? ''
+      expect(fencedSql).toContain('SELECT DISTINCT')
+      expect(fencedSql).not.toContain('SELECT v.*')
+      expect(fencedSql).toMatch(/LIMIT \?\) distinct_hh/)
+      expect(fenced?.values?.at(-1)).toBe(10000)
+      expect(result.pagination.totalResults).toBe(4000)
+    })
+
     it('reports the requested out-of-bounds page (unclamped) so metadata matches the fetched rows', async () => {
       mockClient.$queryRaw.mockResolvedValueOnce([makeDbPerson()])
       mockStatsService.getTotalCounts.mockResolvedValue({

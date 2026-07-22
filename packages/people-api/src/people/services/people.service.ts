@@ -292,11 +292,14 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
     // Any broad/low-selectivity filter (not just a name-search LIKE pattern)
     // can trip the same pathological DistrictVoter -> Voter nested-loop plan,
     // so every count runs through the timeout guard, not just name-search.
-    // The fenced count re-aliases the capped row set as v so countExpr
-    // (including the household key) applies unchanged: exact when the query
-    // completes under the timeout, floored at FENCE_LIMIT when it would be
-    // slow.
-    const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
+    // Exact when the query completes under the timeout; otherwise a floor in
+    // the count's own unit: FENCE_LIMIT voters for the plain COUNT(*), or
+    // FENCE_LIMIT distinct households for the grouped path. Capping raw voters
+    // then COUNT(DISTINCT household) would floor well below FENCE_LIMIT.
+    const fencedCountSql = groupByHousehold
+      ? Prisma.sql`SELECT COUNT(*)::bigint AS voter_count
+      FROM (SELECT DISTINCT ${buildHouseholdKeySql('v')} ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) distinct_hh`
+      : Prisma.sql`SELECT ${countExpr} AS voter_count
       FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) v`
     const rows = await this.queryWithTimeoutFence<{ voter_count: bigint }>(
       countSql,
