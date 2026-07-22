@@ -56,6 +56,11 @@ interface TaskFlowState extends FlowState {
   voterCount: number
   phoneListToken: string | null
   leadsLoaded: number | null
+  // ENG-10765: distinguishes a saved-list selection from a throwaway
+  // checkbox-built filter (both carry an `id` on voterFileFilter) so
+  // DownloadStep knows to hit the segment export instead of the checkbox
+  // voter-file download.
+  savedListId: number | null
 }
 
 const DEFAULT_STATE: TaskFlowState = {
@@ -71,6 +76,7 @@ const DEFAULT_STATE: TaskFlowState = {
   phoneListToken: '',
   phoneListId: null,
   leadsLoaded: null,
+  savedListId: null,
 }
 
 type TaskFlowProps = {
@@ -528,6 +534,7 @@ const TaskFlow = ({
               type,
               scriptText: state.scriptText,
               audience: state.audience,
+              savedListId: state.savedListId ?? undefined,
               ...callbackProps,
               onCreateOutreach: async () => {
                 await onCreateOutreach()

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const voterFileDownloadMock = vi.fn()
 vi.mock('helpers/voterFileDownload', () => ({
@@ -87,5 +87,65 @@ describe('downloadVoterList', () => {
     expect(errorSnackbar).toHaveBeenCalledWith('Error downloading voter file')
     expect(setLoading).toHaveBeenNthCalledWith(1, true)
     expect(setLoading).toHaveBeenLastCalledWith(false)
+  })
+
+  // ENG-10765: phone banking's saved-list branch downloads via the segment
+  // export (GET /v1/contacts/download?segment=<id>) instead of the checkbox
+  // voter-file endpoint, so the CSV reflects the list's current membership.
+  describe('saved-list branch (segment export)', () => {
+    let clickSpy: ReturnType<typeof vi.spyOn>
+    let capturedHref: string
+    let capturedDownloadAttr: string | null
+
+    beforeEach(() => {
+      capturedHref = ''
+      capturedDownloadAttr = null
+      clickSpy = vi
+        .spyOn(HTMLAnchorElement.prototype, 'click')
+        .mockImplementation(function (this: HTMLAnchorElement) {
+          capturedHref = this.href
+          capturedDownloadAttr = this.getAttribute('download')
+        })
+    })
+
+    afterEach(() => {
+      clickSpy.mockRestore()
+    })
+
+    it('hits the segment download with the saved list id and skips the checkbox path entirely', async () => {
+      await downloadVoterList({
+        savedListId: 42,
+        outreachType: 'phoneBanking',
+        voterFileFilter: { audience_superVoters: true },
+      })
+
+      expect(capturedHref).toContain('/api/v1/contacts/download?segment=42')
+      expect(capturedDownloadAttr).toMatch(/^contacts_.*\.csv$/)
+      expect(voterFileDownloadMock).not.toHaveBeenCalled()
+    })
+
+    it('toggles loading around the segment download the same as the checkbox path', async () => {
+      const setLoading = vi.fn()
+
+      await downloadVoterList(
+        { savedListId: 42, outreachType: 'phoneBanking' },
+        setLoading,
+      )
+
+      expect(setLoading).toHaveBeenNthCalledWith(1, true)
+      expect(setLoading).toHaveBeenLastCalledWith(false)
+    })
+
+    it('takes the checkbox path when savedListId is not provided', async () => {
+      await downloadVoterList({
+        outreachType: 'phoneBanking',
+        voterFileFilter: { audience_superVoters: true },
+      })
+
+      expect(voterFileDownloadMock).toHaveBeenCalledWith('phoneBanking', {
+        filters: ['audience_superVoters'],
+      })
+      expect(clickSpy).not.toHaveBeenCalled()
+    })
   })
 })
