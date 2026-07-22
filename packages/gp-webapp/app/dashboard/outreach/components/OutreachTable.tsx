@@ -48,6 +48,7 @@ type StatusKey =
   | 'paid'
   | 'in_progress'
   | 'completed'
+  | 'pending_payment'
 
 const statusLabels: { [K in StatusKey]: string } = {
   pending: 'Draft',
@@ -56,6 +57,7 @@ const statusLabels: { [K in StatusKey]: string } = {
   paid: 'Scheduled',
   in_progress: 'Scheduled',
   completed: 'Sent',
+  pending_payment: 'Pending payment',
 }
 
 const isStatusKey = (key: string | null | undefined): key is StatusKey => {
@@ -94,6 +96,7 @@ const nonP2pStatusLabels: { [K in StatusKey]: string } = {
   paid: 'Scheduled',
   in_progress: 'Scheduled',
   completed: 'Sent',
+  pending_payment: 'Pending payment',
 }
 
 const getStatusLabel = (row: OutreachRow): string | null => {

@@ -59,7 +59,14 @@ const statuslessRow: TableRow = {
   voterFileFilter: linkedFilter,
 }
 
-const STATUS_LABELS = ['Draft', 'In review', 'Denied', 'Scheduled', 'Sent']
+const STATUS_LABELS = [
+  'Draft',
+  'In review',
+  'Denied',
+  'Scheduled',
+  'Sent',
+  'Pending payment',
+]
 
 const renderTable = (
   rows: TableRow[],
@@ -104,6 +111,14 @@ describe('OutreachTable — status column (ENG-10769)', () => {
     STATUS_LABELS.forEach((label) => {
       expect(screen.queryByText(label)).not.toBeInTheDocument()
     })
+  })
+
+  it('renders "Denied" for a non-P2P row with status denied', () => {
+    renderTable([{ ...robocallRow, status: 'denied' }])
+
+    expect(screen.getByText('Denied')).toBeInTheDocument()
+    expect(screen.queryByText('In review')).not.toBeInTheDocument()
+    expect(screen.queryByText('n/a')).not.toBeInTheDocument()
   })
 
   it('renders n/a for a phone-list row whose p2p job is missing', () => {
