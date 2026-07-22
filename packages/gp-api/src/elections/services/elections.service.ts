@@ -252,8 +252,7 @@ export class ElectionsService {
     name?: string
     officeType?: string[]
     displayOfficeLevels?: string[]
-    electionDateFrom?: string
-    electionDateTo?: string
+    timeframe?: 'future' | 'past'
   }): Promise<RaceListItem[]> {
     const result = await this.electionApiGet<RaceListItem[], typeof query>(
       'positions/search',
@@ -473,14 +472,12 @@ export class ElectionsService {
 
   /**
    * Resolve a filing fee for a race identified by its BallotReady race hash
-   * (`Race.br_hash_id` in election-api). This bypasses the Position-based
-   * lookup (`getPositionMatchedRaceTargetDetails`) which is currently broken
-   * because `Position.placeId` isn't projected by the election-api dbt mart.
-   *
-   * The campaign stores this hash on `details.raceId` (set by the office
-   * picker after the office-picker fix). Returns `null` on any error —
-   * callers must fall back to the Position-based path or accept no filing
-   * fee. We deliberately don't throw so this stays an opt-in enrichment.
+   * (`Race.br_hash_id` in election-api). A direct race-hash lookup, used when
+   * the caller holds the hash (the campaign stores it on `details.raceId`, set
+   * by the office picker) rather than resolving via the position. Returns
+   * `null` on any error — callers must fall back to the Position-based path or
+   * accept no filing fee. We deliberately don't throw so this stays an opt-in
+   * enrichment.
    */
   async fetchFilingFeeByRaceHash(
     brHashId: string,

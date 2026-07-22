@@ -8,15 +8,16 @@ import { useMemo, useState, useEffect } from 'react'
 import { cn } from '@styleguide/lib/utils'
 import { clientFetch } from 'gpApi/clientFetch'
 import { apiRoutes } from 'gpApi/routes'
+import { dateUsHelper } from 'helpers/dateHelper'
 import { reportErrorToSentry } from '@shared/sentry'
 import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices/types'
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
 // An elected official already holds the office — this is a *position* picker,
-// not a race picker. The underlying election data only carries each position's
-// *upcoming* election, which we deliberately never surface (an EO isn't running
-// in it). So rows show the office identity (name + level) only, no election or
-// term-ending date.
+// not a race picker. We fetch the position's *past* elections and surface the
+// most recent one as a "last election" date. That date is what disambiguates
+// multi-seat "cohort" positions that share an identical name (e.g. two "Ward 1"
+// seats on different election schedules).
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
 interface PositionRow {
@@ -25,6 +26,7 @@ interface PositionRow {
   level?: string
   city?: string
   state?: string
+  electionDate?: string
 }
 
 const FUSE_OPTIONS: IFuseOptions<PositionRow> = {
@@ -53,7 +55,7 @@ const OTHER_PILL = 'Other'
 const fetchPositions = async (zip: string): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip },
+    { zipcode: zip, timeframe: 'past' },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -65,22 +67,34 @@ const fetchPositions = async (zip: string): Promise<Race[]> => {
 }
 
 // Collapse the race rows (one per position+election) into one row per position.
-// Default to showing every position — a position is never dropped, and the
-// per-row upcoming election date is intentionally discarded.
+// A position is never dropped. Each row carries the position's most recent
+// general/primary election (runoffs excluded) as its "last election" date —
+// the signal that tells apart cohort twins sharing an identical name.
 const dedupeToPositions = (races: Race[]): PositionRow[] => {
   const byId = new Map<string, PositionRow>()
 
   for (const race of races) {
     const positionId = race.brPositionId ?? race.position?.id
-    if (!positionId || byId.has(positionId)) continue
+    if (!positionId) continue
 
-    byId.set(positionId, {
-      positionId,
-      positionName: race.position?.name ?? 'Office',
-      level: race.position?.level,
-      city: race.city ?? undefined,
-      state: race.position?.state ?? race.election?.state,
-    })
+    let row = byId.get(positionId)
+    if (!row) {
+      row = {
+        positionId,
+        positionName: race.position?.name ?? 'Office',
+        level: race.position?.level,
+        city: race.city ?? undefined,
+        state: race.position?.state ?? race.election?.state,
+      }
+      byId.set(positionId, row)
+    }
+
+    if (!race.isRunoff) {
+      const day = race.election?.electionDay
+      if (day && (!row.electionDate || day > row.electionDate)) {
+        row.electionDate = day
+      }
+    }
   }
 
   return [...byId.values()].sort((a, b) =>
@@ -333,6 +347,11 @@ export default function ServeOfficePicker({
                       {row.level ? (
                         <span className="block break-words text-xs text-muted-foreground">
                           {row.level}
+                        </span>
+                      ) : null}
+                      {row.electionDate ? (
+                        <span className="block break-words text-xs text-muted-foreground">
+                          Last election: {dateUsHelper(row.electionDate)}
                         </span>
                       ) : null}
                     </span>

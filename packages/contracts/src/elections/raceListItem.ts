@@ -12,6 +12,8 @@ export const RaceListItemSchema = z.object({
   election: z.object({
     electionDay: z.string(),
   }),
+  isPrimary: z.boolean().nullable(),
+  isRunoff: z.boolean().nullable(),
   city: z.string().nullable().optional(),
   district: z.string().nullable().optional(),
 })

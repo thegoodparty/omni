@@ -7,10 +7,12 @@ describe('PlacesService', () => {
   let service: PlacesService
   let findUnique: ReturnType<typeof vi.fn>
   let findMany: ReturnType<typeof vi.fn>
+  let raceFindFirst: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     findUnique = vi.fn()
     findMany = vi.fn()
+    raceFindFirst = vi.fn()
     service = new PlacesService()
     Object.defineProperty(service, '_prisma', {
       value: {
@@ -20,25 +22,29 @@ describe('PlacesService', () => {
         place: {
           findMany,
         },
+        race: {
+          findFirst: raceFindFirst,
+        },
       },
     })
   })
 
-  it('returns place when position has an associated place', async () => {
+  it("returns the place of one of the position's races", async () => {
     const place = {
       id: 'place-1',
       name: 'Cornelius',
       slug: 'or/washington/cornelius',
       state: 'OR',
     }
-    findUnique.mockResolvedValue({ place })
-
     const positionId = 'a0000000-0000-0000-0000-000000000001'
+    findUnique.mockResolvedValue({ id: positionId })
+    raceFindFirst.mockResolvedValue({ Place: place })
+
     const result = await service.getPlaceByPositionId(positionId)
 
-    expect(findUnique).toHaveBeenCalledWith({
-      where: { id: positionId },
-      select: { place: true },
+    expect(raceFindFirst).toHaveBeenCalledWith({
+      where: { positionId },
+      select: { Place: true },
     })
     expect(result).toEqual(place)
   })
@@ -55,8 +61,9 @@ describe('PlacesService', () => {
     )
   })
 
-  it('throws not found when position has no associated place', async () => {
-    findUnique.mockResolvedValue({ place: null })
+  it('throws not found when the position has no race with a place', async () => {
+    findUnique.mockResolvedValue({ id: '00000000-0000-0000-0000-000000000001' })
+    raceFindFirst.mockResolvedValue(null)
 
     await expect(
       service.getPlaceByPositionId('00000000-0000-0000-0000-000000000001'),

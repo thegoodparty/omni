@@ -126,19 +126,25 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
   }
 
   async getPlaceByPositionId(positionId: string) {
-    const result = await this.client.position.findUnique({
+    const position = await this.client.position.findUnique({
       where: { id: positionId },
-      select: { place: true },
+      select: { id: true },
     })
-    if (!result) {
+    if (!position) {
       throw new NotFoundException(`Position not found for id=${positionId}`)
     }
-    if (!result.place) {
+    // Position carries no place FK; resolve through the position's races, whose
+    // place_id is always populated (the race mart inner-joins Place).
+    const race = await this.client.race.findFirst({
+      where: { positionId },
+      select: { Place: true },
+    })
+    if (!race?.Place) {
       throw new NotFoundException(
         `No place associated with position id=${positionId}`,
       )
     }
-    return result.place
+    return race.Place
   }
 
   async getPlacesWithMostElections(minRaces: number, count: number) {
