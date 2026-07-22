@@ -165,7 +165,7 @@ describe('PeopleService', () => {
       expect(result.pagination.totalResults).toBe(5)
     })
 
-    it('uses raw count path (not stats shortcut) when filters are provided', async () => {
+    it('uses raw count path (not stats shortcut) when filters are provided, guarded by the statement timeout', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 7n }])
         .mockResolvedValueOnce([makeDbPerson({ id: 'person-filtered' })])
@@ -185,6 +185,17 @@ describe('PeopleService', () => {
       expect(mockStatsService.getTotalCounts).not.toHaveBeenCalled()
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
       expect(result.pagination.totalResults).toBe(7)
+      // A broad/low-selectivity filter (not just name-search) can trip the same
+      // pathological plan, so this count runs through the same guard: exactly
+      // one transaction carrying the SET LOCAL statement_timeout + the count.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
+      // The data query itself is not name-search, so it stays outside the
+      // transaction (list fencing remains name-search-only).
+      const dataSql = (
+        mockClient.$queryRaw.mock.calls[1]?.[0] as { sql?: string }
+      )?.sql
+      expect(dataSql).not.toContain('SELECT v.*')
     })
 
     it('reports the requested out-of-bounds page (unclamped) so metadata matches the fetched rows', async () => {
@@ -414,6 +425,43 @@ describe('PeopleService', () => {
       expect(fencedWhere).toBe(primaryWhere)
     })
 
+    it('retries a filtered (non-name-search) count with the fenced subquery on statement cancellation (57014)', async () => {
+      // A broad/low-selectivity filter (e.g. hasCellPhone) can trip the same
+      // pathological DistrictVoter -> Voter nested loop as a rare name-search
+      // pattern, so every count — not just name-search — carries this guard.
+      mockClient.$queryRaw
+        .mockResolvedValueOnce([]) // count primary (cancelled inside txn)
+        .mockResolvedValueOnce([makeDbPerson({ id: 'person-filtered' })]) // data query (unguarded, not name-search)
+        .mockResolvedValueOnce([{ voter_count: 10000n }]) // fenced count retry
+      mockClient.$transaction
+        .mockRejectedValueOnce(statementTimeoutError())
+        .mockImplementationOnce((ops: Promise<unknown>[]) => Promise.all(ops))
+
+      const result = await service.findPeople({
+        districtId: '0e5bafca-93a9-86a5-2522-f373979720df',
+        filters: {
+          filters: ['hasCellPhone'],
+          filterOperators: {
+            hasCellPhone: { operator: 'is', value: 'not_null' },
+          },
+        },
+        resultsPerPage: 10,
+        page: 1,
+      } as never)
+
+      expect(result.pagination.totalResults).toBe(10000)
+      expect(mockClient.$queryRaw).toHaveBeenCalledTimes(3)
+      // The data query is not name-search, so it never entered a transaction —
+      // only the count's cancelled attempt + its fenced retry did.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      const fencedCountSql = sqlOf(mockClient.$queryRaw.mock.calls[2]?.[0])
+      expect(fencedCountSql).toContain('FROM (SELECT v.* FROM')
+      expect(fencedCountSql).toContain('LIMIT ?) v')
+      expect(
+        valuesOf(mockClient.$queryRaw.mock.calls[2]?.[0]).slice(-1),
+      ).toEqual([10000])
+    })
+
     it('propagates non-timeout errors without a fenced retry', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 1n }])
@@ -430,15 +478,17 @@ describe('PeopleService', () => {
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
     })
 
-    it('does not apply the timeout/fallback to phone searches (SQL unchanged)', async () => {
+    it('guards the count but not the data query for phone searches (list SQL unchanged)', async () => {
       mockClient.$queryRaw
         .mockResolvedValueOnce([{ voter_count: 1n }])
         .mockResolvedValueOnce([makeDbPerson()])
 
       await service.findPeople(searchDto({ search: '4155551234' }))
 
-      expect(mockClient.$transaction).not.toHaveBeenCalled()
-      expect(mockClient.$executeRaw).not.toHaveBeenCalled()
+      // The count is guarded like every other count; the phone-search list
+      // itself is not a name-search, so its query stays unfenced/unguarded.
+      expect(mockClient.$transaction).toHaveBeenCalledTimes(1)
+      expect(mockClient.$executeRaw).toHaveBeenCalledTimes(1)
       const dataSql = sqlOf(mockClient.$queryRaw.mock.calls[1]?.[0])
       expect(dataSql).toContain('VoterTelephones_CellPhoneFormatted')
       expect(dataSql).not.toContain('SELECT v.*')

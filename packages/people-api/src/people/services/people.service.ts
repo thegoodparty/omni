@@ -37,20 +37,26 @@ export const DATABASE_SCHEMA = 'green'
 const VOTER_TABLENAME = 'Voter'
 const DISTRICTVOTER_TABLENAME = 'DistrictVoter'
 
-// Postgres floors LIKE selectivity estimates at ~2000 rows, so for a
-// near-zero-match pattern ('%zzq%') the planner walks the ordering index and
-// scans the entire state partition (30+ seconds on large states) instead of
-// using the trigram indexes; raising statistics targets does not fix it.
-// Common patterns resolve in well under a second, so only runaway plans trip
-// this timeout.
-const NAME_SEARCH_TIMEOUT_MS = 2500
+// Two distinct query shapes can trip a pathological plan: a near-zero-match
+// name-search LIKE pattern ('%zzq%') where Postgres floors LIKE selectivity
+// estimates at ~2000 rows, so the planner walks the ordering index and scans
+// the entire state partition (30+ seconds on large states) instead of using
+// the trigram indexes — and, separately, a broad/low-selectivity filter (e.g.
+// gender/education not_null) on a large district, which forces a full
+// DistrictVoter -> Voter nested loop. Both resolve in well under a second
+// when the plan is sane, so only runaway plans trip this timeout.
+const SLOW_QUERY_TIMEOUT_MS = 2500
 // The fallback wraps the same WHERE in an UNORDERED subquery capped at this
-// many rows, which frees the planner to pick the trigram bitmap scan. The
-// fallback only runs for patterns that already proved slow — i.e. patterns
-// with very few matches, far below this cap — so the fence never truncates
-// the ordered, paginated result. Always fencing is NOT safe: above the cap
-// the fenced subset is arbitrary and would break deterministic pagination.
-const NAME_SEARCH_FENCE_LIMIT = 10000
+// many rows, which frees the planner to pick an indexed scan instead of the
+// pathological plan. For the voter LIST (queryPeopleWithTimeoutGuard), fencing
+// is only safe for name-search: it's gated to patterns that already proved
+// slow, i.e. patterns matching far fewer rows than this cap, so the fence
+// never truncates the ordered, paginated result — fencing a broad filter's
+// list would silently drop rows from the page. A COUNT has no ordering to
+// preserve, so every count (rawCountForDistrict) can always run through the
+// fence: exact when it completes under the timeout, floored at this limit
+// when it would be slow.
+const FENCE_LIMIT = 10000
 
 type RawPeopleQueryArgs = {
   districtId: string | null
@@ -276,20 +282,16 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       ${fromSql}
       ${whereClause}`
 
-    let rows: Array<{ voter_count: bigint }>
-    if (!isNameSearch(search)) {
-      rows = await this.client.$queryRaw<{ voter_count: bigint }[]>(countSql)
-    } else {
-      // Same pathological-plan exposure as the data query (the count shares the
-      // name-LIKE WHERE), same guard. The fenced count re-aliases the capped row
-      // set as v so countExpr (including the household key) applies unchanged. A
-      // pattern that trips the timeout matches far fewer rows than the fence in
-      // practice, so the fallback count is exact; if the cap ever binds, a floor
-      // of 10k beats a request that never returns.
-      const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
-      FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${NAME_SEARCH_FENCE_LIMIT}) v`
-      rows = await this.countWithTimeoutGuard(countSql, fencedCountSql)
-    }
+    // Any broad/low-selectivity filter (not just a name-search LIKE pattern)
+    // can trip the same pathological DistrictVoter -> Voter nested-loop plan,
+    // so every count runs through the timeout guard, not just name-search.
+    // The fenced count re-aliases the capped row set as v so countExpr
+    // (including the household key) applies unchanged: exact when the query
+    // completes under the timeout, floored at FENCE_LIMIT when it would be
+    // slow.
+    const fencedCountSql = Prisma.sql`SELECT ${countExpr} AS voter_count
+      FROM (SELECT v.* ${fromSql} ${whereClause} LIMIT ${FENCE_LIMIT}) v`
+    const rows = await this.countWithTimeoutGuard(countSql, fencedCountSql)
 
     const count = Number(rows[0]?.voter_count ?? 0n)
     if (count === 0 && districtId) {
@@ -336,7 +338,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       const [, rows] = await this.client.$transaction([
         this.client.$executeRaw(
           Prisma.raw(
-            `SET LOCAL statement_timeout = '${NAME_SEARCH_TIMEOUT_MS}ms'`,
+            `SET LOCAL statement_timeout = '${SLOW_QUERY_TIMEOUT_MS}ms'`,
           ),
         ),
         this.client.$queryRaw<Array<{ voter_count: bigint }>>(countSql),
@@ -348,7 +350,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       }
       this.logger.warn(
         { elapsedMs: Date.now() - startedAt },
-        'Name-search count hit the statement timeout; retrying with trigram-fenced subquery',
+        'Count hit the statement timeout; retrying with fenced subquery',
       )
       return this.client.$queryRaw<Array<{ voter_count: bigint }>>(
         fencedCountSql,
@@ -357,7 +359,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
   }
 
   // Name-search LIKE patterns can trigger a pathological full-partition plan
-  // (see NAME_SEARCH_TIMEOUT_MS). Attempt the normal query under a statement
+  // (see SLOW_QUERY_TIMEOUT_MS). Attempt the normal query under a statement
   // timeout; if Postgres cancels it (SQLSTATE 57014), retry once with the
   // trigram-fenced shape. SET LOCAL only holds for the transaction it runs
   // in, and Prisma batch transactions execute on a single connection, so the
@@ -372,7 +374,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
         // compile-time constant, so Prisma.raw is safe here.
         this.client.$executeRaw(
           Prisma.raw(
-            `SET LOCAL statement_timeout = '${NAME_SEARCH_TIMEOUT_MS}ms'`,
+            `SET LOCAL statement_timeout = '${SLOW_QUERY_TIMEOUT_MS}ms'`,
           ),
         ),
         this.client.$queryRaw<Array<BaseDbPerson>>(
@@ -391,7 +393,7 @@ export class PeopleService extends createPrismaBase(MODELS.Voter) {
       return this.client.$queryRaw<Array<BaseDbPerson>>(
         this.buildRawPeopleQuery({
           ...args,
-          fenceLimit: NAME_SEARCH_FENCE_LIMIT,
+          fenceLimit: FENCE_LIMIT,
         }),
       )
     }
