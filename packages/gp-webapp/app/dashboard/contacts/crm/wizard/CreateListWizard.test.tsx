@@ -56,7 +56,9 @@ const clickSaveList = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
   const save = screen.getByRole('button', { name: 'Save list' })
-  await vi.waitFor(() => expect(save).toBeEnabled())
+  // 10s, not waitFor's 1s default: tests that toggle several pills restart
+  // the debounce each time, and CI runners pushed the resolve past 1s.
+  await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
   await user.click(save)
 }
 
