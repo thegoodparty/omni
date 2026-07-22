@@ -52,8 +52,9 @@ const renderCards = ({
   )
 
 // ENG-10762 (Bugbot follow-up): the deep-linked preselectedListId is
-// consume-once, but only the text flow's audience step actually applies it —
-// so it clears when a text flow closes and survives a non-text flow's close.
+// consume-once, but only flows whose audience step actually applies it
+// (text, and robocall as of ENG-10764) clear it on close — it survives a
+// non-consuming flow's close (door knocking, phone banking).
 describe('OutreachCreateCards — ENG-10762 consume-once preselectedListId', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -76,10 +77,12 @@ describe('OutreachCreateCards — ENG-10762 consume-once preselectedListId', () 
     expect(secondFlow).toHaveAttribute('data-preselected-list-id', '')
   })
 
-  it('keeps the pending id when a non-text flow closes, so the text flow still preselects', async () => {
+  it('keeps the pending id when a non-consuming flow closes, so the text flow still preselects', async () => {
     const user = userEvent.setup()
     renderCards({ preselectedListId: 42 })
 
+    // Door knocking's audience step never applies preselectedListId, so
+    // closing it must not burn the pending id (unlike text/robocall below).
     await user.click(screen.getByText('Door knocking'))
     await screen.findByTestId('task-flow')
     await user.click(screen.getByRole('button', { name: 'close' }))
@@ -88,6 +91,22 @@ describe('OutreachCreateCards — ENG-10762 consume-once preselectedListId', () 
     await user.click(screen.getByText('Text message'))
     const textFlow = await screen.findByTestId('task-flow')
     expect(textFlow).toHaveAttribute('data-preselected-list-id', '42')
+  })
+
+  it('clears the pending id once a robocall flow closes (ENG-10764)', async () => {
+    const user = userEvent.setup()
+    renderCards({ preselectedListId: 42 })
+
+    await user.click(screen.getByText('Robocall'))
+    const firstFlow = await screen.findByTestId('task-flow')
+    expect(firstFlow).toHaveAttribute('data-preselected-list-id', '42')
+
+    await user.click(screen.getByRole('button', { name: 'close' }))
+    expect(screen.queryByTestId('task-flow')).not.toBeInTheDocument()
+
+    await user.click(screen.getByText('Robocall'))
+    const secondFlow = await screen.findByTestId('task-flow')
+    expect(secondFlow).toHaveAttribute('data-preselected-list-id', '')
   })
 
   it('renders with no preselected list id when the prop is never provided', async () => {

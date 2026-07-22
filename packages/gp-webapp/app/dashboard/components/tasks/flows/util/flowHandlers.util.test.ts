@@ -119,6 +119,38 @@ describe('handleCreateOutreach - text counts', () => {
   })
 })
 
+// ENG-10764: robocall's audience step reuses the same generic voterFileFilter
+// wiring text already has — verifying rather than reimplementing.
+describe('handleCreateOutreach - robocall saved-list voterFileFilterId', () => {
+  beforeEach(() => {
+    mockCreateOutreach.mockReset().mockResolvedValue({ id: 1 })
+  })
+
+  it('forwards voterFileFilterId when a saved list was selected', async () => {
+    await handleCreateOutreach({
+      type: 'robocall',
+      state: { schedule: {}, voterFileFilter: { id: 42 } },
+      campaignId: 42,
+      p2pUxEnabled: false,
+    })()
+
+    const payload = mockCreateOutreach.mock.calls[0]?.[0]
+    expect(payload).toEqual(expect.objectContaining({ voterFileFilterId: 42 }))
+  })
+
+  it('omits voterFileFilterId when building a new audience from checkboxes', async () => {
+    await handleCreateOutreach({
+      type: 'robocall',
+      state: { schedule: {}, voterFileFilter: {} },
+      campaignId: 42,
+      p2pUxEnabled: false,
+    })()
+
+    const payload = mockCreateOutreach.mock.calls[0]?.[0]
+    expect(payload).not.toHaveProperty('voterFileFilterId')
+  })
+})
+
 describe('mapAudienceForPersistence', () => {
   it('translates underscore audience keys to their camelCase equivalents', () => {
     expect(
