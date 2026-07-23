@@ -233,12 +233,6 @@ export default function NotesSection({
     queryClient.invalidateQueries({
       queryKey: ['contact-notes', orgSlug, personId],
     })
-    // Notes also appear in the person activity feed. Partial key match (no
-    // exact:true) invalidates the feed regardless of which engagement id the
-    // provider keyed it on for this person.
-    queryClient.invalidateQueries({
-      queryKey: ['contact-engagement', 'activities'],
-    })
   }
 
   const createMutation = useMutation({

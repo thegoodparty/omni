@@ -4,7 +4,6 @@ import { Badge } from '@styleguide'
 import type { DoorKnockOutcome, SupportAnswer } from '@goodparty_org/contracts'
 import type {
   DoorKnockConstituentActivity,
-  NoteConstituentActivity,
   RobocallConstituentActivity,
   TextConstituentActivity,
 } from '../shared/contacts-types'
@@ -139,17 +138,5 @@ export const RobocallActivityRow: React.FC<{
         View outreach
       </Link>
     ) : null}
-  </div>
-)
-
-export const NoteActivityRow: React.FC<{
-  activity: NoteConstituentActivity
-}> = ({ activity }) => (
-  <div className="flex flex-col gap-1 mb-3">
-    <p className="text-sm font-semibold text-foreground">Note</p>
-    <p className="text-sm whitespace-pre-wrap">{activity.data.body}</p>
-    <p className="text-sm font-normal text-muted-foreground">
-      {formatDateTime(activity.date)}
-    </p>
   </div>
 )

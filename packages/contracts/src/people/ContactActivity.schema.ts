@@ -8,9 +8,11 @@ import {
 
 // The unified per-person activity feed (CRM TDD feature 3, ENG-10695): a
 // discriminated union over Serve poll interactions, the sunset-compatibility
-// Win legacy outreach rows, and the ContactInteraction*/ContactNote channels.
-// Produced by gp-api (GET /v1/contact-engagement/:id/activities) and consumed
-// by gp-webapp — living here keeps the two from drifting.
+// Win legacy outreach rows, and the ContactInteraction* channels. Notes are
+// deliberately excluded (ENG-10780) — they live only in the dedicated Notes
+// section, not the feed. Produced by gp-api
+// (GET /v1/contact-engagement/:id/activities) and consumed by gp-webapp —
+// living here keeps the two from drifting.
 
 export const ConstituentActivityTypeSchema = z.enum([
   'POLL_INTERACTIONS',
@@ -18,7 +20,6 @@ export const ConstituentActivityTypeSchema = z.enum([
   'DOOR_KNOCK',
   'TEXT',
   'ROBOCALL',
-  'NOTE',
 ])
 export type ConstituentActivityType = z.infer<
   typeof ConstituentActivityTypeSchema
@@ -120,27 +121,12 @@ export type RobocallConstituentActivity = z.infer<
   typeof RobocallConstituentActivitySchema
 >
 
-export const NoteConstituentActivitySchema = z.object({
-  type: z.literal(ConstituentActivityTypeSchema.enum.NOTE),
-  date: z.string(),
-  data: z.object({
-    noteId: z.string(),
-    body: z.string(),
-    createdAt: z.string(),
-    updatedAt: z.string(),
-  }),
-})
-export type NoteConstituentActivity = z.infer<
-  typeof NoteConstituentActivitySchema
->
-
 export const ConstituentActivitySchema = z.discriminatedUnion('type', [
   PollConstituentActivitySchema,
   OutreachConstituentActivitySchema,
   DoorKnockConstituentActivitySchema,
   TextConstituentActivitySchema,
   RobocallConstituentActivitySchema,
-  NoteConstituentActivitySchema,
 ])
 export type ConstituentActivity = z.infer<typeof ConstituentActivitySchema>
 

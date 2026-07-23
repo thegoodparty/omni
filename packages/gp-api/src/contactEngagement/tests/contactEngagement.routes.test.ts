@@ -32,7 +32,7 @@ describe('ContactEngagement routes', () => {
   })
 
   describe('GET /contact-engagement/:id/activities (campaign context - Win)', () => {
-    it('unions door knocks, texts, robocalls, notes, and legacy outreach rows when lalVoterId is given, newest first', async () => {
+    it('unions door knocks, texts, robocalls, and legacy outreach rows when lalVoterId is given, newest first, excluding notes', async () => {
       const personId = 'person-win-1'
 
       await service.prisma.contactInteractionRobocall.create({
@@ -64,6 +64,8 @@ describe('ContactEngagement routes', () => {
           manual: false,
         },
       })
+      // A note write for the same person must not surface in the feed
+      // (ENG-10780: notes live only in the dedicated Notes section).
       await service.prisma.contactNote.create({
         data: {
           organizationSlug: campaignOrgSlug,
@@ -93,20 +95,16 @@ describe('ContactEngagement routes', () => {
       expect(result.status).toBe(200)
       expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
         ConstituentActivityType.OUTREACH,
-        ConstituentActivityType.NOTE,
         ConstituentActivityType.TEXT,
         ConstituentActivityType.DOOR_KNOCK,
         ConstituentActivityType.ROBOCALL,
       ])
 
-      const [outreach, note, text, doorKnock, robocall] = result.data.results
+      const [outreach, text, doorKnock, robocall] = result.data.results
 
       expect(outreach.data).toMatchObject({
         outreachType: OutreachType.text,
         attributionSource: VoterOutreachAttributionSource.segmentDerived,
-      })
-      expect(note.data).toMatchObject({
-        body: 'Follow up before the primary',
       })
       expect(text.data).toMatchObject({
         respondedAt: '2026-01-06T11:00:00.000Z',
@@ -190,6 +188,8 @@ describe('ContactEngagement routes', () => {
           manual: false,
         },
       })
+      // A note write for the same person must not surface in the feed
+      // (ENG-10780: notes live only in the dedicated Notes section).
       await service.prisma.contactNote.create({
         data: {
           organizationSlug: campaignOrgSlug,
@@ -232,10 +232,9 @@ describe('ContactEngagement routes', () => {
         pages += 1
       } while (after && pages < 10)
 
-      expect(pages).toBe(3)
+      expect(pages).toBe(2)
       expect(seenTypes).toEqual([
         ConstituentActivityType.OUTREACH,
-        ConstituentActivityType.NOTE,
         ConstituentActivityType.TEXT,
         ConstituentActivityType.DOOR_KNOCK,
         ConstituentActivityType.ROBOCALL,
@@ -561,7 +560,7 @@ describe('ContactEngagement routes', () => {
       })
     })
 
-    it('unions poll interactions with door knocks, texts, robocalls, and notes, newest first', async () => {
+    it('unions poll interactions with door knocks, texts, and robocalls, newest first, excluding notes', async () => {
       const eoOrgSlug = `eo-union-${Date.now()}`
       await service.prisma.organization.create({
         data: { slug: eoOrgSlug, ownerId: service.user.id },
@@ -594,6 +593,8 @@ describe('ContactEngagement routes', () => {
           sentAt: new Date('2026-01-08T10:00:00Z'),
         },
       })
+      // A note write for the same person must not surface in the feed
+      // (ENG-10780: notes live only in the dedicated Notes section).
       await service.prisma.contactNote.create({
         data: {
           organizationSlug: eoOrgSlug,
@@ -637,7 +638,6 @@ describe('ContactEngagement routes', () => {
       expect(result.status).toBe(200)
       expect(result.data.results.map((r: { type: string }) => r.type)).toEqual([
         ConstituentActivityType.POLL_INTERACTIONS,
-        ConstituentActivityType.NOTE,
         ConstituentActivityType.TEXT,
         ConstituentActivityType.DOOR_KNOCK,
         ConstituentActivityType.ROBOCALL,

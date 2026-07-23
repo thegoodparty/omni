@@ -108,8 +108,6 @@ export {
   type TextConstituentActivity,
   RobocallConstituentActivitySchema,
   type RobocallConstituentActivity,
-  NoteConstituentActivitySchema,
-  type NoteConstituentActivity,
   ConstituentActivitySchema,
   type ConstituentActivity,
   GetIndividualActivitiesResponseSchema,

@@ -44,7 +44,6 @@ import NotesSection from './NotesSection'
 import {
   DoorKnockActivityRow,
   formatDateTime,
-  NoteActivityRow,
   RobocallActivityRow,
   TextActivityRow,
 } from './ActivityFeedEntry'
@@ -66,10 +65,12 @@ const isOutreachActivity = (
   activity: ConstituentActivity,
 ): activity is OutreachConstituentActivity => activity.type === 'OUTREACH'
 
-// ENG-10695 unioned ContactInteraction*/ContactNote entries into the feed
-// response; ENG-10698 (task 07) widened rendering to draw them via
-// ActivityFeedEntry. Gated on the CRM flag below — CRM-off keeps the interim
-// pre-CRM behavior of skipping them so the old overlay is unchanged.
+// ENG-10695 unioned ContactInteraction* entries into the feed response;
+// ENG-10698 (task 07) widened rendering to draw them via ActivityFeedEntry.
+// Notes were unioned in too but removed from the feed in ENG-10780 — they
+// live only in the dedicated Notes section now. Gated on the CRM flag below
+// — CRM-off keeps the interim pre-CRM behavior of skipping them so the old
+// overlay is unchanged.
 const isPollActivity = (
   activity: ConstituentActivity,
 ): activity is PollConstituentActivity => activity.type === 'POLL_INTERACTIONS'
@@ -252,7 +253,7 @@ const ActivitiesContent: React.FC = () => {
   const { enabled: crmEnabled, ready: crmReady } = useCrmEnabled()
   const canRenderNewEntryTypes = crmReady && crmEnabled
 
-  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL/NOTE entries; ENG-10698
+  // ENG-10695 unioned in DOOR_KNOCK/TEXT/ROBOCALL entries; ENG-10698
   // widened rendering to draw them via ActivityFeedEntry, gated on the CRM
   // flag so the pre-CRM overlay's empty-state/pagination behavior (and the
   // Outreach Timeline Viewed event below) is unchanged when the flag is off.
@@ -265,7 +266,7 @@ const ActivitiesContent: React.FC = () => {
   // "Did a Win user see attributed outreach" is a narrower question than
   // "does the feed have any rows" — scoped to legacy OUTREACH rows
   // specifically so the CRM-widened entry types (manual door knocks, texts,
-  // notes, ...) can't inflate this pre-existing adoption metric.
+  // ...) can't inflate this pre-existing adoption metric.
   const hasOutreachRows = activities.some(isOutreachActivity)
 
   // Fire once per opened person when the Win outreach timeline actually
@@ -351,8 +352,6 @@ const ActivitiesContent: React.FC = () => {
             return <TextActivityRow key={idx} activity={activity} />
           case 'ROBOCALL':
             return <RobocallActivityRow key={idx} activity={activity} />
-          case 'NOTE':
-            return <NoteActivityRow key={idx} activity={activity} />
           default:
             // Exhaustiveness guard: a new ConstituentActivityType added to
             // the contract without a render branch here fails the build
