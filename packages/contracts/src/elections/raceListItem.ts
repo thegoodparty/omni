@@ -12,8 +12,11 @@ export const RaceListItemSchema = z.object({
   election: z.object({
     electionDay: z.string(),
   }),
-  isPrimary: z.boolean().nullable(),
-  isRunoff: z.boolean().nullable(),
+  // Optional so gp-api tolerates an election-api that predates these fields
+  // (e.g. a PR preview whose gp-api points at the not-yet-updated dev
+  // election-api). Populated once election-api ships the positionId join.
+  isPrimary: z.boolean().nullish(),
+  isRunoff: z.boolean().nullish(),
   city: z.string().nullable().optional(),
   district: z.string().nullable().optional(),
 })
