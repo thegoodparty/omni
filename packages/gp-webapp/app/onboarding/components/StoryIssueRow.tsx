@@ -82,7 +82,7 @@ export default function StoryIssueRow({
             value={issue.description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder={DESCRIPTION_PLACEHOLDER}
-            className="min-h-28 resize-none border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0 placeholder:italic placeholder:text-muted-foreground"
+            className="min-h-28 resize-none placeholder:italic placeholder:text-muted-foreground"
           />
           <span className="self-end text-sm text-muted-foreground">
             {issue.description.length} chars
