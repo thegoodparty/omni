@@ -991,6 +991,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // could release the claim while leaving peerlyBillingBlockedAt unset — the
       // next resume would then find no cooldown, bypass the guard, and re-storm
       // Peerly, which is exactly what the hold prevents.
+      let rejectedStamped = false
       try {
         await this.client.$transaction(async (tx) => {
           // Roll back only this caller's claim by matching the exact timestamp
@@ -1022,6 +1023,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             })
           }
         })
+        rejectedStamped = true
       } catch (rollbackErr) {
         // If the rollback/stamp transaction itself fails, the claim TTL will
         // release the held claim later. Log and fall through so the original
@@ -1032,7 +1034,10 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             'TTL will recover',
         )
       }
-      if (error instanceof PeerlyCvRejectionException) {
+      // Only fire once the rejected stamp actually committed: if the rollback
+      // transaction failed, the record stays non-rejected and the
+      // deterministic retry would fire this event a second time.
+      if (error instanceof PeerlyCvRejectionException && rejectedStamped) {
         void this.analytics
           .track(user.id, EVENTS.Outreach.ComplianceRejected, {
             rejection_source: 'cv_submit',
