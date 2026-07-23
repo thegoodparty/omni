@@ -21,6 +21,7 @@ Post-signup onboarding flow. New users land here after registration to pick the 
 - **Step-driven flow**: each step is config-defined in `onboardingConfig.ts`. To add a step, add it to the config — `OnboardingFlow` picks it up. Don't add new routes by hand.
 - **Reset scroll** on step change — handled by the layout per the root CLAUDE.md navigation rule.
 - **Two office-selection paths**: search (`OfficeSelectionStep`) and manual entry (`ManualOfficeEntryStep`). Manual is the fallback when search fails — keep both.
+- **Campaign story = three flag-gated steps** (`campaign-story-why` → `-background` → `-issues`, `STORY_STEP_IDS` in `onboardingConfig.ts`), injected only for the `campaign-story` cohort. Why/Background render the new-design `StoryIntakeCard` (deferred, controlled); the issues step renders the shared `PolicyPriorities`. Nothing persists as you type: the three answers live in one in-memory draft (`useOnboardingStoryDraft`) and are saved **only** on the final (issues) step's Continue (`saveAboutFields({ bio, issues })` + `PUT /v1/campaigns/mine/story`). Continue always advances (no answer required); **Skip on any story step abandons all three** and jumps to the pledge. Completion (all three answered) on the final Continue fires plan generation + `CampaignStoryCompleted`; otherwise `CampaignStorySkipped`. The page h1 is suppressed for these steps — each card carries its own question. The standalone `/dashboard/campaign-story` page still uses the older self-saving `OnboardingCampaignStoryStep`, not these components.
 
 ## Gotchas
 

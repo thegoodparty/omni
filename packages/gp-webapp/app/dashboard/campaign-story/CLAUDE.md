@@ -109,13 +109,14 @@ already round-trips through `Website.content.about`.
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real
   rewrite AI.
-- **Onboarding completion → plan generation.** Each card reports its *live*
-  answered-state up (`onAnsweredChange`, fired on every keystroke);
-  `OnboardingCampaignStoryStep` combines why + background + the issues count
-  into a single `onCompleteChange(complete)` callback. `OnboardingFlow.tsx`
-  owns the step's footer copy and fires plan + tracker generation once the
-  candidate completes (or explicitly skips) the story step - see the
-  `campaign-story` branches in `OnboardingFlow.tsx`.
+- **Onboarding uses different components now.** Onboarding no longer mounts
+  these self-saving cards. It renders the new-design, deferred-save
+  `StoryIntakeCard` (why/background) + `PolicyPriorities` (issues) across three
+  flag-gated steps, holding the answers in one in-memory draft
+  (`useOnboardingStoryDraft`) that persists only on the final step's Continue.
+  Skip on any story step abandons all three. See `app/onboarding/CLAUDE.md`.
+  The cards in *this* directory now back only the standalone
+  `/dashboard/campaign-story` page (which still autosaves per field).
 - **Plan tab review + generation.** The actual review + confirm + generation
   UI lives on the plan tab
   (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which shows the why
@@ -153,9 +154,11 @@ already round-trips through `Website.content.about`.
 
 ## Related
 
-- `app/onboarding/components/OnboardingCampaignStoryStep.tsx` composes the same
-  why/background/issues cards into the onboarding flow as a skippable step,
-  firing plan + tracker generation on completion.
+- `app/onboarding/components/OnboardingCampaignStoryStep.tsx` composes these
+  self-saving why/background/issues cards for the standalone
+  `/dashboard/campaign-story` page. (Onboarding itself uses the newer
+  `StoryIntakeCard` + `useOnboardingStoryDraft` per-step deferred flow — see
+  `app/onboarding/CLAUDE.md`.)
 - `app/shared/experiments/campaignStoryFlag.ts` — flag wrapper hook + key.
 - `app/dashboard/shared/DashboardMenu.tsx` — reads the flag to label the plan
   tab "Campaign Tracker" for the story cohort. No dedicated sidebar entry for
