@@ -25,6 +25,8 @@ import {
   type OrdinanceSource,
 } from '@goodparty_org/contracts'
 
+import { estimateCostUsd } from './ordinanceCost.util'
+
 export const ORDINANCE_READ_SECTIONS = [
   'clarify',
   'clarify_answers',
@@ -143,6 +145,48 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     scratchpad.push({ step, text, createdAt: formatISO(new Date()) })
     await this.model.update({ where: { id: o.id }, data: { scratchpad } })
     return { saved: true }
+  }
+
+  // Accumulate a turn's token usage onto the ordinance's flow counters and log
+  // the per-turn line with a derived cost. Atomic increment (concurrent step
+  // turns can't lose counts), scoped to the owning office; a non-owned or
+  // deleted row is a no-op so metering never disturbs the turn.
+  async recordFlowUsage(args: {
+    ordinanceId: string
+    electedOfficeId: string
+    step: string
+    model: string
+    inputTokens: number
+    outputTokens: number
+  }): Promise<void> {
+    const updated = await this.model.updateMany({
+      where: {
+        id: args.ordinanceId,
+        electedOfficeId: args.electedOfficeId,
+        deletedAt: null,
+      },
+      data: {
+        flowInputTokens: { increment: args.inputTokens },
+        flowOutputTokens: { increment: args.outputTokens },
+      },
+    })
+    if (updated.count === 0) return
+    const turnCostUsd = estimateCostUsd(
+      args.model,
+      args.inputTokens,
+      args.outputTokens,
+    )
+    this.logger.info(
+      {
+        ordinanceId: args.ordinanceId,
+        step: args.step,
+        model: args.model,
+        inputTokens: args.inputTokens,
+        outputTokens: args.outputTokens,
+        turnCostUsd: Number(turnCostUsd.toFixed(4)),
+      },
+      'ordinance flow turn usage',
+    )
   }
 
   async saveSynthesis(

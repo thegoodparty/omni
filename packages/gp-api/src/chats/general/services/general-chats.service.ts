@@ -241,6 +241,9 @@ export class GeneralChatsService {
         ...(handler.maxSteps && { maxSteps: handler.maxSteps }),
         ...(args.signal && { signal: args.signal }),
         ...(args.clientMessageId && { clientMessageId: args.clientMessageId }),
+        ...(handler.onTurnUsage && {
+          onUsage: (usage, model) => handler.onTurnUsage!(ctx, usage, model),
+        }),
       })
 
       for await (const chunk of inner) yield chunk
