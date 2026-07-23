@@ -80,7 +80,7 @@ export default function StoryCardActions({
             <Button
               variant="link"
               size="small"
-              className="h-auto p-0"
+              className="h-auto p-0 no-underline hover:underline"
               onClick={rewrite.undo}
             >
               Undo
