@@ -10,6 +10,10 @@ import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
 
 interface StoryIntakeCardProps {
   question: string
+  // Optional sub-line under the question. The dashboard page passes it (there is
+  // no page-level per-question heading there); onboarding leaves it off since
+  // the step chrome already shows the description above the card.
+  description?: string
   // Shown as the italic gray placeholder inside the empty field ("e.g. …").
   examplePlaceholder: string
   value: string
@@ -28,6 +32,7 @@ interface StoryIntakeCardProps {
 // char counter, then the shared action bar.
 export default function StoryIntakeCard({
   question,
+  description,
   examplePlaceholder,
   value,
   onChange,
@@ -40,7 +45,12 @@ export default function StoryIntakeCard({
 
   return (
     <Card className="flex flex-col gap-4 p-6">
-      <h2 className="text-2xl font-bold text-foreground">{question}</h2>
+      <div className="flex flex-col gap-1">
+        <h2 className="text-2xl font-bold text-foreground">{question}</h2>
+        {description && (
+          <p className="text-base text-muted-foreground">{description}</p>
+        )}
+      </div>
 
       <div className="relative">
         <Textarea

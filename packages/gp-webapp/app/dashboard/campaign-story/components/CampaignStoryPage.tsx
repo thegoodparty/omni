@@ -7,7 +7,7 @@ import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import H2 from '@shared/typography/H2'
-import { BookOpenIcon, Button } from '@styleguide'
+import { BookOpenIcon, Button, Card } from '@styleguide'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -28,6 +28,10 @@ import {
   BACKGROUND_EXAMPLE_PLACEHOLDER,
 } from 'app/onboarding/components/storyStepCopy'
 
+// Shared sub-line under each card's question on the dashboard page.
+const CARD_DESCRIPTION =
+  "We'll use this to draft your voter outreach and personalize your campaign plan."
+
 interface CampaignStoryPageProps {
   pathname?: string
 }
@@ -46,7 +50,7 @@ const CampaignStoryPage = ({
         wrapperClassName="w-full"
         showAlert={false}
       >
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
           <header className="flex items-center gap-2">
             <BookOpenIcon className="size-6" />
             <H2>Your story</H2>
@@ -180,6 +184,7 @@ function StoryEditorForm({
     <div className="flex flex-col gap-8">
       <StoryIntakeCard
         question={STORY_WHY_QUESTION}
+        description={CARD_DESCRIPTION}
         examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
         value={why}
         onChange={setWhy}
@@ -195,6 +200,7 @@ function StoryEditorForm({
 
       <StoryIntakeCard
         question={STORY_BACKGROUND_QUESTION}
+        description={CARD_DESCRIPTION}
         examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
         value={background}
         onChange={setBackground}
@@ -208,10 +214,13 @@ function StoryEditorForm({
         }}
       />
 
-      <div className="flex flex-col gap-4">
-        <h2 className="text-2xl font-bold text-foreground">
-          What issues do you most want to solve?
-        </h2>
+      <Card className="flex flex-col gap-4 p-6">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-2xl font-bold text-foreground">
+            What issues do you most want to solve if elected?
+          </h2>
+          <p className="text-base text-muted-foreground">{CARD_DESCRIPTION}</p>
+        </div>
         <StoryIssuesCard
           issues={issues}
           onChange={setIssues}
@@ -222,7 +231,7 @@ function StoryEditorForm({
             onSave: () => void saveIssues(),
           }}
         />
-      </div>
+      </Card>
 
       {complete && (
         <div className="sticky bottom-4 z-10 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-white p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
