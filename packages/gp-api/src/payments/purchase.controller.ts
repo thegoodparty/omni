@@ -130,7 +130,18 @@ export class PurchaseController {
     )
     if (claimed) return
 
-    await this.stripeService.expireCheckoutSession(checkoutSessionId)
+    // Best-effort cleanup: the conflict verdict stands either way, and a
+    // thrown 502 here would invite client retries that mint more orphaned
+    // payable sessions.
+    try {
+      await this.stripeService.expireCheckoutSession(checkoutSessionId)
+    } catch (error) {
+      this.logger.error(
+        { error: serializeError(error), checkoutSessionId },
+        'Failed to expire loser checkout session after CAS conflict — ' +
+          'session may need manual cleanup',
+      )
+    }
     throw new ConflictException({
       message: 'Another checkout session is already in progress',
       errorCode: 'CHECKOUT_IN_PROGRESS',

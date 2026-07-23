@@ -260,6 +260,21 @@ describe('PurchaseController', () => {
       )
     })
 
+    it('still 409s when expiring the losing session itself fails', async () => {
+      stripeService.createCheckoutSession.mockResolvedValue({
+        redirectUrl,
+        checkoutSessionId: 'cs_test_loser',
+      })
+      usersService.compareAndSwapCheckoutSessionId.mockResolvedValue(false)
+      stripeService.expireCheckoutSession.mockRejectedValue(
+        new Error('stripe unavailable'),
+      )
+
+      await expect(
+        controller.createProCheckoutSession(mockUser),
+      ).rejects.toThrow(ConflictException)
+    })
+
     it('expires the stored open checkout session on the embedded path too', async () => {
       const userWithOpenSession: User = {
         ...mockUser,
