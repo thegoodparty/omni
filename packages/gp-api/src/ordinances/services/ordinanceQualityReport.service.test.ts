@@ -45,6 +45,9 @@ const fullResponse = {
     ],
   },
   tokens: 10,
+  inputTokens: 5,
+  outputTokens: 5,
+  model: 'claude-sonnet-4-6',
   model: 'claude-sonnet-4-6',
 }
 
@@ -125,6 +128,9 @@ describe('OrdinanceQualityReportService', () => {
     const jsonCompletion = vi.fn().mockResolvedValue({
       object: { checks: [{ id: 'authority', status: 'pass', note: 'ok' }] },
       tokens: 10,
+      inputTokens: 5,
+      outputTokens: 5,
+      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
@@ -141,6 +147,9 @@ describe('OrdinanceQualityReportService', () => {
     const jsonCompletion = vi.fn().mockResolvedValue({
       object: { checks: [] },
       tokens: 10,
+      inputTokens: 5,
+      outputTokens: 5,
+      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
@@ -164,6 +173,9 @@ describe('OrdinanceQualityReportService', () => {
         ],
       },
       tokens: 10,
+      inputTokens: 5,
+      outputTokens: 5,
+      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
@@ -182,6 +194,9 @@ describe('OrdinanceQualityReportService', () => {
     const jsonCompletion = vi.fn().mockResolvedValue({
       object: { checks: [{ id: 'authority', status: 'pass' }] },
       tokens: 10,
+      inputTokens: 5,
+      outputTokens: 5,
+      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
@@ -193,11 +208,13 @@ describe('OrdinanceQualityReportService', () => {
   })
 
   it('returns the tokens the LLM call consumed', async () => {
-    const { tokens } = await build(
+    const { tokens, inputTokens, outputTokens } = await build(
       vi.fn().mockResolvedValue(fullResponse),
     ).generate(record(), 7)
 
     expect(tokens).toBe(10)
+    expect(inputTokens).toBe(5)
+    expect(outputTokens).toBe(5)
   })
 
   it('reports no degraded checks for a fully-evaluated response', async () => {
@@ -212,6 +229,9 @@ describe('OrdinanceQualityReportService', () => {
     const jsonCompletion = vi.fn().mockResolvedValue({
       object: { checks: [{ id: 'authority', status: 'pass', note: 'ok' }] },
       tokens: 10,
+      inputTokens: 5,
+      outputTokens: 5,
+      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
@@ -242,6 +262,9 @@ describe('OrdinanceQualityReportService', () => {
         ],
       },
       tokens: 10,
+      inputTokens: 5,
+      outputTokens: 5,
+      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
