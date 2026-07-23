@@ -35,9 +35,12 @@ export default function StoryIssueRow({
 }: StoryIssueRowProps): React.JSX.Element {
   const setDescription = (description: string): void =>
     onChange({ ...issue, description })
+  // Raw description (not trimmed): the hook trims internally for the API, but
+  // captures this verbatim as the undo baseline — trimming here would make Undo
+  // drop the user's leading/trailing whitespace.
   const rewrite = useStoryRewrite(
     'issue',
-    issue.description.trim(),
+    issue.description,
     setDescription,
     issue.title,
   )

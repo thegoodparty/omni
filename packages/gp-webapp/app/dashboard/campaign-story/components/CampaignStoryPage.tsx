@@ -111,7 +111,9 @@ interface StoryEditorFormProps {
   initialIssues: WebsiteIssue[]
 }
 
-function StoryEditorForm({
+// Exported for testing — the save wiring (per-field dirty/save, error snackbar,
+// cache invalidation, completeness banner) lives here.
+export function StoryEditorForm({
   initialBio,
   initialBackground,
   initialIssues,

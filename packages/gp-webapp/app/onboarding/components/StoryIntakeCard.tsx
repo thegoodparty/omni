@@ -40,7 +40,10 @@ export default function StoryIntakeCard({
   analyticsLabel,
   save,
 }: StoryIntakeCardProps): React.JSX.Element {
-  const rewrite = useStoryRewrite(rewriteField, value.trim(), onChange)
+  // Pass the raw value (not trimmed): the hook trims internally for the API +
+  // empty check, but captures this verbatim as the undo baseline, so trimming
+  // here would make Undo silently drop the user's leading/trailing whitespace.
+  const rewrite = useStoryRewrite(rewriteField, value, onChange)
   const dictation = useDictationAppend({ analyticsLabel, value, onChange })
 
   return (
