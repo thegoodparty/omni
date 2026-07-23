@@ -95,8 +95,13 @@ COPY packages/contracts/package.json ./packages/contracts/package.json
 COPY packages/contracts/dist ./packages/contracts/dist
 COPY packages/nest-common/package.json ./packages/nest-common/package.json
 COPY packages/nest-common/dist ./packages/nest-common/dist
-# Install only production dependencies with --ignore-scripts
-RUN npm ci --omit=dev --ignore-scripts --workspace election-api
+# Install only production dependencies. Do NOT pass --ignore-scripts: Prisma's
+# postinstall must run so the schema-engine binary is baked into node_modules at
+# build time (as root). The entrypoint runs `prisma migrate deploy` at boot as
+# the non-root `node` user; without the engine present it would try to download
+# and write it into root-owned /app/node_modules/@prisma/engines and fail
+# ("Can't write to /app/node_modules/@prisma/engines"). Mirrors gp-api.
+RUN npm ci --omit=dev --workspace election-api
 
 WORKDIR /app/packages/election-api
 
