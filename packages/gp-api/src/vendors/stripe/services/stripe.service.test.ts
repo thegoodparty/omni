@@ -5,18 +5,30 @@ import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { StripeService } from './stripe.service'
 
-const { sessionsCreate, sessionsExpire, productsRetrieve, MockStripeError } =
-  vi.hoisted(() => ({
-    sessionsCreate: vi.fn(),
-    sessionsExpire: vi.fn(),
-    productsRetrieve: vi.fn(),
-    MockStripeError: class StripeInvalidRequestError extends Error {},
-  }))
+const {
+  sessionsCreate,
+  sessionsExpire,
+  sessionsRetrieve,
+  productsRetrieve,
+  MockStripeError,
+} = vi.hoisted(() => ({
+  sessionsCreate: vi.fn(),
+  sessionsExpire: vi.fn(),
+  sessionsRetrieve: vi.fn(),
+  productsRetrieve: vi.fn(),
+  MockStripeError: class StripeInvalidRequestError extends Error {},
+}))
 
 vi.mock('stripe', () => ({
   default: class {
     static errors = { StripeInvalidRequestError: MockStripeError }
-    checkout = { sessions: { create: sessionsCreate, expire: sessionsExpire } }
+    checkout = {
+      sessions: {
+        create: sessionsCreate,
+        expire: sessionsExpire,
+        retrieve: sessionsRetrieve,
+      },
+    }
     products = { retrieve: productsRetrieve }
   },
 }))
@@ -96,26 +108,64 @@ describe('StripeService Pro subscription checkout', () => {
   })
 
   describe('expireCheckoutSession', () => {
-    it('expires the session via Stripe', async () => {
+    it('expires an open session and reports it expired', async () => {
       sessionsExpire.mockResolvedValue({ id: 'cs_open', status: 'expired' })
 
-      await service.expireCheckoutSession('cs_open')
-
+      await expect(service.expireCheckoutSession('cs_open')).resolves.toBe(
+        'expired',
+      )
       expect(sessionsExpire).toHaveBeenCalledWith('cs_open')
+      expect(sessionsRetrieve).not.toHaveBeenCalled()
     })
 
-    it('swallows the invalid-request error a non-open session raises', async () => {
+    it('reports complete when the non-open session was already paid', async () => {
       sessionsExpire.mockRejectedValue(
         new MockStripeError('This session is already complete'),
       )
+      sessionsRetrieve.mockResolvedValue({
+        id: 'cs_completed',
+        status: 'complete',
+      })
 
-      await expect(
-        service.expireCheckoutSession('cs_completed'),
-      ).resolves.toBeUndefined()
+      await expect(service.expireCheckoutSession('cs_completed')).resolves.toBe(
+        'complete',
+      )
     })
 
-    it('throws BadGatewayException on any other Stripe failure', async () => {
+    it('reports expired when the non-open session had already expired', async () => {
+      sessionsExpire.mockRejectedValue(
+        new MockStripeError('This session is already expired'),
+      )
+      sessionsRetrieve.mockResolvedValue({
+        id: 'cs_stale',
+        status: 'expired',
+      })
+
+      await expect(service.expireCheckoutSession('cs_stale')).resolves.toBe(
+        'expired',
+      )
+    })
+
+    it('reports expired when the session does not exist on this Stripe key', async () => {
+      sessionsExpire.mockRejectedValue(new MockStripeError('No such session'))
+      sessionsRetrieve.mockRejectedValue(new MockStripeError('No such session'))
+
+      await expect(service.expireCheckoutSession('cs_other_env')).resolves.toBe(
+        'expired',
+      )
+    })
+
+    it('throws BadGatewayException when expiry fails for another reason', async () => {
       sessionsExpire.mockRejectedValue(new Error('stripe unavailable'))
+
+      await expect(service.expireCheckoutSession('cs_open')).rejects.toThrow(
+        BadGatewayException,
+      )
+    })
+
+    it('throws BadGatewayException when the status lookup fails for another reason', async () => {
+      sessionsExpire.mockRejectedValue(new MockStripeError('not open'))
+      sessionsRetrieve.mockRejectedValue(new Error('stripe unavailable'))
 
       await expect(service.expireCheckoutSession('cs_open')).rejects.toThrow(
         BadGatewayException,

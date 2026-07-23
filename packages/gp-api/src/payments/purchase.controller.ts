@@ -70,7 +70,18 @@ export class PurchaseController {
     // at a time.
     const previousCheckoutSessionId = user.metaData?.checkoutSessionId
     if (previousCheckoutSessionId) {
-      await this.stripeService.expireCheckoutSession(previousCheckoutSessionId)
+      const previousSession = await this.stripeService.expireCheckoutSession(
+        previousCheckoutSessionId,
+      )
+      // A completed previous session means a payment already went through
+      // and the isPro flip is still in flight (the completion webhook clears
+      // the stored id) — selling another checkout here double-subscribes.
+      if (previousSession === 'complete') {
+        throw new ConflictException({
+          message: 'The previous checkout session was already paid',
+          errorCode: 'CHECKOUT_ALREADY_COMPLETED',
+        })
+      }
     }
 
     const { email } = user

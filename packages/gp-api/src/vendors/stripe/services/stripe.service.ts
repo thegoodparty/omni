@@ -91,23 +91,46 @@ export class StripeService {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
   }
 
-  // A session that already completed or expired makes Stripe raise
-  //  StripeInvalidRequestError — the expected case when the previous checkout
-  //  finished, not a failure, so it is deliberately swallowed.
-  async expireCheckoutSession(checkoutSessionId: string) {
+  // Returns the session's terminal disposition: a completed session means a
+  //  payment already went through, which callers must treat differently from
+  //  an expired one — the paid session's fulfillment may still be in flight,
+  //  so it must block a new checkout rather than clear the way for one.
+  async expireCheckoutSession(
+    checkoutSessionId: string,
+  ): Promise<'expired' | 'complete'> {
     try {
       await this.stripe.checkout.sessions.expire(checkoutSessionId)
+      return 'expired'
+    } catch (error) {
+      if (!(error instanceof Stripe.errors.StripeInvalidRequestError)) {
+        this.logger.error(
+          { error: serializeError(error), checkoutSessionId },
+          'Failed to expire checkout session',
+        )
+        throw new BadGatewayException(
+          `Failed to expire checkout session ${checkoutSessionId}`,
+        )
+      }
+    }
+
+    // Expire raises StripeInvalidRequestError only when the session is not
+    //  open: it completed, already expired, or does not exist on this
+    //  environment's Stripe key. Retrieve to tell which.
+    try {
+      const session =
+        await this.stripe.checkout.sessions.retrieve(checkoutSessionId)
+      return session.status === 'complete' ? 'complete' : 'expired'
     } catch (error) {
       if (error instanceof Stripe.errors.StripeInvalidRequestError) {
         this.logger.info(
           { checkoutSessionId },
-          'Previous checkout session is not open, skipping expiry',
+          'Previous checkout session not found, skipping expiry',
         )
-        return
+        return 'expired'
       }
       this.logger.error(
         { error: serializeError(error), checkoutSessionId },
-        'Failed to expire checkout session',
+        'Failed to retrieve checkout session after expiry conflict',
       )
       throw new BadGatewayException(
         `Failed to expire checkout session ${checkoutSessionId}`,

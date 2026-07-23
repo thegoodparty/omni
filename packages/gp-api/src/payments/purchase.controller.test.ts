@@ -243,6 +243,24 @@ describe('PurchaseController', () => {
       )
     })
 
+    it('throws 409 without creating a session when the previous session was already paid', async () => {
+      const userWithPaidSession: User = {
+        ...mockUser,
+        metaData: { checkoutSessionId: 'cs_paid_awaiting_webhook' },
+      }
+      stripeService.expireCheckoutSession.mockResolvedValue('complete')
+
+      await expect(
+        controller.createProCheckoutSession(userWithPaidSession, {
+          embedded: true,
+        }),
+      ).rejects.toThrow(ConflictException)
+      expect(
+        stripeService.createEmbeddedProSubscriptionCheckoutSession,
+      ).not.toHaveBeenCalled()
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+    })
+
     it('skips expiry when the user has no stored checkout session', async () => {
       stripeService.createCheckoutSession.mockResolvedValue({
         redirectUrl,
