@@ -125,29 +125,6 @@ export class PlacesService extends createPrismaBase(MODELS.Place) {
     return places
   }
 
-  async getPlaceByPositionId(positionId: string) {
-    const position = await this.client.position.findUnique({
-      where: { id: positionId },
-      select: { id: true },
-    })
-    if (!position) {
-      throw new NotFoundException(`Position not found for id=${positionId}`)
-    }
-    // Position carries no place FK; resolve through the position's races. Only
-    // consider races that actually have a Place — Race.placeId is nullable, so
-    // an unfiltered pick could return a placeless race and 404 spuriously.
-    const race = await this.client.race.findFirst({
-      where: { positionId, placeId: { not: null } },
-      select: { Place: true },
-    })
-    if (!race?.Place) {
-      throw new NotFoundException(
-        `No place associated with position id=${positionId}`,
-      )
-    }
-    return race.Place
-  }
-
   async getPlacesWithMostElections(minRaces: number, count: number) {
     const places = await this.client.$queryRaw<
       { slug: string; name: string; race_count: number }[]
