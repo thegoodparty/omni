@@ -403,7 +403,10 @@ export default function CreateListWizard({
           name={name}
           onNameChange={setName}
           count={count}
-          isCounting={isLoading}
+          // isStale too: while a filter change is still debouncing the count
+          // is stale for the current selection and Save is gated off, so the
+          // sentence must read "Counting…" rather than assert a stale total.
+          isCounting={isLoading || isStale}
           isCapError={isCapError}
           countErrorMessage={errorMessage}
           peopleNoun={peopleNoun}
