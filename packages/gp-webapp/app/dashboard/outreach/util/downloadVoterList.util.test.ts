@@ -195,6 +195,7 @@ describe('downloadVoterList', () => {
       })
 
       expect(capturedHref).toContain('/api/v1/contacts/download?segment=42')
+      expect(capturedDownloadAttr).toMatch(/^contacts_.*\.csv$/)
       expect(voterFileDownloadMock).not.toHaveBeenCalled()
 
       mockedGetCookie.mockReturnValue('fresh-token')
