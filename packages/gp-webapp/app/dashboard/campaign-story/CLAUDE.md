@@ -7,18 +7,16 @@ exist** (restored under the `campaign-story` flag). The page
 `StoryIssuesCard` for the policy priorities) with a per-card **Save** button —
 it persists each field on Save rather than deferring like onboarding does.
 
-The `sections.ts` + `useCampaignStory*` modules are still shared: `sections.ts`
-is read by the plan tab's `CampaignPlanStoryGate` (`campaign-plan/components/`).
-The older self-saving cards in this directory (`CampaignStoryWhyCard`,
-`CampaignStoryCard`, `StoryCardActions`, and `OnboardingCampaignStoryStep`) are
-**no longer wired to any route** — retained only because `sections.ts` imports
-the `CampaignStorySection` type from `CampaignStoryCard`. They are safe to
-delete once that type moves.
+The `sections.ts` + `useCampaignStory*` modules are shared: `sections.ts` (which
+owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS`) is read by the
+plan tab's `CampaignPlanStoryGate` (`campaign-plan/components/`). The old
+self-saving cards (`CampaignStoryWhyCard`, `CampaignStoryCard`,
+`StoryCardActions`, `OnboardingCampaignStoryStep`) have been **deleted** —
+everything now runs through the onboarding `StoryIntakeCard` / `StoryIssuesCard`.
 
-Candidate-facing "Campaign Story" cards: the candidate's "why" (a RichEditor),
-their "background" (a textarea), and a structured "Your Policies" editor —
-capturing the narrative foundation reused across the campaign plan, stump
-speech, and voter messaging.
+The candidate's story is: the "why", the "background", and a structured set of
+policy priorities — the narrative foundation reused across the campaign plan,
+stump speech, and voter messaging.
 
 **Only `background` is part of the story record.** The "why" and issues are
 **website** fields shared with the Pro-upgrade flow:
@@ -62,7 +60,7 @@ already round-trips through `Website.content.about`.
 |------|------|
 | `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies) with a per-card Save that persists immediately |
 | `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
-| `components/CampaignStoryWhyCard.tsx`, `CampaignStoryCard.tsx`, `StoryCardActions.tsx` | **Legacy, unused.** The old self-saving cards; no route renders them anymore (superseded by the onboarding cards). Kept only for the `CampaignStorySection` type re-exported through `sections.ts`. |
+| `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanStoryGate` |
 
 ## Patterns
 
@@ -73,9 +71,9 @@ already round-trips through `Website.content.about`.
   "Campaign Tracker" label (`CampaignPlanRouter.tsx`, `CampaignPlanView.tsx`,
   `DashboardMenu.tsx`), and the story-completeness gate
   (`CampaignPlanStoryGate`).
-- **Persistence (background).** Consumers (`OnboardingCampaignStoryStep`,
-  `CampaignPlanStoryGate`) read the story client-side via `useCampaignStory()`
-  (`GET /v1/campaigns/mine/story`); the background card autosaves on blur via
+- **Persistence (background).** Consumers (the onboarding story draft, the
+  "Your story" page, `CampaignPlanStoryGate`) read the story client-side via
+  `useCampaignStory()` (`GET /v1/campaigns/mine/story`) and write via
   `PUT /v1/campaigns/mine/story`. Backed by the `campaign_story` table in
   gp-api (`src/campaignStory/`); response shape is `CampaignStory`
   (`background`) from `@goodparty_org/contracts`.
@@ -166,11 +164,9 @@ already round-trips through `Website.content.about`.
 
 ## Related
 
-- `app/onboarding/components/OnboardingCampaignStoryStep.tsx` composes these
-  self-saving why/background/issues cards for the standalone
-  `/dashboard/campaign-story` page. (Onboarding itself uses the newer
-  `StoryIntakeCard` + `useOnboardingStoryDraft` per-step deferred flow — see
-  `app/onboarding/CLAUDE.md`.)
+- `app/onboarding/components/` owns the shared story cards (`StoryIntakeCard`,
+  `StoryIssuesCard`, `StoryFieldBar`) used by both onboarding (deferred) and the
+  `/dashboard/campaign-story` page (per-card Save) — see `app/onboarding/CLAUDE.md`.
 - `app/shared/experiments/campaignStoryFlag.ts` — flag wrapper hook + key.
 - `app/dashboard/shared/DashboardMenu.tsx` — reads the flag to label the plan
   tab "Campaign Tracker" for the story cohort. No dedicated sidebar entry for

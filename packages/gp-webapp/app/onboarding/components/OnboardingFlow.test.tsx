@@ -50,9 +50,8 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
   return { ...actual, trackEvent: mockTrackEvent }
 })
 
-// The campaign-story cards use the app's SnackbarProvider (only for save
-// errors), which isn't mounted in this test tree, so mock it down to no-ops,
-// same as OnboardingCampaignStoryStep.test.tsx.
+// The story step uses the app's SnackbarProvider (only for save errors), which
+// isn't mounted in this test tree, so mock it down to no-ops.
 vi.mock('helpers/useSnackbar', () => ({
   useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
 }))
