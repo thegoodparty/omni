@@ -5,13 +5,16 @@ import { XMarkIcon } from '@styleguide/components/ui/icons'
 import type { WebsiteIssue } from 'helpers/types'
 import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
 import { useStoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
-import StoryFieldBar from './StoryFieldBar'
+import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
 
 interface StoryIssueRowProps {
   index: number
   issue: WebsiteIssue
   onChange: (issue: WebsiteIssue) => void
   onRemove: () => void
+  // Section-level Save (dashboard only) — every row shares it since issues
+  // persist as one array. Omitted in onboarding (deferred).
+  save?: StorySaveState
 }
 
 const TITLE_PLACEHOLDER =
@@ -28,6 +31,7 @@ export default function StoryIssueRow({
   issue,
   onChange,
   onRemove,
+  save,
 }: StoryIssueRowProps): React.JSX.Element {
   const setDescription = (description: string): void =>
     onChange({ ...issue, description })
@@ -90,6 +94,7 @@ export default function StoryIssueRow({
         rewrite={rewrite}
         dictation={dictation}
         improveDisabled={issue.description.trim().length === 0}
+        save={save}
       />
     </Card>
   )

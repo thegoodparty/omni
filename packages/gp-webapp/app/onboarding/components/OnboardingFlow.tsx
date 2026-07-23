@@ -49,6 +49,12 @@ import { localNewsQueryOptions } from './LocalNewsSourcesSection'
 import StoryIntakeCard from './StoryIntakeCard'
 import StoryIssuesCard from './StoryIssuesCard'
 import {
+  STORY_WHY_QUESTION,
+  STORY_BACKGROUND_QUESTION,
+  WHY_EXAMPLE_PLACEHOLDER,
+  BACKGROUND_EXAMPLE_PLACEHOLDER,
+} from './storyStepCopy'
+import {
   useOnboardingStoryDraft,
   type OnboardingStoryDraft,
 } from './useOnboardingStoryDraft'
@@ -191,12 +197,6 @@ const welcomeCards = [
   },
 ]
 
-// Italic "e.g. …" placeholders shown inside the empty story fields.
-const WHY_EXAMPLE_PLACEHOLDER =
-  "e.g. When the bus route to my mom's neighborhood got cut last winter, three of my neighbors lost their jobs. I went to a council meeting expecting answers and got platitudes — that's when I decided to run."
-const BACKGROUND_EXAMPLE_PLACEHOLDER =
-  "e.g. I grew up here, graduated from Lincoln High, and put myself through community college working nights. For the last decade I've run a small business and coached youth soccer. I'm not a career politician — I'm a neighbor who knows what it takes to make a budget work."
-
 interface StepBodyProps {
   activeStep: OnboardingStepConfig
   answers: OnboardingAnswers
@@ -336,7 +336,7 @@ const StepBody = ({
     if (activeStep.id === 'campaign-story-why') {
       return (
         <StoryIntakeCard
-          question="Why are you running?"
+          question={STORY_WHY_QUESTION}
           examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
           value={storyDraft.why}
           onChange={storyDraft.setWhy}
@@ -348,7 +348,7 @@ const StepBody = ({
     if (activeStep.id === 'campaign-story-background') {
       return (
         <StoryIntakeCard
-          question="What's your background?"
+          question={STORY_BACKGROUND_QUESTION}
           examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
           value={storyDraft.background}
           onChange={storyDraft.setBackground}

@@ -6,7 +6,7 @@ import {
   useStoryRewrite,
   type StoryRewriteField,
 } from 'app/dashboard/campaign-story/components/useStoryRewrite'
-import StoryFieldBar from './StoryFieldBar'
+import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
 
 interface StoryIntakeCardProps {
   question: string
@@ -16,6 +16,8 @@ interface StoryIntakeCardProps {
   onChange: (value: string) => void
   rewriteField: StoryRewriteField
   analyticsLabel: string
+  // Present on the dashboard (per-card Save); omitted in onboarding (deferred).
+  save?: StorySaveState
 }
 
 // The onboarding story-intake card (Why / Background steps). Deferred-save: it
@@ -31,6 +33,7 @@ export default function StoryIntakeCard({
   onChange,
   rewriteField,
   analyticsLabel,
+  save,
 }: StoryIntakeCardProps): React.JSX.Element {
   const rewrite = useStoryRewrite(rewriteField, value.trim(), onChange)
   const dictation = useDictationAppend({ analyticsLabel, value, onChange })
@@ -55,6 +58,7 @@ export default function StoryIntakeCard({
         rewrite={rewrite}
         dictation={dictation}
         improveDisabled={value.trim().length === 0}
+        save={save}
       />
     </Card>
   )

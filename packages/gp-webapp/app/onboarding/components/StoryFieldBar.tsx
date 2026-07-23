@@ -1,14 +1,31 @@
 'use client'
 
-import { Button, LoaderCircleIcon, MicIcon, SquareIcon } from '@styleguide'
+import {
+  Button,
+  CheckIcon,
+  LoaderCircleIcon,
+  MicIcon,
+  SquareIcon,
+} from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
 import type { UseDictationAppendResult } from 'app/dashboard/briefings/shared/useDictationAppend'
 import type { StoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
+
+// Optional per-field Save. Passed on the standalone "Your story" dashboard page
+// (each card persists on its own); omitted in onboarding, where the whole story
+// is deferred to one save on the final step.
+export interface StorySaveState {
+  isDirty: boolean
+  isSaving: boolean
+  hasSavedContent: boolean
+  onSave: () => void
+}
 
 interface StoryFieldBarProps {
   rewrite: StoryRewrite
   dictation: UseDictationAppendResult
   improveDisabled: boolean
+  save?: StorySaveState
 }
 
 // The action bar under a story field: an AI-rewrite error/limit notice, then a
@@ -19,6 +36,7 @@ export default function StoryFieldBar({
   rewrite,
   dictation,
   improveDisabled,
+  save,
 }: StoryFieldBarProps): React.JSX.Element {
   const isRecording = dictation.status === 'recording'
 
@@ -48,7 +66,24 @@ export default function StoryFieldBar({
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <div>
+        <div className="flex items-center gap-3">
+          {save && (
+            <Button
+              variant="outline"
+              size="small"
+              icon={
+                save.hasSavedContent && !save.isDirty ? (
+                  <CheckIcon />
+                ) : undefined
+              }
+              loading={save.isSaving}
+              loadingText="Saving…"
+              disabled={!save.isDirty || save.isSaving}
+              onClick={save.onSave}
+            >
+              {save.hasSavedContent && !save.isDirty ? 'Saved' : 'Save'}
+            </Button>
+          )}
           {isRecording ? (
             <span className="flex items-center gap-2 text-sm font-medium text-info">
               <span className="size-2 rounded-full bg-info" aria-hidden />

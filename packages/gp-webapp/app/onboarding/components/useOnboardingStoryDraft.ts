@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -11,7 +11,10 @@ import {
   saveAboutFields,
   USER_WEBSITE_QUERY_KEY,
 } from 'app/dashboard/website/util/website.util'
-import { useCampaignStory } from 'app/dashboard/campaign-story/useCampaignStory'
+import {
+  CAMPAIGN_STORY_QUERY_KEY,
+  useCampaignStory,
+} from 'app/dashboard/campaign-story/useCampaignStory'
 
 export interface OnboardingStoryDraft {
   // True once both the website + story fetches have resolved (or errored) so the
@@ -41,6 +44,7 @@ export interface OnboardingStoryDraft {
 export const useOnboardingStoryDraft = (
   enabled: boolean,
 ): OnboardingStoryDraft => {
+  const queryClient = useQueryClient()
   const { data: website, isError: isWebsiteError } = useQuery({
     queryKey: USER_WEBSITE_QUERY_KEY,
     queryFn: getUserWebsite,
@@ -86,6 +90,13 @@ export const useOnboardingStoryDraft = (
       okStory = false
       reportErrorToSentry(error, { context: 'useOnboardingStoryDraft.persist' })
     }
+    // Invalidate the shared caches so a later reader within staleTime (notably
+    // the Pro-upgrade candidate profile, which seeds its bio + issues from
+    // USER_WEBSITE_QUERY_KEY, and the plan-tab story gate) refetches the values
+    // we just wrote instead of the pre-write snapshot. Without this the why
+    // wouldn't pre-fill in Pro after onboarding (ENG: Bryan's report).
+    void queryClient.invalidateQueries({ queryKey: USER_WEBSITE_QUERY_KEY })
+    void queryClient.invalidateQueries({ queryKey: CAMPAIGN_STORY_QUERY_KEY })
     return okAbout && okStory
   }
 

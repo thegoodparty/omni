@@ -1,13 +1,19 @@
 # app/dashboard/campaign-story/
 
-**The standalone `/dashboard/campaign-story` route and its sidebar tab were
-removed.** The why/background/issues cards and the `sections.ts` /
-`useCampaignStory*` modules in this directory now exist purely as reusable
-pieces: composed into onboarding by
-`app/onboarding/components/OnboardingCampaignStoryStep.tsx`, and read by the
-plan tab's `CampaignPlanStoryGate` (`campaign-plan/components/`). A candidate
-edits their story during onboarding or via the campaign manager, not a
-dedicated dashboard tab.
+**The standalone `/dashboard/campaign-story` route + "Your story" sidebar tab
+exist** (restored under the `campaign-story` flag). The page
+(`components/CampaignStoryPage.tsx`) now renders the **onboarding** story cards
+(`app/onboarding/components/StoryIntakeCard` for why/background,
+`StoryIssuesCard` for the policy priorities) with a per-card **Save** button —
+it persists each field on Save rather than deferring like onboarding does.
+
+The `sections.ts` + `useCampaignStory*` modules are still shared: `sections.ts`
+is read by the plan tab's `CampaignPlanStoryGate` (`campaign-plan/components/`).
+The older self-saving cards in this directory (`CampaignStoryWhyCard`,
+`CampaignStoryCard`, `StoryCardActions`, and `OnboardingCampaignStoryStep`) are
+**no longer wired to any route** — retained only because `sections.ts` imports
+the `CampaignStorySection` type from `CampaignStoryCard`. They are safe to
+delete once that type moves.
 
 Candidate-facing "Campaign Story" cards: the candidate's "why" (a RichEditor),
 their "background" (a textarea), and a structured "Your Policies" editor —
@@ -54,10 +60,9 @@ already round-trips through `Website.content.about`.
 
 | File | Role |
 |------|------|
-| `components/CampaignStoryWhyCard.tsx` | The "why" card — a `RichEditor` (toolbar hidden) bound to the website bio via `saveAboutFields({ bio })` (autosaves on blur) + action bar ("Improve with AI" + mic) |
-| `components/CampaignStoryCard.tsx` | The "background" card — textarea autosaving to `campaign_story` via `PUT /v1/campaigns/mine/story` + action bar ("Improve with AI" + mic) |
-| `components/StoryCardActions.tsx` | Shared action bar under each card's field — Save (left, when dirty), an Undo link (after an AI improvement), "Improve with AI", and a dictation mic |
-| `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) used by both prompt cards |
+| `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies) with a per-card Save that persists immediately |
+| `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
+| `components/CampaignStoryWhyCard.tsx`, `CampaignStoryCard.tsx`, `StoryCardActions.tsx` | **Legacy, unused.** The old self-saving cards; no route renders them anymore (superseded by the onboarding cards). Kept only for the `CampaignStorySection` type re-exported through `sections.ts`. |
 
 ## Patterns
 
@@ -109,16 +114,21 @@ already round-trips through `Website.content.about`.
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real
   rewrite AI.
-- **Onboarding uses different components now.** Onboarding no longer mounts
-  these self-saving cards. It renders the new-design, deferred-save
-  `StoryIntakeCard` (why/background) + `StoryIssuesCard` (inline policy rows, no
-  modal) across three flag-gated steps, holding the answers in one in-memory
-  draft (`useOnboardingStoryDraft`) that persists only on the final step's
-  Continue. Skip on any story step abandons all three. See
-  `app/onboarding/CLAUDE.md`. The cards in *this* directory now back only the
-  standalone `/dashboard/campaign-story` page (which still autosaves per field).
-  The `useStoryRewrite` hook here also gained an `'issue'` field (+ optional
-  `title`) for those inline policy rows.
+- **Shared cards live in onboarding.** Both onboarding and the "Your story"
+  dashboard page render the new-design `StoryIntakeCard` (why/background) +
+  `StoryIssuesCard` (inline "Priority N" rows, no modal) from
+  `app/onboarding/components/`. Onboarding is deferred (one save on the final
+  step, `useOnboardingStoryDraft`); the dashboard passes each card a `save`
+  (`StorySaveState`) so it persists that field on its own Save button
+  (`CampaignStoryPage`). The `useStoryRewrite` hook here backs the shared
+  `StoryFieldBar` and gained an `'issue'` field (+ optional `title`) for the
+  policy rows. See `app/onboarding/CLAUDE.md`.
+- **why persistence → Pro.** Because the why is the website bio, any writer must
+  invalidate `USER_WEBSITE_QUERY_KEY` after saving or a later reader within the
+  5-min `staleTime` (notably the Pro-upgrade candidate profile, which seeds its
+  bio from that cache on in-app navigation) reads the pre-write snapshot and the
+  why won't pre-fill. `useOnboardingStoryDraft.persist` and `CampaignStoryPage`
+  both invalidate; keep that up in any new writer.
 - **Plan tab review + generation.** The actual review + confirm + generation
   UI lives on the plan tab
   (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which shows the why

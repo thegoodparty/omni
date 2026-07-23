@@ -3,10 +3,14 @@
 import { PlusIcon } from '@styleguide/components/ui/icons'
 import type { WebsiteIssue } from 'helpers/types'
 import StoryIssueRow from './StoryIssueRow'
+import type { StorySaveState } from './StoryFieldBar'
 
 interface StoryIssuesCardProps {
   issues: WebsiteIssue[]
   onChange: (issues: WebsiteIssue[]) => void
+  // Section-level Save (dashboard only), shared by every priority row since the
+  // issues persist as one array. Omitted in onboarding (deferred).
+  save?: StorySaveState
 }
 
 // The onboarding voter-issues step: an inline list of "Priority N" cards (title
@@ -16,6 +20,7 @@ interface StoryIssuesCardProps {
 export default function StoryIssuesCard({
   issues,
   onChange,
+  save,
 }: StoryIssuesCardProps): React.JSX.Element {
   const updateAt = (index: number, next: WebsiteIssue): void =>
     onChange(issues.map((issue, i) => (i === index ? next : issue)))
@@ -34,6 +39,7 @@ export default function StoryIssuesCard({
           issue={issue}
           onChange={(next) => updateAt(index, next)}
           onRemove={() => removeAt(index)}
+          save={save}
         />
       ))}
 
