@@ -95,7 +95,8 @@ export const votescoreThreshold = (
     // tied voters to hit an exact N — band count >= N by design.
     if (cum >= targetN) return row.score
   }
-  return rows.length ? rows[rows.length - 1].score : 0
+  const lowest = rows.at(-1)
+  return lowest ? lowest.score : 0
 }
 
 export type SubGeoColumn = 'County' | 'City' | 'Precinct'
@@ -114,7 +115,7 @@ export const pickSubGeo = (
     const stat = stats.find((s) => s.col === col)
     if (stat && stat.distinct >= 3 && stat.coverage >= 0.5) return col
   }
-  return candidates[candidates.length - 1]
+  return candidates.at(-1) ?? 'Precinct'
 }
 
 export const SUB_GEO_LABELS = {
