@@ -152,6 +152,37 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     ).toBeInTheDocument()
   })
 
+  it('Improve marks the why dirty (not auto-saved) and Undo restores it clean', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+      status: 200,
+      data: { rewrite: 'An AI-sharpened why.' },
+    }))
+    // Seed the why as already-saved so "clean" is observable before + after.
+    renderForm({ initialBio: 'my saved why' })
+
+    const field = whyField()
+    expect(field.value).toBe('my saved why')
+    expect(enabledSaveButtons()).toHaveLength(0)
+
+    // Improve rewrites in place; on the dashboard it's an edit like any other —
+    // the field goes dirty and Save unlocks (it must NOT auto-save, or clear the
+    // dirty flag via setSavedWhy).
+    await user.click(
+      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
+    )
+    await waitFor(() => expect(field.value).toBe('An AI-sharpened why.'))
+    expect(enabledSaveButtons()).toHaveLength(1)
+
+    // Undo restores the pre-improvement (saved) text → clean again.
+    await user.click(screen.getByRole('button', { name: /Undo/ }))
+    await waitFor(() => expect(field.value).toBe('my saved why'))
+    expect(enabledSaveButtons()).toHaveLength(0)
+
+    // Neither Improve nor Undo persists on their own — Save is the persist path.
+    expect(mockSaveAboutFields).not.toHaveBeenCalled()
+  })
+
   it('saves edited policy issues via saveAboutFields', async () => {
     const user = userEvent.setup()
     const { invalidateSpy } = renderForm({
