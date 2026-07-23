@@ -1,6 +1,5 @@
 'use client'
 
-import { Button } from '@styleguide'
 import { PlusIcon } from '@styleguide/components/ui/icons'
 import type { WebsiteIssue } from 'helpers/types'
 import StoryIssueRow from './StoryIssueRow'
@@ -10,9 +9,10 @@ interface StoryIssuesCardProps {
   onChange: (issues: WebsiteIssue[]) => void
 }
 
-// The onboarding voter-issues step: an inline list of policy rows (title +
-// description + record/Improve bar) instead of a modal. "Add issue" appends a
-// blank row. Controlled + deferred — the parent persists on the final step.
+// The onboarding voter-issues step: an inline list of "Priority N" cards (title
+// + description + record/Improve bar) instead of a modal, with a dashed
+// "Add a policy priority" block that appends a blank one. Controlled + deferred
+// — the parent persists on the final story step.
 export default function StoryIssuesCard({
   issues,
   onChange,
@@ -37,15 +37,14 @@ export default function StoryIssuesCard({
         />
       ))}
 
-      <Button
+      <button
         type="button"
-        variant="outline"
         onClick={add}
-        className="self-start gap-1.5"
+        className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border py-4 text-base font-medium text-link transition-colors hover:border-link hover:bg-link/5"
       >
-        <PlusIcon className="size-4" aria-hidden />
-        Add issue
-      </Button>
+        <PlusIcon className="size-5" aria-hidden />
+        Add a policy priority
+      </button>
     </div>
   )
 }

@@ -148,7 +148,7 @@ const continueThroughStorySteps = async (): Promise<void> => {
   await screen.findByRole('heading', { level: 2, name: /your background/i })
   // background -> issues
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-  await screen.findByRole('heading', { level: 2, name: /your policies/i })
+  await screen.findByRole('button', { name: /add a policy priority/i })
   // issues -> pledge (persists the draft)
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }

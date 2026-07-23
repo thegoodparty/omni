@@ -110,10 +110,11 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
   },
   {
     id: 'campaign-story-issues',
-    title: 'Your policies',
+    title: 'What issues do you most want to solve if elected?',
     description:
-      'Two to four concrete fights for your first term. These are shared with your campaign website.',
-    whyThisMatters: STORY_WHY_WE_ASK,
+      'Add each policy priority as its own entry — a short title and the story behind it.',
+    whyThisMatters:
+      'We use each priority to draft targeted outreach and shape your campaign plan. Add as many as matter to you — you can always edit or remove them later.',
     isValid: () => true,
   },
   {

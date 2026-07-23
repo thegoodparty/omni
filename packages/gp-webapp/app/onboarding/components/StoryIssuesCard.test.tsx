@@ -27,20 +27,21 @@ const Harness = ({
 }
 
 describe('StoryIssuesCard', () => {
-  it('adds an inline row (title + description + record + Improve) instead of a modal', async () => {
+  it('adds an inline "Priority" row (title + description + record + Improve) instead of a modal', async () => {
     const user = userEvent.setup()
     render(<Harness />)
 
-    // Empty state: just the Add issue button, no fields yet.
-    expect(
-      screen.queryByPlaceholderText(/policy title/i),
-    ).not.toBeInTheDocument()
+    // Empty state: just the dashed Add button, no priority card yet.
+    expect(screen.queryByText('Priority 1')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /add issue/i }))
+    await user.click(
+      screen.getByRole('button', { name: /add a policy priority/i }),
+    )
 
-    expect(screen.getByPlaceholderText(/policy title/i)).toBeInTheDocument()
+    expect(screen.getByText('Priority 1')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/reliable transit/i)).toBeInTheDocument()
     expect(
-      screen.getByPlaceholderText(/describe this policy/i),
+      screen.getByPlaceholderText(/northside bus route/i),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /Improve with AI/ }),
@@ -65,7 +66,7 @@ describe('StoryIssuesCard', () => {
     await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
 
     const description =
-      screen.getByPlaceholderText<HTMLTextAreaElement>(/describe this policy/i)
+      screen.getByPlaceholderText<HTMLTextAreaElement>(/northside bus route/i)
     await waitFor(() => expect(description.value).toBe('A sharper policy.'))
     expect(body).toEqual({
       field: 'issue',
@@ -85,15 +86,17 @@ describe('StoryIssuesCard', () => {
       />,
     )
 
-    expect(screen.getAllByPlaceholderText(/policy title/i)).toHaveLength(2)
+    expect(screen.getAllByPlaceholderText(/reliable transit/i)).toHaveLength(2)
 
     const [firstRemove] = screen.getAllByRole('button', {
-      name: /remove policy/i,
+      name: /remove policy priority/i,
     })
     await user.click(firstRemove!)
 
     await waitFor(() =>
-      expect(screen.getAllByPlaceholderText(/policy title/i)).toHaveLength(1),
+      expect(screen.getAllByPlaceholderText(/reliable transit/i)).toHaveLength(
+        1,
+      ),
     )
   })
 })

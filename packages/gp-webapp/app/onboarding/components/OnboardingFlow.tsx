@@ -358,13 +358,10 @@ const StepBody = ({
       )
     }
     return (
-      <Card className="flex flex-col gap-4 p-6">
-        <h2 className="text-2xl font-bold text-foreground">Your policies</h2>
-        <StoryIssuesCard
-          issues={storyDraft.issues}
-          onChange={storyDraft.setIssues}
-        />
-      </Card>
+      <StoryIssuesCard
+        issues={storyDraft.issues}
+        onChange={storyDraft.setIssues}
+      />
     )
   }
 
