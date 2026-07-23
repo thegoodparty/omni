@@ -134,6 +134,41 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     expect(mockTrack).not.toHaveBeenCalled()
   })
 
+  it('marks the record rejected and fires the rejection event when CV is REJECTED', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'REJECTED',
+      pinDelivery: null,
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', status: { not: 'rejected' } },
+      data: { status: 'rejected' },
+    })
+    expect(mockTrack).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({
+        rejection_source: 'cv_status_check',
+        peerly_identity_id: '11540083',
+        company_hubspot_id: 'company-1',
+      }),
+    )
+  })
+
+  it('does not re-fire the rejection event when the record is already rejected', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'REJECTED',
+      pinDelivery: null,
+    })
+    mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
   it('does nothing when the PIN has not been sent yet', async () => {
     mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
       status: 'IN_REVIEW',
