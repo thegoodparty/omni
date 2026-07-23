@@ -132,6 +132,10 @@ When investigating a bug or incident, use the MCP tools rather than guessing.
   `{service_name="gp-api", deployment_environment_name="prod"}`.
 - **Sentry MCP** for frontend errors. Org slug `goodparty`, region
   `https://us.sentry.io`.
+- **Debugging deployed behavior?** Deployed code is whatever is on the remote
+  branch (`develop`→dev, `qa`→qa, `master`→prod), not your local tree — and this
+  checkout is shared, so `HEAD` may be stale. `git fetch origin <branch>` and read
+  `origin/<branch>` before forming any hypothesis.
 
 Full label reference, example queries, and an incident playbook: `docs/observability.md`.
 
