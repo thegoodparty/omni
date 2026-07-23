@@ -1,7 +1,13 @@
 import { ReqCampaign } from '@/campaigns/decorators/ReqCampaign.decorator'
 import { UseCampaign } from '@/campaigns/decorators/UseCampaign.decorator'
 import { CampaignsService } from '@/campaigns/services/campaigns.service'
-import { BadRequestException, Body, Controller, Post } from '@nestjs/common'
+import {
+  BadRequestException,
+  Body,
+  ConflictException,
+  Controller,
+  Post,
+} from '@nestjs/common'
 import { Campaign, Organization, User } from '../generated/prisma'
 import { PinoLogger } from 'nestjs-pino'
 import { serializeError } from 'serialize-error'
@@ -47,6 +53,24 @@ export class PurchaseController {
         message: 'User does not have an active campaign',
         errorCode: 'NO_ACTIVE_CAMPAIGN',
       })
+    }
+
+    // A second completed subscription checkout double-bills the user under a
+    // second Stripe customer (sessions carry only customer_email, so Stripe
+    // cannot dedupe them itself).
+    if (activeCampaign.isPro) {
+      throw new ConflictException({
+        message: 'Campaign already has an active Pro subscription',
+        errorCode: 'ALREADY_PRO',
+      })
+    }
+
+    // Any still-open previous session stays payable even after this user
+    // becomes Pro — expiring it caps each user at one payable Pro checkout
+    // at a time.
+    const previousCheckoutSessionId = user.metaData?.checkoutSessionId
+    if (previousCheckoutSessionId) {
+      await this.stripeService.expireCheckoutSession(previousCheckoutSessionId)
     }
 
     const { email } = user

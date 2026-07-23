@@ -5,14 +5,18 @@ import { firstOrThrow, nthOrThrow } from 'src/shared/test-utils/arrays.util'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import { StripeService } from './stripe.service'
 
-const { sessionsCreate, productsRetrieve } = vi.hoisted(() => ({
-  sessionsCreate: vi.fn(),
-  productsRetrieve: vi.fn(),
-}))
+const { sessionsCreate, sessionsExpire, productsRetrieve, MockStripeError } =
+  vi.hoisted(() => ({
+    sessionsCreate: vi.fn(),
+    sessionsExpire: vi.fn(),
+    productsRetrieve: vi.fn(),
+    MockStripeError: class StripeInvalidRequestError extends Error {},
+  }))
 
 vi.mock('stripe', () => ({
   default: class {
-    checkout = { sessions: { create: sessionsCreate } }
+    static errors = { StripeInvalidRequestError: MockStripeError }
+    checkout = { sessions: { create: sessionsCreate, expire: sessionsExpire } }
     products = { retrieve: productsRetrieve }
   },
 }))
@@ -88,6 +92,34 @@ describe('StripeService Pro subscription checkout', () => {
       expect(embeddedArgs.metadata).toEqual(redirectArgs.metadata)
       expect(embeddedArgs.mode).toBe(redirectArgs.mode)
       expect(embeddedArgs.line_items).toEqual(redirectArgs.line_items)
+    })
+  })
+
+  describe('expireCheckoutSession', () => {
+    it('expires the session via Stripe', async () => {
+      sessionsExpire.mockResolvedValue({ id: 'cs_open', status: 'expired' })
+
+      await service.expireCheckoutSession('cs_open')
+
+      expect(sessionsExpire).toHaveBeenCalledWith('cs_open')
+    })
+
+    it('swallows the invalid-request error a non-open session raises', async () => {
+      sessionsExpire.mockRejectedValue(
+        new MockStripeError('This session is already complete'),
+      )
+
+      await expect(
+        service.expireCheckoutSession('cs_completed'),
+      ).resolves.toBeUndefined()
+    })
+
+    it('throws BadGatewayException on any other Stripe failure', async () => {
+      sessionsExpire.mockRejectedValue(new Error('stripe unavailable'))
+
+      await expect(service.expireCheckoutSession('cs_open')).rejects.toThrow(
+        BadGatewayException,
+      )
     })
   })
 })

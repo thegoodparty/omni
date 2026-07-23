@@ -420,6 +420,60 @@ describe('PaymentEventsService', () => {
     })
   })
 
+  describe('checkoutSessionExpiredHandler', () => {
+    const expiredEvent = (sessionId: string) =>
+      ({
+        type: WebhookEventType.CheckoutSessionExpired,
+        data: {
+          object: { id: sessionId, metadata: { userId: '1' } },
+        },
+      }) as unknown as Stripe.CheckoutSessionExpiredEvent
+
+    it('clears checkoutSessionId when the stored session is the one that expired', async () => {
+      usersService.findUser.mockResolvedValue({
+        ...mockUser,
+        metaData: { checkoutSessionId: 'cs_expired' },
+      })
+
+      await service.checkoutSessionExpiredHandler(expiredEvent('cs_expired'))
+
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(1, {
+        checkoutSessionId: null,
+      })
+    })
+
+    it('does not clear checkoutSessionId when a newer session is stored', async () => {
+      usersService.findUser.mockResolvedValue({
+        ...mockUser,
+        metaData: { checkoutSessionId: 'cs_newer' },
+      })
+
+      await service.checkoutSessionExpiredHandler(expiredEvent('cs_expired'))
+
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+    })
+
+    it('logs and returns when the user does not exist in this environment', async () => {
+      usersService.findUser.mockResolvedValue(null)
+
+      await expect(
+        service.checkoutSessionExpiredHandler(expiredEvent('cs_expired')),
+      ).resolves.toBeUndefined()
+      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+    })
+
+    it('throws when the expired session carries no userId metadata', async () => {
+      const event = {
+        type: WebhookEventType.CheckoutSessionExpired,
+        data: { object: { id: 'cs_expired', metadata: {} } },
+      } as unknown as Stripe.CheckoutSessionExpiredEvent
+
+      await expect(
+        service.checkoutSessionExpiredHandler(event),
+      ).rejects.toThrow('No userId found in expired checkout session metadata')
+    })
+  })
+
   describe('customerSubscriptionCreatedHandler', () => {
     const createdEvent = {
       data: { object: { id: 'sub_new', customer: 'cus_test' } },

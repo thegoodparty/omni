@@ -439,6 +439,7 @@ export class PaymentEventsService {
     event: Stripe.CheckoutSessionExpiredEvent,
   ): Promise<void> {
     const session = event.data.object
+    const { id: sessionId } = session
     const { userId } = session.metadata ? session.metadata : {}
     if (!userId) {
       throw new BadRequestException(
@@ -446,11 +447,8 @@ export class PaymentEventsService {
       )
     }
 
-    try {
-      await this.usersService.patchUserMetaData(parseInt(userId), {
-        checkoutSessionId: null,
-      })
-    } catch {
+    const user = await this.usersService.findUser({ id: parseInt(userId) })
+    if (!user) {
       // User may not exist in this environment's database (e.g., session was
       // created from a different environment sharing the same Stripe test key).
       // Since this is just cleanup, log and move on rather than failing the webhook.
@@ -458,7 +456,20 @@ export class PaymentEventsService {
       this.logger.warn(
         `[WEBHOOK] Could not clear checkoutSessionId for userId ${userId} — user may not exist in this environment`,
       )
+      return
     }
+
+    // This event routinely arrives after a newer session id was stored
+    // (creating a checkout expires its predecessor) — clearing
+    // unconditionally would wipe the newer session's tracking and let it
+    // escape future expiry.
+    if (user.metaData?.checkoutSessionId !== sessionId) {
+      return
+    }
+
+    await this.usersService.patchUserMetaData(user.id, {
+      checkoutSessionId: null,
+    })
   }
 
   async customerSubscriptionDeletedHandler(

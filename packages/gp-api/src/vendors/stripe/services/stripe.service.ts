@@ -8,6 +8,7 @@ import {
   PaymentType,
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
+import { serializeError } from 'serialize-error'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -88,6 +89,30 @@ export class StripeService {
 
   async retrieveCheckoutSession(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
+  }
+
+  // A session that already completed or expired makes Stripe raise
+  //  StripeInvalidRequestError — the expected case when the previous checkout
+  //  finished, not a failure, so it is deliberately swallowed.
+  async expireCheckoutSession(checkoutSessionId: string) {
+    try {
+      await this.stripe.checkout.sessions.expire(checkoutSessionId)
+    } catch (error) {
+      if (error instanceof Stripe.errors.StripeInvalidRequestError) {
+        this.logger.info(
+          { checkoutSessionId },
+          'Previous checkout session is not open, skipping expiry',
+        )
+        return
+      }
+      this.logger.error(
+        { error: serializeError(error), checkoutSessionId },
+        'Failed to expire checkout session',
+      )
+      throw new BadGatewayException(
+        `Failed to expire checkout session ${checkoutSessionId}`,
+      )
+    }
   }
 
   // Shared params for the Pro subscription Checkout Session, used by both the
