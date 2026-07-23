@@ -604,6 +604,44 @@ describe('ExperimentRunsService', () => {
     )
 
     it(
+      'skips the test-user gate on resume: creates no run, sends no SQS, ' +
+        'and releases the claim with an incremented attempt count',
+      async () => {
+        sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-tu' })
+        organizationFindUnique.mockResolvedValue({
+          owner: { email: 'jane@test.goodparty.org' },
+        })
+        mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+        await service.resumeRun(awaitingRun)
+
+        expect(mockModel.create).not.toHaveBeenCalled()
+        expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
+        // No successor row was created, so the old row is released (not
+        // superseded) and its attempt counter advances toward the cap.
+        expect(mockModel.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              runId: awaitingRun.runId,
+              status: ExperimentRunStatus.AWAITING_RESUME,
+            }),
+            data: {
+              resumeScheduledFor: expect.any(Date),
+              resumeAttempts: { increment: 1 },
+            },
+          }),
+        )
+        expect(mockModel.updateMany).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              error: 'Superseded by resumed run',
+            }),
+          }),
+        )
+      },
+    )
+
+    it(
       'releases the claim (restores resumeScheduledFor on old row) ' +
         'when SQS send throws, and does not rethrow',
       async () => {
