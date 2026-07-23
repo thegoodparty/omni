@@ -1,5 +1,10 @@
 import type { OnboardingStepConfig, NonEmptyArray } from './onboardingTypes'
 
+// Shared "Why we ask" aside copy for all three story steps (rendered in the
+// right-hand WhyThisMatters panel).
+const STORY_WHY_WE_ASK =
+  "We use all of this to personalize and craft your outreach so you don't have to, and to build you a personalized campaign plan. You can skip this and add it later, but the more you tell me now, the sharper your first plan will be."
+
 export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
   {
     id: 'welcome',
@@ -85,24 +90,30 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
   // voter issues). Continue always advances; Skip on any of them skips ALL three
   // and jumps to the pledge, and the answers are persisted only on the final
   // step's Continue — see OnboardingFlow's handleStoryContinue / handleStorySkip.
-  // The page heading is suppressed for these (each card carries its own
-  // question), so title/description are only fallbacks.
+  // Each renders the standard onboarding chrome (page heading + description +
+  // "Why we ask" aside) around its card.
   {
     id: 'campaign-story-why',
     title: 'Why are you running?',
-    description: 'A few words in your voice about why you are running.',
+    description:
+      "We'll use this to draft your voter outreach and personalize your campaign plan.",
+    whyThisMatters: STORY_WHY_WE_ASK,
     isValid: () => true,
   },
   {
     id: 'campaign-story-background',
-    title: 'Your background',
-    description: 'The human story behind the candidate.',
+    title: "What's your background?",
+    description:
+      'A bit about who you are and what shaped you — we weave it into your outreach.',
+    whyThisMatters: STORY_WHY_WE_ASK,
     isValid: () => true,
   },
   {
     id: 'campaign-story-issues',
     title: 'Your policies',
-    description: 'The concrete fights you will take on.',
+    description:
+      'Two to four concrete fights for your first term. These are shared with your campaign website.',
+    whyThisMatters: STORY_WHY_WE_ASK,
     isValid: () => true,
   },
   {

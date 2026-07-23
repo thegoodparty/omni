@@ -111,12 +111,14 @@ already round-trips through `Website.content.about`.
   rewrite AI.
 - **Onboarding uses different components now.** Onboarding no longer mounts
   these self-saving cards. It renders the new-design, deferred-save
-  `StoryIntakeCard` (why/background) + `PolicyPriorities` (issues) across three
-  flag-gated steps, holding the answers in one in-memory draft
-  (`useOnboardingStoryDraft`) that persists only on the final step's Continue.
-  Skip on any story step abandons all three. See `app/onboarding/CLAUDE.md`.
-  The cards in *this* directory now back only the standalone
-  `/dashboard/campaign-story` page (which still autosaves per field).
+  `StoryIntakeCard` (why/background) + `StoryIssuesCard` (inline policy rows, no
+  modal) across three flag-gated steps, holding the answers in one in-memory
+  draft (`useOnboardingStoryDraft`) that persists only on the final step's
+  Continue. Skip on any story step abandons all three. See
+  `app/onboarding/CLAUDE.md`. The cards in *this* directory now back only the
+  standalone `/dashboard/campaign-story` page (which still autosaves per field).
+  The `useStoryRewrite` hook here also gained an `'issue'` field (+ optional
+  `title`) for those inline policy rows.
 - **Plan tab review + generation.** The actual review + confirm + generation
   UI lives on the plan tab
   (`campaign-plan/components/CampaignPlanStoryGate.tsx`), which shows the why

@@ -47,11 +47,11 @@ import OnboardingTopBar from '../shared/OnboardingTopBar'
 import { WhyThisMatters } from './WhyThisMatters'
 import { localNewsQueryOptions } from './LocalNewsSourcesSection'
 import StoryIntakeCard from './StoryIntakeCard'
+import StoryIssuesCard from './StoryIssuesCard'
 import {
   useOnboardingStoryDraft,
   type OnboardingStoryDraft,
 } from './useOnboardingStoryDraft'
-import PolicyPriorities from 'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
 import { MajorPartyBlockedAlert } from '../shared/partisanParty'
 import type {
@@ -359,17 +359,10 @@ const StepBody = ({
     }
     return (
       <Card className="flex flex-col gap-4 p-6">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-bold text-foreground">Your policies</h2>
-          <p className="text-sm text-muted-foreground">
-            Two to four concrete fights for your first term. These are shared
-            with your campaign website.
-          </p>
-        </div>
-        <PolicyPriorities
+        <h2 className="text-2xl font-bold text-foreground">Your policies</h2>
+        <StoryIssuesCard
           issues={storyDraft.issues}
           onChange={storyDraft.setIssues}
-          hideToolbar
         />
       </Card>
     )
@@ -644,7 +637,22 @@ export default function OnboardingFlow({
     setAnswers((currentAnswers) => ({ ...currentAnswers, ...answerPatch }))
   }
 
+  // The earliest story step still missing an answer — where a candidate should
+  // resume. All-answered falls back to the last story step.
+  const firstUnansweredStoryStepId = (): OnboardingStepId => {
+    if (!storyDraft.why.trim()) return 'campaign-story-why'
+    if (!storyDraft.background.trim()) return 'campaign-story-background'
+    return 'campaign-story-issues'
+  }
+
   const goBack = () => {
+    // Skipping jumps straight from a story step to the pledge, so Back from the
+    // pledge must return to the story question the candidate left unanswered —
+    // not step them back through each story question one at a time.
+    if (activeStep.id === 'pledge' && campaignStoryEnabled) {
+      setActiveStepId(firstUnansweredStoryStepId())
+      return
+    }
     if (previousStep) {
       setActiveStepId(previousStep.id)
     }
@@ -1207,7 +1215,7 @@ export default function OnboardingFlow({
                 activeStep.id === 'welcome' ? ' text-center' : ''
               }`}
             >
-              {isP2vBlocking || isStoryStep ? null : (
+              {isP2vBlocking ? null : (
                 <div className="space-y-4">
                   <h1 className="text-4xl font-bold text-foreground sm:text-5xl">
                     {activeStep.title}
@@ -1264,7 +1272,10 @@ export default function OnboardingFlow({
                     exactly what that takes.
                   </WhyThisMatters>
                 ) : (
-                  <WhyThisMatters text={activeStep.whyThisMatters} />
+                  <WhyThisMatters
+                    title={isStoryStep ? 'Why we ask' : undefined}
+                    text={activeStep.whyThisMatters}
+                  />
                 )}
               </aside>
             ) : null}

@@ -6,10 +6,11 @@ import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 
-// The Campaign Story prompts that support "Improve with AI". `why` now edits the
-// website bio (shared with Pro-upgrade) while `background` stays on the story,
-// but both rewrite through the same stateless endpoint.
-export type StoryRewriteField = 'why' | 'background'
+// The Campaign Story prompts that support "Improve with AI". `why` edits the
+// website bio (shared with Pro-upgrade), `background` stays on the story, and
+// `issue` rewrites a single policy's description — all through the same
+// stateless endpoint.
+export type StoryRewriteField = 'why' | 'background' | 'issue'
 
 export interface StoryRewrite {
   isRewriting: boolean
@@ -35,6 +36,9 @@ export const useStoryRewrite = (
   field: StoryRewriteField,
   text: string,
   onImproved: (text: string) => void,
+  // For `issue`, the policy title gives the rewrite extra context (same as the
+  // Pro-upgrade PolicyForm). Ignored for why/background.
+  title?: string,
 ): StoryRewrite => {
   const [isRewriting, setIsRewriting] = useState(false)
   const [rewriteError, setRewriteError] = useState(false)
@@ -60,9 +64,14 @@ export const useStoryRewrite = (
       source: 'initial',
     })
     try {
+      const trimmedTitle = title?.trim()
       const { data } = await clientRequest(
         'POST /v1/campaigns/mine/story/rewrite',
-        { field, text: trimmed },
+        {
+          field,
+          text: trimmed,
+          ...(trimmedTitle ? { title: trimmedTitle } : {}),
+        },
       )
       // Capture what the field held before we overwrite it, so undo restores it.
       originalRef.current = text

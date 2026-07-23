@@ -583,6 +583,39 @@ describe('new onboarding flow shell', () => {
     expect(skippedCalls).toHaveLength(1)
   })
 
+  it('returns from the pledge to the first unanswered story step, not the last one', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Empty story, skipped from the first step.
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 2,
+      name: /why are you running/i,
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    await screen.findByText('Take our pledge to get your campaign plan')
+
+    // Back lands straight on the why step (first unanswered), not the issues
+    // step (the literal previous step), and without stepping through each one.
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(
+      await screen.findByRole('heading', {
+        level: 2,
+        name: /why are you running/i,
+      }),
+    ).toBeInTheDocument()
+  })
+
   it('labels the pledge button "Meet your campaign manager" for the campaign-story cohort', async () => {
     setCampaignStoryFlag(true, true)
     mswServer.use(
