@@ -83,6 +83,14 @@ interface Props {
    */
   showSuggestionsWithGreeting?: boolean
   /**
+   * Short quick-prompt pills shown below the suggestions (above the composer),
+   * each sending its own text as a visible message. Distinct from `suggestions`
+   * (the larger action cards). Omit for CoS / Community Issues.
+   */
+  quickPrompts?: string[]
+  /** Composer placeholder. Defaults to the generic "How can I help?". */
+  composerPlaceholder?: string
+  /**
    * One-shot kickoff: send this message once on open through the normal stream
    * path but WITHOUT an optimistic user bubble (the server hides it / returns
    * a canned reply). Consumed once per mount.
@@ -247,6 +255,8 @@ export default function ChiefOfStaffChatBody({
   defaultIntro = COS_INTRO_MESSAGES,
   suggestions,
   showSuggestionsWithGreeting = false,
+  quickPrompts,
+  composerPlaceholder = 'How can I help?',
   pendingKickoff,
   composerRef,
   hiddenMessageContents = NO_HIDDEN_CONTENTS,
@@ -941,6 +951,20 @@ export default function ChiefOfStaffChatBody({
     !playback &&
     !error
 
+  // The starter suggestions + quick prompts show on an empty transcript, or
+  // alongside a seeded greeting when the caller opts in.
+  const showStarters =
+    ((history.length === 0 && !playback) ||
+      (showSuggestionsWithGreeting && isPristineGreeting)) &&
+    streaming === null &&
+    !error
+  // Suggestions carrying a description render as full-width cards (Campaign
+  // Manager); description-less ones stay pills (Chief of Staff / Community
+  // Issues).
+  const suggestionsAsCards = effectiveSuggestions.some((s) =>
+    Boolean(s.description),
+  )
+
   return (
     // vaul disables text selection on the drawer (user-select:none on fine
     // pointers) and treats pointer-drags as drawer-drags. select-text restores
@@ -1079,12 +1103,33 @@ export default function ChiefOfStaffChatBody({
         )}
       </div>
 
-      {((history.length === 0 && !playback) ||
-        (showSuggestionsWithGreeting && isPristineGreeting)) &&
-        streaming === null &&
-        !error && (
-          <div className="mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2">
-            {effectiveSuggestions.map((s) => (
+      {showStarters && (
+        <div
+          className={
+            suggestionsAsCards
+              ? 'mx-auto flex w-full max-w-3xl flex-col gap-2 px-3 pb-1 pt-2'
+              : 'mx-auto flex w-full max-w-3xl flex-wrap gap-2 px-3 pb-1 pt-2'
+          }
+        >
+          {effectiveSuggestions.map((s) =>
+            suggestionsAsCards ? (
+              <button
+                key={s.label}
+                type="button"
+                disabled={busy}
+                onClick={() => onSuggestionClick(s)}
+                className="w-full rounded-xl border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-grayscale-50 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <span className="block text-sm font-semibold text-foreground">
+                  {s.label}
+                </span>
+                {s.description && (
+                  <span className="mt-0.5 block text-sm text-muted-foreground">
+                    {s.description}
+                  </span>
+                )}
+              </button>
+            ) : (
               <Badge
                 key={s.label}
                 asChild
@@ -1097,23 +1142,36 @@ export default function ChiefOfStaffChatBody({
                   disabled={busy}
                   onClick={() => onSuggestionClick(s)}
                 >
-                  {s.description ? (
-                    <span className="flex flex-col items-start gap-0.5 text-left">
-                      <span>{s.label}</span>
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {s.description}
-                      </span>
-                    </span>
-                  ) : (
-                    s.label
-                  )}
+                  {s.label}
+                </button>
+              </Badge>
+            ),
+          )}
+        </div>
+      )}
+
+      <div className="border-t border-border px-3 py-3">
+        {quickPrompts && quickPrompts.length > 0 && showStarters && (
+          <div className="mx-auto mb-3 flex w-full max-w-3xl flex-wrap gap-2">
+            {quickPrompts.map((prompt) => (
+              <Badge
+                key={prompt}
+                asChild
+                variant="soft"
+                shape="pill"
+                className="h-auto border-border bg-grayscale-50 px-3 py-1.5 disabled:pointer-events-none disabled:opacity-50"
+              >
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void sendContent(prompt)}
+                >
+                  {prompt}
                 </button>
               </Badge>
             ))}
           </div>
         )}
-
-      <div className="border-t border-border px-3 py-3">
         <div className="relative mx-auto w-full max-w-[608px] rounded-full bg-gradient-to-r from-red-500 to-blue-500 p-px">
           <div className="flex h-12 w-full items-center gap-1 rounded-full bg-card pl-1.5 pr-1.5">
             {onSelectConversation && (
@@ -1133,7 +1191,7 @@ export default function ChiefOfStaffChatBody({
                   void onSend()
                 }
               }}
-              placeholder="How can I help?"
+              placeholder={composerPlaceholder}
               disabled={busy}
               aria-label="Ask a question"
               className="h-9 flex-1 border-0 bg-transparent px-2 text-[15px] shadow-none focus-visible:border-0 focus-visible:ring-0"

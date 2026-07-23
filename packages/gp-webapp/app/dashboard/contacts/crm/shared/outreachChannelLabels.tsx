@@ -21,6 +21,21 @@ export const OUTREACH_CHANNEL_LABELS: Record<OutreachChannel, string> = {
   socialMedia: 'Digital',
 }
 
+// Channel NAMES for surfaces that answer "which channel is this" (the list
+// detail's Channel column and Last-method tile) — the verb map above answers
+// "what did we do to this person" and stays the activity-feed vocabulary
+// (ENG-10769: reusing the verbs as channel names rendered a robocall's
+// Channel as "Called").
+export const OUTREACH_CHANNEL_NOUNS: Record<OutreachChannel, string> = {
+  text: 'Text',
+  p2p: 'Text',
+  doorKnocking: 'Door knocking',
+  nativeDoorKnocking: 'Door knocking',
+  phoneBanking: 'Phone banking',
+  robocall: 'Robocall',
+  socialMedia: 'Social post',
+}
+
 export const OUTREACH_CHANNEL_ICONS: Record<OutreachChannel, React.ReactNode> =
   {
     text: (

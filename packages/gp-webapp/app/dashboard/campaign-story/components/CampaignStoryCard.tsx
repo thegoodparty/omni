@@ -47,12 +47,16 @@ interface CampaignStoryCardProps {
   // Reports this field's live answered-state (non-empty as the user types) so
   // the page's "generate" footer appears immediately, not only after blur/save.
   onAnsweredChange?: (answered: boolean) => void
+  // Reports whether the persisted (saved) value is non-empty. Onboarding uses
+  // this to reveal the next question only once this one is saved.
+  onSavedChange?: (saved: boolean) => void
 }
 
 const CampaignStoryCard = ({
   section,
   initialValue,
   onAnsweredChange,
+  onSavedChange,
 }: CampaignStoryCardProps): React.JSX.Element => {
   const { id, title, description, placeholder, example } = section
   const [value, setValue] = useState(initialValue ?? '')
@@ -81,6 +85,12 @@ const CampaignStoryCard = ({
   // "Saved" only reads true once there's persisted content; an untouched empty
   // field shows a plain disabled "Save" instead of claiming it saved nothing.
   const saveLabel = !isDirty && savedValue.trim().length > 0 ? 'Saved' : 'Save'
+
+  // Report the saved (persisted) state so onboarding can reveal the next
+  // question once this one is saved, not merely typed.
+  useEffect(() => {
+    onSavedChange?.(savedValue.trim().length > 0)
+  }, [savedValue, onSavedChange])
 
   const trimmedLength = value.trim().length
   const hint =

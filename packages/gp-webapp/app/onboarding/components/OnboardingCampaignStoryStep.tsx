@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Card } from '@styleguide'
 import type { CampaignStory } from '@goodparty_org/contracts'
@@ -105,13 +105,29 @@ function CampaignStoryStepCards({
   onCompleteChange,
 }: CampaignStoryStepCardsProps): React.JSX.Element {
   const { errorSnackbar } = useSnackbar()
-  const [answered, setAnswered] = useState(() => ({
-    why: getBioPlainLength(initialBio) > 0,
-    background: isStoryFieldAnswered(story?.background),
-  }))
+  // Reveal one question at a time, gated on the previous one being *saved* (not
+  // merely typed): show "why" first, reveal "background" once "why" is saved,
+  // reveal "policies" once "background" is saved. A returning candidate whose
+  // earlier answers are already saved sees the later cards immediately.
+  const [savedWhy, setSavedWhy] = useState(
+    () => getBioPlainLength(initialBio) > 0,
+  )
+  const [savedBackground, setSavedBackground] = useState(() =>
+    isStoryFieldAnswered(story?.background),
+  )
   const [issues, setIssues] = useState<WebsiteIssue[]>(initialIssues)
 
-  const complete = answered.why && answered.background && issues.length > 0
+  const handleWhySaved = useCallback(
+    (saved: boolean) => setSavedWhy((prev) => (prev === saved ? prev : saved)),
+    [],
+  )
+  const handleBackgroundSaved = useCallback(
+    (saved: boolean) =>
+      setSavedBackground((prev) => (prev === saved ? prev : saved)),
+    [],
+  )
+
+  const complete = savedWhy && savedBackground && issues.length > 0
   useEffect(() => {
     onCompleteChange(complete)
   }, [complete, onCompleteChange])
@@ -131,40 +147,35 @@ function CampaignStoryStepCards({
     <div className="flex flex-col gap-6">
       <CampaignStoryWhyCard
         initialBio={initialBio}
-        onAnsweredChange={(value) =>
-          setAnswered((prev) =>
-            prev.why === value ? prev : { ...prev, why: value },
-          )
-        }
+        onSavedChange={handleWhySaved}
       />
-      {CAMPAIGN_STORY_SECTIONS.map((section) => (
-        <CampaignStoryCard
-          key={section.id}
-          section={section}
-          initialValue={story?.[section.id] ?? null}
-          onAnsweredChange={(value) =>
-            setAnswered((prev) =>
-              prev.background === value ? prev : { ...prev, background: value },
-            )
-          }
-        />
-      ))}
-      <Card className="p-6">
-        <div className="flex flex-col gap-1">
-          <h3 className="text-xl font-semibold text-foreground">
-            Your Policies
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Two to four concrete fights for your first term. These are shared
-            with your campaign website.
-          </p>
-        </div>
-        <PolicyPriorities
-          issues={issues}
-          onChange={handleIssuesChange}
-          hideToolbar
-        />
-      </Card>
+      {savedWhy &&
+        CAMPAIGN_STORY_SECTIONS.map((section) => (
+          <CampaignStoryCard
+            key={section.id}
+            section={section}
+            initialValue={story?.[section.id] ?? null}
+            onSavedChange={handleBackgroundSaved}
+          />
+        ))}
+      {savedBackground && (
+        <Card className="p-6">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-xl font-semibold text-foreground">
+              Your Policies
+            </h3>
+            <p className="text-sm text-muted-foreground">
+              Two to four concrete fights for your first term. These are shared
+              with your campaign website.
+            </p>
+          </div>
+          <PolicyPriorities
+            issues={issues}
+            onChange={handleIssuesChange}
+            hideToolbar
+          />
+        </Card>
+      )}
     </div>
   )
 }

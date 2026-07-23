@@ -190,6 +190,18 @@ export = async () => {
             description: 'gp-api app tasks (shared app security group)',
             securityGroups: vpcSecurityGroupIds,
           },
+          // Engineer DB access (psql, migrations, debugging) arrives through the
+          // OpenVPN server, which NATs VPN clients behind its own private IP — so
+          // Postgres sees that instance, not the client. Scoped to the VPN
+          // server's security group, not the whole VPC CIDR the rule below once
+          // used, so it restores human access without re-widening blast radius.
+          {
+            protocol: 'tcp',
+            fromPort: 5432,
+            toPort: 5432,
+            description: 'openvpn server (engineer VPN access)',
+            securityGroups: ['sg-0fa26a075716d3173'],
+          },
           // The previous whole-VPC-CIDR rule (cidrBlocks: ['10.0.0.0/16']) was
           // removed: it let anything in the VPC reach Postgres. App tasks
           // already reach RDS via the app security group rule above, so the

@@ -49,6 +49,19 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
 const pillForOption = (label: string): HTMLElement =>
   screen.getByRole('button', { name: label })
 
+// ENG-10769: canSubmit gates Save on the resolved live count, so a test
+// that clicks immediately can race the 600ms count debounce (a click on
+// the still-disabled button silently no-ops). Wait it out first.
+const clickSaveList = async (
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> => {
+  const save = screen.getByRole('button', { name: 'Save list' })
+  // 10s, not waitFor's 1s default: tests that toggle several pills restart
+  // the debounce each time, and CI runners pushed the resolve past 1s.
+  await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
+  await user.click(save)
+}
+
 // ENG-10767: stage Viewed/Completed events fire alongside the outcome
 // events, so assertions filter by event name instead of counting every
 // trackEvent call.
@@ -260,7 +273,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
       await screen.findByRole('button', { name: /build your list/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -274,6 +287,65 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
     await vi.waitFor(() => expect(refreshCustomSegments).toHaveBeenCalled())
     await vi.waitFor(() => expect(selectList).toHaveBeenCalledWith(101))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('persists the live count as voterCount on create (ENG-10769)', async () => {
+    const user = userEvent.setup()
+    let sentBody: Record<string, unknown> | null = null
+    api.mock('POST /v1/voters/voter-file/filter', ({ body }) => {
+      sentBody = body as Record<string, unknown>
+      return { status: 200, data: { id: 102, name: 'Counted list' } }
+    })
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    // Wait for the debounced live count to land in the build button so the
+    // submit below can't race the count fetch and silently omit voterCount.
+    await user.click(
+      await screen.findByRole('button', { name: /build your list \(250\)/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Counted list')
+    await clickSaveList(user)
+
+    await vi.waitFor(() => expect(sentBody).not.toBeNull())
+    expect(sentBody).toMatchObject({
+      name: 'Counted list',
+      voterCount: 250,
+    })
+  })
+
+  it('keeps Save list disabled while the live count is still resolving (ENG-10769)', async () => {
+    const user = userEvent.setup()
+    // A count that never settles: saving now would omit voterCount and let
+    // the server default it to 0 — the display bug this ticket fixes.
+    api.mock(
+      'POST /v1/contacts/count',
+      () => new Promise<never>(() => undefined),
+    )
+
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build my list using the voter file/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+    await user.click(
+      await screen.findByRole('button', { name: /build your list/i }),
+    )
+    await user.type(screen.getByLabelText(/list name/i), 'Racy list')
+
+    expect(screen.getByRole('button', { name: 'Save list' })).toBeDisabled()
   })
 
   it('hides the Political Party section for an elected official', async () => {
@@ -336,7 +408,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
       await screen.findByRole('button', { name: /build your list/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Cleared list')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -421,7 +493,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
     expect(cta).toBeEnabled()
     await user.click(cta)
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(sentBody).not.toBeNull())
     expect(sentBody).toMatchObject({
@@ -584,7 +656,7 @@ describe('CreateListWizard — error handling', () => {
       await screen.findByRole('button', { name: /build your list/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Broken list')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() => expect(errorSnackbar).toHaveBeenCalled())
     expect(onOpenChange).not.toHaveBeenCalledWith(false)
@@ -622,7 +694,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       await screen.findByRole('button', { name: /build your list/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Likely Dem women')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() =>
       expect(eventCalls(EVENTS.VoterData.ListCreated)).toHaveLength(1),
@@ -655,7 +727,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
       screen.getByLabelText(/list name/i),
       'Reachable constituents',
     )
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() =>
       expect(eventCalls(EVENTS.ConstituentData.ListCreated)).toHaveLength(1),
@@ -710,7 +782,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(screen.getByRole('button', { name: /build your list/i }))
     await user.type(screen.getByLabelText(/list name/i), 'Texted GOTV blast')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() =>
       expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
@@ -766,7 +838,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(screen.getByRole('button', { name: /build your list/i }))
     await user.type(screen.getByLabelText(/list name/i), 'Text + door knock')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() =>
       expect(eventCalls(EVENTS.VoterData.ActivityListCreated)).toHaveLength(1),
@@ -887,7 +959,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
     )
 
     await user.type(screen.getByLabelText(/list name/i), 'Funnel list')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     await vi.waitFor(() =>
       expect(eventCalls(EVENTS.Contacts.ListWizard.NameCompleted)).toHaveLength(
@@ -970,7 +1042,7 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
       await screen.findByRole('button', { name: /build your list/i }),
     )
     await user.type(screen.getByLabelText(/list name/i), 'Mid-mutation list')
-    await user.click(screen.getByRole('button', { name: 'Save list' }))
+    await clickSaveList(user)
 
     // Dismiss the drawer WHILE the create is still pending. A vaul swipe
     // and this X-close both funnel through the same controlled

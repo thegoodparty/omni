@@ -62,6 +62,16 @@ describe('DraftReadyWidget', () => {
     expect(screen.getByText(/Draft for attorney/i)).toBeVisible()
   })
 
+  it('shows the attorney-review disclaimer, outside the clickable card', () => {
+    render(<DraftReadyWidget draft={draft} slug="public-safety-cameras" />)
+    const note = screen.getByRole('note')
+    expect(note).toHaveTextContent('Review before you rely on this.')
+    expect(note).toHaveTextContent('not legal advice')
+    expect(note).toHaveTextContent('have a licensed attorney review it')
+    // The disclaimer is a sibling of the card, so clicking it doesn't navigate.
+    expect(note.closest('a')).toBeNull()
+  })
+
   it('sets the quality-loop expectation when the loop flag is on', () => {
     mocks.useOrdinanceQualityLoopFlag.mockReturnValue({
       ready: true,

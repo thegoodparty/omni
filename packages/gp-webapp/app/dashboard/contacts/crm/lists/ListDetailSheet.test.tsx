@@ -189,6 +189,38 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.queryByText('No outreach yet.')).not.toBeInTheDocument()
   })
 
+  it('renders channel nouns and a name fallback for an unnamed robocall (ENG-10769)', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'Males 50+' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        outreachHistory: [
+          {
+            id: 9,
+            name: null,
+            outreachType: 'robocall',
+            status: 'pending',
+            date: new Date('2026-07-27T00:00:00.000Z'),
+          },
+        ],
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    // Name falls back to channel + date, never the activity-feed verb.
+    expect(
+      await screen.findByText('Robocall — Jul 27, 2026'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Called')).not.toBeInTheDocument()
+    // Channel chip + Last-method tile + reachability tile all say "Robocall".
+    expect(screen.getAllByText('Robocall').length).toBeGreaterThanOrEqual(3)
+  })
+
   it('shows the empty outreach sentence when there are no rows', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
