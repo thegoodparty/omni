@@ -99,4 +99,44 @@ describe('StoryIssuesCard', () => {
       ),
     )
   })
+
+  it('does not bleed rewrite/undo state onto the row that shifts up after a remove', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+      status: 200,
+      data: { rewrite: 'Sharper priority one.' },
+    }))
+    render(
+      <Harness
+        initial={[
+          { title: 'First', description: 'first desc' },
+          { title: 'Second', description: 'second desc' },
+        ]}
+      />,
+    )
+
+    // Improve the first priority — it gains an Undo.
+    await user.click(
+      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Undo/ })).toBeInTheDocument(),
+    )
+
+    // Remove the first priority. The second shifts into its slot.
+    await user.click(
+      screen.getAllByRole('button', { name: /remove policy priority/i })[0]!,
+    )
+
+    // The surviving row keeps its own (undo-free) state + description — the
+    // removed row's hook state must not carry over via a reused key.
+    await waitFor(() => expect(screen.getAllByRole('textbox')).toHaveLength(2)) // one title + one description
+    expect(
+      screen.queryByRole('button', { name: /Undo/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText<HTMLTextAreaElement>(/northside bus route/i)
+        .value,
+    ).toBe('second desc')
+  })
 })
