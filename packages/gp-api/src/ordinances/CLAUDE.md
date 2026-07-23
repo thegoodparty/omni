@@ -22,6 +22,14 @@ module owns the records and everything that grades or revises them.
 | `services/ordinanceCodePersist.service.ts` / `ordinanceCodeRead.service.ts` | Persist/read municipal-code records from experiment artifacts |
 | `services/ordinanceExport.service.ts` | PDF/DOCX draft export |
 
+Cost tracking: the interactive guided flow accumulates per-turn LLM token
+usage onto the Ordinance record (`flow_input_tokens`/`flow_output_tokens`,
+written from `ordinanceFlow.handler`'s `onTurnUsage` hook via the shared
+chat-stream `onUsage` callback). The quality loop tracks its own tokens on
+`OrdinanceQualityIteration` rows, so a full-draft total sums both. Tokens are
+stored, not dollars; cost is derived via the pricing map in
+`chats/general/ordinance-flow/services/ordinanceCost.util.ts` at read/log time.
+
 Prisma: `prisma/schema/ordinance.prisma` (both machines' columns) +
 `prisma/schema/ordinanceQualityIteration.prisma` (per-pass history — the
 handler's position-resolution substrate, the terminal best-restore source,

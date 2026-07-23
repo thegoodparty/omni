@@ -10,6 +10,7 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
   LlmService,
   LlmStreamResult,
+  LlmStreamUsage,
   LlmTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
@@ -52,6 +53,10 @@ export interface StreamArgs {
   clientMessageId?: string
   models?: string[]
   maxSteps?: number
+  // Called once after a clean finish with the turn's resolved token usage and
+  // the model that produced it. Optional so only scopes that meter usage (the
+  // ordinance flow) pay for it; a throw here is logged, never fails the turn.
+  onUsage?: (usage: LlmStreamUsage, model: string) => void | Promise<void>
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -472,6 +477,19 @@ export class ChatStreamService {
       // and the finally writes the sentinel instead.
       const cleanFinish = !args.signal?.aborted && !tracedMetrics.errorCode
       await persistOnce(cleanFinish)
+      // Meter usage only on a clean finish; a partial/aborted turn's usage is
+      // unreliable. Guarded so metering never breaks the turn.
+      if (cleanFinish && args.onUsage) {
+        try {
+          const usage = await result.usage
+          await args.onUsage(usage, result.model)
+        } catch (usageErr) {
+          this.logger.error(
+            { err: usageErr, conversationId: args.conversationId },
+            'failed to record turn usage',
+          )
+        }
+      }
       return tracedMetrics
     }
 
