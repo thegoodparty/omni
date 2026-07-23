@@ -185,6 +185,23 @@ describe('downloadVoterList', () => {
       expect(setLoading).toHaveBeenLastCalledWith(false)
     })
 
+    // ENG-10784: door knocking's saved-list branch behaves identically to
+    // phone banking's — the branch is keyed on savedListId presence, not
+    // outreachType.
+    it('hits the segment download for door knocking with a saved list selected', async () => {
+      const downloadPromise = downloadVoterList({
+        savedListId: 42,
+        outreachType: 'doorKnocking',
+      })
+
+      expect(capturedHref).toContain('/api/v1/contacts/download?segment=42')
+      expect(voterFileDownloadMock).not.toHaveBeenCalled()
+
+      mockedGetCookie.mockReturnValue('fresh-token')
+      await vi.advanceTimersByTimeAsync(250)
+      await downloadPromise
+    })
+
     it('takes the checkbox path when savedListId is not provided', async () => {
       await downloadVoterList({
         outreachType: 'phoneBanking',
