@@ -48,7 +48,6 @@ const fullResponse = {
   inputTokens: 5,
   outputTokens: 5,
   model: 'claude-sonnet-4-6',
-  model: 'claude-sonnet-4-6',
 }
 
 describe('OrdinanceQualityReportService', () => {
@@ -131,7 +130,6 @@ describe('OrdinanceQualityReportService', () => {
       inputTokens: 5,
       outputTokens: 5,
       model: 'claude-sonnet-4-6',
-      model: 'claude-sonnet-4-6',
     })
 
     const { report } = await build(jsonCompletion).generate(record(), 7)
@@ -149,7 +147,6 @@ describe('OrdinanceQualityReportService', () => {
       tokens: 10,
       inputTokens: 5,
       outputTokens: 5,
-      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
@@ -176,7 +173,6 @@ describe('OrdinanceQualityReportService', () => {
       inputTokens: 5,
       outputTokens: 5,
       model: 'claude-sonnet-4-6',
-      model: 'claude-sonnet-4-6',
     })
 
     const { report } = await build(jsonCompletion).generate(record(), 7)
@@ -196,7 +192,6 @@ describe('OrdinanceQualityReportService', () => {
       tokens: 10,
       inputTokens: 5,
       outputTokens: 5,
-      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
@@ -232,7 +227,6 @@ describe('OrdinanceQualityReportService', () => {
       inputTokens: 5,
       outputTokens: 5,
       model: 'claude-sonnet-4-6',
-      model: 'claude-sonnet-4-6',
     })
 
     const { degradedCheckIds } = await build(jsonCompletion).generate(
@@ -264,7 +258,6 @@ describe('OrdinanceQualityReportService', () => {
       tokens: 10,
       inputTokens: 5,
       outputTokens: 5,
-      model: 'claude-sonnet-4-6',
       model: 'claude-sonnet-4-6',
     })
 
