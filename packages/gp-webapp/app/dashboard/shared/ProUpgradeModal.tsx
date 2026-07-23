@@ -124,7 +124,7 @@ export function ProUpgradeModal({
           <span className="font-bold">Mobilize</span>&nbsp;their supporters
         </>,
         <>
-          <span className="font-bold">Get voters </span>&nbsp;to participate in
+          <span className="font-bold">Get voters</span>&nbsp;to participate in
           early voting
         </>,
       ]
