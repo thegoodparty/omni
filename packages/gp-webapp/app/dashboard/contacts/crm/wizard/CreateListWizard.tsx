@@ -163,11 +163,12 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const { count, isLoading, isCapError, errorMessage } = useListWizardCount(
-    backendPayload,
-    activeBranch === 'voterFile' ||
-      (activeBranch === 'activity' && isConditionsStepValid),
-  )
+  const { count, isLoading, isStale, isCapError, errorMessage } =
+    useListWizardCount(
+      backendPayload,
+      activeBranch === 'voterFile' ||
+        (activeBranch === 'activity' && isConditionsStepValid),
+    )
 
   const handleNext = () => {
     if (stepName === 'branch' && branch) {
@@ -275,11 +276,18 @@ export default function CreateListWizard({
   })
 
   const trimmedName = name.trim()
-  // !isLoading: a save that races the debounced count would omit voterCount
-  // and let the server default it to 0 — the exact display bug ENG-10769
-  // fixes. A failed count still submits (count stays a nice-to-have).
+  // !isLoading && !isStale: a save that races the debounced count would omit
+  // voterCount and let the server default it to 0 — the exact display bug
+  // ENG-10769 fixes. isStale also blocks the window where a payload change is
+  // still awaiting the debounce, so Save can't enable on a superseded count
+  // and then re-disable when the trailing refetch lands (that flicker let a
+  // click slip through onto a disabled button under load). A failed count
+  // still submits once settled (count stays a nice-to-have).
   const canSubmit =
-    trimmedName.length > 0 && !createMutation.isPending && !isLoading
+    trimmedName.length > 0 &&
+    !createMutation.isPending &&
+    !isLoading &&
+    !isStale
 
   const handleSubmit = () => {
     if (!canSubmit) return

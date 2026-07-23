@@ -13,6 +13,14 @@ const CAP_ERROR_MESSAGE =
 export interface ListWizardCountResult {
   count: number | undefined
   isLoading: boolean
+  // True while a payload change is still waiting out the debounce: the query
+  // (and thus `count`) still reflects the PREVIOUS payload. `isLoading` stays
+  // false here so the running-total display keeps showing the last known count
+  // instead of flickering, but a caller that gates an action on the count for
+  // the CURRENT selection (ENG-10769's Save button) must treat this as
+  // not-yet-settled — otherwise it acts on a superseded count and then flips
+  // state a beat later when the trailing refetch lands.
+  isStale: boolean
   isError: boolean
   isCapError: boolean
   errorMessage: string | undefined
@@ -29,12 +37,16 @@ export const useListWizardCount = (
 ): ListWizardCountResult => {
   const orgSlug = useOrganization()?.slug
   const [debouncedPayload, setDebouncedPayload] = useState(payload)
+  // Tracks the debounce window (see `isStale` in the result type).
+  const [isDebouncing, setIsDebouncing] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
+    setIsDebouncing(true)
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       setDebouncedPayload(payload)
+      setIsDebouncing(false)
     }, COUNT_DEBOUNCE_MS)
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
@@ -66,6 +78,7 @@ export const useListWizardCount = (
   return {
     count: countQuery.data,
     isLoading: countQuery.isPending || countQuery.isFetching,
+    isStale: isDebouncing,
     isError: countQuery.isError,
     isCapError,
     errorMessage: isCapError

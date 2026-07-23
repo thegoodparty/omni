@@ -49,15 +49,16 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
 const pillForOption = (label: string): HTMLElement =>
   screen.getByRole('button', { name: label })
 
-// ENG-10769: canSubmit gates Save on the resolved live count, so a test
-// that clicks immediately can race the 600ms count debounce (a click on
-// the still-disabled button silently no-ops). Wait it out first.
+// ENG-10769: canSubmit gates Save on the settled live count (useListWizardCount
+// reports a pending debounce as isStale), so Save only enables once the count
+// for the current selection has settled and then stays enabled — no trailing
+// refetch re-disables it mid-click, so a plain wait-for-enabled-then-click is
+// race-free. 10s, not waitFor's 1s default: toggling several pills restarts
+// the 600ms debounce each time and CI runners pushed the resolve past 1s.
 const clickSaveList = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
   const save = screen.getByRole('button', { name: 'Save list' })
-  // 10s, not waitFor's 1s default: tests that toggle several pills restart
-  // the debounce each time, and CI runners pushed the resolve past 1s.
   await vi.waitFor(() => expect(save).toBeEnabled(), { timeout: 10_000 })
   await user.click(save)
 }
@@ -559,7 +560,13 @@ describe('CreateListWizard — running total + CTA', () => {
     // guidance, not a hard submit-block (the create endpoint doesn't
     // resolve/cap at save time).
     await user.type(screen.getByLabelText(/list name/i), 'Huge list')
-    expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled()
+    // Save enables once the count settles — even on a cap error, which just
+    // omits voterCount (the count is a nice-to-have, not a submit-block). The
+    // stale seed count can surface the cap message a beat before the debounce
+    // settles, so wait for the gate to open rather than reading it synchronously.
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Save list' })).toBeEnabled(),
+    )
   })
 })
 
