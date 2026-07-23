@@ -16,13 +16,17 @@ import {
   resolvePostPledgeRoute,
 } from './onboardingHelpers'
 
-const { mockGetUserWebsite, mockSaveAboutFields, mockTrackEvent } = vi.hoisted(
-  () => ({
-    mockGetUserWebsite: vi.fn(),
-    mockSaveAboutFields: vi.fn(),
-    mockTrackEvent: vi.fn(),
-  }),
-)
+const {
+  mockGetUserWebsite,
+  mockSaveAboutFields,
+  mockTrackEvent,
+  mockErrorSnackbar,
+} = vi.hoisted(() => ({
+  mockGetUserWebsite: vi.fn(),
+  mockSaveAboutFields: vi.fn(),
+  mockTrackEvent: vi.fn(),
+  mockErrorSnackbar: vi.fn(),
+}))
 
 // Bio + issues come from (and are saved to) the website via legacy functions
 // (not typed routes), so mock them directly to seed the story draft and stub
@@ -53,7 +57,10 @@ vi.mock('helpers/analyticsHelper', async (importOriginal) => {
 // The story step uses the app's SnackbarProvider (only for save errors), which
 // isn't mounted in this test tree, so mock it down to no-ops.
 vi.mock('helpers/useSnackbar', () => ({
-  useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
+  useSnackbar: () => ({
+    errorSnackbar: mockErrorSnackbar,
+    successSnackbar: vi.fn(),
+  }),
 }))
 
 // Stubbed out so tests can drive the manual-office path with a couple of
@@ -164,6 +171,7 @@ beforeEach(() => {
   // default; completion tests override with a seeded website.
   mockGetUserWebsite.mockReset().mockResolvedValue({ content: { about: {} } })
   mockSaveAboutFields.mockReset().mockResolvedValue(true)
+  mockErrorSnackbar.mockClear()
 })
 
 // vi.spyOn on an already-spied export returns the SAME mock instance rather
@@ -447,6 +455,55 @@ describe('new onboarding flow shell', () => {
       }),
     )
     expect(prewarm).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the candidate on the issues step and shows an error when the final save fails', async () => {
+    const prewarm = vi
+      .spyOn(landscapeModule, 'prewarmStrategicLandscape')
+      .mockResolvedValue()
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    mockGetUserWebsite.mockResolvedValue({
+      content: {
+        about: {
+          bio: '<p>My why</p>',
+          issues: [{ title: 'Roads', description: 'Fix them' }],
+        },
+      },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'My background' },
+    })
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
+    // The deferred persist fails (saveAboutFields returns false).
+    mockSaveAboutFields.mockResolvedValue(false)
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+
+    await continueThroughStorySteps()
+
+    // Save failed → error surfaced, no generation, and we stay on the issues
+    // step (the pledge never appears).
+    await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
+    expect(prewarm).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('button', { name: /add a policy priority/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Take our pledge to get your campaign plan'),
+    ).not.toBeInTheDocument()
   })
 
   it('does not fire generation when skipping the story', async () => {

@@ -65,6 +65,10 @@ export const useStoryRewrite = (
     })
     try {
       const trimmedTitle = title?.trim()
+      // Capture the undo baseline before the async call — `text` is the value
+      // the user saw when they clicked, and reading it here keeps it independent
+      // of anything that lands during the round-trip.
+      originalRef.current = text
       const { data } = await clientRequest(
         'POST /v1/campaigns/mine/story/rewrite',
         {
@@ -73,8 +77,6 @@ export const useStoryRewrite = (
           ...(trimmedTitle ? { title: trimmedTitle } : {}),
         },
       )
-      // Capture what the field held before we overwrite it, so undo restores it.
-      originalRef.current = text
       onImproved(data.rewrite)
       setCanUndo(true)
       trackEvent(EVENTS.CampaignStory.RewriteAccepted, { field })
