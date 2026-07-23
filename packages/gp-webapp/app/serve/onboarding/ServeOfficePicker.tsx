@@ -14,10 +14,15 @@ import type { Race } from 'app/onboarding/[slug]/[step]/components/ballotOffices
 import type { SelectedOffice } from 'app/onboarding/components/onboardingTypes'
 
 // An elected official already holds the office — this is a *position* picker,
-// not a race picker. We fetch the position's *past* elections and surface the
-// most recent one as a "last election" date. That date is what disambiguates
-// multi-seat "cohort" positions that share an identical name (e.g. two "Ward 1"
-// seats on different election schedules).
+// not a race picker. Conceptually we want the elections an incumbent already
+// won, but the Race table isn't yet backfilled with past elections for every
+// position, so filtering to 'past' returns nothing for many zips. Until the
+// data team finishes that ingest we query upcoming elections ('future', which
+// every covered position has) so the picker is never empty; flip back to 'past'
+// (or 'all') once past races are loaded. We still surface the most recent
+// *already-held* election as a "last election" date — the signal that tells
+// apart cohort twins sharing an identical name — which stays blank until a past
+// election is on file.
 const isZipValid = (value: string): boolean => /^\d{5}$/.test(value.trim())
 
 interface PositionRow {
@@ -55,7 +60,7 @@ const OTHER_PILL = 'Other'
 const fetchPositions = async (zip: string): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip, timeframe: 'past' },
+    { zipcode: zip, timeframe: 'future' },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -68,10 +73,13 @@ const fetchPositions = async (zip: string): Promise<Race[]> => {
 
 // Collapse the race rows (one per position+election) into one row per position.
 // A position is never dropped. Each row carries the position's most recent
-// general/primary election (runoffs excluded) as its "last election" date —
-// the signal that tells apart cohort twins sharing an identical name.
+// *already-held* general/primary election (future dates and runoffs excluded)
+// as its "last election" date — the signal that tells apart cohort twins
+// sharing an identical name. While the picker queries upcoming elections (see
+// fetchPositions), no past date is on file, so this stays blank.
 const dedupeToPositions = (races: Race[]): PositionRow[] => {
   const byId = new Map<string, PositionRow>()
+  const todayIso = new Date().toISOString().slice(0, 10)
 
   for (const race of races) {
     const positionId = race.brPositionId ?? race.position?.id
@@ -91,7 +99,11 @@ const dedupeToPositions = (races: Race[]): PositionRow[] => {
 
     if (!race.isRunoff) {
       const day = race.election?.electionDay
-      if (day && (!row.electionDate || day > row.electionDate)) {
+      if (
+        day &&
+        day <= todayIso &&
+        (!row.electionDate || day > row.electionDate)
+      ) {
         row.electionDate = day
       }
     }
