@@ -86,7 +86,10 @@ export default function StoryFieldBar({
           )}
           {isRecording ? (
             <span className="flex items-center gap-2 text-sm font-medium text-info">
-              <span className="size-2 rounded-full bg-info" aria-hidden />
+              <span className="relative flex size-2.5" aria-hidden>
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-info opacity-75" />
+                <span className="relative inline-flex size-2.5 rounded-full bg-info" />
+              </span>
               Listening…
             </span>
           ) : dictation.error ? (
@@ -129,9 +132,9 @@ export default function StoryFieldBar({
               aria-label="Stop recording"
               onClick={() => void dictation.toggle()}
               disabled={dictation.busy}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-white disabled:opacity-50"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-red-500 text-grayscale-950 disabled:opacity-50"
             >
-              <SquareIcon className="size-4" aria-hidden />
+              <SquareIcon className="size-4 fill-current" aria-hidden />
             </button>
           ) : (
             <button
