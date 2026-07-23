@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
-import Paper from '@shared/utils/Paper'
 import H2 from '@shared/typography/H2'
 import { BookOpenIcon, Button } from '@styleguide'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
@@ -47,7 +46,7 @@ const CampaignStoryPage = ({
         wrapperClassName="w-full"
         showAlert={false}
       >
-        <Paper className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
           <header className="flex items-center gap-2">
             <BookOpenIcon className="size-6" />
             <H2>Your story</H2>
@@ -59,7 +58,7 @@ const CampaignStoryPage = ({
           </p>
 
           <StoryEditor />
-        </Paper>
+        </div>
       </DashboardLayout>
     </FeatureFlagGuard>
   )
