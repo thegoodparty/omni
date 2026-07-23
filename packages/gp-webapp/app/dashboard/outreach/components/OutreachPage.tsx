@@ -21,6 +21,7 @@ interface OutreachPageProps {
   mockOutreaches?: Outreach[]
   tcrCompliance?: TcrCompliance
   preselectedListId?: number
+  highlightOutreachId?: number
 }
 
 export const OutreachPage = ({
@@ -30,6 +31,7 @@ export const OutreachPage = ({
   mockOutreaches = [],
   tcrCompliance,
   preselectedListId,
+  highlightOutreachId,
 }: OutreachPageProps) => {
   useSingleEffect(() => {
     trackEvent(EVENTS.Outreach.ViewAccessed)
@@ -50,6 +52,7 @@ export const OutreachPage = ({
         <OutreachTable
           {...{
             mockOutreaches,
+            highlightOutreachId,
           }}
         />
       </DashboardLayout>

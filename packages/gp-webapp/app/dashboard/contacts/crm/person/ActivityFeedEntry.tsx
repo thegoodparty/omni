@@ -31,9 +31,12 @@ const SUPPORT_ANSWER_LABELS: Record<SupportAnswer, string> = {
   non_supporter: 'Non-supporter',
 }
 
-// No per-outreach detail route exists in this app yet (app/dashboard/outreach
-// has no [id] page) — link to the outreach list rather than inventing one.
-const OUTREACH_LIST_HREF = '/dashboard/outreach'
+// No per-outreach detail route exists in this app (app/dashboard/outreach has
+// no [id] page) — link to the outreach list with ?outreachId= so the page
+// scrolls to and highlights that campaign's row (ENG-10769; consumed and
+// stripped by OutreachTable).
+const outreachHref = (outreachId: number): string =>
+  `/dashboard/outreach?outreachId=${outreachId}`
 
 const ManualBadge: React.FC = () => (
   <Badge variant="soft" shape="pill">
@@ -97,7 +100,7 @@ export const TextActivityRow: React.FC<{
     {activity.data.outreachId ? (
       <Link
         className="text-sm font-medium text-info underline"
-        href={OUTREACH_LIST_HREF}
+        href={outreachHref(activity.data.outreachId)}
       >
         View outreach
       </Link>
@@ -131,7 +134,7 @@ export const RobocallActivityRow: React.FC<{
     {activity.data.outreachId ? (
       <Link
         className="text-sm font-medium text-info underline"
-        href={OUTREACH_LIST_HREF}
+        href={outreachHref(activity.data.outreachId)}
       >
         View outreach
       </Link>

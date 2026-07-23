@@ -86,6 +86,8 @@ export const ONBOARDING_STEPS: NonEmptyArray<OnboardingStepConfig> = [
     title: 'Tell your campaign story',
     description:
       'A few words in your voice about why you are running. We use it to personalize your plan and voter outreach. You can skip this and do it later.',
+    whyThisMatters:
+      'Your story is what makes your outreach sound like you. We turn it into a personalized plan and tracker, so the more you share now, the less generic everything downstream feels.',
     // Skippable, so navigation is never blocked here. Completion (and whether
     // to fire generation) is decided in OnboardingFlow from live card state,
     // not from this static validator.

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common'
 import { subMinutes } from 'date-fns'
 import { PeerlyBillingException } from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 import {
   CommitteeType,
   ExperimentRunStatus,
@@ -1754,6 +1755,76 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       where: { id: existingRecord.id },
       data: { peerlyBillingBlockedAt: expect.any(Date) },
     })
+  })
+
+  it('marks the record rejected, fires the rejection event, and rethrows on a CV data rejection', async () => {
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    // Claim (updateMany #1) then rollback (updateMany #2), same as the
+    // billing path — the rejected stamp must not leave the claim held.
+    expect(mockTcrModel.updateMany).toHaveBeenCalledTimes(2)
+    expect(mockTcrModel.update).toHaveBeenCalledWith({
+      where: { id: existingRecord.id },
+      data: { status: 'rejected' },
+    })
+    expect(mockAnalytics.track).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({
+        rejection_source: 'cv_submit',
+        rejection_reason: cvErr.message,
+      }),
+    )
+  })
+
+  it('does not fire the rejection event when the rejected stamp fails to commit', async () => {
+    // If the rollback transaction fails, the record stays non-rejected and
+    // the deterministic retry would fire the event again — so no stamp, no
+    // event.
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+    mockPrisma.$transaction.mockRejectedValueOnce(new Error('connection lost'))
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    const rejectionFires = mockAnalytics.track.mock.calls.filter(
+      (call) => call[1] === EVENTS.Outreach.ComplianceRejected,
+    )
+    expect(rejectionFires).toHaveLength(0)
+  })
+
+  it('does not stamp rejected or fire the event when a TTL re-claimant owns the record', async () => {
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+    // Pre-Peerly claim succeeds, but by rollback time this caller's claim has
+    // expired and a TTL re-claimant re-stamped it — the in-transaction release
+    // matches 0 rows, so this caller no longer owns the record.
+    mockTcrModel.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    expect(mockTcrModel.update).not.toHaveBeenCalled()
+    const rejectionFires = mockAnalytics.track.mock.calls.filter(
+      (call) => call[1] === EVENTS.Outreach.ComplianceRejected,
+    )
+    expect(rejectionFires).toHaveLength(0)
   })
 
   it('holds off re-submitting (no Peerly call) while the billing block is within cooldown', async () => {

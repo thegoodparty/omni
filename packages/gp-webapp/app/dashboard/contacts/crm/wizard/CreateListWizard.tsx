@@ -275,11 +275,23 @@ export default function CreateListWizard({
   })
 
   const trimmedName = name.trim()
-  const canSubmit = trimmedName.length > 0 && !createMutation.isPending
+  // !isLoading: a save that races the debounced count would omit voterCount
+  // and let the server default it to 0 — the exact display bug ENG-10769
+  // fixes. A failed count still submits (count stays a nice-to-have).
+  const canSubmit =
+    trimmedName.length > 0 && !createMutation.isPending && !isLoading
 
   const handleSubmit = () => {
     if (!canSubmit) return
-    createMutation.mutate({ name: trimmedName, ...backendPayload })
+    // ENG-10769: persist the live count — the server defaults voterCount to
+    // 0, and the outreach page's Voters column reads the stored value, so a
+    // list saved without it shows every campaign as reaching 0 voters. A
+    // still-loading/error count is omitted rather than persisted wrong.
+    createMutation.mutate({
+      name: trimmedName,
+      ...backendPayload,
+      ...(typeof count === 'number' ? { voterCount: count } : {}),
+    })
   }
 
   const peopleNoun = isWinContext ? 'voters' : 'constituents'

@@ -337,6 +337,10 @@ test.describe('Contacts activity filters', () => {
             actions: ['not_home'],
           },
         ],
+        // ENG-10769: the wizard persists its resolved live count (0 here —
+        // this org has no matching interactions) so the outreach page's
+        // Voters column stops defaulting to 0 for real lists.
+        voterCount: 0,
       })
     })
 

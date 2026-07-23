@@ -29,6 +29,10 @@ interface Props {
   suggestions?: ChatSuggestion[]
   /** Show the chips alongside a seeded greeting, not only on empty. */
   showSuggestionsWithGreeting?: boolean
+  /** Quick-prompt pills threaded to the body (below the suggestions). */
+  quickPrompts?: string[]
+  /** Composer placeholder threaded to the body. */
+  composerPlaceholder?: string
   /** One-shot kickoff message sent hidden on open. */
   pendingKickoff?: string
   /** Ref to the body's composer input, so a suggestion can focus it. */
@@ -56,6 +60,8 @@ export default function ChiefOfStaffChatSurface({
   defaultIntro,
   suggestions,
   showSuggestionsWithGreeting,
+  quickPrompts,
+  composerPlaceholder,
   pendingKickoff,
   composerRef,
   hiddenMessageContents,
@@ -101,6 +107,8 @@ export default function ChiefOfStaffChatSurface({
           defaultIntro={defaultIntro}
           suggestions={suggestions}
           showSuggestionsWithGreeting={showSuggestionsWithGreeting}
+          quickPrompts={quickPrompts}
+          composerPlaceholder={composerPlaceholder}
           pendingKickoff={pendingKickoff}
           composerRef={composerRef}
           hiddenMessageContents={hiddenMessageContents}

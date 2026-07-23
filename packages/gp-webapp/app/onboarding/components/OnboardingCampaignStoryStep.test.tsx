@@ -51,6 +51,24 @@ describe('OnboardingCampaignStoryStep', () => {
     )
   })
 
+  it('reveals only the why question first, hiding later ones until saved', async () => {
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
+    render(<OnboardingCampaignStoryStep onCompleteChange={vi.fn()} />)
+
+    await waitFor(() =>
+      expect(screen.getByText('Your why')).toBeInTheDocument(),
+    )
+    // Background and policies stay hidden until "why" is saved.
+    expect(screen.queryByText('Your background')).not.toBeInTheDocument()
+    expect(screen.queryByText('Your Policies')).not.toBeInTheDocument()
+  })
+
   it('reports complete when bio, background, and an issue are all present', async () => {
     mockGetUserWebsite.mockResolvedValue(website)
     api.mock('GET /v1/campaigns/mine/story', {

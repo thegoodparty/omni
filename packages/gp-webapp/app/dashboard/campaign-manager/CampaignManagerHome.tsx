@@ -205,6 +205,7 @@ export default function CampaignManagerHome({
             dismissMeetCard()
             void openManager()
           }}
+          onSkipMeet={dismissMeetCard}
           onPersonalize={startStory}
         />
       </div>
@@ -239,6 +240,13 @@ export default function CampaignManagerHome({
         defaultIntro={buildCampaignManagerIntro(firstName)}
         suggestions={suggestions}
         showSuggestionsWithGreeting
+        quickPrompts={[
+          'What should I focus on to win?',
+          'Which voters should I reach this week?',
+        ]}
+        composerPlaceholder={
+          firstName ? `Hi ${firstName}, how can I help?` : 'How can I help?'
+        }
         pendingKickoff={pendingKickoff}
         composerRef={composerRef}
         hiddenMessageContents={hiddenMessageContents}

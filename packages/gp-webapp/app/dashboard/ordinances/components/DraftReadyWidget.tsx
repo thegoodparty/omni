@@ -1,7 +1,13 @@
 import Link from 'next/link'
 import { Badge, cn } from '@styleguide'
-import { ChevronRightIcon } from '@styleguide/components/ui/icons'
-import type { OrdinancePresentDraft } from '@goodparty_org/contracts'
+import {
+  ChevronRightIcon,
+  TriangleAlertIcon,
+} from '@styleguide/components/ui/icons'
+import {
+  ORDINANCE_DRAFT_DISCLAIMER,
+  type OrdinancePresentDraft,
+} from '@goodparty_org/contracts'
 import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
 
 // The present_draft tool payload rendered as a compact "draft ready" card. The
@@ -20,7 +26,7 @@ export default function DraftReadyWidget({
   // exposure. saveDraft auto-starts the improvement loop for flagged-in
   // users, so the card says what will already be happening on the draft page.
   const { enabled: loopEnabled } = useOrdinanceQualityLoopFlag(false)
-  return (
+  const card = (
     <Link
       href={`/dashboard/ordinances/draft/${slug}`}
       className="group flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 shadow-sm transition-colors hover:border-primary/40 hover:bg-primary/5"
@@ -64,5 +70,25 @@ export default function DraftReadyWidget({
         />
       </span>
     </Link>
+  )
+  return (
+    <div className="flex flex-col gap-2">
+      {card}
+      <p
+        role="note"
+        className="flex items-start gap-2 px-1 text-xs leading-5 text-muted-foreground"
+      >
+        <TriangleAlertIcon
+          className="mt-0.5 size-3.5 shrink-0 text-warning"
+          aria-hidden
+        />
+        <span>
+          <span className="font-semibold text-foreground">
+            {ORDINANCE_DRAFT_DISCLAIMER.lead}
+          </span>{' '}
+          {ORDINANCE_DRAFT_DISCLAIMER.body}
+        </span>
+      </p>
+    </div>
   )
 }

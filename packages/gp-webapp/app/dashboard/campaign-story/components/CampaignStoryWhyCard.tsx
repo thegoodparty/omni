@@ -55,11 +55,16 @@ interface CampaignStoryWhyCardProps {
   // Reports the live answered-state (non-empty as the user types) so the page's
   // "generate" footer appears immediately, not only after a save.
   onAnsweredChange?: (answered: boolean) => void
+  // Reports whether the persisted (saved) bio is non-empty. Distinct from
+  // onAnsweredChange (live typing): onboarding uses this to reveal the next
+  // question only once this one is actually saved.
+  onSavedChange?: (saved: boolean) => void
 }
 
 const CampaignStoryWhyCard = ({
   initialBio,
   onAnsweredChange,
+  onSavedChange,
 }: CampaignStoryWhyCardProps): React.JSX.Element => {
   const queryClient = useQueryClient()
   const [bio, setBio] = useState(initialBio)
@@ -91,6 +96,12 @@ const CampaignStoryWhyCard = ({
 
   const isDirty = bio !== savedValue
   const saveLabel = !isDirty && plainLength(savedValue) > 0 ? 'Saved' : 'Save'
+
+  // Report the saved (persisted) state so onboarding can reveal the next
+  // question once this one is saved, not merely typed.
+  useEffect(() => {
+    onSavedChange?.(plainLength(savedValue) > 0)
+  }, [savedValue, onSavedChange])
 
   const hint =
     bioPlainLength === 0
