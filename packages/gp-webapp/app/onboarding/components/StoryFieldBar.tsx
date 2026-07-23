@@ -23,7 +23,9 @@ export default function StoryFieldBar({
   const isRecording = dictation.status === 'recording'
 
   return (
-    <div className="flex flex-col gap-2 border-t border-border pt-3">
+    // Break out of the card's p-6 so the top separator spans the full card
+    // width (matching the design), then re-pad the content back into alignment.
+    <div className="-mx-6 flex flex-col gap-2 border-t border-border px-6 pt-3">
       {rewrite.rewriteError && (
         <p className="text-sm text-destructive">
           Couldn&apos;t generate a rewrite.{' '}
