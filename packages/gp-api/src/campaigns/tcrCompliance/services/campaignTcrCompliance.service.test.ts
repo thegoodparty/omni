@@ -1820,10 +1820,7 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
       cvErr,
     )
 
-    expect(mockTcrModel.update).not.toHaveBeenCalledWith({
-      where: { id: existingRecord.id },
-      data: { status: 'rejected' },
-    })
+    expect(mockTcrModel.update).not.toHaveBeenCalled()
     const rejectionFires = mockAnalytics.track.mock.calls.filter(
       (call) => call[1] === EVENTS.Outreach.ComplianceRejected,
     )
