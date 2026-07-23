@@ -51,7 +51,10 @@ describe('PurchaseController', () => {
     createPortalSession: ReturnType<typeof vi.fn>
     expireCheckoutSession: ReturnType<typeof vi.fn>
   }
-  let usersService: { patchUserMetaData: ReturnType<typeof vi.fn> }
+  let usersService: {
+    patchUserMetaData: ReturnType<typeof vi.fn>
+    compareAndSwapCheckoutSessionId: ReturnType<typeof vi.fn>
+  }
   let purchaseService: {
     createCheckoutSession: ReturnType<typeof vi.fn>
     completeCheckoutSession: ReturnType<typeof vi.fn>
@@ -66,7 +69,10 @@ describe('PurchaseController', () => {
       createPortalSession: vi.fn(),
       expireCheckoutSession: vi.fn(),
     }
-    usersService = { patchUserMetaData: vi.fn() }
+    usersService = {
+      patchUserMetaData: vi.fn(),
+      compareAndSwapCheckoutSessionId: vi.fn().mockResolvedValue(true),
+    }
     purchaseService = {
       createCheckoutSession: vi.fn(),
       completeCheckoutSession: vi.fn(),
@@ -100,9 +106,11 @@ describe('PurchaseController', () => {
         userId,
         mockUser.email,
       )
-      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(userId, {
-        checkoutSessionId: 'cs_test_123',
-      })
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        userId,
+        null,
+        'cs_test_123',
+      )
       expect(result).toEqual({ redirectUrl })
     })
 
@@ -127,9 +135,11 @@ describe('PurchaseController', () => {
         'https://app.test/dashboard/pro-upgrade',
       )
       expect(stripeService.createCheckoutSession).not.toHaveBeenCalled()
-      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(userId, {
-        checkoutSessionId: 'cs_test_embedded',
-      })
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        userId,
+        null,
+        'cs_test_embedded',
+      )
       expect(result).toEqual({ clientSecret: 'cs_test_secret_abc' })
     })
 
@@ -154,7 +164,9 @@ describe('PurchaseController', () => {
         controller.createProCheckoutSession(mockUser),
       ).rejects.toThrow(BadRequestException)
       expect(stripeService.createCheckoutSession).not.toHaveBeenCalled()
-      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(
+        usersService.compareAndSwapCheckoutSessionId,
+      ).not.toHaveBeenCalled()
     })
 
     it('throws 400 before any Stripe call when there is no active campaign (embedded)', async () => {
@@ -166,7 +178,9 @@ describe('PurchaseController', () => {
       expect(
         stripeService.createEmbeddedProSubscriptionCheckoutSession,
       ).not.toHaveBeenCalled()
-      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(
+        usersService.compareAndSwapCheckoutSessionId,
+      ).not.toHaveBeenCalled()
     })
 
     it('throws 409 before any Stripe call when the campaign is already Pro (redirect)', async () => {
@@ -180,7 +194,9 @@ describe('PurchaseController', () => {
       ).rejects.toThrow(ConflictException)
       expect(stripeService.createCheckoutSession).not.toHaveBeenCalled()
       expect(stripeService.expireCheckoutSession).not.toHaveBeenCalled()
-      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(
+        usersService.compareAndSwapCheckoutSessionId,
+      ).not.toHaveBeenCalled()
     })
 
     it('throws 409 before any Stripe call when the campaign is already Pro (embedded)', async () => {
@@ -195,7 +211,9 @@ describe('PurchaseController', () => {
       expect(
         stripeService.createEmbeddedProSubscriptionCheckoutSession,
       ).not.toHaveBeenCalled()
-      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(
+        usersService.compareAndSwapCheckoutSessionId,
+      ).not.toHaveBeenCalled()
     })
 
     it('expires the stored open checkout session before creating a new one', async () => {
@@ -220,6 +238,26 @@ describe('PurchaseController', () => {
         stripeService.createCheckoutSession.mock.invocationCallOrder,
       )
       expect(expireOrder).toBeLessThan(createOrder)
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        userId,
+        'cs_previous_open',
+        'cs_test_new',
+      )
+    })
+
+    it('expires its own session and 409s when a concurrent request claimed first', async () => {
+      stripeService.createCheckoutSession.mockResolvedValue({
+        redirectUrl,
+        checkoutSessionId: 'cs_test_loser',
+      })
+      usersService.compareAndSwapCheckoutSessionId.mockResolvedValue(false)
+
+      await expect(
+        controller.createProCheckoutSession(mockUser),
+      ).rejects.toThrow(ConflictException)
+      expect(stripeService.expireCheckoutSession).toHaveBeenCalledWith(
+        'cs_test_loser',
+      )
     })
 
     it('expires the stored open checkout session on the embedded path too', async () => {
@@ -258,7 +296,9 @@ describe('PurchaseController', () => {
       expect(
         stripeService.createEmbeddedProSubscriptionCheckoutSession,
       ).not.toHaveBeenCalled()
-      expect(usersService.patchUserMetaData).not.toHaveBeenCalled()
+      expect(
+        usersService.compareAndSwapCheckoutSessionId,
+      ).not.toHaveBeenCalled()
     })
 
     it('skips expiry when the user has no stored checkout session', async () => {

@@ -68,7 +68,7 @@ export class PurchaseController {
     // Any still-open previous session stays payable even after this user
     // becomes Pro — expiring it caps each user at one payable Pro checkout
     // at a time.
-    const previousCheckoutSessionId = user.metaData?.checkoutSessionId
+    const previousCheckoutSessionId = user.metaData?.checkoutSessionId ?? null
     if (previousCheckoutSessionId) {
       const previousSession = await this.stripeService.expireCheckoutSession(
         previousCheckoutSessionId,
@@ -94,7 +94,11 @@ export class PurchaseController {
           dto.returnUrl,
         )
 
-      await this.usersService.patchUserMetaData(user.id, { checkoutSessionId })
+      await this.storeCheckoutSessionId(
+        user.id,
+        previousCheckoutSessionId,
+        checkoutSessionId,
+      )
 
       return { clientSecret }
     }
@@ -102,9 +106,35 @@ export class PurchaseController {
     const { redirectUrl, checkoutSessionId } =
       await this.stripeService.createCheckoutSession(user.id, email)
 
-    await this.usersService.patchUserMetaData(user.id, { checkoutSessionId })
+    await this.storeCheckoutSessionId(
+      user.id,
+      previousCheckoutSessionId,
+      checkoutSessionId,
+    )
 
     return { redirectUrl }
+  }
+
+  // Compare-and-swap so two concurrent creations can't both go payable: the
+  // loser sees the winner's id already stored, withdraws its own session,
+  // and rejects — leaving exactly one open Pro checkout per user.
+  private async storeCheckoutSessionId(
+    userId: number,
+    previousCheckoutSessionId: string | null,
+    checkoutSessionId: string,
+  ) {
+    const claimed = await this.usersService.compareAndSwapCheckoutSessionId(
+      userId,
+      previousCheckoutSessionId,
+      checkoutSessionId,
+    )
+    if (claimed) return
+
+    await this.stripeService.expireCheckoutSession(checkoutSessionId)
+    throw new ConflictException({
+      message: 'Another checkout session is already in progress',
+      errorCode: 'CHECKOUT_IN_PROGRESS',
+    })
   }
 
   @Post('portal-session')
