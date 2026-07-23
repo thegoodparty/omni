@@ -3,7 +3,6 @@
 import {
   Button,
   CheckIcon,
-  IconButton,
   LoaderCircleIcon,
   MicIcon,
   SquareIcon,
@@ -44,7 +43,7 @@ export default function StoryCardActions({
   const showSave = isDirty || hasSavedContent
 
   return (
-    <div className="flex flex-col gap-2 border-t border-border pt-3">
+    <div className="flex flex-col gap-2">
       {(dictation.error || dictation.partialTranscript) && (
         <p className="text-sm">
           {dictation.error ? (
@@ -103,21 +102,19 @@ export default function StoryCardActions({
               <SquareIcon className="size-4" aria-hidden />
             </button>
           ) : (
-            <IconButton
+            <button
               type="button"
-              variant="ghost"
-              size="small"
               aria-label="Record voice"
               disabled={dictation.busy}
               onClick={() => void dictation.toggle()}
-              className="shrink-0"
+              className="flex size-9 shrink-0 items-center justify-center rounded-full text-foreground transition-colors hover:bg-grayscale-100 disabled:pointer-events-none disabled:opacity-50"
             >
               {dictation.busy ? (
                 <LoaderCircleIcon className="size-5 animate-spin" aria-hidden />
               ) : (
                 <MicIcon className="size-5" aria-hidden />
               )}
-            </IconButton>
+            </button>
           )}
         </div>
       </div>
