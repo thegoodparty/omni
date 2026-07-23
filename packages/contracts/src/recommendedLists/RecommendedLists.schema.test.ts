@@ -1,0 +1,146 @@
+import { describe, it, expect } from 'vitest'
+import {
+  RecommendedListsResponseSchema,
+  RecommendedListsSchema,
+  type RecommendedLists,
+} from './RecommendedLists.schema'
+
+const lists: RecommendedLists = {
+  meta: {
+    officeName: 'County Commissioner District 5',
+    state: 'MN',
+    districtType: 'County_Commissioner_District',
+    districtName: 'SCOTT CNTY COMM DIST 5',
+    districtLabel: 'SCOTT CNTY COMM DIST 5, MN',
+    registeredVoters: 41230,
+    projectedTurnout: 18400,
+    votesNeeded: 9201,
+    electionCode: 'General',
+    electionDate: '2026-11-03',
+    subGeoLabel: 'municipalities',
+    doorRatio: 0.62,
+  },
+  anchor: {
+    votescoreThreshold: 3,
+    voterCount: 18500,
+    doorCount: 11470,
+    estimatedHours: 764.7,
+    turfs: [
+      { area: 'SHAKOPEE', voterCount: 7200 },
+      { area: 'PRIOR LAKE', voterCount: 5100 },
+    ],
+  },
+  issueCards: [
+    {
+      phrase: 'Protecting local water quality',
+      opponentName: 'Jane Doe',
+      threatTier: 'high',
+      activeVoters: 30500,
+      supporters: 12000,
+      opponents: 4000,
+      persuadable: 14500,
+      supportersPlausible: 8000,
+    },
+  ],
+  partisan: {
+    shape: 'P4',
+    isPartisanRace: true,
+    hasDemOpponent: true,
+    hasGopOpponent: false,
+    targetParties: 'Republicans and Independents',
+    cardSubtitle:
+      'Moderate-to-high propensity voters who are registered Independents ' +
+      'or Republicans, and voters showing signs of independence.',
+    signals: {
+      partySwitchers: 900,
+      ticketSplitters: 1200,
+      crossoverPrimary: 700,
+      doubleDislike: 1500,
+      modeledIndependents: 3400,
+      registrationAddOn: 2100,
+    },
+    districtTotal: 41230,
+    unionCount: 8200,
+    plausibleElectorateCount: 18500,
+    listCount: 5600,
+    turfs: [{ area: 'SAVAGE', voterCount: 2100 }],
+  },
+  gotv: {
+    applies: true,
+    dropoffX: 4200,
+    exponentA: 0.79,
+  },
+}
+
+const readyPayload = {
+  status: 'ready' as const,
+  computedAt: '2026-07-23T12:00:00.000Z',
+  lists,
+}
+
+describe('RecommendedListsSchema', () => {
+  it('parses a full ready lists payload', () => {
+    const parsed = RecommendedListsSchema.parse(lists)
+    expect(parsed.meta.electionCode).toBe('General')
+    expect(parsed.anchor.turfs).toHaveLength(2)
+    expect(parsed.partisan?.shape).toBe('P4')
+    expect(parsed.gotv.exponentA).toBe(0.79)
+  })
+
+  it('accepts a null partisan card (no persuasion universe)', () => {
+    const parsed = RecommendedListsSchema.parse({ ...lists, partisan: null })
+    expect(parsed.partisan).toBeNull()
+  })
+
+  it('rejects an invalid electionCode', () => {
+    const bad = { ...lists, meta: { ...lists.meta, electionCode: 'Runoff' } }
+    expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
+  })
+
+  it('rejects a negative turf voterCount', () => {
+    const bad = {
+      ...lists,
+      anchor: {
+        ...lists.anchor,
+        turfs: [{ area: 'SHAKOPEE', voterCount: -1 }],
+      },
+    }
+    expect(RecommendedListsSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('RecommendedListsResponseSchema', () => {
+  it('parses the ready variant with computedAt and lists', () => {
+    const parsed = RecommendedListsResponseSchema.parse(readyPayload)
+    expect(parsed.status).toBe('ready')
+    if (parsed.status === 'ready') {
+      expect(parsed.computedAt).toBe('2026-07-23T12:00:00.000Z')
+      expect(parsed.lists.meta.state).toBe('MN')
+    }
+  })
+
+  it.each(['pending', 'failed', 'unavailable'] as const)(
+    'parses the %s status variant',
+    (status) => {
+      const parsed = RecommendedListsResponseSchema.parse({ status })
+      expect(parsed.status).toBe(status)
+    },
+  )
+
+  it('rejects an unknown status', () => {
+    expect(
+      RecommendedListsResponseSchema.safeParse({ status: 'computing' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a ready variant missing computedAt', () => {
+    expect(
+      RecommendedListsResponseSchema.safeParse({ status: 'ready', lists })
+        .success,
+    ).toBe(false)
+  })
+
+  it('never leaks a Haystaq hs_ identifier into the candidate-facing payload', () => {
+    expect(JSON.stringify(readyPayload)).not.toContain('hs_')
+  })
+})
