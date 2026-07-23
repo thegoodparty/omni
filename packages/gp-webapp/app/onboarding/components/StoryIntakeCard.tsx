@@ -42,14 +42,14 @@ export default function StoryIntakeCard({
     <Card className="flex flex-col gap-4 p-6">
       <h2 className="text-2xl font-bold text-foreground">{question}</h2>
 
-      <div className="flex flex-col gap-2">
+      <div className="relative">
         <Textarea
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={examplePlaceholder}
-          className="min-h-40 resize-none placeholder:italic placeholder:text-muted-foreground"
+          className="min-h-40 resize-none pb-7 placeholder:italic placeholder:text-muted-foreground"
         />
-        <span className="self-end text-sm text-muted-foreground">
+        <span className="pointer-events-none absolute bottom-2 right-3 text-sm text-muted-foreground">
           {value.length} chars
         </span>
       </div>

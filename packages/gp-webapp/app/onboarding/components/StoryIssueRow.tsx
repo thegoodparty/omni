@@ -77,14 +77,14 @@ export default function StoryIssueRow({
 
       <div className="flex flex-col gap-1.5">
         <Label>Description</Label>
-        <div className="flex flex-col gap-2">
+        <div className="relative">
           <Textarea
             value={issue.description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder={DESCRIPTION_PLACEHOLDER}
-            className="min-h-28 resize-none placeholder:italic placeholder:text-muted-foreground"
+            className="min-h-28 resize-none pb-7 placeholder:italic placeholder:text-muted-foreground"
           />
-          <span className="self-end text-sm text-muted-foreground">
+          <span className="pointer-events-none absolute bottom-2 right-3 text-sm text-muted-foreground">
             {issue.description.length} chars
           </span>
         </div>
