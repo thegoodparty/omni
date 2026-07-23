@@ -32,7 +32,7 @@ describe('ExperimentRunsService', () => {
     findMany: ReturnType<typeof vi.fn>
   }
   let mockSlack: { errorMessage: ReturnType<typeof vi.fn> }
-  let campaignFindUnique: ReturnType<typeof vi.fn>
+  let organizationFindUnique: ReturnType<typeof vi.fn>
   const logger = createMockLogger()
 
   beforeEach(() => {
@@ -62,9 +62,9 @@ describe('ExperimentRunsService', () => {
       get: () => logger,
       configurable: true,
     })
-    campaignFindUnique = vi.fn().mockResolvedValue(null)
+    organizationFindUnique = vi.fn().mockResolvedValue(null)
     Object.defineProperty(service, '_prisma', {
-      value: { campaign: { findUnique: campaignFindUnique } },
+      value: { organization: { findUnique: organizationFindUnique } },
       configurable: true,
     })
   })
@@ -74,10 +74,10 @@ describe('ExperimentRunsService', () => {
   })
 
   describe('dispatchRun', () => {
-    it('skips dispatch (no row, no SQS) for a test-user campaign', async () => {
+    it('skips dispatch (no row, no SQS) for a test-user org', async () => {
       sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
-      campaignFindUnique.mockResolvedValue({
-        user: { email: 'jane@test.goodparty.org' },
+      organizationFindUnique.mockResolvedValue({
+        owner: { email: 'jane@test.goodparty.org' },
       })
 
       const result = await service.dispatchRun({
@@ -92,10 +92,32 @@ describe('ExperimentRunsService', () => {
         },
       })
 
-      expect(campaignFindUnique).toHaveBeenCalledWith({
-        where: { organizationSlug: 'org-1' },
-        select: { user: { select: { email: true } } },
+      expect(organizationFindUnique).toHaveBeenCalledWith({
+        where: { slug: 'org-1' },
+        select: { owner: { select: { email: true } } },
       })
+      expect(result).toBeUndefined()
+      expect(mockModel.create).not.toHaveBeenCalled()
+      expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
+    })
+
+    it('skips dispatch for a test-user Serve org with no campaign row', async () => {
+      sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-1' })
+      organizationFindUnique.mockResolvedValue({
+        owner: { email: 'cheyenne@test.goodparty.org' },
+      })
+
+      const result = await service.dispatchRun({
+        type: 'find_existing_ordinances',
+        organizationSlug: 'eo-abc123',
+        clerkUserId: 'user_test_eo',
+        params: {
+          organization_slug: 'eo-abc123',
+          state: 'WY',
+          office: 'Mayor',
+        },
+      })
+
       expect(result).toBeUndefined()
       expect(mockModel.create).not.toHaveBeenCalled()
       expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
@@ -578,6 +600,44 @@ describe('ExperimentRunsService', () => {
 
         expect(mockModel.create).not.toHaveBeenCalled()
         expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
+      },
+    )
+
+    it(
+      'skips the test-user gate on resume: creates no run, sends no SQS, ' +
+        'and releases the claim with an incremented attempt count',
+      async () => {
+        sqsMock.on(SendMessageCommand).resolves({ MessageId: 'm-resume-tu' })
+        organizationFindUnique.mockResolvedValue({
+          owner: { email: 'jane@test.goodparty.org' },
+        })
+        mockModel.updateMany.mockResolvedValue({ count: 1 })
+
+        await service.resumeRun(awaitingRun)
+
+        expect(mockModel.create).not.toHaveBeenCalled()
+        expect(sqsMock.commandCalls(SendMessageCommand)).toHaveLength(0)
+        // No successor row was created, so the old row is released (not
+        // superseded) and its attempt counter advances toward the cap.
+        expect(mockModel.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              runId: awaitingRun.runId,
+              status: ExperimentRunStatus.AWAITING_RESUME,
+            }),
+            data: {
+              resumeScheduledFor: expect.any(Date),
+              resumeAttempts: { increment: 1 },
+            },
+          }),
+        )
+        expect(mockModel.updateMany).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              error: 'Superseded by resumed run',
+            }),
+          }),
+        )
       },
     )
 
