@@ -415,9 +415,15 @@ export default function OnboardingFlow({
   const [isSavingOffice, setIsSavingOffice] = useState(false)
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
   // The three story steps share one in-memory draft; nothing persists until the
-  // final step's Continue. Gated on the flag so the non-story cohort never
-  // fetches the website/story.
-  const storyDraft = useOnboardingStoryDraft(campaignStoryEnabled)
+  // final step's Continue. Gated on the flag AND on actually being on a story
+  // step: a new candidate's campaign is created mid-onboarding (office step), so
+  // fetching the story earlier (e.g. on the welcome step) would 404/allow no
+  // campaign and leave the draft stuck in its error state by the time they
+  // arrive. Fetching on entry to the first story step mirrors the old
+  // mount-time fetch.
+  const storyDraft = useOnboardingStoryDraft(
+    campaignStoryEnabled && isStoryStepId(activeStepId),
+  )
   const [isPersistingStory, setIsPersistingStory] = useState(false)
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
@@ -1311,7 +1317,9 @@ export default function OnboardingFlow({
                 variant="default"
                 size="large"
                 onClick={() => void handleStoryContinue()}
-                disabled={!storyDraft.isReady || isPersistingStory}
+                disabled={
+                  !storyDraft.isReady || storyDraft.isError || isPersistingStory
+                }
               >
                 Continue
               </Button>
