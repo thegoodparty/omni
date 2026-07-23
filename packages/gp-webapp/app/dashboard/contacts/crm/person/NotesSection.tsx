@@ -382,7 +382,7 @@ export default function NotesSection({
               isSaveError={createMutation.isError}
               textareaLabel="Add a note"
             />
-          ) : (
+          ) : editingNoteId === null ? (
             <Button
               type="button"
               className="w-full"
@@ -391,7 +391,7 @@ export default function NotesSection({
               <NotebookPenIcon size={16} />
               Add a note
             </Button>
-          )}
+          ) : null}
         </>
       )}
     </InfoSection>
