@@ -73,7 +73,7 @@ describe('ServeOfficePicker', () => {
     expect(screen.getByText(/Last election:.*2024/)).toBeInTheDocument()
   })
 
-  it('requests past races for the submitted zip', async () => {
+  it('requests upcoming races for the submitted zip', async () => {
     mockClientFetch.mockResolvedValue({
       ok: true,
       data: [],
@@ -84,8 +84,21 @@ describe('ServeOfficePicker', () => {
     await waitFor(() => expect(mockClientFetch).toHaveBeenCalled())
     expect(mockClientFetch).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ zipcode: '82001', timeframe: 'past' }),
+      expect.objectContaining({ zipcode: '82001', timeframe: 'future' }),
       expect.anything(),
     )
+  })
+
+  it('shows an office whose only election on file is upcoming, with no last-election date', async () => {
+    mockClientFetch.mockResolvedValue({
+      ok: true,
+      data: [ward1('brC', 'pC', '2999-11-05')],
+    } as unknown as Awaited<ReturnType<typeof clientFetch>>)
+
+    renderPicker()
+
+    const rows = await screen.findAllByRole('radio', { name: /Ward 1/ })
+    expect(rows).toHaveLength(1)
+    expect(screen.queryByText(/Last election:/)).not.toBeInTheDocument()
   })
 })
