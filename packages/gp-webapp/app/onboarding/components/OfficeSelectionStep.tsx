@@ -106,7 +106,7 @@ const FUSE_OPTIONS: IFuseOptions<Race> = {
 const fetchRaces = async (zip: string): Promise<Race[]> => {
   const resp = await clientFetch<Race[]>(
     apiRoutes.elections.racesByYear,
-    { zipcode: zip },
+    { zipcode: zip, timeframe: 'future' },
     { revalidate: 3600 },
   )
   if (!resp.ok) {
@@ -114,7 +114,11 @@ const fetchRaces = async (zip: string): Promise<Race[]> => {
       `racesByYear returned ${resp.status} ${resp.statusText}`.trim(),
     )
   }
-  return Array.isArray(resp.data) ? resp.data : []
+  // A candidate runs in the general, so collapse each position's races down to
+  // its general election — the payload now also carries primaries and runoffs.
+  return Array.isArray(resp.data)
+    ? resp.data.filter((race) => !race.isPrimary && !race.isRunoff)
+    : []
 }
 
 const formatElectionDate = (date?: string): string => {
