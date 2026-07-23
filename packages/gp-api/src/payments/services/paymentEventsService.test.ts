@@ -139,6 +139,19 @@ describe('PaymentEventsService', () => {
       expect(usersService.patchUserMetaData).toHaveBeenCalled()
     })
 
+    it('patches customerId unconditionally but clears the session id via compare-and-swap', async () => {
+      await service.handleEvent(subscriptionEvent)
+
+      expect(usersService.patchUserMetaData).toHaveBeenCalledWith(1, {
+        customerId: 'cus_test',
+      })
+      expect(usersService.compareAndSwapCheckoutSessionId).toHaveBeenCalledWith(
+        1,
+        'cs_test',
+        null,
+      )
+    })
+
     it('resolves the authoritative ballot level and forwards it to the voter-file alert', async () => {
       campaignsService.findActiveByUserId.mockResolvedValue({
         ...mockCampaign,

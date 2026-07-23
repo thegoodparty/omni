@@ -354,8 +354,16 @@ export class PaymentEventsService {
       // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       customerId: customerId as string,
-      checkoutSessionId: null,
     })
+
+    // The clear must be conditional on the stored id still being this
+    // completing session — a concurrent checkout may have stored a newer id,
+    // and clearing it unconditionally would strand that session untracked.
+    await this.usersService.compareAndSwapCheckoutSessionId(
+      user.id,
+      session.id,
+      null,
+    )
 
     // Non-critical: Send notifications - log failures but don't fail webhook
     const results = await Promise.allSettled([
