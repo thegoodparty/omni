@@ -57,7 +57,7 @@ export default function StoryIntakeCard({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           placeholder={examplePlaceholder}
-          className="min-h-40 resize-none pb-7 placeholder:italic placeholder:text-muted-foreground"
+          className="min-h-40 resize-none pb-9 placeholder:italic placeholder:text-muted-foreground"
         />
         <span className="pointer-events-none absolute bottom-2 right-3 text-sm text-muted-foreground">
           {value.length} chars
