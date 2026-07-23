@@ -261,24 +261,6 @@ describe('CampaignStoryCard', () => {
     })
   })
 
-  describe('Save button stays visible during a rewrite', () => {
-    it('keeps the Save button rendered while a suggestion is showing', async () => {
-      const user = userEvent.setup()
-      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
-        status: 200,
-        data: { rewrite: 'A sharper background.' },
-      }))
-
-      render(
-        <CampaignStoryCard section={section} initialValue="rough background" />,
-      )
-      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
-      await screen.findByText('A sharper background.')
-
-      expect(screen.getByRole('button', { name: /^Save/ })).toBeInTheDocument()
-    })
-  })
-
   describe("Here's an example", () => {
     it('reveals the example text when expanded', async () => {
       const user = userEvent.setup()
@@ -308,48 +290,14 @@ describe('CampaignStoryCard', () => {
       expect(button).toBeEnabled()
     })
 
-    it('requests a rewrite and shows the suggestion with three actions', async () => {
+    it('drops the improved text straight into the field and saves it', async () => {
       const user = userEvent.setup()
       let rewriteBody: { field?: string; text?: string } | null = null
+      let putBody: { background?: string } | null = null
       api.mock('POST /v1/campaigns/mine/story/rewrite', async ({ body }) => {
         rewriteBody = body
         return { status: 200, data: { rewrite: 'A sharper background.' } }
       })
-
-      render(
-        <CampaignStoryCard section={section} initialValue="rough background" />,
-      )
-      await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
-
-      expect(
-        await screen.findByText('A sharper background.'),
-      ).toBeInTheDocument()
-      expect(rewriteBody).toEqual({
-        field: 'background',
-        text: 'rough background',
-      })
-      expect(trackEvent).toHaveBeenCalledWith(
-        EVENTS.CampaignStory.RewriteRequested,
-        { field: 'background', source: 'initial' },
-      )
-      expect(
-        screen.getByRole('button', { name: /Discard/ }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: /Try again/ }),
-      ).toBeInTheDocument()
-      expect(
-        screen.getByRole('button', { name: /Use this/ }),
-      ).toBeInTheDocument()
-    })
-
-    it('"Use this" replaces the text and saves immediately', async () => {
-      const user = userEvent.setup()
-      let putBody: { background?: string } | null = null
-      api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
-        status: 200,
-        data: { rewrite: 'A sharper background.' },
-      }))
       api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
         putBody = body
         return { status: 200, data: emptyStory }
@@ -359,33 +307,44 @@ describe('CampaignStoryCard', () => {
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
       await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
-      await screen.findByText('A sharper background.')
-      await user.click(screen.getByRole('button', { name: /Use this/ }))
 
-      await waitFor(() => {
-        expect(putBody).toEqual({ background: 'A sharper background.' })
-      })
       const textarea = screen.getByPlaceholderText<HTMLTextAreaElement>(
         'Tap to write your background',
       )
-      expect(textarea.value).toBe('A sharper background.')
-      // The suggestion card is dismissed once accepted.
-      expect(screen.queryByText('Suggested rewrite')).not.toBeInTheDocument()
+      await waitFor(() => {
+        expect(textarea.value).toBe('A sharper background.')
+      })
+      await waitFor(() => {
+        expect(putBody).toEqual({ background: 'A sharper background.' })
+      })
+      expect(rewriteBody).toEqual({
+        field: 'background',
+        text: 'rough background',
+      })
+      expect(trackEvent).toHaveBeenCalledWith(
+        EVENTS.CampaignStory.RewriteRequested,
+        { field: 'background', source: 'initial' },
+      )
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteAccepted,
         { field: 'background' },
       )
+      // No suggestion panel any more — just the field, plus an Undo affordance.
+      expect(
+        screen.queryByRole('button', { name: /Use this/ }),
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /Undo/ })).toBeInTheDocument()
     })
 
-    it('"Discard" dismisses the suggestion without saving', async () => {
+    it('"Undo" restores the pre-improvement text and re-saves it', async () => {
       const user = userEvent.setup()
-      let putCalled = false
+      const putBodies: Array<{ background?: string }> = []
       api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
         status: 200,
         data: { rewrite: 'A sharper background.' },
       }))
-      api.mock('PUT /v1/campaigns/mine/story', async () => {
-        putCalled = true
+      api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+        putBodies.push(body as { background?: string })
         return { status: 200, data: emptyStory }
       })
 
@@ -393,21 +352,30 @@ describe('CampaignStoryCard', () => {
         <CampaignStoryCard section={section} initialValue="rough background" />,
       )
       await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
-      await screen.findByText('A sharper background.')
-      await user.click(screen.getByRole('button', { name: /Discard/ }))
 
-      expect(
-        screen.queryByText('A sharper background.'),
-      ).not.toBeInTheDocument()
-      expect(putCalled).toBe(false)
+      const textarea = screen.getByPlaceholderText<HTMLTextAreaElement>(
+        'Tap to write your background',
+      )
+      await waitFor(() => {
+        expect(textarea.value).toBe('A sharper background.')
+      })
+
+      await user.click(screen.getByRole('button', { name: /Undo/ }))
+
+      await waitFor(() => {
+        expect(textarea.value).toBe('rough background')
+      })
+      await waitFor(() => {
+        expect(putBodies).toContainEqual({ background: 'rough background' })
+      })
       expect(trackEvent).toHaveBeenCalledWith(
         EVENTS.CampaignStory.RewriteDiscarded,
         { field: 'background' },
       )
-      expect(trackEvent).not.toHaveBeenCalledWith(
-        EVENTS.CampaignStory.RewriteAccepted,
-        expect.anything(),
-      )
+      // Undo is a one-shot: once used it's gone until the next improvement.
+      expect(
+        screen.queryByRole('button', { name: /Undo/ }),
+      ).not.toBeInTheDocument()
     })
 
     it('shows an error when the rewrite call fails', async () => {

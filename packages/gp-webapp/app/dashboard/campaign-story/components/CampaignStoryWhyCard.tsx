@@ -18,7 +18,6 @@ import {
 } from 'app/dashboard/website/util/website.util'
 import { WHY_RUNNING_PROMPT } from 'app/dashboard/profile/texting-compliance/candidate-profile/candidateProfile.utils'
 import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
-import RewriteSuggestion from './RewriteSuggestion'
 import StoryCardActions from './StoryCardActions'
 import { useStoryRewrite } from './useStoryRewrite'
 
@@ -156,16 +155,16 @@ const CampaignStoryWhyCard = ({
     onAnsweredChange?.(text.trim().length > 0)
   }
 
-  // "Use this" re-seeds the editor with the suggestion and persists now — there
-  // may be no blur to trigger the autosave.
-  const acceptRewrite = (suggestion: string): void => {
-    applyText(suggestion)
+  // Applies AI-improved text (or the pre-improvement text on undo) by re-seeding
+  // the editor and persisting now — there may be no blur to trigger the autosave.
+  const applyRewrite = (text: string): void => {
+    applyText(text)
     void save()
   }
 
   const plainBio = bio ? stripHtml(bio).result : ''
 
-  const rewrite = useStoryRewrite('why', plainBio.trim(), acceptRewrite)
+  const rewrite = useStoryRewrite('why', plainBio.trim(), applyRewrite)
 
   // Voice capture appends the transcript into the editor via applyText; the
   // candidate reviews and saves (a save button appears once dirty).
@@ -211,7 +210,19 @@ const CampaignStoryWhyCard = ({
           </p>
         )}
 
-        {rewrite.rewriteActive && <RewriteSuggestion rewrite={rewrite} />}
+        {rewrite.rewriteError && (
+          <p className="text-sm text-destructive">
+            Couldn&apos;t generate a rewrite.{' '}
+            <Button
+              variant="link"
+              size="small"
+              className="h-auto p-0"
+              onClick={() => void rewrite.requestRewrite()}
+            >
+              Try again
+            </Button>
+          </p>
+        )}
 
         <StoryCardActions
           isDirty={isDirty}

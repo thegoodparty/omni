@@ -54,10 +54,10 @@ already round-trips through `Website.content.about`.
 
 | File | Role |
 |------|------|
-| `components/CampaignStoryWhyCard.tsx` | The "why" card — a `RichEditor` (toolbar hidden) bound to the website bio via `saveAboutFields({ bio })` (autosaves on blur) + Campaign Manager hint + "Help me rewrite" |
-| `components/CampaignStoryCard.tsx` | The "background" card — textarea (char counter, `/100` soft suggestion, not enforced) autosaving to `campaign_story` via `PUT /v1/campaigns/mine/story` + Campaign Manager hint + "Help me rewrite" |
-| `components/useStoryRewrite.ts` | Shared "Help me rewrite" logic (request, suggestion state, accept/discard, the 403 limit, analytics) used by both prompt cards |
-| `components/RewriteSuggestion.tsx` | Shared presentational suggestion panel (loading/error/draft + Discard / Try again / Use this) |
+| `components/CampaignStoryWhyCard.tsx` | The "why" card — a `RichEditor` (toolbar hidden) bound to the website bio via `saveAboutFields({ bio })` (autosaves on blur) + action bar ("Improve with AI" + mic) |
+| `components/CampaignStoryCard.tsx` | The "background" card — textarea autosaving to `campaign_story` via `PUT /v1/campaigns/mine/story` + action bar ("Improve with AI" + mic) |
+| `components/StoryCardActions.tsx` | Shared action bar under each card's field — Save (left, when dirty), an Undo link (after an AI improvement), "Improve with AI", and a dictation mic |
+| `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) used by both prompt cards |
 
 ## Patterns
 
@@ -82,16 +82,19 @@ already round-trips through `Website.content.about`.
   plain text while emitting the same HTML the Pro-upgrade editor reads. Initial
   bio + issues are fetched client-side (`getUserWebsite`) by whichever consumer
   mounts the cards (onboarding, the plan-tab gate).
-- **"Help me rewrite"** (why + background) calls
+- **"Improve with AI"** (why + background) calls
   `POST /v1/campaigns/mine/story/rewrite` (Gemini Flash, server-side) with the
   field id + current text; gp-api pairs it with the candidate's name and a
-  field-specific, non-partisan prompt. The suggestion renders in a card with
-  Discard / Try again / Use this. "Use this" replaces the field and persists
-  immediately (no wait for blur). The button is disabled when the field is empty
-  (nothing to rewrite). The endpoint is stateless on the field text, so the why
+  field-specific, non-partisan prompt. While it runs the button reads
+  "Improving…"; on success the improved text is dropped **straight into the
+  field** and persisted immediately (no suggestion panel, no wait for blur), and
+  an **Undo** link appears (left of the button) that restores the pre-improvement
+  text and re-saves it. Undo stays until it's clicked or the next improvement
+  recaptures the baseline. The button is disabled when the field is empty
+  (nothing to improve). The endpoint is stateless on the field text, so the why
   rewrite operates on the bio's plain text. The shared `PolicyForm` "Policy
-  focus" editor has its own "Help me rewrite" too (rewrite `field: 'issue'`), so
-  both the Campaign Story "Your Policies" editor and the Pro-upgrade flow get it.
+  focus" editor has its own separate "Help me rewrite" (rewrite `field: 'issue'`,
+  still a suggestion panel), independent of `useStoryRewrite`.
 - **Rewrite limit.** A per-campaign lifetime cap of 200 rewrite attempts,
   tracked in `campaign_story.rewrite_count` and enforced server-side (403). A
   lifetime attempt is refunded if the Gemini call itself fails, so infra errors
@@ -99,9 +102,9 @@ already round-trips through `Website.content.about`.
   notice and disables rewriting for the session (manual edits still allowed).
 - **Rewrite analytics.** `useStoryRewrite` fires Segment events via
   `trackEvent(EVENTS.CampaignStory.*)`: `RewriteRequested` ({ field, source:
-  'initial' | 'retry' }), `RewriteAccepted`, `RewriteDiscarded`, and
-  `RewriteLimitReached` (403) — all carry `field`. Names live in
-  `helpers/analyticsHelper.ts`.
+  'initial' }), `RewriteAccepted` (fired when the improvement is auto-applied),
+  `RewriteDiscarded` (fired on Undo), and `RewriteLimitReached` (403) — all carry
+  `field`. Names live in `helpers/analyticsHelper.ts`.
 - **Campaign Manager hint** is length-driven and always visible: empty → "say
   more" → positive once past `SUGGESTED_CHARS`. It deliberately avoids quality
   claims ("strong, specific…") from a length signal — that waits for the real

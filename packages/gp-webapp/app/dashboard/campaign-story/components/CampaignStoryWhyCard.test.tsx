@@ -70,7 +70,7 @@ describe('CampaignStoryWhyCard', () => {
     expect(onAnsweredChange).toHaveBeenLastCalledWith(true)
   })
 
-  it('rewrites the why and persists the accepted suggestion', async () => {
+  it('improves the why in place and persists it, exposing Undo', async () => {
     const user = userEvent.setup()
     api.mock('POST /v1/campaigns/mine/story/rewrite', async ({ body }) => {
       expect(body).toEqual({ field: 'why', text: 'rough why' })
@@ -79,9 +79,8 @@ describe('CampaignStoryWhyCard', () => {
 
     render(<CampaignStoryWhyCard initialBio="rough why" />)
     await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
-    await screen.findByText('A sharper why.')
-    await user.click(screen.getByRole('button', { name: /Use this/ }))
 
+    // No suggestion panel or "Use this" — the improvement is applied + saved.
     await waitFor(() =>
       expect(saveAboutFields).toHaveBeenCalledWith({ bio: 'A sharper why.' }),
     )
@@ -89,6 +88,37 @@ describe('CampaignStoryWhyCard', () => {
       EVENTS.CampaignStory.RewriteAccepted,
       { field: 'why' },
     )
+    expect(
+      screen.queryByRole('button', { name: /Use this/ }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Undo/ })).toBeInTheDocument()
+  })
+
+  it('"Undo" restores the pre-improvement why and re-saves it', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+      status: 200,
+      data: { rewrite: 'A sharper why.' },
+    }))
+
+    render(<CampaignStoryWhyCard initialBio="rough why" />)
+    await user.click(screen.getByRole('button', { name: /Improve with AI/ }))
+    await waitFor(() =>
+      expect(saveAboutFields).toHaveBeenCalledWith({ bio: 'A sharper why.' }),
+    )
+
+    await user.click(screen.getByRole('button', { name: /Undo/ }))
+
+    await waitFor(() =>
+      expect(saveAboutFields).toHaveBeenCalledWith({ bio: 'rough why' }),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.CampaignStory.RewriteDiscarded,
+      { field: 'why' },
+    )
+    expect(
+      screen.queryByRole('button', { name: /Undo/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('disables the rewrite button until there is text', async () => {

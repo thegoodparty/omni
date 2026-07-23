@@ -19,7 +19,9 @@ interface StoryCardActionsProps {
   isSaving: boolean
   onSave: () => void
   // "Improve with AI" reuses the existing story rewrite; while it runs the label
-  // becomes "Improving…". Disabled when there's nothing to improve.
+  // becomes "Improving…", and the improved text drops straight into the field.
+  // Once applied, an "Undo" link (left of the button) restores the original.
+  // Disabled when there's nothing to improve.
   rewrite: StoryRewrite
   improveDisabled: boolean
   // Voice capture: tap the mic to record, tap again (red stop) to stop; the
@@ -27,9 +29,9 @@ interface StoryCardActionsProps {
   dictation: UseDictationAppendResult
 }
 
-// The bar under a story card's textarea: Save (left, when dirty) + Improve with
-// AI + a mic. Mirrors the outreach compose bar; shared by the why + background
-// cards so the two look identical.
+// The bar under a story card's textarea: Save (left, when dirty) + an Undo link
+// (after an AI improvement) + Improve with AI + a mic. Mirrors the outreach
+// compose bar; shared by the why + background cards so the two look identical.
 export default function StoryCardActions({
   isDirty,
   hasSavedContent,
@@ -74,6 +76,17 @@ export default function StoryCardActions({
         </div>
 
         <div className="flex items-center gap-2">
+          {rewrite.canUndo && !rewrite.isRewriting && (
+            <Button
+              variant="link"
+              size="small"
+              className="h-auto p-0"
+              onClick={rewrite.undo}
+            >
+              Undo
+            </Button>
+          )}
+
           {rewrite.isRewriting ? (
             <span className="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm text-muted-foreground">
               <LoaderCircleIcon className="size-4 animate-spin" aria-hidden />
@@ -82,7 +95,7 @@ export default function StoryCardActions({
           ) : (
             <button
               type="button"
-              onClick={() => void rewrite.requestRewrite('initial')}
+              onClick={() => void rewrite.requestRewrite()}
               disabled={improveDisabled || rewrite.limitReached}
               className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-grayscale-100 disabled:pointer-events-none disabled:opacity-50 disabled:hover:bg-transparent"
             >

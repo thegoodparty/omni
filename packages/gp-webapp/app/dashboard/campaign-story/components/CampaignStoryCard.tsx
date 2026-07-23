@@ -14,7 +14,6 @@ import {
 import { reportErrorToSentry } from '@shared/sentry'
 import { clientRequest } from 'gpApi/typed-request'
 import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
-import RewriteSuggestion from './RewriteSuggestion'
 import StoryCardActions from './StoryCardActions'
 import { useStoryRewrite } from './useStoryRewrite'
 
@@ -78,18 +77,12 @@ const CampaignStoryCard = ({
     onSavedChange?.(savedValue.trim().length > 0)
   }, [savedValue, onSavedChange])
 
-  // One place to update the field, used by typing, dictation, and accepting a
+  // One place to update the field, used by typing, dictation, and applying a
   // rewrite, so the ref + answered-state stay in sync however text arrives.
   const applyValue = (next: string): void => {
     valueRef.current = next
     setValue(next)
     onAnsweredChange?.(next.trim().length > 0)
-  }
-
-  const handleChange = (
-    event: React.ChangeEvent<HTMLTextAreaElement>,
-  ): void => {
-    applyValue(event.target.value)
   }
 
   // Autosave on blur. The loop flushes any edits that arrived while a request
@@ -141,15 +134,21 @@ const CampaignStoryCard = ({
     }
   }
 
-  // "Use this" replaces the field with the suggestion and persists it now,
-  // rather than waiting for a blur — the user accepted via a button click, so
-  // there may be no blur to trigger the autosave.
-  const acceptRewrite = (text: string): void => {
+  // Applies AI-improved text (or the pre-improvement text on undo) to the field
+  // and persists it now, rather than waiting for a blur — the change came from a
+  // button click, so there may be no blur to trigger the autosave.
+  const applyRewrite = (text: string): void => {
     applyValue(text)
     void save()
   }
 
-  const rewrite = useStoryRewrite(id, value, acceptRewrite)
+  const rewrite = useStoryRewrite(id, value, applyRewrite)
+
+  const handleChange = (
+    event: React.ChangeEvent<HTMLTextAreaElement>,
+  ): void => {
+    applyValue(event.target.value)
+  }
 
   // Voice capture appends the transcript into the field via applyValue; the
   // candidate then reviews and saves (a save button appears once dirty).
@@ -196,7 +195,19 @@ const CampaignStoryCard = ({
           </p>
         )}
 
-        {rewrite.rewriteActive && <RewriteSuggestion rewrite={rewrite} />}
+        {rewrite.rewriteError && (
+          <p className="text-sm text-destructive">
+            Couldn&apos;t generate a rewrite.{' '}
+            <Button
+              variant="link"
+              size="small"
+              className="h-auto p-0"
+              onClick={() => void rewrite.requestRewrite()}
+            >
+              Try again
+            </Button>
+          </p>
+        )}
 
         <StoryCardActions
           isDirty={isDirty}
