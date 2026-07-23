@@ -1804,6 +1804,32 @@ describe('CampaignTcrComplianceService - submitToPeerlyForAgent', () => {
     expect(rejectionFires).toHaveLength(0)
   })
 
+  it('does not stamp rejected or fire the event when a TTL re-claimant owns the record', async () => {
+    const cvErr = new PeerlyCvRejectionException(
+      'Campaign Verify rejected the submission: FEC filing URLs are not allowed.',
+    )
+    mockPeerly.submitCampaignVerifyRequest.mockRejectedValueOnce(cvErr)
+    // Pre-Peerly claim succeeds, but by rollback time this caller's claim has
+    // expired and a TTL re-claimant re-stamped it — the in-transaction release
+    // matches 0 rows, so this caller no longer owns the record.
+    mockTcrModel.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+
+    await expect(service.submitToPeerlyForAgent(user, campaign)).rejects.toBe(
+      cvErr,
+    )
+
+    expect(mockTcrModel.update).not.toHaveBeenCalledWith({
+      where: { id: existingRecord.id },
+      data: { status: 'rejected' },
+    })
+    const rejectionFires = mockAnalytics.track.mock.calls.filter(
+      (call) => call[1] === EVENTS.Outreach.ComplianceRejected,
+    )
+    expect(rejectionFires).toHaveLength(0)
+  })
+
   it('holds off re-submitting (no Peerly call) while the billing block is within cooldown', async () => {
     mockTcrModel.findUnique.mockResolvedValueOnce({
       ...existingRecord,

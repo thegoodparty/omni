@@ -993,12 +993,13 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // Peerly, which is exactly what the hold prevents.
       let rejectedStamped = false
       try {
+        let ownedClaim = false
         await this.client.$transaction(async (tx) => {
           // Roll back only this caller's claim by matching the exact timestamp
           // we wrote. A TTL re-claimant (caller B, after our call exceeded TTL)
           // will have a different timestamp, so its in-flight claim isn't
           // disturbed.
-          await tx.tcrCompliance.updateMany({
+          const released = await tx.tcrCompliance.updateMany({
             where: {
               id: existing.id,
               peerlyIdentityId: null,
@@ -1006,13 +1007,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             },
             data: { peerlySubmissionStartedAt: null },
           })
+          // released.count === 0 means a TTL re-claimant owns the record now;
+          // only the claim owner may stamp rejected (and fire the event),
+          // otherwise both callers would emit for the same rejection.
+          ownedClaim = released.count > 0
           if (error instanceof PeerlyBillingException) {
             await tx.tcrCompliance.update({
               where: { id: existing.id },
               data: { peerlyBillingBlockedAt: new Date() },
             })
           }
-          if (error instanceof PeerlyCvRejectionException) {
+          if (error instanceof PeerlyCvRejectionException && ownedClaim) {
             // A CV data rejection re-fails deterministically until the
             // candidate corrects their filing details, and createAgentic
             // treats `rejected` as retryable (delete + recreate), so this is
@@ -1023,7 +1028,7 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             })
           }
         })
-        rejectedStamped = true
+        rejectedStamped = ownedClaim
       } catch (rollbackErr) {
         // If the rollback/stamp transaction itself fails, the claim TTL will
         // release the held claim later. Log and fall through so the original
