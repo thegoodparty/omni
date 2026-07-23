@@ -108,3 +108,5 @@ Both read the same connection coordinates from the environment:
 The hostname and HTTP path are workspace identifiers, not secrets. The credentials
 are — never commit them; pull service-principal secrets from the deployment env, not
 your personal login.
+
+<!-- engineer-agent GitHub App write-access verified 2026-07-23 -->
