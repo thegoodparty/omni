@@ -11,6 +11,13 @@ export const ListDetailDemographicsSchema = z.object({
   people: z.number().int().min(0),
   avgAge: z.number().nullable(),
   avgIncome: z.number().nullable(),
+  // True when people-api's aggregates fence fired (ENG-10775): `people` is a
+  // FENCE_LIMIT-capped lower bound, not the list's true membership, and
+  // avgAge/avgIncome are a sample over that capped set rather than exact.
+  // Optional so an old webapp bundle (pre-ENG-10775) still validates a
+  // response that carries it, and a deploy-skew gp-api still validates
+  // without it.
+  fenced: z.boolean().optional(),
 })
 export type ListDetailDemographics = z.infer<
   typeof ListDetailDemographicsSchema

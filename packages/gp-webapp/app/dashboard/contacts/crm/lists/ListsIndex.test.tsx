@@ -76,6 +76,7 @@ beforeEach(() => {
   })
   mockedUseListRowDetail.mockReturnValue({
     peopleCount: 250,
+    peopleCountFenced: false,
     lastOutreach: undefined,
     isLoading: false,
     isError: false,
@@ -273,10 +274,46 @@ describe('ListsIndex — card options menu', () => {
   })
 })
 
+// ENG-10775: people-api floors a slow count/aggregates query at FENCE_LIMIT
+// (10,000) rather than finishing the exact number — the card must never
+// present that floor as if it were exact.
+describe('ListsIndex — fenced count affordance (ENG-10775)', () => {
+  it('renders a trailing + when the count is a fenced lower bound', () => {
+    mockedUseListRowDetail.mockReturnValue({
+      peopleCount: 10000,
+      peopleCountFenced: true,
+      lastOutreach: undefined,
+      isLoading: false,
+      isError: false,
+    })
+    setContext({ customSegments: [{ id: 46, name: 'Big list' }] })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('10,000+')).toBeInTheDocument()
+  })
+
+  it('renders a plain count with no + when the count is exact', () => {
+    mockedUseListRowDetail.mockReturnValue({
+      peopleCount: 10000,
+      peopleCountFenced: false,
+      lastOutreach: undefined,
+      isLoading: false,
+      isError: false,
+    })
+    setContext({ customSegments: [{ id: 47, name: 'Exactly 10k list' }] })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('10,000')).toBeInTheDocument()
+  })
+})
+
 describe('ListsIndex — outreach subtitle', () => {
   it('shows "No outreach yet" when the list has never been used for outreach', () => {
     mockedUseListRowDetail.mockReturnValue({
       peopleCount: 100,
+      peopleCountFenced: false,
       lastOutreach: undefined,
       isLoading: false,
       isError: false,
@@ -291,6 +328,7 @@ describe('ListsIndex — outreach subtitle', () => {
   it('shows "Last outreach <date>" from outreachHistory[0] when present', () => {
     mockedUseListRowDetail.mockReturnValue({
       peopleCount: 100,
+      peopleCountFenced: false,
       lastOutreach: {
         id: 9,
         name: 'GOTV blast',

@@ -27,6 +27,9 @@ export const useListRowDetail = (segmentId: number) => {
 
   return {
     peopleCount: query.data?.demographics.people,
+    // ENG-10775: true when people-api's aggregates fence fired for this
+    // list, i.e. peopleCount is a lower bound, not the exact membership.
+    peopleCountFenced: query.data?.demographics.fenced,
     lastOutreach: query.data?.outreachHistory[0],
     isLoading: query.isLoading,
     isError: query.isError,
