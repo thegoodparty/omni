@@ -542,6 +542,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(qcMessage(ordinance, runId))
@@ -587,6 +590,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(qcMessage(ordinance, runId))
@@ -620,6 +626,9 @@ describe('handleStep qc', () => {
         }),
         degradedCheckIds: [],
         tokens: 111,
+        inputTokens: 100,
+        outputTokens: 11,
+        model: 'claude-sonnet-4-6',
       }
     })
 
@@ -650,6 +659,9 @@ describe('handleStep qc', () => {
         }),
         degradedCheckIds: [],
         tokens: 111,
+        inputTokens: 100,
+        outputTokens: 11,
+        model: 'claude-sonnet-4-6',
       }
     })
 
@@ -797,6 +809,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: ['clarity'],
       tokens: 40,
+      inputTokens: 30,
+      outputTokens: 10,
+      model: 'claude-sonnet-4-6',
     }))
 
     const first = await loop.handleStep(qcMessage(ordinance, runId))
@@ -899,6 +914,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -951,6 +969,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -993,6 +1014,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -1035,6 +1059,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -1077,6 +1104,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(
@@ -1126,6 +1156,9 @@ describe('handleStep qc', () => {
       }),
       degradedCheckIds: [],
       tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
     }))
 
     const result = await loop.handleStep(

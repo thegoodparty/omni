@@ -52,6 +52,8 @@ const qcModelOutput = {
     ],
   },
   tokens: 10,
+  inputTokens: 8,
+  outputTokens: 2,
   model: 'claude-sonnet-4-6',
 }
 
@@ -369,6 +371,14 @@ describe('Ordinances endpoints', () => {
       })
       expect(done.data.report.stale).toBe(false)
       expect(done.data.error).toBeNull()
+
+      // The run's token usage is metered onto the record (8 in / 2 out from
+      // the mocked model output), closing the manual-QC tracking gap.
+      const row = await service.prisma.ordinance.findFirstOrThrow({
+        where: { slug },
+      })
+      expect(row.qcInputTokens).toBe(8)
+      expect(row.qcOutputTokens).toBe(2)
     } finally {
       spy.mockRestore()
     }

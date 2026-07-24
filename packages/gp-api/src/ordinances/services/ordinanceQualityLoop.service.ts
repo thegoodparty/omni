@@ -443,6 +443,12 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
             ...this.runningFence(record.id, loopRunId),
             updatedAt: record.updatedAt,
           },
+          // Deliberately not touching the record's qc_*_tokens here: the loop's
+          // spend (this QC pass + any reviser step) accumulates on the iteration
+          // row below, which is its home. Those columns are the MANUAL QC run's
+          // home, so incrementing them here would double-count loop QC in a
+          // full-draft total. A unified per-draft rollup on the record is a
+          // separate follow-up.
           data: {
             qualityReport: generated.report,
             qualityLoopUpdatedAt: new Date(),
@@ -463,13 +469,13 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
             draftBody: record.draftBody ?? '',
             draftSources: record.draftSources ?? Prisma.DbNull,
             report: generated.report,
-            model: QUALITY_LOOP_MODELS[0],
+            model: generated.model,
             tokens: generated.tokens,
           },
           update: {
             report: generated.report,
             qcAttempts: attempts,
-            model: QUALITY_LOOP_MODELS[0],
+            model: generated.model,
             tokens: (row?.tokens ?? 0) + generated.tokens,
           },
         })
