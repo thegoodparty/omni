@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   buildVoterWhereSql,
   isNameSearch,
@@ -143,6 +143,41 @@ describe('stateEquals', () => {
 
   it('rejects a value outside the USState allowlist (Prisma.raw injection guard)', () => {
     expect(() => stateEquals('v', `TX'; DROP TABLE`)).toThrow('non-USState')
+    expect(() => stateEquals('v', 'ZZ')).toThrow('non-USState')
+  })
+})
+
+describe('stateEquals with PEOPLE_STATE_ENUM=false (loader-cluster plain-text path)', () => {
+  const original = process.env.PEOPLE_STATE_ENUM
+
+  beforeEach(() => {
+    process.env.PEOPLE_STATE_ENUM = 'false'
+  })
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.PEOPLE_STATE_ENUM
+    } else {
+      process.env.PEOPLE_STATE_ENUM = original
+    }
+  })
+
+  it('emits plain-text comparison without the enum cast', () => {
+    const { sql, values } = stateEquals('v', 'TX')
+
+    expect(sql).toBe(`v."State" = 'TX'`)
+    expect(sql).not.toContain('::"public"."USState"')
+    expect(sql).not.toContain('?')
+    expect(values).toEqual([])
+  })
+
+  it('emits plain-text for the dv alias too', () => {
+    const { sql } = stateEquals('dv', 'TX')
+
+    expect(sql).toBe(`dv."State" = 'TX'`)
+  })
+
+  it('still rejects values outside the USState allowlist', () => {
     expect(() => stateEquals('v', 'ZZ')).toThrow('non-USState')
   })
 })
