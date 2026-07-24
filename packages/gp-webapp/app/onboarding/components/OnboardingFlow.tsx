@@ -444,6 +444,15 @@ export default function OnboardingFlow({
   // must not block a later Completed fire (skip-then-complete still upgrades
   // to Completed + generation).
   const storySkippedFiredRef = useRef(false)
+  // Which story questions the candidate answered (Continued with content) this
+  // session — a ref so it updates synchronously within a single Continue/Skip,
+  // avoiding the stale state a derived value would read mid-handler. Drives the
+  // Completed-vs-Skipped decision when leaving the story.
+  const storyAnsweredRef = useRef({
+    why: false,
+    background: false,
+    issues: false,
+  })
   const [liveCampaign, setLiveCampaign] = useState<Campaign | null>(
     initialCampaign,
   )
@@ -1131,25 +1140,13 @@ export default function OnboardingFlow({
     setActiveStepId(nextStep.id)
   }
 
-  // Leaving the story for the pledge (from the final issues step). Persist the
-  // answered fields (persist() writes only non-empty ones, so skipped questions
-  // aren't clobbered), then fire generation + Completed if the whole story is
-  // answered, otherwise Skipped. `complete` is passed in rather than read from
-  // storyDraft here: a same-step skip clears a field whose state update hasn't
-  // flushed yet, so the caller computes the post-skip value.
-  const leaveStoryForPledge = async (complete: boolean): Promise<void> => {
-    setIsPersistingStory(true)
-    let saved = false
-    try {
-      saved = await storyDraft.persist()
-    } finally {
-      setIsPersistingStory(false)
-    }
-    if (!saved) {
-      errorSnackbar('Could not save your story. Please try again.')
-      return
-    }
-
+  // Leaving the story for the pledge (from the final issues step). Persistence
+  // already happened per-field on each Continue, so here we only fire the funnel
+  // event + generation: Completed (once) when every question was answered this
+  // session, otherwise Skipped.
+  const leaveStoryForPledge = async (): Promise<void> => {
+    const answered = storyAnsweredRef.current
+    const complete = answered.why && answered.background && answered.issues
     if (complete) {
       if (!storyGenFiredRef.current) {
         storyGenFiredRef.current = true
@@ -1167,31 +1164,65 @@ export default function OnboardingFlow({
     await advanceToPledge()
   }
 
-  // Continue and Skip both move one story step at a time. Continue keeps the
-  // current answer; Skip clears it so a skipped question never counts toward
-  // completion (a returning candidate whose story is seeded from the DB could
-  // otherwise skip every step and still trip generation). On the final issues
-  // step both leave for the pledge — a skip there is never "complete"; a
-  // continue uses the draft's completeness (why/background clears from earlier
-  // steps have already re-rendered, so it's accurate).
+  // Continue and Skip both move one story step at a time. Continue persists the
+  // current field right away (writing its value verbatim — an emptied field
+  // clears the stored value) and records it as answered if it has content; Skip
+  // persists nothing and marks the question unanswered, so it never counts
+  // toward completion (a returning candidate whose story is seeded from the DB
+  // can't skip every step and still trip generation). On the final issues step
+  // both leave for the pledge.
   const advanceStory = async (skip: boolean): Promise<void> => {
     if (isAdvancingRef.current) return
     isAdvancingRef.current = true
     try {
-      if (skip) {
-        if (activeStep.id === 'campaign-story-why') storyDraft.setWhy('')
-        else if (activeStep.id === 'campaign-story-background')
-          storyDraft.setBackground('')
-        else if (activeStep.id === 'campaign-story-issues')
-          storyDraft.setIssues([])
+      const answered = storyAnsweredRef.current
+      if (activeStep.id === 'campaign-story-why') {
+        if (skip) {
+          answered.why = false
+        } else if (!(await persistStoryField(storyDraft.persistWhy))) {
+          return
+        } else {
+          answered.why = storyDraft.why.trim().length > 0
+        }
+      } else if (activeStep.id === 'campaign-story-background') {
+        if (skip) {
+          answered.background = false
+        } else if (!(await persistStoryField(storyDraft.persistBackground))) {
+          return
+        } else {
+          answered.background = storyDraft.background.trim().length > 0
+        }
+      } else {
+        if (skip) {
+          answered.issues = false
+        } else if (!(await persistStoryField(storyDraft.persistIssues))) {
+          return
+        } else {
+          answered.issues = storyDraft.issues.length > 0
+        }
       }
+
       if (activeStep.id === 'campaign-story-issues') {
-        await leaveStoryForPledge(skip ? false : storyDraft.isComplete)
+        await leaveStoryForPledge()
       } else {
         await advanceToNextStoryStep()
       }
     } finally {
       isAdvancingRef.current = false
+    }
+  }
+
+  // Runs a field's persist with the saving spinner + a shared error toast.
+  const persistStoryField = async (
+    persist: () => Promise<boolean>,
+  ): Promise<boolean> => {
+    setIsPersistingStory(true)
+    try {
+      const ok = await persist()
+      if (!ok) errorSnackbar('Could not save your answer. Please try again.')
+      return ok
+    } finally {
+      setIsPersistingStory(false)
     }
   }
 
@@ -1332,7 +1363,7 @@ export default function OnboardingFlow({
                 variant="ghost"
                 size="large"
                 onClick={() => void handleStorySkip()}
-                disabled={isPersistingStory}
+                disabled={isPersistingStory || storyDictationActive}
               >
                 Skip
               </Button>

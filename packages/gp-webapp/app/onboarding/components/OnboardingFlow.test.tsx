@@ -507,6 +507,10 @@ describe('new onboarding flow shell', () => {
       status: 200,
       data: { background: 'My background' },
     })
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
     renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
@@ -555,6 +559,10 @@ describe('new onboarding flow shell', () => {
       status: 200,
       data: { background: 'My background' },
     })
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'saved' },
+    })
     // Only the issue row is actively recording; why/background stay idle so the
     // earlier steps' Continue still advances.
     mockUseDictationAppend.mockImplementation(
@@ -577,15 +585,16 @@ describe('new onboarding flow shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('button', { name: /add a policy priority/i })
 
-    // Issue present (length gate passes) but a row is recording → Continue held.
+    // Issue present (length gate passes) but a row is recording → both Continue
+    // and Skip are held until recording stops, so neither can advance while an
+    // in-flight transcript is still landing.
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled(),
     )
-    // Skip is still available to bail out.
-    expect(screen.getByRole('button', { name: 'Skip' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeDisabled()
   })
 
-  it('keeps the candidate on the issues step and shows an error when the final save fails', async () => {
+  it('shows an error and stays on the step when a field save fails on Continue', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
       .mockResolvedValue()
@@ -595,22 +604,13 @@ describe('new onboarding flow shell', () => {
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
     )
     mockGetUserWebsite.mockResolvedValue({
-      content: {
-        about: {
-          bio: '<p>My why</p>',
-          issues: [{ title: 'Roads', description: 'Fix them' }],
-        },
-      },
+      content: { about: { bio: '<p>My why</p>', issues: [] } },
     })
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
       data: { background: 'My background' },
     })
-    api.mock('PUT /v1/campaigns/mine/story', {
-      status: 200,
-      data: { background: 'saved' },
-    })
-    // The deferred persist fails (saveAboutFields returns false).
+    // The why field's save (saveAboutFields) fails on Continue.
     mockSaveAboutFields.mockResolvedValue(false)
     renderFlow({ campaign: { id: 1 } as Campaign })
 
@@ -620,18 +620,18 @@ describe('new onboarding flow shell', () => {
       name: /why are you running/i,
     })
 
-    await continueThroughStorySteps()
+    // Continue on the why step persists that field; the failed save surfaces an
+    // error and holds the candidate on the why step (no advance to background).
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
 
-    // Save failed → error surfaced, no generation, and we stay on the issues
-    // step (the pledge never appears).
     await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
-    expect(prewarm).not.toHaveBeenCalled()
     expect(
-      screen.getByRole('button', { name: /add a policy priority/i }),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByText('Take our pledge to get your campaign plan'),
+      screen.queryByRole('heading', { level: 2, name: /your background/i }),
     ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('heading', { level: 1, name: /why are you running/i }),
+    ).toBeInTheDocument()
+    expect(prewarm).not.toHaveBeenCalled()
   })
 
   it('does not fire generation when skipping the story', async () => {
