@@ -129,9 +129,7 @@ describe('PeopleDownloadService', () => {
       expect(sql).toContain('FROM "green"."Voter" v')
       expect(sql).toContain('JOIN "green"."DistrictVoter" dv')
       expect(sql).toContain(`dv."district_id" = '${DISTRICT_UUID}'::uuid`)
-      expect(sql).toContain(
-        `v."State" = CAST('WY'::text AS "public"."USState")`,
-      )
+      expect(sql).toContain(`v."State" = 'WY'::"public"."USState"`)
       expect(sql).toContain(`'CHEYENNE CITY WARD 1' AS "electionLocation"`)
       expect(sql).toContain(`'City_Ward' AS "electionType"`)
       expect(sql).toContain('v."LALVOTERID" AS "LALVOTERID"')
@@ -210,9 +208,7 @@ describe('PeopleDownloadService', () => {
       const sql = vi.mocked(copyTo).mock.calls[0]?.[0] as string
       expect(sql).not.toContain('JOIN "green"."DistrictVoter"')
       expect(sql).not.toContain('dv."district_id"')
-      expect(sql).toContain(
-        `v."State" = CAST('WY'::text AS "public"."USState")`,
-      )
+      expect(sql).toContain(`v."State" = 'WY'::"public"."USState"`)
     })
 
     it('inlines filter predicates into the COPY SQL', async () => {

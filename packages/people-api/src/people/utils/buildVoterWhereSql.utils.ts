@@ -1,6 +1,8 @@
-import { Prisma } from '../../generated/prisma'
+import { Prisma, USState } from '../../generated/prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { buildVoterFiltersSql } from './filters.sql.utils'
+
+const US_STATE_CODES = new Set<string>(Object.values(USState))
 
 // pg_trgm needs at least one full trigram to extract from the pattern;
 // `%ab%` on a 1-2 char token degrades to a near-full GIN scan, so short
@@ -14,10 +16,21 @@ const MIN_SUBSTRING_TOKEN_LENGTH = 3
 const stateIsEnum = (): boolean =>
   (process.env.PEOPLE_STATE_ENUM ?? 'true').toLowerCase() !== 'false'
 
-export const stateEquals = (alias: 'v' | 'dv', state: string): Prisma.Sql =>
-  stateIsEnum()
-    ? Prisma.sql`${Prisma.raw(alias)}."State" = CAST(${state}::text AS "public"."USState")`
-    : Prisma.sql`${Prisma.raw(alias)}."State" = ${state}`
+// State is inlined as a literal, NOT bound as a parameter. A parameterized State
+// (bind or CAST of a bind) breaks equivalence-class constant propagation across the
+// v."State" = dv."State" join, so the planner seq-scans the entire state Voter
+// partition and hash-joins instead of a nested-loop index probe (~7.5s vs ~1.3s on a
+// large district). State comes from the fixed USState allowlist, so inlining is safe;
+// the membership check keeps Prisma.raw injection-proof.
+export const stateEquals = (alias: 'v' | 'dv', state: string): Prisma.Sql => {
+  if (!US_STATE_CODES.has(state)) {
+    throw new Error(`stateEquals received a non-USState value: ${state}`)
+  }
+  const literal = Prisma.raw(`'${state}'`)
+  return stateIsEnum()
+    ? Prisma.sql`${Prisma.raw(alias)}."State" = ${literal}::"public"."USState"`
+    : Prisma.sql`${Prisma.raw(alias)}."State" = ${literal}`
+}
 
 export const getNormalizedPhoneNumber = (phone: string): string | null => {
   if (!/^\d+$/.test(phone)) {
