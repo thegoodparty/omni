@@ -157,9 +157,11 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
     await reachConditionsStepWithSelection(user)
 
-    expect(
-      screen.getByRole('button', { name: 'Build your list (0)' }),
-    ).toBeEnabled()
+    // buildLabel hides the stale number entirely (no "(0)"), and the CTA
+    // stays enabled.
+    const cta = screen.getByRole('button', { name: 'Build your list' })
+    expect(cta).toHaveTextContent(/^Build your list$/)
+    expect(cta).toBeEnabled()
   })
 
   it('disables the build CTA for the activity branch once a valid selection resolves to a settled zero', async () => {

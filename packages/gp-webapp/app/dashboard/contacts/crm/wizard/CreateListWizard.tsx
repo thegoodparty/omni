@@ -331,7 +331,7 @@ export default function CreateListWizard({
         : labels.wizardVoterFileStepTitle
 
   const buildLabel =
-    isLoading || count === undefined
+    isLoading || isStale || count === undefined
       ? 'Build your list'
       : `Build your list (${numberFormatter(count)})`
 
