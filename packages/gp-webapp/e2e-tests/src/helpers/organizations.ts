@@ -5,6 +5,7 @@ import {
   type AuthenticatedUser,
   type TestUserOptions,
 } from 'tests/utils/api-registration'
+import { withGatewayRetry } from 'tests/utils/headless-user'
 import { closeStrayDialog } from 'src/helpers/dashboard'
 import { eventually, wait } from 'tests/utils/eventually'
 
@@ -108,6 +109,37 @@ export const setupElectedOfficeUser = async (
     },
   )
   client.defaults.headers['x-organization-slug'] = electedOfficeOrgSlug
+
+  return { user, client }
+}
+
+// Provision an isolated Win candidate whose campaign is Pro, without the Stripe
+// upgrade webhook (which can't reach an ephemeral per-PR preview). Hits the
+// test-only POST /v1/campaigns/mine/test-set-pro endpoint (refused on prod /
+// non-@test.goodparty.org users). The Contacts pro-gated flows only need a pro
+// campaign org, so this replaces the old setupElectedOfficeUser dance — which
+// created an elected office under the false belief that winning grants Pro
+// (isPro is set only by the Stripe webhook) — and lets those specs run on PR
+// previews instead of being stranded @dev-only.
+export const setupProCampaignUser = async (
+  page: Page,
+  raceOptions?: TestUserOptions['race'],
+): Promise<SetupResult> => {
+  // Default to the same race setupElectedOfficeUser pinned: a district with
+  // real L2 voter data, so the Contacts surface has rows to exercise.
+  const race = raceOptions ?? {
+    zip: '82001',
+    office: 'Cheyenne City Council - Ward 1',
+  }
+
+  const { user, client } = await authenticateTestUser(page, {
+    isolated: true,
+    race,
+  })
+
+  await withGatewayRetry('POST /v1/campaigns/mine/test-set-pro', () =>
+    client.post('/v1/campaigns/mine/test-set-pro', {}),
+  )
 
   return { user, client }
 }

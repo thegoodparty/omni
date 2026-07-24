@@ -66,6 +66,7 @@ import {
   PeerlyBillingException,
   PEERLY_NO_PAYMENT_METHOD_MESSAGE,
 } from '../../../vendors/peerly/utils/peerlyBillingError.util'
+import { PeerlyCvRejectionException } from '../../../vendors/peerly/utils/peerlyCvRejection.util'
 
 // `parseInt(x) || default` (not `x ? parseInt(x) : default`) so a non-numeric
 // env value yields NaN and falls back to the default rather than reaching
@@ -390,11 +391,56 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
-    const { pinDelivery } =
+    const { status: cvStatus, pinDelivery } =
       await this.peerlyIdentityService.retrieveCampaignVerifyDetails(
         peerlyIdentityId,
         campaign,
       )
+
+    // A CV that flipped to REJECTED or WITHDRAWN after submission never gets
+    // a PIN, so without this the record would sit in the sweep set forever
+    // (TcrComplianceStatus has no withdrawn value; rejected is the terminal
+    // mapping and keeps the record retryable via createAgentic). Persist via
+    // an atomic transition claim so the rejection event fires once; the DB
+    // write is the source of truth and the event is best-effort — a lost
+    // event still surfaces via the nightly 10DLC report's rejected section.
+    if (
+      cvStatus === PeerlyCvVerificationStatus.REJECTED ||
+      cvStatus === PeerlyCvVerificationStatus.WITHDRAWN
+    ) {
+      const rejectedClaim = await this.model.updateMany({
+        where: {
+          id: tcrCompliance.id,
+          status: { not: TcrComplianceStatus.rejected },
+        },
+        data: { status: TcrComplianceStatus.rejected },
+      })
+      if (rejectedClaim.count > 0) {
+        void this.analytics
+          .track(campaign.user.id, EVENTS.Outreach.ComplianceRejected, {
+            rejection_source: 'cv_status_check',
+            peerly_identity_id: peerlyIdentityId,
+            ...(campaign.data.hubspotId
+              ? { company_hubspot_id: campaign.data.hubspotId }
+              : {}),
+          })
+          .catch(() => undefined)
+      }
+      return
+    }
+
+    // Peerly echoes back the verification_method/filing_email we ourselves
+    // send in submit_cv from day one, so their presence does not mean a PIN
+    // went out. Only APPROVED (PIN issued) and VERIFIED (PIN consumed) prove
+    // delivery; REQUESTED/IN_REVIEW stay in the sweep set for a later pass
+    // (ENG-10785 — false "PIN Sent" nudges for in-review CVs).
+    if (
+      cvStatus !== PeerlyCvVerificationStatus.APPROVED &&
+      cvStatus !== PeerlyCvVerificationStatus.VERIFIED
+    ) {
+      return
+    }
+
     // No method yet = PIN not sent (or an unrecognized channel we don't
     // surface) — leave the record for a later sweep.
     if (!pinDelivery) {
@@ -447,6 +493,21 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         )
       }
       throw err
+    }
+
+    // Stamp the delivery details onto the HubSpot company directly (via the
+    // company sync, which now carries the n10_dlc_pin_* fields). The
+    // Segment -> HubSpot event-property path silently drops properties that
+    // are missing from the destination's mapping, so the company sync is the
+    // guaranteed carrier; the event remains the workflow trigger.
+    try {
+      await this.crmCampaignsService.trackCampaign(campaign.id)
+    } catch (err) {
+      this.logger.error(
+        { err, campaignId: campaign.id },
+        '[TCR Compliance] CRM company sync failed after PIN Sent event; ' +
+          'next full sync will carry the PIN delivery fields',
+      )
     }
   }
 
@@ -946,13 +1007,15 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       // could release the claim while leaving peerlyBillingBlockedAt unset — the
       // next resume would then find no cooldown, bypass the guard, and re-storm
       // Peerly, which is exactly what the hold prevents.
+      let rejectedStamped = false
       try {
+        let ownedClaim = false
         await this.client.$transaction(async (tx) => {
           // Roll back only this caller's claim by matching the exact timestamp
           // we wrote. A TTL re-claimant (caller B, after our call exceeded TTL)
           // will have a different timestamp, so its in-flight claim isn't
           // disturbed.
-          await tx.tcrCompliance.updateMany({
+          const released = await tx.tcrCompliance.updateMany({
             where: {
               id: existing.id,
               peerlyIdentityId: null,
@@ -960,13 +1023,28 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             },
             data: { peerlySubmissionStartedAt: null },
           })
+          // released.count === 0 means a TTL re-claimant owns the record now;
+          // only the claim owner may stamp rejected (and fire the event),
+          // otherwise both callers would emit for the same rejection.
+          ownedClaim = released.count > 0
           if (error instanceof PeerlyBillingException) {
             await tx.tcrCompliance.update({
               where: { id: existing.id },
               data: { peerlyBillingBlockedAt: new Date() },
             })
           }
+          if (error instanceof PeerlyCvRejectionException && ownedClaim) {
+            // A CV data rejection re-fails deterministically until the
+            // candidate corrects their filing details, and createAgentic
+            // treats `rejected` as retryable (delete + recreate), so this is
+            // the designed lifecycle state — not a dead end.
+            await tx.tcrCompliance.update({
+              where: { id: existing.id },
+              data: { status: TcrComplianceStatus.rejected },
+            })
+          }
         })
+        rejectedStamped = ownedClaim
       } catch (rollbackErr) {
         // If the rollback/stamp transaction itself fails, the claim TTL will
         // release the held claim later. Log and fall through so the original
@@ -976,6 +1054,20 @@ export class CampaignTcrComplianceService extends createPrismaBase(
           '[TCR Compliance] Failed to roll back Peerly submission claim; ' +
             'TTL will recover',
         )
+      }
+      // Only fire once the rejected stamp actually committed: if the rollback
+      // transaction failed, the record stays non-rejected and the
+      // deterministic retry would fire this event a second time.
+      if (error instanceof PeerlyCvRejectionException && rejectedStamped) {
+        void this.analytics
+          .track(user.id, EVENTS.Outreach.ComplianceRejected, {
+            rejection_source: 'cv_submit',
+            rejection_reason: error.message,
+            ...(campaign.data.hubspotId
+              ? { company_hubspot_id: campaign.data.hubspotId }
+              : {}),
+          })
+          .catch(() => undefined)
       }
       throw error
     }

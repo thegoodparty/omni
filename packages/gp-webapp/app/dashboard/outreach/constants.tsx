@@ -3,6 +3,7 @@ import {
   MdOutlineSignalCellularAlt1Bar,
   MdOutlineSignalCellularAlt2Bar,
 } from 'react-icons/md'
+import type { AudienceFilterCamelKey } from 'app/dashboard/outreach/util/audienceFilterKeyMap'
 
 interface ImpactLevels {
   low: 'low'
@@ -62,70 +63,10 @@ export const OUTREACH_TYPE_MAPPING: OutreachTypeMapping = {
   socialMedia: 'Social post',
 }
 
-// If making a change, also update:
-// gp-webapp/app/dashboard/outreach/util/downloadVoterList.util.ts
-// gp-webapp/app/dashboard/components/tasks/flows/util/flowHandlers.util.ts
-// gp-webapp/app/dashboard/outreach/util/convertAudienceFiltersForModal.util.ts
-// gp-webapp/app/dashboard/outreach/util/formatAudienceLabels.util.ts
-// gp-webapp/app/dashboard/outreach/constants.tsx
-export type AudienceLabelKey =
-  | 'audienceSuperVoters'
-  | 'audienceLikelyVoters'
-  | 'audienceUnreliableVoters'
-  | 'audienceUnlikelyVoters'
-  | 'audienceFirstTimeVoters'
-  | 'partyIndependent'
-  | 'partyDemocrat'
-  | 'partyRepublican'
-  | 'age18_25'
-  | 'age25_35'
-  | 'age35_50'
-  | 'age50Plus'
-  | 'age18_24'
-  | 'age25_34'
-  | 'age35_49'
-  | 'age50_64'
-  | 'age65Plus'
-  | 'genderMale'
-  | 'genderFemale'
-  | 'genderUnknown'
+// Audience keys share the canonical camelCase vocabulary from audienceFilterKeyMap.
+export type AudienceLabelKey = AudienceFilterCamelKey
 
-// If making a change, also update:
-// gp-webapp/app/dashboard/outreach/util/downloadVoterList.util.ts
-// gp-webapp/app/dashboard/components/tasks/flows/util/flowHandlers.util.ts
-// gp-webapp/app/dashboard/outreach/util/convertAudienceFiltersForModal.util.ts
-// gp-webapp/app/dashboard/outreach/util/formatAudienceLabels.util.ts
-// gp-webapp/app/dashboard/outreach/constants.tsx
-interface AudienceLabelsMapping {
-  audienceSuperVoters: string
-  audienceLikelyVoters: string
-  audienceUnreliableVoters: string
-  audienceUnlikelyVoters: string
-  audienceFirstTimeVoters: string
-  partyIndependent: string
-  partyDemocrat: string
-  partyRepublican: string
-  age18_25: string
-  age25_35: string
-  age35_50: string
-  age50Plus: string
-  age18_24: string
-  age25_34: string
-  age35_49: string
-  age50_64: string
-  age65Plus: string
-  genderMale: string
-  genderFemale: string
-  genderUnknown: string
-}
-
-// If making a change, also update:
-// gp-webapp/app/dashboard/outreach/util/downloadVoterList.util.ts
-// gp-webapp/app/dashboard/components/tasks/flows/util/flowHandlers.util.ts
-// gp-webapp/app/dashboard/outreach/util/convertAudienceFiltersForModal.util.ts
-// gp-webapp/app/dashboard/outreach/util/formatAudienceLabels.util.ts
-// gp-webapp/app/dashboard/outreach/constants.tsx
-export const AUDIENCE_LABELS_MAPPING: AudienceLabelsMapping = {
+export const AUDIENCE_LABELS_MAPPING: Record<AudienceLabelKey, string> = {
   audienceSuperVoters: 'Super',
   audienceLikelyVoters: 'Likely',
   audienceUnreliableVoters: 'Unreliable',

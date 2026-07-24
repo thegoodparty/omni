@@ -33,11 +33,20 @@ vi.mock('app/dashboard/outreach/hooks/useOutreachComposeFlow', () => ({
   }),
 }))
 
-// The first-run "meet" card gates on whether the candidate has ever opened the
-// manager (a conversation exists). Control that here; default to none.
-const mockHistory = vi.fn<() => { data: unknown[] | undefined }>()
+// The meet card no longer keys off chat history; keep the module stubbed so no
+// child pulls the real query into jsdom.
 vi.mock('../chief-of-staff/data/use-chat-history', () => ({
-  useChatHistory: () => mockHistory(),
+  useChatHistory: () => ({ data: [] }),
+}))
+
+// The story card gates on story completion; default to incomplete so it
+// renders alongside the tasks in most tests.
+vi.mock('app/dashboard/campaign-story/useCampaignStoryComplete', () => ({
+  useCampaignStoryComplete: vi.fn(() => ({
+    isComplete: false,
+    isLoading: false,
+    isError: false,
+  })),
 }))
 
 // Stub the count modal to a submit button so we can assert the completion
@@ -63,7 +72,7 @@ const meetButton = () =>
   screen.queryByRole('button', { name: /meet your campaign manager/i })
 
 beforeEach(() => {
-  mockHistory.mockReturnValue({ data: [] })
+  window.localStorage.clear()
   mockToggle.mockClear()
   mockOpenOutreach.mockClear()
 })
@@ -120,7 +129,14 @@ describe('CampaignManagerTasks', () => {
       ]),
     )
 
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     // top 3 by date asc among incomplete dynamic latest-gen
     expect(screen.getByText('Call your donors')).toBeInTheDocument()
@@ -145,7 +161,14 @@ describe('CampaignManagerTasks', () => {
       ]),
     )
 
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     expect(screen.getByRole('link', { name: 'Knock doors' })).toHaveAttribute(
       'href',
@@ -170,7 +193,14 @@ describe('CampaignManagerTasks', () => {
       ]),
     )
 
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     const cta = screen.getByRole('link', { name: 'Open' })
     expect(cta).toHaveAttribute('href', 'https://www.sos.state.co.us/candidate')
@@ -183,7 +213,14 @@ describe('CampaignManagerTasks', () => {
       settled([task({ title: 'Empty link', week: 1, cta: null, link: '' })]),
     )
 
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     expect(screen.getByRole('link', { name: 'See details' })).toHaveAttribute(
       'href',
@@ -203,7 +240,14 @@ describe('CampaignManagerTasks', () => {
       ]),
     )
 
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
     expect(
@@ -212,12 +256,19 @@ describe('CampaignManagerTasks', () => {
     expect(screen.getByText('Knock 60 doors in Maplewood')).toBeInTheDocument()
   })
 
-  it('shows the "meet your campaign manager" button and fires the callback', async () => {
+  it('shows the meet button (when showMeetCard) and fires the callback', async () => {
     const onMeet = vi.fn()
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
 
     const user = userEvent.setup()
-    render(<CampaignManagerTasks onMeetManager={onMeet} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={onMeet}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
     await user.click(
       screen.getByRole('button', { name: /meet your campaign manager/i }),
     )
@@ -225,25 +276,21 @@ describe('CampaignManagerTasks', () => {
     expect(onMeet).toHaveBeenCalledOnce()
   })
 
-  it('hides the meet card once the candidate has opened the manager', () => {
+  it('does not render the meet card when showMeetCard is false', () => {
     mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
-    // A conversation exists → they have opened the manager before.
-    mockHistory.mockReturnValue({ data: [{ conversationId: 'c1' }] })
 
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard={false}
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     expect(meetButton()).not.toBeInTheDocument()
     // The priorities still render.
     expect(screen.getByText('A task')).toBeInTheDocument()
-  })
-
-  it('does not show the meet card until the history has loaded', () => {
-    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
-    mockHistory.mockReturnValue({ data: undefined })
-
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
-
-    expect(meetButton()).not.toBeInTheDocument()
   })
 
   it('marks a non-count task done directly, without a voter count', async () => {
@@ -254,7 +301,14 @@ describe('CampaignManagerTasks', () => {
     })
     mockResult.mockReturnValue(settled([t]))
     const user = userEvent.setup()
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     await user.click(screen.getByRole('button', { name: 'Mark done' }))
 
@@ -270,7 +324,14 @@ describe('CampaignManagerTasks', () => {
     })
     mockResult.mockReturnValue(settled([t]))
     const user = userEvent.setup()
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     // Completing an events task opens the count prompt instead of completing.
     await user.click(screen.getByRole('button', { name: 'Mark done' }))
@@ -294,9 +355,35 @@ describe('CampaignManagerTasks', () => {
       isGeneratingDynamic: true,
     })
 
-    render(<CampaignManagerTasks onMeetManager={vi.fn()} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     expect(screen.getByText(/preparing/i)).toBeInTheDocument()
+  })
+
+  it('renders the personalize story card and wires its button', async () => {
+    const onPersonalize = vi.fn()
+    mockResult.mockReturnValue(settled([task({ title: 'A task', week: 1 })]))
+
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={vi.fn()}
+        onSkipMeet={vi.fn()}
+        onPersonalize={onPersonalize}
+      />,
+    )
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Personalize your campaign' }),
+    )
+
+    expect(onPersonalize).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -312,7 +399,14 @@ describe('text/robocall cards open the outreach flow in place', () => {
         }),
       ]),
     )
-    render(<CampaignManagerTasks onMeetManager={() => undefined} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     const cta = screen.getByRole('button', { name: /start outreach/i })
     expect(screen.queryByRole('link', { name: /start outreach/i })).toBeNull()
@@ -334,7 +428,14 @@ describe('text/robocall cards open the outreach flow in place', () => {
         }),
       ]),
     )
-    render(<CampaignManagerTasks onMeetManager={() => undefined} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     await userEvent.click(
       screen.getByRole('button', { name: /start outreach/i }),
@@ -356,7 +457,14 @@ describe('text/robocall cards open the outreach flow in place', () => {
         }),
       ]),
     )
-    render(<CampaignManagerTasks onMeetManager={() => undefined} />)
+    render(
+      <CampaignManagerTasks
+        showMeetCard
+        onMeetManager={() => undefined}
+        onSkipMeet={vi.fn()}
+        onPersonalize={vi.fn()}
+      />,
+    )
 
     expect(screen.queryByRole('button', { name: /start outreach/i })).toBeNull()
     expect(mockOpenOutreach).not.toHaveBeenCalled()

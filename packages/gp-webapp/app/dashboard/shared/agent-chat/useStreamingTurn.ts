@@ -27,8 +27,9 @@ const REVEAL_DRAIN_MAX_TICKS = 250
 // never saw end-of-stream (a proxy drop or a throttled/backgrounded tab can
 // swallow the tail + close) — and reconcile with the persisted transcript
 // instead of spinning on "Thinking..." forever. The server persists every
-// turn, so re-fetching is authoritative. Must exceed the longest legitimate
-// silence (a native web_search step, ~47s); a server heartbeat can shrink it.
+// turn, so re-fetching is authoritative. The server sends a ping every 15s
+// while the turn is open (including silent tool-arg generation), so 60s of
+// silence means at least three missed beats — a genuinely dead stream.
 const STREAM_IDLE_MS = 60_000
 
 // The server persists the assistant turn a beat after the stream closes
@@ -37,6 +38,14 @@ const STREAM_IDLE_MS = 60_000
 // a refetch that predates persistence can't blank the turn. ~8s covers the lag.
 const COMMIT_POLL_MS = 200
 const COMMIT_MAX_TRIES = 40
+
+// When the stream ended WITHOUT `done` (stall, proxy drop, sleep/wake), the
+// server is usually still generating — the draft turn writes tool args for
+// minutes and persists only at the end. Poll patiently for the finished turn
+// before falling back to a local partial: committing the partial early is what
+// froze draft turns mid-sentence until refresh.
+const DONELESS_COMMIT_POLL_MS = 2_000
+const DONELESS_COMMIT_MAX_TRIES = 90
 
 type StreamingTurnChatApi = Pick<
   AgentChatClient,
@@ -158,6 +167,9 @@ export function useStreamingTurn(
       let errorSeen = false
       const abortController = new AbortController()
       let stalled = false
+      // Whether the server signaled a finished turn. Without it the turn may
+      // still be generating server-side, so the commit poll waits much longer.
+      let doneSeen = false
       // The id the server assigns the finished assistant turn (from `done`), so
       // the commit can wait for that exact turn to appear in the transcript.
       let doneMessageId: string | null = null
@@ -229,6 +241,7 @@ export function useStreamingTurn(
               }
             }
           } else if (event.type === 'done') {
+            doneSeen = true
             doneMessageId = event.assistantMessageId ?? null
           } else if (event.type === 'error') {
             scope.onError?.(event.message)
@@ -270,11 +283,13 @@ export function useStreamingTurn(
           // content. A degenerate/empty stream (no text, no tools) has no turn
           // to wait for, so polling would just burn the whole window.
           if (segments.length > 0) {
+            const pollMs = doneSeen ? COMMIT_POLL_MS : DONELESS_COMMIT_POLL_MS
+            const maxTries = doneSeen
+              ? COMMIT_MAX_TRIES
+              : DONELESS_COMMIT_MAX_TRIES
             let commitTries = 0
-            while (!hasTurn(history) && commitTries < COMMIT_MAX_TRIES) {
-              await new Promise((resolve) =>
-                setTimeout(resolve, COMMIT_POLL_MS),
-              )
+            while (!hasTurn(history) && commitTries < maxTries) {
+              await new Promise((resolve) => setTimeout(resolve, pollMs))
               history = await chatApi.listMessages(conversationId)
               commitTries += 1
             }

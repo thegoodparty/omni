@@ -31,6 +31,15 @@ import { useListWizardCount } from './useListWizardCount'
 
 type WizardStepName = 'branch' | 'conditions' | 'name'
 
+// ENG-10767: per-stage funnel events (see the ListWizard registry comment in
+// analyticsHelper.ts) — this wizard is URL-stable, so RouteTracker page views
+// can't see its stages.
+const STAGE_VIEWED_EVENTS: Record<WizardStepName, string> = {
+  branch: EVENTS.Contacts.ListWizard.MethodViewed,
+  conditions: EVENTS.Contacts.ListWizard.ConditionsViewed,
+  name: EVENTS.Contacts.ListWizard.NameViewed,
+}
+
 interface CreateListWizardProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -80,6 +89,11 @@ export default function CreateListWizard({
     : 'voterFile'
   const stepName: WizardStepName = steps[stepIndex] ?? 'conditions'
 
+  // ENG-10767: bumps once per wizard open, from the reset effect below, so
+  // the stage-Viewed effect can't fire on the stale pre-reset stage a
+  // reopened wizard renders for one commit (stepIndex resets asynchronously).
+  const [openSession, setOpenSession] = useState(0)
+
   // Fresh wizard state every time it opens — a cancelled-then-reopened
   // wizard must not resume a half-built prior list.
   useEffect(() => {
@@ -90,7 +104,26 @@ export default function CreateListWizard({
     setSupportStatus([])
     setActivityConditions([blankActivityCondition()])
     setName('')
+    setOpenSession((session) => session + 1)
   }, [open])
+
+  // ENG-10767: stage Viewed fires on every stage entry — including Back
+  // re-entry — keyed on the open session + active-stage identifier ONLY
+  // (instrument-analytics-event skill rule), never on unrelated re-renders
+  // (e.g. picking a branch card re-renders with the same stepName). The
+  // openSession guard skips the mount run and any pre-reset stale stage; the
+  // page's create button is disabled until isWinContextReady, so the context
+  // is settled whenever the wizard is open.
+  useEffect(() => {
+    if (openSession === 0) return
+    trackEvent(STAGE_VIEWED_EVENTS[stepName], {
+      context: isWinContext ? 'win' : 'serve',
+      ...(stepName !== 'branch' && activeBranch
+        ? { branch: activeBranch }
+        : {}),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSession, stepName])
 
   // Multi-step flow: reset scroll to the top of the sheet's own scrollable
   // body (not window) on every step change (app/dashboard/CLAUDE.md
@@ -130,16 +163,27 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const { count, isLoading, isCapError, errorMessage } = useListWizardCount(
-    backendPayload,
-    activeBranch === 'voterFile' ||
-      (activeBranch === 'activity' && isConditionsStepValid),
-  )
+  const { count, isLoading, isStale, isCapError, errorMessage } =
+    useListWizardCount(
+      backendPayload,
+      activeBranch === 'voterFile' ||
+        (activeBranch === 'activity' && isConditionsStepValid),
+    )
 
   const handleNext = () => {
-    if (stepName === 'branch' && branch) setStepIndex(stepIndex + 1)
-    else if (stepName === 'conditions' && isConditionsStepValid)
+    if (stepName === 'branch' && branch) {
+      trackEvent(EVENTS.Contacts.ListWizard.MethodCompleted, {
+        context: isWinContext ? 'win' : 'serve',
+        branch,
+      })
       setStepIndex(stepIndex + 1)
+    } else if (stepName === 'conditions' && isConditionsStepValid) {
+      trackEvent(EVENTS.Contacts.ListWizard.ConditionsCompleted, {
+        context: isWinContext ? 'win' : 'serve',
+        ...(activeBranch ? { branch: activeBranch } : {}),
+      })
+      setStepIndex(stepIndex + 1)
+    }
   }
 
   const handleBack = () => {
@@ -159,6 +203,14 @@ export default function CreateListWizard({
       // product-specific events in this surface, so a not-yet-settled mode
       // can't emit the wrong variant.
       if (isWinContextReady) {
+        // ENG-10767: the name stage's funnel completion — fires alongside
+        // the List Created outcome events below (skill rule: a final stage
+        // that both completes the funnel and produces the outcome fires
+        // both; they answer different questions).
+        trackEvent(EVENTS.Contacts.ListWizard.NameCompleted, {
+          context: isWinContext ? 'win' : 'serve',
+          ...(activeBranch ? { branch: activeBranch } : {}),
+        })
         if (activeBranch === 'voterFile') {
           const variableCount =
             countSelectedFilterCategories(demographicFilters) +
@@ -224,11 +276,30 @@ export default function CreateListWizard({
   })
 
   const trimmedName = name.trim()
-  const canSubmit = trimmedName.length > 0 && !createMutation.isPending
+  // !isLoading && !isStale: a save that races the debounced count would omit
+  // voterCount and let the server default it to 0 — the exact display bug
+  // ENG-10769 fixes. isStale also blocks the window where a payload change is
+  // still awaiting the debounce, so Save can't enable on a superseded count
+  // and then re-disable when the trailing refetch lands (that flicker let a
+  // click slip through onto a disabled button under load). A failed count
+  // still submits once settled (count stays a nice-to-have).
+  const canSubmit =
+    trimmedName.length > 0 &&
+    !createMutation.isPending &&
+    !isLoading &&
+    !isStale
 
   const handleSubmit = () => {
     if (!canSubmit) return
-    createMutation.mutate({ name: trimmedName, ...backendPayload })
+    // ENG-10769: persist the live count — the server defaults voterCount to
+    // 0, and the outreach page's Voters column reads the stored value, so a
+    // list saved without it shows every campaign as reaching 0 voters. A
+    // still-loading/error count is omitted rather than persisted wrong.
+    createMutation.mutate({
+      name: trimmedName,
+      ...backendPayload,
+      ...(typeof count === 'number' ? { voterCount: count } : {}),
+    })
   }
 
   const peopleNoun = isWinContext ? 'voters' : 'constituents'
@@ -332,7 +403,10 @@ export default function CreateListWizard({
           name={name}
           onNameChange={setName}
           count={count}
-          isCounting={isLoading}
+          // isStale too: while a filter change is still debouncing the count
+          // is stale for the current selection and Save is gated off, so the
+          // sentence must read "Counting…" rather than assert a stale total.
+          isCounting={isLoading || isStale}
           isCapError={isCapError}
           countErrorMessage={errorMessage}
           peopleNoun={peopleNoun}

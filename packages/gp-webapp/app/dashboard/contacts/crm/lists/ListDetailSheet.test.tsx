@@ -94,6 +94,12 @@ const setContext = (overrides: Partial<ContextValue> = {}) => {
   } as ContextValue)
 }
 
+// ENG-10767: the sheet now fires Segment Viewed on open, so assertions about
+// other events filter by event name instead of counting every trackEvent
+// call.
+const eventCalls = (event: string) =>
+  vi.mocked(trackEvent).mock.calls.filter(([name]) => name === event)
+
 const emptyDetailResponse = {
   demographics: { people: 100, avgAge: 42, avgIncome: 65000 },
   reachability: {
@@ -101,8 +107,7 @@ const emptyDetailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
-    email: null,
-    metaAds: null,
+    polls: 100,
   },
   outreachHistory: [],
 }
@@ -147,6 +152,32 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.getByText('$65,000')).toBeInTheDocument()
   })
 
+  // ENG-10775: people-api floors a slow aggregates query at FENCE_LIMIT
+  // (10,000) instead of finishing the exact count — the People tile must
+  // never present that floor as if it were exact.
+  it('renders a trailing + on the People tile when the count is a fenced lower bound', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        demographics: {
+          people: 10000,
+          avgAge: 42,
+          avgIncome: 65000,
+          fenced: true,
+        },
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('10,000+')).toBeInTheDocument()
+  })
+
   it('renders the outreach-history table columns and the empty state', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -183,6 +214,38 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.queryByText('No outreach yet.')).not.toBeInTheDocument()
   })
 
+  it('renders channel nouns and a name fallback for an unnamed robocall (ENG-10769)', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'Males 50+' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        outreachHistory: [
+          {
+            id: 9,
+            name: null,
+            outreachType: 'robocall',
+            status: 'pending',
+            date: new Date('2026-07-27T00:00:00.000Z'),
+          },
+        ],
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    // Name falls back to channel + date, never the activity-feed verb.
+    expect(
+      await screen.findByText('Robocall — Jul 27, 2026'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Called')).not.toBeInTheDocument()
+    // Channel chip + Last-method tile + reachability tile all say "Robocall".
+    expect(screen.getAllByText('Robocall').length).toBeGreaterThanOrEqual(3)
+  })
+
   it('shows the empty outreach sentence when there are no rows', async () => {
     api.mock('GET /v1/voters/voter-file/filters', {
       status: 200,
@@ -210,7 +273,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(screen.getByText('Meta ads')).toBeInTheDocument()
+    expect(screen.getByText('Polls')).toBeInTheDocument()
   })
 
   it('reads "Constituent list details" in Serve mode', async () => {
@@ -267,9 +330,11 @@ describe('ListDetailSheet — ENG-10749 footer Send outreach is Win-only', () =>
 
     render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
 
+    // ENG-10762: the footer link carries the saved list's id so the
+    // outreach page can preselect it.
     expect(
       await screen.findByRole('link', { name: 'Send outreach' }),
-    ).toHaveAttribute('href', '/dashboard/outreach')
+    ).toHaveAttribute('href', '/dashboard/outreach?listId=42')
   })
 
   it('hides Send outreach for Serve while keeping Download', async () => {
@@ -620,6 +685,159 @@ describe('ListDetailSheet — not-found and error states', () => {
   })
 })
 
+// ENG-10767: sheet-open parity with the legacy Segment Viewed, the funnel
+// entry click, and the rename/delete/duplicate management events.
+describe('ListDetailSheet — ENG-10767 viewed + management analytics', () => {
+  const unlockedSegment = { id: 42, name: 'GOTV text list' }
+
+  it('fires Segment Viewed once when the sheet opens and the segment resolves, and again on reopen', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+
+    const { rerender } = render(
+      <ListDetailSheet listId="42" onClose={vi.fn()} />,
+    )
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentViewed, {
+      segment: 'GOTV text list',
+      type: 'custom',
+      context: 'win',
+    })
+
+    // Close and reopen the same list — a fresh open is a fresh view.
+    rerender(<ListDetailSheet listId={null} onClose={vi.fn()} />)
+    rerender(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(2),
+    )
+  })
+
+  it('does not fire Segment Viewed for an unknown list id', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+
+    render(<ListDetailSheet listId="9999" onClose={vi.fn()} />)
+
+    expect(await screen.findByText(/couldn't be found/i)).toBeInTheDocument()
+    expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
+  })
+
+  it('fires Send Outreach Clicked with surface listDetail + listId from the footer link', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    await user.click(await screen.findByRole('link', { name: 'Send outreach' }))
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { listId: 42, surface: 'listDetail' },
+    )
+  })
+
+  it('fires Segment Updated with action rename on a successful rename only', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 500,
+      data: { message: 'server exploded' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await user.click(await screen.findByRole('button', { name: 'Rename list' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await vi.waitFor(() =>
+      expect(errorSnackbar).toHaveBeenCalledWith('Failed to rename list'),
+    )
+    // A failed rename must not report a rename.
+    expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(0)
+
+    api.mock('PUT /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: { id: 42, name: 'New Name' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentUpdated)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentUpdated, {
+      action: 'rename',
+      context: 'win',
+    })
+  })
+
+  it('fires Segment Deleted on a successful delete (Serve context)', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [unlockedSegment],
+    })
+    api.mock('DELETE /v1/voters/voter-file/filter/:id', {
+      status: 200,
+      data: {},
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await user.click(await screen.findByTestId('list-detail-delete-trigger'))
+    const alertDialog = await screen.findByRole('alertdialog')
+    await user.click(
+      within(alertDialog).getByRole('button', { name: 'Delete' }),
+    )
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentDeleted)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentDeleted, {
+      context: 'serve',
+    })
+  })
+
+  it('fires Segment Created with source duplicate on a successful duplicate', async () => {
+    const lockedSegment = {
+      id: 42,
+      name: 'GOTV text list',
+      firstUsedForOutreachAt: '2026-01-01T00:00:00.000Z',
+    }
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [lockedSegment],
+    })
+    api.mock('POST /v1/voters/voter-file/filter', {
+      status: 200,
+      data: { id: 77, name: 'GOTV text list (copy)' },
+    })
+    const user = userEvent.setup()
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+    await user.click(
+      await screen.findByRole('button', { name: 'Duplicate to edit' }),
+    )
+
+    await vi.waitFor(() =>
+      expect(eventCalls(EVENTS.Contacts.SegmentCreated)).toHaveLength(1),
+    )
+    expect(trackEvent).toHaveBeenCalledWith(EVENTS.Contacts.SegmentCreated, {
+      source: 'duplicate',
+      context: 'win',
+    })
+  })
+})
+
 describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
   const unlockedSegment = { id: 42, name: 'GOTV text list' }
 
@@ -652,11 +870,11 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
       { context: 'win' },
       expect.any(Function),
     )
-    expect(trackEvent).not.toHaveBeenCalled()
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(0)
 
     confirm?.()
 
-    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(EVENTS.VoterData.ListExported, {
       listSize: 100,
     })
@@ -677,7 +895,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     )
     confirm?.()
 
-    expect(trackEvent).toHaveBeenCalledTimes(1)
+    expect(eventCalls(EVENTS.ConstituentData.ListExported)).toHaveLength(1)
     expect(trackEvent).toHaveBeenCalledWith(
       EVENTS.ConstituentData.ListExported,
       { listSize: 100 },
@@ -704,7 +922,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
     )
     confirm?.()
 
-    expect(trackEvent).not.toHaveBeenCalled()
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(0)
   })
 
   it('never fires when the download hook never confirms (fallback/failure path)', async () => {
@@ -720,7 +938,7 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
       await screen.findByRole('button', { name: 'Download list' }),
     )
 
-    expect(trackEvent).not.toHaveBeenCalled()
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(0)
   })
 
   it('does not fire twice for two separate downloads that both confirm', async () => {
@@ -740,6 +958,6 @@ describe('ListDetailSheet — ENG-10709 List Exported analytics', () => {
 
     confirms.forEach((confirm) => confirm())
 
-    expect(trackEvent).toHaveBeenCalledTimes(2)
+    expect(eventCalls(EVENTS.VoterData.ListExported)).toHaveLength(2)
   })
 })

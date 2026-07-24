@@ -1,6 +1,11 @@
 import { Prisma } from '../../generated/prisma'
 import { FilterData } from '../schemas/filters.schema'
 import { FilterOperator } from '../schemas/filters.schema.utils'
+import {
+  POLITICAL_PARTY_RULES,
+  RULED_POLITICAL_PARTIES,
+  type PoliticalPartyRule,
+} from './politicalParty.rules'
 
 export const buildVoterFiltersSql = (
   filterData: FilterData,
@@ -80,11 +85,7 @@ export const buildVoterFiltersSql = (
         sql = buildFieldFilter('Voter_Status', op)
         break
       case 'politicalParty':
-        sql = buildMappedFieldFilter(
-          'Parties_Description',
-          op,
-          VALUE_MAPPERS.politicalParty,
-        )
+        sql = buildPoliticalPartyFilter(op)
         break
       case 'gender':
         sql = buildMappedFieldFilter('Gender', op, VALUE_MAPPERS.gender)
@@ -144,20 +145,6 @@ const VALUE_MAPPERS = {
         return 'Renter'
       case 'Unknown':
         return null
-      default:
-        return value
-    }
-  },
-  politicalParty: (value: string): string => {
-    switch (value) {
-      case 'Democratic':
-        return 'Democratic'
-      case 'Republican':
-        return 'Republican'
-      case 'Independent':
-        return 'Non-Partisan'
-      case 'Unknown':
-        return 'Unknown'
       default:
         return value
     }
@@ -293,6 +280,100 @@ const buildLanguageFilter = (
   }
 
   return Prisma.sql`(${Prisma.join(conditions, ' OR ')})`
+}
+
+// Filter-side sentinel for "no party on file". The display enum has no
+// 'Unknown' (it folds null/blank into 'Other'); the filter enum exposes
+// 'Unknown' for the null/blank rows. Reconciling the enum-vs-display structural
+// mismatch (and a first-class 'Other' filter value) is a deferred product
+// decision — this PR only makes the filter agree with CURRENT display.
+const POLITICAL_PARTY_UNKNOWN = 'Unknown'
+
+// (Parties_Description IS NULL OR Parties_Description = '') — the raw values
+// mapPoliticalParty treats as falsy via `if (!value)`, which display classifies
+// as 'Other'. The filter surfaces these as the 'Unknown' selection.
+const buildPartyUnknownPredicate = (): Prisma.Sql =>
+  Prisma.sql`(v."Parties_Description" IS NULL OR v."Parties_Description" = '')`
+
+// (ILIKE '%a%' OR ILIKE '%b%' ...) for one rule's substrings — case-insensitive
+// to mirror the classifier's `.toLowerCase().includes(...)`. The substrings are
+// hardcoded rule tokens (never user input) and carry no LIKE wildcards, yet are
+// still bound as parameters so no part of the payload is interpolated.
+const buildPartyMatchPredicate = (rule: PoliticalPartyRule): Prisma.Sql => {
+  const clauses = rule.substrings.map(
+    (substring) =>
+      Prisma.sql`v."Parties_Description" ILIKE ${`%${substring}%`}`,
+  )
+  return Prisma.sql`(${Prisma.join(clauses, ' OR ')})`
+}
+
+// Rows that classify to `party`: they must match `party`'s substrings AND NOT
+// match any HIGHER-precedence party's substrings, mirroring the classifier's
+// first-match-wins order. So a value containing both "democrat" and
+// "independent" is returned by a Democratic filter but not an Independent one —
+// exactly as display shows it.
+const buildRuledPartyPredicate = (
+  party: (typeof RULED_POLITICAL_PARTIES)[number],
+): Prisma.Sql => {
+  const clauses: Prisma.Sql[] = []
+  for (const rule of POLITICAL_PARTY_RULES) {
+    if (rule.party === party) {
+      clauses.unshift(buildPartyMatchPredicate(rule))
+      break
+    }
+    // Higher-precedence party seen before `party`: exclude its matches so a
+    // row that would classify to it isn't also returned here.
+    clauses.push(Prisma.sql`NOT ${buildPartyMatchPredicate(rule)}`)
+  }
+  return Prisma.sql`(${Prisma.join(clauses, ' AND ')})`
+}
+
+// One selected party value -> its predicate. Ruled parties use precedence-aware
+// substring matching; 'Unknown' uses the null/blank predicate. Values outside
+// the enum are ignored (the schema already constrains the input — defensive).
+const buildPartyValuePredicate = (value: string): Prisma.Sql | null => {
+  if (value === POLITICAL_PARTY_UNKNOWN) return buildPartyUnknownPredicate()
+  if ((RULED_POLITICAL_PARTIES as readonly string[]).includes(value)) {
+    return buildRuledPartyPredicate(
+      value as (typeof RULED_POLITICAL_PARTIES)[number],
+    )
+  }
+  return null
+}
+
+// Selects rows whose Parties_Description would DISPLAY as the requested
+// party/parties. Replaces the previous exact-equality mapping, which
+// under-matched every substring-classified row (e.g. "Citizens Republican").
+// Multi-select ORs the per-party predicates; Unknown contributes the
+// null/blank predicate.
+const buildPoliticalPartyFilter = (
+  op: FilterOperator | undefined,
+): Prisma.Sql | null => {
+  if (!op) return null
+
+  // `is not_null` / `is null` are column-presence checks, not canonical-party
+  // selections — preserve the existing simple semantics.
+  if (op.operator === 'is' && op.value === 'not_null') {
+    return Prisma.sql`v."Parties_Description" IS NOT NULL`
+  }
+  if (op.operator === 'is' && op.value === 'null') {
+    return Prisma.sql`v."Parties_Description" IS NULL`
+  }
+
+  const selected =
+    op.operator === 'in' && op.values
+      ? (op.values as string[])
+      : op.operator === 'eq' && op.value !== undefined
+        ? [String(op.value)]
+        : []
+
+  const predicates = selected
+    .map(buildPartyValuePredicate)
+    .filter((predicate): predicate is Prisma.Sql => predicate !== null)
+
+  if (predicates.length === 0) return null
+
+  return Prisma.sql`(${Prisma.join(predicates, ' OR ')})`
 }
 
 const buildBooleanFilter = (

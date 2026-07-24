@@ -6,7 +6,7 @@ import { OrdinanceFlowContextService } from './ordinanceFlowContext.service'
 const service = useTestService()
 
 const seed = async (
-  opts: { codeRecord?: boolean; codeFound?: boolean } = {},
+  opts: { codeRecord?: boolean; codeFound?: boolean; sourceLink?: string } = {},
 ) => {
   const user = await service.prisma.user.create({
     data: {
@@ -21,7 +21,11 @@ const seed = async (
     data: { organizationSlug: slug, userId: user.id },
   })
   const ordinance = await service.prisma.ordinance.create({
-    data: { electedOfficeId: electedOffice.id, seedType: 'new' },
+    data: {
+      electedOfficeId: electedOffice.id,
+      seedType: 'new',
+      ...(opts.sourceLink && { sourceLink: opts.sourceLink }),
+    },
   })
   if (opts.codeRecord) {
     await service.prisma.ordinanceCodeRecord.create({
@@ -84,5 +88,24 @@ describe('OrdinanceFlowContextService jurisdiction', () => {
       .get(OrdinanceFlowContextService)
       .load(conversationId, userId)
     expect(ctx.jurisdiction).toBeNull()
+  })
+})
+
+describe('OrdinanceFlowContextService source link', () => {
+  it('surfaces the persisted source link so the flow can amend it', async () => {
+    const url = 'https://library.municode.com/nc/hendersonville/ch-42'
+    const { userId, conversationId } = await seed({ sourceLink: url })
+    const ctx = await service.app
+      .get(OrdinanceFlowContextService)
+      .load(conversationId, userId)
+    expect(ctx.sourceLink).toBe(url)
+  })
+
+  it('leaves the source link null when none was provided', async () => {
+    const { userId, conversationId } = await seed()
+    const ctx = await service.app
+      .get(OrdinanceFlowContextService)
+      .load(conversationId, userId)
+    expect(ctx.sourceLink).toBeNull()
   })
 })

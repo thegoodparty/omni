@@ -6,13 +6,13 @@ import {
   MdFactCheck,
   MdFileOpen,
   MdFolderShared,
+  MdMenuBook,
   MdMessage,
   MdPeople,
   MdPoll,
   MdSensorDoor,
 } from 'react-icons/md'
 import {
-  BookOpen,
   Bot,
   Circle,
   CircleUserRound,
@@ -60,7 +60,11 @@ import {
   SidebarSeparator,
   useSidebar,
 } from '@styleguide'
-import { FlagIcon, ScrollTextIcon } from '@styleguide/components/ui/icons'
+import {
+  BookOpenIcon,
+  FlagIcon,
+  ScrollTextIcon,
+} from '@styleguide/components/ui/icons'
 import {
   OrganizationPicker,
   useOrganization,
@@ -256,21 +260,21 @@ const CAMPAIGN_PLAN_MENU_ITEM: MenuItem = {
   onClick: () => trackEvent(EVENTS.Navigation.Dashboard.ClickCampaignPlan),
 }
 
+const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
+  id: 'campaign-story-dashboard',
+  label: 'Your story',
+  link: '/dashboard/campaign-story',
+  icon: <MdMenuBook />,
+  v2Icon: BookOpenIcon,
+  v2Category: 'campaign',
+}
+
 const KNOW_YOUR_OPPONENT_MENU_ITEM: MenuItem = {
   id: 'race-opponent-dashboard',
   label: 'Know Your Opponent',
   link: '/dashboard/race-opponent',
   icon: <MdFactCheck />,
   v2Icon: FlagIcon,
-  v2Category: 'campaign',
-}
-
-const CAMPAIGN_STORY_MENU_ITEM: MenuItem = {
-  id: 'campaign-story-dashboard',
-  label: 'Campaign Story',
-  link: '/dashboard/campaign-story',
-  icon: <MdFileOpen />,
-  v2Icon: BookOpen,
   v2Category: 'campaign',
 }
 
@@ -324,20 +328,15 @@ export const getDashboardMenuItems = (
 
   // Campaign Manager (dashboard home) is index 0, pushed down by each item
   // unshifted above it: BRIEFINGS for an elected office, COMMUNITY_ISSUES when
-  // its flag is on, then Chief of Staff when shown. Insert campaign items right
-  // after Campaign Manager (and Story before Plan, so the Plan splice lands
-  // first) to render the campaign-category nav as [Campaign Manager, Campaign
-  // Plan, Campaign Story, …].
+  // its flag is on, then Chief of Staff when shown. Insert the Plan/Tracker
+  // item right after Campaign Manager to render the campaign-category nav as
+  // [Campaign Manager, Campaign Plan, …].
   const afterCampaignManager =
     1 +
     (isElectedOffice ? 1 : 0) +
     (communityIssuesShown ? 1 : 0) +
     (ordinancesShown ? 1 : 0) +
     (chiefOfStaffShown ? 1 : 0)
-
-  if (campaignStoryEnabled) {
-    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
-  }
 
   // Gated on the dedicated existence endpoint, NOT campaign.hasCampaignStrategy
   // — the cached campaign object gets overwritten by responses that lack that
@@ -353,6 +352,12 @@ export const getDashboardMenuItems = (
         ? 'Campaign Tracker'
         : CAMPAIGN_PLAN_MENU_ITEM.label,
     })
+  }
+
+  // Story-cohort users get a "Your story" tab just above the tracker (the story
+  // is what the tracker + plan are generated from).
+  if (campaignStoryEnabled) {
+    menuItems.splice(afterCampaignManager, 0, CAMPAIGN_STORY_MENU_ITEM)
   }
 
   // Visible to non-Pro users too: the page renders a locked upgrade view

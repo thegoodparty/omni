@@ -6,6 +6,12 @@ import {
   OrdinanceLegislativeHistorySchema,
   OrdinancePresentComparablesSchema,
   OrdinancePresentDraftSchema,
+  OrdinanceQualityIterationsResponseSchema,
+  OrdinanceQualityIterationSummarySchema,
+  OrdinanceQualityLoopPhaseSchema,
+  OrdinanceQualityLoopSchema,
+  OrdinanceSchema,
+  OrdinanceSummarySchema,
 } from './Ordinance.schema'
 
 const source = {
@@ -234,6 +240,250 @@ describe('OrdinancePresentDraftSchema', () => {
     ).toBe(false)
     expect(
       OrdinancePresentDraftSchema.safeParse({ ...draft, title: '' }).success,
+    ).toBe(false)
+  })
+})
+
+describe('OrdinanceQualityLoopSchema', () => {
+  const running = {
+    status: 'running',
+    phase: 'checking',
+    passNumber: 2,
+    maxPasses: 4,
+    updatedAt: '2026-07-17T18:00:00.000Z',
+  }
+
+  it('parses a running loop with a phase', () => {
+    const parsed = OrdinanceQualityLoopSchema.parse(running)
+    expect(parsed.status).toBe('running')
+    expect(parsed.phase).toBe('checking')
+    expect(parsed.passNumber).toBe(2)
+    expect(parsed.maxPasses).toBe(4)
+  })
+
+  it('parses a terminal loop with a null phase', () => {
+    const parsed = OrdinanceQualityLoopSchema.parse({
+      ...running,
+      status: 'converged',
+      phase: null,
+    })
+    expect(parsed.status).toBe('converged')
+    expect(parsed.phase).toBeNull()
+  })
+
+  it('accepts every terminal status the loop can end in', () => {
+    for (const status of [
+      'stopped_max_iterations',
+      'stopped_not_improving',
+      'superseded_by_edit',
+      'cancelled',
+      'failed',
+    ]) {
+      expect(
+        OrdinanceQualityLoopSchema.safeParse({
+          ...running,
+          status,
+          phase: null,
+        }).success,
+      ).toBe(true)
+    }
+  })
+
+  it('rejects an unknown status, unknown phase, and missing passNumber', () => {
+    expect(
+      OrdinanceQualityLoopSchema.safeParse({ ...running, status: 'paused' })
+        .success,
+    ).toBe(false)
+    expect(
+      OrdinanceQualityLoopSchema.safeParse({ ...running, phase: 'grading' })
+        .success,
+    ).toBe(false)
+    const { passNumber: _dropped, ...withoutPass } = running
+    expect(OrdinanceQualityLoopSchema.safeParse(withoutPass).success).toBe(
+      false,
+    )
+  })
+
+  it('rejects a non-integer passNumber', () => {
+    expect(
+      OrdinanceQualityLoopSchema.safeParse({ ...running, passNumber: 1.5 })
+        .success,
+    ).toBe(false)
+  })
+
+  it('limits the phase vocabulary to checking and revising', () => {
+    expect(OrdinanceQualityLoopPhaseSchema.parse('revising')).toBe('revising')
+    expect(OrdinanceQualityLoopPhaseSchema.safeParse('qc').success).toBe(false)
+  })
+})
+
+describe('OrdinanceSchema.qualityLoop', () => {
+  const ordinance = {
+    id: 'ord-1',
+    slug: 'ord-slug-1',
+    electedOfficeId: 'eo-1',
+    status: 'draft',
+    seedType: 'new',
+    issueSlug: null,
+    sourceLink: null,
+    goalText: null,
+    existingLaw: null,
+    clarify: null,
+    clarifyAnswers: null,
+    authority: null,
+    comparables: null,
+    draftTitle: 'Camera retention amendment',
+    draftBody: 'Section 1. Findings.',
+    draftSources: null,
+    qualityReport: null,
+    qualityRunStatus: 'idle',
+    research: null,
+    scratchpad: null,
+    lastViewedStep: null,
+    createdAt: '2026-07-17T17:00:00.000Z',
+    updatedAt: '2026-07-17T18:00:00.000Z',
+  }
+
+  it('parses with a running loop and with no loop at all', () => {
+    const withLoop = OrdinanceSchema.parse({
+      ...ordinance,
+      qualityLoop: {
+        status: 'running',
+        phase: 'revising',
+        passNumber: 1,
+        maxPasses: 4,
+        updatedAt: '2026-07-17T18:00:00.000Z',
+      },
+    })
+    expect(withLoop.qualityLoop?.phase).toBe('revising')
+    const withoutLoop = OrdinanceSchema.parse({
+      ...ordinance,
+      qualityLoop: null,
+    })
+    expect(withoutLoop.qualityLoop).toBeNull()
+  })
+
+  it('rejects an ordinance missing the qualityLoop field', () => {
+    expect(OrdinanceSchema.safeParse(ordinance).success).toBe(false)
+  })
+})
+
+describe('OrdinanceSummarySchema.qualityLoopStatus', () => {
+  const summary = {
+    id: 'ord-1',
+    slug: 'ord-slug-1',
+    status: 'draft',
+    seedType: 'new',
+    draftTitle: 'Camera retention amendment',
+    goalText: null,
+    lastViewedStep: null,
+    createdAt: '2026-07-17T17:00:00.000Z',
+    updatedAt: '2026-07-17T18:00:00.000Z',
+  }
+
+  it('parses running and null loop statuses', () => {
+    expect(
+      OrdinanceSummarySchema.parse({
+        ...summary,
+        qualityLoopStatus: 'running',
+      }).qualityLoopStatus,
+    ).toBe('running')
+    expect(
+      OrdinanceSummarySchema.parse({ ...summary, qualityLoopStatus: null })
+        .qualityLoopStatus,
+    ).toBeNull()
+  })
+
+  it('rejects an unknown loop status', () => {
+    expect(
+      OrdinanceSummarySchema.safeParse({
+        ...summary,
+        qualityLoopStatus: 'paused',
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('OrdinanceQualityIterationSummarySchema', () => {
+  const iteration = {
+    iteration: 0,
+    flaggedCheckIds: ['legal_conflict', 'clarity'],
+    report: null,
+    draftTitle: 'Camera retention amendment',
+    draftBody: 'Section 1. Recordings shall be deleted after thirty days.',
+    draftSources: [{ id: 'gs-160a', title: 'N.C.G.S. § 160A-174' }],
+    revisedTitle: 'Camera retention amendment (revised)',
+    revisedBody: 'Section 1. Recordings shall be deleted after 30 days.',
+    revisionNotes: [
+      { checkId: 'clarity', note: 'Spelled the retention window as 30 days.' },
+    ],
+    createdAt: '2026-07-17T18:00:00.000Z',
+  }
+
+  it('parses a revised iteration with per-check notes', () => {
+    const parsed = OrdinanceQualityIterationSummarySchema.parse(iteration)
+    expect(parsed.flaggedCheckIds).toEqual(['legal_conflict', 'clarity'])
+    expect(parsed.revisionNotes?.[0]?.checkId).toBe('clarity')
+  })
+
+  it('parses a graded-only iteration with null revision fields', () => {
+    const parsed = OrdinanceQualityIterationSummarySchema.parse({
+      ...iteration,
+      revisedTitle: null,
+      revisedBody: null,
+      revisionNotes: null,
+    })
+    expect(parsed.revisedTitle).toBeNull()
+    expect(parsed.revisionNotes).toBeNull()
+  })
+
+  it('rejects a missing iteration number and a malformed note', () => {
+    const { iteration: _dropped, ...withoutIteration } = iteration
+    expect(
+      OrdinanceQualityIterationSummarySchema.safeParse(withoutIteration)
+        .success,
+    ).toBe(false)
+    expect(
+      OrdinanceQualityIterationSummarySchema.safeParse({
+        ...iteration,
+        revisionNotes: [{ note: 'missing checkId' }],
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('OrdinanceQualityIterationsResponseSchema', () => {
+  it('parses a run with iterations and an empty never-ran response', () => {
+    const parsed = OrdinanceQualityIterationsResponseSchema.parse({
+      loopRunId: 'run-1',
+      iterations: [
+        {
+          iteration: 0,
+          flaggedCheckIds: [],
+          report: null,
+          draftTitle: 'Title',
+          draftBody: 'Body',
+          draftSources: null,
+          revisedTitle: null,
+          revisedBody: null,
+          revisionNotes: null,
+          createdAt: '2026-07-17T18:00:00.000Z',
+        },
+      ],
+    })
+    expect(parsed.loopRunId).toBe('run-1')
+    expect(parsed.iterations).toHaveLength(1)
+    const empty = OrdinanceQualityIterationsResponseSchema.parse({
+      loopRunId: null,
+      iterations: [],
+    })
+    expect(empty.iterations).toHaveLength(0)
+  })
+
+  it('rejects a response missing loopRunId', () => {
+    expect(
+      OrdinanceQualityIterationsResponseSchema.safeParse({ iterations: [] })
+        .success,
     ).toBe(false)
   })
 })

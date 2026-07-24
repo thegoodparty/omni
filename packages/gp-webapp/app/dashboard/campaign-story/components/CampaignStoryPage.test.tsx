@@ -1,86 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { ReactNode } from 'react'
-import { screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { render } from 'helpers/test-utils/render'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { WebsiteIssue } from 'helpers/types'
-import type { CampaignStorySection } from './CampaignStoryCard'
-import CampaignStoryPage from './CampaignStoryPage'
+import { api } from 'helpers/test-utils/api-mocking'
+import { USER_WEBSITE_QUERY_KEY } from 'app/dashboard/website/util/website.util'
+import { CAMPAIGN_STORY_QUERY_KEY } from '../useCampaignStory'
+import { StoryEditorForm } from './CampaignStoryPage'
 
-const { mockSaveAboutFields } = vi.hoisted(() => ({
+const { mockSaveAboutFields, mockErrorSnackbar } = vi.hoisted(() => ({
   mockSaveAboutFields: vi.fn(),
+  mockErrorSnackbar: vi.fn(),
 }))
 
-vi.mock('../../shared/DashboardLayout', () => ({
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}))
-vi.mock('@shared/experiments/FeatureFlagGuard', () => ({
-  default: ({ children }: { children: ReactNode }) => <>{children}</>,
-}))
-// Expose buttons that fire onAnsweredChange so tests can drive the dynamic
-// footer the same way real card saves would.
-vi.mock('./CampaignStoryCard', () => ({
-  default: ({
-    section,
-    onAnsweredChange,
-  }: {
-    section: CampaignStorySection
-    onAnsweredChange?: (answered: boolean) => void
-  }) => (
-    <div>
-      <button type="button" onClick={() => onAnsweredChange?.(true)}>
-        answer-{section.id}
-      </button>
-      <button type="button" onClick={() => onAnsweredChange?.(false)}>
-        clear-{section.id}
-      </button>
-    </div>
-  ),
-}))
-// The "why" card edits the website bio + has its own rewrite/save; mock it down
-// to the answered-state buttons that drive the footer.
-vi.mock('./CampaignStoryWhyCard', () => ({
-  default: ({
-    onAnsweredChange,
-  }: {
-    onAnsweredChange?: (answered: boolean) => void
-  }) => (
-    <div>
-      <button type="button" onClick={() => onAnsweredChange?.(true)}>
-        answer-why
-      </button>
-      <button type="button" onClick={() => onAnsweredChange?.(false)}>
-        clear-why
-      </button>
-    </div>
-  ),
-}))
-// Drive the issues count without mounting the Quill-based policy editor.
-vi.mock(
-  'app/dashboard/profile/texting-compliance/candidate-profile/components/PolicyPriorities',
-  () => ({
-    default: ({
-      issues,
-      onChange,
-    }: {
-      issues: WebsiteIssue[]
-      onChange: (issues: WebsiteIssue[]) => void
-    }) => (
-      <div>
-        <span>issue-count:{issues.length}</span>
-        <button
-          type="button"
-          onClick={() => onChange([{ title: 't', description: 'd' }])}
-        >
-          add-issue
-        </button>
-        <button type="button" onClick={() => onChange([])}>
-          clear-issues
-        </button>
-      </div>
-    ),
-  }),
-)
 vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -88,132 +20,190 @@ vi.mock('app/dashboard/website/util/website.util', async (importOriginal) => {
     >()
   return { ...actual, saveAboutFields: mockSaveAboutFields }
 })
+
 vi.mock('helpers/useSnackbar', () => ({
-  useSnackbar: () => ({ errorSnackbar: vi.fn(), successSnackbar: vi.fn() }),
+  useSnackbar: () => ({
+    errorSnackbar: mockErrorSnackbar,
+    successSnackbar: vi.fn(),
+  }),
 }))
-
-const story = { background: 'b' }
-const incompleteStory = { background: '' }
-// A non-empty bio seeds the "why" as answered; '' leaves it unanswered.
-const BIO = '<p>Because of the schools</p>'
-const oneIssue: WebsiteIssue[] = [{ title: 't', description: 'd' }]
-
-const footerLink = () =>
-  screen.queryByRole('link', { name: 'Generate my Campaign Plan' })
-const viewPlanLink = () =>
-  screen.queryByRole('link', { name: 'View my Campaign Plan' })
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockSaveAboutFields.mockResolvedValue(true)
 })
 
-describe('CampaignStoryPage', () => {
-  it('hides the generate footer when there are no issues, even with a complete story', () => {
-    render(
-      <CampaignStoryPage
-        initialStory={story}
-        initialBio={BIO}
-        initialIssues={[]}
-      />,
-    )
-    expect(footerLink()).not.toBeInTheDocument()
-  })
+const renderForm = (
+  props: {
+    initialBio?: string
+    initialBackground?: string
+    initialIssues?: WebsiteIssue[]
+  } = {},
+) => {
+  const queryClient = new QueryClient()
+  const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+  render(
+    <QueryClientProvider client={queryClient}>
+      <StoryEditorForm
+        initialBio={props.initialBio ?? ''}
+        initialBackground={props.initialBackground ?? ''}
+        initialIssues={props.initialIssues ?? []}
+      />
+    </QueryClientProvider>,
+  )
+  return { invalidateSpy }
+}
 
-  it('shows the generate footer when the story is complete and an issue exists', () => {
-    render(
-      <CampaignStoryPage
-        initialStory={story}
-        initialBio={BIO}
-        initialIssues={oneIssue}
-      />,
-    )
-    expect(footerLink()).toHaveAttribute('href', '/dashboard/campaign-plan')
-  })
+const whyField = (): HTMLTextAreaElement =>
+  screen.getByPlaceholderText<HTMLTextAreaElement>(/bus route to my mom/i)
+const backgroundField = (): HTMLTextAreaElement =>
+  screen.getByPlaceholderText<HTMLTextAreaElement>(
+    /graduated from Lincoln High/i,
+  )
+const enabledSaveButtons = (): HTMLElement[] =>
+  screen
+    .getAllByRole('button', { name: /^save$/i })
+    .filter((b) => !(b as HTMLButtonElement).disabled)
 
-  it('shows a view-plan footer instead of generate once plan generation has been kicked off', () => {
-    render(
-      <CampaignStoryPage
-        initialStory={story}
-        initialBio={BIO}
-        initialIssues={oneIssue}
-        planExists
-      />,
-    )
-    // The story is complete, but a plan already exists (e.g. the manager
-    // kicked off generation), so the CTA points to the plan, not "generate".
-    expect(footerLink()).not.toBeInTheDocument()
-    expect(viewPlanLink()).toHaveAttribute('href', '/dashboard/campaign-plan')
-  })
-
-  it('reveals the footer once why, background, and an issue are all present', async () => {
+describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
+  it('keeps every Save disabled until its field changes', async () => {
     const user = userEvent.setup()
-    render(
-      <CampaignStoryPage
-        initialStory={incompleteStory}
-        initialBio=""
-        initialIssues={[]}
-      />,
-    )
-    expect(footerLink()).not.toBeInTheDocument()
+    renderForm()
 
-    await user.click(screen.getByRole('button', { name: 'answer-why' }))
-    await user.click(screen.getByRole('button', { name: 'answer-background' }))
-    await user.click(screen.getByRole('button', { name: 'add-issue' }))
+    expect(enabledSaveButtons()).toHaveLength(0)
 
-    expect(footerLink()).toHaveAttribute('href', '/dashboard/campaign-plan')
+    await user.type(whyField(), 'Because of the schools')
+
+    // Only the edited (why) card's Save unlocks.
+    expect(enabledSaveButtons()).toHaveLength(1)
   })
 
-  it('hides the footer when the only issue is removed', async () => {
+  it('persists the why on Save, invalidates the website cache, and marks it Saved', async () => {
     const user = userEvent.setup()
-    render(
-      <CampaignStoryPage
-        initialStory={story}
-        initialBio={BIO}
-        initialIssues={oneIssue}
-      />,
+    const { invalidateSpy } = renderForm()
+
+    await user.type(whyField(), 'Because of the schools')
+    await user.click(enabledSaveButtons()[0]!)
+
+    await waitFor(() =>
+      expect(mockSaveAboutFields).toHaveBeenCalledWith({
+        bio: 'Because of the schools',
+      }),
     )
-    expect(footerLink()).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'clear-issues' }))
-
-    expect(footerLink()).not.toBeInTheDocument()
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: USER_WEBSITE_QUERY_KEY,
+    })
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Saved' })).toBeInTheDocument(),
+    )
   })
 
-  it('persists issues to the website on change', async () => {
+  it('persists the background via the story endpoint and invalidates the story cache', async () => {
     const user = userEvent.setup()
-    render(
-      <CampaignStoryPage
-        initialStory={story}
-        initialBio={BIO}
-        initialIssues={[]}
-      />,
+    let putBody: { background?: string } | null = null
+    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+      putBody = body as { background?: string }
+      return { status: 200, data: { background: 'saved' } }
+    })
+    const { invalidateSpy } = renderForm()
+
+    await user.type(backgroundField(), 'I grew up here')
+    await user.click(enabledSaveButtons()[0]!)
+
+    await waitFor(() =>
+      expect(putBody).toEqual({ background: 'I grew up here' }),
     )
-
-    await user.click(screen.getByRole('button', { name: 'add-issue' }))
-
-    expect(mockSaveAboutFields).toHaveBeenCalledWith({
-      issues: [{ title: 't', description: 'd' }],
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: CAMPAIGN_STORY_QUERY_KEY,
     })
   })
 
-  it('reverts the issue and keeps the footer hidden when the save fails', async () => {
-    mockSaveAboutFields.mockResolvedValue(false)
+  it('shows an error snackbar and leaves the field unsaved when the save fails', async () => {
     const user = userEvent.setup()
-    render(
-      <CampaignStoryPage
-        initialStory={story}
-        initialBio={BIO}
-        initialIssues={[]}
-      />,
+    mockSaveAboutFields.mockResolvedValue(false)
+    renderForm()
+
+    await user.type(whyField(), 'Because of the schools')
+    await user.click(enabledSaveButtons()[0]!)
+
+    await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
+    // Still dirty: no "Saved", the Save is still enabled.
+    expect(
+      screen.queryByRole('button', { name: 'Saved' }),
+    ).not.toBeInTheDocument()
+    expect(enabledSaveButtons()).toHaveLength(1)
+  })
+
+  it('hides the ready banner until all three fields have saved content', () => {
+    renderForm()
+    expect(
+      screen.queryByText(/your campaign story is ready/i),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the ready banner for a fully-answered story', () => {
+    renderForm({
+      initialBio: '<p>My why</p>',
+      initialBackground: 'My background',
+      initialIssues: [{ title: 'Roads', description: 'Fix them' }],
+    })
+    expect(
+      screen.getByText(/your campaign story is ready/i),
+    ).toBeInTheDocument()
+  })
+
+  it('Improve marks the why dirty (not auto-saved) and Undo restores it clean', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+      status: 200,
+      data: { rewrite: 'An AI-sharpened why.' },
+    }))
+    // Seed the why as already-saved so "clean" is observable before + after.
+    renderForm({ initialBio: 'my saved why' })
+
+    const field = whyField()
+    expect(field.value).toBe('my saved why')
+    expect(enabledSaveButtons()).toHaveLength(0)
+
+    // Improve rewrites in place; on the dashboard it's an edit like any other —
+    // the field goes dirty and Save unlocks (it must NOT auto-save, or clear the
+    // dirty flag via setSavedWhy).
+    await user.click(
+      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
     )
+    await waitFor(() => expect(field.value).toBe('An AI-sharpened why.'))
+    expect(enabledSaveButtons()).toHaveLength(1)
 
-    await user.click(screen.getByRole('button', { name: 'add-issue' }))
+    // Undo restores the pre-improvement (saved) text → clean again.
+    await user.click(screen.getByRole('button', { name: /Undo/ }))
+    await waitFor(() => expect(field.value).toBe('my saved why'))
+    expect(enabledSaveButtons()).toHaveLength(0)
 
-    // Optimistic add is reverted once the save resolves false.
+    // Neither Improve nor Undo persists on their own — Save is the persist path.
+    expect(mockSaveAboutFields).not.toHaveBeenCalled()
+  })
+
+  it('saves edited policy issues via saveAboutFields', async () => {
+    const user = userEvent.setup()
+    const { invalidateSpy } = renderForm({
+      initialIssues: [{ title: 'Roads', description: 'Fix them' }],
+    })
+
+    const description =
+      screen.getByPlaceholderText<HTMLTextAreaElement>(/northside bus route/i)
+    await user.clear(description)
+    await user.type(description, 'Fix them now')
+
+    // The issue row is the only dirty field, so its Save is the enabled one.
+    await user.click(enabledSaveButtons()[0]!)
+
     await waitFor(() =>
-      expect(screen.getByText('issue-count:0')).toBeInTheDocument(),
+      expect(mockSaveAboutFields).toHaveBeenCalledWith({
+        issues: [{ title: 'Roads', description: 'Fix them now' }],
+      }),
     )
-    expect(footerLink()).not.toBeInTheDocument()
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: USER_WEBSITE_QUERY_KEY,
+    })
   })
 })

@@ -17,6 +17,7 @@ import {
   type OrdinanceQualityCheck,
   type OrdinanceQualityReport,
   type OrdinanceSource,
+  ORDINANCE_DRAFT_DISCLAIMER,
   OrdinanceQualityReportSchema,
   OrdinanceSourceSchema,
 } from '@goodparty_org/contracts'
@@ -183,6 +184,16 @@ const renderPdf = (content: ExportContent): Promise<Buffer> => {
   }
 
   doc.addPage()
+
+  // Review disclaimer at the top of the appendix. Kept off the ordinance body
+  // pages so the legislative text stays clean.
+  doc.font('Helvetica-Bold').fontSize(10.5).fillColor(`#${NOTE}`)
+  doc.text(`${ORDINANCE_DRAFT_DISCLAIMER.lead} `, { continued: true })
+  doc.font('Helvetica').text(ORDINANCE_DRAFT_DISCLAIMER.body)
+  doc.fillColor('black')
+  doc.moveDown(0.5)
+  rule()
+  doc.moveDown(0.2)
 
   // Sources
   doc.font('Helvetica-Bold').fontSize(14).fillColor('black').text('Sources')
@@ -365,11 +376,28 @@ const renderDocx = (content: ExportContent): Promise<Buffer> => {
     ...content.bodyLines.map((line) => new Paragraph({ text: line })),
   ]
 
+  // Review disclaimer at the top of the appendix page (carries the page break
+  // so it, not Sources, opens the page). Kept off the ordinance body.
+  const disclaimer: Paragraph[] = [
+    new Paragraph({
+      pageBreakBefore: true,
+      spacing: { after: 80 },
+      children: [
+        new TextRun({
+          text: `${ORDINANCE_DRAFT_DISCLAIMER.lead} `,
+          bold: true,
+          color: NOTE,
+        }),
+        new TextRun({ text: ORDINANCE_DRAFT_DISCLAIMER.body, color: NOTE }),
+      ],
+    }),
+    docxDivider(),
+  ]
+
   const sources: Paragraph[] = [
     new Paragraph({
       text: 'Sources',
       heading: HeadingLevel.HEADING_2,
-      pageBreakBefore: true,
     }),
     docxDivider(),
     ...(content.sources.length === 0
@@ -408,7 +436,7 @@ const renderDocx = (content: ExportContent): Promise<Buffer> => {
   ]
 
   const doc = new Document({
-    sections: [{ children: [...body, ...sources, ...quality] }],
+    sections: [{ children: [...body, ...disclaimer, ...sources, ...quality] }],
   })
   return Packer.toBuffer(doc).then((data) => Buffer.from(data))
 }

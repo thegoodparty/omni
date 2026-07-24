@@ -45,6 +45,7 @@ const baseCtx = (): OrdinanceFlowContext => ({
   seedType: 'new',
   issueSlug: null,
   goalText: 'Reduce late-night construction noise',
+  sourceLink: null,
   clarifyAnswers: [],
   authority: null,
   comparables: null,

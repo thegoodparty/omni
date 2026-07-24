@@ -18,6 +18,11 @@ import OnboardingFlow from './OnboardingFlow'
 vi.mock('gpApi/clientFetch', () => ({ clientFetch: vi.fn() }))
 vi.mock('gpApi/typed-request', () => ({ clientRequest: vi.fn() }))
 vi.mock('helpers/useSnackbar', () => ({ useSnackbar: vi.fn() }))
+// Continue now holds until the campaign-story flag resolves; this flow never
+// reaches the story step, so mock it resolved-and-off so navigation proceeds.
+vi.mock('@shared/experiments/campaignStoryFlag', () => ({
+  useCampaignStoryFlag: () => ({ ready: true, enabled: false }),
+}))
 
 const mockClientFetch = vi.mocked(clientFetch)
 const mockClientRequest = vi.mocked(clientRequest)

@@ -2,7 +2,20 @@ import { z } from 'zod'
 import {
   OrdinanceStatusSchema,
   OrdinanceSeedTypeSchema,
+  OrdinanceQualityLoopStatusSchema,
 } from '../generated/enums'
+
+// Shown before the user relies on a draft: a persistent banner on the draft
+// page and at the top of the export appendix. One source of truth here (this is
+// legal-sensitive wording) so the on-screen and exported text can't drift.
+export const ORDINANCE_DRAFT_DISCLAIMER = {
+  lead: 'Review before you rely on this.',
+  body:
+    'This is an AI-generated first draft, not legal advice. Before you ' +
+    'introduce or act on it, have a licensed attorney review it and ' +
+    'independently verify every statute, citation, and factual claim ' +
+    'against its primary source.',
+} as const
 
 // A cited source. Shared across the step artifacts and the draft. Candidate for
 // a normalized Source registry later (TDD Q12); JSON for now.
@@ -243,6 +256,56 @@ export const OrdinanceQualityRunSchema = z.object({
 })
 export type OrdinanceQualityRun = z.infer<typeof OrdinanceQualityRunSchema>
 
+// Background quality-improvement loop (QC -> revise -> QC over SQS), a
+// separate state machine from the manual OrdinanceQualityRun above. `phase`
+// is non-null only while `status` is 'running'. passNumber/maxPasses are
+// 1-based display-ready numbers assembled server-side so no client does
+// off-by-one math against the 0-based iteration counter.
+export const OrdinanceQualityLoopPhaseSchema = z.enum(['checking', 'revising'])
+export type OrdinanceQualityLoopPhase = z.infer<
+  typeof OrdinanceQualityLoopPhaseSchema
+>
+
+export const OrdinanceQualityLoopSchema = z.object({
+  status: OrdinanceQualityLoopStatusSchema,
+  phase: OrdinanceQualityLoopPhaseSchema.nullable(),
+  passNumber: z.number().int(),
+  maxPasses: z.number().int(),
+  updatedAt: z.string(),
+})
+export type OrdinanceQualityLoop = z.infer<typeof OrdinanceQualityLoopSchema>
+
+// One pass of the loop for the "what changed" panel: the draft as graded,
+// what QC flagged, and the reviser's output when the pass revised. `report`
+// is null only when QC never completed for the pass (degraded/failed).
+export const OrdinanceQualityIterationSummarySchema = z.object({
+  iteration: z.number().int(),
+  flaggedCheckIds: z.array(z.string()),
+  report: OrdinanceQualityReportSchema.nullable(),
+  draftTitle: z.string(),
+  draftBody: z.string(),
+  // The sources snapshot graded with this iteration's draft, so a restore
+  // can put back the sources the restored text actually cites.
+  draftSources: z.array(OrdinanceSourceSchema).nullable(),
+  revisedTitle: z.string().nullable(),
+  revisedBody: z.string().nullable(),
+  revisionNotes: z
+    .array(z.object({ checkId: z.string(), note: z.string() }))
+    .nullable(),
+  createdAt: z.string(),
+})
+export type OrdinanceQualityIterationSummary = z.infer<
+  typeof OrdinanceQualityIterationSummarySchema
+>
+
+export const OrdinanceQualityIterationsResponseSchema = z.object({
+  loopRunId: z.string().nullable(),
+  iterations: z.array(OrdinanceQualityIterationSummarySchema),
+})
+export type OrdinanceQualityIterationsResponse = z.infer<
+  typeof OrdinanceQualityIterationsResponseSchema
+>
+
 export const OrdinanceResearchChapterSchema = z.object({
   label: z.string(),
   text: z.string(),
@@ -317,6 +380,7 @@ export const OrdinanceSchema = z.object({
   // Derived run status (same healing as the GET endpoint), so the draft page
   // can resume polling an in-flight run on mount without an extra fetch.
   qualityRunStatus: OrdinanceQualityRunStatusSchema,
+  qualityLoop: OrdinanceQualityLoopSchema.nullable(),
   research: OrdinanceResearchSchema.nullable(),
   scratchpad: OrdinanceScratchpadSchema.nullable(),
   lastViewedStep: z.string().nullable(),
@@ -335,6 +399,10 @@ export const OrdinanceSummarySchema = OrdinanceSchema.pick({
   lastViewedStep: true,
   createdAt: true,
   updatedAt: true,
+}).extend({
+  // Raw column, not the assembled qualityLoop object: the list view only
+  // needs a "running" indicator, not passNumber math per row.
+  qualityLoopStatus: OrdinanceQualityLoopStatusSchema.nullable(),
 })
 export type OrdinanceSummary = z.infer<typeof OrdinanceSummarySchema>
 

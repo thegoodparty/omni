@@ -21,15 +21,12 @@ import type {
 import {
   AssistantRow,
   ChatComposer,
-  InlineSegments,
   ThinkingRow,
   UserBubble,
 } from '../../shared/agent-chat/chatUI'
-import {
-  segmentsTextLength,
-  segmentsToLive,
-} from '../../shared/agent-chat/streaming'
+import { segmentsTextLength } from '../../shared/agent-chat/streaming'
 import { useStreamingTurn } from '../../shared/agent-chat/useStreamingTurn'
+import { usePinnedAutoScroll } from '../../shared/agent-chat/usePinnedAutoScroll'
 import { useDictationAppend } from '../../briefings/shared/useDictationAppend'
 import { buildOrdinanceAnchor } from '../data/anchor'
 import { ordinanceFlowChatApi } from '../data/chat-api'
@@ -43,11 +40,12 @@ import {
 import ClarifyQuestionWidget from './ClarifyQuestionWidget'
 import OrdinanceStepper from './OrdinanceStepper'
 import {
-  StepWidgetBlocks,
+  TurnBlocks,
   isStepWidgetTool,
+  liveTurnBlocks,
   parseStepWidget,
-  parseStepWidgets,
-  type StepWidgetInstance,
+  persistedTurnBlocks,
+  type PositionedWidget,
 } from './stepWidgets'
 
 const CLARIFY_TOOL = 'ask_clarify_question'
@@ -161,9 +159,7 @@ export default function OrdinanceFlowChat({
   // Each live widget records how much turn text preceded its tool call, so it
   // appears only after that text has typed out — and, unlike a turn-global
   // revealDone gate, never unmounts when later text in the same turn streams.
-  const [liveWidgets, setLiveWidgets] = useState<
-    Array<{ instance: StepWidgetInstance; appearAfter: number }>
-  >([])
+  const [liveWidgets, setLiveWidgets] = useState<PositionedWidget[]>([])
   // The tool whose arguments the model is currently writing, if any, so the
   // working shimmer can name it (e.g. "Preparing your question...").
   const [generatingTool, setGeneratingTool] = useState<string | null>(null)
@@ -174,7 +170,6 @@ export default function OrdinanceFlowChat({
     analyticsLabel: 'ordinance-flow-chat',
   })
   const [streamError, setStreamError] = useState<string | null>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
   // Synchronous double-submit guard for answerClarify: setSending/setAnswers
   // are async, so a fast double-tap could otherwise fire two persists and two
   // streams before the first re-render locks the widget.
@@ -227,6 +222,8 @@ export default function OrdinanceFlowChat({
         if (isStepWidgetTool(event.toolName)) {
           const widget = parseStepWidget(event.toolName, event.args)
           if (widget) {
+            // Record the text length streamed so far so the card renders inline
+            // at that seam — the lead-in above it, later prose below it.
             setLiveWidgets((prev) => [
               ...prev,
               { instance: widget, appearAfter: textLength() },
@@ -351,9 +348,14 @@ export default function OrdinanceFlowChat({
     }
   }, [slug, stepValue])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, visibleSegments, liveClarify])
+  const { scrollRef, onScroll } = usePinnedAutoScroll([
+    messages,
+    visibleSegments,
+    liveClarify,
+    // The next-step offer is consumed by onEvent (never hits visibleSegments),
+    // so include it or the offer widget renders below the fold unscrolled.
+    liveOffer,
+  ])
 
   if (phase === 'loading') {
     return (
@@ -449,11 +451,18 @@ export default function OrdinanceFlowChat({
     segmentsTextLength(visibleSegments) >= segmentsTextLength(liveSegments)
   const showClarify = Boolean(liveClarify) && revealDone
   const showOffer = Boolean(liveOffer) && revealDone
+  // Interleave the step cards into the streamed turn at the seam each tool
+  // fired: the lead-in text types out, the card appears there and stays, and any
+  // following prose types out below it.
   const revealedTextLength = segmentsTextLength(visibleSegments)
-  const shownWidgets = liveWidgets
-    .filter((w) => revealedTextLength >= w.appearAfter)
-    .map((w) => w.instance)
-  const showWidgets = shownWidgets.length > 0
+  const turnBlocks = liveTurnBlocks(
+    visibleSegments,
+    liveWidgets,
+    revealedTextLength,
+  )
+  const showWidgets = liveWidgets.some(
+    (w) => revealedTextLength >= w.appearAfter,
+  )
   // Show the wait shimmer only when the assistant is working but nothing is
   // visible on screen yet, or while a tool's arguments generate. Keying
   // "nothing visible" on the revealed segments (not on the arrival of the first
@@ -474,7 +483,11 @@ export default function OrdinanceFlowChat({
     <div className="flex h-[calc(100dvh-4rem)] w-full flex-col bg-background lg:h-dvh">
       {/* Everything but the composer scrolls together — the stepper scrolls
           away with the conversation, matching the prototype. */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
           <header className="flex flex-col gap-3">
             <OrdinanceStepper current={stepValue} />
@@ -516,14 +529,12 @@ export default function OrdinanceFlowChat({
               showWidgets ||
               working) && (
               <AssistantRow>
-                {visibleSegments.length > 0 ? (
-                  <InlineSegments
-                    segments={visibleSegments}
+                {turnBlocks.length > 0 ? (
+                  <TurnBlocks
+                    blocks={turnBlocks}
+                    slug={slug}
                     toolLabel={ordinanceToolLabel}
                   />
-                ) : null}
-                {showWidgets ? (
-                  <StepWidgetBlocks widgets={shownWidgets} slug={slug} />
                 ) : null}
                 {showClarify && liveClarify ? (
                   <ClarifyQuestionWidget
@@ -546,8 +557,6 @@ export default function OrdinanceFlowChat({
             {streamError ? (
               <p className="text-sm text-destructive">{streamError}</p>
             ) : null}
-
-            <div ref={bottomRef} />
           </div>
         </div>
       </div>
@@ -617,16 +626,18 @@ function AssistantMessage({
 }): React.JSX.Element {
   const segments = message.segments ?? []
   const clarify = clarifyFromSegments(segments)
-  const stepWidgets = parseStepWidgets(segments)
-  // Same interleaved model as the live turn: text and tool pills in stream
-  // order, so a reloaded turn reads identically to how it streamed.
-  const rendered = segmentsToLive(segments, message.content ?? '')
+  // Same interleaved model as the live turn: text, tool pills, and step cards in
+  // stream order, so a reloaded turn reads identically to how it streamed.
+  const blocks = persistedTurnBlocks(segments, message.content ?? '')
 
   return (
     <>
       <AssistantRow>
-        <InlineSegments segments={rendered} toolLabel={ordinanceToolLabel} />
-        <StepWidgetBlocks widgets={stepWidgets} slug={slug} />
+        <TurnBlocks
+          blocks={blocks}
+          slug={slug}
+          toolLabel={ordinanceToolLabel}
+        />
         {clarify ? (
           <ClarifyQuestionWidget
             question={clarify}

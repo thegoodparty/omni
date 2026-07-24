@@ -33,6 +33,7 @@ const ordinance: Ordinance = {
   draftSources: null,
   qualityReport: null,
   qualityRunStatus: 'idle',
+  qualityLoop: null,
   research: null,
   scratchpad: null,
   lastViewedStep: null,
@@ -321,10 +322,9 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
     expect(screen.queryByText(/Nowhere/)).not.toBeInTheDocument()
   })
 
-  it('keeps every live widget mounted while later text in the same turn types out', async () => {
+  it('interleaves the cards below the lead-in and keeps them while later prose streams', async () => {
     // Mount load is empty (kickoff); the post-stream refetch returns the
-    // persisted turn so the commit swap resolves (the client waits for the
-    // finished turn to appear before swapping away the live render).
+    // persisted turn so the commit swap resolves.
     mocks.listMessages.mockResolvedValueOnce([]).mockResolvedValue([
       assistantTurn('m1', [
         { kind: 'text', text: 'Here is the chapter.' },
@@ -338,23 +338,17 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
           toolName: 'present_legislative_history',
           payload: historyPayload,
         },
-        {
-          kind: 'tool',
-          toolName: 'present_comparables',
-          payload: comparablesPayload,
-        },
+        { kind: 'text', text: 'Next we weigh this against peer cities.' },
       ]),
     ])
-    let releaseMid: (() => void) | undefined
-    const midGate = new Promise<void>((resolve) => {
-      releaseMid = resolve
+    let releaseClosing: (() => void) | undefined
+    const closingGate = new Promise<void>((resolve) => {
+      releaseClosing = resolve
     })
-    let releaseEnd: (() => void) | undefined
-    const endGate = new Promise<void>((resolve) => {
-      releaseEnd = resolve
+    let releaseDone: (() => void) | undefined
+    const doneGate = new Promise<void>((resolve) => {
+      releaseDone = resolve
     })
-    const closing =
-      'Now that we have looked at the chapter itself and how past councils reasoned about it, we can line this up against the peer cities that solved the same problem before we move on.'
     mocks.streamMessage.mockImplementation(async function* (): AsyncGenerator<
       ChatStreamEvent,
       void,
@@ -371,14 +365,11 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
         toolName: 'present_legislative_history',
         args: historyPayload,
       }
-      yield {
-        type: 'tool_call',
-        toolName: 'present_comparables',
-        args: comparablesPayload,
-      }
-      await midGate
-      yield { type: 'text', delta: closing }
-      await endGate
+      // Gate the trailing prose so the cards' positions are fixed at the lead-in
+      // before it arrives (a real stream has a gap here).
+      await closingGate
+      yield { type: 'text', delta: 'Next we weigh this against peer cities.' }
+      await doneGate
       yield { type: 'done' }
     })
 
@@ -386,35 +377,42 @@ describe('OrdinanceFlowChat step widgets (live stream)', () => {
       <OrdinanceFlowChat slug="public-safety-cameras" step="current_law" />,
     )
 
-    // All three widgets from one live turn mount once the lead-in reveals,
-    // and the thinking shimmer is gone while they are on screen.
-    expect(
-      await screen.findByText('What it does today', undefined, {
-        timeout: 4000,
-      }),
-    ).toBeVisible()
+    // The lead-in types out first, then both cards appear together below it.
+    const firstCard = await screen.findByText('What it does today', undefined, {
+      timeout: 4000,
+    })
+    expect(firstCard).toBeVisible()
     expect(screen.getByText('Intent and history')).toBeVisible()
-    expect(screen.getByText(/Edgewater, Oregon/)).toBeVisible()
+    const leadIn = screen.getByText('Here is the chapter.')
+    expect(leadIn).toBeVisible()
     expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(
+      leadIn.compareDocumentPosition(firstCard) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
 
-    releaseMid?.()
-
-    // While the closing prose is still typing out, the widgets must stay
-    // mounted — the reveal gate may delay a widget's first appearance but
-    // must never unmount one already shown.
-    await waitFor(() =>
-      expect(
-        screen.getByText((content) => content.includes('Now that we')),
-      ).toBeInTheDocument(),
+    // The trailing prose then types out below the cards, which stay mounted.
+    releaseClosing?.()
+    const closing = await screen.findByText(
+      'Next we weigh this against peer cities.',
+      undefined,
+      { timeout: 4000 },
     )
     expect(screen.getByText('What it does today')).toBeVisible()
     expect(screen.getByText('Intent and history')).toBeVisible()
-    expect(screen.getByText(/Edgewater, Oregon/)).toBeVisible()
+    expect(
+      firstCard.compareDocumentPosition(closing) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
 
-    releaseEnd?.()
-    await waitFor(() => expect(mocks.listMessages).toHaveBeenCalledTimes(2), {
-      timeout: 8000,
-    })
+    releaseDone?.()
+    // A stall-reconcile on this longer gated stream can add refetches, so assert
+    // at least the commit refetch happened rather than an exact count.
+    await waitFor(
+      () =>
+        expect(mocks.listMessages.mock.calls.length).toBeGreaterThanOrEqual(2),
+      { timeout: 8000 },
+    )
   }, 15000)
 
   it('ignores a live widget whose payload parses but has nothing to render', async () => {

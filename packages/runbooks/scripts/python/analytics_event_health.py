@@ -791,6 +791,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "A Slack failure warns but never changes the exit code.",
     )
     parser.add_argument(
+        "--gap-slack",
+        type=Path,
+        default=None,
+        help="gap run-data JSON (from instrumentation_gaps.py --slack-out) to fold into the "
+        "digest post as a two-part parent + threaded detail",
+    )
+    parser.add_argument(
         "--today",
         help="override the run date (YYYY-MM-DD); default = system date. Shifts only the "
         "local reconciliation (dormant window, week cutoff, run-date label). The firing axis "
@@ -833,11 +840,21 @@ def main(argv: Sequence[str] | None = None) -> int:
                 file=sys.stderr,
             )
         else:
+            gap = None
+            if args.gap_slack:
+                try:
+                    loaded = json.loads(args.gap_slack.read_text())
+                    gap = loaded if isinstance(loaded, dict) else None
+                except (OSError, json.JSONDecodeError) as exc:
+                    print(
+                        f"--gap-slack {args.gap_slack} unreadable ({exc}); posting health only.",
+                        file=sys.stderr,
+                    )
             try:
                 prior_state = load_prior_state(args.state)
                 prior_anomalous = load_prior_anomalous(args.state)
                 ts = slk.post_digest(result, changes, prior_state, token=token, channel=channel,
-                                     prior_anomalous=prior_anomalous)
+                                     prior_anomalous=prior_anomalous, gap=gap)
                 print(f"slack: posted digest (ts {ts})" if ts else "slack: quiet (no change)", file=sys.stderr)
             except Exception as exc:  # noqa: BLE001 — never let Slack fail the monitor
                 print(f"slack: post failed ({exc}); monitor run unaffected.", file=sys.stderr)

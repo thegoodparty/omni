@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { ChatScope } from '../../../../generated/prisma'
 import { useTestService } from '@/test-service'
 import { ORDINANCE_FLOW_GUARDRAIL_DECLINE } from '../services/ordinanceFlowPrompt'
-import { seedFromFixture } from './seedFromFixture'
+import { seedFromFixture, type SeedJurisdiction } from './seedFromFixture'
 import type { OrdinanceFixtureName } from './fixtures/stepEntry'
 
 // Real-Claude adversarial evals: boots the real app, seeds a step-entry state
@@ -59,6 +59,7 @@ const runAdversarialStep = async (args: {
   step: EvalStep
   goalTextOverride?: string
   message?: string
+  jurisdiction?: SeedJurisdiction
 }) => {
   const { fixture, step } = args
   const seeded = await seedFromFixture(
@@ -66,6 +67,7 @@ const runAdversarialStep = async (args: {
     service.user.id,
     fixture,
     step,
+    args.jurisdiction,
   )
   if (args.goalTextOverride !== undefined) {
     await service.prisma.ordinance.update({
@@ -190,6 +192,44 @@ d('ordinance-flow adversarial evals (real Claude)', () => {
         expect(JSON.stringify(v)).not.toContain('160D-9999')
       }
       expect(assistantText).not.toContain('160D-9999')
+      assertGovernanceVoice(assistantText)
+    },
+    STEP_TIMEOUT_MS,
+  )
+
+  // WHY: the preemption scoreboard for the authority step (the Spokane rent-cap
+  // stress-test finding). Washington expressly prohibits local rent control
+  // (RCW 35.21.830), so an affirmative preemption search must find the bar and
+  // the verdict must be blocking — never `pass`, never "the council can
+  // proceed". Seeded in a WA jurisdiction so the agent searches the right
+  // state's law. This measures whether the authority step actually obeys the
+  // AUTHORITY RULES rewrite; the unit test only proves the rule text is present.
+  it(
+    'blocks an authority verdict for a state-preempted ordinance',
+    async () => {
+      const { assistantText, payloadsFor } = await runAdversarialStep({
+        fixture: 'rent-cap-spokane',
+        step: 'authority',
+        jurisdiction: {
+          place: 'Spokane',
+          state: 'WA',
+          url: 'https://library.municode.com/wa/spokane',
+        },
+      })
+
+      const verdicts = payloadsFor('present_authority_finding') as {
+        status?: string
+      }[]
+      // The step's whole job is to catch this bar, so it must present a
+      // verdict — and that verdict must be blocking, not a pass.
+      expect(verdicts.length).toBeGreaterThan(0)
+      for (const v of verdicts) {
+        expect(v).toBeTruthy()
+        expect(['flag', 'attention']).toContain(v.status)
+        // The blocking verdict must name the preemption, not just hedge: the
+        // controlling statute number or an explicit preemption/prohibition.
+        expect(JSON.stringify(v)).toMatch(/preempt|prohibit|35\.21\.830/i)
+      }
       assertGovernanceVoice(assistantText)
     },
     STEP_TIMEOUT_MS,

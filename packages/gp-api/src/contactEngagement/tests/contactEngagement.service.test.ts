@@ -16,7 +16,6 @@ import { VoterOutreachActivityService } from '@/voterOutreachActivity/services/v
 import { ContactInteractionDoorKnockService } from '@/contactInteraction/services/contactInteractionDoorKnock.service'
 import { ContactInteractionTextService } from '@/contactInteraction/services/contactInteractionText.service'
 import { ContactInteractionRobocallService } from '@/contactInteraction/services/contactInteractionRobocall.service'
-import { ContactNoteService } from '@/contactNote/services/contactNote.service'
 
 describe('ContactEngagementService', () => {
   describe('getIndividualActivities', () => {
@@ -31,10 +30,6 @@ describe('ContactEngagementService', () => {
       findMany: ReturnType<typeof vi.fn>
     }
     let mockContactInteractionRobocallService: {
-      findMany: ReturnType<typeof vi.fn>
-    }
-    let mockContactNoteService: {
-      listForPerson: ReturnType<typeof vi.fn>
       findMany: ReturnType<typeof vi.fn>
     }
     let mockVoterOutreachActivityService: {
@@ -55,10 +50,6 @@ describe('ContactEngagementService', () => {
       mockContactInteractionRobocallService = {
         findMany: vi.fn().mockResolvedValue([]),
       }
-      mockContactNoteService = {
-        listForPerson: vi.fn().mockResolvedValue([]),
-        findMany: vi.fn().mockResolvedValue([]),
-      }
       mockVoterOutreachActivityService = {
         getActivityForVoter: vi.fn().mockResolvedValue([]),
         findMany: vi.fn().mockResolvedValue([]),
@@ -74,7 +65,6 @@ describe('ContactEngagementService', () => {
         mockContactInteractionDoorKnockService as unknown as ContactInteractionDoorKnockService,
         mockContactInteractionTextService as unknown as ContactInteractionTextService,
         mockContactInteractionRobocallService as unknown as ContactInteractionRobocallService,
-        mockContactNoteService as unknown as ContactNoteService,
       )
     })
 
@@ -583,7 +573,7 @@ describe('ContactEngagementService', () => {
       expect(result.results).toEqual([])
     })
 
-    it('maps door knock, text, robocall, and note rows into the union', async () => {
+    it('maps door knock, text, and robocall rows into the union', async () => {
       mockContactInteractionDoorKnockService.findMany.mockResolvedValue([
         {
           id: 'dk-1',
@@ -616,15 +606,6 @@ describe('ContactEngagementService', () => {
           outreachId: 56,
         },
       ])
-      mockContactNoteService.findMany.mockResolvedValue([
-        {
-          id: 'note-1',
-          body: 'Follow up next week',
-          createdAt: new Date('2026-01-04T10:00:00Z'),
-          updatedAt: new Date('2026-01-04T10:00:00Z'),
-        },
-      ])
-
       const campaignInput: IndividualActivityInput = {
         personId: 'person-123',
         organizationSlug: 'campaign-org-1',
@@ -654,24 +635,8 @@ describe('ContactEngagementService', () => {
         orderBy: expectedOrderBy,
         take: 21,
       })
-      expect(mockContactNoteService.findMany).toHaveBeenCalledWith({
-        where: { organizationSlug: 'campaign-org-1', personId: 'person-123' },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        take: 21,
-      })
-
-      // Newest (note) first, oldest (door knock) last.
+      // Newest (robocall) first, oldest (door knock) last.
       expect(result.results).toEqual([
-        {
-          type: ConstituentActivityType.NOTE,
-          date: '2026-01-04T10:00:00.000Z',
-          data: {
-            noteId: 'note-1',
-            body: 'Follow up next week',
-            createdAt: '2026-01-04T10:00:00.000Z',
-            updatedAt: '2026-01-04T10:00:00.000Z',
-          },
-        },
         {
           type: ConstituentActivityType.ROBOCALL,
           date: '2026-01-03T10:00:00.000Z',

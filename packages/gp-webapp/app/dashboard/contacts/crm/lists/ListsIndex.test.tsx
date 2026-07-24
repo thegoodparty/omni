@@ -3,6 +3,7 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { api } from 'helpers/test-utils/api-mocking'
+import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import ListsIndex from './ListsIndex'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useListRowDetail } from './useListRowDetail'
@@ -10,6 +11,10 @@ import { useDuplicateList } from './useDuplicateList'
 
 vi.mock('../ContactsTableProvider', () => ({
   useContactsTable: vi.fn(),
+}))
+vi.mock('helpers/analyticsHelper', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('helpers/analyticsHelper')>()),
+  trackEvent: vi.fn(),
 }))
 vi.mock('./useListRowDetail', () => ({
   useListRowDetail: vi.fn(),
@@ -71,6 +76,7 @@ beforeEach(() => {
   })
   mockedUseListRowDetail.mockReturnValue({
     peopleCount: 250,
+    peopleCountFenced: false,
     lastOutreach: undefined,
     isLoading: false,
     isError: false,
@@ -139,8 +145,22 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
       name: 'Send outreach',
     })
     expect(outreachLinks).toHaveLength(2)
-    outreachLinks.forEach((link) =>
-      expect(link).toHaveAttribute('href', '/dashboard/outreach'),
+  })
+
+  // ENG-10762: the "All voters" universe row has no saved-segment id, so
+  // its link carries no listId param — only a list card's link does.
+  it('carries listId on a list card link but keeps the universe row link bare', () => {
+    setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+
+    render(<ListsIndex />)
+
+    const outreachLinks = screen.getAllByRole('link', {
+      name: 'Send outreach',
+    })
+    expect(outreachLinks[0]).toHaveAttribute('href', '/dashboard/outreach')
+    expect(outreachLinks[1]).toHaveAttribute(
+      'href',
+      '/dashboard/outreach?listId=42',
     )
   })
 
@@ -173,6 +193,31 @@ describe('ListsIndex — ENG-10749 Send outreach is Win-only', () => {
     expect(
       screen.queryByRole('link', { name: 'Send outreach' }),
     ).not.toBeInTheDocument()
+  })
+})
+
+// ENG-10767: the CRM list → outreach funnel entry event.
+describe('ListsIndex — Send Outreach Clicked analytics', () => {
+  it('fires with surface universeRow (no listId) from the universe row and surface listCard + listId from a card', async () => {
+    setContext({ customSegments: [{ id: 42, name: 'GOTV text list' }] })
+    const user = userEvent.setup()
+
+    render(<ListsIndex />)
+
+    const outreachLinks = screen.getAllByRole('link', {
+      name: 'Send outreach',
+    })
+    await user.click(outreachLinks[0]!)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { surface: 'universeRow' },
+    )
+
+    await user.click(outreachLinks[1]!)
+    expect(trackEvent).toHaveBeenCalledWith(
+      EVENTS.VoterData.SendOutreachClicked,
+      { listId: 42, surface: 'listCard' },
+    )
   })
 })
 
@@ -229,10 +274,46 @@ describe('ListsIndex — card options menu', () => {
   })
 })
 
+// ENG-10775: people-api floors a slow count/aggregates query at FENCE_LIMIT
+// (10,000) rather than finishing the exact number — the card must never
+// present that floor as if it were exact.
+describe('ListsIndex — fenced count affordance (ENG-10775)', () => {
+  it('renders a trailing + when the count is a fenced lower bound', () => {
+    mockedUseListRowDetail.mockReturnValue({
+      peopleCount: 10000,
+      peopleCountFenced: true,
+      lastOutreach: undefined,
+      isLoading: false,
+      isError: false,
+    })
+    setContext({ customSegments: [{ id: 46, name: 'Big list' }] })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('10,000+')).toBeInTheDocument()
+  })
+
+  it('renders a plain count with no + when the count is exact', () => {
+    mockedUseListRowDetail.mockReturnValue({
+      peopleCount: 10000,
+      peopleCountFenced: false,
+      lastOutreach: undefined,
+      isLoading: false,
+      isError: false,
+    })
+    setContext({ customSegments: [{ id: 47, name: 'Exactly 10k list' }] })
+
+    render(<ListsIndex />)
+
+    expect(screen.getByText('10,000')).toBeInTheDocument()
+  })
+})
+
 describe('ListsIndex — outreach subtitle', () => {
   it('shows "No outreach yet" when the list has never been used for outreach', () => {
     mockedUseListRowDetail.mockReturnValue({
       peopleCount: 100,
+      peopleCountFenced: false,
       lastOutreach: undefined,
       isLoading: false,
       isError: false,
@@ -247,6 +328,7 @@ describe('ListsIndex — outreach subtitle', () => {
   it('shows "Last outreach <date>" from outreachHistory[0] when present', () => {
     mockedUseListRowDetail.mockReturnValue({
       peopleCount: 100,
+      peopleCountFenced: false,
       lastOutreach: {
         id: 9,
         name: 'GOTV blast',

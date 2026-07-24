@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import {
+  Badge,
   Button,
   CalendarIcon,
   ClockIcon,
@@ -33,11 +34,12 @@ import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { getContactsLabels } from '../../../shared/contactsLabels'
+import { formatFencedCount } from '../shared/formatFencedCount.util'
 import { findCustomSegment } from '../shared/segments.util'
 import { useContactsDownload } from '../shared/useContactsDownload'
 import { useContactsTable } from '../ContactsTableProvider'
 import type { SegmentResponse } from '../shared/contacts-types'
-import { OUTREACH_CHANNEL_LABELS } from '../shared/outreachChannelLabels'
+import { OUTREACH_CHANNEL_NOUNS } from '../shared/outreachChannelLabels'
 import CrmSheet from '../shared/CrmSheet'
 import ListFilterSummary from './ListFilterSummary'
 import ReachabilityGrid from './ReachabilityGrid'
@@ -113,6 +115,32 @@ export default function ListDetailSheet({
         | undefined)
     : undefined
   const isLocked = Boolean(segment?.firstUsedForOutreachAt)
+
+  // ENG-10767: the legacy page fired Segment Viewed from its segment picker;
+  // this sheet is the CRM equivalent ("which lists get used"). One fire per
+  // sheet open, once the segment resolves (a deep link can open the sheet
+  // before the segments fetch lands) and the Win/Serve mode settles; the ref
+  // re-arms on close so reopening the same list fires again.
+  const firedViewedListIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (listId === null) {
+      firedViewedListIdRef.current = null
+      return
+    }
+    if (
+      firedViewedListIdRef.current === listId ||
+      !segment ||
+      !isWinContextReady
+    ) {
+      return
+    }
+    firedViewedListIdRef.current = listId
+    trackEvent(EVENTS.Contacts.SegmentViewed, {
+      segment: segment.name,
+      type: 'custom',
+      context: isWinContext ? 'win' : 'serve',
+    })
+  }, [listId, segment, isWinContextReady, isWinContext])
 
   const duplicateMutation = useDuplicateList()
 
@@ -241,7 +269,17 @@ export default function ListDetailSheet({
                 resolves. */}
             {isWinContextReady && isWinContext && (
               <Button className="h-11 flex-1 text-sm" asChild>
-                <Link href="/dashboard/outreach">Send outreach</Link>
+                <Link
+                  href={`/dashboard/outreach?listId=${segment.id}`}
+                  onClick={() =>
+                    trackEvent(EVENTS.VoterData.SendOutreachClicked, {
+                      listId: segment.id,
+                      surface: 'listDetail',
+                    })
+                  }
+                >
+                  Send outreach
+                </Link>
               </Button>
             )}
           </div>
@@ -283,7 +321,14 @@ export default function ListDetailSheet({
               <StatTile
                 icon={<UsersRoundIcon size={16} className="shrink-0" />}
                 label="People"
-                value={statValue(demographics?.people.toLocaleString())}
+                value={statValue(
+                  demographics
+                    ? formatFencedCount(
+                        demographics.people,
+                        demographics.fenced,
+                      )
+                    : undefined,
+                )}
               />
               <StatTile
                 icon={<CalendarIcon size={16} className="shrink-0" />}
@@ -324,7 +369,8 @@ export default function ListDetailSheet({
                 value={statValue(
                   detailQuery.data
                     ? lastOutreach
-                      ? OUTREACH_CHANNEL_LABELS[lastOutreach.outreachType]
+                      ? (OUTREACH_CHANNEL_NOUNS[lastOutreach.outreachType] ??
+                        lastOutreach.outreachType)
                       : '—'
                     : undefined,
                 )}
@@ -367,11 +413,21 @@ export default function ListDetailSheet({
                         {entry.date ? dateUsHelper(entry.date) : '—'}
                       </TableCell>
                       <TableCell className="font-medium">
+                        {/* Robocall/phone-banking campaigns are created with
+                            name null — fall back to a channel + date label,
+                            never the activity-feed verb ("Called"). */}
                         {entry.name ||
-                          OUTREACH_CHANNEL_LABELS[entry.outreachType]}
+                          (entry.date
+                            ? `${OUTREACH_CHANNEL_NOUNS[entry.outreachType] ?? entry.outreachType} — ${dateUsHelper(entry.date)}`
+                            : '—')}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {OUTREACH_CHANNEL_LABELS[entry.outreachType]}
+                        <Badge variant="soft" shape="pill">
+                          {/* ?? guards the deploy-skew window where the API
+                              serves a channel newer than this bundle's map. */}
+                          {OUTREACH_CHANNEL_NOUNS[entry.outreachType] ??
+                            entry.outreachType}
+                        </Badge>
                       </TableCell>
                     </TableRow>
                   ))}

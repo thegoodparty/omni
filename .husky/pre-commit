@@ -1,1 +1,22 @@
+# Skip pre-commit checks during an in-progress merge/rebase/cherry-pick.
+# These operations can stage hundreds of files at once, and running type-aware
+# ESLint over all of them through lint-staged OOMs (which is why people resort
+# to `git merge --no-verify`). Let those commits through untouched; ordinary
+# per-commit lint-staged still guards normal commits below.
+#
+# Resolve the real git dir first: in a worktree, `.git` is a FILE pointing at
+# the actual gitdir, so a hardcoded `.git/...` path would miss the state files.
+# `git rev-parse --git-dir` resolves the correct per-worktree git dir in both
+# the plain-clone and worktree cases; the merge/rebase/cherry-pick state all
+# lives there.
+git_dir=$(git rev-parse --git-dir 2>/dev/null) || git_dir=.git
+
+if [ -f "$git_dir/MERGE_HEAD" ] ||
+  [ -f "$git_dir/CHERRY_PICK_HEAD" ] ||
+  [ -d "$git_dir/rebase-merge" ] ||
+  [ -d "$git_dir/rebase-apply" ]; then
+  echo "pre-commit: merge/rebase/cherry-pick in progress; skipping lint-staged."
+  exit 0
+fi
+
 npx lint-staged

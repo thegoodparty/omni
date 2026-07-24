@@ -10,6 +10,7 @@ import { type LlmMessage } from '@/llm/types/llmMessages.types'
 import {
   LlmService,
   LlmStreamResult,
+  LlmStreamUsage,
   LlmTool,
 } from '@/llm/services/llm.service'
 import { BraintrustService } from 'src/vendors/braintrust/braintrust.service'
@@ -29,6 +30,11 @@ export type ChatStreamChunk =
   | { type: 'tool_input_start'; toolName: string }
   | { type: 'tool_call'; toolName: string; args: unknown }
   | { type: 'tool_result'; toolName: string; result: unknown }
+  // Keep-alive while the model works silently — tool-arg generation (e.g. the
+  // ordinance draft body) streams no chunks for minutes, and without wire
+  // traffic client idle watchdogs and LB idle timeouts kill a healthy stream.
+  // Carries no content; not persisted.
+  | { type: 'ping' }
   | { type: 'done'; assistantMessageId?: string }
   | {
       type: 'error'
@@ -47,10 +53,18 @@ export interface StreamArgs {
   clientMessageId?: string
   models?: string[]
   maxSteps?: number
+  // Called once after a clean finish with the turn's resolved token usage and
+  // the model that produced it. Optional so only scopes that meter usage (the
+  // ordinance flow) pay for it; a throw here is logged, never fails the turn.
+  onUsage?: (usage: LlmStreamUsage, model: string) => void | Promise<void>
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
 export const MAX_BUFFERED_CHUNKS = 256
+
+// Ping cadence. Well under the webapp's 60s stream-idle watchdog and typical
+// LB idle timeouts, so several beats must be missed before a client gives up.
+export const CHAT_STREAM_HEARTBEAT_MS = 15_000
 
 // Sentinel persisted as the assistant message body when a stream is
 // aborted before any text was produced (e.g. user navigated away during
@@ -408,6 +422,13 @@ export class ChatStreamService {
       return
     }
 
+    // Started only after a successful connect (a connect error returns above
+    // and would leak the interval). push() no-ops once the queue closes, so a
+    // straggling tick after teardown is harmless.
+    const heartbeat = setInterval(() => {
+      void queue.push({ type: 'ping' })
+    }, CHAT_STREAM_HEARTBEAT_MS)
+
     const consumeStream = async (): Promise<{ error?: Error }> => {
       try {
         for await (const delta of result.textStream) {
@@ -429,6 +450,7 @@ export class ChatStreamService {
           error: err instanceof Error ? err : new Error(String(err)),
         }
       } finally {
+        clearInterval(heartbeat)
         queue.close()
       }
     }
@@ -455,6 +477,19 @@ export class ChatStreamService {
       // and the finally writes the sentinel instead.
       const cleanFinish = !args.signal?.aborted && !tracedMetrics.errorCode
       await persistOnce(cleanFinish)
+      // Meter usage only on a clean finish; a partial/aborted turn's usage is
+      // unreliable. Guarded so metering never breaks the turn.
+      if (cleanFinish && args.onUsage) {
+        try {
+          const usage = await result.usage
+          await args.onUsage(usage, result.model)
+        } catch (usageErr) {
+          this.logger.error(
+            { err: usageErr, conversationId: args.conversationId },
+            'failed to record turn usage',
+          )
+        }
+      }
       return tracedMetrics
     }
 
@@ -502,6 +537,10 @@ export class ChatStreamService {
         ...(persistedId !== undefined && { assistantMessageId: persistedId }),
       }
     } finally {
+      // A premature consumer return jumps here while driveStream may still be
+      // running; consumeStream's own finally clears too — clearInterval is
+      // idempotent.
+      clearInterval(heartbeat)
       // Fallback for a premature return (client returned the iterator before
       // driveStream reached its persist). `completedNormally` is a deterministic
       // signal (no racy read of the floating driveStream's metrics): on a clean

@@ -1,0 +1,17 @@
+model DoorKnockingTurf {
+  id                Int               @id @default(autoincrement())
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  // Not unique: one filter (audience) can be split into many turfs.
+  voterFileFilter   VoterFileFilter   @relation(fields: [voterFileFilterId], references: [id], onDelete: Cascade)
+  voterFileFilterId Int               @map("voter_file_filter_id")
+  // The turf names the walk; the filter names the audience.
+  name              String
+  color             String
+  /// [GeoJsonPolygon]
+  geoPoly           Json              @map("geo_poly")
+  route             DoorKnockingRoute?
+
+  @@index([voterFileFilterId])
+  @@map("door_knocking_turf")
+}

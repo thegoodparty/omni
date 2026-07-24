@@ -1,8 +1,24 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen } from '@testing-library/react'
 import DraftReadyWidget from './DraftReadyWidget'
 import type { OrdinancePresentDraft } from '@goodparty_org/contracts'
+
+const mocks = vi.hoisted(() => ({
+  useOrdinanceQualityLoopFlag: vi.fn(),
+}))
+
+vi.mock('@shared/experiments/ordinanceQualityLoopFlag', () => ({
+  useOrdinanceQualityLoopFlag: mocks.useOrdinanceQualityLoopFlag,
+}))
+
+beforeEach(() => {
+  mocks.useOrdinanceQualityLoopFlag.mockReset()
+  mocks.useOrdinanceQualityLoopFlag.mockReturnValue({
+    ready: true,
+    enabled: false,
+  })
+})
 
 const draft: OrdinancePresentDraft = {
   title: 'Draft amendment to Chapter 12, Public Safety Surveillance',
@@ -44,6 +60,42 @@ describe('DraftReadyWidget', () => {
   it('flags the draft as one for the attorney to review', () => {
     render(<DraftReadyWidget draft={draft} slug="public-safety-cameras" />)
     expect(screen.getByText(/Draft for attorney/i)).toBeVisible()
+  })
+
+  it('shows the attorney-review disclaimer, outside the clickable card', () => {
+    render(<DraftReadyWidget draft={draft} slug="public-safety-cameras" />)
+    const note = screen.getByRole('note')
+    expect(note).toHaveTextContent('Review before you rely on this.')
+    expect(note).toHaveTextContent('not legal advice')
+    expect(note).toHaveTextContent('have a licensed attorney review it')
+    // The disclaimer is a sibling of the card, so clicking it doesn't navigate.
+    expect(note.closest('a')).toBeNull()
+  })
+
+  it('sets the quality-loop expectation when the loop flag is on', () => {
+    mocks.useOrdinanceQualityLoopFlag.mockReturnValue({
+      ready: true,
+      enabled: true,
+    })
+
+    render(<DraftReadyWidget draft={draft} slug="public-safety-cameras" />)
+
+    expect(
+      screen.getByText(
+        "We'll run quality checks on it — watch them from the draft page.",
+      ),
+    ).toBeVisible()
+    // The read must not inflate the exposed population — this card is not
+    // the treatment surface.
+    expect(mocks.useOrdinanceQualityLoopFlag).toHaveBeenCalledWith(false)
+  })
+
+  it('omits the quality-loop line when the flag is off', () => {
+    render(<DraftReadyWidget draft={draft} slug="public-safety-cameras" />)
+
+    expect(
+      screen.queryByText(/run quality checks on it/i),
+    ).not.toBeInTheDocument()
   })
 
   it('renders without a description', () => {

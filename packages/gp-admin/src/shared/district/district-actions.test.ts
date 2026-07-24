@@ -18,7 +18,7 @@ vi.mock('@clerk/nextjs/server', () => ({
 const mockListTypes = vi.fn()
 const mockListNames = vi.fn()
 const mockUpdateDistrict = vi.fn()
-const mockRequest = vi.fn()
+const mockUpdateElectedOfficeDistrict = vi.fn()
 vi.mock('@/shared/util/gpClient.util', () => ({
   gpAction: vi.fn(async (fn: (client: unknown) => unknown) =>
     fn({
@@ -27,7 +27,7 @@ vi.mock('@/shared/util/gpClient.util', () => ({
         listDistrictNames: mockListNames,
       },
       campaigns: { updateDistrict: mockUpdateDistrict },
-      electedOffices: { httpClient: { request: mockRequest } },
+      electedOffices: { updateDistrict: mockUpdateElectedOfficeDistrict },
     })
   ),
 }))
@@ -50,7 +50,7 @@ beforeEach(() => {
   mockListTypes.mockResolvedValue([])
   mockListNames.mockResolvedValue([])
   mockUpdateDistrict.mockResolvedValue(undefined)
-  mockRequest.mockResolvedValue(undefined)
+  mockUpdateElectedOfficeDistrict.mockResolvedValue(undefined)
 })
 
 describe('fetchDistrictTypes', () => {
@@ -124,21 +124,18 @@ describe('updateElectedOfficeDistrict', () => {
     await expect(
       updateElectedOfficeDistrict('eo_1', 'CA', 'City', 'Springfield', 2)
     ).rejects.toThrow('Missing write_campaigns permission')
-    expect(mockRequest).not.toHaveBeenCalled()
+    expect(mockUpdateElectedOfficeDistrict).not.toHaveBeenCalled()
   })
 
-  it('checks WRITE_CAMPAIGNS and issues the PUT', async () => {
+  it('checks WRITE_CAMPAIGNS and forwards to the typed SDK method', async () => {
     await updateElectedOfficeDistrict('eo_1', 'CA', 'City', 'Springfield', 2)
     expect(mockHas).toHaveBeenCalledWith({
       permission: PERMISSIONS.WRITE_CAMPAIGNS,
     })
-    expect(mockRequest).toHaveBeenCalledWith('/elected-office/eo_1/district', {
-      method: 'PUT',
-      body: {
-        state: 'CA',
-        L2DistrictType: 'City',
-        L2DistrictName: 'Springfield',
-      },
+    expect(mockUpdateElectedOfficeDistrict).toHaveBeenCalledWith('eo_1', {
+      state: 'CA',
+      L2DistrictType: 'City',
+      L2DistrictName: 'Springfield',
     })
   })
 })

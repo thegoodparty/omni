@@ -4,7 +4,7 @@ import {
   Injectable,
 } from '@nestjs/common'
 import { ChatConversation, ChatScope } from '../../../generated/prisma'
-import type { LlmTool } from '@/llm/services/llm.service'
+import type { LlmStreamUsage, LlmTool } from '@/llm/services/llm.service'
 import {
   ChatAnchorSchema,
   type OrdinanceFlowStep,
@@ -171,6 +171,24 @@ export class OrdinanceFlowHandler implements ChatScopeHandler<OrdinanceFlowConte
 
   buildTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {
     return this.assembleTools(ctx)
+  }
+
+  // Meter each turn's tokens onto the ordinance record (a full-draft total sums
+  // these with the quality loop's own tokens). The runtime only calls this on a
+  // clean finish and swallows a throw, so metering never affects the reply.
+  async onTurnUsage(
+    ctx: OrdinanceFlowContext,
+    usage: LlmStreamUsage,
+    model: string,
+  ): Promise<void> {
+    await this.tools.recordFlowUsage({
+      ordinanceId: ctx.ordinanceId,
+      electedOfficeId: ctx.electedOfficeId,
+      step: ctx.step,
+      model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+    })
   }
 
   private assembleTools(ctx: OrdinanceFlowContext): Record<string, LlmTool> {

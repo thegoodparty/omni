@@ -7,10 +7,10 @@ vi.hoisted(() => {
   process.env.NODE_ENV = 'production'
   process.env.LOG_LEVEL = 'silent'
   process.env.S2S_ALLOW_LOCALHOST = 'true'
-  // PrismaService is overridden with a fake, but PeopleDownloadService builds a
-  // real pg Pool in its constructor and only requires the URL to be present
-  // (it connects lazily and swallows failures), so a dummy value is enough.
-  process.env.DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/db'
+  // PrismaService is overridden with a fake, but DatabaseUrlProvider and
+  // PeopleDownloadService still boot: the provider reads LOCAL_DATABASE_URL and
+  // the pool connects lazily and swallows failures, so a dummy value is enough.
+  process.env.LOCAL_DATABASE_URL ??= 'postgresql://user:pass@localhost:5432/db'
 })
 
 import { HttpAdapterHost } from '@nestjs/core'
@@ -124,12 +124,19 @@ const baseFakePrisma = {
     const take = Number(values[values.length - 2] ?? dataset.length)
     return dataset.slice(skip, skip + take)
   }),
+  // Every count now runs through queryWithTimeoutFence: $transaction([SET LOCAL
+  // statement_timeout, count]). Resolve the batch so the count still flows through $queryRaw.
+  $executeRaw: vi.fn(async () => 0),
+  $transaction: vi.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
 }
 
 // Any other model accessed by a PrismaBase service (e.g. Voter) just needs the
 // passthrough methods to exist so onModuleInit can bind them.
 const fakePrisma = new Proxy(baseFakePrisma as Record<string, unknown>, {
-  get(target, prop: string) {
+  get(target, prop: string, receiver) {
+    // PrismaBase services reach the live client through `.instance`; point it
+    // back at this same fake.
+    if (prop === 'instance') return receiver
     if (prop in target) return target[prop]
     if (/^[a-z]/.test(prop)) return makeModel()
     return undefined

@@ -101,15 +101,15 @@ describe('RacesService', () => {
       )
     })
 
-    it('uses electionDate as electionDateTo when provided', async () => {
+    it('passes timeframe through to searchPositions', async () => {
       electionsService.searchPositions.mockResolvedValue([])
       await service.getRacesByZip({
         zipcode: '90210',
-        electionDate: '2027-06-30',
+        timeframe: 'past',
       })
       expect(electionsService.searchPositions).toHaveBeenCalledWith(
         expect.objectContaining({
-          electionDateTo: '2027-06-30',
+          timeframe: 'past',
         }),
       )
     })

@@ -187,16 +187,53 @@ export class CrmCampaignsService {
       userId,
       id: campaignId,
     } = campaign || {}
+    // These lookups are independent, so fetch them concurrently. The org
+    // district/ballot-level and position-name context share the same org row
+    // and election-api position, so a single combined resolver deduplicates
+    // what were previously two round-trips each re-fetching the same data.
+    const [
+      userResult,
+      aiChatCount,
+      liveMetrics,
+      orgContext,
+      tcrCompliance,
+      ecanvasser,
+    ] = await Promise.all([
+      this.users.findByCampaign(campaign),
+      userId
+        ? this.aiChat.count({ where: { userId, campaignId } })
+        : Promise.resolve(0),
+      this.campaigns.fetchLiveRaceTargetMetrics(campaign),
+      campaign.organizationSlug
+        ? this.organizations.getCrmCompanyOrgContextByOrgSlug(
+            campaign.organizationSlug,
+          )
+        : Promise.resolve({
+            district: null,
+            ballotLevel: null,
+            positionName: null,
+            ballotReadyPositionId: null,
+          }),
+      this.campaigns.client.tcrCompliance.findUnique({
+        where: { campaignId },
+        select: {
+          email: true,
+          phone: true,
+          filingUrl: true,
+          pinDeliveryMethod: true,
+          pinDeliveryDestination: true,
+          pinSentDetectedAt: true,
+          peerlyIdentityId: true,
+        },
+      }),
+      this.ecanvasser.findByCampaignId(campaignId),
+    ])
+
     const user: User =
       // HubSpot SDK types are loosely typed — properties bag is Record<string, string>
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-      (await this.users.findByCampaign(campaign)) || ({} as User)
-    const aiChatCount = userId
-      ? await this.aiChat.count({ where: { id: userId } })
-      : 0
+      userResult || ({} as User)
 
-    const liveMetrics =
-      await this.campaigns.fetchLiveRaceTargetMetrics(campaign)
     const winNumber = liveMetrics?.winNumber
     const voterContactGoal = liveMetrics?.voterContactGoal
 
@@ -229,12 +266,12 @@ export class CrmCampaignsService {
       isProUpdatedAt,
     } = campaignDetails || {}
 
-    const { district, ballotLevel: authoritativeBallotLevel } =
-      campaign.organizationSlug
-        ? await this.organizations.getDistrictAndBallotLevelForOrgSlug(
-            campaign.organizationSlug,
-          )
-        : { district: null, ballotLevel: null }
+    const {
+      district,
+      ballotLevel: authoritativeBallotLevel,
+      positionName,
+      ballotReadyPositionId,
+    } = orgContext
     const canDownloadVoterFile = this.voterFile.canDownload(
       campaign,
       district,
@@ -251,11 +288,6 @@ export class CrmCampaignsService {
     const filingStartMs = formatDateForCRM(filingPeriodsStart)
     const filingEndMs = formatDateForCRM(filingPeriodsEnd)
     const lastStepDateMs = formatDateForCRM(lastStepDate)
-    const { positionName, ballotReadyPositionId } = campaign.organizationSlug
-      ? await this.organizations.resolvePositionContextByOrgSlug(
-          campaign.organizationSlug,
-        )
-      : { positionName: null, ballotReadyPositionId: null }
 
     const longState = usStates.find(
       (usState) => usState.abbreviation === state?.toUpperCase(),
@@ -266,12 +298,6 @@ export class CrmCampaignsService {
       ? HubSpot.ProSubStatus.ACTIVE
       : HubSpot.ProSubStatus.INACTIVE
 
-    const tcrCompliance = await this.campaigns.client.tcrCompliance.findUnique({
-      where: { campaignId },
-      select: { email: true, phone: true, filingUrl: true },
-    })
-
-    const ecanvasser = await this.ecanvasser.findByCampaignId(campaignId)
     let ecanvasserCount = 0
     let ecanvasserHousesCount = 0
     let ecanvasserInteractionsCount = 0
@@ -327,6 +353,16 @@ export class CrmCampaignsService {
       n10_dlc_filing_email: tcrCompliance?.email,
       n10_dlc_filing_phone: tcrCompliance?.phone,
       n10_dlc_filing_url: tcrCompliance?.filingUrl,
+      n10_dlc_pin_delivery_method:
+        tcrCompliance?.pinDeliveryMethod ?? undefined,
+      n10_dlc_pin_sent_at: formatDateForCRM(
+        tcrCompliance?.pinSentDetectedAt?.toISOString(),
+      ),
+      n10_dlc_pin_delivery_destination:
+        tcrCompliance?.pinDeliveryDestination ?? undefined,
+      // String on purpose: the event-side property is number-typed, which
+      // HubSpot renders with thousands separators and breaks id lookups.
+      peerly_identity_id: tcrCompliance?.peerlyIdentityId ?? undefined,
 
       // election details
       br_position_id: ballotReadyPositionId ?? undefined,
@@ -530,41 +566,6 @@ export class CrmCampaignsService {
     }
 
     return crmCompanyId
-  }
-
-  async handleUpdateCampaign(
-    campaign: Campaign,
-    propertyName: string,
-    propertyValue: string,
-  ) {
-    const campaignData = campaign.data
-    const hubSpotUpdates = campaignData.hubSpotUpdates || {}
-    // propertyName is a dynamic HubSpot field name supplied at runtime.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-    hubSpotUpdates[propertyName as HubSpot.IncomingProperty] = propertyValue
-
-    const updatePayload: Prisma.CampaignUpdateInput = {
-      data: {
-        ...campaignData,
-        hubSpotUpdates,
-      },
-    }
-
-    if (propertyName === String(HubSpot.IncomingProperty.verified_candidates)) {
-      updatePayload.isVerified =
-        propertyValue.toLowerCase() === String(HubSpot.VerifiedCandidate.YES)
-    }
-
-    if (propertyName === String(HubSpot.IncomingProperty.election_results)) {
-      updatePayload.didWin =
-        propertyValue.toLowerCase() ===
-        String(HubSpot.ElectionResult.WON_GENERAL)
-    }
-
-    this.campaigns.update({
-      where: { id: campaign.id },
-      data: updatePayload,
-    })
   }
 
   /** Pushes campaign data to Hubspot record

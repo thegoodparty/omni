@@ -3,6 +3,8 @@ import { formatISO } from 'date-fns'
 import { z } from 'zod'
 import { createPrismaBase, MODELS } from '@/prisma/util/prisma.util'
 import { S3Service } from '@/vendors/aws/services/s3.service'
+import { OrdinanceQualityLoopService } from '@/ordinances/services/ordinanceQualityLoop.service'
+import { Ordinance, OrdinanceQualityLoopStatus } from '@/generated/prisma'
 import {
   OrdinanceCodeResponseSchema,
   type OrdinanceCodeResponse,
@@ -22,6 +24,8 @@ import {
   type OrdinanceComparables,
   type OrdinanceSource,
 } from '@goodparty_org/contracts'
+
+import { estimateCostUsd } from './ordinanceCost.util'
 
 export const ORDINANCE_READ_SECTIONS = [
   'clarify',
@@ -58,8 +62,19 @@ export type OrdinanceCodeSourceResult =
 export class OrdinanceFlowToolsService extends createPrismaBase(
   MODELS.Ordinance,
 ) {
-  constructor(private readonly s3: S3Service) {
+  constructor(
+    private readonly s3: S3Service,
+    private readonly qualityLoop: OrdinanceQualityLoopService,
+  ) {
     super()
+  }
+
+  // Chat-tool writes to the quality-report hash inputs invalidate a running
+  // background loop, same as the PATCH editor path.
+  private async supersedeRunningLoop(ordinance: Ordinance): Promise<void> {
+    if (ordinance.qualityLoopStatus === OrdinanceQualityLoopStatus.running) {
+      await this.qualityLoop.supersedeOnEdit(ordinance.id)
+    }
   }
 
   private async findOwned(ordinanceId: string, electedOfficeId: string) {
@@ -132,6 +147,48 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     return { saved: true }
   }
 
+  // Accumulate a turn's token usage onto the ordinance's flow counters and log
+  // the per-turn line with a derived cost. Atomic increment (concurrent step
+  // turns can't lose counts), scoped to the owning office; a non-owned or
+  // deleted row is a no-op so metering never disturbs the turn.
+  async recordFlowUsage(args: {
+    ordinanceId: string
+    electedOfficeId: string
+    step: string
+    model: string
+    inputTokens: number
+    outputTokens: number
+  }): Promise<void> {
+    const updated = await this.model.updateMany({
+      where: {
+        id: args.ordinanceId,
+        electedOfficeId: args.electedOfficeId,
+        deletedAt: null,
+      },
+      data: {
+        flowInputTokens: { increment: args.inputTokens },
+        flowOutputTokens: { increment: args.outputTokens },
+      },
+    })
+    if (updated.count === 0) return
+    const turnCostUsd = estimateCostUsd(
+      args.model,
+      args.inputTokens,
+      args.outputTokens,
+    )
+    this.logger.info(
+      {
+        ordinanceId: args.ordinanceId,
+        step: args.step,
+        model: args.model,
+        inputTokens: args.inputTokens,
+        outputTokens: args.outputTokens,
+        turnCostUsd: Number(turnCostUsd.toFixed(4)),
+      },
+      'ordinance flow turn usage',
+    )
+  }
+
   async saveSynthesis(
     ordinanceId: string,
     electedOfficeId: string,
@@ -148,7 +205,12 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     authority: OrdinanceAuthority,
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
+    // Write first: superseding is a write-once terminal, so flipping it
+    // before a write that then fails would strand the loop dead with the
+    // edit never persisted. The loop's own fenced writes tolerate the
+    // reverse race (a draft write bumps @updatedAt → redelivery re-checks).
     await this.model.update({ where: { id: o.id }, data: { authority } })
+    await this.supersedeRunningLoop(o)
     return { saved: true }
   }
 
@@ -159,6 +221,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
     await this.model.update({ where: { id: o.id }, data: { comparables } })
+    await this.supersedeRunningLoop(o)
     return { saved: true }
   }
 
@@ -175,7 +238,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
     draft: { title: string; body: string; sources?: OrdinanceSource[] },
   ): Promise<{ saved: true }> {
     const o = await this.findOwned(ordinanceId, electedOfficeId)
-    await this.model.update({
+    const updated = await this.model.update({
       where: { id: o.id },
       data: {
         draftTitle: draft.title,
@@ -184,7 +247,23 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
         ...(draft.sources &&
           draft.sources.length > 0 && { draftSources: draft.sources }),
       },
+      include: { electedOffice: true },
     })
+    // Fire-and-forget: the chat turn must never block on or fail with the
+    // background loop. start() itself supersedes and restarts a running loop
+    // for a re-draft, and guards flag/env/status/redline internally.
+    void this.qualityLoop
+      .start({
+        ordinance: updated,
+        userId: updated.electedOffice.userId,
+        trigger: 'auto',
+      })
+      .catch((err: unknown) =>
+        this.logger.error(
+          { ordinanceId: o.id, error: err },
+          'quality loop auto-start failed after saveDraft',
+        ),
+      )
     return { saved: true }
   }
 
@@ -199,6 +278,7 @@ export class OrdinanceFlowToolsService extends createPrismaBase(
       fetchedAt: formatISO(new Date()),
     })
     await this.model.update({ where: { id: o.id }, data: { existingLaw } })
+    await this.supersedeRunningLoop(o)
     return { saved: true }
   }
 

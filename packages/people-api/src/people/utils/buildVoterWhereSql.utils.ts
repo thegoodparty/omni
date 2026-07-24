@@ -76,6 +76,7 @@ export const buildVoterWhereSql = (args: {
   districtId?: string | null
   filters: FilterData
   search?: string
+  extraConditions?: Prisma.Sql[]
 }): Prisma.Sql => {
   const { state, districtId } = args
 
@@ -121,6 +122,9 @@ export const buildVoterWhereSql = (args: {
   const voterFiltersSql = buildVoterFiltersSql(args.filters)
   if (voterFiltersSql) {
     parts.push(voterFiltersSql)
+  }
+  if (args.extraConditions) {
+    parts.push(...args.extraConditions)
   }
   return parts.length
     ? Prisma.sql`WHERE ${Prisma.join(parts, ' AND ')}`

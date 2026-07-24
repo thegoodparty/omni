@@ -38,12 +38,33 @@ model Ordinance {
   qualityRunStartedAt DateTime? @map("quality_run_started_at")
   qualityRunError     String?   @map("quality_run_error")
 
+  // Async quality-improvement loop (QC -> revise -> QC over SQS). Separate
+  // state machine from qualityRun* above: the loop mints a runId per start,
+  // steps heartbeat qualityLoopUpdatedAt, and every write is fenced on
+  // (status running + runId). Terminal statuses are write-once.
+  qualityLoopStatus    OrdinanceQualityLoopStatus? @map("quality_loop_status")
+  qualityLoopRunId     String?                     @map("quality_loop_run_id")
+  qualityLoopIteration Int                         @default(0) @map("quality_loop_iteration")
+  qualityLoopUpdatedAt DateTime?                   @map("quality_loop_updated_at")
+
+  qualityIterations OrdinanceQualityIteration[]
+
   lastViewedStep String? @map("last_viewed_step")
+
+  // Cumulative LLM token usage for the interactive guided flow, accumulated per
+  // turn across every step. The quality loop tracks its own tokens on
+  // OrdinanceQualityIteration rows; a full-draft total sums both. Stored as
+  // tokens, not dollars — cost is derived via a pricing map at read time.
+  flowInputTokens  Int @default(0) @map("flow_input_tokens")
+  flowOutputTokens Int @default(0) @map("flow_output_tokens")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  // The sweepStalled cron isolates the tiny `running` subset every 10 min;
+  // without this it seq-scans the table.
+  @@index([qualityLoopStatus, qualityLoopUpdatedAt])
   @@index([electedOfficeId, deletedAt, updatedAt])
   @@map("ordinance")
 }
@@ -60,4 +81,16 @@ enum OrdinanceStatus {
 enum OrdinanceSeedType {
   issue
   new
+}
+
+// Not `passed` for convergence — that would collide with
+// OrdinanceStatus.passed (council passage), a different concept.
+enum OrdinanceQualityLoopStatus {
+  running
+  converged
+  stopped_max_iterations
+  stopped_not_improving
+  superseded_by_edit
+  cancelled
+  failed
 }

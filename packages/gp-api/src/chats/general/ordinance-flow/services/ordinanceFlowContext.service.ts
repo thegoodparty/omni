@@ -27,6 +27,7 @@ export interface OrdinanceFlowContext {
   seedType: OrdinanceSeedType
   issueSlug: string | null
   goalText: string | null
+  sourceLink: string | null
   clarifyAnswers: OrdinanceClarifyAnswers
   authority: OrdinanceAuthority | null
   comparables: OrdinanceComparables | null
@@ -101,6 +102,7 @@ export class OrdinanceFlowContextService extends createPrismaBase(
       seedType: ordinance.seedType,
       issueSlug: ordinance.issueSlug,
       goalText: ordinance.goalText,
+      sourceLink: ordinance.sourceLink,
       clarifyAnswers:
         this.parseJson(
           OrdinanceClarifyAnswersSchema,

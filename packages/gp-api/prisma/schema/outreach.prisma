@@ -1,6 +1,10 @@
 enum OutreachType {
   text
+  // Legacy: draft/intent rows from the old CSV/eCanvasser flow (all pending).
   doorKnocking
+  // Native: one envelope row per generated door_knocking_route
+  // (see doorKnockingRouteId) so routes appear in the unified outreach list.
+  nativeDoorKnocking
   phoneBanking
   socialMedia
   robocall
@@ -35,6 +39,10 @@ model Outreach {
   imageUrl                          String?                            @map("image_url")
   voterFileFilter                   VoterFileFilter?                   @relation(fields: [voterFileFilterId], references: [id])
   voterFileFilterId                 Int?                               @map("voter_file_filter_id")
+  // nativeDoorKnocking envelopes only: the list row carries its destination
+  // (the per-channel pointer idiom, like phoneListId/projectId).
+  doorKnockingRoute     DoorKnockingRoute?      @relation(fields: [doorKnockingRouteId], references: [id], onDelete: Cascade)
+  doorKnockingRouteId   Int?                    @unique @map("door_knocking_route_id")
   phoneListId                       Int?                               @map("phone_list_id")
   // P2P-specific fields
   identityId                        String?                            @map("identity_id")

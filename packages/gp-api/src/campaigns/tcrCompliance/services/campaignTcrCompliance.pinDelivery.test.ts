@@ -41,6 +41,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
   let mockPeerly: { retrieveCampaignVerifyDetails: ReturnType<typeof vi.fn> }
   let mockCampaigns: { findUnique: ReturnType<typeof vi.fn> }
   let mockTrack: ReturnType<typeof vi.fn>
+  let mockTrackCampaign: ReturnType<typeof vi.fn>
 
   beforeEach(async () => {
     mockModel = {
@@ -50,6 +51,7 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     mockPeerly = { retrieveCampaignVerifyDetails: vi.fn() }
     mockCampaigns = { findUnique: vi.fn().mockResolvedValue(campaignWithUser) }
     mockTrack = vi.fn().mockResolvedValue(undefined)
+    mockTrackCampaign = vi.fn().mockResolvedValue(undefined)
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -57,7 +59,10 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
         { provide: PeerlyIdentityService, useValue: mockPeerly },
         { provide: WebsitesService, useValue: {} },
         { provide: CampaignsService, useValue: mockCampaigns },
-        { provide: CrmCampaignsService, useValue: {} },
+        {
+          provide: CrmCampaignsService,
+          useValue: { trackCampaign: mockTrackCampaign },
+        },
         { provide: ComplianceStateService, useValue: {} },
         { provide: QueueProducerService, useValue: {} },
         { provide: ExperimentRunsService, useValue: {} },
@@ -101,12 +106,80 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
         company_hubspot_id: 'company-1',
       }),
     )
+    expect(mockTrackCampaign).toHaveBeenCalledWith(campaignWithUser.id)
+  })
+
+  it('still succeeds when the post-event CRM company sync fails', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'APPROVED',
+      pinDelivery: { method: 'text', destination: '3126851162' },
+    })
+    mockTrackCampaign.mockRejectedValue(new Error('hubspot down'))
+
+    await expect(service.sweepPinDeliveryDetection()).resolves.not.toThrow()
+
+    expect(mockTrack).toHaveBeenCalledTimes(1)
+    expect(mockTrackCampaign).toHaveBeenCalledWith(campaignWithUser.id)
   })
 
   it('does not fire the event when another caller already claimed the record', async () => {
     mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
       status: 'APPROVED',
       pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+    mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  it('marks the record rejected and fires the rejection event when CV is REJECTED', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'REJECTED',
+      pinDelivery: null,
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', status: { not: 'rejected' } },
+      data: { status: 'rejected' },
+    })
+    expect(mockTrack).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({
+        rejection_source: 'cv_status_check',
+        peerly_identity_id: '11540083',
+        company_hubspot_id: 'company-1',
+      }),
+    )
+  })
+
+  it('marks the record rejected when CV is WITHDRAWN so the sweep set shrinks', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'WITHDRAWN',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', status: { not: 'rejected' } },
+      data: { status: 'rejected' },
+    })
+    expect(mockTrack).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({ rejection_source: 'cv_status_check' }),
+    )
+  })
+
+  it('does not re-fire the rejection event when the record is already rejected', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'REJECTED',
+      pinDelivery: null,
     })
     mockModel.updateMany.mockResolvedValue({ count: 0 })
 
@@ -125,6 +198,52 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
 
     expect(mockModel.updateMany).not.toHaveBeenCalled()
     expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  // Peerly echoes the verification_method/filing_email we submit even while
+  // the CV is still in review — production always returns a pinDelivery here,
+  // so presence alone must not count as "sent" (ENG-10785).
+  it('does not record or fire when CV is IN_REVIEW despite an echoed delivery method', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'IN_REVIEW',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  it('does not record or fire when CV is REQUESTED despite an echoed delivery method', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'REQUESTED',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  it('records and fires for a VERIFIED CV (PIN already consumed)', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'VERIFIED',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', pinSentDetectedAt: null },
+      data: {
+        pinDeliveryMethod: 'email',
+        pinDeliveryDestination: 'a@b.com',
+        pinSentDetectedAt: expect.any(Date),
+      },
+    })
+    expect(mockTrack).toHaveBeenCalledTimes(1)
   })
 
   it('rolls back the claim when the event fails so a later sweep retries', async () => {

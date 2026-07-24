@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle } from '@styleguide'
 import { SparklesIcon } from '@styleguide/components/ui/icons'
-import ChiefOfStaffChatBody from './ChiefOfStaffChatBody'
+import ChiefOfStaffChatBody, {
+  type ChatSuggestion,
+} from './ChiefOfStaffChatBody'
 import type { AgentChatClient } from '../../../shared/agent-chat/chatClient'
 
 interface Props {
@@ -23,6 +25,20 @@ interface Props {
   analyticsLabel?: string
   historyKey?: readonly unknown[]
   defaultIntro?: string[]
+  /** Starter chips threaded to the body. Default to Chief of Staff's. */
+  suggestions?: ChatSuggestion[]
+  /** Show the chips alongside a seeded greeting, not only on empty. */
+  showSuggestionsWithGreeting?: boolean
+  /** Quick-prompt pills threaded to the body (below the suggestions). */
+  quickPrompts?: string[]
+  /** Composer placeholder threaded to the body. */
+  composerPlaceholder?: string
+  /** One-shot kickoff message sent hidden on open. */
+  pendingKickoff?: string
+  /** Ref to the body's composer input, so a suggestion can focus it. */
+  composerRef?: RefObject<HTMLInputElement | null>
+  /** Message contents to hide from a reloaded transcript (e.g. sentinels). */
+  hiddenMessageContents?: string[]
 }
 
 /**
@@ -42,6 +58,13 @@ export default function ChiefOfStaffChatSurface({
   analyticsLabel,
   historyKey,
   defaultIntro,
+  suggestions,
+  showSuggestionsWithGreeting,
+  quickPrompts,
+  composerPlaceholder,
+  pendingKickoff,
+  composerRef,
+  hiddenMessageContents,
 }: Props): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(
     initialConversationId ?? null,
@@ -82,6 +105,13 @@ export default function ChiefOfStaffChatSurface({
           analyticsLabel={analyticsLabel}
           historyKey={historyKey}
           defaultIntro={defaultIntro}
+          suggestions={suggestions}
+          showSuggestionsWithGreeting={showSuggestionsWithGreeting}
+          quickPrompts={quickPrompts}
+          composerPlaceholder={composerPlaceholder}
+          pendingKickoff={pendingKickoff}
+          composerRef={composerRef}
+          hiddenMessageContents={hiddenMessageContents}
           bodyClassName="mx-auto flex min-h-0 w-full max-w-[608px] flex-1 flex-col gap-3 overflow-y-auto px-4 py-3"
         />
       </DrawerContent>

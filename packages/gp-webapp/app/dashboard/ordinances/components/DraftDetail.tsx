@@ -31,6 +31,7 @@ import {
   DownloadIcon,
   FileTextIcon,
   FlagIcon,
+  LoaderCircleIcon,
   MicIcon,
   SparklesIcon,
   Trash2Icon,
@@ -40,11 +41,14 @@ import type {
   OrdinanceStatus,
   UpdateOrdinanceRequest,
 } from '@goodparty_org/contracts'
+import { useOrdinanceQualityLoopFlag } from '@shared/experiments/ordinanceQualityLoopFlag'
 import { ConfirmDeleteDialog } from '../../shared/ConfirmDeleteDialog'
 import ChatPill from '../../shared/ai-chat/ChatPill'
 import {
+  cancelQualityLoop,
   deleteOrdinance,
   downloadOrdinanceExport,
+  fetchOrdinanceBySlug,
   updateOrdinance,
   type OrdinanceExportFormat,
 } from '../data/ordinances-api'
@@ -59,6 +63,10 @@ const SELECTABLE_STATUSES: readonly OrdinanceStatus[] =
   ORDINANCE_STATUS_ORDER.filter((s) => s !== 'in_progress')
 
 const AUTOSAVE_DELAY_MS = 800
+
+// The improvement loop runs for minutes server-side; 5s keeps the pass/phase
+// banner honest without hammering the API (house pattern: poll, no SSE).
+const LOOP_POLL_MS = 5_000
 
 // useLayoutEffect on the client, useEffect on the server (avoids the SSR
 // "useLayoutEffect does nothing on the server" warning). We need the layout
@@ -115,8 +123,150 @@ export default function DraftDetail({
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [status, setStatus] = useState<OrdinanceStatus>(ordinance.status)
   const [exportError, setExportError] = useState<string | null>(null)
+  // Exposure-only read: the draft page IS the treatment surface (loop banner,
+  // locked editor, What-changed panel), so mounting it must register Amplitude
+  // exposure even though no UI branches on the flag here anymore — the loop
+  // itself is server-gated on the same flag.
+  useOrdinanceQualityLoopFlag()
+  const [qualityLoop, setQualityLoop] = useState(ordinance.qualityLoop)
+  // The report the loop last delivered (or the initial one). Keyed into
+  // QualityReport so a mid-loop refresh actually replaces the rendered card.
+  const [loopReport, setLoopReport] = useState(ordinance.qualityReport)
+  const [stopping, setStopping] = useState(false)
+  const [loopError, setLoopError] = useState<string | null>(null)
+  const loopRunning = qualityLoop?.status === 'running'
+  // Mirror for handlers that must read the live value outside React's render
+  // (autosave input guards, the focus re-check, terminal detection).
+  const loopRunningRef = useRef(loopRunning)
+  useEffect(() => {
+    loopRunningRef.current = loopRunning
+  }, [loopRunning])
+
+  // The editors' last serialization known to match the persisted draft, as
+  // innerText reads it. contentEditable's innerText set/get round-trip is not
+  // byte-identical (nbsp/newline normalization), so an input event can fire
+  // with text that only *reserializes* the same content — saving it would
+  // byte-shuffle the body, change the quality report's input hash, and stale
+  // a fresh report (observed right after a loop reseed). Every save path
+  // skips when the text equals this snapshot. Null forces the next save
+  // through (after a failed PATCH the server copy is behind the snapshot).
+  const lastSavedTitleRef = useRef<string | null>(null)
+  const lastSavedBodyRef = useRef<string | null>(null)
 
   const router = useRouter()
+
+  const seedEditorsFrom = useCallback((next: Ordinance): void => {
+    if (titleRef.current) {
+      titleRef.current.innerText =
+        next.draftTitle ?? next.goalText ?? 'Untitled ordinance'
+    }
+    if (bodyRef.current) bodyRef.current.innerText = next.draftBody ?? ''
+    // Snapshot the read-back (not the assigned string): the setter/getter
+    // round-trip is the serialization future input events will produce.
+    lastSavedTitleRef.current = titleRef.current?.innerText ?? null
+    lastSavedBodyRef.current = bodyRef.current?.innerText ?? null
+  }, [])
+
+  // Bumped by any user action that changes loop/draft state (stop, restore):
+  // a fetch that started before the bump carries a stale snapshot — applying
+  // it would re-lock the editor as "running" after a stop, and the reseed
+  // would wipe anything typed since the unlock. Guard every async consumer.
+  const loopGenRef = useRef(0)
+
+  // Fold a freshly fetched ordinance into the loop state. No-op when no loop
+  // is involved (so a focus re-check never clobbers live edits). Reseeding
+  // and autosave-cancelling only happen when the loop already owned the
+  // editor (locked): on the not-running -> running discovery (a focus
+  // re-check finding a loop started elsewhere) the editor is still editable,
+  // so the user's typing is authoritative — reseeding would silently discard
+  // it, and its pending autosave legitimately retires the young run through
+  // the edit supersession hook.
+  const applyLoopFetch = useCallback(
+    (next: Ordinance): void => {
+      const wasRunning = loopRunningRef.current
+      const nowRunning = next.qualityLoop?.status === 'running'
+      if (!wasRunning && !nowRunning) return
+      setQualityLoop(next.qualityLoop)
+      setLoopReport(next.qualityReport)
+      if (wasRunning) {
+        seedEditorsFrom(next)
+        // The editors now hold the server truth the report was graded
+        // against, so any earlier local dirtiness is moot — without this, a
+        // loop-fresh report renders under a false stale banner.
+        setDraftDirty(false)
+        // The loop owns the draft: a debounced or queued autosave from
+        // before this fetch carries pre-loop text — landing it would PATCH
+        // over the loop's revision and supersede a healthy run.
+        if (bodyTimerRef.current) {
+          clearTimeout(bodyTimerRef.current)
+          bodyTimerRef.current = null
+        }
+        if (titleTimerRef.current) {
+          clearTimeout(titleTimerRef.current)
+          titleTimerRef.current = null
+        }
+        queuedRef.current = null
+      }
+    },
+    [seedEditorsFrom],
+  )
+
+  useEffect(() => {
+    if (!loopRunning) return
+    const timer = setInterval(() => {
+      const gen = loopGenRef.current
+      // A transient poll failure is ignored; the next tick retries.
+      void fetchOrdinanceBySlug(ordinance.slug)
+        .then((next) => {
+          if (gen === loopGenRef.current) applyLoopFetch(next)
+        })
+        .catch(() => undefined)
+    }, LOOP_POLL_MS)
+    return () => clearInterval(timer)
+  }, [loopRunning, ordinance.slug, applyLoopFetch])
+
+  // A loop can be started from another tab (or by the saveDraft hook while
+  // this page sat in a background tab). Re-check on focus/visibility so a
+  // stale editable page can't clobber the loop's revisions.
+  useEffect(() => {
+    let inFlight = false
+    const recheck = (): void => {
+      if (inFlight || loopRunningRef.current) return
+      if (document.visibilityState === 'hidden') return
+      inFlight = true
+      const gen = loopGenRef.current
+      void fetchOrdinanceBySlug(ordinance.slug)
+        .then((next) => {
+          if (gen === loopGenRef.current) applyLoopFetch(next)
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = false
+        })
+    }
+    window.addEventListener('focus', recheck)
+    document.addEventListener('visibilitychange', recheck)
+    return () => {
+      window.removeEventListener('focus', recheck)
+      document.removeEventListener('visibilitychange', recheck)
+    }
+  }, [ordinance.slug, applyLoopFetch])
+
+  const stopLoop = async (): Promise<void> => {
+    setStopping(true)
+    setLoopError(null)
+    // Invalidate polls already in flight: their pre-cancel "running" snapshot
+    // must not land after the cancel response unlocks the editor.
+    loopGenRef.current += 1
+    try {
+      const next = await cancelQualityLoop(ordinance.slug)
+      applyLoopFetch(next)
+    } catch {
+      setLoopError('Could not stop the improvements. Please try again.')
+    } finally {
+      setStopping(false)
+    }
+  }
 
   const handleExport = async (format: OrdinanceExportFormat): Promise<void> => {
     setExportError(null)
@@ -167,6 +317,10 @@ export default function DraftDetail({
   useEffect(() => {
     if (titleRef.current) titleRef.current.innerText = title
     if (bodyRef.current) bodyRef.current.innerText = ordinance.draftBody ?? ''
+    // Baseline snapshot of the seeded read-back, so the very first input
+    // event can already tell a real edit from a reserialization.
+    lastSavedTitleRef.current = titleRef.current?.innerText ?? null
+    lastSavedBodyRef.current = bodyRef.current?.innerText ?? null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -195,6 +349,10 @@ export default function DraftDetail({
           setSaveState('error')
           lastSaveFailedRef.current = true
           queuedRef.current = null
+          // The server copy is now behind the snapshot — clear it so the next
+          // input (even a reserialization) saves instead of being skipped.
+          lastSavedTitleRef.current = null
+          lastSavedBodyRef.current = null
         })
         .finally(() => {
           savingRef.current = false
@@ -219,13 +377,19 @@ export default function DraftDetail({
       clearTimeout(bodyTimerRef.current)
       bodyTimerRef.current = null
       const body = bodyRef.current?.innerText ?? ''
-      if (body.trim().length > 0) update.draftBody = body
+      if (body !== lastSavedBodyRef.current && body.trim().length > 0) {
+        lastSavedBodyRef.current = body
+        update.draftBody = body
+      }
     }
     if (titleTimerRef.current) {
       clearTimeout(titleTimerRef.current)
       titleTimerRef.current = null
-      const next = titleRef.current?.innerText.trim() ?? ''
-      if (next.length > 0) update.draftTitle = next
+      const raw = titleRef.current?.innerText ?? ''
+      if (raw !== lastSavedTitleRef.current && raw.trim().length > 0) {
+        lastSavedTitleRef.current = raw
+        update.draftTitle = raw.trim()
+      }
     }
     // If a prior save failed, the DB is stale and there may be no pending timer
     // to re-drive it. Re-send the current editor text so a run recovers from a
@@ -252,22 +416,38 @@ export default function DraftDetail({
   // forces a synchronous layout reflow). Empty fields are skipped: the contract
   // requires draftTitle/draftBody be non-empty, so gp-api 400s on ''.
   const onBodyInput = useCallback((): void => {
-    setDraftDirty(true)
+    // The editor is locked while the loop runs; belt-and-braces mute the
+    // autosave too so no stray input event PATCHes over a loop revision.
+    if (loopRunningRef.current) return
     if (bodyTimerRef.current) clearTimeout(bodyTimerRef.current)
     bodyTimerRef.current = setTimeout(() => {
       bodyTimerRef.current = null
       const body = bodyRef.current?.innerText ?? ''
-      if (body.trim().length > 0) save({ draftBody: body })
+      // Reserialized-but-identical text is not an edit: no save, and no
+      // draftDirty — flagging it would stale a hash-fresh report the user
+      // could only clear with a pointless paid re-grade.
+      if (body === lastSavedBodyRef.current) return
+      if (body.trim().length > 0) {
+        setDraftDirty(true)
+        lastSavedBodyRef.current = body
+        save({ draftBody: body })
+      }
     }, AUTOSAVE_DELAY_MS)
   }, [save])
 
   const onTitleInput = useCallback((): void => {
-    setDraftDirty(true)
+    if (loopRunningRef.current) return
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
     titleTimerRef.current = setTimeout(() => {
       titleTimerRef.current = null
-      const next = titleRef.current?.innerText.trim() ?? ''
-      if (next.length > 0) save({ draftTitle: next })
+      const raw = titleRef.current?.innerText ?? ''
+      if (raw === lastSavedTitleRef.current) return
+      const next = raw.trim()
+      if (next.length > 0) {
+        setDraftDirty(true)
+        lastSavedTitleRef.current = raw
+        save({ draftTitle: next })
+      }
     }, AUTOSAVE_DELAY_MS)
   }, [save])
 
@@ -286,13 +466,19 @@ export default function DraftDetail({
         clearTimeout(bodyTimerRef.current)
         bodyTimerRef.current = null
         const body = bodyNode?.innerText ?? ''
-        if (body.trim().length > 0) update.draftBody = body
+        if (body !== lastSavedBodyRef.current && body.trim().length > 0) {
+          lastSavedBodyRef.current = body
+          update.draftBody = body
+        }
       }
       if (titleTimerRef.current) {
         clearTimeout(titleTimerRef.current)
         titleTimerRef.current = null
-        const next = titleNode?.innerText.trim() ?? ''
-        if (next.length > 0) update.draftTitle = next
+        const raw = titleNode?.innerText ?? ''
+        if (raw !== lastSavedTitleRef.current && raw.trim().length > 0) {
+          lastSavedTitleRef.current = raw
+          update.draftTitle = raw.trim()
+        }
       }
       if (Object.keys(update).length > 0) save(update)
     }
@@ -426,6 +612,35 @@ export default function DraftDetail({
       <div className="flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto w-full max-w-3xl p-6">
+            {loopRunning && qualityLoop ? (
+              <div
+                role="status"
+                className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/50 px-4 py-3"
+              >
+                <LoaderCircleIcon
+                  className="size-4 shrink-0 animate-spin text-muted-foreground"
+                  aria-hidden
+                />
+                <span className="text-sm text-foreground">
+                  {qualityLoop.phase === 'revising'
+                    ? 'Rewriting flagged sections…'
+                    : `Checking your draft (pass ${qualityLoop.passNumber}` +
+                      ` of ${qualityLoop.maxPasses})`}
+                </span>
+                <Button
+                  type="button"
+                  size="small"
+                  onClick={stopLoop}
+                  disabled={stopping}
+                  className="ml-auto rounded-full text-sm"
+                >
+                  Stop and edit
+                </Button>
+              </div>
+            ) : null}
+            {loopError ? (
+              <p className="mb-4 text-sm text-destructive">{loopError}</p>
+            ) : null}
             <div className="mb-4 flex justify-end">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -469,29 +684,33 @@ export default function DraftDetail({
             </div>
             <h2
               ref={titleRef}
-              contentEditable
+              contentEditable={!loopRunning}
               suppressContentEditableWarning
               role="textbox"
               aria-label="Ordinance draft title"
+              aria-readonly={loopRunning ? 'true' : undefined}
               onInput={onTitleInput}
               className="mb-4 text-xl font-bold text-foreground outline-none"
             />
             <div
               ref={bodyRef}
-              contentEditable
+              contentEditable={!loopRunning}
               suppressContentEditableWarning
               role="textbox"
               aria-multiline="true"
               aria-label="Ordinance draft body"
+              aria-readonly={loopRunning ? 'true' : undefined}
               onInput={onBodyInput}
               className="min-h-40 whitespace-pre-wrap text-base leading-relaxed text-foreground outline-none"
             />
             <QualityReport
+              key={loopReport?.ranAgainstBodyHash ?? 'no-report'}
               slug={ordinance.slug}
-              initialReport={ordinance.qualityReport}
+              initialReport={loopReport}
               initialRunStatus={ordinance.qualityRunStatus}
               draftDirty={draftDirty}
               onBeforeRun={flushPendingSaves}
+              loopRunning={loopRunning}
               onReran={() => {
                 // Only clear the stale banner once the draft is safely
                 // persisted: not while a save is in flight, not if the last
@@ -531,34 +750,40 @@ export default function DraftDetail({
 
         <div className="sticky bottom-0 z-10 border-t border-border bg-background">
           <div className="mx-auto w-full max-w-3xl p-4">
-            <ChatPill className="w-full" innerClassName="items-center">
-              <button
-                type="button"
-                onClick={() => openChat()}
-                className="flex-1 truncate rounded-full pl-2.5 text-left text-sm font-medium text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none"
-              >
-                Ask about this draft...
-              </button>
-              <IconButton
-                type="button"
-                size="medium"
-                variant="ghost"
-                aria-label="Dictate a message"
-                className="shrink-0"
-                onClick={() => openChat('', true)}
-              >
-                <MicIcon className="size-5" aria-hidden />
-              </IconButton>
-              <IconButton
-                type="button"
-                size="medium"
-                aria-label="Ask about this draft"
-                className="shrink-0 bg-primary text-primary-foreground"
-                onClick={() => openChat()}
-              >
-                <SparklesIcon className="size-5" aria-hidden />
-              </IconButton>
-            </ChatPill>
+            {loopRunning ? (
+              <p className="py-2 text-center text-sm text-muted-foreground">
+                Improvements are running — stop them to edit or discuss
+              </p>
+            ) : (
+              <ChatPill className="w-full" innerClassName="items-center">
+                <button
+                  type="button"
+                  onClick={() => openChat()}
+                  className="flex-1 truncate rounded-full pl-2.5 text-left text-sm font-medium text-muted-foreground focus-visible:ring-2 focus-visible:ring-primary-focus focus-visible:outline-none"
+                >
+                  Ask about this draft...
+                </button>
+                <IconButton
+                  type="button"
+                  size="medium"
+                  variant="ghost"
+                  aria-label="Dictate a message"
+                  className="shrink-0"
+                  onClick={() => openChat('', true)}
+                >
+                  <MicIcon className="size-5" aria-hidden />
+                </IconButton>
+                <IconButton
+                  type="button"
+                  size="medium"
+                  aria-label="Ask about this draft"
+                  className="shrink-0 bg-primary text-primary-foreground"
+                  onClick={() => openChat()}
+                >
+                  <SparklesIcon className="size-5" aria-hidden />
+                </IconButton>
+              </ChatPill>
+            )}
           </div>
         </div>
       </div>
@@ -584,7 +809,7 @@ export default function DraftDetail({
         </DrawerContent>
       </Drawer>
 
-      {selection && !chatOpen ? (
+      {selection && !chatOpen && !loopRunning ? (
         <div
           role="toolbar"
           aria-label="Selection actions"
