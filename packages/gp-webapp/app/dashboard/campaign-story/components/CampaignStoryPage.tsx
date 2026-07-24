@@ -47,7 +47,7 @@ const StoryHeaderBar = ({
 }: {
   action?: React.ReactNode
 }): React.JSX.Element => (
-  <div className="sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between gap-3 border-b border-base-border bg-base-muted px-4 py-4 sm:px-8 md:-mx-4 md:-mt-4">
+  <div className="sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between gap-3 border-b border-base-border bg-base-muted px-4 py-3 sm:px-8 md:-mx-4 md:-mt-4">
     <H2>Your story</H2>
     {action}
   </div>
