@@ -1134,8 +1134,10 @@ export default function OnboardingFlow({
   // Leaving the story for the pledge (from the final issues step). Persist the
   // answered fields (persist() writes only non-empty ones, so skipped questions
   // aren't clobbered), then fire generation + Completed if the whole story is
-  // answered, otherwise Skipped.
-  const leaveStoryForPledge = async (): Promise<void> => {
+  // answered, otherwise Skipped. `complete` is passed in rather than read from
+  // storyDraft here: a same-step skip clears a field whose state update hasn't
+  // flushed yet, so the caller computes the post-skip value.
+  const leaveStoryForPledge = async (complete: boolean): Promise<void> => {
     setIsPersistingStory(true)
     let saved = false
     try {
@@ -1148,7 +1150,7 @@ export default function OnboardingFlow({
       return
     }
 
-    if (storyDraft.isComplete) {
+    if (complete) {
       if (!storyGenFiredRef.current) {
         storyGenFiredRef.current = true
         // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
@@ -1165,16 +1167,26 @@ export default function OnboardingFlow({
     await advanceToPledge()
   }
 
-  // Continue and Skip both move one story step at a time (Skip = skip this
-  // question; Continue = keep it — the answered ones are persisted on leaving).
-  // On the final issues step both leave for the pledge; Continue is gated on
-  // having ≥1 issue at the button, Skip is the way past that empty.
-  const advanceStory = async (): Promise<void> => {
+  // Continue and Skip both move one story step at a time. Continue keeps the
+  // current answer; Skip clears it so a skipped question never counts toward
+  // completion (a returning candidate whose story is seeded from the DB could
+  // otherwise skip every step and still trip generation). On the final issues
+  // step both leave for the pledge — a skip there is never "complete"; a
+  // continue uses the draft's completeness (why/background clears from earlier
+  // steps have already re-rendered, so it's accurate).
+  const advanceStory = async (skip: boolean): Promise<void> => {
     if (isAdvancingRef.current) return
     isAdvancingRef.current = true
     try {
+      if (skip) {
+        if (activeStep.id === 'campaign-story-why') storyDraft.setWhy('')
+        else if (activeStep.id === 'campaign-story-background')
+          storyDraft.setBackground('')
+        else if (activeStep.id === 'campaign-story-issues')
+          storyDraft.setIssues([])
+      }
       if (activeStep.id === 'campaign-story-issues') {
-        await leaveStoryForPledge()
+        await leaveStoryForPledge(skip ? false : storyDraft.isComplete)
       } else {
         await advanceToNextStoryStep()
       }
@@ -1183,8 +1195,8 @@ export default function OnboardingFlow({
     }
   }
 
-  const handleStoryContinue = advanceStory
-  const handleStorySkip = advanceStory
+  const handleStoryContinue = (): Promise<void> => advanceStory(false)
+  const handleStorySkip = (): Promise<void> => advanceStory(true)
 
   const handleCantFindOffice = () => {
     setAnswers((current) => ({

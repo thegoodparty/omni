@@ -223,18 +223,26 @@ export function StoryEditorForm({
     await saveIssues()
   }
 
+  // Bumped by "Start over" to remount the why/background cards so their
+  // in-card rewrite state (a lingering "Undo", an in-flight suggestion) resets
+  // with the cleared fields. (The issues card empties itself — 0 rows — so its
+  // rows unmount on their own.)
+  const [resetKey, setResetKey] = useState(0)
+
   // Clears the fields in memory only; nothing is deleted until the candidate
   // Saves (the empty state), matching the explicit-save model.
   const startOver = (): void => {
     setWhy('')
     setBackground('')
     setIssues([])
+    setResetKey((k) => k + 1)
   }
 
+  // The "ready" banner tracks the on-screen answers (not the last-saved shadow
+  // state) so it disappears immediately on Start over, and appears once all
+  // three are filled.
   const complete =
-    savedWhy.trim().length > 0 &&
-    savedBackground.trim().length > 0 &&
-    savedIssues.length > 0
+    why.trim().length > 0 && background.trim().length > 0 && issues.length > 0
 
   return (
     <>
@@ -261,6 +269,7 @@ export function StoryEditorForm({
         </p>
 
         <StoryIntakeCard
+          key={`why-${resetKey}`}
           question={STORY_WHY_QUESTION}
           description={CARD_DESCRIPTION}
           examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
@@ -271,6 +280,7 @@ export function StoryEditorForm({
         />
 
         <StoryIntakeCard
+          key={`background-${resetKey}`}
           question={STORY_BACKGROUND_QUESTION}
           description={CARD_DESCRIPTION}
           examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}

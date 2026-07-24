@@ -151,7 +151,7 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     expect(enabledSaveButtons()).toHaveLength(1)
   })
 
-  it('hides the ready banner until all three fields have saved content', () => {
+  it('hides the ready banner until all three fields are filled', () => {
     renderForm()
     expect(
       screen.queryByText(/your campaign story is ready/i),
@@ -167,6 +167,55 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     expect(
       screen.getByText(/your campaign story is ready/i),
     ).toBeInTheDocument()
+  })
+
+  it('"Start over" hides the ready banner immediately (before Save)', async () => {
+    const user = userEvent.setup()
+    renderForm({
+      initialBio: '<p>My why</p>',
+      initialBackground: 'My background',
+      initialIssues: [{ title: 'Roads', description: 'Fix them' }],
+    })
+    expect(
+      screen.getByText(/your campaign story is ready/i),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /start over/i }))
+
+    // Banner reflects the cleared on-screen answers, not the still-saved values.
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/your campaign story is ready/i),
+      ).not.toBeInTheDocument(),
+    )
+    // Not persisted yet — Save is dirty and ready to commit the empty story.
+    expect(mockSaveAboutFields).not.toHaveBeenCalled()
+    expect(enabledSaveButtons()).toHaveLength(1)
+  })
+
+  it('"Start over" clears a card\'s pending Undo (remounts the cards)', async () => {
+    const user = userEvent.setup()
+    api.mock('POST /v1/campaigns/mine/story/rewrite', async () => ({
+      status: 200,
+      data: { rewrite: 'An AI-sharpened why.' },
+    }))
+    renderForm({ initialBio: 'my saved why' })
+
+    // Improve the why → an Undo appears.
+    await user.click(
+      screen.getAllByRole('button', { name: /Improve with AI/ })[0]!,
+    )
+    await screen.findByRole('button', { name: /Undo/ })
+
+    await user.click(screen.getByRole('button', { name: /start over/i }))
+
+    // The remounted card starts fresh: no lingering Undo to restore the old text.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: /Undo/ }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(whyField().value).toBe('')
   })
 
   it('Improve marks the why dirty (not auto-saved) and Undo restores it clean', async () => {
