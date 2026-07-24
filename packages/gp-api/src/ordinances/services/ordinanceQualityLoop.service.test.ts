@@ -822,6 +822,8 @@ describe('handleStep qc', () => {
       OrdinanceQualityLoopStatus.running,
     )
     expect(afterFirst.qualityReport).toBeNull()
+    expect(afterFirst.loopInputTokens).toBe(30)
+    expect(afterFirst.loopOutputTokens).toBe(10)
     const rows = await iterationRows(ordinance.id)
     expect(rows).toHaveLength(1)
     expect(firstOrThrow(rows).qcAttempts).toBe(1)
@@ -854,6 +856,10 @@ describe('handleStep qc', () => {
       OrdinanceQualityLoopStatus.failed,
     )
     expect(afterSecond.qualityReport).toBeNull()
+    // Both degraded attempts' spend is on the record, including the terminal
+    // one that fails the loop.
+    expect(afterSecond.loopInputTokens).toBe(60)
+    expect(afterSecond.loopOutputTokens).toBe(20)
     expect(sendMessageMock).toHaveBeenCalledTimes(1)
   })
 

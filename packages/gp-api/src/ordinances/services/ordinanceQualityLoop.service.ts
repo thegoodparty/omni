@@ -393,6 +393,19 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       },
     }
     if (generated.degradedCheckIds.length > 0) {
+      // Every degraded attempt still cost tokens, so record its spend (the
+      // record-level loop rollup + the iteration row) before deciding to fail
+      // or retry — otherwise a degraded attempt is missing from
+      // draftTokenTotals. A degraded report never converges or triggers a
+      // revision, so this and the retry are all the persistence it gets.
+      await this.persistDegradedQcAttempt({
+        record,
+        loopRunId,
+        iteration,
+        attempts,
+        priorTokens: row?.tokens ?? 0,
+        generated,
+      })
       if (attempts >= MAX_QC_ATTEMPTS_PER_ITERATION) {
         this.logger.error(
           {
@@ -405,40 +418,6 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
         )
         return this.failLoop(record, loopRunId)
       }
-      // A degraded report never converges and never triggers a revision:
-      // persist the attempt on the row and retry the step once. This attempt
-      // still cost tokens, so fold the record-level loop increment into the
-      // same transaction as the iteration-row write — otherwise a degraded
-      // first attempt's spend is missing from the draftTokenTotals rollup. The
-      // increment is fenced to the live run so a superseded loop can't inflate
-      // the counter; the iteration row stays best-effort, as before.
-      await this.client.$transaction(async (tx) => {
-        await tx.ordinance.updateMany({
-          where: this.runningFence(record.id, loopRunId),
-          data: {
-            loopInputTokens: { increment: generated.inputTokens },
-            loopOutputTokens: { increment: generated.outputTokens },
-          },
-        })
-        await tx.ordinanceQualityIteration.upsert({
-          where: iterationKey,
-          create: {
-            ordinanceId: record.id,
-            loopRunId,
-            iteration,
-            inputHash: generated.report.ranAgainstBodyHash,
-            qcAttempts: attempts,
-            draftTitle: record.draftTitle ?? '',
-            draftBody: record.draftBody ?? '',
-            draftSources: record.draftSources ?? Prisma.DbNull,
-            tokens: generated.tokens,
-          },
-          update: {
-            qcAttempts: attempts,
-            tokens: (row?.tokens ?? 0) + generated.tokens,
-          },
-        })
-      })
       await this.enqueueStep({
         ordinanceId: record.id,
         loopRunId,
@@ -910,6 +889,62 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
       )
     }
     return true
+  }
+
+  // Persist a degraded QC attempt's spend atomically: increment the
+  // record-level loop rollup (fenced to the live run, so a superseded loop
+  // can't inflate it) and accumulate the attempt on its iteration row. Shared
+  // by both degraded outcomes (retry and terminal double-failure) so no
+  // attempt's tokens are dropped from draftTokenTotals; the row stays
+  // best-effort.
+  private async persistDegradedQcAttempt(args: {
+    record: LoadedOrdinance
+    loopRunId: string
+    iteration: number
+    attempts: number
+    priorTokens: number
+    generated: {
+      report: { ranAgainstBodyHash: string }
+      tokens: number
+      inputTokens: number
+      outputTokens: number
+    }
+  }): Promise<void> {
+    const { record, loopRunId, iteration, attempts, priorTokens, generated } =
+      args
+    await this.client.$transaction(async (tx) => {
+      await tx.ordinance.updateMany({
+        where: this.runningFence(record.id, loopRunId),
+        data: {
+          loopInputTokens: { increment: generated.inputTokens },
+          loopOutputTokens: { increment: generated.outputTokens },
+        },
+      })
+      await tx.ordinanceQualityIteration.upsert({
+        where: {
+          ordinanceId_loopRunId_iteration: {
+            ordinanceId: record.id,
+            loopRunId,
+            iteration,
+          },
+        },
+        create: {
+          ordinanceId: record.id,
+          loopRunId,
+          iteration,
+          inputHash: generated.report.ranAgainstBodyHash,
+          qcAttempts: attempts,
+          draftTitle: record.draftTitle ?? '',
+          draftBody: record.draftBody ?? '',
+          draftSources: record.draftSources ?? Prisma.DbNull,
+          tokens: generated.tokens,
+        },
+        update: {
+          qcAttempts: attempts,
+          tokens: priorTokens + generated.tokens,
+        },
+      })
+    })
   }
 
   private async failLoop(
