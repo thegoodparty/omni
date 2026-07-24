@@ -1298,9 +1298,10 @@ export default function OnboardingFlow({
             Back
           </Button>
           {isStoryStep ? (
-            // Each story step is skippable. Continue always advances (Why /
-            // Background just move on; the final issues step persists all three
-            // and fires generation). Skip abandons the whole story and jumps to
+            // Each story step is skippable. Continue always advances on Why /
+            // Background (they just move on); the final issues step persists all
+            // three + fires generation, and requires at least one policy (Skip
+            // is still the way out). Skip abandons the whole story and jumps to
             // the pledge. Continue waits for the draft to seed.
             <div className="flex items-center gap-3">
               <Button
@@ -1318,7 +1319,11 @@ export default function OnboardingFlow({
                 size="large"
                 onClick={() => void handleStoryContinue()}
                 disabled={
-                  !storyDraft.isReady || storyDraft.isError || isPersistingStory
+                  !storyDraft.isReady ||
+                  storyDraft.isError ||
+                  isPersistingStory ||
+                  (activeStep.id === 'campaign-story-issues' &&
+                    storyDraft.issues.length === 0)
                 }
               >
                 Continue

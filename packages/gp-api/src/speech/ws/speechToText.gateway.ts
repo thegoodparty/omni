@@ -33,6 +33,12 @@ const WARN_AT_MS = SESSION_HARD_CAP_MS - WARN_BEFORE_CAP_MS
 const RATE_LIMIT_BYTES_PER_SEC = 48 * 1024
 const RATE_LIMIT_GRACE_MS = 2_000
 
+// On a client 'stop' we end the audio input and let Transcribe flush the final
+// results for whatever was still buffered, rather than aborting mid-utterance.
+// If that drain hasn't completed in this window we force the session closed.
+// Kept under the client's own 3s stop backstop so the graceful 'closed' wins.
+const CLIENT_STOP_DRAIN_TIMEOUT_MS = 2_500
+
 const ClientStopMessageSchema = z.object({ type: z.literal('stop') }).strict()
 
 type ClientStopMessage = z.infer<typeof ClientStopMessageSchema>
@@ -61,6 +67,10 @@ type SessionContext = {
   warnTimer: NodeJS.Timeout
   capTimer: NodeJS.Timeout
   closed: boolean
+  // Set once a client 'stop' has begun the graceful flush; blocks further input
+  // and a second stop while Transcribe drains its buffered audio.
+  draining: boolean
+  drainTimer?: NodeJS.Timeout
 }
 
 const parseClientStop = (text: string): ClientStopMessage | null => {
@@ -180,6 +190,7 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
       warnTimer,
       capTimer,
       closed: false,
+      draining: false,
     }
 
     socket.on('message', (data, isBinary) =>
@@ -291,7 +302,9 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
   }
 
   private onMessage(context: SessionContext, data: RawData, isBinary: boolean) {
-    if (context.closed) {
+    // Once draining, the audio input has been closed and Transcribe is flushing
+    // finals — ignore further audio frames and any repeat 'stop'.
+    if (context.closed || context.draining) {
       return
     }
     if (isBinary) {
@@ -321,7 +334,29 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
       })
       return
     }
-    this.endSession(context, 'client_stop', WS_CLOSE_NORMAL)
+    this.beginGracefulStop(context)
+  }
+
+  // A client 'stop' ends the audio input so Transcribe returns final results for
+  // the still-buffered audio, then closes the session naturally via the
+  // upstream_closed path (endSession) once those finals land — rather than
+  // aborting mid-utterance and dropping the last words the user spoke.
+  private beginGracefulStop(context: SessionContext) {
+    if (context.closed || context.draining) {
+      return
+    }
+    context.draining = true
+    // Stop the keepalive/warn timers; the hard cap stays armed as a backstop.
+    clearInterval(context.heartbeatTimer)
+    clearTimeout(context.warnTimer)
+    // Signal end-of-audio to the Transcribe input stream (no abort). AWS then
+    // emits the trailing final transcript(s) and closes the result stream.
+    for (const push of context.audioPushers) {
+      push(null)
+    }
+    context.drainTimer = setTimeout(() => {
+      this.endSession(context, 'client_stop_drain_timeout', WS_CLOSE_NORMAL)
+    }, CLIENT_STOP_DRAIN_TIMEOUT_MS)
   }
 
   private exceedsRateLimit(context: SessionContext): boolean {
@@ -351,6 +386,7 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
     clearInterval(context.heartbeatTimer)
     clearTimeout(context.warnTimer)
     clearTimeout(context.capTimer)
+    clearTimeout(context.drainTimer)
     for (const push of context.audioPushers) {
       push(null)
     }
@@ -388,6 +424,7 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
     clearInterval(context.heartbeatTimer)
     clearTimeout(context.warnTimer)
     clearTimeout(context.capTimer)
+    clearTimeout(context.drainTimer)
     for (const push of context.audioPushers) {
       push(null)
     }

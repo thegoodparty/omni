@@ -457,6 +457,45 @@ describe('new onboarding flow shell', () => {
     expect(prewarm).toHaveBeenCalledTimes(1)
   })
 
+  it('blocks Continue on the issues step until at least one policy exists', async () => {
+    setCampaignStoryFlag(true, true)
+    mswServer.use(
+      http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
+      http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
+    )
+    // Why + background answered, but no issues yet.
+    mockGetUserWebsite.mockResolvedValue({
+      content: { about: { bio: '<p>My why</p>', issues: [] } },
+    })
+    api.mock('GET /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: 'My background' },
+    })
+    renderFlow({ campaign: { id: 1 } as Campaign })
+
+    await advancePastManualOfficeEntry()
+    await screen.findByRole('heading', {
+      level: 1,
+      name: /why are you running/i,
+    })
+    // why -> background -> issues
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await screen.findByRole('button', { name: /add a policy priority/i })
+
+    // No policy added yet → Continue is blocked (Skip is still the way out).
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeEnabled()
+
+    // Add a policy → Continue unlocks.
+    fireEvent.click(
+      screen.getByRole('button', { name: /add a policy priority/i }),
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Continue' })).toBeEnabled(),
+    )
+  })
+
   it('keeps the candidate on the issues step and shows an error when the final save fails', async () => {
     const prewarm = vi
       .spyOn(landscapeModule, 'prewarmStrategicLandscape')
