@@ -194,6 +194,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
             outreachType: 'text',
             status: 'completed',
             date: new Date('2026-06-22T00:00:00.000Z'),
+            createdAt: new Date('2026-06-22T00:00:00.000Z'),
           },
         ],
       },
@@ -230,6 +231,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
             outreachType: 'robocall',
             status: 'pending',
             date: new Date('2026-07-27T00:00:00.000Z'),
+            createdAt: new Date('2026-07-27T00:00:00.000Z'),
           },
         ],
       },
@@ -244,6 +246,40 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(screen.queryByText('Called')).not.toBeInTheDocument()
     // Channel chip + Last-method tile + reachability tile all say "Robocall".
     expect(screen.getAllByText('Robocall').length).toBeGreaterThanOrEqual(3)
+  })
+
+  it('falls back to createdAt for a null-date, null-name legacy row and keeps both tiles consistent (ENG-10776)', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'Legacy list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        outreachHistory: [
+          {
+            id: 27523,
+            name: null,
+            outreachType: 'p2p',
+            status: 'pending',
+            date: null,
+            createdAt: new Date('2025-09-19T00:00:00.000Z'),
+          },
+        ],
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    // The row never renders the bare "— / — / <channel>" phantom state —
+    // date and name both fall back to createdAt.
+    expect(await screen.findByText('Text — Sep 19, 2025')).toBeInTheDocument()
+    // Last outreach and Last method must describe the same row: the date
+    // tile (formatted createdAt) and the method tile (channel noun) both
+    // render, so the tiles can never disagree.
+    expect(screen.getAllByText('Sep 19, 2025').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Text').length).toBeGreaterThanOrEqual(2)
   })
 
   it('shows the empty outreach sentence when there are no rows', async () => {

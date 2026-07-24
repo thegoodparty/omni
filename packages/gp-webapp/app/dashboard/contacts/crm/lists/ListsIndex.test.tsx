@@ -363,6 +363,7 @@ describe('ListsIndex — outreach subtitle', () => {
         outreachType: 'text',
         status: 'completed',
         date: new Date('2026-06-22T00:00:00.000Z'),
+        createdAt: new Date('2026-06-22T00:00:00.000Z'),
       },
       isLoading: false,
       isError: false,

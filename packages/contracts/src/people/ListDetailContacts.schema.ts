@@ -41,6 +41,9 @@ export const ListDetailOutreachHistoryEntrySchema = z.object({
   outreachType: OutreachTypeSchema,
   status: OutreachStatusSchema.nullable(),
   date: zDate().nullable(),
+  // ENG-10776: a legacy row can have a null `date` — the webapp falls back
+  // to this to render a real timestamp instead of "—".
+  createdAt: zDate(),
 })
 export type ListDetailOutreachHistoryEntry = z.infer<
   typeof ListDetailOutreachHistoryEntrySchema

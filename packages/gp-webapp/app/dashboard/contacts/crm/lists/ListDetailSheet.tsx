@@ -393,8 +393,10 @@ export default function ListDetailSheet({
                     label="Last outreach"
                     value={statValue(
                       detailQuery.data
-                        ? lastOutreach?.date
-                          ? dateUsHelper(lastOutreach.date)
+                        ? lastOutreach
+                          ? dateUsHelper(
+                              lastOutreach.date ?? lastOutreach.createdAt,
+                            )
                           : '—'
                         : undefined,
                     )}
@@ -447,31 +449,35 @@ export default function ListDetailSheet({
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {detailQuery.data.outreachHistory.map((entry) => (
-                      <TableRow key={entry.id}>
-                        <TableCell className="text-muted-foreground">
-                          {entry.date ? dateUsHelper(entry.date) : '—'}
-                        </TableCell>
-                        <TableCell className="font-medium">
-                          {/* Robocall/phone-banking campaigns are created
+                    {detailQuery.data.outreachHistory.map((entry) => {
+                      // ENG-10776: legacy rows can carry a null `date` (e.g.
+                      // a hand-logged draft) — createdAt is always present,
+                      // so the row never renders a bare "—" date.
+                      const entryDate = entry.date ?? entry.createdAt
+                      return (
+                        <TableRow key={entry.id}>
+                          <TableCell className="text-muted-foreground">
+                            {dateUsHelper(entryDate)}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {/* Robocall/phone-banking campaigns are created
                               with name null — fall back to a channel + date
                               label, never the activity-feed verb ("Called"). */}
-                          {entry.name ||
-                            (entry.date
-                              ? `${OUTREACH_CHANNEL_NOUNS[entry.outreachType] ?? entry.outreachType} — ${dateUsHelper(entry.date)}`
-                              : '—')}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground">
-                          <Badge variant="soft" shape="pill">
-                            {/* ?? guards the deploy-skew window where the API
+                            {entry.name ||
+                              `${OUTREACH_CHANNEL_NOUNS[entry.outreachType] ?? entry.outreachType} — ${dateUsHelper(entryDate)}`}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            <Badge variant="soft" shape="pill">
+                              {/* ?? guards the deploy-skew window where the API
                                 serves a channel newer than this bundle's
                                 map. */}
-                            {OUTREACH_CHANNEL_NOUNS[entry.outreachType] ??
-                              entry.outreachType}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                              {OUTREACH_CHANNEL_NOUNS[entry.outreachType] ??
+                                entry.outreachType}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               ) : (
