@@ -425,6 +425,18 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       return
     }
 
+    // Peerly echoes back the verification_method/filing_email we ourselves
+    // send in submit_cv from day one, so their presence does not mean a PIN
+    // went out. Only APPROVED (PIN issued) and VERIFIED (PIN consumed) prove
+    // delivery; REQUESTED/IN_REVIEW stay in the sweep set for a later pass
+    // (ENG-10785 — false "PIN Sent" nudges for in-review CVs).
+    if (
+      cvStatus !== PeerlyCvVerificationStatus.APPROVED &&
+      cvStatus !== PeerlyCvVerificationStatus.VERIFIED
+    ) {
+      return
+    }
+
     // No method yet = PIN not sent (or an unrecognized channel we don't
     // surface) — leave the record for a later sweep.
     if (!pinDelivery) {
