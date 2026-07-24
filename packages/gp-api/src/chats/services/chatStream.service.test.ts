@@ -1182,7 +1182,20 @@ describe('ChatStreamService', () => {
       ).resolves.toBeDefined()
     })
 
-    it('wraps stream with traced() using briefing-chat-stream name and expected input/metadata', async () => {
+    const buildTracedService = (traced: ReturnType<typeof vi.fn>) => {
+      const braintrust = {
+        enabled: true,
+        traced,
+      } as unknown as BraintrustService
+      return new ChatStreamService(
+        store.asService(),
+        llm as unknown as LlmService,
+        createMockLogger(),
+        braintrust,
+      )
+    }
+
+    it('wraps stream with traced() using the caller-supplied name and expected input/metadata', async () => {
       store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
       llm.setScript([{ kind: 'text', delta: 'hello' }])
       const traced = vi.fn(
@@ -1192,24 +1205,20 @@ describe('ChatStreamService', () => {
           _opts?: Record<string, unknown>,
         ) => fn(),
       )
-      const braintrust = {
-        enabled: true,
-        traced,
-      } as unknown as BraintrustService
-      const tracedService = new ChatStreamService(
-        store.asService(),
-        llm as unknown as LlmService,
-        createMockLogger(),
-        braintrust,
-      )
+      const tracedService = buildTracedService(traced)
 
       await collect(
-        tracedService.stream(baseStreamArgs({ userMessage: 'hi there' })),
+        tracedService.stream({
+          ...baseStreamArgs({ userMessage: 'hi there' }),
+          traceName: 'ordinance_flow-chat-stream',
+        }),
       )
 
       expect(traced).toHaveBeenCalledTimes(1)
       const [name, fn, opts] = firstOrThrow(traced.mock.calls)
-      expect(name).toBe('briefing-chat-stream')
+      // The shared service must not hardcode a scope's name; it uses whatever
+      // the caller passed (each scope supplies its own).
+      expect(name).toBe('ordinance_flow-chat-stream')
       expect(typeof fn).toBe('function')
       expect(opts).toMatchObject({
         input: expect.objectContaining({
@@ -1220,6 +1229,18 @@ describe('ChatStreamService', () => {
           ownerUserId: OWNER_ID,
         }),
       })
+    })
+
+    it('falls back to a generic trace name when the caller supplies none', async () => {
+      store.seedConversation({ id: CONVERSATION_ID, ownerUserId: OWNER_ID })
+      llm.setScript([{ kind: 'text', delta: 'hello' }])
+      const traced = vi.fn(async (_name: string, fn: () => unknown) => fn())
+      const tracedService = buildTracedService(traced)
+
+      await collect(tracedService.stream(baseStreamArgs({ userMessage: 'x' })))
+
+      const [name] = firstOrThrow(traced.mock.calls)
+      expect(name).toBe('chat-stream')
     })
 
     it('passes stream metrics (textLength, toolCallCount) as the traced function return value', async () => {
