@@ -7,7 +7,7 @@ import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import H2 from '@shared/typography/H2'
-import { BookOpenIcon, Button, Card, CheckIcon } from '@styleguide'
+import { Button, Card, CheckIcon } from '@styleguide'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -36,10 +36,10 @@ interface CampaignStoryPageProps {
   pathname?: string
 }
 
-// The full-bleed white header bar: book icon + "Your story" on the left, the
-// page-level Save on the right. The negative margins cancel DashboardLayout's
-// content padding (`p-2 md:p-4`) so the bar runs edge-to-edge at the top, with
-// the story body sitting on the gray surface below it. Rendered by both the
+// The page-title + Save band. It sits on the gray content surface (no white
+// background — the full-bleed white header component is a follow-up); the
+// negative margins cancel DashboardLayout's content padding (`p-2 md:p-4`) so
+// the band + its bottom border run edge-to-edge. Rendered by both the
 // loading/error states and the editable form so the header stays put while the
 // body swaps.
 const StoryHeaderBar = ({
@@ -47,11 +47,8 @@ const StoryHeaderBar = ({
 }: {
   action?: React.ReactNode
 }): React.JSX.Element => (
-  <div className="-mx-2 -mt-2 flex items-center justify-between gap-3 border-b border-base-border bg-white px-4 py-4 sm:px-8 md:-mx-4 md:-mt-4">
-    <div className="flex items-center gap-2">
-      <BookOpenIcon className="size-6" />
-      <H2>Your story</H2>
-    </div>
+  <div className="sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between gap-3 border-b border-base-border bg-base-muted px-4 py-4 sm:px-8 md:-mx-4 md:-mt-4">
+    <H2>Your story</H2>
     {action}
   </div>
 )
