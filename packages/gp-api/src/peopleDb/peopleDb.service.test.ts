@@ -53,17 +53,25 @@ describe('PeopleDbService', () => {
     vi.clearAllMocks()
   })
 
-  it('builds a client on init, exposed via .instance', async () => {
+  it('builds and connects a client on init, exposed via .instance', async () => {
     const { provider } = mockUrlProvider('postgresql://u:p@h:5432/a')
     const service = new PeopleDbService(provider)
 
     await service.onModuleInit()
 
     expect(prismaClientCtor).toHaveBeenCalledTimes(1)
+    expect(mockConnect).toHaveBeenCalledTimes(1)
     expect(service.instance).toBeDefined()
-    // No eager $connect() at boot — gp-api's core boot must not hard-depend
-    // on people-db being reachable; Prisma connects lazily on first query.
-    expect(mockConnect).not.toHaveBeenCalled()
+  })
+
+  it('does not throw or block init when the initial connect fails', async () => {
+    mockConnect.mockRejectedValueOnce(new Error('connection refused'))
+    const { provider } = mockUrlProvider('postgresql://u:p@h:5432/a')
+    const service = new PeopleDbService(provider)
+
+    await service.onModuleInit()
+
+    expect(service.instance).toBeDefined()
   })
 
   it('applies the pool params to the built connection url', async () => {

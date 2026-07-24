@@ -104,13 +104,22 @@ export class PeopleDbService implements OnModuleInit, OnModuleDestroy {
       )
     })
 
-    // No eager $connect() here (unlike the ported gp-api/people-api
-    // PrismaService, which does connect eagerly for its one primary DB):
-    // gp-api's core boot must not hard-depend on people-db being reachable,
-    // and there is no people-db test container in this project (Task 1.4 was
-    // eliminated) — every useTestService suite boots this Global module, so an
-    // eager connect would fail every suite's bootstrap. Prisma connects
-    // lazily on first query against `.instance` regardless.
+    // Fail-soft connect: attempt it for an early diagnostic signal on a
+    // genuinely broken PEOPLE_DATABASE_URL in deployed envs, but don't let a
+    // failure here block boot — gp-api's core boot must not hard-depend on
+    // people-db being reachable, and there is no people-db test container in
+    // this project (Task 1.4 was eliminated), so the dummy .env.test URL
+    // will always fail this connect in every useTestService suite. Prisma
+    // reconnects lazily on the first real query against `.instance` either
+    // way, and that failure surfaces loudly there.
+    try {
+      await client.$connect()
+    } catch (err) {
+      this.logger.debug(
+        { err },
+        'Initial people-db connect failed; will retry lazily on first query',
+      )
+    }
     return client
   }
 }
