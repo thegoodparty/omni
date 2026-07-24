@@ -1118,72 +1118,73 @@ export default function OnboardingFlow({
     }
   }
 
-  // Continue on a story step. Why/Background just advance (nothing is saved);
-  // the final issues step persists all three answers, then fires generation +
-  // Completed (if the whole story is answered) or Skipped (partial), and moves
-  // to the pledge.
-  const handleStoryContinue = async (): Promise<void> => {
-    if (isAdvancingRef.current) return
-    isAdvancingRef.current = true
-    try {
-      if (activeStep.id !== 'campaign-story-issues') {
-        if (nextStep) {
-          if (campaign) {
-            const updated = await updateCampaign([
-              { key: 'data.currentStep', value: nextStep.id },
-              { key: 'data.onboarding', value: answers },
-            ])
-            if (updated === false) return
-          }
-          setActiveStepId(nextStep.id)
-        }
-        return
-      }
-
-      setIsPersistingStory(true)
-      let saved = false
-      try {
-        saved = await storyDraft.persist()
-      } finally {
-        setIsPersistingStory(false)
-      }
-      if (!saved) {
-        errorSnackbar('Could not save your story. Please try again.')
-        return
-      }
-
-      if (storyDraft.isComplete) {
-        if (!storyGenFiredRef.current) {
-          storyGenFiredRef.current = true
-          // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
-          // raceId) and prewarmStrategicLandscape swallows that, so a candidate
-          // is never blocked from reaching the pledge.
-          void prewarmStrategicLandscape()
-          trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
-            campaignId: liveCampaign?.id ?? campaign?.id,
-          })
-        }
-      } else {
-        fireStorySkipped()
-      }
-      await advanceToPledge()
-    } finally {
-      isAdvancingRef.current = false
+  // Advance to the next story step, recording it as the resumable currentStep.
+  const advanceToNextStoryStep = async (): Promise<void> => {
+    if (!nextStep) return
+    if (campaign) {
+      const updated = await updateCampaign([
+        { key: 'data.currentStep', value: nextStep.id },
+        { key: 'data.onboarding', value: answers },
+      ])
+      if (updated === false) return
     }
+    setActiveStepId(nextStep.id)
   }
 
-  // Skip from any story step abandons all three (nothing is saved) and jumps to
-  // the pledge.
-  const handleStorySkip = async (): Promise<void> => {
-    if (isAdvancingRef.current) return
-    isAdvancingRef.current = true
+  // Leaving the story for the pledge (from the final issues step). Persist the
+  // answered fields (persist() writes only non-empty ones, so skipped questions
+  // aren't clobbered), then fire generation + Completed if the whole story is
+  // answered, otherwise Skipped.
+  const leaveStoryForPledge = async (): Promise<void> => {
+    setIsPersistingStory(true)
+    let saved = false
     try {
+      saved = await storyDraft.persist()
+    } finally {
+      setIsPersistingStory(false)
+    }
+    if (!saved) {
+      errorSnackbar('Could not save your story. Please try again.')
+      return
+    }
+
+    if (storyDraft.isComplete) {
+      if (!storyGenFiredRef.current) {
+        storyGenFiredRef.current = true
+        // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
+        // raceId) and prewarmStrategicLandscape swallows that, so a candidate
+        // is never blocked from reaching the pledge.
+        void prewarmStrategicLandscape()
+        trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
+          campaignId: liveCampaign?.id ?? campaign?.id,
+        })
+      }
+    } else {
       fireStorySkipped()
-      await advanceToPledge()
+    }
+    await advanceToPledge()
+  }
+
+  // Continue and Skip both move one story step at a time (Skip = skip this
+  // question; Continue = keep it — the answered ones are persisted on leaving).
+  // On the final issues step both leave for the pledge; Continue is gated on
+  // having ≥1 issue at the button, Skip is the way past that empty.
+  const advanceStory = async (): Promise<void> => {
+    if (isAdvancingRef.current) return
+    isAdvancingRef.current = true
+    try {
+      if (activeStep.id === 'campaign-story-issues') {
+        await leaveStoryForPledge()
+      } else {
+        await advanceToNextStoryStep()
+      }
     } finally {
       isAdvancingRef.current = false
     }
   }
+
+  const handleStoryContinue = advanceStory
+  const handleStorySkip = advanceStory
 
   const handleCantFindOffice = () => {
     setAnswers((current) => ({
@@ -1307,11 +1308,12 @@ export default function OnboardingFlow({
             Back
           </Button>
           {isStoryStep ? (
-            // Each story step is skippable. Continue always advances on Why /
-            // Background (they just move on); the final issues step persists all
-            // three + fires generation, and requires at least one policy (Skip
-            // is still the way out). Skip abandons the whole story and jumps to
-            // the pledge. Continue waits for the draft to seed.
+            // Each question is individually skippable: Continue and Skip both
+            // move one step, and the answered fields are persisted on leaving
+            // the story (the final issues step). Continue on that final step
+            // requires ≥1 policy; Skip is the way past it empty (still saving
+            // any why/background already entered). Generation fires only when
+            // the whole story is answered. Continue waits for the draft to seed.
             <div className="flex items-center gap-3">
               <Button
                 type="button"

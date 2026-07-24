@@ -7,7 +7,7 @@ import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
 import H2 from '@shared/typography/H2'
-import { BookOpenIcon, Button, Card } from '@styleguide'
+import { BookOpenIcon, Button, Card, CheckIcon } from '@styleguide'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { clientRequest } from 'gpApi/typed-request'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -36,10 +36,28 @@ interface CampaignStoryPageProps {
   pathname?: string
 }
 
+// The full-width top bar carrying the page title and (optionally) the page-level
+// Save. Rendered by both the loading/error states and the editable form so the
+// header stays put while the body swaps.
+const StoryHeaderBar = ({
+  action,
+}: {
+  action?: React.ReactNode
+}): React.JSX.Element => (
+  <div className="flex items-center justify-between gap-3 border-b border-base-border bg-white px-4 py-4 sm:px-8">
+    <div className="flex items-center gap-2">
+      <BookOpenIcon className="size-6" />
+      <H2>Your story</H2>
+    </div>
+    {action}
+  </div>
+)
+
 // The standalone "Your story" dashboard page. Reuses the same onboarding story
 // cards (StoryIntakeCard for why/background, StoryIssuesCard for the policy
-// priorities), but each card persists on its own via a Save button rather than
-// deferring to a final step — this is a single editable page, not a flow.
+// priorities). Unlike onboarding, it's a single editable page: one page-level
+// Save in the header commits every field at once, and a "Start over" clears
+// them (Save still being the only thing that persists).
 const CampaignStoryPage = ({
   pathname,
 }: CampaignStoryPageProps): React.JSX.Element => {
@@ -50,23 +68,21 @@ const CampaignStoryPage = ({
         wrapperClassName="w-full"
         showAlert={false}
       >
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
-          <header className="flex items-center gap-2">
-            <BookOpenIcon className="size-6" />
-            <H2>Your story</H2>
-          </header>
-
-          <p className="text-base text-muted-foreground">
-            This is what personalizes your Campaign Plan, Campaign Tracker, and
-            your GoodParty.org experience.
-          </p>
-
-          <StoryEditor />
-        </div>
+        <StoryEditor />
       </DashboardLayout>
     </FeatureFlagGuard>
   )
 }
+
+const StoryBody = ({
+  children,
+}: {
+  children: React.ReactNode
+}): React.JSX.Element => (
+  <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-8 sm:px-8">
+    {children}
+  </div>
+)
 
 // Fetches the saved story, then mounts the editable form once (so its useState
 // seeds from the real values, not the pre-resolution empty defaults).
@@ -85,15 +101,27 @@ const StoryEditor = (): React.JSX.Element => {
 
   if (isError) {
     return (
-      <p className="text-sm text-destructive">
-        We couldn&apos;t load your saved story. Check your connection and
-        refresh the page to try again.
-      </p>
+      <>
+        <StoryHeaderBar />
+        <StoryBody>
+          <p className="text-sm text-destructive">
+            We couldn&apos;t load your saved story. Check your connection and
+            refresh the page to try again.
+          </p>
+        </StoryBody>
+      </>
     )
   }
 
   if (!isReady) {
-    return <p className="text-sm text-muted-foreground">Loading your story…</p>
+    return (
+      <>
+        <StoryHeaderBar />
+        <StoryBody>
+          <p className="text-sm text-muted-foreground">Loading your story…</p>
+        </StoryBody>
+      </>
+    )
   }
 
   return (
@@ -177,77 +205,117 @@ export function StoryEditorForm({
     setSavingIssues(false)
   }
 
+  const anySaving = savingWhy || savingBackground || savingIssues
+  const anyDirty =
+    why !== savedWhy || background !== savedBackground || issuesDirty
+  // Drives the "Start over" affordance: only offered once the candidate has
+  // entered something to clear.
+  const anyContent =
+    why.trim().length > 0 || background.trim().length > 0 || issues.length > 0
+
+  // The header Save commits every dirty field in one click. Each save* is a
+  // no-op when its field is unchanged, so this only writes what actually moved.
+  const saveAll = async (): Promise<void> => {
+    if (anySaving || !anyDirty) return
+    await saveWhy()
+    await saveBackground()
+    await saveIssues()
+  }
+
+  // Clears the fields in memory only; nothing is deleted until the candidate
+  // Saves (the empty state), matching the explicit-save model.
+  const startOver = (): void => {
+    setWhy('')
+    setBackground('')
+    setIssues([])
+  }
+
   const complete =
     savedWhy.trim().length > 0 &&
     savedBackground.trim().length > 0 &&
     savedIssues.length > 0
 
   return (
-    <div className="flex flex-col gap-8">
-      <StoryIntakeCard
-        question={STORY_WHY_QUESTION}
-        description={CARD_DESCRIPTION}
-        examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
-        value={why}
-        onChange={setWhy}
-        rewriteField="why"
-        analyticsLabel="dashboard_story_why"
-        save={{
-          isDirty: why !== savedWhy,
-          isSaving: savingWhy,
-          hasSavedContent: savedWhy.trim().length > 0,
-          onSave: () => void saveWhy(),
-        }}
-      />
-
-      <StoryIntakeCard
-        question={STORY_BACKGROUND_QUESTION}
-        description={CARD_DESCRIPTION}
-        examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
-        value={background}
-        onChange={setBackground}
-        rewriteField="background"
-        analyticsLabel="dashboard_story_background"
-        save={{
-          isDirty: background !== savedBackground,
-          isSaving: savingBackground,
-          hasSavedContent: savedBackground.trim().length > 0,
-          onSave: () => void saveBackground(),
-        }}
-      />
-
-      <Card className="flex flex-col gap-4 p-6">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-bold text-foreground">
-            What issues do you most want to solve if elected?
-          </h2>
-          <p className="text-base text-muted-foreground">{CARD_DESCRIPTION}</p>
-        </div>
-        <StoryIssuesCard
-          issues={issues}
-          onChange={setIssues}
-          save={{
-            isDirty: issuesDirty,
-            isSaving: savingIssues,
-            hasSavedContent: issues.length > 0,
-            onSave: () => void saveIssues(),
-          }}
-        />
-      </Card>
-
-      {complete && (
-        <div className="sticky bottom-4 z-10 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-white p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-sm font-medium text-foreground">
-            Your Campaign Story is ready.
-          </span>
-          <Button asChild className="sm:shrink-0">
-            <Link href="/dashboard/campaign-plan">
-              Go to your Campaign Tracker
-            </Link>
+    <>
+      <StoryHeaderBar
+        action={
+          <Button
+            icon={<CheckIcon />}
+            loading={anySaving}
+            loadingText="Saving…"
+            disabled={!anyDirty || anySaving}
+            onClick={() => void saveAll()}
+          >
+            Save
           </Button>
-        </div>
-      )}
-    </div>
+        }
+      />
+
+      <StoryBody>
+        <p className="text-base text-muted-foreground">
+          The foundation we build everything else on: your why, your background,
+          and the issues you&apos;ll fight for. Your answers personalize your
+          campaign plan, stump speech, and voter messages.
+        </p>
+
+        <StoryIntakeCard
+          question={STORY_WHY_QUESTION}
+          description={CARD_DESCRIPTION}
+          examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
+          value={why}
+          onChange={setWhy}
+          rewriteField="why"
+          analyticsLabel="dashboard_story_why"
+        />
+
+        <StoryIntakeCard
+          question={STORY_BACKGROUND_QUESTION}
+          description={CARD_DESCRIPTION}
+          examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
+          value={background}
+          onChange={setBackground}
+          rewriteField="background"
+          analyticsLabel="dashboard_story_background"
+        />
+
+        <Card className="flex flex-col gap-4 p-6">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-2xl font-bold text-foreground">
+              What issues do you most want to solve if elected?
+            </h2>
+            <p className="text-base text-muted-foreground">
+              {CARD_DESCRIPTION}
+            </p>
+          </div>
+          <StoryIssuesCard issues={issues} onChange={setIssues} />
+        </Card>
+
+        {anyContent && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={startOver}
+              className="rounded-full px-4 py-2 text-base font-medium text-link transition-colors hover:bg-link/10"
+            >
+              Start over
+            </button>
+          </div>
+        )}
+
+        {complete && (
+          <div className="sticky bottom-4 z-10 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-white p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-sm font-medium text-foreground">
+              Your Campaign Story is ready.
+            </span>
+            <Button asChild className="sm:shrink-0">
+              <Link href="/dashboard/campaign-plan">
+                Go to your Campaign Tracker
+              </Link>
+            </Button>
+          </div>
+        )}
+      </StoryBody>
+    </>
   )
 }
 

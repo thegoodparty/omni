@@ -179,6 +179,21 @@ const continueThroughStorySteps = async (): Promise<void> => {
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 }
 
+// Skip is now per-question: it advances one story step at a time (why ->
+// background -> issues -> pledge), so a full skip clicks Skip on each step.
+// Awaits the step in between since advancing is async + guarded by
+// isAdvancingRef (a too-fast second click would be dropped).
+const skipThroughStorySteps = async (): Promise<void> => {
+  // why -> background
+  fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+  await screen.findByRole('heading', { level: 2, name: /your background/i })
+  // background -> issues
+  fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+  await screen.findByRole('button', { name: /add a policy priority/i })
+  // issues -> pledge
+  fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+}
+
 beforeEach(() => {
   // Flag resolved (ready) but story cohort off by default, so every existing
   // test keeps seeing the story step omitted while Continue stays enabled
@@ -635,17 +650,13 @@ describe('new onboarding flow shell', () => {
     renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
-
-    const skipButton = await screen.findByRole('button', {
-      name: 'Skip',
-    })
-    fireEvent.click(skipButton)
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
     expect(prewarm).not.toHaveBeenCalled()
-    // Skip persists nothing.
+    // Nothing was answered, so persist writes nothing.
     expect(mockSaveAboutFields).not.toHaveBeenCalled()
   })
 
@@ -731,16 +742,16 @@ describe('new onboarding flow shell', () => {
     renderFlow({ campaign: { id: 1 } as Campaign })
 
     await advancePastManualOfficeEntry()
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
     ).toBeInTheDocument()
 
-    // Back to the last story step, then skip a second time.
+    // Back (nothing answered → returns to the why step), then skip through
+    // again.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -771,7 +782,7 @@ describe('new onboarding flow shell', () => {
       name: /why are you running/i,
     })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    await skipThroughStorySteps()
     await screen.findByText('Take our pledge to get your campaign plan')
 
     // Back lands straight on the why step (first unanswered), not the issues
@@ -802,8 +813,8 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
 
-    // On the (incomplete) story step, skip to the pledge.
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    // Skip through the (incomplete) story to the pledge.
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -863,15 +874,11 @@ describe('new onboarding flow shell', () => {
       http.put('/api/v1/campaigns/mine', () => HttpResponse.json({ id: 1 })),
       http.patch('/api/v1/organizations/:slug', () => HttpResponse.json({})),
     )
-    // Draft seeds complete, but the candidate skips first, then comes back and
-    // finishes via the final step's Continue.
+    // Why + background answered, but no issues — so the first pass is
+    // incomplete. The candidate skips through, then comes back and adds a
+    // policy to complete it.
     mockGetUserWebsite.mockResolvedValue({
-      content: {
-        about: {
-          bio: '<p>My why is long enough</p>',
-          issues: [{ title: 'Roads', description: 'Fix them' }],
-        },
-      },
+      content: { about: { bio: '<p>My why is long enough</p>', issues: [] } },
     })
     api.mock('GET /v1/campaigns/mine/story', {
       status: 200,
@@ -889,7 +896,7 @@ describe('new onboarding flow shell', () => {
       name: /why are you running/i,
     })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+    await skipThroughStorySteps()
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),
@@ -900,9 +907,13 @@ describe('new onboarding flow shell', () => {
     )
     expect(prewarm).not.toHaveBeenCalled()
 
-    // Back to the last story step (issues) and finish via Continue.
+    // Back returns to the issues step (why + background answered), add a
+    // policy to complete the story, then Continue.
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    fireEvent.click(
+      await screen.findByRole('button', { name: /add a policy priority/i }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(
       await screen.findByText('Take our pledge to get your campaign plan'),

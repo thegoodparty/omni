@@ -81,15 +81,30 @@ export const useOnboardingStoryDraft = (
   const isComplete =
     why.trim().length > 0 && background.trim().length > 0 && issues.length > 0
 
+  // Persists only the answered (non-empty) fields, so a candidate who skips a
+  // question doesn't overwrite an existing answer with a blank. Called when
+  // leaving the story (both the final Continue and Skip).
   const persist = async (): Promise<boolean> => {
-    const okAbout = await saveAboutFields({ bio: why, issues })
+    const aboutFields: Parameters<typeof saveAboutFields>[0] = {}
+    if (why.trim().length > 0) aboutFields.bio = why
+    if (issues.length > 0) aboutFields.issues = issues
+    const okAbout =
+      Object.keys(aboutFields).length > 0
+        ? await saveAboutFields(aboutFields)
+        : true
+
     let okStory = true
-    try {
-      await clientRequest('PUT /v1/campaigns/mine/story', { background })
-    } catch (error) {
-      okStory = false
-      reportErrorToSentry(error, { context: 'useOnboardingStoryDraft.persist' })
+    if (background.trim().length > 0) {
+      try {
+        await clientRequest('PUT /v1/campaigns/mine/story', { background })
+      } catch (error) {
+        okStory = false
+        reportErrorToSentry(error, {
+          context: 'useOnboardingStoryDraft.persist',
+        })
+      }
     }
+
     // Invalidate the shared caches so a later reader within staleTime (notably
     // the Pro-upgrade candidate profile, which seeds its bio + issues from
     // USER_WEBSITE_QUERY_KEY, and the plan-tab story gate) refetches the values

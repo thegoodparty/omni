@@ -66,7 +66,7 @@ const enabledSaveButtons = (): HTMLElement[] =>
     .filter((b) => !(b as HTMLButtonElement).disabled)
 
 describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
-  it('keeps every Save disabled until its field changes', async () => {
+  it('keeps the single header Save disabled until a field changes', async () => {
     const user = userEvent.setup()
     renderForm()
 
@@ -74,11 +74,11 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
 
     await user.type(whyField(), 'Because of the schools')
 
-    // Only the edited (why) card's Save unlocks.
+    // One page-level Save (in the header) unlocks once anything is dirty.
     expect(enabledSaveButtons()).toHaveLength(1)
   })
 
-  it('persists the why on Save, invalidates the website cache, and marks it Saved', async () => {
+  it('persists the why on Save, invalidates the website cache, and re-disables when clean', async () => {
     const user = userEvent.setup()
     const { invalidateSpy } = renderForm()
 
@@ -93,8 +93,28 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: USER_WEBSITE_QUERY_KEY,
     })
+    // Nothing dirty after a successful save → Save disables again.
+    await waitFor(() => expect(enabledSaveButtons()).toHaveLength(0))
+  })
+
+  it('one Save commits every dirty field at once', async () => {
+    const user = userEvent.setup()
+    let putBody: { background?: string } | null = null
+    api.mock('PUT /v1/campaigns/mine/story', async ({ body }) => {
+      putBody = body as { background?: string }
+      return { status: 200, data: { background: 'saved' } }
+    })
+    renderForm()
+
+    await user.type(whyField(), 'My why')
+    await user.type(backgroundField(), 'My background')
+    await user.click(enabledSaveButtons()[0]!)
+
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Saved' })).toBeInTheDocument(),
+      expect(mockSaveAboutFields).toHaveBeenCalledWith({ bio: 'My why' }),
+    )
+    await waitFor(() =>
+      expect(putBody).toEqual({ background: 'My background' }),
     )
   })
 
@@ -127,10 +147,7 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     await user.click(enabledSaveButtons()[0]!)
 
     await waitFor(() => expect(mockErrorSnackbar).toHaveBeenCalled())
-    // Still dirty: no "Saved", the Save is still enabled.
-    expect(
-      screen.queryByRole('button', { name: 'Saved' }),
-    ).not.toBeInTheDocument()
+    // Save failed → still dirty, so the Save stays enabled.
     expect(enabledSaveButtons()).toHaveLength(1)
   })
 
@@ -205,5 +222,53 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: USER_WEBSITE_QUERY_KEY,
     })
+  })
+
+  it('hides "Start over" until something is entered, then clears the fields', async () => {
+    const user = userEvent.setup()
+    renderForm()
+
+    // Empty story → no Start over.
+    expect(
+      screen.queryByRole('button', { name: /start over/i }),
+    ).not.toBeInTheDocument()
+
+    await user.type(whyField(), 'Because of the schools')
+    const startOver = await screen.findByRole('button', { name: /start over/i })
+
+    await user.click(startOver)
+
+    // Fields are cleared in memory; nothing persisted (Save is the only writer).
+    await waitFor(() => expect(whyField().value).toBe(''))
+    expect(mockSaveAboutFields).not.toHaveBeenCalled()
+  })
+
+  it('"Start over" clears seeded answers in memory without deleting them until Save', async () => {
+    const user = userEvent.setup()
+    api.mock('PUT /v1/campaigns/mine/story', {
+      status: 200,
+      data: { background: '' },
+    })
+    renderForm({
+      initialBio: 'my saved why',
+      initialBackground: 'my saved background',
+      initialIssues: [{ title: 'Roads', description: 'Fix them' }],
+    })
+
+    await user.click(screen.getByRole('button', { name: /start over/i }))
+
+    await waitFor(() => expect(whyField().value).toBe(''))
+    expect(backgroundField().value).toBe('')
+    // No policy rows remain, and nothing was persisted yet.
+    expect(
+      screen.queryByPlaceholderText(/northside bus route/i),
+    ).not.toBeInTheDocument()
+    expect(mockSaveAboutFields).not.toHaveBeenCalled()
+
+    // Save now commits the cleared state.
+    await user.click(enabledSaveButtons()[0]!)
+    await waitFor(() =>
+      expect(mockSaveAboutFields).toHaveBeenCalledWith({ bio: '' }),
+    )
   })
 })

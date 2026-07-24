@@ -2,10 +2,15 @@
 
 **The standalone `/dashboard/campaign-story` route + "Your story" sidebar tab
 exist** (restored under the `campaign-story` flag). The page
-(`components/CampaignStoryPage.tsx`) now renders the **onboarding** story cards
+(`components/CampaignStoryPage.tsx`) renders the **onboarding** story cards
 (`app/onboarding/components/StoryIntakeCard` for why/background,
-`StoryIssuesCard` for the policy priorities) with a per-card **Save** button —
-it persists each field on Save rather than deferring like onboarding does.
+`StoryIssuesCard` for the policy priorities). Unlike onboarding it's a single
+editable page: one **Save** in the page header (`StoryHeaderBar`) commits every
+dirty field at once (`saveAll`), and a **Start over** at the bottom (shown once
+any field has content) clears the fields in memory — Save stays the only thing
+that persists, so Start over deletes nothing until the candidate Saves the empty
+state. The cards get no `save` prop here (their per-field Save bar is
+onboarding-only).
 
 The `sections.ts` + `useCampaignStory*` modules are shared: `sections.ts` (which
 owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS`) is read by the
@@ -58,7 +63,7 @@ already round-trips through `Website.content.about`.
 
 | File | Role |
 |------|------|
-| `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies) with a per-card Save that persists immediately |
+| `components/CampaignStoryPage.tsx` | The "Your story" dashboard page — renders the onboarding `StoryIntakeCard` (why/background) + `StoryIssuesCard` (policies); one header Save commits all dirty fields, a bottom Start over clears them |
 | `components/useStoryRewrite.ts` | Shared "Improve with AI" logic (request, apply-in-place, undo, the 403 limit, analytics) — used by the onboarding cards (`StoryFieldBar`) |
 | `sections.ts` | Owns the `CampaignStorySection` type + `CAMPAIGN_STORY_SECTIONS` (the `background` prompt), read by the plan-tab `CampaignPlanStoryGate` |
 
@@ -165,8 +170,9 @@ already round-trips through `Website.content.about`.
 ## Related
 
 - `app/onboarding/components/` owns the shared story cards (`StoryIntakeCard`,
-  `StoryIssuesCard`, `StoryFieldBar`) used by both onboarding (deferred) and the
-  `/dashboard/campaign-story` page (per-card Save) — see `app/onboarding/CLAUDE.md`.
+  `StoryIssuesCard`, `StoryFieldBar`) used by both onboarding (deferred, one save
+  on leaving the story) and the `/dashboard/campaign-story` page (single header
+  Save + Start over) — see `app/onboarding/CLAUDE.md`.
 - `app/shared/experiments/campaignStoryFlag.ts` — flag wrapper hook + key.
 - `app/dashboard/shared/DashboardMenu.tsx` — reads the flag to label the plan
   tab "Campaign Tracker" for the story cohort. No dedicated sidebar entry for
