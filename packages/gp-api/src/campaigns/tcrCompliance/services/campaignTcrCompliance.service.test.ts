@@ -2780,6 +2780,20 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
     ).resolves.toBe(raced)
   })
 
+  it('409s cleanly when the racing row vanishes before the re-read', async () => {
+    mockModel.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+    mockModel.create.mockRejectedValueOnce(
+      new PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    )
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).rejects.toThrow(ConflictException)
+  })
+
   it('409s when a real compliance record wins the create race', async () => {
     mockModel.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
       id: 'tcr-real',

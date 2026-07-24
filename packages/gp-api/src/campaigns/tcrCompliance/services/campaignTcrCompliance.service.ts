@@ -622,6 +622,12 @@ export class CampaignTcrComplianceService extends createPrismaBase(
             'Campaign already has a real TCR compliance record',
           )
         }
+        // Row vanished between the P2002 and this re-read (concurrent
+        // revoke deleted the racing winner's row); surface a clean error.
+        throw new ConflictException(
+          'Internal testing approval was concurrently granted and ' +
+            'revoked; please retry',
+        )
       }
       throw err
     }
