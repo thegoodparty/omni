@@ -1445,6 +1445,9 @@ describe('handleStep revise', () => {
     expect(updated.draftTitle).toBe('Revised title')
     expect(updated.draftBody).toBe(REVISED_BODY)
     expect(updated.qualityLoopIteration).toBe(1)
+    // The revise step's token split lands on the record loop columns too.
+    expect(updated.loopInputTokens).toBe(16)
+    expect(updated.loopOutputTokens).toBe(4)
     expect(updated.draftSources).toEqual([
       { id: 'cmp-1', title: 'Austin STR ordinance' },
     ])

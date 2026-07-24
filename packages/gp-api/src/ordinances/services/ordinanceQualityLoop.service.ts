@@ -406,24 +406,38 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
         return this.failLoop(record, loopRunId)
       }
       // A degraded report never converges and never triggers a revision:
-      // persist the attempt on the row and retry the step once.
-      await this.client.ordinanceQualityIteration.upsert({
-        where: iterationKey,
-        create: {
-          ordinanceId: record.id,
-          loopRunId,
-          iteration,
-          inputHash: generated.report.ranAgainstBodyHash,
-          qcAttempts: attempts,
-          draftTitle: record.draftTitle ?? '',
-          draftBody: record.draftBody ?? '',
-          draftSources: record.draftSources ?? Prisma.DbNull,
-          tokens: generated.tokens,
-        },
-        update: {
-          qcAttempts: attempts,
-          tokens: (row?.tokens ?? 0) + generated.tokens,
-        },
+      // persist the attempt on the row and retry the step once. This attempt
+      // still cost tokens, so fold the record-level loop increment into the
+      // same transaction as the iteration-row write — otherwise a degraded
+      // first attempt's spend is missing from the draftTokenTotals rollup. The
+      // increment is fenced to the live run so a superseded loop can't inflate
+      // the counter; the iteration row stays best-effort, as before.
+      await this.client.$transaction(async (tx) => {
+        await tx.ordinance.updateMany({
+          where: this.runningFence(record.id, loopRunId),
+          data: {
+            loopInputTokens: { increment: generated.inputTokens },
+            loopOutputTokens: { increment: generated.outputTokens },
+          },
+        })
+        await tx.ordinanceQualityIteration.upsert({
+          where: iterationKey,
+          create: {
+            ordinanceId: record.id,
+            loopRunId,
+            iteration,
+            inputHash: generated.report.ranAgainstBodyHash,
+            qcAttempts: attempts,
+            draftTitle: record.draftTitle ?? '',
+            draftBody: record.draftBody ?? '',
+            draftSources: record.draftSources ?? Prisma.DbNull,
+            tokens: generated.tokens,
+          },
+          update: {
+            qcAttempts: attempts,
+            tokens: (row?.tokens ?? 0) + generated.tokens,
+          },
+        })
       })
       await this.enqueueStep({
         ordinanceId: record.id,
