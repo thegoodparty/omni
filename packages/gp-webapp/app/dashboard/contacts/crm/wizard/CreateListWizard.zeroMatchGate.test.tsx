@@ -111,9 +111,15 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
     await reachConditionsStepWithSelection(user)
 
+    const cta = screen.getByRole('button', { name: 'Build your list (0)' })
+    expect(cta).toBeDisabled()
+
+    // Programmatic activation must not advance to the name step either —
+    // the guard lives in handleNext, not only on the disabled prop.
+    fireEvent.click(cta)
     expect(
-      screen.getByRole('button', { name: 'Build your list (0)' }),
-    ).toBeDisabled()
+      screen.queryByRole('heading', { name: 'Name your list' }),
+    ).not.toBeInTheDocument()
   })
 
   it('enables the build CTA once a valid selection resolves to a nonzero count', async () => {
