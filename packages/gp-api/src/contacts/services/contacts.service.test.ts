@@ -891,15 +891,22 @@ describe('ContactsService', () => {
       it('tags an unresolved district with a stable error code', async () => {
         const org = makeOrganization()
 
-        const body = await getErrorBody(
-          service.findContacts(
+        try {
+          await service.findContacts(
             { resultsPerPage: 10, page: 1, search: undefined, segment: 'all' },
             org,
-          ),
-        )
-
-        expect(body.errorCode).toBe(VOTER_DATA_UNAVAILABLE_ERROR_CODE)
-        expect(VOTER_DATA_UNAVAILABLE_ERROR_CODE).toBe('VOTER_DATA_UNAVAILABLE')
+          )
+          throw new Error('expected promise to reject')
+        } catch (err) {
+          expect(err).toBeInstanceOf(NotFoundException)
+          const body = (err as NotFoundException).getResponse() as {
+            errorCode?: string
+          }
+          expect(body.errorCode).toBe(VOTER_DATA_UNAVAILABLE_ERROR_CODE)
+          expect(VOTER_DATA_UNAVAILABLE_ERROR_CODE).toBe(
+            'VOTER_DATA_UNAVAILABLE',
+          )
+        }
       })
 
       it('rejects a FEDERAL campaign without canDownloadFederal or L2 data', async () => {

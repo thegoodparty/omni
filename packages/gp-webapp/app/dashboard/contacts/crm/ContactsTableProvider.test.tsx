@@ -81,9 +81,9 @@ const renderProvider = () =>
   )
 
 describe('ContactsTableProvider — voter-data-unavailable detection', () => {
-  it('flags isVoterDataUnavailable when /v1/contacts 400s with the VOTER_DATA_UNAVAILABLE code', async () => {
+  it('flags isVoterDataUnavailable when /v1/contacts 404s with the VOTER_DATA_UNAVAILABLE code', async () => {
     api.mock('GET /v1/contacts', {
-      status: 400,
+      status: 404,
       data: {
         message:
           'Organization does not have sufficient data to resolve district',

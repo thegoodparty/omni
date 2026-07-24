@@ -169,7 +169,7 @@ const contactTableQueryOptions = (params: {
         ...(params.search ? { search: params.search } : {}),
       }).then((res) => res.data),
     refetchOnMount: false,
-    // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE / not-pro = 400,
+    // Contacts 4xx are deterministic (VOTER_DATA_UNAVAILABLE = 404, not-pro = 400,
     // flag-off = 403); retrying just makes ineligible users wait through the
     // global 2-retry backoff before the ineligible state renders, and the
     // page+1 prefetch doubles the wasted requests. Keep the global budget for
@@ -432,9 +432,9 @@ export const ContactsTableProvider = ({
 
   const isLoading = contactsQuery.isLoading || contactsQuery.isFetching
 
-  // A Win campaign with no resolvable district (or that fails the
-  // federal/state download-access rule) gets a 400 with this error code from
-  // gp-api. Surface it as a clean ineligible state instead of a generic error.
+  // A Win campaign with no resolvable district gets a 404 (or one that fails
+  // the federal/state download-access rule gets a 400) with this error code
+  // from gp-api. Surface it as a clean ineligible state instead of a generic error.
   const isVoterDataUnavailable = useMemo(() => {
     const error = contactsQuery.error
     if (!(error instanceof FetchError)) return false

@@ -223,7 +223,7 @@ export class ContactsService {
     const { districtId } = await this.resolveDistrictInfoFromOrg(org)
 
     if (!districtId) {
-      throw new BadRequestException({
+      throw new NotFoundException({
         message:
           'Organization does not have sufficient data to resolve district',
         errorCode: VOTER_DATA_UNAVAILABLE_ERROR_CODE,
