@@ -115,7 +115,7 @@ import { dirname, join, relative } from 'node:path'
 // assistantChat) hold composer/drawer state, stream SSE turns through the
 // shared agent-chat client, and invalidate react-query caches — none can be
 // server components.
-const BASELINE = 557
+const BASELINE = 558
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const IGNORED_DIRS = new Set(['node_modules', '.next', 'dist'])

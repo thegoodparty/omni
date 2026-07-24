@@ -151,43 +151,18 @@ describe('StoryEditorForm (the "Your story" dashboard editor)', () => {
     expect(enabledSaveButtons()).toHaveLength(1)
   })
 
-  it('hides the ready banner until all three fields are filled', () => {
-    renderForm()
-    expect(
-      screen.queryByText(/your campaign story is ready/i),
-    ).not.toBeInTheDocument()
-  })
-
-  it('shows the ready banner for a fully-answered story', () => {
-    renderForm({
-      initialBio: '<p>My why</p>',
-      initialBackground: 'My background',
-      initialIssues: [{ title: 'Roads', description: 'Fix them' }],
-    })
-    expect(
-      screen.getByText(/your campaign story is ready/i),
-    ).toBeInTheDocument()
-  })
-
-  it('"Start over" hides the ready banner immediately (before Save)', async () => {
+  it('"Start over" clears the fields in memory without persisting (Save stays dirty)', async () => {
     const user = userEvent.setup()
     renderForm({
       initialBio: '<p>My why</p>',
       initialBackground: 'My background',
       initialIssues: [{ title: 'Roads', description: 'Fix them' }],
     })
-    expect(
-      screen.getByText(/your campaign story is ready/i),
-    ).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /start over/i }))
 
-    // Banner reflects the cleared on-screen answers, not the still-saved values.
-    await waitFor(() =>
-      expect(
-        screen.queryByText(/your campaign story is ready/i),
-      ).not.toBeInTheDocument(),
-    )
+    await waitFor(() => expect(whyField().value).toBe(''))
+    expect(backgroundField().value).toBe('')
     // Not persisted yet — Save is dirty and ready to commit the empty story.
     expect(mockSaveAboutFields).not.toHaveBeenCalled()
     expect(enabledSaveButtons()).toHaveLength(1)

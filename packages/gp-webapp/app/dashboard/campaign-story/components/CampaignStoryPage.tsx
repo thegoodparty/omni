@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
@@ -238,12 +237,6 @@ export function StoryEditorForm({
     setResetKey((k) => k + 1)
   }
 
-  // The "ready" banner tracks the on-screen answers (not the last-saved shadow
-  // state) so it disappears immediately on Start over, and appears once all
-  // three are filled.
-  const complete =
-    why.trim().length > 0 && background.trim().length > 0 && issues.length > 0
-
   return (
     <>
       <StoryHeaderBar
@@ -311,19 +304,6 @@ export function StoryEditorForm({
             >
               Start over
             </button>
-          </div>
-        )}
-
-        {complete && (
-          <div className="sticky bottom-4 z-10 flex flex-col items-stretch gap-3 rounded-xl border border-border bg-white p-4 shadow-lg sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm font-medium text-foreground">
-              Your Campaign Story is ready.
-            </span>
-            <Button asChild className="sm:shrink-0">
-              <Link href="/dashboard/campaign-plan">
-                Go to your Campaign Tracker
-              </Link>
-            </Button>
           </div>
         )}
       </StoryBody>

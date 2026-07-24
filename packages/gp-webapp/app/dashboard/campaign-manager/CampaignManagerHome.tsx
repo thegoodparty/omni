@@ -7,6 +7,7 @@ import {
   CAMPAIGN_MANAGER_PRODUCT_OVERVIEW_SENTINEL,
   CAMPAIGN_MANAGER_START_STORY_SENTINEL,
 } from '@goodparty_org/contracts'
+import { useCampaignStoryComplete } from 'app/dashboard/campaign-story/useCampaignStoryComplete'
 import { VoterContactsProvider } from '@shared/hooks/VoterContactsProvider'
 import { CampaignUpdateHistoryProvider } from '@shared/hooks/CampaignUpdateHistoryProvider'
 import { reportErrorToSentry } from '@shared/sentry'
@@ -64,6 +65,10 @@ export default function CampaignManagerHome({
   )
   const composerRef = useRef<HTMLInputElement | null>(null)
   const personalizeDeepLinkFiredRef = useRef(false)
+  // Once the story is complete (e.g. finished in onboarding), the candidate has
+  // already personalized, so the "Personalize your campaign" starter chip is
+  // dropped from the chat.
+  const { isComplete: storyComplete } = useCampaignStoryComplete(true)
 
   // Default to showing the card (the common case: a new candidate who has not
   // dismissed it) so it renders immediately with no pop-in. The effect flips it
@@ -111,13 +116,17 @@ export default function CampaignManagerHome({
   }, [pendingKickoff, firstName])
 
   const suggestions: ChatSuggestion[] = [
-    {
-      label: 'Personalize your campaign',
-      description:
-        "Tell me about why you're running, and we'll help you draft your " +
-        'voter outreach plan.',
-      kickoff: CAMPAIGN_MANAGER_START_STORY_SENTINEL,
-    },
+    ...(storyComplete
+      ? []
+      : [
+          {
+            label: 'Personalize your campaign',
+            description:
+              "Tell me about why you're running, and we'll help you draft " +
+              'your voter outreach plan.',
+            kickoff: CAMPAIGN_MANAGER_START_STORY_SENTINEL,
+          },
+        ]),
     {
       label: 'Learn more about the product',
       description: 'Get a quick tour of the product and its features.',
