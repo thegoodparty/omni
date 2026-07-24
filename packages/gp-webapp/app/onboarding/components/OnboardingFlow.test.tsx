@@ -499,9 +499,12 @@ describe('new onboarding flow shell', () => {
       level: 1,
       name: /why are you running/i,
     })
-    // why -> background -> issues
+    // why -> background -> issues. Await the background step between clicks:
+    // handleStoryContinue is async (awaits the campaign PUT) and guarded by
+    // isAdvancingRef, so a second click before the first settles is a no-op.
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { level: 2, name: /your background/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('button', { name: /add a policy priority/i })
 
     // No policy added yet → Continue is blocked (Skip is still the way out).
@@ -552,8 +555,11 @@ describe('new onboarding flow shell', () => {
       level: 1,
       name: /why are you running/i,
     })
+    // Await the background step between clicks (see the note above — the
+    // async, isAdvancingRef-guarded Continue makes back-to-back clicks flaky).
     fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { level: 2, name: /your background/i })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     await screen.findByRole('button', { name: /add a policy priority/i })
 
     // Issue present (length gate passes) but a row is recording → Continue held.
