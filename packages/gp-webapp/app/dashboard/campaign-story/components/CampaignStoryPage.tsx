@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { stripHtml } from 'string-strip-html'
 import DashboardLayout from '../../shared/DashboardLayout'
 import FeatureFlagGuard from '@shared/experiments/FeatureFlagGuard'
-import H2 from '@shared/typography/H2'
 import { Button, Card, CheckIcon } from '@styleguide'
 import { CAMPAIGN_STORY_FLAG_KEY } from '@shared/experiments/campaignStoryFlag'
 import { clientRequest } from 'gpApi/typed-request'
@@ -48,7 +47,9 @@ const StoryHeaderBar = ({
   action?: React.ReactNode
 }): React.JSX.Element => (
   <div className="sticky top-0 z-10 -mx-2 -mt-2 flex items-center justify-between gap-3 border-b border-base-border bg-base-muted px-4 py-3 sm:px-8 md:-mx-4 md:-mt-4">
-    <H2>Your story</H2>
+    <h2 className="text-xl font-semibold leading-snug text-foreground">
+      Your story
+    </h2>
     {action}
   </div>
 )
