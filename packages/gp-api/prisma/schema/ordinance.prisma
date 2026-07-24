@@ -51,6 +51,13 @@ model Ordinance {
 
   lastViewedStep String? @map("last_viewed_step")
 
+  // Cumulative LLM token usage for the interactive guided flow, accumulated per
+  // turn across every step. The quality loop tracks its own tokens on
+  // OrdinanceQualityIteration rows; a full-draft total sums both. Stored as
+  // tokens, not dollars — cost is derived via a pricing map at read time.
+  flowInputTokens  Int @default(0) @map("flow_input_tokens")
+  flowOutputTokens Int @default(0) @map("flow_output_tokens")
+
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")

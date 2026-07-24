@@ -1,8 +1,21 @@
 'use client'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render } from 'helpers/test-utils/render'
 import { screen, fireEvent } from '@testing-library/react'
 import { SnackbarProvider, useSnackbar } from '@shared/utils/Snackbar'
+
+// Mutable so individual tests can move "the current route" between the CRM
+// contacts page (where AssistantBar.tsx pins a bar to the bottom) and any
+// other page, to assert Snackbar.tsx's offset scoping (ENG-10782).
+let mockPathname = '/'
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => mockPathname,
+}))
+
+beforeEach(() => {
+  mockPathname = '/'
+})
 
 const HarnessComponent = () => {
   const { successSnackbar } = useSnackbar()
@@ -53,6 +66,60 @@ describe('SnackbarProvider + useSnackbar', () => {
 
     expect(() => render(<ThrowingComponent />)).toThrow(
       /within a SnackbarProvider/,
+    )
+  })
+
+  it('offsets the toaster above the CRM assistant bar on /dashboard/contacts', async () => {
+    mockPathname = '/dashboard/contacts'
+    render(
+      <SnackbarProvider>
+        <HarnessComponent />
+      </SnackbarProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }))
+    await screen.findByText('Saved!')
+
+    const toaster = document.querySelector<HTMLElement>('[data-sonner-toaster]')
+    expect(toaster?.style.getPropertyValue('--offset-bottom')).toBe('6rem')
+    expect(toaster?.style.getPropertyValue('--mobile-offset-bottom')).toBe(
+      '6rem',
+    )
+  })
+
+  it('offsets the toaster on the other footer-chat-bar routes', async () => {
+    mockPathname = '/dashboard/chief-of-staff'
+    render(
+      <SnackbarProvider>
+        <HarnessComponent />
+      </SnackbarProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }))
+    await screen.findByText('Saved!')
+
+    const toaster = document.querySelector<HTMLElement>('[data-sonner-toaster]')
+    expect(toaster?.style.getPropertyValue('--offset-bottom')).toBe('6rem')
+    expect(toaster?.style.getPropertyValue('--mobile-offset-bottom')).toBe(
+      '6rem',
+    )
+  })
+
+  it('leaves the default toaster offset on non-CRM pages', async () => {
+    mockPathname = '/dashboard'
+    render(
+      <SnackbarProvider>
+        <HarnessComponent />
+      </SnackbarProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }))
+    await screen.findByText('Saved!')
+
+    const toaster = document.querySelector<HTMLElement>('[data-sonner-toaster]')
+    expect(toaster?.style.getPropertyValue('--offset-bottom')).not.toBe('6rem')
+    expect(toaster?.style.getPropertyValue('--mobile-offset-bottom')).not.toBe(
+      '6rem',
     )
   })
 })

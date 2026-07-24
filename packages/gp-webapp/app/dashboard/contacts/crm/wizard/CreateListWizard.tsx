@@ -163,11 +163,21 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const { count, isLoading, isCapError, errorMessage } = useListWizardCount(
-    backendPayload,
-    activeBranch === 'voterFile' ||
-      (activeBranch === 'activity' && isConditionsStepValid),
-  )
+  const { count, isLoading, isStale, isError, isCapError, errorMessage } =
+    useListWizardCount(
+      backendPayload,
+      activeBranch === 'voterFile' ||
+        (activeBranch === 'activity' && isConditionsStepValid),
+    )
+
+  // ENG-10781: a selection that RESOLVES to zero matches must not advance —
+  // it can't build anything. Gated on !isLoading && !isStale so a payload
+  // still in-flight/debouncing (buildLabel below already hides the number in
+  // that window) can't flash the CTA disabled-then-enabled as the trailing
+  // count lands; only a settled zero counts. !isError because a failed
+  // refetch retains the previous cached count (possibly 0) with
+  // isLoading/isStale both false — an errored count is unknown, not zero.
+  const isZeroMatch = !isLoading && !isStale && !isError && count === 0
 
   const handleNext = () => {
     if (stepName === 'branch' && branch) {
@@ -176,7 +186,11 @@ export default function CreateListWizard({
         branch,
       })
       setStepIndex(stepIndex + 1)
-    } else if (stepName === 'conditions' && isConditionsStepValid) {
+    } else if (
+      stepName === 'conditions' &&
+      isConditionsStepValid &&
+      !isZeroMatch
+    ) {
       trackEvent(EVENTS.Contacts.ListWizard.ConditionsCompleted, {
         context: isWinContext ? 'win' : 'serve',
         ...(activeBranch ? { branch: activeBranch } : {}),
@@ -275,11 +289,18 @@ export default function CreateListWizard({
   })
 
   const trimmedName = name.trim()
-  // !isLoading: a save that races the debounced count would omit voterCount
-  // and let the server default it to 0 — the exact display bug ENG-10769
-  // fixes. A failed count still submits (count stays a nice-to-have).
+  // !isLoading && !isStale: a save that races the debounced count would omit
+  // voterCount and let the server default it to 0 — the exact display bug
+  // ENG-10769 fixes. isStale also blocks the window where a payload change is
+  // still awaiting the debounce, so Save can't enable on a superseded count
+  // and then re-disable when the trailing refetch lands (that flicker let a
+  // click slip through onto a disabled button under load). A failed count
+  // still submits once settled (count stays a nice-to-have).
   const canSubmit =
-    trimmedName.length > 0 && !createMutation.isPending && !isLoading
+    trimmedName.length > 0 &&
+    !createMutation.isPending &&
+    !isLoading &&
+    !isStale
 
   const handleSubmit = () => {
     if (!canSubmit) return
@@ -310,7 +331,7 @@ export default function CreateListWizard({
         : labels.wizardVoterFileStepTitle
 
   const buildLabel =
-    isLoading || count === undefined
+    isLoading || isStale || count === undefined
       ? 'Build your list'
       : `Build your list (${numberFormatter(count)})`
 
@@ -349,7 +370,7 @@ export default function CreateListWizard({
               type="button"
               className="w-full text-sm"
               onClick={handleNext}
-              disabled={!isConditionsStepValid}
+              disabled={!isConditionsStepValid || isZeroMatch}
             >
               {buildLabel}
             </Button>
@@ -395,7 +416,10 @@ export default function CreateListWizard({
           name={name}
           onNameChange={setName}
           count={count}
-          isCounting={isLoading}
+          // isStale too: while a filter change is still debouncing the count
+          // is stale for the current selection and Save is gated off, so the
+          // sentence must read "Counting…" rather than assert a stale total.
+          isCounting={isLoading || isStale}
           isCapError={isCapError}
           countErrorMessage={errorMessage}
           peopleNoun={peopleNoun}

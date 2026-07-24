@@ -35,7 +35,9 @@ export class RacesByZipSchema extends createZodDto(
         (v) => (v === undefined ? undefined : Array.isArray(v) ? v : [v]),
         z.array(z.enum(OFFICE_TYPES)).optional(),
       ),
-      electionDate: z.string().date().optional(),
+      // Win onboarding wants upcoming elections; Serve onboarding wants the
+      // elections an incumbent already won. Defaults to future downstream.
+      timeframe: z.enum(['future', 'past']).optional(),
     })
     .refine(
       (q) => q.zipcode || q.name || (q.officeType && q.officeType.length > 0),

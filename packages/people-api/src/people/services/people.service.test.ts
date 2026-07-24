@@ -855,7 +855,12 @@ describe('PeopleService', () => {
         filters: { filters: [], filterOperators: {} },
       } as never)
 
-      expect(result).toEqual({ count: 10000, avgAge: 41, avgIncome: 48000 })
+      expect(result).toEqual({
+        count: 10000,
+        avgAge: 41,
+        avgIncome: 48000,
+        fenced: true,
+      })
       expect(mockClient.$queryRaw).toHaveBeenCalledTimes(2)
 
       const primarySql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
@@ -888,7 +893,12 @@ describe('PeopleService', () => {
       expect(mockDistrictService.findDistrictById).toHaveBeenCalledWith(
         '0e5bafca-93a9-86a5-2522-f373979720df',
       )
-      expect(result).toEqual({ count: 3, avgAge: 30, avgIncome: 15000 })
+      expect(result).toEqual({
+        count: 3,
+        avgAge: 30,
+        avgIncome: 15000,
+        fenced: false,
+      })
       const sql = sqlTextOf(mockClient.$queryRaw.mock.calls[0]?.[0])
       expect(sql).toContain('COUNT(*)::bigint AS count')
       expect(sql).toContain('AVG(v."Age_Int")::float8 AS "avgAge"')
@@ -906,7 +916,12 @@ describe('PeopleService', () => {
         filters: { filters: [], filterOperators: {} },
       } as never)
 
-      expect(result).toEqual({ count: 0, avgAge: null, avgIncome: null })
+      expect(result).toEqual({
+        count: 0,
+        avgAge: null,
+        avgIncome: null,
+        fenced: false,
+      })
     })
 
     it('scopes to the whole state (no DistrictVoter join) for the voter-only path', async () => {
