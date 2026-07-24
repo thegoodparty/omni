@@ -163,12 +163,21 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const { count, isLoading, isStale, isCapError, errorMessage } =
+  const { count, isLoading, isStale, isError, isCapError, errorMessage } =
     useListWizardCount(
       backendPayload,
       activeBranch === 'voterFile' ||
         (activeBranch === 'activity' && isConditionsStepValid),
     )
+
+  // ENG-10781: a selection that RESOLVES to zero matches must not advance —
+  // it can't build anything. Gated on !isLoading && !isStale so a payload
+  // still in-flight/debouncing (buildLabel below already hides the number in
+  // that window) can't flash the CTA disabled-then-enabled as the trailing
+  // count lands; only a settled zero counts. !isError because a failed
+  // refetch retains the previous cached count (possibly 0) with
+  // isLoading/isStale both false — an errored count is unknown, not zero.
+  const isZeroMatch = !isLoading && !isStale && !isError && count === 0
 
   const handleNext = () => {
     if (stepName === 'branch' && branch) {
@@ -177,7 +186,11 @@ export default function CreateListWizard({
         branch,
       })
       setStepIndex(stepIndex + 1)
-    } else if (stepName === 'conditions' && isConditionsStepValid) {
+    } else if (
+      stepName === 'conditions' &&
+      isConditionsStepValid &&
+      !isZeroMatch
+    ) {
       trackEvent(EVENTS.Contacts.ListWizard.ConditionsCompleted, {
         context: isWinContext ? 'win' : 'serve',
         ...(activeBranch ? { branch: activeBranch } : {}),
@@ -318,7 +331,7 @@ export default function CreateListWizard({
         : labels.wizardVoterFileStepTitle
 
   const buildLabel =
-    isLoading || count === undefined
+    isLoading || isStale || count === undefined
       ? 'Build your list'
       : `Build your list (${numberFormatter(count)})`
 
@@ -357,7 +370,7 @@ export default function CreateListWizard({
               type="button"
               className="w-full text-sm"
               onClick={handleNext}
-              disabled={!isConditionsStepValid}
+              disabled={!isConditionsStepValid || isZeroMatch}
             >
               {buildLabel}
             </Button>

@@ -65,7 +65,9 @@ const reachNameStep = async (
   user: ReturnType<typeof userEvent.setup>,
 ): Promise<void> => {
   await user.click(
-    screen.getByRole('radio', { name: /build my list using the voter file/i }),
+    screen.getByRole('radio', {
+      name: /build a list using voter demographics and data/i,
+    }),
   )
   await user.click(screen.getByRole('button', { name: 'Continue' }))
   await user.click(pillForOption('Female'))
