@@ -211,6 +211,7 @@ interface StepBodyProps {
   p2vOfficeName: string | null
   skipP2vReveal: boolean
   storyDraft: OnboardingStoryDraft
+  onStoryDictationActiveChange: (active: boolean) => void
 }
 
 const StepBody = ({
@@ -225,6 +226,7 @@ const StepBody = ({
   p2vOfficeName,
   skipP2vReveal,
   storyDraft,
+  onStoryDictationActiveChange,
 }: StepBodyProps): React.JSX.Element | null => {
   if (activeStep.id === 'welcome') {
     return (
@@ -342,6 +344,7 @@ const StepBody = ({
           onChange={storyDraft.setWhy}
           rewriteField="why"
           analyticsLabel="onboarding_story_why"
+          onDictationActiveChange={onStoryDictationActiveChange}
         />
       )
     }
@@ -354,6 +357,7 @@ const StepBody = ({
           onChange={storyDraft.setBackground}
           rewriteField="background"
           analyticsLabel="onboarding_story_background"
+          onDictationActiveChange={onStoryDictationActiveChange}
         />
       )
     }
@@ -361,6 +365,7 @@ const StepBody = ({
       <StoryIssuesCard
         issues={storyDraft.issues}
         onChange={storyDraft.setIssues}
+        onDictationActiveChange={onStoryDictationActiveChange}
       />
     )
   }
@@ -425,6 +430,9 @@ export default function OnboardingFlow({
     campaignStoryEnabled && isStoryStepId(activeStepId),
   )
   const [isPersistingStory, setIsPersistingStory] = useState(false)
+  // True while a story card is mid-dictation; blocks Continue so advancing
+  // can't persist before an in-flight transcript lands.
+  const [storyDictationActive, setStoryDictationActive] = useState(false)
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
   // Guards against a double-fire of the strategic-landscape pre-warm (e.g. a
@@ -1252,6 +1260,7 @@ export default function OnboardingFlow({
                 p2vOfficeName={p2vOfficeName}
                 skipP2vReveal={hasResolvedPathToVictory}
                 storyDraft={storyDraft}
+                onStoryDictationActiveChange={setStoryDictationActive}
               />
             </section>
 
@@ -1322,6 +1331,7 @@ export default function OnboardingFlow({
                   !storyDraft.isReady ||
                   storyDraft.isError ||
                   isPersistingStory ||
+                  storyDictationActive ||
                   (activeStep.id === 'campaign-story-issues' &&
                     storyDraft.issues.length === 0)
                 }

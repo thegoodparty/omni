@@ -71,6 +71,10 @@ type SessionContext = {
   // and a second stop while Transcribe drains its buffered audio.
   draining: boolean
   drainTimer?: NodeJS.Timeout
+  // End-of-audio latch. Audio pushers register lazily (when the AWS SDK first
+  // iterates the audio stream), which can be after a client 'stop'; a pusher
+  // created after this is set must start already-done so the drain doesn't hang.
+  audioEnded: boolean
 }
 
 const parseClientStop = (text: string): ClientStopMessage | null => {
@@ -191,6 +195,7 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
       capTimer,
       closed: false,
       draining: false,
+      audioEnded: false,
     }
 
     socket.on('message', (data, isBinary) =>
@@ -274,6 +279,12 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
         }
 
         context.audioPushers.push(push)
+        // A client 'stop' may have already ended the audio before the SDK began
+        // iterating; start done so the stream closes immediately instead of
+        // blocking until the drain timeout.
+        if (context.audioEnded) {
+          done = true
+        }
 
         return {
           next: () => {
@@ -350,7 +361,11 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
     clearInterval(context.heartbeatTimer)
     clearTimeout(context.warnTimer)
     // Signal end-of-audio to the Transcribe input stream (no abort). AWS then
-    // emits the trailing final transcript(s) and closes the result stream.
+    // emits the trailing final transcript(s) and closes the result stream. The
+    // latch also ends a pusher that registers after this point (see
+    // makeAudioIterable), so a stop that wins the lazy-registration race still
+    // drains promptly instead of waiting out the timeout.
+    context.audioEnded = true
     for (const push of context.audioPushers) {
       push(null)
     }
@@ -387,6 +402,7 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
     clearTimeout(context.warnTimer)
     clearTimeout(context.capTimer)
     clearTimeout(context.drainTimer)
+    context.audioEnded = true
     for (const push of context.audioPushers) {
       push(null)
     }
@@ -425,6 +441,7 @@ export class SpeechToTextGateway implements OnApplicationBootstrap {
     clearTimeout(context.warnTimer)
     clearTimeout(context.capTimer)
     clearTimeout(context.drainTimer)
+    context.audioEnded = true
     for (const push of context.audioPushers) {
       push(null)
     }

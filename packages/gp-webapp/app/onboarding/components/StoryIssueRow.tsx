@@ -6,6 +6,7 @@ import type { WebsiteIssue } from 'helpers/types'
 import { useDictationAppend } from 'app/dashboard/briefings/shared/useDictationAppend'
 import { useStoryRewrite } from 'app/dashboard/campaign-story/components/useStoryRewrite'
 import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
+import { useReportDictationActive } from './useReportDictationActive'
 
 interface StoryIssueRowProps {
   index: number
@@ -15,6 +16,8 @@ interface StoryIssueRowProps {
   // Section-level Save (dashboard only) — every row shares it since issues
   // persist as one array. Omitted in onboarding (deferred).
   save?: StorySaveState
+  // Reports this row's dictation-active state so the step can gate Continue.
+  onDictationActiveChange?: (active: boolean) => void
 }
 
 const TITLE_PLACEHOLDER =
@@ -32,6 +35,7 @@ export default function StoryIssueRow({
   onChange,
   onRemove,
   save,
+  onDictationActiveChange,
 }: StoryIssueRowProps): React.JSX.Element {
   const setDescription = (description: string): void =>
     onChange({ ...issue, description })
@@ -49,6 +53,7 @@ export default function StoryIssueRow({
     value: issue.description,
     onChange: setDescription,
   })
+  useReportDictationActive(dictation.active, onDictationActiveChange)
 
   return (
     <Card className="flex flex-col gap-4 p-6">
