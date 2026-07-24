@@ -306,11 +306,30 @@ test.describe('Contacts activity filters', () => {
         },
       ])
       await expect(build).toContainText('(0)', { timeout: 30_000 })
+      // ENG-10781: a settled zero-match count disables Build end-to-end.
+      await expect(build).toBeDisabled()
     })
 
     const listName = `E2E activity ${Date.now()}`
 
     await test.step('save: create payload asserted field-by-field', async () => {
+      // This org has no interaction rows, so every activity list resolves to
+      // zero people and the ENG-10781 gate would block saving outright. Stub
+      // a nonzero count for the save leg — the payload contract, not the
+      // number, is what the rest of this spec pins. Toggle Not Home off/on so
+      // the debounced payload changes and the count refetches through the
+      // stub.
+      const outcomeGroups = activityPillGroup(wizard, 'Activity')
+      await selectActivityPill(outcomeGroups.nth(1), 'Not Home')
+      await page.route(/\/api\/v1\/contacts\/count(\?|$)/, (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({ json: { count: 3 } })
+          : route.fallback(),
+      )
+      await selectActivityPill(outcomeGroups.nth(1), 'Not Home')
+      await expect(build).toContainText('(3)', { timeout: 30_000 })
+      await expect(build).toBeEnabled()
+
       await build.click()
       await expect(wizard.getByText('Name your list')).toBeVisible({
         timeout: 10_000,
@@ -339,10 +358,11 @@ test.describe('Contacts activity filters', () => {
             actions: ['not_home'],
           },
         ],
-        // ENG-10769: the wizard persists its resolved live count (0 here —
-        // this org has no matching interactions) so the outreach page's
-        // Voters column stops defaulting to 0 for real lists.
-        voterCount: 0,
+        // ENG-10769: the wizard persists its resolved live count (the
+        // stubbed 3 above — the real org would resolve 0, which ENG-10781
+        // now blocks from saving) so the outreach page's Voters column
+        // stops defaulting to 0 for real lists.
+        voterCount: 3,
       })
     })
 
