@@ -102,6 +102,10 @@ export class ComplianceStateService extends createPrismaBase(MODELS.Campaign) {
         : null,
       websiteId: website?.id ?? null,
       peerlyVerificationId: tcrCompliance?.peerlyCvVerificationId ?? null,
+      internalTestingApprovedAt: tcrCompliance?.internalTestingApprovedAt
+        ? formatISO(tcrCompliance.internalTestingApprovedAt)
+        : null,
+      hasComplianceRecord: Boolean(tcrCompliance),
       ...cvState,
     }
   }
@@ -180,12 +184,21 @@ export const deriveComplianceStage = (
   campaign: Pick<Campaign, 'formattedAddress'>,
   website: Pick<Website, 'status'> | null,
   domain: Pick<Domain, 'status' | 'registrantVerifiedAt' | 'createdAt'> | null,
-  tcrCompliance: Pick<TcrCompliance, 'status'> | null,
+  tcrCompliance: Pick<
+    TcrCompliance,
+    'status' | 'internalTestingApprovedAt'
+  > | null,
 ): ComplianceStage => {
   if (!tcrCompliance) {
     return campaign.formattedAddress
       ? ComplianceStage.needs_filing
       : ComplianceStage.needs_profile
+  }
+
+  // Internal-testing approvals have no domain/website/Peerly footprint, so
+  // the live-website precondition below would misreport them as pending.
+  if (tcrCompliance.internalTestingApprovedAt) {
+    return ComplianceStage.tcr_approved
   }
 
   if (

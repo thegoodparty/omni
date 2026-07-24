@@ -67,5 +67,10 @@ model TcrCompliance {
   pinDeliveryDestination String?   @map("pin_delivery_destination")
   pinSentDetectedAt      DateTime? @map("pin_sent_detected_at")
 
+  // Marks a row created by the admin "treat as 10DLC approved (internal
+  // testing)" checkbox: status is 'approved' with no Peerly identity, so UI
+  // gates pass but real P2P sends stay blocked. Internal accounts only.
+  internalTestingApprovedAt DateTime? @map("internal_testing_approved_at")
+
   @@map("tcr_compliance")
 }

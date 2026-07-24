@@ -47,10 +47,19 @@ const mockDomain = (
 })
 
 const mockTcr = (
-  overrides?: Partial<Pick<TcrCompliance, 'status' | 'peerlyIdentityId'>>,
-): Pick<TcrCompliance, 'status' | 'peerlyIdentityId'> => ({
+  overrides?: Partial<
+    Pick<
+      TcrCompliance,
+      'status' | 'peerlyIdentityId' | 'internalTestingApprovedAt'
+    >
+  >,
+): Pick<
+  TcrCompliance,
+  'status' | 'peerlyIdentityId' | 'internalTestingApprovedAt'
+> => ({
   status: TcrComplianceStatus.submitted,
   peerlyIdentityId: null,
+  internalTestingApprovedAt: null,
   ...overrides,
 })
 
@@ -191,6 +200,22 @@ describe('deriveComplianceStage', () => {
         mockTcr({
           status: TcrComplianceStatus.approved,
           peerlyIdentityId: 'peerly-123',
+        }),
+      ),
+    ).toBe(ComplianceStage.tcr_approved)
+  })
+
+  // Internal-testing approvals have no domain/website/Peerly footprint, so
+  // the live-website precondition must not downgrade them.
+  it('returns tcr_approved for an internal-testing approval with no domain or website', () => {
+    expect(
+      deriveComplianceStage(
+        mockCampaign(),
+        null,
+        null,
+        mockTcr({
+          status: TcrComplianceStatus.approved,
+          internalTestingApprovedAt: new Date(),
         }),
       ),
     ).toBe(ComplianceStage.tcr_approved)
