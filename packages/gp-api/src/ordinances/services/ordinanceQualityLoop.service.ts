@@ -443,15 +443,15 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
             ...this.runningFence(record.id, loopRunId),
             updatedAt: record.updatedAt,
           },
-          // Deliberately not touching the record's qc_*_tokens here: the loop's
-          // spend (this QC pass + any reviser step) accumulates on the iteration
-          // row below, which is its home. Those columns are the MANUAL QC run's
-          // home, so incrementing them here would double-count loop QC in a
-          // full-draft total. A unified per-draft rollup on the record is a
-          // separate follow-up.
+          // The loop's own record-level rollup (its own columns, distinct from
+          // the MANUAL run's qc_*_tokens). The same spend is also on the
+          // iteration row below as per-pass detail; a full-draft total sums the
+          // record's flow + qc + loop columns, never these plus the rows.
           data: {
             qualityReport: generated.report,
             qualityLoopUpdatedAt: new Date(),
+            loopInputTokens: { increment: generated.inputTokens },
+            loopOutputTokens: { increment: generated.outputTokens },
           },
         })
         if (fenced.count === 0) {
@@ -653,6 +653,8 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
             ...(mergedSources ? { draftSources: mergedSources } : {}),
             qualityLoopIteration: row.iteration + 1,
             qualityLoopUpdatedAt: new Date(),
+            loopInputTokens: { increment: revision.inputTokens },
+            loopOutputTokens: { increment: revision.outputTokens },
           },
         })
         if (fenced.count === 0) {

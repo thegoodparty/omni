@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { estimateCostUsd, rateForModel } from './ordinanceCost.util'
+import {
+  draftTokenTotals,
+  estimateCostUsd,
+  rateForModel,
+} from './ordinanceCost.util'
 
 describe('ordinanceCost.util', () => {
   it('matches a full model id to its family rate by substring', () => {
@@ -34,5 +38,27 @@ describe('ordinanceCost.util', () => {
       5,
     )
     expect(estimateCostUsd('claude-sonnet-4-6', 0, 0)).toBe(0)
+  })
+
+  it('rolls up the per-draft total from flow + manual QC + loop columns', () => {
+    const totals = draftTokenTotals({
+      flowInputTokens: 700_000,
+      flowOutputTokens: 18_000,
+      qcInputTokens: 20_000,
+      qcOutputTokens: 1_500,
+      loopInputTokens: 40_000,
+      loopOutputTokens: 3_000,
+    })
+    // Sums each split across all three sources; iteration-row tokens are NOT
+    // part of this (they'd double-count the loop columns).
+    expect(totals).toEqual({ inputTokens: 760_000, outputTokens: 22_500 })
+    // And it prices through the same helper.
+    expect(
+      estimateCostUsd(
+        'claude-sonnet-4-6',
+        totals.inputTokens,
+        totals.outputTokens,
+      ),
+    ).toBeCloseTo(760_000e-6 * 3 + 22_500e-6 * 15, 6)
   })
 })

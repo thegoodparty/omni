@@ -983,6 +983,29 @@ describe('handleStep qc', () => {
     expect(updated.qualityLoopStatus).toBe(OrdinanceQualityLoopStatus.failed)
   })
 
+  it('accumulates the QC step token split on the record loop columns', async () => {
+    const runId = randomUUID()
+    const ordinance = await seedRunningLoop(runId, { qualityLoopIteration: 0 })
+    generateMock.mockImplementation(async (record: Ordinance) => ({
+      report: buildReport(qualityReportInputHash(record)),
+      degradedCheckIds: [],
+      tokens: 111,
+      inputTokens: 100,
+      outputTokens: 11,
+      model: 'claude-sonnet-4-6',
+    }))
+
+    const result = await loop.handleStep(
+      qcMessage(ordinance, runId, { iteration: 0 }),
+    )
+
+    expect(result).toBe(true)
+    const updated = await reload(ordinance.id)
+    // The loop's own per-draft rollup, distinct from the manual qc_* columns.
+    expect(updated.loopInputTokens).toBe(100)
+    expect(updated.loopOutputTokens).toBe(11)
+  })
+
   it('restores the draftSources snapshot alongside the best iteration', async () => {
     const runId = randomUUID()
     const gradedSources = [{ id: 's0', title: 'N.C.G.S. § 160A-174' }]
@@ -1402,6 +1425,9 @@ describe('handleStep revise', () => {
     revisions: [{ checkId: 'clarity', note: 'Tightened definitions' }],
     sourcesToAdd: [{ id: 'cmp-1', title: 'Austin STR ordinance' }],
     tokens: 20,
+    inputTokens: 16,
+    outputTokens: 4,
+    model: 'claude-sonnet-4-6',
   }
 
   it('applies the revision, bumps the frontier, and enqueues the next qc', async () => {

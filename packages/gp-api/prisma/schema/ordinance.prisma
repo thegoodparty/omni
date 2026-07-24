@@ -59,10 +59,17 @@ model Ordinance {
   flowOutputTokens Int @default(0) @map("flow_output_tokens")
 
   // Cumulative token usage of the manual quality-report run (runQualityReport),
-  // accumulated across re-runs. The improvement loop keeps its own tokens on
-  // OrdinanceQualityIteration rows, so a full-draft total is flow + QC + loop.
+  // accumulated across re-runs.
   qcInputTokens  Int @default(0) @map("qc_input_tokens")
   qcOutputTokens Int @default(0) @map("qc_output_tokens")
+
+  // Cumulative token usage of the improvement loop (its QC + reviser steps),
+  // accumulated across iterations. This is the canonical per-draft loop rollup;
+  // OrdinanceQualityIteration.tokens keeps the same spend as per-pass detail
+  // (feeding the iterations endpoint's totalTokens), so a full-draft total sums
+  // the record's flow + QC + loop columns — never these plus the iteration rows.
+  loopInputTokens  Int @default(0) @map("loop_input_tokens")
+  loopOutputTokens Int @default(0) @map("loop_output_tokens")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
