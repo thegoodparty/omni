@@ -34,6 +34,8 @@ import {
 } from '../../../shared/util/date.util'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
+// Internal staff/test records would page as real incidents — exclude them.
+import { INTERNAL_EMAIL_SUFFIXES } from '../../../users/util/users.util'
 
 // A Pro record still `submitted` with no Peerly identity this long after its
 // agent kickoff is stuck: every automated path (in-run retries, resume sweep
@@ -49,11 +51,6 @@ const AWAITING_PIN_NUDGE_DAYS = 7
 // rejected post redelivers into the same failure — so truncate by character
 // budget (with headroom for the "…and N more" marker), never by row count.
 const SECTION_TEXT_BUDGET = 2800
-
-// Staff walk this flow in prod with @goodparty.org accounts (isTestUser only
-// covers the seeded @test.goodparty.org domain), and their intentionally
-// stuck records would page as real incidents — exclude both domains.
-const INTERNAL_EMAIL_SUFFIXES = ['@goodparty.org', '@test.goodparty.org']
 
 const reportableCampaign = {
   isPro: true,

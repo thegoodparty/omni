@@ -27,7 +27,7 @@ import {
   QueueType,
   TcrComplianceStatusCheckMessage,
 } from '../../../queue/queue.types'
-import { getUserFullName } from '../../../users/util/users.util'
+import { getUserFullName, isInternalUser } from '../../../users/util/users.util'
 import {
   BrandApprovalResult,
   PeerlyCvVerificationStatus,
@@ -112,6 +112,11 @@ export const PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES = 6 * 60
 const YYYY_MM_DD = /^\d{4}-\d{2}-\d{2}$/
 
 const NON_PROD_BYPASS_CV_TOKEN = 'non-prod-bypass-cv-token'
+
+// Filler for the NOT NULL business columns on an internal-testing approval
+// row — the row never reaches Peerly (no identity is ever minted for it), so
+// these values are display-only.
+const INTERNAL_TESTING_PLACEHOLDER = 'internal-testing'
 
 type PeerlySubmissionResult = {
   peerlyIdentityId: string
@@ -564,6 +569,56 @@ export class CampaignTcrComplianceService extends createPrismaBase(
     return this.model.findUnique({
       where: { campaignId },
     })
+  }
+
+  // Admin-granted "treat as 10DLC approved" for internal accounts: status is
+  // approved so every UI gate passes, but no Peerly identity ever exists, so
+  // the P2P send gate (requirePeerlyIdentityId) keeps real sends blocked.
+  async grantInternalTestingApproval(user: User, campaign: Campaign) {
+    if (!isInternalUser({ email: user.email })) {
+      throw new BadRequestException(
+        'Internal testing approval is limited to internal GoodParty accounts',
+      )
+    }
+
+    const existing = await this.fetchByCampaignId(campaign.id)
+    if (existing?.internalTestingApprovedAt) {
+      return existing
+    }
+    if (existing) {
+      throw new ConflictException(
+        'Campaign already has a real TCR compliance record',
+      )
+    }
+
+    return this.model.create({
+      data: {
+        campaignId: campaign.id,
+        status: TcrComplianceStatus.approved,
+        internalTestingApprovedAt: new Date(),
+        ein: INTERNAL_TESTING_PLACEHOLDER,
+        postalAddress: INTERNAL_TESTING_PLACEHOLDER,
+        committeeName: INTERNAL_TESTING_PLACEHOLDER,
+        websiteDomain: INTERNAL_TESTING_PLACEHOLDER,
+        filingUrl: INTERNAL_TESTING_PLACEHOLDER,
+        phone: INTERNAL_TESTING_PLACEHOLDER,
+        email: user.email,
+        officeLevel: OfficeLevel.local,
+      },
+    })
+  }
+
+  async revokeInternalTestingApproval(campaignId: number) {
+    const existing = await this.fetchByCampaignId(campaignId)
+    if (!existing) {
+      return
+    }
+    if (!existing.internalTestingApprovedAt) {
+      throw new ConflictException(
+        'Campaign has a real TCR compliance record; refusing to delete it',
+      )
+    }
+    await this.model.delete({ where: { id: existing.id } })
   }
 
   // TODO: Refactor this flow to persist the Peerly Identity ID and other

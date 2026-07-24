@@ -29,6 +29,16 @@ export function isAdmin(user: User) {
 export const isTestUser = (params: { email: string }) =>
   params.email.endsWith('@test.goodparty.org')
 
+// Staff walk product flows in prod with @goodparty.org accounts (isTestUser
+// only covers the seeded @test.goodparty.org domain) — both domains count as
+// internal.
+export const INTERNAL_EMAIL_SUFFIXES = ['@goodparty.org', '@test.goodparty.org']
+
+export const isInternalUser = (params: { email: string }) =>
+  INTERNAL_EMAIL_SUFFIXES.some((suffix) =>
+    params.email.toLowerCase().endsWith(suffix),
+  )
+
 export const isTestCampaign = (
   campaign: { user?: { email?: string | null } | null } | null,
 ): boolean => {
