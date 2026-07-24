@@ -124,3 +124,4 @@ district resolves to NC/DC/WY, or set `organization.override_district_id`
 - npm
 - Postgres for local dev. The DB needs `green` and `public` schemas (`schemas = ["green", "public"]` in `prisma/schema/schema.prisma`); `npm run migrate:dev` creates them.
 - Required env vars: `DATABASE_URL`, `PEOPLE_API_S2S_SECRET`, `PORT` (code default 3000; `.env.example` sets 3002), `S2S_ALLOW_LOCALHOST` (dev only). See `.env.example`.
+- `PEOPLE_STATE_ENUM` (optional, default `true`): compares `v."State"` as the `USState` enum. Set to `false` only when pointing at a cluster whose `"State"` column is plain text; the default enum comparison issues type-mismatch queries against a text column.
