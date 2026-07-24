@@ -320,7 +320,9 @@ test.describe('Contacts activity filters', () => {
       // the debounced payload changes and the count refetches through the
       // stub.
       const outcomeGroups = activityPillGroup(wizard, 'Activity')
-      await selectActivityPill(outcomeGroups.nth(1), 'Not Home')
+      const notHomePill = activityPill(outcomeGroups.nth(1), 'Not Home')
+      await notHomePill.click()
+      await expect(notHomePill).toHaveAttribute('data-state', 'off')
       await page.route(/\/api\/v1\/contacts\/count(\?|$)/, (route) =>
         route.request().method() === 'POST'
           ? route.fulfill({ json: { count: 3 } })
