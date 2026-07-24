@@ -163,7 +163,7 @@ export default function CreateListWizard({
   // unfiltered and the cached total would render on the build button. The
   // voter-file count deliberately fires with zero selections (ENG-10751):
   // the disabled build button still shows the live unfiltered total.
-  const { count, isLoading, isStale, isCapError, errorMessage } =
+  const { count, isLoading, isStale, isError, isCapError, errorMessage } =
     useListWizardCount(
       backendPayload,
       activeBranch === 'voterFile' ||
@@ -174,8 +174,10 @@ export default function CreateListWizard({
   // it can't build anything. Gated on !isLoading && !isStale so a payload
   // still in-flight/debouncing (buildLabel below already hides the number in
   // that window) can't flash the CTA disabled-then-enabled as the trailing
-  // count lands; only a settled zero counts.
-  const isZeroMatch = !isLoading && !isStale && count === 0
+  // count lands; only a settled zero counts. !isError because a failed
+  // refetch retains the previous cached count (possibly 0) with
+  // isLoading/isStale both false — an errored count is unknown, not zero.
+  const isZeroMatch = !isLoading && !isStale && !isError && count === 0
 
   const handleNext = () => {
     if (stepName === 'branch' && branch) {

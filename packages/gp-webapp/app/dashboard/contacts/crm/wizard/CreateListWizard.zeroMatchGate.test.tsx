@@ -180,6 +180,23 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('keeps the build CTA enabled when the count query errors with a retained zero', async () => {
+    // A failed refetch retains the previous cached count (possibly 0) with
+    // isLoading/isStale both false — an errored count is unknown, not zero,
+    // so the zero-match gate must not fire on it.
+    mockedUseListWizardCount.mockReturnValue(
+      countResult({ count: 0, isError: true }),
+    )
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await reachConditionsStepWithSelection(user)
+
+    expect(
+      screen.getByRole('button', { name: /build your list/i }),
+    ).toBeEnabled()
+  })
+
   it('enables the build CTA for the activity branch once a valid selection resolves to a nonzero count', async () => {
     mockedUseListWizardCount.mockReturnValue(countResult({ count: 17 }))
     const user = userEvent.setup()

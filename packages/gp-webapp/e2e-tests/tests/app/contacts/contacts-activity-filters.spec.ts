@@ -313,22 +313,21 @@ test.describe('Contacts activity filters', () => {
     const listName = `E2E activity ${Date.now()}`
 
     await test.step('save: create payload asserted field-by-field', async () => {
-      // This org has no interaction rows, so every activity list resolves to
-      // zero people and the ENG-10781 gate would block saving outright. Stub
-      // a nonzero count for the save leg — the payload contract, not the
-      // number, is what the rest of this spec pins. Toggle Not Home off/on so
-      // the debounced payload changes and the count refetches through the
-      // stub.
+      // This org resolves the not_home refinement to zero people and the
+      // ENG-10781 gate blocks saving a zero-match list outright. Stub a
+      // nonzero count for the save leg — the payload contract, not the
+      // number, is what the rest of this spec pins. The added outcome must
+      // be one this spec has never counted before: the app's React Query
+      // staleTime is 5 minutes, so a payload that was already counted
+      // (e.g. toggling the same pill off and on) serves the cached zero
+      // and the stub never fires.
       const outcomeGroups = activityPillGroup(wizard, 'Activity')
-      const notHomePill = activityPill(outcomeGroups.nth(1), 'Not Home')
-      await notHomePill.click()
-      await expect(notHomePill).toHaveAttribute('data-state', 'off')
       await page.route(/\/api\/v1\/contacts\/count(\?|$)/, (route) =>
         route.request().method() === 'POST'
           ? route.fulfill({ json: { count: 3 } })
           : route.fallback(),
       )
-      await selectActivityPill(outcomeGroups.nth(1), 'Not Home')
+      await selectActivityPill(outcomeGroups.nth(1), 'Answered')
       await expect(build).toContainText('(3)', { timeout: 30_000 })
       await expect(build).toBeEnabled()
 
@@ -357,7 +356,7 @@ test.describe('Contacts activity filters', () => {
           {
             outreachType: 'doorKnocking',
             outreachId: null,
-            actions: ['not_home'],
+            actions: ['not_home', 'answered'],
           },
         ],
         // ENG-10769: the wizard persists its resolved live count (the
@@ -379,7 +378,7 @@ test.describe('Contacts activity filters', () => {
         detailSheet.getByText(
           'Text activity from any text campaign with outcome No Response ' +
             'and Door Knocking activity from any door knocking campaign ' +
-            'with outcome Not Home.',
+            'with outcome Not Home or Answered.',
         ),
       ).toBeVisible({ timeout: 30_000 })
       await expect(statTileValue(detailSheet, 'People')).toHaveText('0', {
