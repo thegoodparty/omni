@@ -1,10 +1,20 @@
-import type { CampaignStorySection } from './components/CampaignStoryCard'
+import type { CampaignStory } from '@goodparty_org/contracts'
+
+export type CampaignStoryField = keyof CampaignStory
+
+export interface CampaignStorySection {
+  id: CampaignStoryField
+  title: string
+  description: string
+  placeholder: string
+  // Default example shown in the "Here's an example" accordion.
+  example: string
+}
 
 // Single source of truth for the textarea Campaign Story prompts. `why` is not
-// here — it edits the website bio (shared with Pro-upgrade) via its own
-// RichEditor card (CampaignStoryWhyCard); only `background` is a plain-text
-// story field. The story page renders the full prompt UX (title + description +
-// placeholder); the plan-tab review uses just id + title.
+// here — it edits the website bio (shared with Pro-upgrade); only `background`
+// is a plain-text story field. The plan-tab review (`CampaignPlanStoryGate`)
+// uses just id + title.
 export const CAMPAIGN_STORY_SECTIONS: CampaignStorySection[] = [
   {
     id: 'background',

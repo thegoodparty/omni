@@ -23,13 +23,18 @@ import { ORG_SLUG_COOKIE } from '@shared/organizations/constants'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { identifyUser } from '@shared/utils/analytics'
 import { reportErrorToSentry } from '@shared/sentry'
+import { useSnackbar } from 'helpers/useSnackbar'
 import { numberFormatter } from 'helpers/numberHelper'
 import type { Campaign } from 'helpers/types'
 import { prewarmCommunityEvents } from '../success/hooks/useCommunityEvents'
 import { prewarmStrategicLandscape } from '../success/hooks/useStrategicLandscape'
 import { useCampaignStrategyFlag } from '@shared/experiments/campaignStrategyFlag'
 import { useCampaignStoryFlag } from '@shared/experiments/campaignStoryFlag'
-import { ONBOARDING_STEPS, firstOnboardingStepId } from './onboardingConfig'
+import {
+  ONBOARDING_STEPS,
+  firstOnboardingStepId,
+  isStoryStepId,
+} from './onboardingConfig'
 import {
   getVisibleOnboardingSteps,
   resolvePostPledgeRoute,
@@ -41,7 +46,18 @@ import { PledgeStep } from './PledgeStep'
 import OnboardingTopBar from '../shared/OnboardingTopBar'
 import { WhyThisMatters } from './WhyThisMatters'
 import { localNewsQueryOptions } from './LocalNewsSourcesSection'
-import OnboardingCampaignStoryStep from './OnboardingCampaignStoryStep'
+import StoryIntakeCard from './StoryIntakeCard'
+import StoryIssuesCard from './StoryIssuesCard'
+import {
+  STORY_WHY_QUESTION,
+  STORY_BACKGROUND_QUESTION,
+  WHY_EXAMPLE_PLACEHOLDER,
+  BACKGROUND_EXAMPLE_PLACEHOLDER,
+} from './storyStepCopy'
+import {
+  useOnboardingStoryDraft,
+  type OnboardingStoryDraft,
+} from './useOnboardingStoryDraft'
 import { RadioCardGroup, type RadioCardOption } from './RadioCardGroup'
 import { MajorPartyBlockedAlert } from '../shared/partisanParty'
 import type {
@@ -194,7 +210,7 @@ interface StepBodyProps {
   >
   p2vOfficeName: string | null
   skipP2vReveal: boolean
-  onStoryCompleteChange: (complete: boolean) => void
+  storyDraft: OnboardingStoryDraft
 }
 
 const StepBody = ({
@@ -208,7 +224,7 @@ const StepBody = ({
   onP2vMetricsResolved,
   p2vOfficeName,
   skipP2vReveal,
-  onStoryCompleteChange,
+  storyDraft,
 }: StepBodyProps): React.JSX.Element | null => {
   if (activeStep.id === 'welcome') {
     return (
@@ -303,9 +319,49 @@ const StepBody = ({
     )
   }
 
-  if (activeStep.id === 'campaign-story') {
+  if (isStoryStepId(activeStep.id)) {
+    if (storyDraft.isError) {
+      return (
+        <p className="text-sm text-destructive">
+          We couldn&apos;t load your saved story. Check your connection and
+          refresh the page to try again.
+        </p>
+      )
+    }
+    if (!storyDraft.isReady) {
+      return (
+        <p className="text-sm text-muted-foreground">Loading your story…</p>
+      )
+    }
+    if (activeStep.id === 'campaign-story-why') {
+      return (
+        <StoryIntakeCard
+          question={STORY_WHY_QUESTION}
+          examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
+          value={storyDraft.why}
+          onChange={storyDraft.setWhy}
+          rewriteField="why"
+          analyticsLabel="onboarding_story_why"
+        />
+      )
+    }
+    if (activeStep.id === 'campaign-story-background') {
+      return (
+        <StoryIntakeCard
+          question={STORY_BACKGROUND_QUESTION}
+          examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
+          value={storyDraft.background}
+          onChange={storyDraft.setBackground}
+          rewriteField="background"
+          analyticsLabel="onboarding_story_background"
+        />
+      )
+    }
     return (
-      <OnboardingCampaignStoryStep onCompleteChange={onStoryCompleteChange} />
+      <StoryIssuesCard
+        issues={storyDraft.issues}
+        onChange={storyDraft.setIssues}
+      />
     )
   }
 
@@ -322,6 +378,7 @@ export default function OnboardingFlow({
   campaign?: Campaign | null
 } = {}): React.JSX.Element {
   const router = useRouter()
+  const { errorSnackbar } = useSnackbar()
   const [contextCampaign] = useCampaign()
   const campaign = contextCampaign ?? initialCampaign
   const [user] = useUser()
@@ -347,9 +404,7 @@ export default function OnboardingFlow({
       ? ONBOARDING_STEPS
       : [
           welcomeStep,
-          ...laterOnboardingSteps.filter(
-            (step) => step.id !== 'campaign-story',
-          ),
+          ...laterOnboardingSteps.filter((step) => !isStoryStepId(step.id)),
         ]
   // Only hydrate from campaign if explicitly resuming (not on first onboarding visit)
   // If the router has ?resume=1 or similar, you could use that; for now, always start fresh
@@ -359,10 +414,17 @@ export default function OnboardingFlow({
   )
   const [isSavingOffice, setIsSavingOffice] = useState(false)
   const [isHydratingOffice, setIsHydratingOffice] = useState(false)
-  // Reported by OnboardingCampaignStoryStep as its underlying cards resolve.
-  // Gates the campaign-story step's footer label and whether continuing
-  // fires plan generation.
-  const [storyComplete, setStoryComplete] = useState(false)
+  // The three story steps share one in-memory draft; nothing persists until the
+  // final step's Continue. Gated on the flag AND on actually being on a story
+  // step: a new candidate's campaign is created mid-onboarding (office step), so
+  // fetching the story earlier (e.g. on the welcome step) would 404/allow no
+  // campaign and leave the draft stuck in its error state by the time they
+  // arrive. Fetching on entry to the first story step mirrors the old
+  // mount-time fetch.
+  const storyDraft = useOnboardingStoryDraft(
+    campaignStoryEnabled && isStoryStepId(activeStepId),
+  )
+  const [isPersistingStory, setIsPersistingStory] = useState(false)
   const isAdvancingRef = useRef(false)
   const partyDesignationBlockedFiredRef = useRef(false)
   // Guards against a double-fire of the strategic-landscape pre-warm (e.g. a
@@ -410,6 +472,7 @@ export default function OnboardingFlow({
   const isP2vBlocking = activeStep.id === 'path-to-victory' && isP2vLoading
   const isOfficeHydrationBlocking =
     activeStep.id === 'office-selection' && isHydratingOffice
+  const isStoryStep = isStoryStepId(activeStep.id)
   const p2vOfficeName =
     answers.structuredOffice?.positionName ||
     liveCampaign?.positionName ||
@@ -489,7 +552,8 @@ export default function OnboardingFlow({
       'party-affiliation': EVENTS.OnboardingV2.PartyDesignationViewed,
       'office-selection': EVENTS.OnboardingV2.OfficeViewed,
       'path-to-victory': EVENTS.OnboardingV2.VotesNeededViewed,
-      'campaign-story': EVENTS.OnboardingV2.CampaignStoryViewed,
+      // Fire the story-viewed funnel event once, on the first story step.
+      'campaign-story-why': EVENTS.OnboardingV2.CampaignStoryViewed,
       pledge: EVENTS.OnboardingV2.PledgeViewed,
     }
     const viewedEvent = viewedEventByStep[activeStepId]
@@ -576,7 +640,22 @@ export default function OnboardingFlow({
     setAnswers((currentAnswers) => ({ ...currentAnswers, ...answerPatch }))
   }
 
+  // The earliest story step still missing an answer — where a candidate should
+  // resume. All-answered falls back to the last story step.
+  const firstUnansweredStoryStepId = (): OnboardingStepId => {
+    if (!storyDraft.why.trim()) return 'campaign-story-why'
+    if (!storyDraft.background.trim()) return 'campaign-story-background'
+    return 'campaign-story-issues'
+  }
+
   const goBack = () => {
+    // Skipping jumps straight from a story step to the pledge, so Back from the
+    // pledge must return to the story question the candidate left unanswered —
+    // not step them back through each story question one at a time.
+    if (activeStep.id === 'pledge' && campaignStoryEnabled) {
+      setActiveStepId(firstUnansweredStoryStepId())
+      return
+    }
     if (previousStep) {
       setActiveStepId(previousStep.id)
     }
@@ -978,27 +1057,6 @@ export default function OnboardingFlow({
       const ok = await persistPartyAffiliation(answers.partyAffiliation)
       if (!ok) return
     }
-    if (activeStep.id === 'campaign-story') {
-      if (storyComplete && !storyGenFiredRef.current) {
-        storyGenFiredRef.current = true
-        // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
-        // raceId) and prewarmStrategicLandscape swallows that, so a candidate
-        // is never blocked from reaching the pledge.
-        void prewarmStrategicLandscape()
-        trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
-          campaignId: liveCampaign?.id ?? campaign?.id,
-        })
-      } else if (
-        !storyComplete &&
-        !storyGenFiredRef.current &&
-        !storySkippedFiredRef.current
-      ) {
-        storySkippedFiredRef.current = true
-        trackEvent(EVENTS.OnboardingV2.CampaignStorySkipped, {
-          campaignId: liveCampaign?.id ?? campaign?.id,
-        })
-      }
-    }
     if (activeStep.id === 'pledge') {
       const effectiveCampaign = campaign ?? liveCampaign
       if (!effectiveCampaign) return
@@ -1025,6 +1083,97 @@ export default function OnboardingFlow({
         if (updated === false) return
       }
       setActiveStepId(nextStep.id)
+    }
+  }
+
+  // Skip and the final Continue both leave the story for the pledge (pledge is
+  // the fixed successor of the story block). currentStep is navigation state
+  // only, so a failed update mustn't block the move.
+  const advanceToPledge = async (): Promise<void> => {
+    if (campaign) {
+      await updateCampaign([
+        { key: 'data.currentStep', value: 'pledge' },
+        { key: 'data.onboarding', value: answers },
+      ])
+    }
+    setActiveStepId('pledge')
+  }
+
+  const fireStorySkipped = (): void => {
+    // Skipped fires at most once; independent of storyGenFiredRef so a
+    // skip-then-complete on a later visit can still upgrade to Completed.
+    if (!storyGenFiredRef.current && !storySkippedFiredRef.current) {
+      storySkippedFiredRef.current = true
+      trackEvent(EVENTS.OnboardingV2.CampaignStorySkipped, {
+        campaignId: liveCampaign?.id ?? campaign?.id,
+      })
+    }
+  }
+
+  // Continue on a story step. Why/Background just advance (nothing is saved);
+  // the final issues step persists all three answers, then fires generation +
+  // Completed (if the whole story is answered) or Skipped (partial), and moves
+  // to the pledge.
+  const handleStoryContinue = async (): Promise<void> => {
+    if (isAdvancingRef.current) return
+    isAdvancingRef.current = true
+    try {
+      if (activeStep.id !== 'campaign-story-issues') {
+        if (nextStep) {
+          if (campaign) {
+            const updated = await updateCampaign([
+              { key: 'data.currentStep', value: nextStep.id },
+              { key: 'data.onboarding', value: answers },
+            ])
+            if (updated === false) return
+          }
+          setActiveStepId(nextStep.id)
+        }
+        return
+      }
+
+      setIsPersistingStory(true)
+      let saved = false
+      try {
+        saved = await storyDraft.persist()
+      } finally {
+        setIsPersistingStory(false)
+      }
+      if (!saved) {
+        errorSnackbar('Could not save your story. Please try again.')
+        return
+      }
+
+      if (storyDraft.isComplete) {
+        if (!storyGenFiredRef.current) {
+          storyGenFiredRef.current = true
+          // Fire-and-forget: the endpoint 400s for manual-office campaigns (no
+          // raceId) and prewarmStrategicLandscape swallows that, so a candidate
+          // is never blocked from reaching the pledge.
+          void prewarmStrategicLandscape()
+          trackEvent(EVENTS.OnboardingV2.CampaignStoryCompleted, {
+            campaignId: liveCampaign?.id ?? campaign?.id,
+          })
+        }
+      } else {
+        fireStorySkipped()
+      }
+      await advanceToPledge()
+    } finally {
+      isAdvancingRef.current = false
+    }
+  }
+
+  // Skip from any story step abandons all three (nothing is saved) and jumps to
+  // the pledge.
+  const handleStorySkip = async (): Promise<void> => {
+    if (isAdvancingRef.current) return
+    isAdvancingRef.current = true
+    try {
+      fireStorySkipped()
+      await advanceToPledge()
+    } finally {
+      isAdvancingRef.current = false
     }
   }
 
@@ -1102,7 +1251,7 @@ export default function OnboardingFlow({
                 onP2vMetricsResolved={handleP2vMetricsResolved}
                 p2vOfficeName={p2vOfficeName}
                 skipP2vReveal={hasResolvedPathToVictory}
-                onStoryCompleteChange={setStoryComplete}
+                storyDraft={storyDraft}
               />
             </section>
 
@@ -1126,7 +1275,10 @@ export default function OnboardingFlow({
                     exactly what that takes.
                   </WhyThisMatters>
                 ) : (
-                  <WhyThisMatters text={activeStep.whyThisMatters} />
+                  <WhyThisMatters
+                    title={isStoryStep ? 'Why we ask' : undefined}
+                    text={activeStep.whyThisMatters}
+                  />
                 )}
               </aside>
             ) : null}
@@ -1145,17 +1297,18 @@ export default function OnboardingFlow({
           >
             Back
           </Button>
-          {activeStep.id === 'campaign-story' && nextStep ? (
-            // Story is skippable, so Skip always advances; Continue is the
-            // "I finished my story" path and unlocks once all three answers
-            // are saved. Both call goNext, which fires Completed vs Skipped
-            // analytics (and generation) from storyComplete.
+          {isStoryStep ? (
+            // Each story step is skippable. Continue always advances (Why /
+            // Background just move on; the final issues step persists all three
+            // and fires generation). Skip abandons the whole story and jumps to
+            // the pledge. Continue waits for the draft to seed.
             <div className="flex items-center gap-3">
               <Button
                 type="button"
                 variant="ghost"
                 size="large"
-                onClick={goNext}
+                onClick={() => void handleStorySkip()}
+                disabled={isPersistingStory}
               >
                 Skip
               </Button>
@@ -1163,8 +1316,10 @@ export default function OnboardingFlow({
                 type="button"
                 variant="default"
                 size="large"
-                onClick={goNext}
-                disabled={!storyComplete}
+                onClick={() => void handleStoryContinue()}
+                disabled={
+                  !storyDraft.isReady || storyDraft.isError || isPersistingStory
+                }
               >
                 Continue
               </Button>
