@@ -469,13 +469,13 @@ export class OrdinanceQualityLoopService extends createPrismaBase(
             draftBody: record.draftBody ?? '',
             draftSources: record.draftSources ?? Prisma.DbNull,
             report: generated.report,
-            model: QUALITY_LOOP_MODELS[0],
+            model: generated.model,
             tokens: generated.tokens,
           },
           update: {
             report: generated.report,
             qcAttempts: attempts,
-            model: QUALITY_LOOP_MODELS[0],
+            model: generated.model,
             tokens: (row?.tokens ?? 0) + generated.tokens,
           },
         })
