@@ -314,7 +314,15 @@ jobs:
       contents: read
       id-token: write
     env:
-      BASE_URL: ${{ needs.deploy.outputs.url }}
+      # develop pushes test through the stable alias, not the raw deploy URL:
+      # the deploy job aliased this exact deployment to dev.goodparty.org
+      # before E2E starts (and the workflow's concurrency group queues any
+      # newer develop deploy until this run finishes, so the alias can't move
+      # mid-run). The raw *-good-party.vercel.app URL is rejected by the
+      # HTTP-referer-restricted Google Maps key (RefererNotAllowedMapError),
+      # which kills Places autocomplete — the pro-upgrade filing-details step
+      # depends on it. PRs keep the raw preview URL.
+      BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -394,7 +402,9 @@ jobs:
       pull-requests: write
       id-token: write
     env:
-      BASE_URL: ${{ needs.deploy.outputs.url }}
+      # Display-only (results comment / step summary): mirror the URL the
+      # shards actually tested — see the e2e-shard BASE_URL comment.
+      BASE_URL: ${{ github.event_name == 'push' && 'https://dev.goodparty.org' || needs.deploy.outputs.url }}
     steps:
       - uses: actions/checkout@v5
         with:
