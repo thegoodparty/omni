@@ -10,12 +10,11 @@ vi.mock('@aws-sdk/client-ssm', () => ({
     destroy = mockDestroy
   },
   GetParameterCommand: class {
-    constructor(public input: unknown) {}
+    constructor(public input: { Name: string; WithDecryption: boolean }) {}
   },
 }))
 
-const revalidate = (provider: PeopleDbUrlProvider) =>
-  (provider as unknown as { revalidate: () => Promise<void> }).revalidate()
+const revalidate = (provider: PeopleDbUrlProvider) => provider['revalidate']()
 
 describe('PeopleDbUrlProvider', () => {
   let provider: PeopleDbUrlProvider
