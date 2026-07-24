@@ -34,6 +34,7 @@ import { useOrganization } from '@shared/organization-picker'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import { getContactsLabels } from '../../../shared/contactsLabels'
+import { formatFencedCount } from '../shared/formatFencedCount.util'
 import { findCustomSegment } from '../shared/segments.util'
 import { useContactsDownload } from '../shared/useContactsDownload'
 import { useContactsTable } from '../ContactsTableProvider'
@@ -320,7 +321,14 @@ export default function ListDetailSheet({
               <StatTile
                 icon={<UsersRoundIcon size={16} className="shrink-0" />}
                 label="People"
-                value={statValue(demographics?.people.toLocaleString())}
+                value={statValue(
+                  demographics
+                    ? formatFencedCount(
+                        demographics.people,
+                        demographics.fenced,
+                      )
+                    : undefined,
+                )}
               />
               <StatTile
                 icon={<CalendarIcon size={16} className="shrink-0" />}

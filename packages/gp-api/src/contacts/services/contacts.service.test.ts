@@ -1806,7 +1806,16 @@ describe('ContactsService', () => {
         count: number,
         avgAge: number | null = null,
         avgIncome: number | null = null,
-      ) => of({ data: { count, avgAge, avgIncome } })
+        fenced?: boolean,
+      ) =>
+        of({
+          data: {
+            count,
+            avgAge,
+            avgIncome,
+            ...(fenced !== undefined ? { fenced } : {}),
+          },
+        })
 
       it('throws when the organization is not pro, before looking up the list', async () => {
         const org = makeOrganization({
@@ -1866,6 +1875,7 @@ describe('ContactsService', () => {
           people: 0,
           avgAge: null,
           avgIncome: null,
+          fenced: false,
         })
         expect(result.reachability).toEqual({
           sms: 0,
@@ -1907,6 +1917,7 @@ describe('ContactsService', () => {
           people: 100,
           avgAge: 42,
           avgIncome: 55000,
+          fenced: false,
         })
         expect(result.reachability).toEqual({
           sms: 60,
@@ -1927,6 +1938,36 @@ describe('ContactsService', () => {
         expect(bodies[1]?.filters).toEqual({ hasCellPhone: true })
         expect(bodies[2]?.filters).toEqual({ hasLandline: true })
         expect(bodies[3]?.filters).toEqual({ hasAddress: true })
+      })
+
+      it('marks demographics as fenced when the base aggregates call reports fenced: true (ENG-10775)', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          savedFilter,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'none' },
+        )
+        mockHttpService.post
+          .mockReturnValueOnce(aggregatesResponse(10000, 41, 48000, true))
+          .mockReturnValueOnce(aggregatesResponse(6000))
+          .mockReturnValueOnce(aggregatesResponse(4500))
+          .mockReturnValueOnce(aggregatesResponse(3000))
+
+        const result = await service.getListDetail({ segment: 42 }, org)
+
+        // Only the base call's fenced-ness surfaces on demographics — the
+        // channel-specific calls below it aren't threaded through yet.
+        expect(result.demographics).toEqual({
+          people: 10000,
+          avgAge: 41,
+          avgIncome: 48000,
+          fenced: true,
+        })
       })
 
       it('merges a resolved activity-condition id filter into every outgoing aggregate call', async () => {
