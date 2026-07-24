@@ -1806,7 +1806,16 @@ describe('ContactsService', () => {
         count: number,
         avgAge: number | null = null,
         avgIncome: number | null = null,
-      ) => of({ data: { count, avgAge, avgIncome } })
+        fenced?: boolean,
+      ) =>
+        of({
+          data: {
+            count,
+            avgAge,
+            avgIncome,
+            ...(fenced !== undefined ? { fenced } : {}),
+          },
+        })
 
       it('throws when the organization is not pro, before looking up the list', async () => {
         const org = makeOrganization({
@@ -1866,14 +1875,14 @@ describe('ContactsService', () => {
           people: 0,
           avgAge: null,
           avgIncome: null,
+          fenced: false,
         })
         expect(result.reachability).toEqual({
           sms: 0,
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
-          email: null,
-          metaAds: null,
+          polls: 0,
         })
         // Outreach history is independent of person-membership — it still
         // comes back even when the resolved id set is empty.
@@ -1908,6 +1917,7 @@ describe('ContactsService', () => {
           people: 100,
           avgAge: 42,
           avgIncome: 55000,
+          fenced: false,
         })
         expect(result.reachability).toEqual({
           sms: 60,
@@ -1916,8 +1926,8 @@ describe('ContactsService', () => {
           // not the cellphone count sms/robocall use.
           phoneBanking: 45,
           doorKnocking: 30,
-          email: null,
-          metaAds: null,
+          // Polls are delivered by text, so they mirror the sms count.
+          polls: 60,
         })
 
         expect(mockHttpService.post).toHaveBeenCalledTimes(4)
@@ -1928,6 +1938,36 @@ describe('ContactsService', () => {
         expect(bodies[1]?.filters).toEqual({ hasCellPhone: true })
         expect(bodies[2]?.filters).toEqual({ hasLandline: true })
         expect(bodies[3]?.filters).toEqual({ hasAddress: true })
+      })
+
+      it('marks demographics as fenced when the base aggregates call reports fenced: true (ENG-10775)', async () => {
+        const org = makeOrganization({
+          slug: 'campaign-1',
+          overrideDistrictId: OVERRIDE_DISTRICT_ID,
+        })
+        mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+        mockVoterFileFilterService.findByIdAndOrganizationSlug.mockResolvedValue(
+          savedFilter,
+        )
+        mockActivityConditionResolutionService.resolveIdFilter.mockResolvedValue(
+          { kind: 'none' },
+        )
+        mockHttpService.post
+          .mockReturnValueOnce(aggregatesResponse(10000, 41, 48000, true))
+          .mockReturnValueOnce(aggregatesResponse(6000))
+          .mockReturnValueOnce(aggregatesResponse(4500))
+          .mockReturnValueOnce(aggregatesResponse(3000))
+
+        const result = await service.getListDetail({ segment: 42 }, org)
+
+        // Only the base call's fenced-ness surfaces on demographics — the
+        // channel-specific calls below it aren't threaded through yet.
+        expect(result.demographics).toEqual({
+          people: 10000,
+          avgAge: 41,
+          avgIncome: 48000,
+          fenced: true,
+        })
       })
 
       it('merges a resolved activity-condition id filter into every outgoing aggregate call', async () => {
@@ -1964,6 +2004,72 @@ describe('ContactsService', () => {
           service.getListDetail({ segment: 42 }, org),
         ).rejects.toThrow(BadRequestException)
         expect(mockHttpService.post).not.toHaveBeenCalled()
+      })
+
+      // ENG-10778: the universe row's detail (no segment param) — same
+      // aggregates shape as a saved list, over the whole unfiltered district.
+      describe('universe mode (no segment)', () => {
+        it('throws when the organization is not pro, without looking up any list', async () => {
+          const org = makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+          mockCampaignsService.findFirst.mockResolvedValue({ isPro: false })
+
+          await expect(service.getListDetail({}, org)).rejects.toThrow(
+            BadRequestException,
+          )
+          expect(
+            mockVoterFileFilterService.findByIdAndOrganizationSlug,
+          ).not.toHaveBeenCalled()
+          expect(mockHttpService.post).not.toHaveBeenCalled()
+        })
+
+        it('runs the aggregate calls over empty (unfiltered) filters and returns an empty outreach history', async () => {
+          const org = makeOrganization({
+            slug: 'campaign-1',
+            overrideDistrictId: OVERRIDE_DISTRICT_ID,
+          })
+          mockCampaignsService.findFirst.mockResolvedValue(makeCampaign())
+          mockHttpService.post
+            .mockReturnValueOnce(aggregatesResponse(85696, 47, 61000))
+            .mockReturnValueOnce(aggregatesResponse(60000))
+            .mockReturnValueOnce(aggregatesResponse(45000))
+            .mockReturnValueOnce(aggregatesResponse(30000))
+
+          const result = await service.getListDetail({}, org)
+
+          expect(
+            mockVoterFileFilterService.findByIdAndOrganizationSlug,
+          ).not.toHaveBeenCalled()
+          // No filter row backs this mode, so there's no id to look
+          // outreach history up by.
+          expect(
+            mockVoterFileFilterService.findOutreachesByVoterFileFilterId,
+          ).not.toHaveBeenCalled()
+          expect(result.demographics).toEqual({
+            people: 85696,
+            avgAge: 47,
+            avgIncome: 61000,
+            fenced: false,
+          })
+          expect(result.reachability).toEqual({
+            sms: 60000,
+            robocall: 60000,
+            phoneBanking: 45000,
+            doorKnocking: 30000,
+            polls: 60000,
+          })
+          expect(result.outreachHistory).toEqual([])
+
+          const bodies = mockHttpService.post.mock.calls.map(
+            (call) => call[1] as { filters: Record<string, unknown> },
+          )
+          expect(bodies[0]?.filters).toEqual({})
+          expect(bodies[1]?.filters).toEqual({ hasCellPhone: true })
+          expect(bodies[2]?.filters).toEqual({ hasLandline: true })
+          expect(bodies[3]?.filters).toEqual({ hasAddress: true })
+        })
       })
     })
 

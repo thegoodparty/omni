@@ -379,6 +379,30 @@ export class UsersService extends createPrismaBase(MODELS.User) {
     })
   }
 
+  // Atomic compare-and-swap on the single tracked checkout session id: the
+  // write only lands when the stored id still matches what the caller read,
+  // so concurrent checkout creations and expiry webhooks can't clobber each
+  // other's session tracking. Raw SQL because a conditional single-key JSON
+  // update can't be expressed as a Prisma merge.
+  async compareAndSwapCheckoutSessionId(
+    userId: number,
+    expectedSessionId: string | null,
+    nextSessionId: string | null,
+  ): Promise<boolean> {
+    const updatedCount = await this.client.$executeRaw`
+      UPDATE "user"
+      SET meta_data = jsonb_set(
+        COALESCE(meta_data, '{}'::jsonb),
+        '{checkoutSessionId}',
+        COALESCE(to_jsonb(${nextSessionId}::text), 'null'::jsonb)
+      )
+      WHERE id = ${userId}
+        AND meta_data->>'checkoutSessionId'
+          IS NOT DISTINCT FROM ${expectedSessionId}::text
+    `
+    return updatedCount === 1
+  }
+
   async patchUserMetaData(
     userId: number,
     newMetaData: PrismaJson.UserMetaData,

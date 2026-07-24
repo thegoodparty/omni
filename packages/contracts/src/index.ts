@@ -132,6 +132,11 @@ export {
   type ListDetailContactsResponse,
 } from './people/ListDetailContacts.schema'
 
+export {
+  PeopleAggregatesResponseSchema,
+  type PeopleAggregatesResponse,
+} from './people/PeopleAggregates.schema'
+
 export { EmailSchema } from './shared/Email.schema'
 export { PhoneSchema } from './shared/Phone.schema'
 export { ZipSchema } from './shared/Zip.schema'

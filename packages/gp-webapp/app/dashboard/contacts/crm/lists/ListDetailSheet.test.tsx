@@ -8,7 +8,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useContactsDownload } from '../shared/useContactsDownload'
-import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { ALL_SEGMENTS, LOCKED_LIST_MESSAGE } from '../shared/constants'
 import ListDetailSheet from './ListDetailSheet'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -107,8 +107,7 @@ const emptyDetailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
-    email: null,
-    metaAds: null,
+    polls: 100,
   },
   outreachHistory: [],
 }
@@ -151,6 +150,32 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(await screen.findByText('53')).toBeInTheDocument()
     expect(screen.queryByText('52.782')).not.toBeInTheDocument()
     expect(screen.getByText('$65,000')).toBeInTheDocument()
+  })
+
+  // ENG-10775: people-api floors a slow aggregates query at FENCE_LIMIT
+  // (10,000) instead of finishing the exact count — the People tile must
+  // never present that floor as if it were exact.
+  it('renders a trailing + on the People tile when the count is a fenced lower bound', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        demographics: {
+          people: 10000,
+          avgAge: 42,
+          avgIncome: 65000,
+          fenced: true,
+        },
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('10,000+')).toBeInTheDocument()
   })
 
   it('renders the outreach-history table columns and the empty state', async () => {
@@ -248,7 +273,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(screen.getByText('Meta ads')).toBeInTheDocument()
+    expect(screen.getByText('Polls')).toBeInTheDocument()
   })
 
   it('reads "Constituent list details" in Serve mode', async () => {
@@ -290,6 +315,84 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(
       await screen.findByRole('heading', { name: 'Voter list details' }),
     ).toBeInTheDocument()
+  })
+})
+
+// ENG-10778: the universe row ("All voters"/"All constituents") opens this
+// same sheet with no segment behind it — demographics + reachability only,
+// none of the list-only affordances.
+describe('ListDetailSheet — universe mode (ENG-10778)', () => {
+  beforeEach(() => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+  })
+
+  it('requests list-detail with no segment and renders demographics + reachability', async () => {
+    let capturedQuery: Record<string, unknown> | undefined
+    api.mock('GET /v1/contacts/list-detail', ({ query }) => {
+      capturedQuery = query
+      return {
+        status: 200,
+        data: {
+          ...emptyDetailResponse,
+          demographics: { people: 85696, avgAge: 47, avgIncome: 61000 },
+        },
+      }
+    })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(await screen.findByText('85,696')).toBeInTheDocument()
+    expect(screen.getByText('47')).toBeInTheDocument()
+    expect(screen.getByText('$61,000')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    // No segment id on the wire for the universe request.
+    expect(capturedQuery).not.toHaveProperty('segment')
+  })
+
+  it('reads the mode-aware universe title in the sheet header', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All voters' }),
+    ).toBeInTheDocument()
+  })
+
+  it('reads "All constituents" in Serve mode', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All constituents' }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders without any list-only affordance: no kebab, no outreach history, no footer', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(
+      screen.queryByRole('button', { name: 'More actions' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Rename list' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Outreach history' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Download list' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not fire Segment Viewed for the universe (there is no segment)', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
   })
 })
 
