@@ -8,6 +8,7 @@ import {
   PaymentType,
   PurchaseIntentPayloadEntry,
 } from 'src/payments/payments.types'
+import { serializeError } from 'serialize-error'
 import { SlackService } from 'src/vendors/slack/services/slack.service'
 import Stripe from 'stripe'
 
@@ -88,6 +89,53 @@ export class StripeService {
 
   async retrieveCheckoutSession(sessionId: string) {
     return await this.stripe.checkout.sessions.retrieve(sessionId)
+  }
+
+  // Returns the session's terminal disposition: a completed session means a
+  //  payment already went through, which callers must treat differently from
+  //  an expired one — the paid session's fulfillment may still be in flight,
+  //  so it must block a new checkout rather than clear the way for one.
+  async expireCheckoutSession(
+    checkoutSessionId: string,
+  ): Promise<'expired' | 'complete'> {
+    try {
+      await this.stripe.checkout.sessions.expire(checkoutSessionId)
+      return 'expired'
+    } catch (error) {
+      if (!(error instanceof Stripe.errors.StripeInvalidRequestError)) {
+        this.logger.error(
+          { error: serializeError(error), checkoutSessionId },
+          'Failed to expire checkout session',
+        )
+        throw new BadGatewayException(
+          `Failed to expire checkout session ${checkoutSessionId}`,
+        )
+      }
+    }
+
+    // Expire raises StripeInvalidRequestError only when the session is not
+    //  open: it completed, already expired, or does not exist on this
+    //  environment's Stripe key. Retrieve to tell which.
+    try {
+      const session =
+        await this.stripe.checkout.sessions.retrieve(checkoutSessionId)
+      return session.status === 'complete' ? 'complete' : 'expired'
+    } catch (error) {
+      if (error instanceof Stripe.errors.StripeInvalidRequestError) {
+        this.logger.info(
+          { checkoutSessionId },
+          'Previous checkout session not found, skipping expiry',
+        )
+        return 'expired'
+      }
+      this.logger.error(
+        { error: serializeError(error), checkoutSessionId },
+        'Failed to retrieve checkout session after expiry conflict',
+      )
+      throw new BadGatewayException(
+        `Failed to expire checkout session ${checkoutSessionId}`,
+      )
+    }
   }
 
   // Shared params for the Pro subscription Checkout Session, used by both the
