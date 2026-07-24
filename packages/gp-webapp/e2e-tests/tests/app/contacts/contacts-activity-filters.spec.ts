@@ -142,7 +142,9 @@ test.describe('Contacts activity filters', () => {
 
       const continueButton = wizard.getByRole('button', { name: 'Continue' })
       await expect(continueButton).toBeDisabled()
-      await wizard.getByText('Build my list using outreach activity.').click()
+      await wizard
+        .getByText('Build a list from previous campaign activity')
+        .click()
       await expect(continueButton).toBeEnabled()
       await continueButton.click()
     })

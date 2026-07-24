@@ -95,7 +95,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     expect(next).toBeEnabled()
@@ -107,7 +107,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -117,7 +117,7 @@ describe('CreateListWizard — step navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     ).toBeInTheDocument()
   })
@@ -128,7 +128,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -139,7 +139,7 @@ describe('CreateListWizard — step navigation', () => {
     await user.click(screen.getByRole('button', { name: 'Back' }))
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -154,12 +154,12 @@ describe('CreateListWizard — step navigation', () => {
     expect(screen.getByText('Step 1 of 3')).toBeInTheDocument()
     expect(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     ).toBeInTheDocument()
     expect(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     ).toBeInTheDocument()
   })
@@ -175,7 +175,7 @@ describe('CreateListWizard — step navigation', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Step 1 of 2')).toBeInTheDocument()
     expect(
-      screen.queryByRole('radio', { name: /outreach activity/i }),
+      screen.queryByRole('radio', { name: /previous campaign activity/i }),
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Back' }),
@@ -210,7 +210,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -231,7 +231,7 @@ describe('CreateListWizard — step navigation', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -241,7 +241,7 @@ describe('CreateListWizard — step navigation', () => {
 
     expect(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     ).toBeInTheDocument()
   })
@@ -261,7 +261,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -302,7 +302,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -336,7 +336,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -356,7 +356,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -378,7 +378,7 @@ describe('CreateListWizard — voter-file branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -431,7 +431,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -469,7 +469,7 @@ describe('CreateListWizard — activity branch payload assembly', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -519,7 +519,7 @@ describe('CreateListWizard — running total + CTA', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -546,7 +546,7 @@ describe('CreateListWizard — running total + CTA', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -577,7 +577,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -600,7 +600,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -628,7 +628,7 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -638,6 +638,75 @@ describe('CreateListWizard — ENG-10751 zero-filter build block', () => {
       name: /build your list \(118,099\)/i,
     })
     expect(cta).toBeDisabled()
+  })
+})
+
+describe('CreateListWizard — ENG-10781 zero-match build block', () => {
+  it('disables the build CTA once a valid selection resolves to zero matches', async () => {
+    api.mock('POST /v1/contacts/count', { status: 200, data: { count: 0 } })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    // 10s: the same debounce-tolerant wait clickSaveList uses — toggling the
+    // pill restarts the 600ms debounce before this zero count can land.
+    const cta = await screen.findByRole(
+      'button',
+      { name: /build your list \(0\)/i },
+      { timeout: 10_000 },
+    )
+    await vi.waitFor(() => expect(cta).toBeDisabled(), { timeout: 10_000 })
+
+    // Programmatic activation must not advance either (mirrors the
+    // ENG-10751 zero-selection guard directly above).
+    fireEvent.click(cta)
+    expect(screen.queryByLabelText(/list name/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Filters' })).toBeInTheDocument()
+  })
+
+  it('re-enables the build CTA once the selection matches people', async () => {
+    api.mock('POST /v1/contacts/count', ({ body }) => {
+      const payload = body as Record<string, unknown>
+      return {
+        status: 200,
+        data: { count: payload.partyDemocrat ? 42 : 0 },
+      }
+    })
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await user.click(
+      screen.getByRole('radio', {
+        name: /build a list using voter demographics and data/i,
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(pillForOption('Female'))
+
+    const zeroCta = await screen.findByRole(
+      'button',
+      { name: /build your list \(0\)/i },
+      { timeout: 10_000 },
+    )
+    await vi.waitFor(() => expect(zeroCta).toBeDisabled(), { timeout: 10_000 })
+
+    await user.click(pillForOption('Democrat'))
+
+    const matchedCta = await screen.findByRole(
+      'button',
+      { name: /build your list \(42\)/i },
+      { timeout: 10_000 },
+    )
+    await vi.waitFor(() => expect(matchedCta).toBeEnabled(), {
+      timeout: 10_000,
+    })
   })
 })
 
@@ -654,7 +723,7 @@ describe('CreateListWizard — error handling', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -686,7 +755,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -777,7 +846,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -823,7 +892,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using outreach activity/i,
+        name: /build a list from previous campaign activity/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -865,7 +934,7 @@ describe('CreateListWizard — ENG-10709 List Created / Activity List Created an
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Close' }))
@@ -895,7 +964,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     // Picking a branch re-renders the branch stage — the Viewed must not
@@ -925,7 +994,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -948,7 +1017,7 @@ describe('CreateListWizard — ENG-10767 stage Viewed/Completed funnel', () => {
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))
@@ -1040,7 +1109,7 @@ describe('CreateListWizard — dismissed mid-mutation (vaul swipe-close path)', 
 
     await user.click(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     )
     await user.click(screen.getByRole('button', { name: 'Continue' }))

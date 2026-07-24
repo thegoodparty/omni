@@ -322,6 +322,13 @@ export default function CreateListWizard({
       ? 'Build your list'
       : `Build your list (${numberFormatter(count)})`
 
+  // ENG-10781: a selection that RESOLVES to zero matches must not advance —
+  // it can't build anything. Gated on !isLoading && !isStale so a payload
+  // still in-flight/debouncing (buildLabel above already hides the number in
+  // that window) can't flash the CTA disabled-then-enabled as the trailing
+  // count lands; only a settled zero counts.
+  const isZeroMatch = !isLoading && !isStale && count === 0
+
   return (
     <CrmSheet
       open={open}
@@ -357,7 +364,7 @@ export default function CreateListWizard({
               type="button"
               className="w-full text-sm"
               onClick={handleNext}
-              disabled={!isConditionsStepValid}
+              disabled={!isConditionsStepValid || isZeroMatch}
             >
               {buildLabel}
             </Button>

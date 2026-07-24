@@ -74,7 +74,7 @@ test.describe('CRM Contacts Page (Serve)', () => {
     await expect(
       wizard.getByText('How do you want to build this list?'),
     ).toHaveCount(0)
-    await expect(wizard.getByText(/outreach activity/i)).toHaveCount(0)
+    await expect(wizard.getByText(/previous campaign activity/i)).toHaveCount(0)
 
     // --- Zero-filter guard (ENG-10751): the build CTA is natively disabled
     // with nothing selected, while the count still shows the full universe ---

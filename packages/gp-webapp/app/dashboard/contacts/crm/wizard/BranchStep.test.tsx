@@ -14,7 +14,7 @@ describe('BranchStep — Win-vs-Serve card copy never crosses over', () => {
 
     expect(
       screen.getByRole('radio', {
-        name: /build my list using the voter file/i,
+        name: /build a list using voter demographics and data/i,
       }),
     ).toBeInTheDocument()
     expect(screen.queryByText(/constituent/i)).not.toBeInTheDocument()
