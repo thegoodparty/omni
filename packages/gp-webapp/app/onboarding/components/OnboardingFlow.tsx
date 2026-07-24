@@ -49,8 +49,8 @@ import { localNewsQueryOptions } from './LocalNewsSourcesSection'
 import StoryIntakeCard from './StoryIntakeCard'
 import StoryIssuesCard from './StoryIssuesCard'
 import {
-  STORY_WHY_QUESTION,
-  STORY_BACKGROUND_QUESTION,
+  STORY_WHY_CARD_TITLE,
+  STORY_BACKGROUND_CARD_TITLE,
   WHY_EXAMPLE_PLACEHOLDER,
   BACKGROUND_EXAMPLE_PLACEHOLDER,
 } from './storyStepCopy'
@@ -338,7 +338,7 @@ const StepBody = ({
     if (activeStep.id === 'campaign-story-why') {
       return (
         <StoryIntakeCard
-          question={STORY_WHY_QUESTION}
+          question={STORY_WHY_CARD_TITLE}
           examplePlaceholder={WHY_EXAMPLE_PLACEHOLDER}
           value={storyDraft.why}
           onChange={storyDraft.setWhy}
@@ -351,7 +351,7 @@ const StepBody = ({
     if (activeStep.id === 'campaign-story-background') {
       return (
         <StoryIntakeCard
-          question={STORY_BACKGROUND_QUESTION}
+          question={STORY_BACKGROUND_CARD_TITLE}
           examplePlaceholder={BACKGROUND_EXAMPLE_PLACEHOLDER}
           value={storyDraft.background}
           onChange={storyDraft.setBackground}

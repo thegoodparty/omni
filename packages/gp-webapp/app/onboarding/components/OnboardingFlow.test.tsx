@@ -407,7 +407,7 @@ describe('new onboarding flow shell', () => {
     // The story steps suppress the page h1; the card carries the question.
     expect(
       await screen.findByRole('heading', {
-        level: 2,
+        level: 1,
         name: /why are you running/i,
       }),
     ).toBeInTheDocument()
@@ -434,7 +434,7 @@ describe('new onboarding flow shell', () => {
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', {
-        level: 2,
+        level: 1,
         name: /why are you running/i,
       }),
     ).not.toBeInTheDocument()
@@ -471,7 +471,7 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
     await screen.findByRole('heading', {
-      level: 2,
+      level: 1,
       name: /why are you running/i,
     })
 
@@ -689,7 +689,7 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
     await screen.findByRole('heading', {
-      level: 2,
+      level: 1,
       name: /why are you running/i,
     })
 
@@ -778,7 +778,7 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
     await screen.findByRole('heading', {
-      level: 2,
+      level: 1,
       name: /why are you running/i,
     })
 
@@ -790,7 +790,7 @@ describe('new onboarding flow shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
     expect(
       await screen.findByRole('heading', {
-        level: 2,
+        level: 1,
         name: /why are you running/i,
       }),
     ).toBeInTheDocument()
@@ -892,7 +892,7 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
     await screen.findByRole('heading', {
-      level: 2,
+      level: 1,
       name: /why are you running/i,
     })
 
@@ -965,7 +965,7 @@ describe('new onboarding flow shell', () => {
 
     await advancePastManualOfficeEntry()
     await screen.findByRole('heading', {
-      level: 2,
+      level: 1,
       name: /why are you running/i,
     })
 
