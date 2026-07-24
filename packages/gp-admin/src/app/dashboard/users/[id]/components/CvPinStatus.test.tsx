@@ -24,12 +24,15 @@ vi.mock('@/components/Toast', () => ({
 const mockListCampaigns = vi.fn()
 const mockGetCampaignComplianceState = vi.fn()
 const mockResendCvPin = vi.fn()
+const mockSetInternalTestingApproval = vi.fn()
 
 vi.mock('@/app/dashboard/campaigns/actions', () => ({
   listCampaigns: (...args: unknown[]) => mockListCampaigns(...args),
   getCampaignComplianceState: (...args: unknown[]) =>
     mockGetCampaignComplianceState(...args),
   resendCvPin: (...args: unknown[]) => mockResendCvPin(...args),
+  setInternalTestingApproval: (...args: unknown[]) =>
+    mockSetInternalTestingApproval(...args),
 }))
 
 const mockUser: User = {
@@ -44,6 +47,11 @@ const mockUser: User = {
   phone: null,
 }
 
+const internalUser: User = {
+  ...mockUser,
+  email: 'staff@goodparty.org',
+}
+
 const awaitingPinState: ComplianceStateOutput = {
   stage: 'awaiting_pin',
   domain: null,
@@ -51,11 +59,13 @@ const awaitingPinState: ComplianceStateOutput = {
   peerlyVerificationId: 'cv-1',
   peerlyCvStatus: 'APPROVED',
   pinDelivery: { method: 'email', displayString: 'j•••@example.com' },
+  internalTestingApprovedAt: null,
+  hasComplianceRecord: true,
 }
 
-function renderWidget() {
+function renderWidget(user: User = mockUser) {
   return render(
-    <UserProvider user={mockUser}>
+    <UserProvider user={user}>
       <CvPinStatus />
     </UserProvider>
   )
@@ -215,5 +225,130 @@ describe('CvPinStatus', () => {
     expect(
       screen.queryByRole('button', { name: /resend cv pin/i })
     ).not.toBeInTheDocument()
+  })
+
+  describe('internal testing approval toggle', () => {
+    const noRecordState: ComplianceStateOutput = {
+      ...awaitingPinState,
+      stage: 'needs_filing',
+      peerlyCvStatus: null,
+      pinDelivery: null,
+      hasComplianceRecord: false,
+    }
+
+    beforeEach(() => {
+      mockGetCampaignComplianceState.mockResolvedValue(noRecordState)
+      mockSetInternalTestingApproval.mockResolvedValue(undefined)
+    })
+
+    it('is hidden for non-internal emails', async () => {
+      renderWidget()
+
+      expect(
+        await screen.findByText('10DLC: Filing details needed')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('10DLC approved (internal testing)')
+      ).not.toBeInTheDocument()
+    })
+
+    it('is hidden without write_campaigns permission', async () => {
+      mockHas.mockImplementation(
+        ({ permission }: { permission: string }) =>
+          permission !== 'org:admin_portal:write_campaigns'
+      )
+
+      renderWidget(internalUser)
+
+      expect(
+        await screen.findByText('10DLC: Filing details needed')
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('10DLC approved (internal testing)')
+      ).not.toBeInTheDocument()
+    })
+
+    it('grants approval, refetches, and confirms with a toast', async () => {
+      const approvedState: ComplianceStateOutput = {
+        ...noRecordState,
+        stage: 'tcr_approved',
+        internalTestingApprovedAt: '2026-07-24T00:00:00Z',
+        hasComplianceRecord: true,
+      }
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(noRecordState)
+        .mockResolvedValueOnce(approvedState)
+      const user = userEvent.setup()
+      renderWidget(internalUser)
+
+      const checkbox = await screen.findByRole('checkbox')
+      expect(checkbox).not.toBeChecked()
+      await user.click(checkbox)
+
+      await waitFor(() =>
+        expect(mockSetInternalTestingApproval).toHaveBeenCalledWith(7, true)
+      )
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Marked as 10DLC approved for internal testing'
+      )
+      expect(await screen.findByText('10DLC: Approved')).toBeInTheDocument()
+      expect(screen.getByRole('checkbox')).toBeChecked()
+    })
+
+    it('revokes approval when unchecked', async () => {
+      const approvedState: ComplianceStateOutput = {
+        ...noRecordState,
+        stage: 'tcr_approved',
+        internalTestingApprovedAt: '2026-07-24T00:00:00Z',
+        hasComplianceRecord: true,
+      }
+      mockGetCampaignComplianceState
+        .mockResolvedValueOnce(approvedState)
+        .mockResolvedValueOnce(noRecordState)
+      const user = userEvent.setup()
+      renderWidget(internalUser)
+
+      const checkbox = await screen.findByRole('checkbox')
+      expect(checkbox).toBeChecked()
+      await user.click(checkbox)
+
+      await waitFor(() =>
+        expect(mockSetInternalTestingApproval).toHaveBeenCalledWith(7, false)
+      )
+      expect(mockShowToast).toHaveBeenCalledWith(
+        'Internal testing approval removed'
+      )
+    })
+
+    it('is disabled when the campaign has a real compliance record', async () => {
+      mockGetCampaignComplianceState.mockResolvedValue({
+        ...noRecordState,
+        stage: 'tcr_in_review',
+        hasComplianceRecord: true,
+      })
+
+      renderWidget(internalUser)
+
+      expect(await screen.findByRole('checkbox')).toBeDisabled()
+      expect(mockSetInternalTestingApproval).not.toHaveBeenCalled()
+    })
+
+    it('surfaces a grant failure via toast and stays unchecked', async () => {
+      mockSetInternalTestingApproval.mockRejectedValue(
+        new Error('Internal testing approval is limited to internal accounts')
+      )
+      const user = userEvent.setup()
+      renderWidget(internalUser)
+
+      const checkbox = await screen.findByRole('checkbox')
+      await user.click(checkbox)
+
+      await waitFor(() =>
+        expect(mockShowToast).toHaveBeenCalledWith(
+          'Internal testing approval is limited to internal accounts'
+        )
+      )
+      expect(screen.getByRole('checkbox')).not.toBeChecked()
+    })
   })
 })
