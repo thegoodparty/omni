@@ -667,7 +667,9 @@ export type APIEndpoints = {
     Response: Blob
   }
   'GET /v1/contacts/list-detail': {
-    Request: { segment: number }
+    // Omitted segment = the universe row's detail (ENG-10778): the whole
+    // unfiltered district.
+    Request: { segment?: number }
     Response: ListDetailContactsResponse
   }
 

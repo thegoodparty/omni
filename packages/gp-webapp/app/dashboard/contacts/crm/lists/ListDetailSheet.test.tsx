@@ -8,7 +8,7 @@ import { useSnackbar } from 'helpers/useSnackbar'
 import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { useContactsTable } from '../ContactsTableProvider'
 import { useContactsDownload } from '../shared/useContactsDownload'
-import { LOCKED_LIST_MESSAGE } from '../shared/constants'
+import { ALL_SEGMENTS, LOCKED_LIST_MESSAGE } from '../shared/constants'
 import ListDetailSheet from './ListDetailSheet'
 
 vi.mock('@shared/organization-picker', () => ({
@@ -315,6 +315,84 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(
       await screen.findByRole('heading', { name: 'Voter list details' }),
     ).toBeInTheDocument()
+  })
+})
+
+// ENG-10778: the universe row ("All voters"/"All constituents") opens this
+// same sheet with no segment behind it — demographics + reachability only,
+// none of the list-only affordances.
+describe('ListDetailSheet — universe mode (ENG-10778)', () => {
+  beforeEach(() => {
+    api.mock('GET /v1/voters/voter-file/filters', { status: 200, data: [] })
+  })
+
+  it('requests list-detail with no segment and renders demographics + reachability', async () => {
+    let capturedQuery: Record<string, unknown> | undefined
+    api.mock('GET /v1/contacts/list-detail', ({ query }) => {
+      capturedQuery = query
+      return {
+        status: 200,
+        data: {
+          ...emptyDetailResponse,
+          demographics: { people: 85696, avgAge: 47, avgIncome: 61000 },
+        },
+      }
+    })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(await screen.findByText('85,696')).toBeInTheDocument()
+    expect(screen.getByText('47')).toBeInTheDocument()
+    expect(screen.getByText('$61,000')).toBeInTheDocument()
+    expect(screen.getByText('Phone banking')).toBeInTheDocument()
+    // No segment id on the wire for the universe request.
+    expect(capturedQuery).not.toHaveProperty('segment')
+  })
+
+  it('reads the mode-aware universe title in the sheet header', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All voters' }),
+    ).toBeInTheDocument()
+  })
+
+  it('reads "All constituents" in Serve mode', async () => {
+    setContext({ isWinContext: false, isElectedOfficial: true })
+
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'All constituents' }),
+    ).toBeInTheDocument()
+  })
+
+  it('renders without any list-only affordance: no kebab, no outreach history, no footer', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(
+      screen.queryByRole('button', { name: 'More actions' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Rename list' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Outreach history' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Download list' }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Send outreach' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('does not fire Segment Viewed for the universe (there is no segment)', async () => {
+    render(<ListDetailSheet listId={ALL_SEGMENTS} onClose={vi.fn()} />)
+
+    await screen.findByText('District demographics')
+    expect(eventCalls(EVENTS.Contacts.SegmentViewed)).toHaveLength(0)
   })
 })
 
