@@ -519,6 +519,14 @@ export class ContactsService {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
 
+    // No segment = the universe row's detail (ENG-10778): the whole
+    // unfiltered district. No VoterFileFilter backs it, so there's no id to
+    // key outreach history on — the webapp hides that section for this mode.
+    if (segment === undefined) {
+      const aggregates = await this.fetchListDetailAggregates(organization, {})
+      return { ...aggregates, outreachHistory: [] }
+    }
+
     const filter =
       await this.voterFileFilterService.findByIdAndOrganizationSlug(
         segment,
@@ -564,13 +572,28 @@ export class ContactsService {
     }
 
     const filters = this.mergeIdFilter(baseFilters, idResolution)
+    const aggregates = await this.fetchListDetailAggregates(
+      organization,
+      filters,
+    )
+    return { ...aggregates, outreachHistory }
+  }
 
+  // Demographics + reachable-by-channel aggregates shared by a saved list's
+  // detail and the universe detail (ENG-10778 made the latter a second
+  // caller): one base count plus three channel-restricted counts.
+  private async fetchListDetailAggregates(
+    organization: Organization,
+    baseFilters: FilterObject,
+  ): Promise<
+    Pick<ListDetailContactsResponse, 'demographics' | 'reachability'>
+  > {
     const [base, cellphone, landline, address] =
       await this.withOrgDistrictResolution(organization, (districtParams) =>
         Promise.all([
-          this.fetchPeopleAggregates(districtParams, filters),
+          this.fetchPeopleAggregates(districtParams, baseFilters),
           this.fetchPeopleAggregates(districtParams, {
-            ...filters,
+            ...baseFilters,
             hasCellPhone: true,
           }),
           // phoneBanking mirrors the built-in channel map
@@ -578,11 +601,11 @@ export class ContactsService {
           // phones — the legacy raw-SQL export's phoneBanking population is
           // landline-only.
           this.fetchPeopleAggregates(districtParams, {
-            ...filters,
+            ...baseFilters,
             hasLandline: true,
           }),
           this.fetchPeopleAggregates(districtParams, {
-            ...filters,
+            ...baseFilters,
             hasAddress: true,
           }),
         ]),
@@ -607,7 +630,6 @@ export class ContactsService {
         // Polls are delivered by text, so reachability mirrors sms 1:1.
         polls: cellphone.count,
       },
-      outreachHistory,
     }
   }
 
