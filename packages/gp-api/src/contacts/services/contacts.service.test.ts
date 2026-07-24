@@ -1856,7 +1856,16 @@ describe('ContactsService', () => {
           { kind: 'empty' },
         )
         mockVoterFileFilterService.findOutreachesByVoterFileFilterId.mockResolvedValue(
-          [{ id: 1, name: 'Text blast', outreachType: 'text' }],
+          [
+            {
+              id: 1,
+              name: 'Text blast',
+              outreachType: 'text',
+              status: null,
+              date: null,
+              createdAt: new Date('2026-01-15T10:00:00.000Z'),
+            },
+          ],
         )
 
         const result = await service.getListDetail({ segment: 42 }, org)
@@ -1878,7 +1887,14 @@ describe('ContactsService', () => {
         // Outreach history is independent of person-membership — it still
         // comes back even when the resolved id set is empty.
         expect(result.outreachHistory).toEqual([
-          { id: 1, name: 'Text blast', outreachType: 'text' },
+          {
+            id: 1,
+            name: 'Text blast',
+            outreachType: 'text',
+            status: null,
+            date: null,
+            createdAt: new Date('2026-01-15T10:00:00.000Z'),
+          },
         ])
       })
 
