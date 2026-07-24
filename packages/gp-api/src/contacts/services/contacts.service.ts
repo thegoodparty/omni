@@ -552,8 +552,7 @@ export class ContactsService {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
-          email: null,
-          metaAds: null,
+          polls: 0,
         },
         outreachHistory,
       }
@@ -595,8 +594,8 @@ export class ContactsService {
         robocall: cellphone.count,
         phoneBanking: landline.count,
         doorKnocking: address.count,
-        email: null,
-        metaAds: null,
+        // Polls are delivered by text, so reachability mirrors sms 1:1.
+        polls: cellphone.count,
       },
       outreachHistory,
     }

@@ -562,8 +562,7 @@ describe('AudienceStep robocall saved-list selector', () => {
       robocall: 0,
       phoneBanking: 0,
       doorKnocking: 0,
-      email: null,
-      metaAds: null,
+      polls: 0,
     },
     outreachHistory: [],
   })
@@ -870,8 +869,7 @@ describe('AudienceStep phone banking saved-list selector', () => {
       robocall: 0,
       phoneBanking: 0,
       doorKnocking: 0,
-      email: null,
-      metaAds: null,
+      polls: 0,
     },
     outreachHistory: [],
   })
