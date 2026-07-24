@@ -58,6 +58,50 @@ describe('SnackbarProvider + useSnackbar', () => {
     expect(toast).toBeInTheDocument()
   })
 
+  it('renders the styleguide toast card: bottom-right, no richColors, no close button', async () => {
+    render(
+      <SnackbarProvider>
+        <HarnessComponent />
+      </SnackbarProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }))
+    await screen.findByText('Saved!')
+
+    const toast = document.querySelector<HTMLElement>('[data-sonner-toast]')
+    expect(toast?.getAttribute('data-rich-colors')).not.toBe('true')
+    expect(toast?.getAttribute('data-y-position')).toBe('bottom')
+    expect(toast?.getAttribute('data-x-position')).toBe('right')
+    expect(toast?.querySelector('[data-close-button]')).toBeNull()
+  })
+
+  it('renders an optional description under the title', async () => {
+    const DescriptionHarness = () => {
+      const { successSnackbar } = useSnackbar()
+      return (
+        <button
+          onClick={() =>
+            successSnackbar('List deleted', {
+              description: 'Males 50+ has been deleted.',
+            })
+          }
+        >
+          Show Toast
+        </button>
+      )
+    }
+    render(
+      <SnackbarProvider>
+        <DescriptionHarness />
+      </SnackbarProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }))
+
+    expect(await screen.findByText('List deleted')).toBeInTheDocument()
+    expect(screen.getByText('Males 50+ has been deleted.')).toBeInTheDocument()
+  })
+
   it('throws when useSnackbar is used outside a SnackbarProvider', () => {
     const ThrowingComponent = () => {
       useSnackbar()
