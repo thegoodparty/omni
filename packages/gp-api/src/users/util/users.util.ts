@@ -29,9 +29,11 @@ export function isAdmin(user: User) {
 export const isTestUser = (params: { email: string }) =>
   params.email.endsWith('@test.goodparty.org')
 
-// Staff walk product flows in prod with @goodparty.org accounts (isTestUser
-// only covers the seeded @test.goodparty.org domain) — both domains count as
-// internal.
+// Distinct from isTestUser on purpose: isTestUser gates behavior for seeded
+// e2e accounts only (stubbed vendor calls, skipped dispatches) and must NOT
+// cover @goodparty.org — staff dogfood real flows in prod. isInternalUser is
+// for staff-facing affordances and reporting exclusions, where both domains
+// count as internal.
 export const INTERNAL_EMAIL_SUFFIXES = ['@goodparty.org', '@test.goodparty.org']
 
 export const isInternalUser = (params: { email: string }) =>
