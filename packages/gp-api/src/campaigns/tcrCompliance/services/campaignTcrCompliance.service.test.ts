@@ -2649,7 +2649,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
   let mockModel: {
     findUnique: ReturnType<typeof vi.fn>
     create: ReturnType<typeof vi.fn>
-    delete: ReturnType<typeof vi.fn>
+    deleteMany: ReturnType<typeof vi.fn>
   }
 
   const campaign = createMockCampaign({ id: 7, userId: 1 })
@@ -2663,7 +2663,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
         .mockImplementation(({ data }) =>
           Promise.resolve({ id: 'tcr-new', ...data }),
         ),
-      delete: vi.fn().mockResolvedValue(undefined),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -2806,7 +2806,21 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
 
     await service.revokeInternalTestingApproval(campaign.id)
 
-    expect(mockModel.delete).toHaveBeenCalledWith({ where: { id: 'tcr-1' } })
+    expect(mockModel.deleteMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1' },
+    })
+  })
+
+  it('revoke resolves even when a concurrent revoke already removed the row', async () => {
+    mockModel.findUnique.mockResolvedValueOnce({
+      id: 'tcr-1',
+      internalTestingApprovedAt: new Date(),
+    })
+    mockModel.deleteMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(
+      service.revokeInternalTestingApproval(campaign.id),
+    ).resolves.toBeUndefined()
   })
 
   it('revoke is a no-op when no record exists', async () => {
@@ -2815,7 +2829,7 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
     await expect(
       service.revokeInternalTestingApproval(campaign.id),
     ).resolves.toBeUndefined()
-    expect(mockModel.delete).not.toHaveBeenCalled()
+    expect(mockModel.deleteMany).not.toHaveBeenCalled()
   })
 
   it('revoke refuses to delete a real compliance record', async () => {
@@ -2828,6 +2842,6 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
     await expect(
       service.revokeInternalTestingApproval(campaign.id),
     ).rejects.toThrow(ConflictException)
-    expect(mockModel.delete).not.toHaveBeenCalled()
+    expect(mockModel.deleteMany).not.toHaveBeenCalled()
   })
 })

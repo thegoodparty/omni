@@ -637,7 +637,9 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         'Campaign has a real TCR compliance record; refusing to delete it',
       )
     }
-    await this.model.delete({ where: { id: existing.id } })
+    // deleteMany so a concurrent revoke that already removed the row no-ops
+    // instead of throwing P2025 — revoke is idempotent.
+    await this.model.deleteMany({ where: { id: existing.id } })
   }
 
   // TODO: Refactor this flow to persist the Peerly Identity ID and other
