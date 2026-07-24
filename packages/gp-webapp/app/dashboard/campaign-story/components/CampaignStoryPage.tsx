@@ -36,15 +36,18 @@ interface CampaignStoryPageProps {
   pathname?: string
 }
 
-// The full-width top bar carrying the page title and (optionally) the page-level
-// Save. Rendered by both the loading/error states and the editable form so the
-// header stays put while the body swaps.
+// The full-bleed white header bar: book icon + "Your story" on the left, the
+// page-level Save on the right. The negative margins cancel DashboardLayout's
+// content padding (`p-2 md:p-4`) so the bar runs edge-to-edge at the top, with
+// the story body sitting on the gray surface below it. Rendered by both the
+// loading/error states and the editable form so the header stays put while the
+// body swaps.
 const StoryHeaderBar = ({
   action,
 }: {
   action?: React.ReactNode
 }): React.JSX.Element => (
-  <div className="flex items-center justify-between gap-3 border-b border-base-border bg-white px-4 py-4 sm:px-8">
+  <div className="-mx-2 -mt-2 flex items-center justify-between gap-3 border-b border-base-border bg-white px-4 py-4 sm:px-8 md:-mx-4 md:-mt-4">
     <div className="flex items-center gap-2">
       <BookOpenIcon className="size-6" />
       <H2>Your story</H2>
@@ -240,6 +243,7 @@ export function StoryEditorForm({
       <StoryHeaderBar
         action={
           <Button
+            className="rounded-full"
             icon={<CheckIcon />}
             loading={anySaving}
             loadingText="Saving…"
