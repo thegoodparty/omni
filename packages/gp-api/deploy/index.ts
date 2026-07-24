@@ -226,7 +226,17 @@ export = async () => {
               },
             ],
             qa: [],
-            prod: [],
+            prod: [
+              // Airbyte reaches prod Postgres through this bastion; it lost
+              // access when the whole-VPC-CIDR rule was removed.
+              {
+                protocol: 'tcp',
+                fromPort: 5432,
+                toPort: 5432,
+                description: 'internal gp-bastion',
+                securityGroups: ['sg-05a21af11aacbe60b'],
+              },
+            ],
           }),
         ],
         egress: [

@@ -385,7 +385,6 @@ describe('PositionsService', () => {
       brDatabaseId: 'db-1',
       state: 'CA',
       name: 'Mayor',
-      placeId: 'place-1',
     }
 
     it('does not query Race when includeFilingFee is false', async () => {
@@ -401,50 +400,7 @@ describe('PositionsService', () => {
       expect(result.filingRequirementsText).toBeUndefined()
     })
 
-    it('does not fetch placeId on findUnique when includeFilingFee is false', async () => {
-      findUnique.mockResolvedValue(positionRow)
-
-      await service.getPositionById({
-        id: 'pos-1',
-        includeFilingFee: false,
-      })
-
-      expect(findUnique).toHaveBeenCalledWith({
-        where: { id: 'pos-1' },
-        select: expect.not.objectContaining({ placeId: true }),
-      })
-    })
-
-    it('fetches placeId on findUnique when includeFilingFee is true', async () => {
-      findUnique.mockResolvedValue(positionRow)
-      raceFindMany.mockResolvedValue([])
-
-      await service.getPositionById({
-        id: 'pos-1',
-        includeFilingFee: true,
-      })
-
-      expect(findUnique).toHaveBeenCalledWith({
-        where: { id: 'pos-1' },
-        select: expect.objectContaining({ placeId: true }),
-      })
-    })
-
-    it('returns null filing fee when position has no placeId', async () => {
-      findUnique.mockResolvedValue({ ...positionRow, placeId: null })
-
-      const result = await service.getPositionById({
-        id: 'pos-1',
-        includeFilingFee: true,
-      })
-
-      expect(raceFindMany).not.toHaveBeenCalled()
-      expect(result.filingFee).toBeNull()
-      expect(result.filingRequirementsText).toBeNull()
-      expect(result.filingFeeExtractionSource).toBeNull()
-    })
-
-    it('returns null filing fee when no Race matches placeId + name', async () => {
+    it('queries Race by positionId and returns null when none match', async () => {
       findUnique.mockResolvedValue(positionRow)
       raceFindMany.mockResolvedValue([])
 
@@ -454,10 +410,7 @@ describe('PositionsService', () => {
       })
 
       expect(raceFindMany).toHaveBeenCalledWith({
-        where: {
-          placeId: 'place-1',
-          positionNames: { has: 'Mayor' },
-        },
+        where: { positionId: 'pos-1' },
         select: {
           electionDate: true,
           isPrimary: true,
@@ -651,11 +604,7 @@ describe('PositionsService', () => {
 
   describe('getNextElectionForPosition', () => {
     it('returns the nearest future general election date', async () => {
-      findUnique.mockResolvedValue({
-        id: 'pos-1',
-        placeId: 'place-1',
-        name: 'Mayor',
-      })
+      findUnique.mockResolvedValue({ id: 'pos-1' })
       raceFindMany.mockResolvedValue([
         {
           electionDate: new Date('2999-11-05'),
@@ -679,12 +628,19 @@ describe('PositionsService', () => {
       expect(result.electionDate).toBe('2998-11-07')
     })
 
+    it('queries races by the Race.positionId FK, not placeId+name', async () => {
+      findUnique.mockResolvedValue({ id: 'pos-1' })
+      raceFindMany.mockResolvedValue([])
+
+      await service.getNextElectionForPosition('pos-1')
+
+      expect(raceFindMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { positionId: 'pos-1' } }),
+      )
+    })
+
     it('excludes primaries and runoffs when a general exists', async () => {
-      findUnique.mockResolvedValue({
-        id: 'pos-1',
-        placeId: 'place-1',
-        name: 'Mayor',
-      })
+      findUnique.mockResolvedValue({ id: 'pos-1' })
       raceFindMany.mockResolvedValue([
         {
           electionDate: new Date('2998-03-05'),
@@ -704,11 +660,7 @@ describe('PositionsService', () => {
     })
 
     it('returns null when the position has only past races', async () => {
-      findUnique.mockResolvedValue({
-        id: 'pos-1',
-        placeId: 'place-1',
-        name: 'Mayor',
-      })
+      findUnique.mockResolvedValue({ id: 'pos-1' })
       raceFindMany.mockResolvedValue([
         {
           electionDate: new Date('2000-11-07'),
@@ -724,11 +676,7 @@ describe('PositionsService', () => {
 
     it('still returns election day after UTC midnight passes on that day', async () => {
       vi.setSystemTime(new Date('2998-11-07T18:00:00Z'))
-      findUnique.mockResolvedValue({
-        id: 'pos-1',
-        placeId: 'place-1',
-        name: 'Mayor',
-      })
+      findUnique.mockResolvedValue({ id: 'pos-1' })
       raceFindMany.mockResolvedValue([
         {
           electionDate: new Date('2998-11-07T00:00:00Z'),
@@ -744,11 +692,7 @@ describe('PositionsService', () => {
     })
 
     it('returns null when the position has only primary or runoff races', async () => {
-      findUnique.mockResolvedValue({
-        id: 'pos-1',
-        placeId: 'place-1',
-        name: 'Mayor',
-      })
+      findUnique.mockResolvedValue({ id: 'pos-1' })
       raceFindMany.mockResolvedValue([
         {
           electionDate: new Date('2998-03-05'),
@@ -767,17 +711,13 @@ describe('PositionsService', () => {
       expect(result.electionDate).toBeNull()
     })
 
-    it('returns null when the position has no placeId', async () => {
-      findUnique.mockResolvedValue({
-        id: 'pos-1',
-        placeId: null,
-        name: 'Mayor',
-      })
+    it('returns null when the position has no races', async () => {
+      findUnique.mockResolvedValue({ id: 'pos-1' })
+      raceFindMany.mockResolvedValue([])
 
       const result = await service.getNextElectionForPosition('pos-1')
 
       expect(result.electionDate).toBeNull()
-      expect(raceFindMany).not.toHaveBeenCalled()
     })
 
     it('throws NotFound when the position does not exist', async () => {

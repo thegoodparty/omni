@@ -354,8 +354,16 @@ export class PaymentEventsService {
       // Stripe SDK uses broad union types — metadata and IDs are string | null | Stripe.* unions
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
       customerId: customerId as string,
-      checkoutSessionId: null,
     })
+
+    // The clear must be conditional on the stored id still being this
+    // completing session — a concurrent checkout may have stored a newer id,
+    // and clearing it unconditionally would strand that session untracked.
+    await this.usersService.compareAndSwapCheckoutSessionId(
+      user.id,
+      session.id,
+      null,
+    )
 
     // Non-critical: Send notifications - log failures but don't fail webhook
     const results = await Promise.allSettled([
@@ -439,24 +447,31 @@ export class PaymentEventsService {
     event: Stripe.CheckoutSessionExpiredEvent,
   ): Promise<void> {
     const session = event.data.object
+    const { id: sessionId } = session
     const { userId } = session.metadata ? session.metadata : {}
     if (!userId) {
-      throw new BadRequestException(
-        'No userId found in expired checkout session metadata',
+      // A missing userId is permanent (dashboard-created or legacy session)
+      // — throwing makes Stripe retry the webhook for days over pure cleanup.
+      this.logger.warn(
+        `[WEBHOOK] Expired checkout session ${sessionId} has no userId in metadata — skipping cleanup`,
       )
+      return
     }
 
-    try {
-      await this.usersService.patchUserMetaData(parseInt(userId), {
-        checkoutSessionId: null,
-      })
-    } catch {
-      // User may not exist in this environment's database (e.g., session was
-      // created from a different environment sharing the same Stripe test key).
-      // Since this is just cleanup, log and move on rather than failing the webhook.
-      // Stripe retries when it receives a non-2xx response, so we don't want to cause repeated failures.
-      this.logger.warn(
-        `[WEBHOOK] Could not clear checkoutSessionId for userId ${userId} — user may not exist in this environment`,
+    // This event routinely arrives after a newer session id was stored
+    // (creating a checkout expires its predecessor) — clearing
+    // unconditionally would wipe the newer session's tracking and let it
+    // escape future expiry. The swap is conditional on the stored id still
+    // being the expired one; it also no-ops when the user doesn't exist in
+    // this environment (e.g. a session minted against the shared test key).
+    const cleared = await this.usersService.compareAndSwapCheckoutSessionId(
+      parseInt(userId),
+      sessionId,
+      null,
+    )
+    if (!cleared) {
+      this.logger.info(
+        `[WEBHOOK] Skipped clearing checkoutSessionId for expired session ${sessionId} — user ${userId} missing or a newer session is stored`,
       )
     }
   }

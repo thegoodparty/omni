@@ -20,6 +20,11 @@ vi.mock('@shared/hooks/useUser', () => ({
   useUser: () => mockUserValue,
 }))
 
+let mockSelectedOrg: { electedOfficeId: string | null } | undefined
+vi.mock('@shared/organization-picker', () => ({
+  useOrganization: () => mockSelectedOrg,
+}))
+
 import { clientRequest } from 'gpApi/typed-request'
 import { ElectedOfficeTermDatesModalController } from './ElectedOfficeTermDatesModalController'
 
@@ -52,6 +57,8 @@ const mockMine = (offices: ElectedOffice[]): void => {
 beforeEach(() => {
   vi.clearAllMocks()
   mockUserValue = [{ id: 1 }, vi.fn(), false]
+  // Default to the elected-office org that owns eo-1 being selected.
+  mockSelectedOrg = { electedOfficeId: 'eo-1' }
 })
 
 describe('ElectedOfficeTermDatesModalController', () => {
@@ -139,6 +146,71 @@ describe('ElectedOfficeTermDatesModalController', () => {
 
     await waitFor(() => expect(mockClientRequest).toHaveBeenCalled())
     expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('does not prompt when the selected org is a campaign (no electedOfficeId)', async () => {
+    // The user owns a settled office missing dates, but their currently selected
+    // org is a campaign — the term-dates prompt belongs to the elected-office
+    // org, so it must stay hidden here.
+    mockSelectedOrg = { electedOfficeId: null }
+    mockMine([
+      office({
+        id: 'eo-1',
+        onboardingCompletedAt: COMPLETED,
+        termStartDate: null,
+        termEndDate: null,
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    await waitFor(() => expect(mockClientRequest).toHaveBeenCalled())
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('does not prompt when the selected org is a different office than the one missing dates', async () => {
+    mockSelectedOrg = { electedOfficeId: 'eo-2' }
+    mockMine([
+      office({
+        id: 'eo-1',
+        onboardingCompletedAt: COMPLETED,
+        termStartDate: null,
+        termEndDate: null,
+      }),
+      office({
+        id: 'eo-2',
+        onboardingCompletedAt: COMPLETED,
+        termStartDate: '2025-01-01',
+        termEndDate: '2029-01-01',
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    await waitFor(() => expect(mockClientRequest).toHaveBeenCalled())
+    expect(screen.queryByText(TITLE)).not.toBeInTheDocument()
+  })
+
+  it('prompts the office matching the selected org when several offices are missing dates', async () => {
+    mockSelectedOrg = { electedOfficeId: 'eo-2' }
+    mockMine([
+      office({
+        id: 'eo-1',
+        onboardingCompletedAt: COMPLETED,
+        termStartDate: null,
+        termEndDate: null,
+      }),
+      office({
+        id: 'eo-2',
+        onboardingCompletedAt: COMPLETED,
+        termStartDate: null,
+        termEndDate: null,
+      }),
+    ])
+
+    render(<ElectedOfficeTermDatesModalController />)
+
+    expect(await screen.findByText(TITLE)).toBeInTheDocument()
   })
 
   it('does not prompt a non-elected-office user (no offices)', async () => {

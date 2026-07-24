@@ -20,6 +20,7 @@ import { EVENTS, trackEvent } from 'helpers/analyticsHelper'
 import { dateUsHelper } from 'helpers/dateHelper'
 import type { SegmentResponse } from '../shared/contacts-types'
 import { useContactsTable } from '../ContactsTableProvider'
+import { formatFencedCount } from '../shared/formatFencedCount.util'
 import { useDuplicateList } from './useDuplicateList'
 import { useListRowDetail } from './useListRowDetail'
 import RenameListDialog from './RenameListDialog'
@@ -38,9 +39,8 @@ interface ListCardProps {
 // underneath.
 export default function ListCard({ segment }: ListCardProps) {
   const { selectList, isWinContext, isWinContextReady } = useContactsTable()
-  const { peopleCount, lastOutreach, isLoading, isError } = useListRowDetail(
-    segment.id,
-  )
+  const { peopleCount, peopleCountFenced, lastOutreach, isLoading, isError } =
+    useListRowDetail(segment.id)
   const duplicateMutation = useDuplicateList()
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -118,7 +118,9 @@ export default function ListCard({ segment }: ListCardProps) {
             ? '—'
             : isError
               ? 'Unavailable'
-              : (peopleCount?.toLocaleString() ?? '—')}
+              : peopleCount !== undefined
+                ? formatFencedCount(peopleCount, peopleCountFenced)
+                : '—'}
         </span>
         <div className="flex items-center gap-2">
           <Button
