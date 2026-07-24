@@ -56,7 +56,7 @@ export const useDuplicateList = () => {
         (res) => res.data,
       )
     },
-    onSuccess: async (response) => {
+    onSuccess: (response) => {
       // ENG-10767: a duplicate creates a segment, so it rides the existing
       // Segment Created event with source: 'duplicate' (the wizard's
       // product-specific List Created events stay a pure wizard-outcome
@@ -68,7 +68,27 @@ export const useDuplicateList = () => {
         })
       }
       successSnackbar('List duplicated')
-      await queryClient.invalidateQueries({
+      // ENG-10777: the detail sheet fetches the copy by id and doesn't need
+      // the index cache, so navigate immediately rather than waiting on it —
+      // react-query's mutation state machine awaits the whole onSuccess
+      // callback before flipping isPending false (query-core's execute()
+      // awaits options.onSuccess before dispatching "success"), so an
+      // awaited invalidateQueries here previously left both the navigation
+      // and the button's own loading state hostage to a slow index refetch.
+      // Seed the cache with the copy (the POST response is a full
+      // SegmentResponse) before navigating: ListDetailSheet reads this exact
+      // key for its own segment lookup, and without this it briefly renders
+      // "This list couldn't be found" off the stale cache until the
+      // invalidation's background refetch lands — trading the old bug for a
+      // false "deleted" flash on a slow connection. invalidateQueries below
+      // still reconciles with the server's canonical list; it never rejects
+      // (query-core catches each refetch's error internally), so not
+      // awaiting it can't produce an unhandled rejection.
+      queryClient.setQueryData<SegmentResponse[]>(
+        ['custom-segments', orgSlug],
+        (existing) => (existing ? [...existing, response] : existing),
+      )
+      queryClient.invalidateQueries({
         queryKey: ['custom-segments', orgSlug],
       })
       // Shallow (ENG-10725): opens the copy's detail sheet over the index.

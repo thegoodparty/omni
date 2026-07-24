@@ -157,6 +157,25 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     )
   })
 
+  it('marks the record rejected when CV is WITHDRAWN so the sweep set shrinks', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'WITHDRAWN',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', status: { not: 'rejected' } },
+      data: { status: 'rejected' },
+    })
+    expect(mockTrack).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({ rejection_source: 'cv_status_check' }),
+    )
+  })
+
   it('does not re-fire the rejection event when the record is already rejected', async () => {
     mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
       status: 'REJECTED',
@@ -179,6 +198,52 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
 
     expect(mockModel.updateMany).not.toHaveBeenCalled()
     expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  // Peerly echoes the verification_method/filing_email we submit even while
+  // the CV is still in review — production always returns a pinDelivery here,
+  // so presence alone must not count as "sent" (ENG-10785).
+  it('does not record or fire when CV is IN_REVIEW despite an echoed delivery method', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'IN_REVIEW',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  it('does not record or fire when CV is REQUESTED despite an echoed delivery method', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'REQUESTED',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).not.toHaveBeenCalled()
+    expect(mockTrack).not.toHaveBeenCalled()
+  })
+
+  it('records and fires for a VERIFIED CV (PIN already consumed)', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'VERIFIED',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', pinSentDetectedAt: null },
+      data: {
+        pinDeliveryMethod: 'email',
+        pinDeliveryDestination: 'a@b.com',
+        pinSentDetectedAt: expect.any(Date),
+      },
+    })
+    expect(mockTrack).toHaveBeenCalledTimes(1)
   })
 
   it('rolls back the claim when the event fails so a later sweep retries', async () => {
