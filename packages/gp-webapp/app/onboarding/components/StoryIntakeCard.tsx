@@ -7,6 +7,7 @@ import {
   type StoryRewriteField,
 } from 'app/dashboard/campaign-story/components/useStoryRewrite'
 import StoryFieldBar, { type StorySaveState } from './StoryFieldBar'
+import { useReportDictationActive } from './useReportDictationActive'
 
 interface StoryIntakeCardProps {
   question: string
@@ -22,6 +23,9 @@ interface StoryIntakeCardProps {
   analyticsLabel: string
   // Present on the dashboard (per-card Save); omitted in onboarding (deferred).
   save?: StorySaveState
+  // Onboarding gates its "Continue" on this so advancing can't snapshot the
+  // field before an in-flight transcript lands. Omitted on the dashboard.
+  onDictationActiveChange?: (active: boolean) => void
 }
 
 // The onboarding story-intake card (Why / Background steps). Deferred-save: it
@@ -39,12 +43,14 @@ export default function StoryIntakeCard({
   rewriteField,
   analyticsLabel,
   save,
+  onDictationActiveChange,
 }: StoryIntakeCardProps): React.JSX.Element {
   // Pass the raw value (not trimmed): the hook trims internally for the API +
   // empty check, but captures this verbatim as the undo baseline, so trimming
   // here would make Undo silently drop the user's leading/trailing whitespace.
   const rewrite = useStoryRewrite(rewriteField, value, onChange)
   const dictation = useDictationAppend({ analyticsLabel, value, onChange })
+  useReportDictationActive(dictation.active, onDictationActiveChange)
 
   return (
     <Card className="flex flex-col gap-4 p-6">
