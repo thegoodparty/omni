@@ -22,6 +22,9 @@ export interface OrdinanceDraftRevision {
   revisions: { checkId: string; note: string }[]
   sourcesToAdd: OrdinanceSource[]
   tokens: number
+  inputTokens: number
+  outputTokens: number
+  model: string
 }
 
 const REVISION_MAX_TOKENS = 8192
@@ -126,20 +129,21 @@ export class OrdinanceDraftRevisionService {
     flaggedChecks: OrdinanceQualityCheck[],
     opts?: { abortSignal?: AbortSignal },
   ): Promise<OrdinanceDraftRevision> {
-    const { object, tokens } = await this.llm.jsonCompletion({
-      messages: [
-        { role: 'system', content: REVISION_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: buildRevisionUserPrompt(record, flaggedChecks),
-        },
-      ],
-      schema: RevisionSchema,
-      models: QUALITY_LOOP_MODELS,
-      retries: QUALITY_LOOP_LLM_RETRIES,
-      maxTokens: REVISION_MAX_TOKENS,
-      abortSignal: opts?.abortSignal,
-    })
+    const { object, tokens, inputTokens, outputTokens, model } =
+      await this.llm.jsonCompletion({
+        messages: [
+          { role: 'system', content: REVISION_SYSTEM_PROMPT },
+          {
+            role: 'user',
+            content: buildRevisionUserPrompt(record, flaggedChecks),
+          },
+        ],
+        schema: RevisionSchema,
+        models: QUALITY_LOOP_MODELS,
+        retries: QUALITY_LOOP_LLM_RETRIES,
+        maxTokens: REVISION_MAX_TOKENS,
+        abortSignal: opts?.abortSignal,
+      })
 
     const previousLength = record.draftBody?.length ?? 0
     if (object.body.length < previousLength * MIN_BODY_RATIO) {
@@ -162,6 +166,9 @@ export class OrdinanceDraftRevisionService {
       revisions: object.revisions,
       sourcesToAdd,
       tokens,
+      inputTokens,
+      outputTokens,
+      model,
     }
   }
 }
