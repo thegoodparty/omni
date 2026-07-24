@@ -546,14 +546,18 @@ export class ContactsService {
 
     if (idResolution.kind === 'empty') {
       return {
-        demographics: { people: 0, avgAge: null, avgIncome: null },
+        demographics: {
+          people: 0,
+          avgAge: null,
+          avgIncome: null,
+          fenced: false,
+        },
         reachability: {
           sms: 0,
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
-          email: null,
-          metaAds: null,
+          polls: 0,
         },
         outreachHistory,
       }
@@ -589,14 +593,19 @@ export class ContactsService {
         people: base.count,
         avgAge: base.avgAge,
         avgIncome: base.avgIncome,
+        // ENG-10775: only the base (unfiltered-by-channel) aggregates call
+        // backs the People/avg-age/avg-income tiles the webapp renders as
+        // "10,000+" — the cellphone/landline/address calls below feed
+        // reachability counts, whose own fenced-ness isn't surfaced yet.
+        fenced: base.fenced ?? false,
       },
       reachability: {
         sms: cellphone.count,
         robocall: cellphone.count,
         phoneBanking: landline.count,
         doorKnocking: address.count,
-        email: null,
-        metaAds: null,
+        // Polls are delivered by text, so reachability mirrors sms 1:1.
+        polls: cellphone.count,
       },
       outreachHistory,
     }

@@ -107,8 +107,7 @@ const emptyDetailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
-    email: null,
-    metaAds: null,
+    polls: 100,
   },
   outreachHistory: [],
 }
@@ -151,6 +150,32 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     expect(await screen.findByText('53')).toBeInTheDocument()
     expect(screen.queryByText('52.782')).not.toBeInTheDocument()
     expect(screen.getByText('$65,000')).toBeInTheDocument()
+  })
+
+  // ENG-10775: people-api floors a slow aggregates query at FENCE_LIMIT
+  // (10,000) instead of finishing the exact count — the People tile must
+  // never present that floor as if it were exact.
+  it('renders a trailing + on the People tile when the count is a fenced lower bound', async () => {
+    api.mock('GET /v1/voters/voter-file/filters', {
+      status: 200,
+      data: [{ id: 42, name: 'GOTV text list' }],
+    })
+    api.mock('GET /v1/contacts/list-detail', {
+      status: 200,
+      data: {
+        ...emptyDetailResponse,
+        demographics: {
+          people: 10000,
+          avgAge: 42,
+          avgIncome: 65000,
+          fenced: true,
+        },
+      },
+    })
+
+    render(<ListDetailSheet listId="42" onClose={vi.fn()} />)
+
+    expect(await screen.findByText('10,000+')).toBeInTheDocument()
   })
 
   it('renders the outreach-history table columns and the empty state', async () => {
@@ -248,7 +273,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(screen.getByText('Meta ads')).toBeInTheDocument()
+    expect(screen.getByText('Polls')).toBeInTheDocument()
   })
 
   it('reads "Constituent list details" in Serve mode', async () => {

@@ -165,8 +165,7 @@ describe('GET /v1/contacts authz', () => {
         robocall: 60,
         phoneBanking: 60,
         doorKnocking: 30,
-        email: null,
-        metaAds: null,
+        polls: 60,
       },
       outreachHistory: [],
     }
