@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render } from 'helpers/test-utils/render'
 import { useSnackbar } from 'helpers/useSnackbar'
@@ -169,9 +169,15 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
     await reachActivityConditionsStepWithSelection(user)
 
+    const cta = screen.getByRole('button', { name: 'Build your list (0)' })
+    expect(cta).toBeDisabled()
+
+    // Programmatic activation must not advance to the name step either —
+    // the guard lives in handleNext, not only on the disabled prop.
+    fireEvent.click(cta)
     expect(
-      screen.getByRole('button', { name: 'Build your list (0)' }),
-    ).toBeDisabled()
+      screen.queryByRole('heading', { name: 'Name your list' }),
+    ).not.toBeInTheDocument()
   })
 
   it('enables the build CTA for the activity branch once a valid selection resolves to a nonzero count', async () => {
