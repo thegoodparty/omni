@@ -591,21 +591,40 @@ export class CampaignTcrComplianceService extends createPrismaBase(
       )
     }
 
-    return this.model.create({
-      data: {
-        campaignId: campaign.id,
-        status: TcrComplianceStatus.approved,
-        internalTestingApprovedAt: new Date(),
-        ein: INTERNAL_TESTING_PLACEHOLDER,
-        postalAddress: INTERNAL_TESTING_PLACEHOLDER,
-        committeeName: INTERNAL_TESTING_PLACEHOLDER,
-        websiteDomain: INTERNAL_TESTING_PLACEHOLDER,
-        filingUrl: INTERNAL_TESTING_PLACEHOLDER,
-        phone: INTERNAL_TESTING_PLACEHOLDER,
-        email: user.email,
-        officeLevel: OfficeLevel.local,
-      },
-    })
+    try {
+      return await this.model.create({
+        data: {
+          campaignId: campaign.id,
+          status: TcrComplianceStatus.approved,
+          internalTestingApprovedAt: new Date(),
+          ein: INTERNAL_TESTING_PLACEHOLDER,
+          postalAddress: INTERNAL_TESTING_PLACEHOLDER,
+          committeeName: INTERNAL_TESTING_PLACEHOLDER,
+          websiteDomain: INTERNAL_TESTING_PLACEHOLDER,
+          filingUrl: INTERNAL_TESTING_PLACEHOLDER,
+          phone: INTERNAL_TESTING_PLACEHOLDER,
+          email: user.email,
+          officeLevel: OfficeLevel.local,
+        },
+      })
+    } catch (err) {
+      // Concurrent grants can both pass the pre-check; the loser's create
+      // hits the campaignId unique constraint. Resolve the race the same way
+      // the pre-check would have: idempotent for a marker row, 409 for a
+      // real compliance record that landed in between.
+      if (isPrismaError(err, 'P2002')) {
+        const raced = await this.fetchByCampaignId(campaign.id)
+        if (raced?.internalTestingApprovedAt) {
+          return raced
+        }
+        if (raced) {
+          throw new ConflictException(
+            'Campaign already has a real TCR compliance record',
+          )
+        }
+      }
+      throw err
+    }
   }
 
   async revokeInternalTestingApproval(campaignId: number) {

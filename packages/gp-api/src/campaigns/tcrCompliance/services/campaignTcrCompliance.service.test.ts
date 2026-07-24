@@ -2759,6 +2759,45 @@ describe('CampaignTcrComplianceService - internal testing approval', () => {
     expect(mockModel.create).not.toHaveBeenCalled()
   })
 
+  it('returns the raced marker row when a concurrent grant wins the create', async () => {
+    const raced = {
+      id: 'tcr-raced',
+      internalTestingApprovedAt: new Date(),
+      status: TcrComplianceStatus.approved,
+    }
+    mockModel.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(raced)
+    mockModel.create.mockRejectedValueOnce(
+      new PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    )
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).resolves.toBe(raced)
+  })
+
+  it('409s when a real compliance record wins the create race', async () => {
+    mockModel.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'tcr-real',
+      internalTestingApprovedAt: null,
+      status: TcrComplianceStatus.submitted,
+    })
+    mockModel.create.mockRejectedValueOnce(
+      new PrismaClientKnownRequestError('Unique constraint', {
+        code: 'P2002',
+        clientVersion: 'test',
+      }),
+    )
+
+    await expect(
+      service.grantInternalTestingApproval(internalUser, campaign),
+    ).rejects.toThrow(ConflictException)
+  })
+
   it('revoke deletes the marker row', async () => {
     mockModel.findUnique.mockResolvedValueOnce({
       id: 'tcr-1',
