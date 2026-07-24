@@ -64,6 +64,21 @@ const reachConditionsStepWithSelection = async (
   await user.click(pillForOption('Female'))
 }
 
+// Same, but through the activity branch — a bare channel selection (no
+// specific campaign/outcome needed) already satisfies isActivityStepValid,
+// so the zero-match gate is the only thing left to prove here.
+const reachActivityConditionsStepWithSelection = async (
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<void> => {
+  await user.click(
+    screen.getByRole('radio', {
+      name: /build a list from previous campaign activity/i,
+    }),
+  )
+  await user.click(screen.getByRole('button', { name: 'Continue' }))
+  await user.click(screen.getByRole('radio', { name: 'Text' }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
   mockedUseSnackbar.mockReturnValue({
@@ -144,6 +159,30 @@ describe('CreateListWizard — build CTA zero-match gate (ENG-10781)', () => {
 
     expect(
       screen.getByRole('button', { name: 'Build your list (0)' }),
+    ).toBeEnabled()
+  })
+
+  it('disables the build CTA for the activity branch once a valid selection resolves to a settled zero', async () => {
+    mockedUseListWizardCount.mockReturnValue(countResult({ count: 0 }))
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await reachActivityConditionsStepWithSelection(user)
+
+    expect(
+      screen.getByRole('button', { name: 'Build your list (0)' }),
+    ).toBeDisabled()
+  })
+
+  it('enables the build CTA for the activity branch once a valid selection resolves to a nonzero count', async () => {
+    mockedUseListWizardCount.mockReturnValue(countResult({ count: 17 }))
+    const user = userEvent.setup()
+    render(<CreateListWizard open onOpenChange={vi.fn()} />)
+
+    await reachActivityConditionsStepWithSelection(user)
+
+    expect(
+      screen.getByRole('button', { name: 'Build your list (17)' }),
     ).toBeEnabled()
   })
 })

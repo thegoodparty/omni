@@ -170,6 +170,13 @@ export default function CreateListWizard({
         (activeBranch === 'activity' && isConditionsStepValid),
     )
 
+  // ENG-10781: a selection that RESOLVES to zero matches must not advance —
+  // it can't build anything. Gated on !isLoading && !isStale so a payload
+  // still in-flight/debouncing (buildLabel below already hides the number in
+  // that window) can't flash the CTA disabled-then-enabled as the trailing
+  // count lands; only a settled zero counts.
+  const isZeroMatch = !isLoading && !isStale && count === 0
+
   const handleNext = () => {
     if (stepName === 'branch' && branch) {
       trackEvent(EVENTS.Contacts.ListWizard.MethodCompleted, {
@@ -177,7 +184,11 @@ export default function CreateListWizard({
         branch,
       })
       setStepIndex(stepIndex + 1)
-    } else if (stepName === 'conditions' && isConditionsStepValid) {
+    } else if (
+      stepName === 'conditions' &&
+      isConditionsStepValid &&
+      !isZeroMatch
+    ) {
       trackEvent(EVENTS.Contacts.ListWizard.ConditionsCompleted, {
         context: isWinContext ? 'win' : 'serve',
         ...(activeBranch ? { branch: activeBranch } : {}),
@@ -321,13 +332,6 @@ export default function CreateListWizard({
     isLoading || count === undefined
       ? 'Build your list'
       : `Build your list (${numberFormatter(count)})`
-
-  // ENG-10781: a selection that RESOLVES to zero matches must not advance —
-  // it can't build anything. Gated on !isLoading && !isStale so a payload
-  // still in-flight/debouncing (buildLabel above already hides the number in
-  // that window) can't flash the CTA disabled-then-enabled as the trailing
-  // count lands; only a settled zero counts.
-  const isZeroMatch = !isLoading && !isStale && count === 0
 
   return (
     <CrmSheet
