@@ -157,6 +157,25 @@ describe('CampaignTcrComplianceService - sweepPinDeliveryDetection', () => {
     )
   })
 
+  it('marks the record rejected when CV is WITHDRAWN so the sweep set shrinks', async () => {
+    mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
+      status: 'WITHDRAWN',
+      pinDelivery: { method: 'email', destination: 'a@b.com' },
+    })
+
+    await service.sweepPinDeliveryDetection()
+
+    expect(mockModel.updateMany).toHaveBeenCalledWith({
+      where: { id: 'tcr-1', status: { not: 'rejected' } },
+      data: { status: 'rejected' },
+    })
+    expect(mockTrack).toHaveBeenCalledWith(
+      user.id,
+      EVENTS.Outreach.ComplianceRejected,
+      expect.objectContaining({ rejection_source: 'cv_status_check' }),
+    )
+  })
+
   it('does not re-fire the rejection event when the record is already rejected', async () => {
     mockPeerly.retrieveCampaignVerifyDetails.mockResolvedValue({
       status: 'REJECTED',

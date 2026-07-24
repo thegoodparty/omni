@@ -397,13 +397,17 @@ export class CampaignTcrComplianceService extends createPrismaBase(
         campaign,
       )
 
-    // A CV that flipped to REJECTED after submission never gets a PIN, so
-    // without this the record would sit in the sweep set forever. Persist the
-    // rejected status (removing it from the sweep) via an atomic transition
-    // claim so the rejection event fires once; the DB write is the source of
-    // truth and the event is best-effort — a lost event still surfaces via
-    // the nightly 10DLC report's rejected section.
-    if (cvStatus === PeerlyCvVerificationStatus.REJECTED) {
+    // A CV that flipped to REJECTED or WITHDRAWN after submission never gets
+    // a PIN, so without this the record would sit in the sweep set forever
+    // (TcrComplianceStatus has no withdrawn value; rejected is the terminal
+    // mapping and keeps the record retryable via createAgentic). Persist via
+    // an atomic transition claim so the rejection event fires once; the DB
+    // write is the source of truth and the event is best-effort — a lost
+    // event still surfaces via the nightly 10DLC report's rejected section.
+    if (
+      cvStatus === PeerlyCvVerificationStatus.REJECTED ||
+      cvStatus === PeerlyCvVerificationStatus.WITHDRAWN
+    ) {
       const rejectedClaim = await this.model.updateMany({
         where: {
           id: tcrCompliance.id,
