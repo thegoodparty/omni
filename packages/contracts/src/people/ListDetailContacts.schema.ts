@@ -21,10 +21,8 @@ export const ListDetailReachabilitySchema = z.object({
   robocall: z.number().int().min(0),
   phoneBanking: z.number().int().min(0),
   doorKnocking: z.number().int().min(0),
-  // No eligibility data source exists for either channel (TDD open
-  // question) — always null so the UI renders "unavailable", never 0.
-  email: z.null(),
-  metaAds: z.null(),
+  // Polls are delivered by text, so reachability mirrors sms 1:1.
+  polls: z.number().int().min(0),
 })
 export type ListDetailReachability = z.infer<
   typeof ListDetailReachabilitySchema

@@ -1872,8 +1872,7 @@ describe('ContactsService', () => {
           robocall: 0,
           phoneBanking: 0,
           doorKnocking: 0,
-          email: null,
-          metaAds: null,
+          polls: 0,
         })
         // Outreach history is independent of person-membership — it still
         // comes back even when the resolved id set is empty.
@@ -1916,8 +1915,8 @@ describe('ContactsService', () => {
           // not the cellphone count sms/robocall use.
           phoneBanking: 45,
           doorKnocking: 30,
-          email: null,
-          metaAds: null,
+          // Polls are delivered by text, so they mirror the sms count.
+          polls: 60,
         })
 
         expect(mockHttpService.post).toHaveBeenCalledTimes(4)

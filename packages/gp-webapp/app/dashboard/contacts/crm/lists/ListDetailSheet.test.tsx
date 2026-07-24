@@ -107,8 +107,7 @@ const emptyDetailResponse = {
     robocall: 100,
     phoneBanking: 100,
     doorKnocking: 100,
-    email: null,
-    metaAds: null,
+    polls: 100,
   },
   outreachHistory: [],
 }
@@ -248,7 +247,7 @@ describe('ListDetailSheet — Lovable stat tiles', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Phone banking')).toBeInTheDocument()
     expect(screen.getByText('Door knocking')).toBeInTheDocument()
-    expect(screen.getByText('Meta ads')).toBeInTheDocument()
+    expect(screen.getByText('Polls')).toBeInTheDocument()
   })
 
   it('reads "Constituent list details" in Serve mode', async () => {
