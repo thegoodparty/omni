@@ -20,7 +20,9 @@ export const metadata = { title: 'GoodParty Prototypes' }
 
 const RootLayout = ({ children }: { children: ReactNode }) => (
   <html lang="en" className={`${openSans.variable} ${outfit.variable}`}>
-    <body>{children}</body>
+    {/* font-opensans = DS token utility (--font-opensans) so every prototype
+        renders in the design-system body font, matching Storybook / gp-webapp. */}
+    <body className="font-opensans">{children}</body>
   </html>
 )
 
