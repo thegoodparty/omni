@@ -464,7 +464,7 @@ const StepWhere = ({
                 <Check className="size-3" />
               </span>
             )}
-            <span className="bg-tertiary-light text-foreground flex size-10 items-center justify-center rounded-full">
+            <span className="bg-secondary-light text-foreground flex size-10 items-center justify-center rounded-full">
               <Icon className="size-5" />
             </span>
             <span className="text-foreground text-sm font-medium">
@@ -518,7 +518,7 @@ const PlatformChip = ({ meta }: { meta: PlatformMeta }) => {
   const Icon = meta.icon
   return (
     <span className="flex items-center gap-2">
-      <span className="bg-tertiary-light text-foreground flex size-7 items-center justify-center rounded-full">
+      <span className="bg-secondary-light text-foreground flex size-7 items-center justify-center rounded-full">
         <Icon className="size-4" />
       </span>
       <span className="text-foreground text-sm font-semibold">
