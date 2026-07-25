@@ -231,3 +231,39 @@ export const fmtDuration = (min: number): string => {
   if (m === 0) return `${h}h`
   return `${h}h ${m}m`
 }
+
+// -------------- Canvassing outcome model --------------
+export type DoorRecord = {
+  outcome: DoorOutcome
+  support?: Support
+  note?: string
+}
+
+export const OUTCOME_OPTIONS: { id: DoorOutcome; label: string }[] = [
+  { id: 'answered', label: 'Answered' },
+  { id: 'not_home', label: 'Not home' },
+  { id: 'not_accessible', label: "Can't access" },
+]
+
+export const SUPPORT_OPTIONS: { id: Support; label: string }[] = [
+  { id: 'yes', label: 'Supporter' },
+  { id: 'unknown', label: 'Undecided' },
+  { id: 'no', label: 'Not supporting' },
+]
+
+export const PARTY_LABEL: Record<Party, string> = {
+  D: 'Democrat',
+  R: 'Republican',
+  I: 'Independent',
+  U: 'Unaffiliated',
+}
+
+// Seed the canvass with the households already marked reached in the universe,
+// so progress counts line up with the manage view on first load.
+export const initialRecords = (): Record<string, DoorRecord> => {
+  const recs: Record<string, DoorRecord> = {}
+  for (const v of ALL_VOTERS) {
+    if (v.reached) recs[v.id] = { outcome: 'answered', support: v.support }
+  }
+  return recs
+}

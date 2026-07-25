@@ -1,17 +1,20 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { MapPin, Plus } from 'lucide-react'
 import { Button, Card, Progress, cn, toast } from '@goodparty_org/styleguide'
 import { ScreenLayout } from '../components/ScreenLayout'
 import { SectionLabel } from '../components/SectionLabel'
 import { ListCard } from './door-knocking/ListCard'
+import { WalkMode } from './door-knocking/WalkMode'
 import {
   type DoorList,
+  type DoorRecord,
   DOOR_GOAL,
   RECOMMENDED_LISTS,
   SAVED_LISTS,
   fmtDuration,
+  initialRecords,
   votersFor,
 } from './door-knocking/doorKnockingData'
 
@@ -23,22 +26,47 @@ type DoorKnockingProps = {
 export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
   const [saved, setSaved] = useState<DoorList[]>(SAVED_LISTS)
   const [recommended, setRecommended] = useState<DoorList[]>(RECOMMENDED_LISTS)
+  const [records, setRecords] =
+    useState<Record<string, DoorRecord>>(initialRecords)
+  const [walkListId, setWalkListId] = useState<string | null>(null)
 
-  const doorsKnocked = useMemo(
-    () =>
-      saved.reduce(
-        (sum, list) => sum + votersFor(list).filter((v) => v.reached).length,
-        0,
-      ),
-    [saved],
-  )
+  const walkList = saved.find((l) => l.id === walkListId) ?? null
+
+  // Inject live canvass progress into a list's voters so the cards update.
+  const listVoters = (list: DoorList) =>
+    votersFor(list).map((v) => ({
+      ...v,
+      reached: v.reached || !!records[v.id],
+    }))
+
+  const doorsKnocked = Object.keys(records).length
   const progress = Math.min(100, Math.round((doorsKnocked / DOOR_GOAL) * 100))
+
+  const recordDoor = (voterId: string, record: DoorRecord | null) =>
+    setRecords((prev) => {
+      const next = { ...prev }
+      if (record) next[voterId] = record
+      else delete next[voterId]
+      return next
+    })
 
   const soon = () =>
     toast('Coming soon', {
-      description:
-        'The map, route builder, and walk mode land in the next pass.',
+      description: 'The map and new-list builder land in the next pass.',
     })
+
+  if (walkList) {
+    return (
+      <ScreenLayout title={title} aiPlaceholder={aiPlaceholder} width="wide">
+        <WalkMode
+          list={walkList}
+          records={records}
+          onRecord={recordDoor}
+          onExit={() => setWalkListId(null)}
+        />
+      </ScreenLayout>
+    )
+  }
 
   return (
     <ScreenLayout title={title} aiPlaceholder={aiPlaceholder} width="wide">
@@ -66,7 +94,7 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
       <Card className="text-muted-foreground items-center justify-center gap-2 border-dashed p-8 text-center shadow-none">
         <MapPin className="size-6" />
         <p className="text-sm">
-          Route map coming next — this phase covers list management.
+          Route map coming next — knock doors from any saved list below.
         </p>
       </Card>
 
@@ -80,7 +108,7 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
                 key={list.id}
                 variant="recommended"
                 title={list.name}
-                voters={votersFor(list)}
+                voters={listVoters(list)}
                 duration={fmtDuration(list.durationMin)}
                 reason={list.reason}
                 onClick={soon}
@@ -116,11 +144,11 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
                 key={list.id}
                 variant="saved"
                 title={list.name}
-                voters={votersFor(list)}
+                voters={listVoters(list)}
                 duration={fmtDuration(list.durationMin)}
                 color={list.color}
-                onClick={soon}
-                onWalk={soon}
+                onClick={() => setWalkListId(list.id)}
+                onWalk={() => setWalkListId(list.id)}
                 onDetails={soon}
                 onDelete={() =>
                   setSaved((prev) => prev.filter((s) => s.id !== list.id))
