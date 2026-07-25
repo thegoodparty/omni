@@ -1206,7 +1206,7 @@ const StepWhat = ({
             className={cn(
               'gap-1.5',
               !biasDetected && 'text-muted-foreground',
-              biasClean && 'text-success-dark',
+              biasClean && 'text-success',
             )}
             onClick={onBiasCheck}
             disabled={biasChecking || !message.trim()}
