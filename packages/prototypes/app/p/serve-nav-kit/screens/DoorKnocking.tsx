@@ -7,6 +7,7 @@ import { ScreenLayout } from '../components/ScreenLayout'
 import { SectionLabel } from '../components/SectionLabel'
 import { ListCard } from './door-knocking/ListCard'
 import { WalkMode } from './door-knocking/WalkMode'
+import { NewListDrawer } from './door-knocking/NewListDrawer'
 import {
   type DoorList,
   type DoorRecord,
@@ -29,6 +30,7 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
   const [records, setRecords] =
     useState<Record<string, DoorRecord>>(initialRecords)
   const [walkListId, setWalkListId] = useState<string | null>(null)
+  const [newListOpen, setNewListOpen] = useState(false)
 
   const walkList = saved.find((l) => l.id === walkListId) ?? null
 
@@ -82,7 +84,7 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
               </span>
             </p>
           </div>
-          <Button onClick={soon}>
+          <Button onClick={() => setNewListOpen(true)}>
             <Plus className="size-4" />
             New list
           </Button>
@@ -158,6 +160,15 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
           </div>
         )}
       </section>
+
+      <NewListDrawer
+        open={newListOpen}
+        onOpenChange={setNewListOpen}
+        onCreate={(list) => {
+          setSaved((prev) => [list, ...prev])
+          toast('List created', { description: list.name })
+        }}
+      />
     </ScreenLayout>
   )
 }

@@ -130,6 +130,9 @@ const STREETS = [
 const PRECINCTS = ['Precinct 3', 'Precinct 4', 'Ward 3']
 const PARTIES: Party[] = ['D', 'R', 'I', 'U']
 
+export const DK_PRECINCTS: readonly string[] = PRECINCTS
+export const DK_PARTIES: readonly Party[] = PARTIES
+
 // Deterministic pseudo-random so the universe is stable across renders.
 const seeded = (n: number) => {
   const x = Math.sin(n * 999) * 10000
@@ -223,6 +226,25 @@ export const votersFor = (list: DoorList): Voter[] => {
   const set = new Set(list.voterIds)
   return ALL_VOTERS.filter((v) => set.has(v.id))
 }
+
+// -------------- New-list filters --------------
+export type ListFilters = {
+  precincts: string[]
+  parties: Party[]
+  notReached: boolean
+}
+
+export const filterVoters = (f: ListFilters): Voter[] =>
+  ALL_VOTERS.filter((v) => {
+    if (f.precincts.length && !f.precincts.includes(v.precinct)) return false
+    if (f.parties.length && !f.parties.includes(v.party)) return false
+    if (f.notReached && v.reached) return false
+    return true
+  })
+
+// Rough walking estimate: ~2 min per door, min 10.
+export const estimatedMinutes = (count: number): number =>
+  count === 0 ? 0 : Math.max(10, Math.round(count * 2))
 
 export const fmtDuration = (min: number): string => {
   const h = Math.floor(min / 60)
