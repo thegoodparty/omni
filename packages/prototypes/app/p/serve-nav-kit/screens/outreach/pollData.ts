@@ -117,11 +117,20 @@ export const POLL_RECOMMENDATION = {
   reach: 3420,
 }
 
-// Full poll message: intro + the topic's question (source drafts this via AI).
-export const generatePollDraft = (topic: PollTopicId): string => {
+// Real opener variants so "Regenerate" re-drafts the poll with new phrasing.
+const POLL_OPENERS = [
+  'We want to hear from you:',
+  'Quick question for you:',
+  'Your input matters —',
+  "I'd love your take:",
+]
+
+// Full poll message: intro + opener + the topic's question.
+export const generatePollDraft = (topic: PollTopicId, seed = 0): string => {
   const t = POLL_TOPICS.find((x) => x.id === topic)
   if (!t || !t.question) return ''
-  return `${pollIntroFor()} We want to hear from you: ${t.question}`
+  const opener = POLL_OPENERS[seed % POLL_OPENERS.length] ?? POLL_OPENERS[0]
+  return `${pollIntroFor()} ${opener} ${t.question}`
 }
 
 // Basic whitespace tidy stands in for the source's "Improve with AI" backend call.

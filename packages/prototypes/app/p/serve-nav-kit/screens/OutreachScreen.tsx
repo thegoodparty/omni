@@ -43,6 +43,11 @@ import {
   type ScheduledPoll,
 } from './outreach/PollsCampaignFlow'
 import {
+  SocialCampaignFlow,
+  type PublishedSocial,
+} from './outreach/SocialCampaignFlow'
+import { metaFor } from './outreach/socialData'
+import {
   type ChannelKey,
   type HistoryRow,
   type HistoryStatus,
@@ -82,6 +87,7 @@ export const OutreachScreen = ({
   const [emailOpen, setEmailOpen] = useState(false)
   const [robocallOpen, setRobocallOpen] = useState(false)
   const [pollOpen, setPollOpen] = useState(false)
+  const [socialOpen, setSocialOpen] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [channelFilter, setChannelFilter] = useState<Set<ChannelKey>>(
     () => new Set(CHANNELS),
@@ -172,7 +178,9 @@ export const OutreachScreen = ({
                       ? () => setRobocallOpen(true)
                       : key === 'polls'
                         ? () => setPollOpen(true)
-                        : undefined
+                        : key === 'social'
+                          ? () => setSocialOpen(true)
+                          : undefined
               }
             />
           ))}
@@ -528,6 +536,35 @@ export const OutreachScreen = ({
             cost: r.cost,
             costPerOutreach: 0.035,
             receiptId: `rcpt_poll_${r.sendAt.getTime()}`,
+          }
+          setHistory((prev) => [row, ...prev])
+        }}
+      />
+
+      <SocialCampaignFlow
+        open={socialOpen}
+        onOpenChange={setSocialOpen}
+        onPublished={(r: PublishedSocial) => {
+          const now = new Date()
+          const labels = r.platforms.map((p) => metaFor(p).label)
+          const row: HistoryRow = {
+            id: `social-${now.getTime()}`,
+            date: now.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
+            completedAt: now,
+            name: r.name,
+            channel: 'social',
+            status: 'done',
+            people: 0,
+            responses: 0,
+            unsubscribes: null,
+            audienceName: labels.join(' + '),
+            audienceFilters: labels,
+            cost: 0,
+            costPerOutreach: 0,
+            receiptId: null,
           }
           setHistory((prev) => [row, ...prev])
         }}

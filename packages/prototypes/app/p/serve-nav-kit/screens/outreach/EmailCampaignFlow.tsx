@@ -164,6 +164,7 @@ export const EmailCampaignFlow = ({
 
   const [tone, setTone] = useState<Tone>('Warm')
   const [loadingDrafts, setLoadingDrafts] = useState(false)
+  const seedRef = useRef(0)
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
   const [signature, setSignature] = useState(DEFAULT_SIGNATURE)
@@ -209,7 +210,7 @@ export const EmailCampaignFlow = ({
     if (purpose === 'custom') return
     setLoadingDrafts(true)
     const t = setTimeout(() => {
-      const draft = generateEmailDraft(purpose ?? 'introduce')
+      const draft = generateEmailDraft(purpose ?? 'introduce', seedRef.current)
       setSubject(draft.subject)
       setMessage(draft.body)
       setLoadingDrafts(false)
@@ -220,13 +221,21 @@ export const EmailCampaignFlow = ({
 
   const regenerate = () => {
     if (!purpose || purpose === 'custom') return
+    seedRef.current += 1
+    const seed = seedRef.current
     setLoadingDrafts(true)
     setTimeout(() => {
-      const draft = generateEmailDraft(purpose)
+      const draft = generateEmailDraft(purpose, seed)
       setSubject(draft.subject)
       setMessage(draft.body)
       setLoadingDrafts(false)
     }, 650)
+  }
+
+  // Switching tone re-drafts the email in the new voice.
+  const handleToneChange = (t: Tone) => {
+    setTone(t)
+    regenerate()
   }
 
   const reset = () => {
@@ -246,6 +255,7 @@ export const EmailCampaignFlow = ({
     setCustomTime('10:00')
     setCampaignName('')
     setTone('Warm')
+    seedRef.current = 0
     setSubject('')
     setMessage('')
     setSignature(DEFAULT_SIGNATURE)
@@ -445,9 +455,9 @@ export const EmailCampaignFlow = ({
               <StepWhat
                 audience={selectedAudience}
                 tone={tone}
-                setTone={setTone}
+                setTone={handleToneChange}
                 loadingDrafts={loadingDrafts}
-                onRegenerate={regenerate}
+                onRegenerate={() => regenerate()}
                 subject={subject}
                 setSubject={setSubject}
                 message={message}
@@ -995,34 +1005,37 @@ const StepWhat = ({
           )
         })}
       </FilterPillGroup>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted-foreground text-sm">
-          Suggested for {audience.name}
-        </p>
-        <Button
-          variant="link"
-          size="small"
-          className="h-auto gap-1.5 px-0"
-          disabled={loadingDrafts}
-          onClick={onRegenerate}
-        >
-          {loadingDrafts ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="size-4" />
-          )}
-          Regenerate
-        </Button>
-      </div>
+      {/* Label + first field grouped so the row sits nearer the field than the pills. */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground text-sm">
+            Suggested for {audience.name}
+          </p>
+          <Button
+            variant="link"
+            size="small"
+            className="h-auto gap-1.5 px-0"
+            disabled={loadingDrafts}
+            onClick={onRegenerate}
+          >
+            {loadingDrafts ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            Regenerate
+          </Button>
+        </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="email-subject">Subject</Label>
-        <Input
-          id="email-subject"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          placeholder="Write a subject line…"
-        />
+        <div className="space-y-2">
+          <Label htmlFor="email-subject">Subject</Label>
+          <Input
+            id="email-subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Write a subject line…"
+          />
+        </div>
       </div>
 
       {/* Body editor: image, message, toolbar. */}

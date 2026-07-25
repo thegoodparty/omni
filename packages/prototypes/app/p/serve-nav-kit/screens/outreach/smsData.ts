@@ -169,23 +169,44 @@ export const hasIntro = (text: string): boolean => {
 export const messageEndsWithOptOut = (text: string): boolean =>
   text.trimEnd().toLowerCase().endsWith(OPT_OUT_FOOTER.toLowerCase())
 
-// Mock of the AI drafting endpoint: a compliant, purpose-specific SMS body.
-const PURPOSE_BODY: Record<PurposeId, string> = {
-  introduce:
+// Mock of the AI drafting endpoint: purpose-specific SMS bodies. Multiple real
+// variants per purpose so "Regenerate" (and switching tone) yields new copy.
+const PURPOSE_BODY: Record<PurposeId, string[]> = {
+  introduce: [
     "I'm running to lower everyday costs and make City Hall work for you, not the insiders. Can I count on your vote?",
-  persuade:
+    "I'm running because our neighborhood deserves a City Council that shows up and listens. I'd be honored to earn your vote.",
+    "I'm running to cut waste at City Hall and put working families first. Can I count on your support?",
+  ],
+  persuade: [
     "Together we can bring down housing costs and invest in safer streets. I'd be honored to earn your support this November.",
-  event:
+    "This race is close and it comes down to neighbors like you. I'm focused on housing, safety, and a city that listens.",
+    "Real change starts local. Help me deliver lower costs and safer streets — I'd be grateful for your vote.",
+  ],
+  event: [
     'Join me this Saturday at the community center to talk through the issues that matter most to you. Hope to see you there!',
-  'vote-early':
+    "I'm hosting a neighborhood meetup this week — come ask questions and share what you'd like to see. Bring a friend!",
+    "Let's talk in person. Stop by my community gathering this weekend — I'd love to hear what's on your mind.",
+  ],
+  'vote-early': [
     'Early voting is open now — beat the lines and make your voice heard. Every early vote helps us win.',
-  'election-day':
+    "Don't wait for Election Day. Early voting is open and it only takes a few minutes to make your voice count.",
+    'Early voting is the easiest way to vote. Make your plan today and text a friend to do the same.',
+  ],
+  'election-day': [
     'Today is Election Day and polls are open until 8 PM. Your vote decides our future — please turn out.',
-  custom: '',
+    "It's Election Day! Polls close at 8 PM. This race comes down to turnout — please make your voice heard.",
+    "Polls are open until 8 PM today. If you haven't voted yet, now's the time. Every vote matters.",
+  ],
+  custom: [],
 }
 
-export const generateDraft = (purpose: PurposeId, tone: Tone): string => {
-  const body = PURPOSE_BODY[purpose]
-  if (!body) return `${introFor(tone)} `
+export const generateDraft = (
+  purpose: PurposeId,
+  tone: Tone,
+  seed = 0,
+): string => {
+  const bodies = PURPOSE_BODY[purpose]
+  if (!bodies || bodies.length === 0) return `${introFor(tone)} `
+  const body = bodies[seed % bodies.length] ?? bodies[0]
   return `${introFor(tone)} ${body}`
 }

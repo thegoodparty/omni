@@ -170,6 +170,7 @@ export const PollsCampaignFlow = ({
 
   const [tone, setTone] = useState<PollTone>('Neutral')
   const [loadingDraft, setLoadingDraft] = useState(false)
+  const seedRef = useRef(0)
   const [message, setMessage] = useState('')
   const [polishing, setPolishing] = useState(false)
   const [undoText, setUndoText] = useState<string | null>(null)
@@ -245,7 +246,9 @@ export const PollsCampaignFlow = ({
     if (message.trim()) return
     setLoadingDraft(true)
     const t = setTimeout(() => {
-      setMessage(generatePollDraft(topicId ?? 'affordable-housing'))
+      setMessage(
+        generatePollDraft(topicId ?? 'affordable-housing', seedRef.current),
+      )
       setUndoText(null)
       clearBias()
       setLoadingDraft(false)
@@ -256,13 +259,21 @@ export const PollsCampaignFlow = ({
 
   const regenerate = () => {
     if (!topicId || topicId === 'custom') return
+    seedRef.current += 1
+    const seed = seedRef.current
     setLoadingDraft(true)
     setTimeout(() => {
-      setMessage(generatePollDraft(topicId))
+      setMessage(generatePollDraft(topicId, seed))
       setUndoText(null)
       clearBias()
       setLoadingDraft(false)
     }, 650)
+  }
+
+  // Switching tone re-drafts the question with new phrasing.
+  const handleToneChange = (t: PollTone) => {
+    setTone(t)
+    if (topicId !== 'custom') regenerate()
   }
 
   const handlePolish = () => {
@@ -310,6 +321,7 @@ export const PollsCampaignFlow = ({
     setCustomTime('10:00')
     setCampaignName('')
     setTone('Neutral')
+    seedRef.current = 0
     setMessage('')
     setUndoText(null)
     setBiasChecked(false)
@@ -523,9 +535,9 @@ export const PollsCampaignFlow = ({
               <StepWhat
                 audience={selectedAudience}
                 tone={tone}
-                setTone={setTone}
+                setTone={handleToneChange}
                 loadingDraft={loadingDraft}
-                onRegenerate={regenerate}
+                onRegenerate={() => regenerate()}
                 message={message}
                 setMessage={editMessage}
                 onPolish={handlePolish}
@@ -1109,22 +1121,24 @@ const StepWhat = ({
         body="Ask a single, clear question. Neutral wording gets better responses."
       />
 
+      <FilterPillGroup
+        type="single"
+        value={tone}
+        onValueChange={(v) => v && setTone(v as PollTone)}
+      >
+        {POLL_TONES.map((t) => {
+          const ToneIcon = POLL_TONE_ICONS[t]
+          return (
+            <FilterPill key={t} value={t} className="gap-1.5">
+              <ToneIcon className="size-4" />
+              {t}
+            </FilterPill>
+          )
+        })}
+      </FilterPillGroup>
+
+      {/* Label + field grouped so the row sits nearer the field than the pills. */}
       <div className="space-y-3">
-        <FilterPillGroup
-          type="single"
-          value={tone}
-          onValueChange={(v) => v && setTone(v as PollTone)}
-        >
-          {POLL_TONES.map((t) => {
-            const ToneIcon = POLL_TONE_ICONS[t]
-            return (
-              <FilterPill key={t} value={t} className="gap-1.5">
-                <ToneIcon className="size-4" />
-                {t}
-              </FilterPill>
-            )
-          })}
-        </FilterPillGroup>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-muted-foreground text-sm">
             Suggested for {audience.name}
@@ -1144,105 +1158,105 @@ const StepWhat = ({
             Regenerate
           </Button>
         </div>
-      </div>
 
-      {loadingDraft && (
-        <p className="text-muted-foreground flex items-center gap-2 text-sm">
-          <Loader2 className="size-3.5 animate-spin" /> Drafting a question…
-        </p>
-      )}
+        {loadingDraft && (
+          <p className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-3.5 animate-spin" /> Drafting a question…
+          </p>
+        )}
 
-      <Card className="gap-0 p-4 shadow-none">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-muted-foreground text-xs font-medium">
-            Your question
-          </span>
-          <span className="text-muted-foreground text-xs tabular-nums">
-            {message.length} chars · {segments} SMS
-          </span>
-        </div>
-        <p className="text-muted-foreground mb-2 text-xs">
-          {renderWithMergeVars('Hello, {first_name}')}
-        </p>
-        <Textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Write your poll question…"
-          className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
-        />
-        <p className="text-muted-foreground mt-3 text-xs">{OPT_OUT_FOOTER}</p>
+        <Card className="gap-0 p-4 shadow-none">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-muted-foreground text-xs font-medium">
+              Your question
+            </span>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {message.length} chars · {segments} SMS
+            </span>
+          </div>
+          <p className="text-muted-foreground mb-2 text-xs">
+            {renderWithMergeVars('Hello, {first_name}')}
+          </p>
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Write your poll question…"
+            className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+          />
+          <p className="text-muted-foreground mt-3 text-xs">{OPT_OUT_FOOTER}</p>
 
-        <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
-          {undoText !== null && (
+          <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
+            {undoText !== null && (
+              <Button
+                variant="link"
+                size="small"
+                className="h-auto px-2"
+                onClick={onUndo}
+              >
+                Undo
+              </Button>
+            )}
             <Button
-              variant="link"
+              variant="ghost"
               size="small"
-              className="h-auto px-2"
-              onClick={onUndo}
+              className="text-muted-foreground gap-1.5"
+              onClick={onPolish}
+              disabled={polishing || !message.trim()}
             >
-              Undo
+              {polishing ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" /> Improving…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="size-4" /> Improve with AI
+                </>
+              )}
             </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="small"
-            className="text-muted-foreground gap-1.5"
-            onClick={onPolish}
-            disabled={polishing || !message.trim()}
-          >
-            {polishing ? (
-              <>
-                <Loader2 className="size-4 animate-spin" /> Improving…
-              </>
-            ) : (
-              <>
-                <Sparkles className="size-4" /> Improve with AI
-              </>
-            )}
-          </Button>
-          <Button
-            variant={biasDetected ? 'destructive' : 'ghost'}
-            size="small"
-            className={cn(
-              'gap-1.5',
-              !biasDetected && 'text-muted-foreground',
-              biasClean && 'text-success',
-            )}
-            onClick={onBiasCheck}
-            disabled={biasChecking || !message.trim()}
-          >
-            {biasChecking ? (
-              <>
-                <Loader2 className="size-4 animate-spin" /> Checking…
-              </>
-            ) : biasDetected ? (
-              <>
-                <ShieldAlert className="size-4" /> Bias detected
-              </>
-            ) : biasClean ? (
-              <>
-                <ShieldCheck className="size-4" /> No bias detected
-              </>
-            ) : (
-              <>
-                <ShieldCheck className="size-4" /> Check for bias
-              </>
-            )}
-          </Button>
-          <IconButton
-            variant={recording ? 'destructive' : 'ghost'}
-            size="small"
-            aria-label={recording ? 'Stop dictation' : 'Dictate'}
-            onClick={handleDictate}
-          >
-            {recording ? (
-              <Square className="size-4 fill-current" />
-            ) : (
-              <Mic className="size-5" />
-            )}
-          </IconButton>
-        </div>
-      </Card>
+            <Button
+              variant={biasDetected ? 'destructive' : 'ghost'}
+              size="small"
+              className={cn(
+                'gap-1.5',
+                !biasDetected && 'text-muted-foreground',
+                biasClean && 'text-success',
+              )}
+              onClick={onBiasCheck}
+              disabled={biasChecking || !message.trim()}
+            >
+              {biasChecking ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" /> Checking…
+                </>
+              ) : biasDetected ? (
+                <>
+                  <ShieldAlert className="size-4" /> Bias detected
+                </>
+              ) : biasClean ? (
+                <>
+                  <ShieldCheck className="size-4" /> No bias detected
+                </>
+              ) : (
+                <>
+                  <ShieldCheck className="size-4" /> Check for bias
+                </>
+              )}
+            </Button>
+            <IconButton
+              variant={recording ? 'destructive' : 'ghost'}
+              size="small"
+              aria-label={recording ? 'Stop dictation' : 'Dictate'}
+              onClick={handleDictate}
+            >
+              {recording ? (
+                <Square className="size-4 fill-current" />
+              ) : (
+                <Mic className="size-5" />
+              )}
+            </IconButton>
+          </div>
+        </Card>
+      </div>
 
       {biasDetected && (
         <Alert variant="destructive" icon={<ShieldAlert />}>

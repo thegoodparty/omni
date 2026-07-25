@@ -78,11 +78,54 @@ export const EMAIL_RECOMMENDATION = {
   reach: 4812,
 }
 
+// Alternate real drafts per purpose so "Regenerate" yields new copy. Variant 0
+// is the EMAIL_PURPOSES template; index 1+ live here.
+const EMAIL_ALT_BODIES: Partial<
+  Record<EmailPurposeId, { subject: string; body: string }[]>
+> = {
+  introduce: [
+    {
+      subject: `A quick hello from ${CANDIDATE_FIRST_NAME}`,
+      body: `Hi {first_name},\n\nI'm ${CANDIDATE_FULL_NAME}, running for ${CANDIDATE_ROLE_SHORT}, and I wanted to reach out as a neighbor before you hear from anyone else.\n\nI'm running because our community deserves leaders who show up, listen, and get the basics right — affordable housing, safe streets, and a city hall that works.\n\nI'd genuinely like to know what matters to you. Just reply and tell me.`,
+    },
+  ],
+  persuade: [
+    {
+      subject: `Your vote will decide this one`,
+      body: `Hi {first_name},\n\nRaces like ours are won and lost by a handful of votes. I'm ${CANDIDATE_FULL_NAME}, running for ${CANDIDATE_ROLE_SHORT}, and I'd be grateful for yours.\n\nI'm focused on lowering costs, keeping our neighborhoods safe, and making local government actually responsive.\n\nStill deciding? Reply with your questions — I answer every one.`,
+    },
+  ],
+  event: [
+    {
+      subject: `Come meet ${CANDIDATE_FIRST_NAME} this week`,
+      body: `Hi {first_name},\n\nI'd love to see you at a neighborhood gathering I'm hosting this week. No speeches — just a chance to meet, ask questions, and tell me what you'd like to see from your next ${CANDIDATE_ROLE_SHORT}.\n\nBring a neighbor. I'll send the details shortly.`,
+    },
+  ],
+  'vote-early': [
+    {
+      subject: `Make a plan to vote early`,
+      body: `Hi {first_name},\n\nEarly voting is open, and it's the simplest way to make your voice count without the Election Day rush.\n\nPick a time, grab your ID, and it's done in minutes. Reply if you'd like help finding your early-vote location.`,
+    },
+  ],
+  'election-day': [
+    {
+      subject: `Polls close at 7:30 tonight`,
+      body: `Hi {first_name},\n\nThis is it — polls are open until 7:30 PM today, and turnout will decide this race.\n\nNeed your polling place, a ride, or a hand with the ballot? Reply and my team will jump in.`,
+    },
+  ],
+}
+
 export const generateEmailDraft = (
   purpose: EmailPurposeId,
+  seed = 0,
 ): { subject: string; body: string } => {
-  const p = EMAIL_PURPOSES.find((x) => x.id === purpose)
-  return p ? { subject: p.subject, body: p.body } : { subject: '', body: '' }
+  const base = EMAIL_PURPOSES.find((x) => x.id === purpose)
+  if (!base) return { subject: '', body: '' }
+  const variants = [
+    { subject: base.subject, body: base.body },
+    ...(EMAIL_ALT_BODIES[purpose] ?? []),
+  ]
+  return variants[seed % variants.length] ?? variants[0]!
 }
 
 export const senderEmail = `${CANDIDATE_FIRST_NAME.toLowerCase()}@${CANDIDATE_ROLE_SHORT.toLowerCase().replace(/[^a-z0-9]+/g, '')}.com`

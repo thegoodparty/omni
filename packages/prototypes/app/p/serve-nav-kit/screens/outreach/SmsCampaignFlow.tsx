@@ -166,6 +166,7 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
 
   const [tone, setTone] = useState<Tone>('Warm')
   const [loadingDrafts, setLoadingDrafts] = useState(false)
+  const seedRef = useRef(0)
   const [message, setMessage] = useState('')
   const [mediaUrl, setMediaUrl] = useState<string | null>(null)
   const [processing, setProcessing] = useState(false)
@@ -213,20 +214,28 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
     }
     setLoadingDrafts(true)
     const t = setTimeout(() => {
-      setMessage(generateDraft(purpose ?? 'introduce', tone))
+      setMessage(generateDraft(purpose ?? 'introduce', tone, seedRef.current))
       setLoadingDrafts(false)
     }, 650)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
-  const regenerate = () => {
+  const regenerate = (toneArg: Tone = tone) => {
     if (!purpose || purpose === 'custom') return
+    seedRef.current += 1
+    const seed = seedRef.current
     setLoadingDrafts(true)
     setTimeout(() => {
-      setMessage(generateDraft(purpose, tone))
+      setMessage(generateDraft(purpose, toneArg, seed))
       setLoadingDrafts(false)
     }, 650)
+  }
+
+  // Switching tone re-drafts the message in the new voice.
+  const handleToneChange = (t: Tone) => {
+    setTone(t)
+    if (purpose !== 'custom') regenerate(t)
   }
 
   const reset = () => {
@@ -246,6 +255,7 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
     setCustomTime('10:00')
     setCampaignName('')
     setTone('Warm')
+    seedRef.current = 0
     setMessage('')
     setMediaUrl(null)
     setProcessing(false)
@@ -450,9 +460,9 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
               <StepWhat
                 audience={selectedAudience}
                 tone={tone}
-                setTone={setTone}
+                setTone={handleToneChange}
                 loadingDrafts={loadingDrafts}
-                onRegenerate={regenerate}
+                onRegenerate={() => regenerate()}
                 message={message}
                 setMessage={setMessage}
                 mediaUrl={mediaUrl}
@@ -998,138 +1008,139 @@ const StepWhat = ({
           )
         })}
       </FilterPillGroup>
-      {/* Equidistant from the pills above and the editor card below (parent
-          space-y-6 controls both gaps). */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-muted-foreground text-sm">
-          Suggested for {audience.name}
-        </p>
-        <Button
-          variant="link"
-          size="small"
-          className="h-auto gap-1.5 px-0"
-          disabled={loadingDrafts}
-          onClick={onRegenerate}
-        >
-          {loadingDrafts ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <RefreshCw className="size-4" />
-          )}
-          Regenerate
-        </Button>
-      </div>
+      {/* Label + editor grouped so the row sits nearer the field than the pills. */}
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground text-sm">
+            Suggested for {audience.name}
+          </p>
+          <Button
+            variant="link"
+            size="small"
+            className="h-auto gap-1.5 px-0"
+            disabled={loadingDrafts}
+            onClick={onRegenerate}
+          >
+            {loadingDrafts ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            Regenerate
+          </Button>
+        </div>
 
-      {/* Editor card: image, greeting, message, opt-out, toolbar. */}
-      <Card className="gap-0 p-4 shadow-none">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            handleFile(e.target.files?.[0] ?? null)
-            e.target.value = ''
-          }}
-        />
-        {mediaUrl ? (
-          <div className="relative mb-4">
-            <img
-              src={mediaUrl}
-              alt="Attachment preview"
-              className="border-border max-h-56 w-full rounded-xl border object-cover"
-            />
+        {/* Editor card: image, greeting, message, opt-out, toolbar. */}
+        <Card className="gap-0 p-4 shadow-none">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              handleFile(e.target.files?.[0] ?? null)
+              e.target.value = ''
+            }}
+          />
+          {mediaUrl ? (
+            <div className="relative mb-4">
+              <img
+                src={mediaUrl}
+                alt="Attachment preview"
+                className="border-border max-h-56 w-full rounded-xl border object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => setMediaUrl(null)}
+                aria-label="Remove image"
+                className="bg-foreground/80 text-background hover:bg-foreground absolute top-2 right-2 flex size-7 items-center justify-center rounded-full"
+              >
+                <X className="size-3.5" />
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              onClick={() => setMediaUrl(null)}
-              aria-label="Remove image"
-              className="bg-foreground/80 text-background hover:bg-foreground absolute top-2 right-2 flex size-7 items-center justify-center rounded-full"
+              onClick={() => fileInputRef.current?.click()}
+              className="border-border hover:border-primary/50 hover:bg-muted mb-4 flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-10 transition-colors"
             >
-              <X className="size-3.5" />
+              <ImageIcon className="text-muted-foreground size-6" />
+              <span className="text-foreground text-sm font-medium">
+                Add your campaign headshot or logo
+              </span>
+              <span className="text-muted-foreground text-xs">
+                Recipients see this in the message preview
+              </span>
             </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="border-border hover:border-primary/50 hover:bg-muted mb-4 flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-10 transition-colors"
-          >
-            <ImageIcon className="text-muted-foreground size-6" />
-            <span className="text-foreground text-sm font-medium">
-              Add your campaign headshot or logo
-            </span>
-            <span className="text-muted-foreground text-xs">
-              Recipients see this in the message preview
-            </span>
-          </button>
-        )}
-
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-muted-foreground text-xs font-medium">
-            Your message
-          </span>
-          <span className="text-muted-foreground text-xs tabular-nums">
-            {message.length} chars · {segments} SMS
-          </span>
-        </div>
-        <p className="text-muted-foreground mb-2 text-xs">
-          {renderWithMergeVars('Hello, {first_name}')}
-        </p>
-        <Textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Write your message…"
-          aria-invalid={overLimit}
-          className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0"
-        />
-        <p className="text-muted-foreground mt-3 text-xs">{OPT_OUT_FOOTER}</p>
-
-        <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
-          {undoText !== null && (
-            <Button
-              variant="link"
-              size="small"
-              className="h-auto px-2"
-              onClick={() => {
-                setMessage(undoText)
-                setUndoText(null)
-              }}
-            >
-              Undo
-            </Button>
           )}
-          <Button
-            variant="ghost"
-            size="small"
-            className="text-muted-foreground"
-            onClick={handlePolish}
-            disabled={polishing || !message.trim()}
-          >
-            {polishing ? (
-              <>
-                <Loader2 className="size-4 animate-spin" /> Improving…
-              </>
-            ) : (
-              <>
-                <Sparkles className="size-4" /> Improve with AI
-              </>
+
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-muted-foreground text-xs font-medium">
+              Your message
+            </span>
+            <span className="text-muted-foreground text-xs tabular-nums">
+              {message.length} chars · {segments} SMS
+            </span>
+          </div>
+          <p className="text-muted-foreground mb-2 text-xs">
+            {renderWithMergeVars('Hello, {first_name}')}
+          </p>
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Write your message…"
+            aria-invalid={overLimit}
+            className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0"
+          />
+          <p className="text-muted-foreground mt-3 text-xs">{OPT_OUT_FOOTER}</p>
+
+          <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
+            {undoText !== null && (
+              <Button
+                variant="link"
+                size="small"
+                className="h-auto px-2"
+                onClick={() => {
+                  setMessage(undoText)
+                  setUndoText(null)
+                }}
+              >
+                Undo
+              </Button>
             )}
-          </Button>
-          <IconButton
-            variant={recording ? 'destructive' : 'ghost'}
-            size="small"
-            className={cn(!recording && 'text-muted-foreground')}
-            onClick={handleDictate}
-            aria-label={recording ? 'Stop dictation' : 'Dictate'}
-          >
-            {recording ? (
-              <Square className="size-4 fill-current" />
-            ) : (
-              <Mic className="size-5" />
-            )}
-          </IconButton>
-        </div>
-      </Card>
+            <Button
+              variant="ghost"
+              size="small"
+              className="text-muted-foreground"
+              onClick={handlePolish}
+              disabled={polishing || !message.trim()}
+            >
+              {polishing ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" /> Improving…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="size-4" /> Improve with AI
+                </>
+              )}
+            </Button>
+            <IconButton
+              variant={recording ? 'destructive' : 'ghost'}
+              size="small"
+              className={cn(!recording && 'text-muted-foreground')}
+              onClick={handleDictate}
+              aria-label={recording ? 'Stop dictation' : 'Dictate'}
+            >
+              {recording ? (
+                <Square className="size-4 fill-current" />
+              ) : (
+                <Mic className="size-5" />
+              )}
+            </IconButton>
+          </div>
+        </Card>
+      </div>
 
       {message.trim().length > 0 && !hasIntro(message) && (
         <p className="text-destructive text-xs">

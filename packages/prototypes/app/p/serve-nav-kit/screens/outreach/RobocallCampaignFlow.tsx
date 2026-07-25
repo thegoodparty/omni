@@ -56,9 +56,6 @@ import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { SectionLabel } from '../../components/SectionLabel'
 import { CHANNEL_ICON, CHANNEL_ICON_TINT } from './data'
 import { FILTER_POOLS, TIME_OPTIONS, formatMoney } from './smsData'
-
-// Review header reuses the channel card's icon + tint (single source of truth).
-const RobocallIcon = CHANNEL_ICON.robocall
 import {
   type Audience,
   type RobocallPurposeId,
@@ -76,6 +73,9 @@ import {
   fmtDuration,
   generateScript,
 } from './robocallData'
+
+// Review header reuses the channel card's icon + tint (single source of truth).
+const RobocallIcon = CHANNEL_ICON.robocall
 
 export type ScheduledRobocall = {
   name: string
@@ -137,6 +137,7 @@ export const RobocallCampaignFlow = ({
 
   const [tone, setTone] = useState<Tone>('Warm')
   const [loadingScript, setLoadingScript] = useState(false)
+  const seedRef = useRef(0)
   const [script, setScript] = useState('')
 
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null)
@@ -187,7 +188,7 @@ export const RobocallCampaignFlow = ({
     if (purpose === 'custom') return
     setLoadingScript(true)
     const t = setTimeout(() => {
-      setScript(generateScript(purpose ?? 'introduce'))
+      setScript(generateScript(purpose ?? 'introduce', seedRef.current))
       setLoadingScript(false)
     }, 650)
     return () => clearTimeout(t)
@@ -196,11 +197,19 @@ export const RobocallCampaignFlow = ({
 
   const regenerate = () => {
     if (!purpose || purpose === 'custom') return
+    seedRef.current += 1
+    const seed = seedRef.current
     setLoadingScript(true)
     setTimeout(() => {
-      setScript(generateScript(purpose))
+      setScript(generateScript(purpose, seed))
       setLoadingScript(false)
     }, 650)
+  }
+
+  // Switching tone re-drafts the script with new copy.
+  const handleToneChange = (t: Tone) => {
+    setTone(t)
+    if (purpose !== 'custom') regenerate()
   }
 
   const reset = () => {
@@ -220,6 +229,7 @@ export const RobocallCampaignFlow = ({
     setCustomTime('10:00')
     setCampaignName('')
     setTone('Warm')
+    seedRef.current = 0
     setScript('')
     if (recordingUrl) URL.revokeObjectURL(recordingUrl)
     setRecordingUrl(null)
@@ -423,12 +433,9 @@ export const RobocallCampaignFlow = ({
               <StepRecord
                 audience={selectedAudience}
                 tone={tone}
-                setTone={(t) => {
-                  setTone(t)
-                  setScript('')
-                }}
+                setTone={handleToneChange}
                 loadingScript={loadingScript}
-                onRegenerate={regenerate}
+                onRegenerate={() => regenerate()}
                 isCustom={purpose === 'custom'}
                 script={script}
                 setScript={setScript}
@@ -1163,22 +1170,26 @@ const StepRecord = ({
       />
 
       {!isCustom && (
-        <div className="space-y-3">
-          <FilterPillGroup
-            type="single"
-            value={tone}
-            onValueChange={(v) => v && setTone(v as Tone)}
-          >
-            {TONES.map((t) => {
-              const ToneIcon = TONE_ICONS[t]
-              return (
-                <FilterPill key={t} value={t} className="gap-1.5">
-                  <ToneIcon className="size-4" />
-                  {t}
-                </FilterPill>
-              )
-            })}
-          </FilterPillGroup>
+        <FilterPillGroup
+          type="single"
+          value={tone}
+          onValueChange={(v) => v && setTone(v as Tone)}
+        >
+          {TONES.map((t) => {
+            const ToneIcon = TONE_ICONS[t]
+            return (
+              <FilterPill key={t} value={t} className="gap-1.5">
+                <ToneIcon className="size-4" />
+                {t}
+              </FilterPill>
+            )
+          })}
+        </FilterPillGroup>
+      )}
+
+      {/* Label + script grouped so the row sits nearer the field than the pills. */}
+      <div className="space-y-3">
+        {!isCustom && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-muted-foreground text-sm">
               Suggested for {audience.name}
@@ -1198,29 +1209,31 @@ const StepRecord = ({
               Regenerate
             </Button>
           </div>
-        </div>
-      )}
-
-      <Card className="gap-2 p-4 shadow-none">
-        <SectionLabel>Read this on your recording</SectionLabel>
-        {isCustom ? (
-          <Textarea
-            value={script}
-            onChange={(e) => setScript(e.target.value)}
-            placeholder="Write your script…"
-            className="min-h-[160px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
-          />
-        ) : loadingScript && !script ? (
-          <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
-            <Loader2 className="size-4 animate-spin" /> Drafting script…
-          </div>
-        ) : (
-          <p className="text-foreground text-base leading-relaxed whitespace-pre-wrap">
-            {script}
-          </p>
         )}
-        <p className="text-muted-foreground text-base">{PAID_FOR_DISCLAIMER}</p>
-      </Card>
+
+        <Card className="gap-2 p-4 shadow-none">
+          <SectionLabel>Read this on your recording</SectionLabel>
+          {isCustom ? (
+            <Textarea
+              value={script}
+              onChange={(e) => setScript(e.target.value)}
+              placeholder="Write your script…"
+              className="min-h-[160px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+            />
+          ) : loadingScript && !script ? (
+            <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
+              <Loader2 className="size-4 animate-spin" /> Drafting script…
+            </div>
+          ) : (
+            <p className="text-foreground text-base leading-relaxed whitespace-pre-wrap">
+              {script}
+            </p>
+          )}
+          <p className="text-muted-foreground text-base">
+            {PAID_FOR_DISCLAIMER}
+          </p>
+        </Card>
+      </div>
       <p className="text-muted-foreground text-xs">{ROBOCALL_LEGAL_NOTE}</p>
 
       {/* Record controls live in a bar pinned above the footer (source layout). */}

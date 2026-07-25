@@ -77,7 +77,7 @@ export const CHANNEL_TINT: Record<ChannelKey, string> = {
   social: 'border-transparent bg-tertiary-light text-foreground',
   polls: 'border-transparent bg-secondary-light text-foreground',
   door: 'border-transparent bg-success-light text-foreground',
-  'phone-bank': 'border-transparent bg-success-light text-foreground',
+  'phone-bank': 'border-transparent bg-destructive-light text-foreground',
   robocall: 'border-transparent bg-warning-light text-foreground',
 }
 
@@ -90,7 +90,7 @@ export const CHANNEL_ICON_TINT: Record<ChannelKey, string> = {
   social: 'bg-tertiary-light',
   polls: 'bg-secondary-light',
   door: 'bg-success-light',
-  'phone-bank': 'bg-success-light',
+  'phone-bank': 'bg-destructive-light',
   robocall: 'bg-warning-light',
 }
 
