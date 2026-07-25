@@ -72,5 +72,16 @@ model TcrCompliance {
   // gates pass but real P2P sends stay blocked. Internal accounts only.
   internalTestingApprovedAt DateTime? @map("internal_testing_approved_at")
 
+  // Raw string mirrors of the live Peerly CampaignVerify status (`retrieve_cv`)
+  // and identity profile status (`getProfile`), stamped by the nightly poll
+  // (ENG-10793). Not Prisma enums — vendor values must degrade gracefully, same
+  // reasoning as pinDeliveryMethod. The `*ChangedAt` columns advance only when
+  // the observed value differs from what's stored, so they measure "how long
+  // in this state" for the stuck-registration checks (ENG-10792).
+  peerlyCvStatus               String?   @map("peerly_cv_status")
+  peerlyCvStatusChangedAt      DateTime? @map("peerly_cv_status_changed_at")
+  peerlyProfileStatus          String?   @map("peerly_profile_status")
+  peerlyProfileStatusChangedAt DateTime? @map("peerly_profile_status_changed_at")
+
   @@map("tcr_compliance")
 }

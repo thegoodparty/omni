@@ -112,16 +112,39 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   redelivers rather than silently skipping a night.
 - **Always posts** — a zero-stuck night gets an explicit ✅ all-clear with
   in-flight pipeline counts, so a *missing* report is itself a signal.
-- **Six sections**, all scoped to `campaign.isPro` (pre-payment records
+- **Peerly poll runs first (ENG-10793).** Before any section query,
+  `handleNightlyReport` fetches every Pro/non-internal record with a Peerly
+  identity in `submitted`/`pending` and polls its live state, so the sections
+  below read this run's fresh values, not last night's:
+  - `retrieveCampaignVerifyStatus` (`retrieve_cv`) → `TcrCompliance.peerlyCvStatus`
+    (raw string, not a Prisma enum — vendor values degrade gracefully, same
+    reasoning as `pinDeliveryMethod`). Only when the observed CV status is
+    `VERIFIED` does it also call `getIdentityProfile` (`getProfile`) →
+    `peerlyProfileStatus`. Each `*ChangedAt` companion column advances only
+    when the observed value differs from what's stored — an unchanged
+    observation writes nothing at all (not even a no-op `update`), so
+    `updatedAt` (which the awaiting-PIN section keys off) is untouched.
+  - Paced with the same `PEERLY_CV_READ_SPACING_MS` + sleep pattern as
+    `sweepPinDeliveryDetection`. Each record's poll is wrapped individually —
+    a thrown Peerly error logs + skips that record (keeping its stored
+    values) without stopping the rest of the poll or the report post. A
+    genuine null return (no CV request exists) *is* persisted.
+- **Eight sections**, all scoped to `campaign.isPro` (pre-payment records
   intentionally sit idle) and excluding internal accounts (user email
   ending `@goodparty.org` / `@test.goodparty.org` — staff walk this flow
   in prod and their stuck records are noise): submission never completed (>24h after kickoff,
   with agentic run status), kickoff `error`, Peerly/CV `rejected`, active
   billing block (within `PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES`), domain
   purchase never completed (post-cutoff `registrantVerifiedAt` NULL — see
-  the legacy-domain gotcha below), and an awaiting-PIN >7d nudge section
-  that is reported but not counted as stuck. Sections cap at 25 rows with
-  an explicit `…and N more`.
+  the legacy-domain gotcha below), CV never reached (ENG-10795 case 1: identity
+  minted, `submitted` 3+ days ago, `peerlyCvStatus` still null — disjoint from
+  "submission never completed", which is `peerlyIdentityId: null` and never
+  even reached Peerly), PIN-verified-but-stalled (ENG-10795 case 3a:
+  `peerlyCvStatus` `VERIFIED` + `peerlyProfileStatus` `pending` for 1+ day —
+  the 1-day floor requires the pair observed on two consecutive nightly polls,
+  filtering out records still mid-PIN-flow), and an awaiting-PIN >7d nudge
+  section that is reported but not counted as stuck. Sections cap at 25 rows
+  with an explicit `…and N more`.
 
 ## `submitToPeerlyForAgent` notes
 

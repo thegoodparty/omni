@@ -7,6 +7,7 @@ import {
   subMinutes,
 } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
+import { setTimeout as sleep } from 'timers/promises'
 import {
   Campaign,
   ExperimentRun,
@@ -32,6 +33,9 @@ import {
   EASTERN_TIMEZONE,
   formatDate,
 } from '../../../shared/util/date.util'
+import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
+import { PEERLY_PROFILE_STATUS_PENDING } from '../../../vendors/peerly/services/peerly.const'
+import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
 // Internal staff/test records would page as real incidents — exclude them.
@@ -51,6 +55,24 @@ const AWAITING_PIN_NUDGE_DAYS = 7
 // rejected post redelivers into the same failure — so truncate by character
 // budget (with headroom for the "…and N more" marker), never by row count.
 const SECTION_TEXT_BUDGET = 2800
+
+// Spacing between per-identity retrieve_cv calls in the nightly poll. Peerly
+// throttles bulk CV retrieval (429/400), so space the reads out rather than
+// firing the whole in-flight set at once (mirrors sweepPinDeliveryDetection).
+const PEERLY_CV_READ_SPACING_MS = 350
+
+// Case 1 (ENG-10795): an identity minted but its CV never shows a status at
+// all after this long is a submission dropped between GoodParty and Peerly —
+// our-side pipeline fault, not a candidate-side stall.
+const CV_NEVER_REACHED_MIN_AGE_DAYS = 3
+
+// Case 3a (ENG-10795): PIN entered (CV VERIFIED) but the profile is still
+// `pending` a full day later — verify_pin -> token -> approve normally
+// completes in seconds, so this means we never minted/attached the CV token
+// or never called /approve. The 1-day floor requires the pair to have been
+// observed on two consecutive nightly polls, filtering out records still
+// mid-PIN-flow.
+const PROFILE_STALL_MIN_AGE_DAYS = 1
 
 const reportableCampaign = {
   isPro: true,
@@ -99,6 +121,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
   constructor(
     private readonly queueService: QueueProducerService,
     private readonly slack: SlackService,
+    private readonly peerlyIdentityService: PeerlyIdentityService,
   ) {
     super()
   }
@@ -148,6 +171,21 @@ export class Nightly10DlcReportService extends createPrismaBase(
     const now = new Date()
     const proOnly = { campaign: reportableCampaign }
 
+    // Poll live Peerly state before the section queries below so the case-1
+    // and case-3a sections (ENG-10795) read this run's freshly-persisted
+    // peerlyCvStatus/peerlyProfileStatus columns, not last night's.
+    const pollCandidates = await this.model.findMany({
+      where: {
+        ...proOnly,
+        peerlyIdentityId: { not: null },
+        status: {
+          in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+        },
+      },
+      include: { campaign: true },
+    })
+    await this.pollPeerlyStatuses(pollCandidates)
+
     const [
       stuckSubmissions,
       errorRecords,
@@ -155,6 +193,8 @@ export class Nightly10DlcReportService extends createPrismaBase(
       billingBlocked,
       stuckDomains,
       agingAwaitingPin,
+      neverReachedCv,
+      profileStalled,
     ] = await Promise.all([
       this.model.findMany({
         where: {
@@ -213,6 +253,48 @@ export class Nightly10DlcReportService extends createPrismaBase(
               updatedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
             },
           ],
+        },
+        include: { campaign: true },
+      }),
+      // Case 1: identity minted, submitted 3+ days ago, live CV status still
+      // null. Disjoint from "Submission never completed" above (that section
+      // is peerlyIdentityId: null — never even reached Peerly; this one has
+      // an identity but an empty CV) — don't merge them.
+      this.model.findMany({
+        where: {
+          ...proOnly,
+          status: TcrComplianceStatus.submitted,
+          peerlyIdentityId: { not: null },
+          peerlyCvStatus: null,
+          OR: [
+            {
+              peerlySubmissionStartedAt: {
+                lt: subDays(now, CV_NEVER_REACHED_MIN_AGE_DAYS),
+              },
+            },
+            {
+              peerlySubmissionStartedAt: null,
+              createdAt: { lt: subDays(now, CV_NEVER_REACHED_MIN_AGE_DAYS) },
+            },
+          ],
+        },
+        include: { campaign: true },
+      }),
+      // Case 3a: CV VERIFIED (PIN entered) but the profile has sat at
+      // `pending` since the prior nightly poll — the token/approve step never
+      // completed on our side.
+      this.model.findMany({
+        where: {
+          ...proOnly,
+          peerlyIdentityId: { not: null },
+          status: {
+            in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+          },
+          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+          peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+          peerlyProfileStatusChangedAt: {
+            lt: subDays(now, PROFILE_STALL_MIN_AGE_DAYS),
+          },
         },
         include: { campaign: true },
       }),
@@ -283,6 +365,30 @@ export class Nightly10DlcReportService extends createPrismaBase(
             `${differenceInCalendarDays(now, domain.createdAt)}d ago, never ` +
             'registrant-verified',
         ),
+      },
+      {
+        title:
+          '🛑 Never reached CampaignVerify (>3d, likely our submit pipeline)',
+        lines: neverReachedCv.map((record) => {
+          const submittedAt =
+            record.peerlySubmissionStartedAt ?? record.createdAt
+          return (
+            `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
+            `submitted ${differenceInCalendarDays(now, submittedAt)}d ago`
+          )
+        }),
+      },
+      {
+        title:
+          '🛑 PIN verified but CV token/approve never completed (our side)',
+        lines: profileStalled.map((record) => {
+          const changedAt =
+            record.peerlyProfileStatusChangedAt ?? record.updatedAt
+          return (
+            `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
+            `profile pending ${differenceInCalendarDays(now, changedAt)}d`
+          )
+        }),
       },
     ]
     const nudgeSection: ReportSection = {
@@ -356,5 +462,66 @@ export class Nightly10DlcReportService extends createPrismaBase(
       '[10DLC nightly report] Posted',
     )
     return true
+  }
+
+  // Poll live Peerly CV + profile status for every in-flight record and
+  // persist "how long in this state" (ENG-10793). One record's Peerly failure
+  // must not stop the rest of the poll or the report post, so each record is
+  // wrapped individually — a thrown error skips the record, keeping its
+  // stored values (never overwritten with null on a failed read).
+  private async pollPeerlyStatuses(records: RecordWithCampaign[]) {
+    for (const record of records) {
+      try {
+        await this.pollRecordStatus(record)
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[10DLC nightly report] Peerly status poll failed for record',
+        )
+      }
+      await sleep(PEERLY_CV_READ_SPACING_MS)
+    }
+  }
+
+  private async pollRecordStatus(record: RecordWithCampaign) {
+    const { peerlyIdentityId } = record
+    if (!peerlyIdentityId) {
+      return
+    }
+
+    const cvStatus =
+      await this.peerlyIdentityService.retrieveCampaignVerifyStatus(
+        peerlyIdentityId,
+        record.campaign,
+      )
+
+    const data: Prisma.TcrComplianceUpdateInput = {}
+    if (cvStatus !== record.peerlyCvStatus) {
+      data.peerlyCvStatus = cvStatus
+      data.peerlyCvStatusChangedAt = new Date()
+    }
+
+    // Only VERIFIED warrants the extra getProfile read — that's the signal
+    // case 3a cares about (PIN entered but token/approve never completed).
+    if (cvStatus === PeerlyCvVerificationStatus.VERIFIED) {
+      const profileResponse =
+        await this.peerlyIdentityService.getIdentityProfile(
+          peerlyIdentityId,
+          record.campaign,
+          { suppressSlackAlert: true },
+        )
+      const profileStatus = profileResponse?.profile?.status ?? null
+      if (profileStatus !== record.peerlyProfileStatus) {
+        data.peerlyProfileStatus = profileStatus
+        data.peerlyProfileStatusChangedAt = new Date()
+      }
+    }
+
+    // Unchanged values must not touch the row at all — the awaiting-PIN
+    // report section keys off updatedAt, so a no-op poll can't bump it.
+    if (Object.keys(data).length === 0) {
+      return
+    }
+    await this.model.update({ where: { id: record.id }, data })
   }
 }
