@@ -1,9 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
-  AlertTriangle,
   Calendar as CalendarIcon,
   Check,
   CheckCircle2,
@@ -12,9 +11,13 @@ import {
   Clock,
   Eye,
   Loader2,
+  Mic,
   Plus,
   RefreshCw,
+  ShieldAlert,
+  ShieldCheck,
   Sparkles,
+  Square,
 } from 'lucide-react'
 import {
   Accordion,
@@ -48,26 +51,38 @@ import {
   SelectValue,
   Stepper,
   Textarea,
+  toast,
 } from '@goodparty_org/styleguide'
 import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import { SectionLabel } from '../../components/SectionLabel'
-import { FILTER_POOLS, TIME_OPTIONS, formatMoney } from './smsData'
+import { CHANNEL_ICON, CHANNEL_ICON_TINT } from './data'
+import { useSpeechDictation } from './useSpeechDictation'
+import {
+  OPT_OUT_FOOTER,
+  SMS_CHAR_LIMIT,
+  hasIntro,
+  messageEndsWithOptOut,
+} from './smsData'
 import {
   type Audience,
   type PollTone,
   type PollTopicId,
   AUDIENCES,
   DEFAULT_AUDIENCE,
+  FILTER_POOLS,
   POLL_COST_PER_RECIPIENT,
   POLL_RECOMMENDATION,
-  POLL_TONE_ICONS,
   POLL_TONES,
+  POLL_TONE_ICONS,
   POLL_TOPICS,
+  TIME_OPTIONS,
   detectBias,
   estimateAudienceSize,
-  generatePollQuestion,
+  formatMoney,
+  generatePollDraft,
+  pollIntroFor,
+  polishPoll,
 } from './pollData'
-import { CHANNEL_ICON, CHANNEL_ICON_TINT } from './data'
 
 // Review header reuses the channel card's icon + tint (single source of truth).
 const PollChannelIcon = CHANNEL_ICON.polls
@@ -76,8 +91,10 @@ export type ScheduledPoll = {
   name: string
   audience: Audience
   sendAt: Date
-  question: string
+  message: string
   cost: number
+  topicId: PollTopicId
+  topicLabel: string
 }
 
 type Step = 1 | 2 | 3 | 4 | 5
@@ -92,6 +109,27 @@ const fmtDate = (d: Date) =>
 const fmtDateTime = (d: Date) =>
   `${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} at ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
 
+// Renders {merge_var} tokens as inline pills, readable on both the light editor
+// card and the dark (bg-primary) preview bubble.
+const renderWithMergeVars = (text: string): ReactNode =>
+  text.split(/(\{[a-zA-Z0-9_ ]+\})/g).map((part, i) => {
+    if (/^\{[a-zA-Z0-9_ ]+\}$/.test(part)) {
+      const label = part
+        .slice(1, -1)
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+      return (
+        <span
+          key={i}
+          className="bg-primary-light text-primary-dark mx-0.5 inline-flex items-center rounded-full px-2 py-0.5 align-baseline text-xs font-medium"
+        >
+          {label}
+        </span>
+      )
+    }
+    return <span key={i}>{part}</span>
+  })
+
 type Props = {
   open: boolean
   onOpenChange: (v: boolean) => void
@@ -104,7 +142,8 @@ export const PollsCampaignFlow = ({
   onScheduled,
 }: Props) => {
   const [step, setStep] = useState<Step>(1)
-  const [topic, setTopic] = useState<PollTopicId | null>(null)
+  const [topicId, setTopicId] = useState<PollTopicId | null>(null)
+  const [customTopic, setCustomTopic] = useState('')
 
   const [audiences, setAudiences] = useState<Audience[]>(AUDIENCES)
   const [selectedAudienceId, setSelectedAudienceId] = useState(
@@ -131,7 +170,13 @@ export const PollsCampaignFlow = ({
 
   const [tone, setTone] = useState<PollTone>('Neutral')
   const [loadingDraft, setLoadingDraft] = useState(false)
-  const [question, setQuestion] = useState('')
+  const [message, setMessage] = useState('')
+  const [polishing, setPolishing] = useState(false)
+  const [undoText, setUndoText] = useState<string | null>(null)
+
+  const [biasChecked, setBiasChecked] = useState(false)
+  const [biasHits, setBiasHits] = useState<string[]>([])
+  const [biasChecking, setBiasChecking] = useState(false)
 
   const [processing, setProcessing] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -141,9 +186,16 @@ export const PollsCampaignFlow = ({
       audiences.find((a) => a.id === selectedAudienceId) ?? DEFAULT_AUDIENCE,
     [audiences, selectedAudienceId],
   )
-  const cost = selectedAudience.count * POLL_COST_PER_RECIPIENT
-  const biasHits = useMemo(() => detectBias(question), [question])
+  const activeTopic = useMemo(
+    () => POLL_TOPICS.find((t) => t.id === topicId) ?? null,
+    [topicId],
+  )
+  const activeTopicLabel =
+    topicId === 'custom'
+      ? customTopic.trim() || 'Custom topic'
+      : (activeTopic?.label ?? '')
 
+  const cost = selectedAudience.count * POLL_COST_PER_RECIPIENT
   const earliestSend = useMemo(() => Date.now() + 48 * 60 * 60 * 1000, [open])
 
   const scheduledAt = useMemo(() => {
@@ -160,6 +212,17 @@ export const PollsCampaignFlow = ({
 
   const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
 
+  const clearBias = () => {
+    setBiasChecked(false)
+    setBiasHits([])
+  }
+
+  const editMessage = (v: string) => {
+    setMessage(v)
+    setUndoText(null)
+    clearBias()
+  }
+
   const lastAutoName = useRef('')
   useEffect(() => {
     const def = `${selectedAudience.name} — Poll${date ? `, ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}`
@@ -169,12 +232,22 @@ export const PollsCampaignFlow = ({
     }
   }, [selectedAudience, date, campaignName])
 
+  // Draft the question when the compose step opens.
   useEffect(() => {
-    if (step !== 4 || question.trim()) return
-    if (topic === 'custom') return
+    if (step !== 4) return
+    if (topicId === 'custom') {
+      if (!message)
+        setMessage(
+          `${pollIntroFor()} We want to hear from you: ${customTopic.trim() || '…'}. Reply with your thoughts.`,
+        )
+      return
+    }
+    if (message.trim()) return
     setLoadingDraft(true)
     const t = setTimeout(() => {
-      setQuestion(generatePollQuestion(topic ?? 'affordable-housing'))
+      setMessage(generatePollDraft(topicId ?? 'affordable-housing'))
+      setUndoText(null)
+      clearBias()
       setLoadingDraft(false)
     }, 650)
     return () => clearTimeout(t)
@@ -182,17 +255,47 @@ export const PollsCampaignFlow = ({
   }, [step])
 
   const regenerate = () => {
-    if (!topic || topic === 'custom') return
+    if (!topicId || topicId === 'custom') return
     setLoadingDraft(true)
     setTimeout(() => {
-      setQuestion(generatePollQuestion(topic))
+      setMessage(generatePollDraft(topicId))
+      setUndoText(null)
+      clearBias()
       setLoadingDraft(false)
     }, 650)
   }
 
+  const handlePolish = () => {
+    if (!message.trim()) return
+    setUndoText(message)
+    setPolishing(true)
+    setTimeout(() => {
+      setMessage((m) => polishPoll(m))
+      clearBias()
+      setPolishing(false)
+    }, 700)
+  }
+
+  const handleUndo = () => {
+    if (undoText === null) return
+    setMessage(undoText)
+    setUndoText(null)
+    clearBias()
+  }
+
+  const runBiasCheck = () => {
+    setBiasChecking(true)
+    setTimeout(() => {
+      setBiasHits(detectBias(message))
+      setBiasChecked(true)
+      setBiasChecking(false)
+    }, 500)
+  }
+
   const reset = () => {
     setStep(1)
-    setTopic(null)
+    setTopicId(null)
+    setCustomTopic('')
     setSelectedAudienceId(DEFAULT_AUDIENCE.id)
     setAudiences(AUDIENCES)
     setBuilding(false)
@@ -207,7 +310,11 @@ export const PollsCampaignFlow = ({
     setCustomTime('10:00')
     setCampaignName('')
     setTone('Neutral')
-    setQuestion('')
+    setMessage('')
+    setUndoText(null)
+    setBiasChecked(false)
+    setBiasHits([])
+    setBiasChecking(false)
     setProcessing(false)
     setSuccess(false)
   }
@@ -219,8 +326,13 @@ export const PollsCampaignFlow = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
+  const isCustomTopicEntry = step === 1 && topicId === 'custom'
+
   const canContinue = (): boolean => {
-    if (step === 1) return topic !== null
+    if (step === 1) {
+      if (topicId === 'custom') return customTopic.trim().length >= 3
+      return topicId !== null
+    }
     if (step === 2) {
       if (building)
         return naming ? builderName.trim().length > 0 : builderCount > 0
@@ -230,7 +342,8 @@ export const PollsCampaignFlow = ({
       return (
         campaignName.trim().length > 0 && scheduledAt !== null && !violates48h
       )
-    if (step === 4) return question.trim().length > 0
+    if (step === 4)
+      return message.trim().length > 0 && message.length <= SMS_CHAR_LIMIT
     return true
   }
 
@@ -261,6 +374,11 @@ export const PollsCampaignFlow = ({
   }
 
   const handleBack = () => {
+    if (isCustomTopicEntry) {
+      setTopicId(null)
+      setCustomTopic('')
+      return
+    }
     if (step === 2 && building) {
       if (naming) {
         setNaming(false)
@@ -284,8 +402,10 @@ export const PollsCampaignFlow = ({
         name: campaignName.trim(),
         audience: selectedAudience,
         sendAt: scheduledAt,
-        question,
+        message,
         cost,
+        topicId: topicId ?? 'custom',
+        topicLabel: activeTopicLabel,
       })
     }, 900)
   }
@@ -293,17 +413,19 @@ export const PollsCampaignFlow = ({
   const stepTitle = success
     ? 'Done'
     : step === 1
-      ? 'What do you want to ask?'
+      ? isCustomTopicEntry
+        ? 'Write your own topic'
+        : 'What do you want to learn?'
       : step === 2
         ? 'Who are you polling?'
         : step === 3
-          ? 'When do you want to send?'
+          ? 'When to send?'
           : step === 4
-            ? 'Write your question'
+            ? 'What do you want to say?'
             : 'Review and send'
 
-  const showBack = (step > 1 || building) && !success
-  const showFooter = step !== 1 && !success
+  const showBack = (step > 1 || building || isCustomTopicEntry) && !success
+  const showFooter = (step !== 1 || isCustomTopicEntry) && !success
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -361,11 +483,13 @@ export const PollsCampaignFlow = ({
               />
             ) : step === 1 ? (
               <StepTopic
-                selected={topic}
+                selected={topicId}
                 onSelect={(id) => {
-                  setTopic(id)
-                  setStep(2)
+                  setTopicId(id)
+                  if (id !== 'custom') setStep(2)
                 }}
+                customTopic={customTopic}
+                setCustomTopic={setCustomTopic}
               />
             ) : step === 2 ? (
               <StepWho
@@ -380,6 +504,7 @@ export const PollsCampaignFlow = ({
                 builderFilters={builderFilters}
                 setBuilderFilters={setBuilderFilters}
                 builderCount={builderCount}
+                topicLabel={activeTopicLabel}
               />
             ) : step === 3 ? (
               <StepWhen
@@ -395,22 +520,30 @@ export const PollsCampaignFlow = ({
                 violates48h={violates48h}
               />
             ) : step === 4 ? (
-              <StepQuestion
+              <StepWhat
                 audience={selectedAudience}
                 tone={tone}
                 setTone={setTone}
                 loadingDraft={loadingDraft}
                 onRegenerate={regenerate}
-                question={question}
-                setQuestion={setQuestion}
+                message={message}
+                setMessage={editMessage}
+                onPolish={handlePolish}
+                polishing={polishing}
+                undoText={undoText}
+                onUndo={handleUndo}
+                onBiasCheck={runBiasCheck}
+                biasChecking={biasChecking}
+                biasChecked={biasChecked}
                 biasHits={biasHits}
               />
             ) : (
               <StepReview
                 audience={selectedAudience}
                 scheduledAt={scheduledAt}
-                question={question}
+                message={message}
                 cost={cost}
+                topicLabel={activeTopicLabel}
               />
             )}
           </div>
@@ -456,43 +589,75 @@ export const PollsCampaignFlow = ({
 const StepTopic = ({
   selected,
   onSelect,
+  customTopic,
+  setCustomTopic,
 }: {
   selected: PollTopicId | null
   onSelect: (id: PollTopicId) => void
-}) => (
-  <div className="space-y-6">
-    <Intro
-      title="What do you want to ask?"
-      body="Pick a topic and we'll draft a neutral poll question."
-    />
-    <div className="space-y-3">
-      {POLL_TOPICS.map((p) => {
-        const active = p.id === selected
-        return (
-          <Card
-            key={p.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelect(p.id)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onSelect(p.id)
-              }
-            }}
-            className={cn(
-              'flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              active ? 'border-primary bg-muted' : 'hover:border-primary/50',
-            )}
-          >
-            <span className="text-foreground font-medium">{p.label}</span>
-            <ChevronRight className="text-muted-foreground size-5 shrink-0" />
-          </Card>
-        )
-      })}
+  customTopic: string
+  setCustomTopic: (v: string) => void
+}) => {
+  if (selected === 'custom') {
+    return (
+      <div className="space-y-6">
+        <Intro
+          title="Write your own topic"
+          body="Describe the community issue you want to poll on."
+        />
+        <div className="space-y-2">
+          <Label htmlFor="poll-custom-topic">Your topic</Label>
+          <Textarea
+            id="poll-custom-topic"
+            value={customTopic}
+            onChange={(e) => setCustomTopic(e.target.value)}
+            placeholder="e.g. Should the city extend library hours on weekends?"
+            className="min-h-[120px] resize-none [field-sizing:content]"
+            maxLength={200}
+            autoFocus
+          />
+          <p className="text-muted-foreground text-xs">
+            {customTopic.length}/200
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <Intro
+        title="What do you want to learn?"
+        body="Pick a community issue to poll on, or write your own topic."
+      />
+      <div className="space-y-3">
+        {POLL_TOPICS.map((t) => {
+          const active = t.id === selected
+          return (
+            <Card
+              key={t.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelect(t.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelect(t.id)
+                }
+              }}
+              className={cn(
+                'flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
+                active ? 'border-primary bg-muted' : 'hover:border-primary/50',
+              )}
+            >
+              <span className="text-foreground font-medium">{t.label}</span>
+              <ChevronRight className="text-muted-foreground size-5 shrink-0" />
+            </Card>
+          )
+        })}
+      </div>
     </div>
-  </div>
-)
+  )
+}
 
 // ---------- Step 2: Who ----------
 const StepWho = ({
@@ -507,6 +672,7 @@ const StepWho = ({
   builderFilters,
   setBuilderFilters,
   builderCount,
+  topicLabel,
 }: {
   audiences: Audience[]
   selectedId: string
@@ -519,6 +685,7 @@ const StepWho = ({
   builderFilters: string[]
   setBuilderFilters: (v: string[]) => void
   builderCount: number
+  topicLabel: string
 }) => {
   const [open, setOpen] = useState(false)
   const active = audiences.find((a) => a.id === selectedId) ?? DEFAULT_AUDIENCE
@@ -526,6 +693,7 @@ const StepWho = ({
     (a) => a.id === POLL_RECOMMENDATION.audienceId,
   )
   const recSelected = selectedId === POLL_RECOMMENDATION.audienceId
+  const hasFilters = builderFilters.length > 0
 
   if (building && naming) {
     return (
@@ -557,6 +725,19 @@ const StepWho = ({
           body="Pick filters to define who this poll reaches."
         />
         <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Filters</SectionLabel>
+            {hasFilters && (
+              <Button
+                variant="link"
+                size="small"
+                className="h-auto px-0"
+                onClick={() => setBuilderFilters([])}
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
           {FILTER_POOLS.map((group) => (
             <div key={group.key} className="space-y-2">
               <SectionLabel>{group.label}</SectionLabel>
@@ -590,7 +771,7 @@ const StepWho = ({
     <div className="space-y-6">
       <Intro
         title="Who do you want to reach?"
-        body="We recommend reaching all voters to increase awareness."
+        body={`We recommend reaching voters who flagged ${topicLabel.toLowerCase() || 'this topic'}.`}
       />
 
       {recommended && (
@@ -714,7 +895,7 @@ const StepWho = ({
         </Popover>
       </div>
       <p className="text-muted-foreground text-sm">
-        Each response costs ${POLL_COST_PER_RECIPIENT.toFixed(3)}
+        Each poll message costs ${POLL_COST_PER_RECIPIENT.toFixed(3)}
       </p>
     </div>
   )
@@ -745,6 +926,18 @@ const StepWhen = ({
   violates48h: boolean
 }) => {
   const [calOpen, setCalOpen] = useState(false)
+  const tz = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone
+    } catch {
+      return 'Local time'
+    }
+  }, [])
+  const todayStart = useMemo(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  }, [])
   const earliestDay = useMemo(() => {
     const d = new Date(earliestSend)
     d.setHours(0, 0, 0, 0)
@@ -755,7 +948,7 @@ const StepWhen = ({
     <div className="space-y-6">
       <Intro
         title="When do you want to send it?"
-        body="We recommend mid-morning or early evening. Sends require at least 48 hours' notice."
+        body="Sends require at least 48 hours' notice."
       />
 
       <div className="space-y-2">
@@ -764,11 +957,11 @@ const StepWhen = ({
           id="poll-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Housing sentiment poll"
+          placeholder="e.g. Housing poll — July"
           maxLength={60}
         />
         <p className="text-muted-foreground text-sm">
-          Internal name to identify this campaign in your history.
+          Internal name to identify this poll in your history.
         </p>
       </div>
 
@@ -798,10 +991,23 @@ const StepWhen = ({
                   setCalOpen(false)
                 }}
                 disabled={(day) => day < earliestDay}
+                modifiers={{
+                  tooSoon: (day) => day >= todayStart && day < earliestDay,
+                }}
+                modifiersClassNames={{
+                  tooSoon: 'text-destructive/70 line-through',
+                }}
                 initialFocus
               />
+              <div className="border-border text-muted-foreground border-t px-3 py-2 text-xs">
+                Dates in red require more than 48 hours' notice and can't be
+                scheduled.
+              </div>
             </PopoverContent>
           </Popover>
+          <p className="text-muted-foreground text-sm">
+            Earliest send: {fmtDateTime(new Date(earliestSend))}.
+          </p>
         </div>
 
         <div className="space-y-2">
@@ -831,6 +1037,7 @@ const StepWhen = ({
               onChange={(e) => setCustomTime(e.target.value)}
             />
           )}
+          <p className="text-muted-foreground text-sm">{tz}</p>
         </div>
       </div>
 
@@ -846,15 +1053,22 @@ const StepWhen = ({
   )
 }
 
-// ---------- Step 4: Question ----------
-const StepQuestion = ({
+// ---------- Step 4: What ----------
+const StepWhat = ({
   audience,
   tone,
   setTone,
   loadingDraft,
   onRegenerate,
-  question,
-  setQuestion,
+  message,
+  setMessage,
+  onPolish,
+  polishing,
+  undoText,
+  onUndo,
+  onBiasCheck,
+  biasChecking,
+  biasChecked,
   biasHits,
 }: {
   audience: Audience
@@ -862,85 +1076,212 @@ const StepQuestion = ({
   setTone: (t: PollTone) => void
   loadingDraft: boolean
   onRegenerate: () => void
-  question: string
-  setQuestion: (v: string) => void
+  message: string
+  setMessage: (v: string) => void
+  onPolish: () => void
+  polishing: boolean
+  undoText: string | null
+  onUndo: () => void
+  onBiasCheck: () => void
+  biasChecking: boolean
+  biasChecked: boolean
   biasHits: string[]
-}) => (
-  <div className="space-y-6">
-    <Intro
-      title="Write your question"
-      body="Ask a single, clear question. Neutral wording gets better responses."
-    />
+}) => {
+  const { recording, supported, start, stop } = useSpeechDictation({
+    onFinal: (chunk) =>
+      setMessage((message ? `${message.trimEnd()} ` : '') + chunk),
+  })
+  const segments = Math.max(1, Math.ceil(message.length / 160))
+  const overLimit = message.length > SMS_CHAR_LIMIT
+  const biasDetected = biasChecked && biasHits.length > 0
+  const biasClean = biasChecked && biasHits.length === 0
 
-    <FilterPillGroup
-      type="single"
-      value={tone}
-      onValueChange={(v) => v && setTone(v as PollTone)}
-    >
-      {POLL_TONES.map((t) => {
-        const ToneIcon = POLL_TONE_ICONS[t]
-        return (
-          <FilterPill key={t} value={t} className="gap-1.5">
-            <ToneIcon className="size-4" />
-            {t}
-          </FilterPill>
-        )
-      })}
-    </FilterPillGroup>
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-muted-foreground text-sm">
-        Suggested for {audience.name}
-      </p>
-      <Button
-        variant="link"
-        size="small"
-        className="h-auto gap-1.5 px-0"
-        disabled={loadingDraft}
-        onClick={onRegenerate}
-      >
-        {loadingDraft ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <RefreshCw className="size-4" />
-        )}
-        Regenerate
-      </Button>
-    </div>
+  const handleDictate = () => {
+    if (recording) stop()
+    else if (supported) start()
+    else toast("Voice input isn't supported in this browser.")
+  }
 
-    <div className="space-y-2">
-      <Label htmlFor="poll-question">Poll question</Label>
-      <Textarea
-        id="poll-question"
-        value={question}
-        onChange={(e) => setQuestion(e.target.value)}
-        placeholder="Ask one clear question…"
-        className="min-h-[120px] resize-none [field-sizing:content]"
+  return (
+    <div className="space-y-6">
+      <Intro
+        title="What do you want to say?"
+        body="Ask a single, clear question. Neutral wording gets better responses."
       />
-    </div>
 
-    {biasHits.length > 0 && (
-      <Alert variant="default" icon={<AlertTriangle />}>
-        <AlertTitle>Loaded wording detected</AlertTitle>
-        <AlertDescription>
-          Consider rephrasing — “{biasHits.join('”, “')}” can bias responses.
-          Neutral questions get more honest answers.
-        </AlertDescription>
-      </Alert>
-    )}
-  </div>
-)
+      <div className="space-y-3">
+        <FilterPillGroup
+          type="single"
+          value={tone}
+          onValueChange={(v) => v && setTone(v as PollTone)}
+        >
+          {POLL_TONES.map((t) => {
+            const ToneIcon = POLL_TONE_ICONS[t]
+            return (
+              <FilterPill key={t} value={t} className="gap-1.5">
+                <ToneIcon className="size-4" />
+                {t}
+              </FilterPill>
+            )
+          })}
+        </FilterPillGroup>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-muted-foreground text-sm">
+            Suggested for {audience.name}
+          </p>
+          <Button
+            variant="link"
+            size="small"
+            className="h-auto gap-1.5 px-0"
+            disabled={loadingDraft}
+            onClick={onRegenerate}
+          >
+            {loadingDraft ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCw className="size-4" />
+            )}
+            Regenerate
+          </Button>
+        </div>
+      </div>
+
+      {loadingDraft && (
+        <p className="text-muted-foreground flex items-center gap-2 text-sm">
+          <Loader2 className="size-3.5 animate-spin" /> Drafting a question…
+        </p>
+      )}
+
+      <Card className="gap-0 p-4 shadow-none">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-muted-foreground text-xs font-medium">
+            Your question
+          </span>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {message.length} chars · {segments} SMS
+          </span>
+        </div>
+        <p className="text-muted-foreground mb-2 text-xs">
+          {renderWithMergeVars('Hello, {first_name}')}
+        </p>
+        <Textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Write your poll question…"
+          className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+        />
+        <p className="text-muted-foreground mt-3 text-xs">{OPT_OUT_FOOTER}</p>
+
+        <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
+          {undoText !== null && (
+            <Button
+              variant="link"
+              size="small"
+              className="h-auto px-2"
+              onClick={onUndo}
+            >
+              Undo
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="small"
+            className="text-muted-foreground gap-1.5"
+            onClick={onPolish}
+            disabled={polishing || !message.trim()}
+          >
+            {polishing ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> Improving…
+              </>
+            ) : (
+              <>
+                <Sparkles className="size-4" /> Improve with AI
+              </>
+            )}
+          </Button>
+          <Button
+            variant={biasDetected ? 'destructive' : 'ghost'}
+            size="small"
+            className={cn(
+              'gap-1.5',
+              !biasDetected && 'text-muted-foreground',
+              biasClean && 'text-success-dark',
+            )}
+            onClick={onBiasCheck}
+            disabled={biasChecking || !message.trim()}
+          >
+            {biasChecking ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> Checking…
+              </>
+            ) : biasDetected ? (
+              <>
+                <ShieldAlert className="size-4" /> Bias detected
+              </>
+            ) : biasClean ? (
+              <>
+                <ShieldCheck className="size-4" /> No bias detected
+              </>
+            ) : (
+              <>
+                <ShieldCheck className="size-4" /> Check for bias
+              </>
+            )}
+          </Button>
+          <IconButton
+            variant={recording ? 'destructive' : 'ghost'}
+            size="small"
+            aria-label={recording ? 'Stop dictation' : 'Dictate'}
+            onClick={handleDictate}
+          >
+            {recording ? (
+              <Square className="size-4 fill-current" />
+            ) : (
+              <Mic className="size-5" />
+            )}
+          </IconButton>
+        </div>
+      </Card>
+
+      {biasDetected && (
+        <Alert variant="destructive" icon={<ShieldAlert />}>
+          <AlertTitle>Loaded language may bias responses.</AlertTitle>
+          <AlertDescription>
+            Consider rewording: {biasHits.join(', ')}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {message.trim().length > 0 && !hasIntro(message) && (
+        <p className="text-muted-foreground text-xs">
+          Tip: open with your name so recipients know who's asking, e.g. "
+          {pollIntroFor()}"
+        </p>
+      )}
+
+      {overLimit && (
+        <p className="text-destructive text-xs">
+          Messages over 3 SMS segments (480 chars) may be split by carriers.
+        </p>
+      )}
+    </div>
+  )
+}
 
 // ---------- Step 5: Review ----------
 const StepReview = ({
   audience,
   scheduledAt,
-  question,
+  message,
   cost,
+  topicLabel,
 }: {
   audience: Audience
   scheduledAt: Date | null
-  question: string
+  message: string
   cost: number
+  topicLabel: string
 }) => {
   const [preview, setPreview] = useState(false)
   return (
@@ -983,13 +1324,17 @@ const StepReview = ({
             <AccordionContent className="px-4 pb-4">
               <dl className="space-y-1 text-sm">
                 <div className="flex justify-between">
+                  <dt className="text-foreground">Topic</dt>
+                  <dd className="text-foreground">{topicLabel}</dd>
+                </div>
+                <div className="flex justify-between">
                   <dt className="text-foreground">Recipients</dt>
                   <dd className="text-foreground">
                     {audience.count.toLocaleString()}
                   </dd>
                 </div>
                 <div className="flex justify-between">
-                  <dt className="text-foreground">Price per response</dt>
+                  <dt className="text-foreground">Price per message</dt>
                   <dd className="text-foreground">
                     ${POLL_COST_PER_RECIPIENT.toFixed(3)}
                   </dd>
@@ -1013,19 +1358,46 @@ const StepReview = ({
       <Button
         variant="outline"
         className="w-full"
-        disabled={!question.trim()}
+        disabled={!message.trim()}
         onClick={() => setPreview((v) => !v)}
       >
         <Eye className="size-4" />
-        {preview ? 'Hide preview' : 'Preview question'}
+        {preview ? 'Hide preview' : 'Preview poll'}
       </Button>
 
       {preview && (
-        <Card className="gap-1 p-4 shadow-none">
-          <SectionLabel>Poll question</SectionLabel>
-          <p className="text-foreground text-sm leading-6">{question}</p>
-        </Card>
+        <div className="flex justify-center">
+          <div className="bg-primary text-primary-foreground w-full max-w-[280px] rounded-2xl rounded-bl-sm p-3 text-sm">
+            <p className="whitespace-pre-wrap">
+              {renderWithMergeVars('Hello, {first_name}')}
+              {message ? `\n\n${message}` : ''}
+              {!messageEndsWithOptOut(message) && `\n\n${OPT_OUT_FOOTER}`}
+            </p>
+          </div>
+        </div>
       )}
+
+      <Card className="gap-3 p-4 shadow-none">
+        <p className="text-foreground font-semibold">Payment details</p>
+        <div className="space-y-1.5">
+          <Label>Card number</Label>
+          <Input readOnly value="•••• •••• •••• 4242" />
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1 space-y-1.5">
+            <Label>Expiration</Label>
+            <Input readOnly value="10/28" />
+          </div>
+          <div className="flex-1 space-y-1.5">
+            <Label>CVC</Label>
+            <Input readOnly value="•••" />
+          </div>
+        </div>
+        <p className="text-muted-foreground text-xs">
+          Billed by Text Message Center. This is a demo — no real payment is
+          taken.
+        </p>
+      </Card>
     </div>
   )
 }
@@ -1048,11 +1420,10 @@ const SuccessScreen = ({
     </div>
     <div className="space-y-2">
       <h2 className="text-foreground text-2xl font-semibold">
-        Payment successful!
+        Poll scheduled!
       </h2>
       <p className="text-muted-foreground">
-        Your poll has been scheduled and will reach{' '}
-        {audience.count.toLocaleString()} recipients
+        Your poll will reach {audience.count.toLocaleString()} recipients
         {sendAt ? ` on ${fmtDate(sendAt)}.` : ' shortly.'}
       </p>
     </div>
