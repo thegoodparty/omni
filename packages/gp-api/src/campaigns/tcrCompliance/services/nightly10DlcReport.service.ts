@@ -67,12 +67,15 @@ const PEERLY_CV_READ_SPACING_MS = 350
 const CV_NEVER_REACHED_MIN_AGE_DAYS = 3
 
 // Case 3a (ENG-10795): PIN entered (CV VERIFIED) but the profile is still
-// `pending` a full day later — verify_pin -> token -> approve normally
-// completes in seconds, so this means we never minted/attached the CV token
-// or never called /approve. The 1-day floor requires the pair to have been
-// observed on two consecutive nightly polls, filtering out records still
-// mid-PIN-flow.
-const PROFILE_STALL_MIN_AGE_DAYS = 1
+// `pending` well past a nightly cycle — verify_pin -> token -> approve
+// normally completes in seconds, so this means we never minted/attached the
+// CV token or never called /approve. The floor requires the pair to have
+// been observed on two consecutive nightly polls, filtering out records
+// still mid-PIN-flow. It sits below 24h because `now` is captured before
+// the poll stamps `peerlyProfileStatusChangedAt`: a full-day floor would
+// leave last night's stamp seconds too young tonight and delay the flag to
+// the third night.
+const PROFILE_STALL_MIN_AGE_HOURS = 20
 
 const reportableCampaign = {
   isPro: true,
@@ -293,7 +296,7 @@ export class Nightly10DlcReportService extends createPrismaBase(
           peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
           peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
           peerlyProfileStatusChangedAt: {
-            lt: subDays(now, PROFILE_STALL_MIN_AGE_DAYS),
+            lt: subHours(now, PROFILE_STALL_MIN_AGE_HOURS),
           },
         },
         include: { campaign: true },

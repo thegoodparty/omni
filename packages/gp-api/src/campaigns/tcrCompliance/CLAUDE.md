@@ -140,9 +140,10 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   minted, `submitted` 3+ days ago, `peerlyCvStatus` still null — disjoint from
   "submission never completed", which is `peerlyIdentityId: null` and never
   even reached Peerly), PIN-verified-but-stalled (ENG-10795 case 3a:
-  `peerlyCvStatus` `VERIFIED` + `peerlyProfileStatus` `pending` for 1+ day —
-  the 1-day floor requires the pair observed on two consecutive nightly polls,
-  filtering out records still mid-PIN-flow), and an awaiting-PIN >7d nudge
+  `peerlyCvStatus` `VERIFIED` + `peerlyProfileStatus` `pending` past a 20h
+  floor — i.e. the pair observed on two consecutive nightly polls, filtering
+  out records still mid-PIN-flow; the floor sits under 24h because `now` is
+  captured before the poll stamps the column), and an awaiting-PIN >7d nudge
   section that is reported but not counted as stuck. Sections cap at 25 rows
   with an explicit `…and N more`.
 

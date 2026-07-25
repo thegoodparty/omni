@@ -642,7 +642,7 @@ describe('Nightly10DlcReportService', () => {
       expect(text).toContain('1 stuck')
     })
 
-    it('queries a 1-day threshold with the VERIFIED / profile-pending filter', async () => {
+    it('queries a 20-hour threshold with the VERIFIED / profile-pending filter', async () => {
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
       const case3aCall = mockModel.findMany.mock.calls[7] as [
@@ -654,7 +654,7 @@ describe('Nightly10DlcReportService', () => {
       })
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.VERIFIED)
-      const thresholdMs = subDays(new Date(), 1).getTime()
+      const thresholdMs = subHours(new Date(), 20).getTime()
       expect(where.peerlyProfileStatusChangedAt).toBeDefined()
       expect(
         Math.abs(
