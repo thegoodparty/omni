@@ -129,7 +129,7 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
     a thrown Peerly error logs + skips that record (keeping its stored
     values) without stopping the rest of the poll or the report post. A
     genuine null return (no CV request exists) *is* persisted.
-- **Eight sections**, all scoped to `campaign.isPro` (pre-payment records
+- **Ten sections**, all scoped to `campaign.isPro` (pre-payment records
   intentionally sit idle) and excluding internal accounts (user email
   ending `@goodparty.org` / `@test.goodparty.org` — staff walk this flow
   in prod and their stuck records are noise): submission never completed (>24h after kickoff,
@@ -143,9 +143,58 @@ single-class `sweepStuckPeerlySubmissions` hourly digest (and its
   `peerlyCvStatus` `VERIFIED` + `peerlyProfileStatus` `pending` past a 20h
   floor — i.e. the pair observed on two consecutive nightly polls, filtering
   out records still mid-PIN-flow; the floor sits under 24h because `now` is
-  captured before the poll stamps the column), and an awaiting-PIN >7d nudge
-  section that is reported but not counted as stuck. Sections cap at 25 rows
-  with an explicit `…and N more`.
+  captured before the poll stamps the column), the two vendor-escalation
+  mirror sections (ENG-10796 cases 2 and 3b — see below), and an awaiting-PIN
+  >7d nudge section that is reported but not counted as stuck. Sections cap
+  at 25 rows with an explicit `…and N more`.
+
+### Vendor escalation into the shared Peerly channel (ENG-10796)
+
+Cases 2 and 3b are Peerly-side stalls (CampaignVerify or the finalize step
+can't complete on Peerly's end) — James at Peerly agreed we escalate these
+directly into the shared Slack Connect channel
+(`SlackChannel.sharedGoodpartyPeerly10Dlc`), on top of the internal report:
+
+- **Case 2:** `peerlyCvStatus` `IN_REVIEW` for more than 3 business days.
+- **Case 3b:** `peerlyCvStatus` `VERIFIED` and `peerlyProfileStatus`
+  `waiting_to_finalize` (`PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE`) for
+  more than 3 business days (CV token attached, `/approve` called, waiting
+  on Peerly's own finalize confirmation).
+
+Business-day math (`date-fns` `differenceInBusinessDays`, never calendar
+days — a Friday stall must not read as escalatable by Monday) can't live in
+the Prisma `where` clause, so `handleNightlyReport` fetches every
+currently-`IN_REVIEW` / currently-`waiting_to_finalize` candidate (same
+in-flight population as the poll) and applies the >3-business-day floor in
+code.
+
+**Once-only per stall**, mirroring the `pinSentDetectedAt` claim/rollback
+pattern: an atomic `updateMany WHERE cvInReviewEscalatedAt IS NULL` (resp.
+`finalizeStalledEscalatedAt`) claims the record *before* the Slack post; only
+a claim count of 1 posts. `SlackService.message` swallows delivery errors
+and resolves `undefined` — a failed post rolls the claim back (scoped to the
+exact timestamp written) so the next nightly run retries. Escalation runs
+*after* the internal report posts, so a first-night detection can render as
+"escalation pending" in the mirror section before the claim lands.
+
+**Reset on progress:** the same poll write (`pollRecordStatus`) that
+advances `peerlyCvStatus`/`peerlyProfileStatus` also clears the matching
+escalation column, but only when the *previous* stored value was the
+escalatable one (`IN_REVIEW` / `waiting_to_finalize`) — i.e. only when the
+record is actually leaving that state. A later re-stall is a new incident
+and re-escalates.
+
+**Vendor-appropriate content only:** the Slack message carries the Peerly
+identity ID, committee name, which state it's stuck in, and since-when
+(date + business-day count) — never the candidate's email/phone, no
+internal campaign IDs, no gp-admin links.
+
+**Internal mirror:** two more report sections ("Escalated to Peerly: CV
+IN_REVIEW >3 business days" / "... waiting_to_finalize >3 business days")
+list the same escalation-eligible set every night while still stuck, each
+line suffixed `(escalated <date>)` from the claim column, or
+`escalation pending` if the claim is still null. They count toward the
+header's stuck total.
 
 ## `submitToPeerlyForAgent` notes
 

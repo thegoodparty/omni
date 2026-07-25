@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import {
+  differenceInBusinessDays,
   differenceInCalendarDays,
   subDays,
   subHours,
@@ -34,7 +35,10 @@ import {
   formatDate,
 } from '../../../shared/util/date.util'
 import { PeerlyCvVerificationStatus } from '../../../vendors/peerly/peerly.types'
-import { PEERLY_PROFILE_STATUS_PENDING } from '../../../vendors/peerly/services/peerly.const'
+import {
+  PEERLY_PROFILE_STATUS_PENDING,
+  PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
+} from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { REGISTRANT_STAMPING_UNIVERSAL_FROM } from './complianceState.service'
@@ -77,6 +81,12 @@ const CV_NEVER_REACHED_MIN_AGE_DAYS = 3
 // the third night.
 const PROFILE_STALL_MIN_AGE_HOURS = 20
 
+// Cases 2 and 3b (ENG-10796): James at Peerly agreed we escalate these
+// Peerly-side stalls directly into the shared Slack Connect channel once
+// past this business-day floor (weekends must not count — Peerly doesn't
+// work CV/finalize queues over the weekend either).
+const VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD = 3
+
 const reportableCampaign = {
   isPro: true,
   user: {
@@ -116,6 +126,29 @@ const sectionToBlock = ({ title, lines }: ReportSection): SlackMessageBlock => {
 
 const campaignRef = (record: RecordWithCampaign) =>
   `• ${record.campaign.slug} (campaign ${record.campaignId})`
+
+// Vendor-appropriate content only: identity ID + committee name is enough
+// for Peerly to look up the record — no candidate email/phone, no internal
+// campaign IDs, no gp-admin links.
+const vendorEscalationMessage = ({
+  record,
+  stateLabel,
+  since,
+  now,
+  ask,
+}: {
+  record: RecordWithCampaign
+  stateLabel: string
+  since: Date
+  now: Date
+  ask: string
+}) =>
+  `*10DLC vendor escalation*\n` +
+  `Peerly identity: ${record.peerlyIdentityId}\n` +
+  `Committee: ${record.committeeName}\n` +
+  `${stateLabel} since ${formatDate(since, DateFormats.usDate)} ` +
+  `(${differenceInBusinessDays(now, since)} business days).\n` +
+  `Ask: ${ask}`
 
 @Injectable()
 export class Nightly10DlcReportService extends createPrismaBase(
@@ -198,6 +231,8 @@ export class Nightly10DlcReportService extends createPrismaBase(
       agingAwaitingPin,
       neverReachedCv,
       profileStalled,
+      inReviewStalled,
+      waitingToFinalizeStalled,
     ] = await Promise.all([
       this.model.findMany({
         where: {
@@ -301,7 +336,60 @@ export class Nightly10DlcReportService extends createPrismaBase(
         },
         include: { campaign: true },
       }),
+      // Case 2 (ENG-10796): CV stuck IN_REVIEW — CampaignVerify can't reach
+      // the election authority. Business-day math can't live in the Prisma
+      // where clause, so this fetches every currently-IN_REVIEW candidate and
+      // the >3-business-day floor is applied in code below.
+      this.model.findMany({
+        where: {
+          ...proOnly,
+          peerlyIdentityId: { not: null },
+          status: {
+            in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+          },
+          peerlyCvStatus: PeerlyCvVerificationStatus.IN_REVIEW,
+        },
+        include: { campaign: true },
+      }),
+      // Case 3b (ENG-10796): CV VERIFIED but the brand profile is stuck
+      // waiting_to_finalize — the CV token is attached and /approve ran, but
+      // Peerly's own finalize confirmation never landed.
+      this.model.findMany({
+        where: {
+          ...proOnly,
+          peerlyIdentityId: { not: null },
+          status: {
+            in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
+          },
+          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+          peerlyProfileStatus: PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
+        },
+        include: { campaign: true },
+      }),
     ])
+
+    // Business-day floor applied in code (see comment above) — restricted to
+    // the same in-flight population the queries above already scoped.
+    const inReviewToEscalate = inReviewStalled.filter(
+      (
+        record,
+      ): record is RecordWithCampaign & {
+        peerlyCvStatusChangedAt: Date
+      } =>
+        record.peerlyCvStatusChangedAt !== null &&
+        differenceInBusinessDays(now, record.peerlyCvStatusChangedAt) >
+          VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD,
+    )
+    const waitingToFinalizeToEscalate = waitingToFinalizeStalled.filter(
+      (
+        record,
+      ): record is RecordWithCampaign & {
+        peerlyProfileStatusChangedAt: Date
+      } =>
+        record.peerlyProfileStatusChangedAt !== null &&
+        differenceInBusinessDays(now, record.peerlyProfileStatusChangedAt) >
+          VENDOR_ESCALATION_BUSINESS_DAY_THRESHOLD,
+    )
 
     const runIds = stuckSubmissions
       .map((record) => record.agenticRunId)
@@ -393,6 +481,32 @@ export class Nightly10DlcReportService extends createPrismaBase(
           )
         }),
       },
+      {
+        title: '⚠️ Escalated to Peerly: CV IN_REVIEW >3 business days',
+        lines: inReviewToEscalate.map(
+          (record) =>
+            `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
+            `IN_REVIEW ${differenceInBusinessDays(now, record.peerlyCvStatusChangedAt)}` +
+            ` business days (${
+              record.cvInReviewEscalatedAt
+                ? `escalated ${formatDate(record.cvInReviewEscalatedAt, DateFormats.usDate)}`
+                : 'escalation pending'
+            })`,
+        ),
+      },
+      {
+        title: '⚠️ Escalated to Peerly: waiting_to_finalize >3 business days',
+        lines: waitingToFinalizeToEscalate.map(
+          (record) =>
+            `${campaignRef(record)} — identity ${record.peerlyIdentityId}, ` +
+            `waiting_to_finalize ${differenceInBusinessDays(now, record.peerlyProfileStatusChangedAt)}` +
+            ` business days (${
+              record.finalizeStalledEscalatedAt
+                ? `escalated ${formatDate(record.finalizeStalledEscalatedAt, DateFormats.usDate)}`
+                : 'escalation pending'
+            })`,
+        ),
+      },
     ]
     const nudgeSection: ReportSection = {
       title: `⏳ Awaiting PIN >${AWAITING_PIN_NUDGE_DAYS}d (candidate nudge)`,
@@ -460,6 +574,11 @@ export class Nightly10DlcReportService extends createPrismaBase(
       return false
     }
 
+    // Runs after the internal report posts — each stalled record pings the
+    // shared vendor channel once, not nightly (ENG-10796).
+    await this.escalateInReviewStalls(inReviewToEscalate, now)
+    await this.escalateWaitingToFinalizeStalls(waitingToFinalizeToEscalate, now)
+
     this.logger.info(
       { reportDate, stuckCount, awaitingPin: agingAwaitingPin.length },
       '[10DLC nightly report] Posted',
@@ -502,6 +621,11 @@ export class Nightly10DlcReportService extends createPrismaBase(
     if (cvStatus !== record.peerlyCvStatus) {
       data.peerlyCvStatus = cvStatus
       data.peerlyCvStatusChangedAt = new Date()
+      // Leaving IN_REVIEW is progress — a later re-stall is a new incident
+      // and must re-escalate (ENG-10796).
+      if (record.peerlyCvStatus === PeerlyCvVerificationStatus.IN_REVIEW) {
+        data.cvInReviewEscalatedAt = null
+      }
     }
 
     // Only VERIFIED warrants the extra getProfile read — that's the signal
@@ -517,6 +641,14 @@ export class Nightly10DlcReportService extends createPrismaBase(
       if (profileStatus !== record.peerlyProfileStatus) {
         data.peerlyProfileStatus = profileStatus
         data.peerlyProfileStatusChangedAt = new Date()
+        // Same reset for case 3b — leaving waiting_to_finalize re-arms the
+        // escalation for a future stall.
+        if (
+          record.peerlyProfileStatus ===
+          PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE
+        ) {
+          data.finalizeStalledEscalatedAt = null
+        }
       }
     }
 
@@ -526,5 +658,133 @@ export class Nightly10DlcReportService extends createPrismaBase(
       return
     }
     await this.model.update({ where: { id: record.id }, data })
+  }
+
+  // Once-only claim on cvInReviewEscalatedAt before posting to the shared
+  // vendor channel (ENG-10796 case 2), mirroring the pinSentDetectedAt
+  // claim/rollback pattern. A failed post rolls the claim back (scoped to
+  // the exact timestamp written) so the next nightly run retries.
+  private async escalateInReviewStalls(
+    records: (RecordWithCampaign & { peerlyCvStatusChangedAt: Date })[],
+    now: Date,
+  ) {
+    for (const record of records) {
+      const claimedAt = new Date()
+      const claim = await this.model.updateMany({
+        where: { id: record.id, cvInReviewEscalatedAt: null },
+        data: { cvInReviewEscalatedAt: claimedAt },
+      })
+      if (claim.count === 0) {
+        continue
+      }
+
+      const posted = await this.slack.message(
+        {
+          blocks: [
+            mrkdwnSection(
+              vendorEscalationMessage({
+                record,
+                stateLabel: 'Campaign Verify has been `IN_REVIEW`',
+                since: record.peerlyCvStatusChangedAt,
+                now,
+                ask:
+                  'Could you confirm Campaign Verify is able to reach the ' +
+                  'election authority for this filing, or share a status ' +
+                  'update?',
+              }),
+            ),
+          ],
+        },
+        SlackChannel.sharedGoodpartyPeerly10Dlc,
+      )
+      if (posted !== undefined) {
+        continue
+      }
+
+      // If this rollback itself fails, the claim stays set forever with no
+      // post ever sent — log loudly so it's visible rather than silently
+      // stranding the record outside every future night's claim attempt.
+      try {
+        await this.model.updateMany({
+          where: { id: record.id, cvInReviewEscalatedAt: claimedAt },
+          data: { cvInReviewEscalatedAt: null },
+        })
+        this.logger.error(
+          { tcrComplianceId: record.id },
+          '[10DLC nightly report] Vendor escalation post failed ' +
+            '(CV IN_REVIEW); claim rolled back for retry',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[10DLC nightly report] Vendor escalation post failed and the ' +
+            'claim rollback also failed (CV IN_REVIEW); record is stuck ' +
+            'unescalated until repaired',
+        )
+      }
+    }
+  }
+
+  // Same once-only claim/rollback pattern as escalateInReviewStalls, on
+  // finalizeStalledEscalatedAt (ENG-10796 case 3b).
+  private async escalateWaitingToFinalizeStalls(
+    records: (RecordWithCampaign & {
+      peerlyProfileStatusChangedAt: Date
+    })[],
+    now: Date,
+  ) {
+    for (const record of records) {
+      const claimedAt = new Date()
+      const claim = await this.model.updateMany({
+        where: { id: record.id, finalizeStalledEscalatedAt: null },
+        data: { finalizeStalledEscalatedAt: claimedAt },
+      })
+      if (claim.count === 0) {
+        continue
+      }
+
+      const posted = await this.slack.message(
+        {
+          blocks: [
+            mrkdwnSection(
+              vendorEscalationMessage({
+                record,
+                stateLabel: 'The brand profile has been `waiting_to_finalize`',
+                since: record.peerlyProfileStatusChangedAt,
+                now,
+                ask:
+                  'Could you confirm the finalize step so this brand can ' +
+                  'reach MNO review?',
+              }),
+            ),
+          ],
+        },
+        SlackChannel.sharedGoodpartyPeerly10Dlc,
+      )
+      if (posted !== undefined) {
+        continue
+      }
+
+      // See escalateInReviewStalls — guard the rollback itself so a DB
+      // failure here doesn't silently strand the record unescalated forever.
+      try {
+        await this.model.updateMany({
+          where: { id: record.id, finalizeStalledEscalatedAt: claimedAt },
+          data: { finalizeStalledEscalatedAt: null },
+        })
+        this.logger.error(
+          { tcrComplianceId: record.id },
+          '[10DLC nightly report] Vendor escalation post failed ' +
+            '(waiting_to_finalize); claim rolled back for retry',
+        )
+      } catch (err) {
+        this.logger.error(
+          { err, tcrComplianceId: record.id },
+          '[10DLC nightly report] Vendor escalation post failed and the ' +
+            'claim rollback also failed (waiting_to_finalize); record is ' +
+            'stuck unescalated until repaired',
+        )
+      }
+    }
   }
 }
