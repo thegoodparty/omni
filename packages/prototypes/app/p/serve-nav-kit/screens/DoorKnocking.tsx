@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MapPin, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { Button, Card, Progress, cn, toast } from '@goodparty_org/styleguide'
 import { ScreenLayout } from '../components/ScreenLayout'
 import { SectionLabel } from '../components/SectionLabel'
@@ -9,9 +9,11 @@ import { ListCard } from './door-knocking/ListCard'
 import { WalkMode } from './door-knocking/WalkMode'
 import { NewListDrawer } from './door-knocking/NewListDrawer'
 import { ListDetailsSheet } from './door-knocking/ListDetailsSheet'
+import { TurfMap } from './door-knocking/TurfMap'
 import {
   type DoorList,
   type DoorRecord,
+  ALL_VOTERS,
   DOOR_GOAL,
   RECOMMENDED_LISTS,
   SAVED_LISTS,
@@ -19,6 +21,13 @@ import {
   initialRecords,
   votersFor,
 } from './door-knocking/doorKnockingData'
+
+const LEGEND = [
+  { label: 'Supporter', className: 'bg-success' },
+  { label: 'Not supporting', className: 'bg-destructive' },
+  { label: 'Knocked', className: 'bg-primary' },
+  { label: 'Not knocked', className: 'bg-muted-foreground/40' },
+]
 
 type DoorKnockingProps = {
   title: string
@@ -96,12 +105,26 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
         <Progress value={progress} />
       </Card>
 
-      {/* Map placeholder (real map lands in a later phase) */}
-      <Card className="text-muted-foreground items-center justify-center gap-2 border-dashed p-8 text-center shadow-none">
-        <MapPin className="size-6" />
-        <p className="text-sm">
-          Route map coming next — knock doors from any saved list below.
-        </p>
+      {/* Turf map (synthetic — no external geocoding) */}
+      <Card className="gap-3 overflow-hidden p-4 shadow-none">
+        <div className="bg-muted/40 overflow-hidden rounded-xl">
+          <TurfMap
+            voters={ALL_VOTERS}
+            records={records}
+            className="h-56 w-full"
+          />
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1">
+          {LEGEND.map((l) => (
+            <span
+              key={l.label}
+              className="text-muted-foreground inline-flex items-center gap-1.5 text-xs"
+            >
+              <span className={cn('size-2.5 rounded-full', l.className)} />
+              {l.label}
+            </span>
+          ))}
+        </div>
       </Card>
 
       {/* Recommended lists */}

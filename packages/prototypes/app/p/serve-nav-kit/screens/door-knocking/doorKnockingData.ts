@@ -13,6 +13,9 @@ export type Voter = {
   party: Party
   precinct: string
   householdSize: number
+  // Normalised 0–100 map position (synthetic — no real geocoding).
+  x: number
+  y: number
   reached?: boolean
   support?: Support
   outcome?: DoorOutcome
@@ -147,14 +150,24 @@ const buildVoters = (): Voter[] => {
     const street =
       STREETS[Math.floor(seeded(i + 3) * STREETS.length)] ?? 'Main St'
     const num = 100 + Math.floor(seeded(i + 5) * 900)
-    const precinct = PRECINCTS[i % PRECINCTS.length] ?? 'Precinct 3'
+    const precinctIdx = i % PRECINCTS.length
+    const precinct = PRECINCTS[precinctIdx] ?? 'Precinct 3'
     const r = seeded(i + 11)
+    // Cluster each precinct around a center so lists read as neighborhoods.
+    const CENTERS = [
+      { x: 26, y: 32 },
+      { x: 70, y: 36 },
+      { x: 46, y: 70 },
+    ]
+    const c = CENTERS[precinctIdx] ?? CENTERS[0]!
     out.push({
       id: `dk-${i}`,
       name: `${first} ${last}`,
       address: `${num} ${street}`,
       party: PARTIES[Math.floor(seeded(i + 13) * PARTIES.length)] ?? 'U',
       precinct,
+      x: Math.round((c.x + (seeded(i + 19) - 0.5) * 34) * 10) / 10,
+      y: Math.round((c.y + (seeded(i + 23) - 0.5) * 34) * 10) / 10,
       householdSize: 1 + Math.floor(seeded(i + 17) * 3),
       reached: r < 0.28 ? true : undefined,
       support:
