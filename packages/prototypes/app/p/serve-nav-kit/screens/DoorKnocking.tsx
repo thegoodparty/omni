@@ -8,6 +8,7 @@ import { SectionLabel } from '../components/SectionLabel'
 import { ListCard } from './door-knocking/ListCard'
 import { WalkMode } from './door-knocking/WalkMode'
 import { NewListDrawer } from './door-knocking/NewListDrawer'
+import { ListDetailsSheet } from './door-knocking/ListDetailsSheet'
 import {
   type DoorList,
   type DoorRecord,
@@ -31,8 +32,11 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
     useState<Record<string, DoorRecord>>(initialRecords)
   const [walkListId, setWalkListId] = useState<string | null>(null)
   const [newListOpen, setNewListOpen] = useState(false)
+  const [detailsList, setDetailsList] = useState<DoorList | null>(null)
 
   const walkList = saved.find((l) => l.id === walkListId) ?? null
+  const detailsIsSaved =
+    detailsList !== null && saved.some((l) => l.id === detailsList.id)
 
   // Inject live canvass progress into a list's voters so the cards update.
   const listVoters = (list: DoorList) =>
@@ -114,7 +118,7 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
                 duration={fmtDuration(list.durationMin)}
                 reason={list.reason}
                 onClick={soon}
-                onDetails={soon}
+                onDetails={() => setDetailsList(list)}
                 onSave={() => {
                   setSaved((prev) => [
                     { ...list, id: `saved-${list.id}`, color: 'violet' },
@@ -151,7 +155,7 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
                 color={list.color}
                 onClick={() => setWalkListId(list.id)}
                 onWalk={() => setWalkListId(list.id)}
-                onDetails={soon}
+                onDetails={() => setDetailsList(list)}
                 onDelete={() =>
                   setSaved((prev) => prev.filter((s) => s.id !== list.id))
                 }
@@ -167,6 +171,26 @@ export const DoorKnocking = ({ title, aiPlaceholder }: DoorKnockingProps) => {
         onCreate={(list) => {
           setSaved((prev) => [list, ...prev])
           toast('List created', { description: list.name })
+        }}
+      />
+
+      <ListDetailsSheet
+        list={detailsList}
+        records={records}
+        canWalk={detailsIsSaved}
+        onOpenChange={(v) => !v && setDetailsList(null)}
+        onWalk={() => {
+          if (detailsList) setWalkListId(detailsList.id)
+          setDetailsList(null)
+        }}
+        onDelete={() => {
+          if (detailsList) {
+            setSaved((prev) => prev.filter((s) => s.id !== detailsList.id))
+            setRecommended((prev) =>
+              prev.filter((r) => r.id !== detailsList.id),
+            )
+          }
+          setDetailsList(null)
         }}
       />
     </ScreenLayout>
