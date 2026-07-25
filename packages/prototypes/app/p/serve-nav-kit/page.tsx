@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   FileText,
   Send,
+  DoorOpen,
   UsersRound,
   HandCoins,
   BookOpen,
@@ -14,6 +15,7 @@ import { AppShell, type ShellOrg } from '@/shared/AppShell'
 import { AppToaster } from './components/AppToaster'
 import { CampaignManager } from './screens/CampaignManager'
 import { OutreachScreen } from './screens/OutreachScreen'
+import { DoorKnocking } from './screens/DoorKnocking'
 import { CampaignTracker } from './screens/CampaignTracker'
 import { VoterData } from './screens/VoterData'
 import { Fundraising } from './screens/Fundraising'
@@ -42,6 +44,17 @@ const winTabs = [
       <OutreachScreen
         title="Voter Outreach"
         aiPlaceholder="Draft a campaign or ask about your outreach…"
+      />
+    ),
+  },
+  {
+    slug: 'door-knocking',
+    label: 'Door Knocking',
+    icon: DoorOpen,
+    component: (
+      <DoorKnocking
+        title="Door Knocking"
+        aiPlaceholder="Ask about your turf, routes, or canvassing…"
       />
     ),
   },
