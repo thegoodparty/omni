@@ -212,10 +212,11 @@ export const PollsCampaignFlow = ({
     return d
   }, [date, timeSlot, customTime])
 
+  // "Send now" can't meet the 48-hour minimum, so it trips the same notice
+  // instead of silently disabling Continue (source parity).
   const violates48h =
-    scheduledAt && scheduledAt !== 'now'
-      ? scheduledAt.getTime() < earliestSend
-      : false
+    scheduledAt === 'now' ||
+    (scheduledAt ? scheduledAt.getTime() < earliestSend : false)
 
   const clearBias = () => {
     setBiasChecked(false)

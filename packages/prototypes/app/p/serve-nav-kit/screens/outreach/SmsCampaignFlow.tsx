@@ -193,7 +193,11 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
     return d
   }, [date, timeSlot, customTime])
 
-  const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
+  // "Send now" can't meet the 48-hour minimum, so it trips the same notice
+  // instead of silently disabling Continue (source parity).
+  const violates48h =
+    timeSlot === 'now' ||
+    (scheduledAt ? scheduledAt.getTime() < earliestSend : false)
 
   // Auto-name the campaign from the audience + date.
   const lastAutoName = useRef('')

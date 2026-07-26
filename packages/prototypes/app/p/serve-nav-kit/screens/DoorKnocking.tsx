@@ -85,6 +85,12 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
     return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
+  // Entering the walk view should start at the top of the page, not wherever
+  // the list was scrolled when the user hit Knock.
+  useEffect(() => {
+    if (walkListId) window.scrollTo({ top: 0 })
+  }, [walkListId])
+
   const byId = useMemo(() => new Map(voters.map((v) => [v.id, v])), [voters])
   const listVoters = (list: List): Voter[] =>
     list.voterIds.map((id) => byId.get(id)).filter((v): v is Voter => !!v)

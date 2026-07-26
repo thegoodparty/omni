@@ -102,6 +102,9 @@ export const MapCanvas = ({
     activePolygon ?? [],
   )
   const dragIdx = useRef<number | null>(null)
+  // A vertex press starts a drag/tap on a handle; the click it produces on
+  // mouse-up must not be treated as a new boundary point.
+  const suppressClick = useRef(false)
   const [showHint, setShowHint] = useState(!drawHintDismissed)
 
   // Fit the transform to the route (walk) or the displayed voters, so the
@@ -136,6 +139,10 @@ export const MapCanvas = ({
 
   const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (mode !== 'draw' || dragIdx.current !== null) return
+    if (suppressClick.current) {
+      suppressClick.current = false
+      return
+    }
     if (!drawHintDismissed) {
       drawHintDismissed = true
       setShowHint(false)
@@ -147,6 +154,7 @@ export const MapCanvas = ({
     if (mode !== 'draw') return
     e.stopPropagation()
     dragIdx.current = i
+    suppressClick.current = true
   }
   const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (dragIdx.current === null) return

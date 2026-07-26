@@ -873,7 +873,9 @@ const StepWhen = ({
               <SelectValue placeholder="Pick a time" />
             </SelectTrigger>
             <SelectContent>
-              {TIME_OPTIONS.map((o) => (
+              {/* Email removes "Send now" — email has no 48h rule but the source
+                  omits the immediate option here. */}
+              {TIME_OPTIONS.filter((o) => o.id !== 'now').map((o) => (
                 <SelectItem key={o.id} value={o.id}>
                   {o.label}
                 </SelectItem>

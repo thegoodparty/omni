@@ -680,8 +680,9 @@ const ContactDetail = ({
                         type="single"
                         value={support ?? ''}
                         onValueChange={(v) => {
+                          // Source keeps the will-vote answer when support
+                          // changes — only outcome/engagement clear downstream.
                           setSupport((v as Support) || undefined)
-                          setWillVote(undefined)
                         }}
                       >
                         <FilterPill value="yes">Yes</FilterPill>

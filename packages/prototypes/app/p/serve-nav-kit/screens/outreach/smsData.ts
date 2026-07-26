@@ -136,7 +136,9 @@ export const FILTER_POOLS: { key: string; label: string; options: string[] }[] =
 
 const UNIVERSE = 118099
 export const estimateAudienceSize = (selected: string[]): number => {
-  if (selected.length === 0) return UNIVERSE
+  // No filters selected = no list yet (0), matching source's builder gating —
+  // an empty selection must not read as the full universe.
+  if (selected.length === 0) return 0
   const factor = Math.pow(0.55, selected.length)
   return Math.max(120, Math.round(UNIVERSE * factor))
 }

@@ -120,11 +120,8 @@ export const RobocallCampaignFlow = ({
   const [naming, setNaming] = useState(false)
   const [builderName, setBuilderName] = useState('')
   const [builderFilters, setBuilderFilters] = useState<string[]>([])
-  // No filters selected means no list yet — keep the count at 0 so Continue
-  // stays disabled (an empty filter set otherwise reads as the full universe).
   const builderCount = useMemo(
-    () =>
-      builderFilters.length === 0 ? 0 : estimateAudienceSize(builderFilters),
+    () => estimateAudienceSize(builderFilters),
     [builderFilters],
   )
 
@@ -1335,11 +1332,7 @@ const RecordBar = ({
             >
               <Trash2 className="size-4" />
             </IconButton>
-            <Button
-              size="small"
-              onClick={onSave}
-              disabled={recordingDuration < 2}
-            >
+            <Button size="small" onClick={onSave}>
               Save
             </Button>
           </>

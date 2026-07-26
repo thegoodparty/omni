@@ -192,7 +192,7 @@ export const PhoneBankCampaignFlow = ({
         return
       }
       const list: Audience = {
-        id: `custom-${builderFilters.join('-')}`,
+        id: `custom-${crypto.randomUUID()}`,
         name: builderName.trim().slice(0, 40),
         count: builderCount,
         filters: builderFilters,

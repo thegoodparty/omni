@@ -489,7 +489,7 @@ export const OutreachScreen = ({
         onOpenChange={setSmsOpen}
         onScheduled={(r: ScheduledSms) => {
           const row: HistoryRow = {
-            id: `sms-${r.sendAt.getTime()}`,
+            id: `sms-${crypto.randomUUID()}`,
             date: r.sendAt.toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
@@ -517,7 +517,7 @@ export const OutreachScreen = ({
         onScheduled={(r: ScheduledEmail) => {
           const when = r.sendAt === 'now' ? new Date() : r.sendAt
           const row: HistoryRow = {
-            id: `email-${when.getTime()}`,
+            id: `email-${crypto.randomUUID()}`,
             date: when.toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
@@ -574,7 +574,7 @@ export const OutreachScreen = ({
         onOpenChange={setPollOpen}
         onScheduled={(r: ScheduledPoll) => {
           const row: HistoryRow = {
-            id: `poll-${r.sendAt.getTime()}`,
+            id: `poll-${crypto.randomUUID()}`,
             date: r.sendAt.toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
@@ -603,7 +603,7 @@ export const OutreachScreen = ({
           const now = new Date()
           const labels = r.platforms.map((p) => metaFor(p).label)
           const row: HistoryRow = {
-            id: `social-${now.getTime()}`,
+            id: `social-${crypto.randomUUID()}`,
             date: now.toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
@@ -634,7 +634,7 @@ export const OutreachScreen = ({
             .slice(0, Math.min(r.audience.count, 60))
             .map((v) => v.id)
           const row: HistoryRow = {
-            id: `phone-bank-${now.getTime()}`,
+            id: `phone-bank-${crypto.randomUUID()}`,
             date: now.toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
@@ -643,7 +643,7 @@ export const OutreachScreen = ({
             name: r.name,
             channel: 'phone-bank',
             status: 'in-progress',
-            people: r.audience.count,
+            people: contactIds.length,
             responses: 0,
             unsubscribes: null,
             supporters: 0,

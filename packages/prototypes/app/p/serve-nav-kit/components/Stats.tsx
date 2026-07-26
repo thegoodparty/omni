@@ -4,14 +4,6 @@ import { Card, Separator } from '@goodparty_org/styleguide'
 
 type Stat = { label: string; value: string }
 
-// GAP: no KPI/metric tile in styleguide. Big number + label.
-export const StatTile = ({ label, value }: Stat) => (
-  <Card className="gap-1 p-4">
-    <p className="text-foreground text-2xl font-semibold">{value}</p>
-    <p className="text-muted-foreground text-xs">{label}</p>
-  </Card>
-)
-
 // Composition: "label → big number" list rows in one card (Voter Universe).
 export const StatRows = ({ rows }: { rows: Stat[] }) => (
   <Card className="gap-0 p-0">
