@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Button,
@@ -72,6 +72,8 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
   const [showLocation, setShowLocation] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [mapCompact, setMapCompact] = useState(false)
+  const [activePinId, setActivePinId] = useState<string | null>(null)
+  const stopRefs = useRef<Record<string, HTMLLIElement | null>>({})
 
   // Keep the default travel mode in sync with the route (walkable → walk).
   useEffect(() => {
@@ -118,6 +120,16 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
     return Math.round(m)
   }, [route, travelMode, loop])
 
+  // Tapping a map pin highlights that stop in the list and scrolls to it — it
+  // does not open the person drawer (source parity).
+  const handlePinTap = (v: Voter) => {
+    setActivePinId(v.id)
+    stopRefs.current[v.id]?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+    })
+  }
+
   const pct = (c: number) => (total > 0 ? (c / total) * 100 : 0)
   const barSegments: { key: keyof typeof counts; cls: string }[] = [
     { key: 'green', cls: 'bg-success' },
@@ -142,7 +154,7 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
           listVoterIds={new Set(voters.map((v) => v.id))}
           route={route}
           liveIndex={showLocation ? liveIndex : undefined}
-          onHouseTap={(v) => onTapVoter(v)}
+          onHouseTap={handlePinTap}
           className="h-full w-full"
         />
       </div>
@@ -232,16 +244,23 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
               const multi = residents.length > 1
               const isOpen = expanded === v.id
               const leg = i > 0 ? legMeta(route[i - 1]!, v) : null
-              // The stop is "active" when its panel is open or its residents are
-              // expanded — both highlight the number badge and the row.
-              const active = activeId === v.id || isOpen
+              // The stop is "active" when its map pin was tapped, its panel is
+              // open, or its residents are expanded — all highlight the row.
+              const active = activePinId === v.id || activeId === v.id || isOpen
               return (
-                <li key={v.id}>
+                <li
+                  key={v.id}
+                  ref={(el) => {
+                    stopRefs.current[v.id] = el
+                  }}
+                >
                   <button
                     type="button"
-                    onClick={() =>
-                      multi ? setExpanded(isOpen ? null : v.id) : onTapVoter(v)
-                    }
+                    onClick={() => {
+                      setActivePinId(v.id)
+                      if (multi) setExpanded(isOpen ? null : v.id)
+                      else onTapVoter(v)
+                    }}
                     className={cn(
                       'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors',
                       active ? 'bg-primary/10' : 'hover:bg-muted/50',

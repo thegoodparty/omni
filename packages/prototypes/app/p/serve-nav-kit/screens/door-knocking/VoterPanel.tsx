@@ -6,6 +6,7 @@ import {
   Card,
   Drawer,
   DrawerContent,
+  DrawerHandle,
   DrawerHeader,
   DrawerTitle,
   FilterPill,
@@ -675,7 +676,11 @@ export const VoterPanel = ({
   if (isMobile) {
     return (
       <Drawer open={open} onOpenChange={onOpenChange}>
-        <DrawerContent className="flex h-[calc(100dvh-4rem)] flex-col p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)]">
+        <DrawerContent
+          closeClassName="hidden"
+          className="flex h-[calc(100dvh-4rem)] flex-col overflow-hidden p-0 data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[calc(100dvh-4rem)]"
+        >
+          <DrawerHandle />
           <DrawerHeader className="sr-only">
             <DrawerTitle>{voter.name}</DrawerTitle>
           </DrawerHeader>
