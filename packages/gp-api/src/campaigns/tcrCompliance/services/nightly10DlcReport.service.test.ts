@@ -32,7 +32,7 @@ type WhereClause = {
   peerlyIdentityId?: null | { not: null }
   kickoffSentAt?: { lt: Date }
   peerlyBillingBlockedAt?: { gte: Date }
-  peerlyCvStatus?: string | null
+  peerlyCvStatus?: string | null | { not: null; notIn: string[] }
   peerlyProfileStatusChangedAt?: { lt: Date }
   NOT?: object
   OR?: object[]
@@ -701,13 +701,16 @@ describe('Nightly10DlcReportService', () => {
       ).toBeLessThan(5000)
     })
 
-    it('excludes never-reached-CV records from the awaiting-PIN nudge', async () => {
+    it('excludes never-reached-CV and PIN-entered records from the awaiting-PIN nudge', async () => {
       await service.handleNightlyReport({ reportDate: '2026-07-10' })
 
       const nudgeCall = mockModel.findMany.mock.calls[5] as [
         { where: WhereClause },
       ]
-      expect(nudgeCall[0].where.peerlyCvStatus).toEqual({ not: null })
+      expect(nudgeCall[0].where.peerlyCvStatus).toEqual({
+        not: null,
+        notIn: [PeerlyCvVerificationStatus.VERIFIED],
+      })
     })
   })
 

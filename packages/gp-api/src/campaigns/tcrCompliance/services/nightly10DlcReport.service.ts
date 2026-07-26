@@ -256,8 +256,13 @@ export class Nightly10DlcReportService extends createPrismaBase(
           peerlyIdentityId: { not: null },
           // A null CV status means the submission never reached
           // CampaignVerify — no PIN ever went out, so the record belongs to
-          // the case-1 failure section, not this nudge.
-          peerlyCvStatus: { not: null },
+          // the case-1 failure section, not this nudge. VERIFIED is the
+          // opposite end: the PIN was already entered, so nudging is wrong
+          // and a stalled profile belongs to case 3a instead.
+          peerlyCvStatus: {
+            not: null,
+            notIn: [PeerlyCvVerificationStatus.VERIFIED],
+          },
           OR: [
             {
               pinSentDetectedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
