@@ -22,6 +22,7 @@ import {
   PEERLY_PROFILE_STATUS_WAITING_TO_FINALIZE,
 } from '../../../vendors/peerly/services/peerly.const'
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
+import { PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES } from './campaignTcrCompliance.service'
 import { Nightly10DlcReportService } from './nightly10DlcReport.service'
 
 // The poll loop sleeps PEERLY_CV_READ_SPACING_MS between records; real
@@ -38,6 +39,7 @@ type WhereClause = {
   peerlyCvStatus?: string | null
   peerlyProfileStatus?: string | null
   peerlyProfileStatusChangedAt?: { lt: Date }
+  NOT?: object
   OR?: object[]
   campaign?: { isPro: boolean }
 }
@@ -815,7 +817,20 @@ describe('Nightly10DlcReportService', () => {
       })
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.VERIFIED)
-      expect(where.peerlyBillingBlockedAt).toBeNull()
+      // Excludes only records inside the active billing-block window; a
+      // stale block (past cooldown) must not hide a profile stall.
+      const notClause = where.NOT as {
+        peerlyBillingBlockedAt: { gte: Date }
+      }
+      const blockWindowMs = subMinutes(
+        new Date(),
+        PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES,
+      ).getTime()
+      expect(
+        Math.abs(
+          notClause.peerlyBillingBlockedAt.gte.getTime() - blockWindowMs,
+        ),
+      ).toBeLessThan(5000)
       const thresholdMs = subHours(new Date(), 20).getTime()
       expect(where.peerlyProfileStatusChangedAt).toBeDefined()
       expect(
