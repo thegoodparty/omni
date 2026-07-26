@@ -24,6 +24,12 @@ import {
 import { PeerlyIdentityService } from '../../../vendors/peerly/services/peerlyIdentity.service'
 import { Nightly10DlcReportService } from './nightly10DlcReport.service'
 
+// The poll loop sleeps PEERLY_CV_READ_SPACING_MS between records; real
+// timers would make the 121-record cap test take ~42s.
+vi.mock('timers/promises', () => ({
+  setTimeout: () => Promise.resolve(),
+}))
+
 type WhereClause = {
   status?: TcrComplianceStatus | { in: TcrComplianceStatus[] }
   peerlyIdentityId?: null | { not: null }
@@ -442,12 +448,14 @@ describe('Nightly10DlcReportService', () => {
 
       // The poll always runs first, before the section queries.
       const [pollCall] = mockModel.findMany.mock.calls[0] as [
-        { where: WhereClause },
+        { where: WhereClause; orderBy: object },
       ]
       expect(pollCall.where.peerlyIdentityId).toEqual({ not: null })
       expect(pollCall.where.status).toEqual({
         in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
       })
+      // Oldest-touched first — the per-run cap drops the tail, not the head.
+      expect(pollCall.orderBy).toEqual({ updatedAt: 'asc' })
     })
   })
 
@@ -546,6 +554,23 @@ describe('Nightly10DlcReportService', () => {
           peerlyProfileStatusChangedAt: expect.any(Date),
         },
       })
+    })
+
+    it('caps a large backlog at 120 polled records per run', async () => {
+      mockModel.findMany.mockResolvedValueOnce(
+        Array.from({ length: 121 }, (_, i) =>
+          pollRecord({ id: `tcr-cap-${i}`, peerlyIdentityId: `ident-${i}` }),
+        ),
+      )
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValue(
+        PeerlyCvVerificationStatus.REQUESTED,
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(
+        mockPeerlyIdentity.retrieveCampaignVerifyStatus,
+      ).toHaveBeenCalledTimes(120)
     })
 
     it('clears a stale profile status when getProfile 404s (identity gone)', async () => {

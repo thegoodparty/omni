@@ -65,6 +65,10 @@ const SECTION_TEXT_BUDGET = 2800
 // firing the whole in-flight set at once (mirrors sweepPinDeliveryDetection).
 const PEERLY_CV_READ_SPACING_MS = 350
 
+// Per-run ceiling on Peerly reads — see pollPeerlyStatuses for the
+// visibility-timeout math this protects.
+const POLL_RECORD_CAP = 120
+
 // Case 1 (ENG-10795): an identity minted but its CV never shows a status at
 // all after this long is a submission dropped between GoodParty and Peerly —
 // our-side pipeline fault, not a candidate-side stall.
@@ -219,6 +223,9 @@ export class Nightly10DlcReportService extends createPrismaBase(
         },
       },
       include: { campaign: true },
+      // Oldest-touched first so records past the per-run poll cap (see
+      // pollPeerlyStatuses) get their turn on a later night.
+      orderBy: { updatedAt: Prisma.SortOrder.asc },
     })
     await this.pollPeerlyStatuses(pollCandidates)
 
@@ -595,8 +602,22 @@ export class Nightly10DlcReportService extends createPrismaBase(
   // must not stop the rest of the poll or the report post, so each record is
   // wrapped individually — a thrown error skips the record, keeping its
   // stored values (never overwritten with null on a failed read).
+  // Capped so the poll stays inside the SQS visibility timeout (300s,
+  // deploy/index.ts): 350ms spacing + ~500ms Peerly latency ≈ 850ms/record,
+  // so 120 records ≈ 100s. An uncapped backlog would outlive the timeout,
+  // SQS would redeliver mid-run, and the duplicate consumer's writes would
+  // race this one's (the FIFO deduplicationId only covers the enqueue).
+  // Oldest records poll first (query orders by updatedAt asc), so records
+  // past the cap get their turn on a later night.
   private async pollPeerlyStatuses(records: RecordWithCampaign[]) {
-    for (const record of records) {
+    const capped = records.slice(0, POLL_RECORD_CAP)
+    if (records.length > POLL_RECORD_CAP) {
+      this.logger.warn(
+        { total: records.length, polled: POLL_RECORD_CAP },
+        '[10DLC nightly report] In-flight backlog exceeds per-run poll cap',
+      )
+    }
+    for (const record of capped) {
       try {
         await this.pollRecordStatus(record)
       } catch (err) {
