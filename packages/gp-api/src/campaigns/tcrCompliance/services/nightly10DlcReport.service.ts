@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import {
   differenceInBusinessDays,
@@ -282,6 +282,10 @@ export class Nightly10DlcReportService extends createPrismaBase(
           ...proOnly,
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: { not: null },
+          // A null CV status means the submission never reached
+          // CampaignVerify — no PIN ever went out, so the record belongs to
+          // the case-1 failure section, not this nudge.
+          peerlyCvStatus: { not: null },
           OR: [
             {
               pinSentDetectedAt: { lt: subDays(now, AWAITING_PIN_NUDGE_DAYS) },
@@ -631,12 +635,20 @@ export class Nightly10DlcReportService extends createPrismaBase(
     // Only VERIFIED warrants the extra getProfile read — that's the signal
     // case 3a cares about (PIN entered but token/approve never completed).
     if (cvStatus === PeerlyCvVerificationStatus.VERIFIED) {
-      const profileResponse =
-        await this.peerlyIdentityService.getIdentityProfile(
-          peerlyIdentityId,
-          record.campaign,
-          { suppressSlackAlert: true },
-        )
+      // A 404 (NotFoundException) means the identity is gone on Peerly's
+      // side — a definitive answer, not a failed read. Clear the stale
+      // profile status rather than preserving it, or case 3a would flag
+      // the record forever.
+      const profileResponse = await this.peerlyIdentityService
+        .getIdentityProfile(peerlyIdentityId, record.campaign, {
+          suppressSlackAlert: true,
+        })
+        .catch((err: unknown) => {
+          if (err instanceof NotFoundException) {
+            return undefined
+          }
+          throw err
+        })
       const profileStatus = profileResponse?.profile?.status ?? null
       if (profileStatus !== record.peerlyProfileStatus) {
         data.peerlyProfileStatus = profileStatus
