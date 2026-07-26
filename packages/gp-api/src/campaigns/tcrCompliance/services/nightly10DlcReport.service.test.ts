@@ -504,6 +504,19 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
+    it('does not erase an observed CV status when Peerly returns no CV request', async () => {
+      mockModel.findMany.mockResolvedValueOnce([
+        pollRecord({ peerlyCvStatus: PeerlyCvVerificationStatus.REQUESTED }),
+      ])
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+        null,
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(mockModel.update).not.toHaveBeenCalled()
+    })
+
     it('caps a large backlog at 120 polled records per run', async () => {
       mockModel.findMany.mockResolvedValueOnce(
         Array.from({ length: 121 }, (_, i) =>
@@ -744,6 +757,7 @@ describe('Nightly10DlcReportService', () => {
       })
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBe(PeerlyCvVerificationStatus.VERIFIED)
+      expect(where.peerlyBillingBlockedAt).toBeNull()
       const thresholdMs = subHours(new Date(), 20).getTime()
       expect(where.peerlyProfileStatusChangedAt).toBeDefined()
       expect(

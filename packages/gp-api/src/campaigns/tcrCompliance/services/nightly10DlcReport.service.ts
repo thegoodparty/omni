@@ -301,6 +301,9 @@ export class Nightly10DlcReportService extends createPrismaBase(
         where: {
           ...proOnly,
           peerlyIdentityId: { not: null },
+          // An actively billing-blocked record already has its own section;
+          // listing it here too would double-count it in the stuck total.
+          peerlyBillingBlockedAt: null,
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
@@ -525,8 +528,14 @@ export class Nightly10DlcReportService extends createPrismaBase(
 
     const data: Prisma.TcrComplianceUpdateInput = {}
     if (cvStatus !== record.peerlyCvStatus) {
-      data.peerlyCvStatus = cvStatus
-      data.peerlyCvStatusChangedAt = new Date()
+      // A Peerly "no CV request" null after a real status was already
+      // observed is not authoritative (the CV request may have been cleaned
+      // up on Peerly's side) — erasing history here would flip the record
+      // into the case-1 "never reached CV" section.
+      if (cvStatus !== null || record.peerlyCvStatus === null) {
+        data.peerlyCvStatus = cvStatus
+        data.peerlyCvStatusChangedAt = new Date()
+      }
     }
 
     // Only VERIFIED warrants the extra getProfile read — that's the signal
