@@ -600,6 +600,28 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
+    it('persists an observed CV transition even when the profile read fails', async () => {
+      mockModel.findMany.mockResolvedValueOnce([
+        pollRecord({ peerlyCvStatus: PeerlyCvVerificationStatus.APPROVED }),
+      ])
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+        PeerlyCvVerificationStatus.VERIFIED,
+      )
+      mockPeerlyIdentity.getIdentityProfile.mockRejectedValueOnce(
+        new Error('peerly 502'),
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-poll' },
+        data: {
+          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+          peerlyCvStatusChangedAt: expect.any(Date),
+        },
+      })
+    })
+
     it("one record's Peerly error does not stop the next record's poll or overwrite its status", async () => {
       mockModel.findMany.mockResolvedValueOnce([
         pollRecord({
