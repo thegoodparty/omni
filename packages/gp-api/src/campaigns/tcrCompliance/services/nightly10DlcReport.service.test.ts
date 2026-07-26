@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
 import { formatInTimeZone } from 'date-fns-tz'
 import { subDays, subHours, subMinutes } from 'date-fns'
@@ -226,10 +227,16 @@ describe('Nightly10DlcReportService', () => {
               }),
             ])
           }
-          // Case 1 / case 3a (ENG-10795) both carry `peerlyCvStatus` in the
-          // where clause (null for case 1, VERIFIED for case 3a) — not
-          // exercised by this test, which predates those sections.
-          if ('peerlyCvStatus' in where) {
+          // Case 1 / case 3a (ENG-10795) carry a scalar `peerlyCvStatus`
+          // (null for case 1, VERIFIED for case 3a) — not exercised by this
+          // test, which predates those sections. The awaiting-PIN nudge
+          // instead carries `{ not: null }` and must fall through to the OR
+          // branch below.
+          if (
+            'peerlyCvStatus' in where &&
+            (where.peerlyCvStatus === null ||
+              typeof where.peerlyCvStatus === 'string')
+          ) {
             return Promise.resolve([])
           }
           if (
@@ -489,6 +496,33 @@ describe('Nightly10DlcReportService', () => {
       })
     })
 
+    it('clears a stale profile status when getProfile 404s (identity gone)', async () => {
+      mockModel.findMany.mockResolvedValueOnce([
+        pollRecord({
+          peerlyCvStatus: PeerlyCvVerificationStatus.VERIFIED,
+          peerlyProfileStatus: PEERLY_PROFILE_STATUS_PENDING,
+        }),
+      ])
+      mockPeerlyIdentity.retrieveCampaignVerifyStatus.mockResolvedValueOnce(
+        PeerlyCvVerificationStatus.VERIFIED,
+      )
+      mockPeerlyIdentity.getIdentityProfile.mockRejectedValueOnce(
+        new NotFoundException(
+          'Identity profile for given identity ID could not be found',
+        ),
+      )
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      expect(mockModel.update).toHaveBeenCalledExactlyOnceWith({
+        where: { id: 'tcr-poll' },
+        data: {
+          peerlyProfileStatus: null,
+          peerlyProfileStatusChangedAt: expect.any(Date),
+        },
+      })
+    })
+
     it("one record's Peerly error does not stop the next record's poll or overwrite its status", async () => {
       mockModel.findMany.mockResolvedValueOnce([
         pollRecord({
@@ -603,6 +637,15 @@ describe('Nightly10DlcReportService', () => {
           startedAtBranch.peerlySubmissionStartedAt.lt.getTime() - thresholdMs,
         ),
       ).toBeLessThan(5000)
+    })
+
+    it('excludes never-reached-CV records from the awaiting-PIN nudge', async () => {
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const nudgeCall = mockModel.findMany.mock.calls[5] as [
+        { where: WhereClause },
+      ]
+      expect(nudgeCall[0].where.peerlyCvStatus).toEqual({ not: null })
     })
   })
 
