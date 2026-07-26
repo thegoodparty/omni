@@ -246,6 +246,15 @@ export const AppShell = ({ userName, orgs }: AppShellProps) => {
   const [activeOrgId, setActiveOrgId] = useState(orgs[0]?.id ?? '')
   const org = orgs.find((o) => o.id === activeOrgId) ?? orgs[0]
   const [activeSlug, setActiveSlug] = useState(org?.tabs[0]?.slug ?? '')
+  const [navNonce, setNavNonce] = useState(0)
+
+  // Clicking a nav tab returns that section to its root: switching tabs changes
+  // the active slug; re-clicking the already-active tab bumps the nonce, which
+  // remounts the screen and resets nested state (e.g. the door-knocking takeover).
+  const selectTab = (slug: string) => {
+    if (slug === activeSlug) setNavNonce((n) => n + 1)
+    else setActiveSlug(slug)
+  }
 
   const selectOrg = (id: string) => {
     const next = orgs.find((o) => o.id === id)
@@ -272,7 +281,7 @@ export const AppShell = ({ userName, orgs }: AppShellProps) => {
               <NavList
                 tabs={org?.tabs ?? []}
                 activeSlug={activeSlug}
-                onSelect={setActiveSlug}
+                onSelect={selectTab}
               />
             </SidebarGroupContent>
           </SidebarGroup>
@@ -283,7 +292,10 @@ export const AppShell = ({ userName, orgs }: AppShellProps) => {
       </Sidebar>
 
       <SidebarInset className="bg-muted">
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div
+          key={`${activeSlug}-${navNonce}`}
+          className="flex min-h-0 flex-1 flex-col"
+        >
           {activeTab?.component}
         </div>
       </SidebarInset>
