@@ -301,9 +301,16 @@ export class Nightly10DlcReportService extends createPrismaBase(
         where: {
           ...proOnly,
           peerlyIdentityId: { not: null },
-          // An actively billing-blocked record already has its own section;
-          // listing it here too would double-count it in the stuck total.
-          peerlyBillingBlockedAt: null,
+          // An *actively* billing-blocked record (within the cooldown
+          // window) already has its own section; listing it here too would
+          // double-count it in the stuck total. Records whose block is older
+          // than the cooldown are not in that section and must not be
+          // excluded here.
+          NOT: {
+            peerlyBillingBlockedAt: {
+              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+            },
+          },
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
