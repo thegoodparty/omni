@@ -544,7 +544,9 @@ export const OutreachScreen = ({
         onOpenChange={setRobocallOpen}
         onScheduled={(r: ScheduledRobocall) => {
           const row: HistoryRow = {
-            id: `robocall-${r.sendAt.getTime()}`,
+            // Unique per row — two robocalls at the same date+time slot must not
+            // share an id (duplicate React keys + delete-both).
+            id: `robocall-${crypto.randomUUID()}`,
             date: r.sendAt.toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',

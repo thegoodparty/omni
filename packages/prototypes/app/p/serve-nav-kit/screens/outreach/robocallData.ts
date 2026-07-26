@@ -14,10 +14,10 @@ export {
   estimateAudienceSize,
   formatMoney,
 } from './smsData'
+import { introFor, type Tone } from './smsData'
 
 export const ROBOCALL_COST_PER_RECIPIENT = 0.045
 
-const CANDIDATE_FIRST_NAME = 'Renee'
 const CANDIDATE_FULL_NAME = 'Renee Wells'
 const CANDIDATE_ROLE_SHORT = 'City Council'
 const COMMITTEE_NAME = `${CANDIDATE_FULL_NAME} for ${CANDIDATE_ROLE_SHORT}`
@@ -51,39 +51,42 @@ export const ROBOCALL_RECOMMENDATION = {
   reach: 2050,
 }
 
-// Multiple real script variants per purpose so "Regenerate" (and switching tone)
-// produces new copy each time.
+// Greeting-less body variants per purpose; the tone-specific opener is prepended
+// by generateScript via introFor(tone), so switching tone actually re-voices the
+// script (and "Regenerate" rotates the body).
 const SCRIPT_BODY: Record<RobocallPurposeId, string[]> = {
   introduce: [
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, and I'm running for ${CANDIDATE_ROLE_SHORT}. I'm calling to introduce myself and let you know I'm running to lower everyday costs and make City Hall work for you. I'd be honored to earn your vote. Thank you.`,
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, your neighbor and candidate for ${CANDIDATE_ROLE_SHORT}. I'm running because our community deserves leaders who show up and listen. I'd love to earn your vote this fall. Thanks for your time.`,
+    `I'm calling to introduce myself and let you know I'm running to lower everyday costs and make City Hall work for you. I'd be honored to earn your vote. Thank you.`,
+    `I'm running because our community deserves leaders who show up and listen. I'd love to earn your vote this fall. Thanks for your time.`,
   ],
   persuade: [
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, candidate for ${CANDIDATE_ROLE_SHORT}. This race is close, and it will be decided by neighbors like you. I'm focused on housing, safety, and a government that listens. I'd be grateful for your support this November. Thank you.`,
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, running for ${CANDIDATE_ROLE_SHORT}. Elections like ours come down to a handful of votes. I'll fight to lower costs and keep our streets safe. I'd be honored to have your support. Thank you.`,
+    `This race is close, and it will be decided by neighbors like you. I'm focused on housing, safety, and a government that listens. I'd be grateful for your support this November. Thank you.`,
+    `Elections like ours come down to a handful of votes. I'll fight to lower costs and keep our streets safe. I'd be honored to have your support. Thank you.`,
   ],
   event: [
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, running for ${CANDIDATE_ROLE_SHORT}. I'm hosting a neighborhood gathering this Saturday and I'd love for you to come. It's a chance to meet, ask questions, and share what matters to you. Hope to see you there.`,
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, candidate for ${CANDIDATE_ROLE_SHORT}. I'm holding a community meetup this week and your voice would mean a lot. Come by, bring a neighbor, and tell me what you'd like to see. Hope to see you soon.`,
+    `I'm hosting a neighborhood gathering this Saturday and I'd love for you to come. It's a chance to meet, ask questions, and share what matters to you. Hope to see you there.`,
+    `I'm holding a community meetup this week and your voice would mean a lot. Come by, bring a neighbor, and tell me what you'd like to see. Hope to see you soon.`,
   ],
   'vote-early': [
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, candidate for ${CANDIDATE_ROLE_SHORT}. Early voting is open now — it's the easiest way to make your vote count without waiting in line. Please make a plan to vote early. Thank you.`,
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, running for ${CANDIDATE_ROLE_SHORT}. Don't wait for Election Day — early voting is open and takes just a few minutes. Make your plan today, and thanks for making your voice heard.`,
+    `Early voting is open now — it's the easiest way to make your vote count without waiting in line. Please make a plan to vote early. Thank you.`,
+    `Don't wait for Election Day — early voting is open and takes just a few minutes. Make your plan today, and thanks for making your voice heard.`,
   ],
   'election-day': [
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, running for ${CANDIDATE_ROLE_SHORT}. Today is Election Day and polls are open until 7:30 PM. Your vote decides our future — please turn out. Thank you.`,
-    `Hi, this is ${CANDIDATE_FIRST_NAME}, candidate for ${CANDIDATE_ROLE_SHORT}. It's Election Day and polls close at 7:30 PM. This race comes down to turnout — please make your voice heard today. Thank you.`,
+    `Today is Election Day and polls are open until 7:30 PM. Your vote decides our future — please turn out. Thank you.`,
+    `It's Election Day and polls close at 7:30 PM. This race comes down to turnout — please make your voice heard today. Thank you.`,
   ],
   custom: [],
 }
 
 export const generateScript = (
   purpose: RobocallPurposeId,
+  tone: Tone,
   seed = 0,
 ): string => {
-  const scripts = SCRIPT_BODY[purpose]
-  if (!scripts || scripts.length === 0) return ''
-  return scripts[seed % scripts.length] ?? scripts[0]!
+  const bodies = SCRIPT_BODY[purpose]
+  if (!bodies || bodies.length === 0) return ''
+  const body = bodies[seed % bodies.length] ?? bodies[0]!
+  return `${introFor(tone)} ${body}`
 }
 
 export const fmtDuration = (secs: number): string => {

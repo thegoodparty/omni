@@ -120,8 +120,11 @@ export const RobocallCampaignFlow = ({
   const [naming, setNaming] = useState(false)
   const [builderName, setBuilderName] = useState('')
   const [builderFilters, setBuilderFilters] = useState<string[]>([])
+  // No filters selected means no list yet — keep the count at 0 so Continue
+  // stays disabled (an empty filter set otherwise reads as the full universe).
   const builderCount = useMemo(
-    () => estimateAudienceSize(builderFilters),
+    () =>
+      builderFilters.length === 0 ? 0 : estimateAudienceSize(builderFilters),
     [builderFilters],
   )
 
@@ -171,7 +174,11 @@ export const RobocallCampaignFlow = ({
     return d
   }, [date, timeSlot, customTime])
 
-  const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
+  // "Send now" can't satisfy a robocall's 48-hour minimum, so it trips the same
+  // notice instead of silently disabling Continue with no explanation.
+  const violates48h =
+    timeSlot === 'now' ||
+    (scheduledAt ? scheduledAt.getTime() < earliestSend : false)
 
   const lastAutoName = useRef('')
   useEffect(() => {
@@ -188,7 +195,7 @@ export const RobocallCampaignFlow = ({
     if (purpose === 'custom') return
     setLoadingScript(true)
     const t = setTimeout(() => {
-      setScript(generateScript(purpose ?? 'introduce', seedRef.current))
+      setScript(generateScript(purpose ?? 'introduce', tone, seedRef.current))
       setLoadingScript(false)
     }, 650)
     return () => clearTimeout(t)
@@ -200,7 +207,7 @@ export const RobocallCampaignFlow = ({
     const seed = seedRef.current
     setLoadingScript(true)
     setTimeout(() => {
-      setScript(generateScript(purpose, seed))
+      setScript(generateScript(purpose, tone, seed))
       setLoadingScript(false)
     }, 650)
   }
@@ -1328,7 +1335,11 @@ const RecordBar = ({
             >
               <Trash2 className="size-4" />
             </IconButton>
-            <Button size="small" onClick={onSave}>
+            <Button
+              size="small"
+              onClick={onSave}
+              disabled={recordingDuration < 2}
+            >
               Save
             </Button>
           </>
