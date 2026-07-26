@@ -49,6 +49,12 @@ import {
 } from './outreach/SocialCampaignFlow'
 import { metaFor } from './outreach/socialData'
 import {
+  PhoneBankCampaignFlow,
+  type ScheduledPhoneBank,
+} from './outreach/PhoneBankCampaignFlow'
+import { PhoneBankSession } from './outreach/PhoneBankSession'
+import { ALL_VOTERS } from './door-knocking/doorKnockingData'
+import {
   type ChannelKey,
   type HistoryRow,
   type HistoryStatus,
@@ -90,6 +96,13 @@ export const OutreachScreen = ({
   const [pollOpen, setPollOpen] = useState(false)
   const [socialOpen, setSocialOpen] = useState(false)
   const [doorOpen, setDoorOpen] = useState(false)
+  const [phoneBankOpen, setPhoneBankOpen] = useState(false)
+  const [phoneBankSession, setPhoneBankSession] = useState<{
+    name: string
+    audienceName: string
+    script: string
+    contactIds: string[]
+  } | null>(null)
   const [showArchive, setShowArchive] = useState(false)
   const [channelFilter, setChannelFilter] = useState<Set<ChannelKey>>(
     () => new Set(CHANNELS),
@@ -162,6 +175,18 @@ export const OutreachScreen = ({
     )
   }
 
+  // Phone banking's calling session is a full-screen takeover too, launched from
+  // the setup drawer's "Go to call list".
+  if (phoneBankSession) {
+    return (
+      <PhoneBankSession
+        session={phoneBankSession}
+        aiPlaceholder="Ask about your calls, scripts, or volunteers…"
+        onExit={() => setPhoneBankSession(null)}
+      />
+    )
+  }
+
   return (
     <ScreenLayout title={title} aiPlaceholder={aiPlaceholder} width="wide">
       {/* Create a campaign */}
@@ -189,6 +214,7 @@ export const OutreachScreen = ({
                   'robocall',
                   'polls',
                   'door',
+                  'phone-bank',
                 ].includes(key)
               }
               onClick={
@@ -204,7 +230,9 @@ export const OutreachScreen = ({
                           ? () => setSocialOpen(true)
                           : key === 'door'
                             ? () => setDoorOpen(true)
-                            : undefined
+                            : key === 'phone-bank'
+                              ? () => setPhoneBankOpen(true)
+                              : undefined
               }
             />
           ))}
@@ -593,6 +621,45 @@ export const OutreachScreen = ({
           }
           setHistory((prev) => [row, ...prev])
         }}
+      />
+
+      <PhoneBankCampaignFlow
+        open={phoneBankOpen}
+        onOpenChange={setPhoneBankOpen}
+        onScheduled={(r: ScheduledPhoneBank) => {
+          const now = new Date()
+          const contactIds = ALL_VOTERS.filter((v) => v.phone)
+            .slice(0, Math.min(r.audience.count, 60))
+            .map((v) => v.id)
+          const row: HistoryRow = {
+            id: `phone-bank-${now.getTime()}`,
+            date: now.toLocaleDateString('en-US', {
+              month: 'short',
+              day: 'numeric',
+            }),
+            startedAt: now,
+            name: r.name,
+            channel: 'phone-bank',
+            status: 'in-progress',
+            people: r.audience.count,
+            responses: 0,
+            unsubscribes: null,
+            supporters: 0,
+            audienceName: r.audience.name,
+            audienceFilters: r.audience.filters,
+            cost: 0,
+            costPerOutreach: 0,
+            receiptId: null,
+          }
+          setHistory((prev) => [row, ...prev])
+          setPhoneBankSession({
+            name: r.name,
+            audienceName: r.audience.name,
+            script: r.script,
+            contactIds,
+          })
+        }}
+        onLaunch={() => setPhoneBankOpen(false)}
       />
     </ScreenLayout>
   )
