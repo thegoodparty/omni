@@ -26,6 +26,7 @@ import {
 } from '@goodparty_org/styleguide'
 import { ScreenLayout } from '../components/ScreenLayout'
 import { ChannelCard } from '../components/ChannelCard'
+import { DoorKnocking } from './DoorKnocking'
 import { CampaignDetailsDrawer } from './outreach/CampaignDetailsDrawer'
 import { ChannelBadge } from './outreach/ChannelBadge'
 import { StatusIndicator } from './outreach/StatusIndicator'
@@ -88,6 +89,7 @@ export const OutreachScreen = ({
   const [robocallOpen, setRobocallOpen] = useState(false)
   const [pollOpen, setPollOpen] = useState(false)
   const [socialOpen, setSocialOpen] = useState(false)
+  const [doorOpen, setDoorOpen] = useState(false)
   const [showArchive, setShowArchive] = useState(false)
   const [channelFilter, setChannelFilter] = useState<Set<ChannelKey>>(
     () => new Set(CHANNELS),
@@ -147,6 +149,19 @@ export const OutreachScreen = ({
     setStatusFilter(new Set(STATUSES))
   }
 
+  // Door knocking is a full-screen sub-experience of Voter Outreach (matching
+  // the source's `navigate("/door-knocking")` from the channel card), not a
+  // separate sidebar section.
+  if (doorOpen) {
+    return (
+      <DoorKnocking
+        title="Door Knocking"
+        aiPlaceholder="Ask about your turf, routes, or canvassing…"
+        onExit={() => setDoorOpen(false)}
+      />
+    )
+  }
+
   return (
     <ScreenLayout title={title} aiPlaceholder={aiPlaceholder} width="wide">
       {/* Create a campaign */}
@@ -167,7 +182,14 @@ export const OutreachScreen = ({
               icon={CHANNEL_ICON[key]}
               tint={CHANNEL_ICON_TINT[key]}
               locked={
-                !['social', 'sms', 'email', 'robocall', 'polls'].includes(key)
+                ![
+                  'social',
+                  'sms',
+                  'email',
+                  'robocall',
+                  'polls',
+                  'door',
+                ].includes(key)
               }
               onClick={
                 key === 'sms'
@@ -180,7 +202,9 @@ export const OutreachScreen = ({
                         ? () => setPollOpen(true)
                         : key === 'social'
                           ? () => setSocialOpen(true)
-                          : undefined
+                          : key === 'door'
+                            ? () => setDoorOpen(true)
+                            : undefined
               }
             />
           ))}

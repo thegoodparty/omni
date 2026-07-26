@@ -94,7 +94,7 @@ const Header = ({ row }: { row: HistoryRow }) => {
   return (
     <div>
       <div className="flex items-center gap-2">
-        <h2 className="text-foreground text-lg font-semibold">{row.name}</h2>
+        <h2 className="text-foreground text-base font-semibold">{row.name}</h2>
         <StatusIndicator status={row.status} />
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-1.5">

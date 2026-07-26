@@ -392,7 +392,7 @@ export const EmailCampaignFlow = ({
                   </IconButton>
                 )}
               </div>
-              <h2 className="text-foreground min-w-0 flex-1 truncate pr-8 text-lg font-semibold lg:pr-0">
+              <h2 className="text-foreground min-w-0 flex-1 truncate pr-8 text-base font-semibold lg:pr-0">
                 {stepTitle}
               </h2>
             </div>

@@ -10,18 +10,18 @@ reviewed PR).
 Legend: **Gap** = nothing in styleguide covers it · **Composition** = could be a
 named styleguide pattern but today is hand-composed from primitives.
 
-| Local component | Type | Why it's not in styleguide | Built from |
-| --- | --- | --- | --- |
-| `AiPromptBar` | Gap | Shows in Storybook as **Patterns/AiChat**, but its source lives in `gp-webapp/app/dashboard/shared/ai-chat` (that's where the Storybook config resolves it) — `@goodparty_org/styleguide` does **not** export it, so prototypes can't import it. Rebuilt faithfully from styleguide primitives (`IconButton`, `AiIcon`, `MicIcon`) + the `ChatPill` gradient (tokens `--ai-gradient-*`, `animate-spin-gradient` live in styleguide CSS). | `IconButton` + `AiIcon` + `MicIcon` + gradient pill |
-| `PathToVictoryMeter` | Gap | `Progress` is a single-value bar. The tracker needs a two-segment "so far / to win" meter with a threshold marker and labels. | `div`s + tokens |
-| `StatTile` | Gap | No KPI/metric tile (big number + label). `BarList`/charts exist but not a plain stat tile. | `Card` + tokens |
-| `StatRows` | Composition | Voter-universe "label → big number" list rows. | `Card` + `Separator` |
-| `ChannelCard` | Composition | Icon-in-circle selectable tile with optional Pro lock. `ContentCard` is text-first, not this centered-icon tile. | `Card` + `ProBadge` + lucide icons |
-| `ImageUploadField` | Gap | No image/cover/avatar upload control in styleguide (Public Profile cover + photo). | `Button` + `AspectRatio` placeholder |
-| `ChannelBadge` | Composition | Single source of truth for the channel chip, reused in the table, mobile cards, and drawer. Ready DS `Badge` (variant + `shape="pill"`), **no overrides**. | `Badge` |
-| `StatusIndicator` | Composition | Single source of truth for the outreach status (blue icon + label), reused in the table, mobile cards, and drawer header. | `span` + tokens + lucide icon |
-| `Metric` | Composition | Icon + label + value card used in the drawer's Overview/Progress/Payment grids. Distinct from the KPI `StatTile` (big number, no icon). | `Card` + tokens |
-| `SectionLabel` | Composition | Section eyebrow, reused across the drawer + screens. The DS ships no standalone eyebrow, so this mirrors `ContentCard`'s built-in eyebrow 1:1 (`text-primary text-xs font-bold uppercase`) — see the typography rule below. | `p` + tokens |
+| Local component      | Type        | Why it's not in styleguide                                                                                                                                                                                                                                                                                                                                                                                                               | Built from                                          |
+| -------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `AiPromptBar`        | Gap         | Shows in Storybook as **Patterns/AiChat**, but its source lives in `gp-webapp/app/dashboard/shared/ai-chat` (that's where the Storybook config resolves it) — `@goodparty_org/styleguide` does **not** export it, so prototypes can't import it. Rebuilt faithfully from styleguide primitives (`IconButton`, `AiIcon`, `MicIcon`) + the `ChatPill` gradient (tokens `--ai-gradient-*`, `animate-spin-gradient` live in styleguide CSS). | `IconButton` + `AiIcon` + `MicIcon` + gradient pill |
+| `PathToVictoryMeter` | Gap         | `Progress` is a single-value bar. The tracker needs a two-segment "so far / to win" meter with a threshold marker and labels.                                                                                                                                                                                                                                                                                                            | `div`s + tokens                                     |
+| `StatTile`           | Gap         | No KPI/metric tile (big number + label). `BarList`/charts exist but not a plain stat tile.                                                                                                                                                                                                                                                                                                                                               | `Card` + tokens                                     |
+| `StatRows`           | Composition | Voter-universe "label → big number" list rows.                                                                                                                                                                                                                                                                                                                                                                                           | `Card` + `Separator`                                |
+| `ChannelCard`        | Composition | Icon-in-circle selectable tile with optional Pro lock. `ContentCard` is text-first, not this centered-icon tile.                                                                                                                                                                                                                                                                                                                         | `Card` + `ProBadge` + lucide icons                  |
+| `ImageUploadField`   | Gap         | No image/cover/avatar upload control in styleguide (Public Profile cover + photo).                                                                                                                                                                                                                                                                                                                                                       | `Button` + `AspectRatio` placeholder                |
+| `ChannelBadge`       | Composition | Single source of truth for the channel chip, reused in the table, mobile cards, and drawer. Ready DS `Badge` (variant + `shape="pill"`), **no overrides**.                                                                                                                                                                                                                                                                               | `Badge`                                             |
+| `StatusIndicator`    | Composition | Single source of truth for the outreach status (blue icon + label), reused in the table, mobile cards, and drawer header.                                                                                                                                                                                                                                                                                                                | `span` + tokens + lucide icon                       |
+| `Metric`             | Composition | Icon + label + value card used in the drawer's Overview/Progress/Payment grids. Distinct from the KPI `StatTile` (big number, no icon).                                                                                                                                                                                                                                                                                                  | `Card` + tokens                                     |
+| `SectionLabel`       | Composition | Section eyebrow, reused across the drawer + screens. The DS ships no standalone eyebrow, so this mirrors `ContentCard`'s built-in eyebrow 1:1 (`text-primary text-xs font-bold uppercase`) — see the typography rule below.                                                                                                                                                                                                              | `p` + tokens                                        |
 
 ## SMS campaign flow (ported feature)
 
@@ -31,9 +31,9 @@ DS components (`Drawer`, `Calendar`, `Select`, `Popover`, `Accordion`, `Textarea
 `Button`, `Input`, `Label`, `Alert`, `Badge`):
 
 1. **Purpose** → 2. **Who** (audience picker + a simplified filter-chip list builder)
-→ 3. **When** (name + `Calendar` date + `Select` time + 48h-notice `Alert`)
-→ 4. **What** (tone pills, mock draft, char/segment count, compliance intro)
-→ 5. **Review & pay** (`Accordion` summary + mock payment) → success.
+   → 3. **When** (name + `Calendar` date + `Select` time + 48h-notice `Alert`)
+   → 4. **What** (tone pills, mock draft, char/segment count, compliance intro)
+   → 5. **Review & pay** (`Accordion` summary + mock payment) → success.
 
 On pay it prepends a `scheduled` SMS row to the outreach history (openable in the
 details drawer). Data/helpers live in `outreach/smsData.ts`.
@@ -127,7 +127,7 @@ button hand-tinted red. Text links use `Button variant="link"`, not `<a href="#"
 ## Working rule (design system)
 
 - **Never modify existing styleguide components.** If one is missing something the
-  port needs, write the needed change down here instead. Only *build* components that
+  port needs, write the needed change down here instead. Only _build_ components that
   don't exist in the DS at all (the table above) — and build them locally in the
   prototype, never in `packages/styleguide`.
 

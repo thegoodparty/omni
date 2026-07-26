@@ -1,254 +1,357 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Home,
-  MapPin,
-  Users,
-} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Badge,
   Button,
   Card,
   FilterPill,
   FilterPillGroup,
-  IconButton,
-  Label,
-  Progress,
-  Textarea,
   cn,
 } from '@goodparty_org/styleguide'
-import { ArrowLeftIcon } from '@styleguide/components/ui/icons'
 import {
-  type DoorList,
-  type DoorOutcome,
-  type DoorRecord,
-  type Support,
+  Car,
+  ChevronDown,
+  ChevronRight,
+  Footprints,
+  MapPin,
+  MapPinOff,
+  Repeat,
+  User,
+  Users,
+} from 'lucide-react'
+import { MapCanvas } from './MapCanvas'
+import { Legend } from './Legend'
+import {
+  type Resident,
+  type ResidentStatus,
   type Voter,
-  OUTCOME_OPTIONS,
-  PARTY_LABEL,
-  SUPPORT_OPTIONS,
+  STATUS_DOT,
+  buildRoute,
+  formatDuration,
+  getDoorOutcomeMeta,
   getHouseholdCount,
-  votersFor,
+  getResidents,
+  getVoterCounts,
+  legMeta,
+  listMode,
 } from './doorKnockingData'
 
 type Props = {
-  list: DoorList
-  records: Record<string, DoorRecord>
-  onRecord: (voterId: string, record: DoorRecord | null) => void
-  onExit: () => void
+  voters: Voter[]
+  activeId?: string | null
+  onTapVoter: (voter: Voter, residentId?: string) => void
+  onDelete: () => void
 }
 
-const OUTCOME_LABEL: Record<DoorOutcome, string> = {
-  answered: 'Answered',
-  not_home: 'Not home',
-  not_accessible: "Can't access",
+const residentMeta = (voter: Voter, r: Resident) => {
+  const stored = voter.residentStatuses?.[r.id]
+  const isPrimary = r.relation === 'self'
+  const status: ResidentStatus = stored?.reached
+    ? stored
+    : isPrimary && voter.reached
+      ? {
+          reached: true,
+          outcome: voter.outcome,
+          support: voter.support,
+          engagement: voter.engagement,
+        }
+      : { reached: false }
+  const meta = getDoorOutcomeMeta(status)
+  return meta
+    ? { label: meta.label, dot: STATUS_DOT[meta.color] }
+    : { label: 'Support unknown', dot: 'bg-muted-foreground/40' }
 }
 
-export const WalkMode = ({ list, records, onRecord, onExit }: Props) => {
-  const route = useMemo(() => votersFor(list), [list])
-  const [index, setIndex] = useState(0)
-  const current = route[index]
+export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
+  const route = useMemo(() => buildRoute(voters), [voters])
+  const [travelMode, setTravelMode] = useState<'walk' | 'drive'>(() =>
+    listMode(voters),
+  )
+  const [loop, setLoop] = useState(false)
+  const [showLocation, setShowLocation] = useState(false)
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [mapCompact, setMapCompact] = useState(false)
 
-  const knocked = route.filter((v) => records[v.id]).length
-  const progress = route.length ? Math.round((knocked / route.length) * 100) : 0
+  // Keep the default travel mode in sync with the route (walkable → walk).
+  useEffect(() => {
+    setTravelMode(listMode(voters))
+  }, [voters])
 
-  if (!current) return null
+  // The map compacts once the list is scrolled into view (source parity).
+  useEffect(() => {
+    let lockedUntil = 0
+    const onScroll = () => {
+      if (performance.now() < lockedUntil) return
+      setMapCompact((prev) => {
+        const y = window.scrollY
+        let next = prev
+        if (!prev && y > 220) next = true
+        else if (prev && y < 40) next = false
+        if (next !== prev) lockedUntil = performance.now() + 500
+        return next
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
 
-  const rec = records[current.id]
-  const setOutcome = (outcome: DoorOutcome) =>
-    onRecord(current.id, { ...rec, outcome })
-  const setSupport = (support: Support) =>
-    onRecord(current.id, { outcome: rec?.outcome ?? 'answered', support })
-  const setNote = (note: string) =>
-    onRecord(current.id, { outcome: rec?.outcome ?? 'answered', ...rec, note })
+  const counts = getVoterCounts(voters)
+  const total = voters.length
+  const reached = voters.filter((v) => v.reached).length
+  const liveIndex = Math.max(
+    0,
+    route.findIndex((v) => !v.reached),
+  )
 
-  const go = (delta: number) =>
-    setIndex((i) => Math.min(route.length - 1, Math.max(0, i + delta)))
+  const minutes = useMemo(() => {
+    let m = 2
+    for (let i = 1; i < route.length; i++) {
+      const leg = legMeta(route[i - 1]!, route[i]!)
+      m += travelMode === 'walk' ? leg.walkMin : leg.driveMin
+      m += 2
+    }
+    if (loop && route.length > 1) {
+      const leg = legMeta(route[route.length - 1]!, route[0]!)
+      m += travelMode === 'walk' ? leg.walkMin : leg.driveMin
+    }
+    return Math.round(m)
+  }, [route, travelMode, loop])
+
+  const pct = (c: number) => (total > 0 ? (c / total) * 100 : 0)
+  const barSegments: { key: keyof typeof counts; cls: string }[] = [
+    { key: 'green', cls: 'bg-success' },
+    { key: 'crimson', cls: 'bg-destructive' },
+    { key: 'orange', cls: 'bg-yellow-400' },
+    { key: 'purple', cls: 'bg-muted-foreground' },
+    { key: 'slate', cls: 'bg-foreground' },
+  ]
 
   return (
-    <div className="mx-auto flex w-full max-w-[608px] flex-col gap-5">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <IconButton
-          variant="outline"
-          size="small"
-          aria-label="Back to lists"
-          onClick={onExit}
-        >
-          <ArrowLeftIcon className="size-4" />
-        </IconButton>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-foreground truncate text-lg font-semibold">
-            {list.name}
-          </h2>
-          <p className="text-muted-foreground text-sm">
-            {knocked} / {route.length} doors knocked
-          </p>
-        </div>
+    <div className="space-y-4">
+      {/* Map — full width, sticky, compacting on scroll (like the source). */}
+      <div
+        className={cn(
+          'border-border bg-background sticky top-28 z-20 w-full overflow-hidden border-b transition-[height] duration-300 ease-out',
+          mapCompact ? 'h-[160px] lg:h-[220px]' : 'h-[280px] lg:h-[360px]',
+        )}
+      >
+        <MapCanvas
+          mode="walk"
+          voters={voters}
+          listVoterIds={new Set(voters.map((v) => v.id))}
+          route={route}
+          liveIndex={showLocation ? liveIndex : undefined}
+          onHouseTap={(v) => onTapVoter(v)}
+          className="h-full w-full"
+        />
       </div>
-      <Progress value={progress} />
 
-      {/* Current door */}
-      <Card className="gap-4 p-4 shadow-none sm:p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-              Door {index + 1} of {route.length}
-            </p>
-            <h3 className="text-foreground mt-1 text-xl font-semibold">
-              {current.address}
-            </h3>
-            <div className="text-muted-foreground mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-              <span className="inline-flex items-center gap-1.5">
-                <Users className="size-3.5" />
-                {getHouseholdCount(current)}{' '}
-                {getHouseholdCount(current) === 1 ? 'resident' : 'residents'}
-              </span>
-              <span>{current.name}</span>
-            </div>
-          </div>
-          <Badge variant="secondary" shape="pill">
-            {PARTY_LABEL[current.party]}
-          </Badge>
-        </div>
-
-        {/* Outcome */}
-        <div className="space-y-2">
-          <Label>Outcome</Label>
+      {/* Everything below the map sits in the fixed reading column. */}
+      <div className="mx-auto w-full max-w-[608px] space-y-4 px-4">
+        {/* Controls — single non-wrapping row; FilterPill is one size in the DS,
+            so on narrow screens the row scrolls horizontally instead of wrapping. */}
+        <div className="scrollbar-none flex flex-nowrap items-center gap-2 overflow-x-auto">
           <FilterPillGroup
             type="single"
-            value={rec?.outcome ?? ''}
-            onValueChange={(v) => v && setOutcome(v as DoorOutcome)}
+            className="shrink-0"
+            value={showLocation ? 'on' : ''}
+            onValueChange={(v) => setShowLocation(v === 'on')}
           >
-            {OUTCOME_OPTIONS.map((o) => (
-              <FilterPill key={o.id} value={o.id}>
-                {o.label}
-              </FilterPill>
-            ))}
+            <FilterPill value="on" className="gap-1.5">
+              {showLocation ? (
+                <MapPin className="size-4" />
+              ) : (
+                <MapPinOff className="size-4" />
+              )}
+              My live location
+            </FilterPill>
+          </FilterPillGroup>
+
+          <FilterPillGroup
+            type="single"
+            aria-label="Travel mode"
+            className="shrink-0"
+            value={travelMode}
+            onValueChange={(v) => v && setTravelMode(v as 'walk' | 'drive')}
+          >
+            <FilterPill value="drive" aria-label="Drive">
+              <Car className="size-4" />
+            </FilterPill>
+            <FilterPill value="walk" aria-label="Walk">
+              <Footprints className="size-4" />
+            </FilterPill>
+          </FilterPillGroup>
+
+          <FilterPillGroup
+            type="single"
+            className="shrink-0"
+            value={loop ? 'on' : ''}
+            onValueChange={(v) => setLoop(v === 'on')}
+          >
+            <FilterPill value="on" className="gap-1.5">
+              <Repeat className="size-4" />
+              Loop
+            </FilterPill>
           </FilterPillGroup>
         </div>
 
-        {/* Support + note only when answered */}
-        {rec?.outcome === 'answered' && (
-          <>
-            <div className="space-y-2">
-              <Label>Support</Label>
-              <FilterPillGroup
-                type="single"
-                value={rec.support ?? ''}
-                onValueChange={(v) => v && setSupport(v as Support)}
-              >
-                {SUPPORT_OPTIONS.map((s) => (
-                  <FilterPill key={s.id} value={s.id}>
-                    {s.label}
-                  </FilterPill>
-                ))}
-              </FilterPillGroup>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="door-note">Note</Label>
-              <Textarea
-                id="door-note"
-                value={rec.note ?? ''}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="What did you hear at the door?"
-                className="min-h-[80px] resize-none [field-sizing:content]"
+        {/* Progress */}
+        <Card className="gap-3 p-4 shadow-none">
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+              In this list
+            </span>
+            <Badge variant="secondary" shape="pill">
+              {reached}/{total} reached
+            </Badge>
+          </div>
+          <div className="bg-muted flex h-2 overflow-hidden rounded-full">
+            {barSegments.map((s) => (
+              <span
+                key={s.key}
+                className={s.cls}
+                style={{ width: `${pct(counts[s.key])}%` }}
               />
-            </div>
-          </>
-        )}
-      </Card>
+            ))}
+          </div>
+          <Legend readOnly voters={voters} />
+        </Card>
 
-      {/* Nav */}
-      <div className="flex items-center justify-between gap-3">
-        <Button variant="outline" disabled={index === 0} onClick={() => go(-1)}>
-          <ChevronLeft className="size-4" />
-          Previous
+        {/* Stops */}
+        <Card className="gap-0 overflow-hidden p-0 shadow-none">
+          <div className="border-border bg-card sticky top-0 z-10 flex items-center justify-between border-b p-4">
+            <span className="text-foreground text-sm font-semibold">Stops</span>
+            <span className="text-muted-foreground text-sm">
+              {route.length} doors · {formatDuration(minutes)}
+            </span>
+          </div>
+          <ol className="divide-border divide-y">
+            {route.map((v, i) => {
+              const residents = getResidents(v)
+              const multi = residents.length > 1
+              const isOpen = expanded === v.id
+              const leg = i > 0 ? legMeta(route[i - 1]!, v) : null
+              // The stop is "active" when its panel is open or its residents are
+              // expanded — both highlight the number badge and the row.
+              const active = activeId === v.id || isOpen
+              return (
+                <li key={v.id}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      multi ? setExpanded(isOpen ? null : v.id) : onTapVoter(v)
+                    }
+                    className={cn(
+                      'flex w-full items-start gap-3 px-4 py-3 text-left transition-colors',
+                      active ? 'bg-primary/10' : 'hover:bg-muted/50',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+                        active
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-foreground',
+                      )}
+                    >
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-foreground truncate text-sm font-medium">
+                        {v.name}
+                      </p>
+                      <p className="text-muted-foreground truncate text-xs">
+                        {v.address}
+                      </p>
+                      <div className="text-muted-foreground mt-1 flex items-center gap-2 text-xs">
+                        <Users className="size-3.5" />
+                        {getHouseholdCount(v)}
+                        <span className="flex items-center gap-1">
+                          {residents.map((r) => (
+                            <span
+                              key={r.id}
+                              className={cn(
+                                'size-2 rounded-full',
+                                residentMeta(v, r).dot,
+                              )}
+                            />
+                          ))}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2 self-center">
+                      {leg && (
+                        <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+                          {travelMode === 'walk' ? (
+                            <Footprints className="text-info size-3" />
+                          ) : (
+                            <Car className="text-info size-3" />
+                          )}
+                          {Math.ceil(
+                            travelMode === 'walk' ? leg.walkMin : leg.driveMin,
+                          )}
+                          m {travelMode}
+                        </span>
+                      )}
+                      {multi ? (
+                        <ChevronDown
+                          className={cn(
+                            'text-muted-foreground size-4 transition-transform',
+                            isOpen && 'rotate-180',
+                          )}
+                        />
+                      ) : (
+                        <ChevronRight className="text-muted-foreground size-4" />
+                      )}
+                    </div>
+                  </button>
+
+                  {multi && isOpen && (
+                    <ul className="border-border bg-muted/30 divide-border divide-y border-t">
+                      {residents.map((r) => {
+                        const meta = residentMeta(v, r)
+                        return (
+                          <li key={r.id}>
+                            <button
+                              type="button"
+                              onClick={() => onTapVoter(v, r.id)}
+                              className="hover:bg-muted/50 flex w-full items-center gap-2 py-2 pr-4 pl-14 text-left"
+                            >
+                              <User className="text-muted-foreground size-4 shrink-0" />
+                              <span className="text-foreground flex-1 truncate text-sm">
+                                {r.name}
+                              </span>
+                              <span className="border-border text-muted-foreground inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs">
+                                <span
+                                  className={cn(
+                                    'size-2 rounded-full',
+                                    meta.dot,
+                                  )}
+                                />
+                                {meta.label}
+                              </span>
+                              <ChevronRight className="text-muted-foreground size-4 shrink-0" />
+                            </button>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+        </Card>
+
+        <Button
+          variant="ghost"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive w-full"
+          onClick={onDelete}
+        >
+          Delete list
         </Button>
-        {index < route.length - 1 ? (
-          <Button onClick={() => go(1)}>
-            Next door
-            <ChevronRight className="size-4" />
-          </Button>
-        ) : (
-          <Button onClick={onExit}>
-            <Check className="size-4" />
-            Finish
-          </Button>
-        )}
-      </div>
-
-      {/* Route overview */}
-      <div className="space-y-2">
-        <p className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
-          Route
-        </p>
-        <div className="divide-border overflow-hidden rounded-xl border">
-          {route.map((v, i) => (
-            <RouteRow
-              key={v.id}
-              voter={v}
-              record={records[v.id]}
-              active={i === index}
-              onClick={() => setIndex(i)}
-            />
-          ))}
-        </div>
       </div>
     </div>
   )
 }
-
-const RouteRow = ({
-  voter,
-  record,
-  active,
-  onClick,
-}: {
-  voter: Voter
-  record?: DoorRecord
-  active: boolean
-  onClick: () => void
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className={cn(
-      'border-border flex w-full items-center gap-3 border-b p-3 text-left transition-colors last:border-b-0',
-      active ? 'bg-muted' : 'hover:bg-muted',
-    )}
-  >
-    <span
-      className={cn(
-        'flex size-8 shrink-0 items-center justify-center rounded-full',
-        record
-          ? 'bg-primary text-primary-foreground'
-          : 'bg-muted-foreground/10',
-      )}
-    >
-      {record ? (
-        <Check className="size-4" />
-      ) : (
-        <MapPin className="text-muted-foreground size-4" />
-      )}
-    </span>
-    <span className="min-w-0 flex-1">
-      <span className="text-foreground block truncate text-sm font-medium">
-        {voter.address}
-      </span>
-      <span className="text-muted-foreground block truncate text-xs">
-        {voter.name}
-      </span>
-    </span>
-    {record && (
-      <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-        <Home className="size-3.5" />
-        {OUTCOME_LABEL[record.outcome]}
-      </span>
-    )}
-  </button>
-)

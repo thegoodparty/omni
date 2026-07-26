@@ -2,6 +2,16 @@
 
 import { forwardRef, useMemo } from 'react'
 import {
+  Button,
+  Card,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+  IconButton,
+  cn,
+} from '@goodparty_org/styleguide'
+import {
   BookmarkPlus,
   Clock,
   EyeOff,
@@ -13,27 +23,15 @@ import {
   Users,
 } from 'lucide-react'
 import {
-  Button,
-  Card,
-  cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@goodparty_org/styleguide'
-import {
   type ListColor,
   type Voter,
   DEFAULT_LIST_COLOR,
-  LIST_COLOR_HEX,
-  darkenHex,
+  LIST_COLOR_TOKEN,
   getHouseholdCount,
 } from './doorKnockingData'
 
-type ListCardVariant = 'recommended' | 'saved'
-
 type Props = {
-  variant: ListCardVariant
+  variant: 'recommended' | 'saved'
   title: string
   voters: Voter[]
   duration: string
@@ -80,21 +78,19 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
       ref={ref}
       onClick={onClick}
       className={cn(
-        'relative cursor-pointer gap-0 overflow-hidden rounded-2xl p-4 shadow-none transition-colors',
-        isActive ? 'border-primary border-2' : 'hover:bg-muted',
+        'relative cursor-pointer gap-0 overflow-hidden p-4 shadow-none transition-colors',
+        isActive ? 'border-primary border-2' : 'hover:bg-muted/50',
         isSaved && 'pl-5',
       )}
     >
-      {/* Turf color accent — the six user-pickable list colors (product palette). */}
       {isSaved && (
         <span
           aria-hidden="true"
           className="absolute inset-y-0 left-0 w-1.5"
           style={{
-            backgroundColor: darkenHex(
-              LIST_COLOR_HEX[color ?? DEFAULT_LIST_COLOR],
-              40,
-            ),
+            backgroundColor: `color-mix(in srgb, ${
+              LIST_COLOR_TOKEN[color ?? DEFAULT_LIST_COLOR]
+            } 78%, black)`,
           }}
         />
       )}
@@ -102,18 +98,19 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
       {onDelete && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
+            <IconButton
+              variant="ghost"
+              size="small"
               aria-label="List options"
               onClick={(e) => e.stopPropagation()}
-              className="text-muted-foreground hover:bg-muted hover:text-foreground absolute top-1 right-1 flex size-8 items-center justify-center rounded-md transition-colors"
+              className="absolute top-1 right-1"
             >
               <MoreVertical className="size-4" />
-            </button>
+            </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={4}>
             <DropdownMenuItem
-              className="text-destructive focus:text-destructive h-10 gap-2 text-sm"
+              className="text-destructive focus:text-destructive gap-2"
               onClick={(e) => {
                 e.stopPropagation()
                 onDelete()
@@ -182,7 +179,7 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
           <Button
             variant="ghost"
             size="small"
-            className="text-primary hover:bg-muted"
+            className="text-primary"
             onClick={(e) => {
               e.stopPropagation()
               onDetails()
@@ -194,7 +191,6 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
         {isSaved && onWalk && (
           <Button
             size="small"
-            className="gap-1.5"
             onClick={(e) => {
               e.stopPropagation()
               onWalk()
@@ -207,7 +203,6 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
         {!isSaved && onSave && (
           <Button
             size="small"
-            className="gap-1.5"
             onClick={(e) => {
               e.stopPropagation()
               onSave()
@@ -221,5 +216,3 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
     </Card>
   )
 })
-
-ListCard.displayName = 'ListCard'
