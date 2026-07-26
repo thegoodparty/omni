@@ -199,7 +199,8 @@ export const PollsCampaignFlow = ({
   const cost = selectedAudience.count * POLL_COST_PER_RECIPIENT
   const earliestSend = useMemo(() => Date.now() + 48 * 60 * 60 * 1000, [open])
 
-  const scheduledAt = useMemo(() => {
+  const scheduledAt = useMemo<Date | 'now' | null>(() => {
+    if (timeSlot === 'now') return 'now'
     if (!date) return null
     const slot = TIME_OPTIONS.find((t) => t.id === timeSlot)
     const timeStr = timeSlot === 'custom' ? customTime : slot?.time
@@ -211,7 +212,10 @@ export const PollsCampaignFlow = ({
     return d
   }, [date, timeSlot, customTime])
 
-  const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
+  const violates48h =
+    scheduledAt && scheduledAt !== 'now'
+      ? scheduledAt.getTime() < earliestSend
+      : false
 
   const clearBias = () => {
     setBiasChecked(false)
@@ -254,7 +258,6 @@ export const PollsCampaignFlow = ({
       setLoadingDraft(false)
     }, 650)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
   const regenerate = () => {
@@ -335,7 +338,6 @@ export const PollsCampaignFlow = ({
     if (open) return
     const t = setTimeout(reset, 200)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const isCustomTopicEntry = step === 1 && topicId === 'custom'
@@ -352,7 +354,10 @@ export const PollsCampaignFlow = ({
     }
     if (step === 3)
       return (
-        campaignName.trim().length > 0 && scheduledAt !== null && !violates48h
+        campaignName.trim().length > 0 &&
+        scheduledAt !== null &&
+        scheduledAt !== 'now' &&
+        !violates48h
       )
     if (step === 4)
       return message.trim().length > 0 && message.length <= SMS_CHAR_LIMIT
@@ -405,7 +410,7 @@ export const PollsCampaignFlow = ({
   }
 
   const handlePay = () => {
-    if (!scheduledAt) return
+    if (!scheduledAt || scheduledAt === 'now') return
     setProcessing(true)
     setTimeout(() => {
       setProcessing(false)
@@ -429,9 +434,9 @@ export const PollsCampaignFlow = ({
         ? 'Write your own topic'
         : 'What do you want to learn?'
       : step === 2
-        ? 'Who are you polling?'
+        ? 'Who do you want to reach?'
         : step === 3
-          ? 'When to send?'
+          ? 'When do you want to send?'
           : step === 4
             ? 'What do you want to say?'
             : 'Review and send'
@@ -515,7 +520,6 @@ export const PollsCampaignFlow = ({
                 setBuilderName={setBuilderName}
                 builderFilters={builderFilters}
                 setBuilderFilters={setBuilderFilters}
-                builderCount={builderCount}
                 topicLabel={activeTopicLabel}
               />
             ) : step === 3 ? (
@@ -657,8 +661,8 @@ const StepTopic = ({
                 }
               }}
               className={cn(
-                'flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-                active ? 'border-primary bg-muted' : 'hover:border-primary/50',
+                'flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+                active ? 'border-primary' : 'hover:border-primary/50',
               )}
             >
               <span className="text-foreground font-medium">{t.label}</span>
@@ -683,7 +687,6 @@ const StepWho = ({
   setBuilderName,
   builderFilters,
   setBuilderFilters,
-  builderCount,
   topicLabel,
 }: {
   audiences: Audience[]
@@ -696,7 +699,6 @@ const StepWho = ({
   setBuilderName: (v: string) => void
   builderFilters: string[]
   setBuilderFilters: (v: string[]) => void
-  builderCount: number
   topicLabel: string
 }) => {
   const [open, setOpen] = useState(false)
@@ -772,9 +774,6 @@ const StepWho = ({
             </div>
           ))}
         </div>
-        <p className="text-muted-foreground text-sm">
-          Estimated reach: {builderCount.toLocaleString()} voters
-        </p>
       </div>
     )
   }
@@ -803,10 +802,8 @@ const StepWho = ({
               }
             }}
             className={cn(
-              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              recSelected
-                ? 'border-primary bg-muted'
-                : 'hover:border-primary/50',
+              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              recSelected ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <div className="min-w-0">
@@ -829,7 +826,7 @@ const StepWho = ({
             <Card
               role="button"
               tabIndex={0}
-              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none"
+              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4"
             >
               <div className="min-w-0">
                 <p className="text-foreground truncate font-medium">
@@ -987,8 +984,8 @@ const StepWhen = ({
                 className={cn(
                   'border-components-input-border bg-components-input-base hover:bg-muted text-foreground w-full justify-start rounded-md px-3 text-base font-normal md:text-sm',
                   !date && 'text-muted-foreground',
-                  violates48h && 'border-destructive text-destructive',
                 )}
+                aria-invalid={violates48h}
               >
                 <CalendarIcon className="text-muted-foreground size-4" />
                 {date ? fmtDate(date) : 'Pick a date'}
@@ -1025,12 +1022,7 @@ const StepWhen = ({
         <div className="space-y-2">
           <Label>Send time</Label>
           <Select value={timeSlot} onValueChange={setTimeSlot}>
-            <SelectTrigger
-              className={cn(
-                'w-full',
-                violates48h && 'border-destructive text-destructive',
-              )}
-            >
+            <SelectTrigger className={cn('w-full')} aria-invalid={violates48h}>
               <Clock className="text-muted-foreground size-4" />
               <SelectValue placeholder="Select time" />
             </SelectTrigger>
@@ -1165,7 +1157,7 @@ const StepWhat = ({
           </p>
         )}
 
-        <Card className="gap-0 p-4 shadow-none">
+        <Card className="gap-0 p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-muted-foreground text-xs font-medium">
               Your question
@@ -1181,7 +1173,7 @@ const StepWhat = ({
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Write your poll question…"
-            className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+            className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
           />
           <p className="text-muted-foreground mt-3 text-xs">{OPT_OUT_FOOTER}</p>
 
@@ -1292,7 +1284,7 @@ const StepReview = ({
   topicLabel,
 }: {
   audience: Audience
-  scheduledAt: Date | null
+  scheduledAt: Date | 'now' | null
   message: string
   cost: number
   topicLabel: string
@@ -1305,7 +1297,7 @@ const StepReview = ({
         body="Review your poll details and complete your payment."
       />
 
-      <Card className="gap-0 overflow-hidden p-0 shadow-none">
+      <Card className="gap-0 overflow-hidden p-0">
         <Accordion type="single" collapsible defaultValue="details">
           <AccordionItem value="details" className="border-none">
             <AccordionTrigger className="px-4 py-4 hover:no-underline">
@@ -1321,11 +1313,16 @@ const StepReview = ({
                 <div>
                   <p className="text-foreground font-medium">Poll</p>
                   <p className="text-foreground text-sm font-normal">
-                    Send date: {scheduledAt ? fmtDate(scheduledAt) : '—'}
+                    Send date:{' '}
+                    {scheduledAt === 'now'
+                      ? 'Send now'
+                      : scheduledAt
+                        ? fmtDate(scheduledAt)
+                        : '—'}
                   </p>
                   <p className="text-foreground text-sm font-normal">
                     Send time:{' '}
-                    {scheduledAt
+                    {scheduledAt && scheduledAt !== 'now'
                       ? scheduledAt.toLocaleTimeString('en-US', {
                           hour: 'numeric',
                           minute: '2-digit',
@@ -1391,7 +1388,7 @@ const StepReview = ({
         </div>
       )}
 
-      <Card className="gap-3 p-4 shadow-none">
+      <Card className="gap-3 p-4">
         <p className="text-foreground font-semibold">Payment details</p>
         <div className="space-y-1.5">
           <Label>Card number</Label>
@@ -1423,7 +1420,7 @@ const SuccessScreen = ({
   onClose,
 }: {
   audience: Audience
-  sendAt: Date | null
+  sendAt: Date | 'now' | null
   onClose: () => void
 }) => (
   <div className="space-y-6 py-8 text-center">
@@ -1438,7 +1435,7 @@ const SuccessScreen = ({
       </h2>
       <p className="text-muted-foreground">
         Your poll will reach {audience.count.toLocaleString()} recipients
-        {sendAt ? ` on ${fmtDate(sendAt)}.` : ' shortly.'}
+        {sendAt && sendAt !== 'now' ? ` on ${fmtDate(sendAt)}.` : ' shortly.'}
       </p>
     </div>
     <Button size="large" className="w-full" onClick={onClose}>

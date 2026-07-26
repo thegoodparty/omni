@@ -728,10 +728,10 @@ const ProfileCard = ({
   icon: React.ComponentType<{ className?: string }>
   children: React.ReactNode
 }) => (
-  <Card className="gap-0 overflow-hidden p-0 shadow-none">
+  <Card className="gap-0 overflow-hidden p-0">
     <div className="flex items-center justify-between px-4 py-3">
       <h3 className="text-foreground text-base font-semibold">{title}</h3>
-      <Icon className="text-muted-foreground size-5" />
+      <Icon className="text-foreground size-5" />
     </div>
     <div className="border-border space-y-4 border-t px-4 py-4">{children}</div>
   </Card>

@@ -124,12 +124,6 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
         [residentId]: { reason, at: new Date().toISOString() },
       },
     })
-    toast(reason === 'moved' ? 'Address removed' : 'Removed from list', {
-      description:
-        reason === 'moved'
-          ? 'This address was removed from that voter’s record.'
-          : 'That person was removed from your voter list.',
-    })
   }
 
   const deleteList = (id: string) => {
@@ -169,11 +163,7 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
                 variant="outline"
                 size="small"
                 aria-label="Download PDF"
-                onClick={() =>
-                  toast('PDF downloaded', {
-                    description: `${walkList.name} — offline walk packet.`,
-                  })
-                }
+                onClick={() => toast('PDF downloaded')}
               >
                 <Download className="size-4" />
                 <span className="hidden lg:inline">PDF</span>
@@ -190,7 +180,7 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem
-                    className="text-destructive focus:text-destructive gap-2"
+                    variant="destructive"
                     onClick={() => setDeleteId(walkList.id)}
                   >
                     <Trash2 className="size-4" />
@@ -285,7 +275,7 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
           />
         ))}
         {saved.length === 0 && (
-          <Card className="text-muted-foreground p-4 text-sm shadow-none">
+          <Card className="text-muted-foreground p-4 text-sm">
             No lists yet. Tap{' '}
             <span className="text-foreground font-medium">Create list</span> to
             add your first one.
@@ -303,7 +293,7 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
           description="Based on your campaign profile and top issues"
         />
         <div className="flex flex-col gap-2">
-          {recommended.map((list) => (
+          {recommended.slice(0, 3).map((list) => (
             <ListCard
               key={list.id}
               variant="recommended"
@@ -320,6 +310,7 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
                 setPendingRecId(list.id)
                 setNewPreset({
                   name: list.name,
+                  reason: list.reason,
                   filters: list.filters ?? null,
                   polygon: list.polygon,
                   color: 'violet',
@@ -345,7 +336,7 @@ export const DoorKnocking = ({ title, aiPlaceholder, onExit }: Props) => {
         backLabel="Voter Outreach"
         actions={createListButton}
       >
-        <div className="bg-background lg:relative lg:h-[calc(100vh-12rem)] lg:overflow-hidden lg:bg-transparent">
+        <div className="bg-muted pb-28 lg:relative lg:h-[calc(100vh-12rem)] lg:overflow-hidden lg:bg-transparent lg:pb-0">
           {/* Map — full screen: sticky + compacting on mobile, fills the area on desktop */}
           <div
             className={cn(

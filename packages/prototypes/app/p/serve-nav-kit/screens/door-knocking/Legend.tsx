@@ -58,8 +58,14 @@ export const Legend = ({
   className,
 }: Props) => {
   const counts = voters ? getVoterCounts(voters) : null
-  // FilterPill's count convention is "Label (N)" (matches the filter pills).
-  const count = (c: StatusColor) => (counts ? ` (${counts[c]})` : '')
+  // Source renders the count as a plain small muted number after the label
+  // (LegendDot), not a parenthesized "(N)".
+  const count = (c: StatusColor) =>
+    counts ? (
+      <span className="text-muted-foreground ml-0.5 text-[10px] leading-none">
+        {counts[c]}
+      </span>
+    ) : null
   const scroll = cn('scrollbar-none -mx-1 overflow-x-auto px-1', className)
 
   // Read-only (walk progress / draw preview): plain dot + label + count text,

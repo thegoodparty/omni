@@ -46,6 +46,7 @@ import {
 
 export type NewListPreset = {
   name: string
+  reason?: string
   filters: CutFilters | null
   polygon: { x: number; y: number }[]
   color?: ListColor
@@ -82,6 +83,7 @@ export const NewListFlow = ({
   // matching the source; a from-scratch "Create list" is the 3/4-step flow.
   const [recMode, setRecMode] = useState(false)
   const [presetName, setPresetName] = useState('')
+  const [presetReason, setPresetReason] = useState('')
 
   const filteredUniverse = useMemo(() => {
     const base = universeFor(customListId)
@@ -100,6 +102,7 @@ export const NewListFlow = ({
     if (open && preset) {
       setRecMode(true)
       setPresetName(preset.name)
+      setPresetReason(preset.reason ?? '')
       setStep('draw')
       setCustomListId(ALL_CONTACTS_ID)
       setFilters(preset.filters ?? DEFAULT_FILTERS)
@@ -124,6 +127,7 @@ export const NewListFlow = ({
     setColor(DEFAULT_LIST_COLOR)
     setRecMode(false)
     setPresetName('')
+    setPresetReason('')
   }
 
   const close = () => {
@@ -150,15 +154,34 @@ export const NewListFlow = ({
   const showBack = step !== 'filters' && !(recMode && step === 'draw')
 
   const header = (() => {
-    if (step === 'name') return { title: 'Name your list' }
-    if (step === 'confirm') return { title: 'Confirm your list' }
-    if (step === 'draw')
+    if (step === 'name')
       return {
-        title: recMode
-          ? presetName || 'Review your list'
-          : 'Draw your door knocking boundaries',
+        title: 'Name your list',
+        description:
+          'Save these filters as a reusable voter list before you draw.',
       }
-    return { title: 'Filter voters' }
+    if (step === 'confirm')
+      return {
+        title: 'Confirm your list',
+        description:
+          'Review the route, give it a name and color, then save it to your team.',
+      }
+    if (step === 'draw')
+      return recMode
+        ? {
+            title: presetName || 'Recommended lists',
+            description:
+              presetReason ||
+              'Recommended for you based on your profile and voters. Filters are pre-applied.',
+          }
+        : {
+            title: 'Draw your door knocking boundaries',
+            description: 'Outline map areas to build targeted door lists.',
+          }
+    return {
+      title: 'Filter voters',
+      description: 'Refine who to reach, then draw your route on the map.',
+    }
   })()
 
   const back = () => {
@@ -238,6 +261,11 @@ export const NewListFlow = ({
                 {header.title}
               </h2>
             </div>
+            {header.description && (
+              <p className="text-muted-foreground mt-1 text-sm">
+                {header.description}
+              </p>
+            )}
             <Stepper
               variant="bar"
               currentStep={currentStep}
@@ -254,7 +282,7 @@ export const NewListFlow = ({
                 <div className="space-y-2">
                   <Label htmlFor="custom-voter-list">Custom voter list</Label>
                   <Select value={customListId} onValueChange={setCustomListId}>
-                    <SelectTrigger id="custom-voter-list">
+                    <SelectTrigger id="custom-voter-list" className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -311,16 +339,11 @@ export const NewListFlow = ({
 
             {step === 'draw' && (
               <div className="space-y-3">
-                {recMode ? (
+                {recMode && (
                   <p className="text-muted-foreground text-sm">
                     We’ve already outlined the doors to knock for you. Drag any
-                    boundary point to adjust the area, or tap the map to add
-                    more points.
-                  </p>
-                ) : (
-                  <p className="text-muted-foreground text-sm">
-                    Tap the map to drop boundary points, then drag any point to
-                    outline the doors you want to knock.
+                    boundary point to adjust the area, or tap on the map to add
+                    more points around the doors you want to knock.
                   </p>
                 )}
                 <p className="text-sm">
@@ -408,7 +431,7 @@ export const NewListFlow = ({
                   <ol className="divide-border border-border mt-2 divide-y overflow-hidden rounded-xl border">
                     {confirmRoute.map((v, i) => (
                       <li key={v.id} className="flex items-center gap-3 p-3">
-                        <span className="bg-muted text-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
+                        <span className="bg-muted text-foreground flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold">
                           {i + 1}
                         </span>
                         <div className="min-w-0 flex-1">

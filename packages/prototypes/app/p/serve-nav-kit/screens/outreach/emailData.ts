@@ -47,7 +47,7 @@ export const EMAIL_PURPOSES: {
   },
   {
     id: 'persuade',
-    label: 'Persuade likely voters',
+    label: 'Email renters about the rent-cap plan',
     subject: `Where I stand — and why your vote matters`,
     body: `Hi {first_name},\n\nThis race is close, and it will be decided by neighbors like you. I'm ${CANDIDATE_FULL_NAME}, running for ${CANDIDATE_ROLE_SHORT}, and I want to be direct about why I'm asking for your vote.\n\nI'm focused on the things that shape our lives here — housing, safety, and making local government work for the people it serves.\n\nIf you're still deciding, I'd be glad to answer any questions. Just hit reply.`,
   },
@@ -66,8 +66,8 @@ export const EMAIL_PURPOSES: {
   {
     id: 'election-day',
     label: 'Encourage voters to vote on election day',
-    subject: `It's Election Day — polls close tonight`,
-    body: `Hi {first_name},\n\nToday is the day. Polls are open until 7:30 PM. Your vote is what makes this whole thing work.\n\nIf you need your polling place, or a ride, or want to double-check anything on the ballot, reply to this email and my team will help.`,
+    subject: `It's Election Day — poll close tonight`,
+    body: `Hi {first_name},\n\nToday is the day. Poll is open until 7:30 PM. Your vote is what makes this whole thing work.\n\nIf you need your polling place, or a ride, or want to double-check anything on the ballot, reply to this email and my team will help.`,
   },
   { id: 'custom', label: 'Write my own email', subject: '', body: '' },
 ]

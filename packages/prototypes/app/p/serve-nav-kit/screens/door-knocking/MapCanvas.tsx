@@ -15,6 +15,11 @@ import {
 
 type Mode = 'view' | 'draw' | 'walk'
 
+// The centered draw hint shows once per session: dismissed on the first tap and
+// kept hidden for later route creations (module scope survives component
+// remounts; resets only on a full page reload).
+let drawHintDismissed = false
+
 type Props = {
   voters: Voter[]
   // Houses that belong to the active list — drawn larger + in the list color.
@@ -97,6 +102,7 @@ export const MapCanvas = ({
     activePolygon ?? [],
   )
   const dragIdx = useRef<number | null>(null)
+  const [showHint, setShowHint] = useState(!drawHintDismissed)
 
   // Fit the transform to the route (walk) or the displayed voters, so the
   // content sits centered in the map.
@@ -128,9 +134,19 @@ export const MapCanvas = ({
     onPolygonChange?.(next)
   }
 
+  // Source model: tapping accumulates boundary points (no selection yet); the
+  // shape is finalized only on "Close shape", which commits the polygon.
+  const closePolygon = () => {
+    if (draft.length >= 3) onPolygonChange?.(draft)
+  }
+
   const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (mode !== 'draw' || dragIdx.current !== null) return
-    commit([...draft, toWorld(e)])
+    if (!drawHintDismissed) {
+      drawHintDismissed = true
+      setShowHint(false)
+    }
+    setDraft([...draft, toWorld(e)])
   }
 
   const startDrag = (i: number) => (e: React.MouseEvent) => {
@@ -382,30 +398,23 @@ export const MapCanvas = ({
 
       {mode === 'draw' && (
         <>
-          {/* Instruction — centered on the map, styled like our toast. */}
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
-            <span className="bg-popover text-foreground border-border rounded-2xl border px-4 py-3 text-center text-sm font-medium shadow-lg">
-              Tap the map to add boundary points · {draft.length} point
-              {draft.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          {/* Undo / Clear — bottom-right, on their own. */}
-          <div className="absolute right-3 bottom-3 flex gap-2">
+          {/* Instruction — centered on the map, shown once per session. */}
+          {showHint && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+              <span className="bg-popover text-foreground border-border rounded-2xl border px-4 py-3 text-center text-sm font-medium shadow-lg">
+                Tap the map to add boundary points · {draft.length} point
+                {draft.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          )}
+          {/* Close shape — finalizes the drawn polygon (source parity). */}
+          <div className="absolute right-3 bottom-3">
             <Button
               size="small"
-              variant="outline"
-              onClick={() => commit(draft.slice(0, -1))}
-              disabled={draft.length === 0}
+              onClick={closePolygon}
+              disabled={draft.length < 3}
             >
-              Undo
-            </Button>
-            <Button
-              size="small"
-              variant="outline"
-              onClick={() => commit([])}
-              disabled={draft.length === 0}
-            >
-              Clear
+              Close shape
             </Button>
           </div>
         </>

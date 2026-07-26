@@ -59,7 +59,7 @@ const Metric = ({
   label: string
   value: string
 }) => (
-  <Card className="flex flex-row items-start gap-2 rounded-lg p-3 shadow-none">
+  <Card className="flex flex-row items-start gap-2 rounded-lg p-3">
     <Icon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
     <div className="min-w-0">
       <dt className="text-muted-foreground text-xs">{label}</dt>
@@ -89,7 +89,13 @@ const Header = ({ row }: { row: HistoryRow }) => {
       return `Started ${fmtDateTime(row.startedAt)}`
     if (row.status === 'done' && row.startedAt && row.completedAt)
       return `Started ${fmtDateTime(row.startedAt)} · Completed ${fmtDateTime(row.completedAt)}`
-    return `${row.date}`
+    const dateVerb =
+      row.status === 'scheduled'
+        ? 'Scheduled for'
+        : row.status === 'in-progress'
+          ? 'Started'
+          : 'Sent'
+    return `${dateVerb} ${row.date}`
   })()
   return (
     <div>
@@ -177,7 +183,7 @@ const ProgressSection = ({ row }: { row: HistoryRow }) => {
   return (
     <section className="space-y-3">
       <SectionLabel>Progress</SectionLabel>
-      <Card className="gap-3 rounded-lg p-3 shadow-none">
+      <Card className="gap-3 rounded-lg p-3">
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground text-sm">
             {completed.toLocaleString()} of {total.toLocaleString()} reached
@@ -208,12 +214,13 @@ const OutcomesSection = ({ row }: { row: HistoryRow }) => {
   return (
     <section className="space-y-3">
       <SectionLabel>Results</SectionLabel>
-      <Card className="gap-0 overflow-hidden rounded-lg p-0 shadow-none">
+      <Card className="gap-0 overflow-hidden rounded-lg p-0">
         <div className="text-muted-foreground flex items-center gap-2 px-3 py-2">
           <Activity className="size-4" />
           <p className="text-xs">
             Based on {row.people.toLocaleString()}{' '}
-            {CHANNEL_LABEL[row.channel].toLowerCase()} contacts
+            {CHANNEL_LABEL[row.channel].toLowerCase()} contact
+            {row.people === 1 ? '' : 's'}
           </p>
         </div>
         {outcomes.map((o) => (
@@ -288,6 +295,26 @@ export const CampaignDetailsDrawer = ({
 }: Props) => {
   const isDrivable = row?.channel === 'phone-bank' || row?.channel === 'door'
   const isSocial = row?.channel === 'social'
+
+  const handleDelete = () => {
+    onDelete()
+    toast('Scheduled campaign deleted', {
+      description: row ? `${row.name} has been deleted.` : undefined,
+    })
+  }
+
+  const handleEdit = () => {
+    toast('Edit scheduled campaign', {
+      description: row ? `Editing ${row.name}` : undefined,
+    })
+  }
+
+  const handleSeeList = () => {
+    toast('List view coming soon', {
+      description: "This channel doesn't have a list view yet.",
+    })
+  }
+
   const footerMode: 'edit' | 'continue' | 'note' | 'done' | 'none' = !row
     ? 'none'
     : row.status === 'scheduled'
@@ -328,11 +355,11 @@ export const CampaignDetailsDrawer = ({
                 <div className="mx-auto flex w-full max-w-[608px] gap-3">
                   {footerMode === 'edit' && (
                     <>
-                      <Button variant="destructive" onClick={onDelete}>
+                      <Button variant="destructive" onClick={handleDelete}>
                         <Trash2 className="size-4" />
                         Delete
                       </Button>
-                      <Button className="flex-1">
+                      <Button className="flex-1" onClick={handleEdit}>
                         <Pencil className="size-4" />
                         Edit campaign
                       </Button>
@@ -359,7 +386,11 @@ export const CampaignDetailsDrawer = ({
                     </p>
                   )}
                   {footerMode === 'done' && (
-                    <Button className="flex-1" disabled={isSocial}>
+                    <Button
+                      className="flex-1"
+                      disabled={isSocial}
+                      onClick={isSocial ? undefined : handleSeeList}
+                    >
                       {isSocial ? 'Show post' : 'Show results'}
                     </Button>
                   )}

@@ -148,7 +148,7 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
       </div>
 
       {/* Everything below the map sits in the fixed reading column. */}
-      <div className="mx-auto w-full max-w-[608px] space-y-4 px-4">
+      <div className="mx-auto w-full max-w-[608px] space-y-4 px-4 pb-28">
         {/* Controls — single non-wrapping row; FilterPill is one size in the DS,
             so on narrow screens the row scrolls horizontally instead of wrapping. */}
         <div className="scrollbar-none flex flex-nowrap items-center gap-2 overflow-x-auto">
@@ -197,7 +197,7 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
         </div>
 
         {/* Progress */}
-        <Card className="gap-3 p-4 shadow-none">
+        <Card className="gap-3 p-4">
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
               In this list
@@ -219,8 +219,8 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
         </Card>
 
         {/* Stops */}
-        <Card className="gap-0 overflow-hidden p-0 shadow-none">
-          <div className="border-border bg-card sticky top-0 z-10 flex items-center justify-between border-b p-4">
+        <Card className="gap-0 overflow-hidden p-0">
+          <div className="border-border bg-card flex items-center justify-between border-b p-4">
             <span className="text-foreground text-sm font-semibold">Stops</span>
             <span className="text-muted-foreground text-sm">
               {route.length} doors · {formatDuration(minutes)}
@@ -284,9 +284,9 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
                       {leg && (
                         <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
                           {travelMode === 'walk' ? (
-                            <Footprints className="text-info size-3" />
+                            <Footprints className="text-info size-3.5" />
                           ) : (
-                            <Car className="text-info size-3" />
+                            <Car className="text-info size-3.5" />
                           )}
                           {Math.ceil(
                             travelMode === 'walk' ? leg.walkMin : leg.driveMin,
@@ -316,7 +316,7 @@ export const WalkMode = ({ voters, activeId, onTapVoter, onDelete }: Props) => {
                             <button
                               type="button"
                               onClick={() => onTapVoter(v, r.id)}
-                              className="hover:bg-muted/50 flex w-full items-center gap-2 py-2 pr-4 pl-14 text-left"
+                              className="hover:bg-muted/50 flex w-full items-center gap-3 py-3 pr-4 pl-14 text-left"
                             >
                               <User className="text-muted-foreground size-4 shrink-0" />
                               <span className="text-foreground flex-1 truncate text-sm">

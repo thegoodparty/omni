@@ -78,7 +78,7 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
       ref={ref}
       onClick={onClick}
       className={cn(
-        'relative cursor-pointer gap-0 overflow-hidden p-4 shadow-none transition-colors',
+        'relative cursor-pointer gap-0 overflow-hidden p-4 transition-colors',
         isActive ? 'border-primary border-2' : 'hover:bg-muted/50',
         isSaved && 'pl-5',
       )}
@@ -110,7 +110,7 @@ export const ListCard = forwardRef<HTMLDivElement, Props>(function ListCard(
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" sideOffset={4}>
             <DropdownMenuItem
-              className="text-destructive focus:text-destructive gap-2"
+              variant="destructive"
               onClick={(e) => {
                 e.stopPropagation()
                 onDelete()

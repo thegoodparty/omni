@@ -43,6 +43,7 @@ export const TIME_OPTIONS: {
   label: string
   time: string | null
 }[] = [
+  { id: 'now', label: 'Send now', time: null },
   ...Array.from({ length: 13 }, (_, i) => {
     const hour24 = 9 + i
     const period = hour24 >= 12 ? 'PM' : 'AM'

@@ -218,7 +218,6 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
       setLoadingDrafts(false)
     }, 650)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
   const regenerate = (toneArg: Tone = tone) => {
@@ -266,7 +265,6 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
     if (open) return
     const t = setTimeout(reset, 200)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const canContinue = (): boolean => {
@@ -418,7 +416,7 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
             {success ? (
               <SuccessScreen
                 audience={selectedAudience}
-                sendAt={scheduledAt}
+                sendAt={timeSlot === 'now' ? 'now' : scheduledAt}
                 onClose={() => onOpenChange(false)}
               />
             ) : step === 1 ? (
@@ -441,7 +439,6 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
                 setBuilderName={setBuilderName}
                 builderFilters={builderFilters}
                 setBuilderFilters={setBuilderFilters}
-                builderCount={builderCount}
               />
             ) : step === 3 ? (
               <StepWhen
@@ -471,7 +468,7 @@ export const SmsCampaignFlow = ({ open, onOpenChange, onScheduled }: Props) => {
             ) : (
               <StepReview
                 audience={selectedAudience}
-                scheduledAt={scheduledAt}
+                sendAt={timeSlot === 'now' ? 'now' : scheduledAt}
                 message={message}
                 mediaUrl={mediaUrl}
                 cost={cost}
@@ -546,8 +543,8 @@ const StepPurpose = ({
               }
             }}
             className={cn(
-              'flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              active ? 'border-primary bg-muted' : 'hover:border-primary/50',
+              'flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              active ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <span className="text-foreground font-medium">{p.label}</span>
@@ -571,7 +568,6 @@ const StepWho = ({
   setBuilderName,
   builderFilters,
   setBuilderFilters,
-  builderCount,
 }: {
   audiences: Audience[]
   selectedId: string
@@ -583,7 +579,6 @@ const StepWho = ({
   setBuilderName: (v: string) => void
   builderFilters: string[]
   setBuilderFilters: (v: string[]) => void
-  builderCount: number
 }) => {
   const [open, setOpen] = useState(false)
   const active = audiences.find((a) => a.id === selectedId) ?? DEFAULT_AUDIENCE
@@ -618,6 +613,19 @@ const StepWho = ({
           body="Pick filters to define who this campaign reaches."
         />
         <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <SectionLabel>Filters</SectionLabel>
+            {builderFilters.length > 0 && (
+              <Button
+                variant="link"
+                size="small"
+                className="h-auto px-0"
+                onClick={() => setBuilderFilters([])}
+              >
+                Clear filters
+              </Button>
+            )}
+          </div>
           {FILTER_POOLS.map((group) => (
             <div key={group.key} className="space-y-2">
               <SectionLabel>{group.label}</SectionLabel>
@@ -640,9 +648,6 @@ const StepWho = ({
             </div>
           ))}
         </div>
-        <p className="text-muted-foreground text-sm">
-          Estimated reach: {builderCount.toLocaleString()} voters
-        </p>
       </div>
     )
   }
@@ -676,10 +681,8 @@ const StepWho = ({
               }
             }}
             className={cn(
-              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              recSelected
-                ? 'border-primary bg-muted'
-                : 'hover:border-primary/50',
+              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              recSelected ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <div className="min-w-0">
@@ -702,7 +705,7 @@ const StepWho = ({
             <Card
               role="button"
               tabIndex={0}
-              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none"
+              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4"
             >
               <div className="min-w-0">
                 <p className="text-foreground truncate font-medium">
@@ -811,6 +814,13 @@ const StepWhen = ({
   violates48h: boolean
 }) => {
   const [calOpen, setCalOpen] = useState(false)
+  const tz = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone
+    } catch {
+      return 'Local time'
+    }
+  }, [])
   const earliestDay = useMemo(() => {
     const d = new Date(earliestSend)
     d.setHours(0, 0, 0, 0)
@@ -821,7 +831,7 @@ const StepWhen = ({
     <div className="space-y-6">
       <Intro
         title="When do you want to send it?"
-        body="We recommend mid-morning or early evening. Sends require at least 48 hours' notice."
+        body="We recommend mid-morning or early evening for higher engagement. Sends require at least 48 hours' notice."
       />
 
       <div className="space-y-2">
@@ -851,8 +861,8 @@ const StepWhen = ({
                   // outline Button otherwise renders larger text-base.
                   'border-components-input-border bg-components-input-base hover:bg-muted text-foreground w-full justify-start rounded-md px-3 text-base font-normal md:text-sm',
                   !date && 'text-muted-foreground',
-                  violates48h && 'border-destructive text-destructive',
                 )}
+                aria-invalid={violates48h}
               >
                 <CalendarIcon className="text-muted-foreground size-4" />
                 {date ? fmtDate(date) : 'Pick a date'}
@@ -869,19 +879,21 @@ const StepWhen = ({
                 disabled={(day) => day < earliestDay}
                 initialFocus
               />
+              <div className="border-border text-muted-foreground border-t px-3 py-2 text-xs">
+                Dates in red require more than 48 hours' notice and can't be
+                scheduled.
+              </div>
             </PopoverContent>
           </Popover>
+          <p className="text-muted-foreground text-sm">
+            Earliest send: {fmtDateTime(new Date(earliestSend))}.
+          </p>
         </div>
 
         <div className="space-y-2">
           <Label>Send time</Label>
           <Select value={timeSlot} onValueChange={setTimeSlot}>
-            <SelectTrigger
-              className={cn(
-                'w-full',
-                violates48h && 'border-destructive text-destructive',
-              )}
-            >
+            <SelectTrigger className={cn('w-full')} aria-invalid={violates48h}>
               <Clock className="text-muted-foreground size-4" />
               <SelectValue placeholder="Select time" />
             </SelectTrigger>
@@ -900,6 +912,7 @@ const StepWhen = ({
               onChange={(e) => setCustomTime(e.target.value)}
             />
           )}
+          <p className="text-muted-foreground text-sm">{tz}</p>
         </div>
       </div>
 
@@ -1030,8 +1043,15 @@ const StepWhat = ({
           </Button>
         </div>
 
+        {loadingDrafts && (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-3.5 animate-spin" />
+            Drafting messages…
+          </div>
+        )}
+
         {/* Editor card: image, greeting, message, opt-out, toolbar. */}
-        <Card className="gap-0 p-4 shadow-none">
+        <Card className="gap-0 p-4">
           <input
             ref={fileInputRef}
             type="file"
@@ -1090,7 +1110,7 @@ const StepWhat = ({
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Write your message…"
             aria-invalid={overLimit}
-            className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0"
+            className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0"
           />
           <p className="text-muted-foreground mt-3 text-xs">{OPT_OUT_FOOTER}</p>
 
@@ -1130,7 +1150,7 @@ const StepWhat = ({
               size="small"
               className={cn(!recording && 'text-muted-foreground')}
               onClick={handleDictate}
-              aria-label={recording ? 'Stop dictation' : 'Dictate'}
+              aria-label={recording ? 'Stop' : 'Dictate'}
             >
               {recording ? (
                 <Square className="size-4 fill-current" />
@@ -1144,8 +1164,8 @@ const StepWhat = ({
 
       {message.trim().length > 0 && !hasIntro(message) && (
         <p className="text-destructive text-xs">
-          Compliance: messages must open with an identification, e.g. “
-          {introFor(tone)}”
+          Compliance: messages must open with an identification, e.g. "
+          {introFor(tone)}"
         </p>
       )}
       {overLimit && (
@@ -1160,18 +1180,29 @@ const StepWhat = ({
 // ---------- Step 5: Review ----------
 const StepReview = ({
   audience,
-  scheduledAt,
+  sendAt,
   message,
   mediaUrl,
   cost,
 }: {
   audience: Audience
-  scheduledAt: Date | null
+  sendAt: Date | 'now' | null
   message: string
   mediaUrl: string | null
   cost: number
 }) => {
   const [preview, setPreview] = useState(false)
+  const formattedDate =
+    sendAt === 'now' ? 'Send now' : sendAt ? fmtDate(sendAt) : '—'
+  const formattedTime =
+    sendAt === 'now'
+      ? '—'
+      : sendAt
+        ? sendAt.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+        : '—'
   return (
     <div className="space-y-6">
       <Intro
@@ -1179,7 +1210,7 @@ const StepReview = ({
         body="Review your campaign details and complete your payment."
       />
 
-      <Card className="gap-0 overflow-hidden p-0 shadow-none">
+      <Card className="gap-0 overflow-hidden p-0">
         <Accordion type="single" collapsible defaultValue="details">
           <AccordionItem value="details" className="border-none">
             <AccordionTrigger className="px-4 py-4 hover:no-underline">
@@ -1195,16 +1226,10 @@ const StepReview = ({
                 <div>
                   <p className="text-foreground font-medium">Text message</p>
                   <p className="text-foreground text-sm font-normal">
-                    Send date: {scheduledAt ? fmtDate(scheduledAt) : '—'}
+                    Send date: {formattedDate}
                   </p>
                   <p className="text-foreground text-sm font-normal">
-                    Send time:{' '}
-                    {scheduledAt
-                      ? scheduledAt.toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })
-                      : '—'}
+                    Send time: {formattedTime}
                   </p>
                 </div>
               </div>
@@ -1268,7 +1293,7 @@ const StepReview = ({
         </div>
       )}
 
-      <Card className="gap-3 p-4 shadow-none">
+      <Card className="gap-3 p-4">
         <p className="text-foreground font-semibold">Payment details</p>
         <div className="space-y-1.5">
           <Label>Card number</Label>
@@ -1285,7 +1310,8 @@ const StepReview = ({
           </div>
         </div>
         <p className="text-muted-foreground text-xs">
-          This is a prototype — no real payment is taken.
+          Billed by Text Message Center. This is a demo — no real payment is
+          taken.
         </p>
       </Card>
     </div>
@@ -1299,7 +1325,7 @@ const SuccessScreen = ({
   onClose,
 }: {
   audience: Audience
-  sendAt: Date | null
+  sendAt: Date | 'now' | null
   onClose: () => void
 }) => (
   <div className="space-y-6 py-8 text-center">
@@ -1315,7 +1341,7 @@ const SuccessScreen = ({
       <p className="text-muted-foreground">
         Your text campaign has been scheduled and will reach{' '}
         {audience.count.toLocaleString()} recipients
-        {sendAt ? ` on ${fmtDate(sendAt)}.` : ' shortly.'}
+        {sendAt && sendAt !== 'now' ? ` on ${fmtDate(sendAt)}.` : ' shortly.'}
       </p>
     </div>
     <Button size="large" className="w-full" onClick={onClose}>

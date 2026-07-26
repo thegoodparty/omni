@@ -21,9 +21,9 @@ const GRADIENT_STYLE = {
 export const AiPromptBar = ({
   placeholder = 'Hi Renee, how can I help?',
 }: AiPromptBarProps) => (
-  <div className="sticky bottom-3 z-10 mx-auto w-full max-w-[608px] px-1">
+  <div className="border-border bg-background/70 sticky bottom-0 z-10 border-t px-4 py-3 backdrop-blur-md lg:px-6">
     <div
-      className="animate-spin-gradient motion-reduce:animate-none relative rounded-full p-[1.5px] shadow-lg"
+      className="animate-spin-gradient motion-reduce:animate-none relative mx-auto w-full max-w-[608px] rounded-full p-[1.5px] shadow-lg"
       style={GRADIENT_STYLE}
     >
       <div className="bg-card flex min-h-12 w-full items-center gap-1 rounded-full py-0.5 pr-1 pl-1.5">

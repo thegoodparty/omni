@@ -18,6 +18,12 @@ works around it locally until it lands. Keep this file updated as new gaps appea
 - **Add `info` / `success` / `warning` variants.** Those colour families exist as tokens
   and `Alert` already exposes them as cva variants, but `Badge` does not. Channel pills
   tint via a prototype-local className (`CHANNEL_TINT`) as a stand-in.
+- **No numbered-circle shape.** Door-knocking stop lists need a fixed circular
+  badge with a 1–2 digit number inside (`size-6 rounded-full`). `shape="pill"`
+  (`h-5 min-w-5`) turns into an oval for two digits, so we hand-roll a
+  `<span className="size-6 rounded-full bg-muted text-foreground …">` circle
+  instead (see `WalkMode.tsx` / `NewListFlow.tsx`, matching the source). A
+  `shape="circle"` / count-badge variant would make this first-class.
 
 ### FilterPill
 
@@ -49,6 +55,33 @@ works around it locally until it lands. Keep this file updated as new gaps appea
 Textarea, Toaster, IconButton, Avatar, ContentCard, SourceCitation, Collapsible, Switch,
 Label, Pagination, Table, DropdownMenu, Sidebar — **exist and are used as-is.** e.g. the
 SMS "Step N of 5" bar is DS `Stepper variant="bar"` (was briefly hand-rolled, now fixed).
+
+### Calendar / date picker
+
+- **DS `calendar-button` exists.** The campaign flows currently hand-roll the date
+  trigger as an outline `Button` styled to look like an Input
+  (`bg-components-input-base border-components-input-border …`) inside a `Popover` +
+  `Calendar`. They should migrate to the DS `calendar-button` instead of painting raw
+  `components-input-*` tokens. Deferred (approved flows; behavioural refactor) — tracked here.
+
+### Resolved this pass
+
+- **`shadow-none` on `Card`** removed everywhere — the DS `Card` has no default shadow,
+  so it was a no-op.
+- **Destructive menu items** use `DropdownMenuItem variant="destructive"` (was
+  `className="text-destructive …"`).
+- **Field error state** uses `aria-invalid` (Select + date Button); the DS paints the
+  destructive border/ring. Manual `border-destructive text-destructive` removed.
+- **Selectable option tiles** (audience / tone / platform cards) are **outline +
+  checkmark only** — no `bg-muted` fill on selection (product decision).
+- **List / turf colors** use the DS categorical `--data-chart-*` palette (was raw
+  `--color-<family>-<shade>` tokens); labels follow the actual DS hues.
+
+### Intentional raw-palette exceptions (no semantic / data-chart token fits)
+
+- `bg-yellow-400` / `fill-yellow-400` — the "Not home" status colour (source's exact
+  `48 96% 53%`); the DS has no semantic yellow token.
+- `bg-emerald-50` — the synthetic map's muted, Google-Maps-style green background.
 
 ---
 

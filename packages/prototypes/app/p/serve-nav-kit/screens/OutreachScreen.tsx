@@ -155,7 +155,7 @@ export const OutreachScreen = ({
   if (doorOpen) {
     return (
       <DoorKnocking
-        title="Door Knocking"
+        title="Door knocking"
         aiPlaceholder="Ask about your turf, routes, or canvassing…"
         onExit={() => setDoorOpen(false)}
       />
@@ -487,13 +487,14 @@ export const OutreachScreen = ({
         open={emailOpen}
         onOpenChange={setEmailOpen}
         onScheduled={(r: ScheduledEmail) => {
+          const when = r.sendAt === 'now' ? new Date() : r.sendAt
           const row: HistoryRow = {
-            id: `email-${r.sendAt.getTime()}`,
-            date: r.sendAt.toLocaleDateString('en-US', {
+            id: `email-${when.getTime()}`,
+            date: when.toLocaleDateString('en-US', {
               month: 'short',
               day: 'numeric',
             }),
-            scheduledAt: r.sendAt,
+            scheduledAt: when,
             name: r.name,
             channel: 'email',
             status: 'scheduled',

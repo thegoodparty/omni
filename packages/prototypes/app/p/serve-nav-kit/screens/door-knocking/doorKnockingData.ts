@@ -92,20 +92,20 @@ export type ListColor =
 
 export const DEFAULT_LIST_COLOR: ListColor = 'blue'
 
-// Source turf palette (Blue/Orange/Purple/Cyan/Magenta/Brown) mapped onto DS
-// palette tokens — Magenta is pink-500 (the source's exact #EC4899); Brown ≈
-// amber-800 (no brown token in the DS, so the nearest brown-ish shade).
+// Turf colors use the DS categorical data/chart palette (--data-chart-*, the
+// Figma-defined series colors) — the sanctioned set for categorical coding, not
+// raw palette shades. Labels follow the actual DS hues; internal ids are opaque.
 export const LIST_COLOR_OPTIONS: {
   id: ListColor
   label: string
   token: string
 }[] = [
-  { id: 'blue', label: 'Blue', token: 'var(--color-blue-600)' },
-  { id: 'orange', label: 'Orange', token: 'var(--color-orange-500)' },
-  { id: 'violet', label: 'Purple', token: 'var(--color-violet-500)' },
-  { id: 'cyan', label: 'Cyan', token: 'var(--color-cyan-500)' },
-  { id: 'magenta', label: 'Magenta', token: 'var(--color-pink-500)' },
-  { id: 'brown', label: 'Brown', token: 'var(--color-amber-800)' },
+  { id: 'blue', label: 'Blue', token: 'var(--color-data-chart-1)' },
+  { id: 'orange', label: 'Orange', token: 'var(--color-data-chart-5)' },
+  { id: 'violet', label: 'Purple', token: 'var(--color-data-chart-2)' },
+  { id: 'cyan', label: 'Green', token: 'var(--color-data-chart-3)' },
+  { id: 'magenta', label: 'Yellow', token: 'var(--color-data-chart-4)' },
+  { id: 'brown', label: 'Indigo', token: 'var(--color-data-chart-7)' },
 ]
 
 export const LIST_COLOR_TOKEN: Record<ListColor, string> =
@@ -523,20 +523,39 @@ export const RECOMMENDED_LISTS: List[] = [
   recList(
     'rec-housing',
     'Affordable housing supporters',
-    'Housing is your #1 campaign issue — these neighbors flagged it as their top concern.',
+    'Housing is your #1 campaign issue — these neighbors flagged it as their top concern',
     { x: 950, y: -950 },
   ),
   recList(
     'rec-parents',
     'Parents with kids under 18',
-    'Your education platform resonates strongest with parents — high persuasion score.',
+    'Your education platform resonates strongest with parents — high persuasion score',
     { x: -1050, y: 800 },
   ),
   recList(
+    'rec-college',
+    'College-educated voters',
+    'Historically high turnout and receptive to your policy-focused messaging',
+    { x: -950, y: -1050 },
+  ),
+  // Backups — revealed as the visible three are dismissed (source rotates 6).
+  recList(
     'rec-veterans',
     'Veterans',
-    'Underserved by your opponent and aligned with your veterans-services plan.',
+    'Underserved by your opponent and aligned with your veterans-services plan',
     { x: 1150, y: 1050 },
+  ),
+  recList(
+    'rec-homeowners',
+    'Homeowners',
+    'Property-tax and zoning positions align — consistent local election voters',
+    { x: 1050, y: -1100 },
+  ),
+  recList(
+    'rec-smallbiz',
+    'Small business owners',
+    'Your small-business tax plan is a top persuasion driver in this segment',
+    { x: -1150, y: 1150 },
   ),
 ]
 

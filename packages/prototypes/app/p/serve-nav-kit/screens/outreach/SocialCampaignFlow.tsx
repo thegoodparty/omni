@@ -103,7 +103,6 @@ export const SocialCampaignFlow = ({
       setDraftLoading(false)
     }, 900)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId])
 
   // Auto-generate per-platform assets on entering "share".
@@ -115,7 +114,6 @@ export const SocialCampaignFlow = ({
       setAssetsLoading(false)
     }, 1100)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId])
 
   const regenerateDraft = () => {
@@ -332,8 +330,8 @@ const StepPurpose = ({
               }
             }}
             className={cn(
-              'flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              active ? 'border-primary bg-muted' : 'hover:border-primary/50',
+              'flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              active ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <span className="text-foreground font-medium">{p.label}</span>
@@ -410,12 +408,11 @@ const StepSay = ({
       {loading && !draft.trim() ? (
         <ThinkingStream />
       ) : (
-        <Card className="p-4 shadow-none">
+        <Card className="p-4">
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Write your message…"
-            className="min-h-[140px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+            className="min-h-[140px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
           />
         </Card>
       )}
@@ -455,8 +452,8 @@ const StepWhere = ({
               }
             }}
             className={cn(
-              'relative items-center gap-2 rounded-2xl p-4 text-center shadow-none transition-colors',
-              active ? 'border-primary bg-muted' : 'hover:border-primary/50',
+              'relative items-center gap-2 rounded-2xl p-4 text-center transition-colors',
+              active ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             {active && (
@@ -553,7 +550,7 @@ const CopyCard = ({
       })
   }
   return (
-    <Card className="gap-3 p-4 shadow-none">
+    <Card className="gap-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <PlatformChip meta={meta} />
         <div className="flex flex-wrap items-center gap-2">
@@ -587,7 +584,7 @@ const ScriptCard = ({
   meta: PlatformMeta
   asset: { content: string; caption?: string }
 }) => (
-  <Card className="gap-4 p-4 shadow-none">
+  <Card className="gap-4 p-4">
     <div className="flex items-center justify-between gap-2">
       <span className="flex items-center gap-2">
         <PlatformChip meta={meta} />
@@ -664,7 +661,7 @@ const ThinkingStream = () => {
   }, [index])
 
   return (
-    <Card className="p-6 shadow-none">
+    <Card className="p-6">
       <div className="flex items-start gap-3">
         <span className="bg-primary-light relative flex size-8 shrink-0 items-center justify-center rounded-full">
           <Loader2 className="text-primary size-4 animate-spin" />

@@ -89,7 +89,7 @@ const EmailChannelIcon = CHANNEL_ICON.email
 export type ScheduledEmail = {
   name: string
   audience: Audience
-  sendAt: Date
+  sendAt: Date | 'now'
   subject: string
   cost: number
 }
@@ -181,19 +181,20 @@ export const EmailCampaignFlow = ({
 
   const earliestSend = useMemo(() => Date.now() + 48 * 60 * 60 * 1000, [open])
 
-  const scheduledAt = useMemo(() => {
-    if (!date) return null
+  const scheduledAt = useMemo<Date | 'now'>(() => {
+    if (!date) return 'now'
     const slot = TIME_OPTIONS.find((t) => t.id === timeSlot)
     const timeStr = timeSlot === 'custom' ? customTime : slot?.time
-    if (!timeStr) return null
+    if (!timeStr) return 'now'
     const [hh, mm] = timeStr.split(':').map(Number)
-    if (hh === undefined || mm === undefined) return null
+    if (hh === undefined || mm === undefined) return 'now'
     const d = new Date(date)
     d.setHours(hh, mm, 0, 0)
     return d
   }, [date, timeSlot, customTime])
 
-  const violates48h = scheduledAt ? scheduledAt.getTime() < earliestSend : false
+  const violates48h =
+    scheduledAt !== 'now' && scheduledAt.getTime() < earliestSend
 
   const lastAutoName = useRef('')
   useEffect(() => {
@@ -216,7 +217,6 @@ export const EmailCampaignFlow = ({
       setLoadingDrafts(false)
     }, 650)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
   const regenerate = () => {
@@ -268,7 +268,6 @@ export const EmailCampaignFlow = ({
     if (open) return
     const t = setTimeout(reset, 200)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const canContinue = (): boolean => {
@@ -280,7 +279,7 @@ export const EmailCampaignFlow = ({
     }
     if (step === 3)
       return (
-        campaignName.trim().length > 0 && scheduledAt !== null && !violates48h
+        campaignName.trim().length > 0 && scheduledAt !== 'now' && !violates48h
       )
     if (step === 4)
       return subject.trim().length > 0 && message.trim().length > 0
@@ -328,7 +327,6 @@ export const EmailCampaignFlow = ({
   }
 
   const handleSchedule = () => {
-    if (!scheduledAt) return
     setProcessing(true)
     setTimeout(() => {
       setProcessing(false)
@@ -436,7 +434,6 @@ export const EmailCampaignFlow = ({
                 setBuilderName={setBuilderName}
                 builderFilters={builderFilters}
                 setBuilderFilters={setBuilderFilters}
-                builderCount={builderCount}
               />
             ) : step === 3 ? (
               <StepWhen
@@ -479,6 +476,7 @@ export const EmailCampaignFlow = ({
                 audience={selectedAudience}
                 scheduledAt={scheduledAt}
                 subject={subject}
+                cost={cost}
               />
             )}
           </div>
@@ -506,8 +504,10 @@ export const EmailCampaignFlow = ({
                 >
                   {processing ? (
                     <>
-                      <Loader2 className="size-4 animate-spin" /> Scheduling…
+                      <Loader2 className="size-4 animate-spin" /> Processing…
                     </>
+                  ) : scheduledAt === 'now' ? (
+                    'Send now'
                   ) : (
                     'Schedule send'
                   )}
@@ -550,8 +550,8 @@ const StepPurpose = ({
               }
             }}
             className={cn(
-              'flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              active ? 'border-primary bg-muted' : 'hover:border-primary/50',
+              'flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              active ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <span className="text-foreground font-medium">{p.label}</span>
@@ -575,7 +575,6 @@ const StepWho = ({
   setBuilderName,
   builderFilters,
   setBuilderFilters,
-  builderCount,
 }: {
   audiences: Audience[]
   selectedId: string
@@ -587,7 +586,6 @@ const StepWho = ({
   setBuilderName: (v: string) => void
   builderFilters: string[]
   setBuilderFilters: (v: string[]) => void
-  builderCount: number
 }) => {
   const [open, setOpen] = useState(false)
   const active = audiences.find((a) => a.id === selectedId) ?? DEFAULT_AUDIENCE
@@ -648,9 +646,6 @@ const StepWho = ({
             </div>
           ))}
         </div>
-        <p className="text-muted-foreground text-sm">
-          Estimated reach: {builderCount.toLocaleString()} voters
-        </p>
       </div>
     )
   }
@@ -679,10 +674,8 @@ const StepWho = ({
               }
             }}
             className={cn(
-              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              recSelected
-                ? 'border-primary bg-muted'
-                : 'hover:border-primary/50',
+              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              recSelected ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <div className="min-w-0">
@@ -705,14 +698,14 @@ const StepWho = ({
             <Card
               role="button"
               tabIndex={0}
-              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none"
+              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4"
             >
               <div className="min-w-0">
                 <p className="text-foreground truncate font-medium">
                   {active.name}
                 </p>
                 <p className="text-muted-foreground text-sm">
-                  Email {active.count.toLocaleString()} voters — free
+                  Email {active.count.toLocaleString()} voters
                 </p>
               </div>
               <ChevronDown
@@ -769,7 +762,7 @@ const StepWho = ({
                         {a.name}
                       </span>
                       <span className="text-muted-foreground block text-sm">
-                        Email {a.count.toLocaleString()} voters — free
+                        Email {a.count.toLocaleString()} voters
                       </span>
                     </span>
                     {on && <Check className="text-primary size-5 shrink-0" />}
@@ -780,7 +773,6 @@ const StepWho = ({
           </PopoverContent>
         </Popover>
       </div>
-      <p className="text-muted-foreground text-sm">Email sends are free.</p>
     </div>
   )
 }
@@ -815,12 +807,19 @@ const StepWhen = ({
     d.setHours(0, 0, 0, 0)
     return d
   }, [earliestSend])
+  const tz = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone
+    } catch {
+      return 'Local time'
+    }
+  }, [])
 
   return (
     <div className="space-y-6">
       <Intro
-        title="When do you want to send it?"
-        body="We recommend mid-morning or early evening. Sends require at least 48 hours' notice."
+        title="When do you want to send?"
+        body="Weekdays between 8:00am and 11:00am have the highest open rates."
       />
 
       <div className="space-y-2">
@@ -829,17 +828,14 @@ const StepWhen = ({
           id="email-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Renter outreach — May"
+          placeholder="Campaign name"
           maxLength={60}
         />
-        <p className="text-muted-foreground text-sm">
-          Internal name to identify this campaign in your history.
-        </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label>Send date</Label>
+          <Label>Date</Label>
           <Popover open={calOpen} onOpenChange={setCalOpen}>
             <PopoverTrigger asChild>
               <Button
@@ -847,8 +843,8 @@ const StepWhen = ({
                 className={cn(
                   'border-components-input-border bg-components-input-base hover:bg-muted text-foreground w-full justify-start rounded-md px-3 text-base font-normal md:text-sm',
                   !date && 'text-muted-foreground',
-                  violates48h && 'border-destructive text-destructive',
                 )}
+                aria-invalid={violates48h}
               >
                 <CalendarIcon className="text-muted-foreground size-4" />
                 {date ? fmtDate(date) : 'Pick a date'}
@@ -870,16 +866,11 @@ const StepWhen = ({
         </div>
 
         <div className="space-y-2">
-          <Label>Send time</Label>
+          <Label>Time</Label>
           <Select value={timeSlot} onValueChange={setTimeSlot}>
-            <SelectTrigger
-              className={cn(
-                'w-full',
-                violates48h && 'border-destructive text-destructive',
-              )}
-            >
+            <SelectTrigger className={cn('w-full')} aria-invalid={violates48h}>
               <Clock className="text-muted-foreground size-4" />
-              <SelectValue placeholder="Select time" />
+              <SelectValue placeholder="Pick a time" />
             </SelectTrigger>
             <SelectContent>
               {TIME_OPTIONS.map((o) => (
@@ -896,6 +887,7 @@ const StepWhen = ({
               onChange={(e) => setCustomTime(e.target.value)}
             />
           )}
+          <p className="text-muted-foreground text-sm">{tz}</p>
         </div>
       </div>
 
@@ -1027,19 +1019,26 @@ const StepWhat = ({
           </Button>
         </div>
 
+        {loadingDrafts && (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-3.5 animate-spin" />
+            Drafting email…
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label htmlFor="email-subject">Subject</Label>
           <Input
             id="email-subject"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            placeholder="Write a subject line…"
+            placeholder="Subject line"
           />
         </div>
       </div>
 
       {/* Body editor: image, message, toolbar. */}
-      <Card className="gap-0 p-4 shadow-none">
+      <Card className="gap-0 p-4">
         <input
           ref={fileInputRef}
           type="file"
@@ -1074,24 +1073,29 @@ const StepWhat = ({
           >
             <ImageIcon className="text-muted-foreground size-6" />
             <span className="text-foreground text-sm font-medium">
-              Add a header image
+              Add an image to include in the email
             </span>
             <span className="text-muted-foreground text-xs">
-              Recipients see this at the top of your email
+              Optional — appears at the top of the email
             </span>
           </button>
         )}
 
-        <span className="text-muted-foreground mb-2 block text-xs font-medium">
-          Email body
-        </span>
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-muted-foreground text-xs font-medium">
+            Email body
+          </span>
+          <span className="text-muted-foreground text-xs tabular-nums">
+            {message.length} chars
+          </span>
+        </div>
         <Textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           placeholder="Write your email…"
           // field-sizing:content grows the textarea to fit the whole email body,
           // so it never scrolls internally — the drawer body scrolls instead.
-          className="min-h-[200px] resize-none overflow-hidden border-0 p-0 shadow-none [field-sizing:content] focus-visible:ring-0"
+          className="min-h-[200px] resize-none overflow-hidden border-0 p-0 [field-sizing:content] focus-visible:ring-0"
         />
 
         <div className="border-border -mx-4 -mb-4 mt-4 flex items-center justify-end gap-1 border-t p-2">
@@ -1228,7 +1232,7 @@ const StepPreview = ({
       body="This is how it will appear to your recipients."
     />
 
-    <Card className="gap-0 overflow-hidden p-0 shadow-none">
+    <Card className="gap-0 overflow-hidden p-0">
       <div className="border-border bg-muted/40 border-b p-4">
         <div className="flex items-start gap-3">
           <span className="bg-primary-light text-primary flex size-10 shrink-0 items-center justify-center rounded-full">
@@ -1272,75 +1276,88 @@ const StepReview = ({
   audience,
   scheduledAt,
   subject,
+  cost,
 }: {
   audience: Audience
-  scheduledAt: Date | null
+  scheduledAt: Date | 'now'
   subject: string
-}) => (
-  <div className="space-y-6">
-    <Intro
-      title="Review and send"
-      body="Confirm your campaign details before sending."
-    />
+  cost: number
+}) => {
+  const formattedDate =
+    scheduledAt === 'now' ? 'Send now' : fmtDate(scheduledAt)
+  const formattedTime =
+    scheduledAt === 'now'
+      ? '—'
+      : scheduledAt.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+        })
 
-    <Card className="gap-0 overflow-hidden p-0 shadow-none">
-      <Accordion type="single" collapsible defaultValue="details">
-        <AccordionItem value="details" className="border-none">
-          <AccordionTrigger className="px-4 py-4 hover:no-underline">
-            <div className="flex items-center gap-3 text-left">
-              <span
-                className={cn(
-                  'flex size-12 shrink-0 items-center justify-center rounded-full',
-                  CHANNEL_ICON_TINT.email,
-                )}
-              >
-                <EmailChannelIcon className="text-foreground size-6" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-foreground truncate font-medium">
-                  {subject || '(No subject)'}
-                </p>
-                <p className="text-foreground text-sm font-normal">
-                  Send date: {scheduledAt ? fmtDate(scheduledAt) : '—'}
-                </p>
-                <p className="text-foreground text-sm font-normal">
-                  Send time:{' '}
-                  {scheduledAt
-                    ? scheduledAt.toLocaleTimeString('en-US', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })
-                    : '—'}
-                </p>
+  return (
+    <div className="space-y-6">
+      <Intro
+        title="Review and send"
+        body="Confirm your campaign details before sending."
+      />
+
+      <Card className="gap-0 overflow-hidden p-0">
+        <Accordion type="single" collapsible defaultValue="details">
+          <AccordionItem value="details" className="border-none">
+            <AccordionTrigger className="px-4 py-4 hover:no-underline">
+              <div className="flex items-center gap-3 text-left">
+                <span
+                  className={cn(
+                    'flex size-12 shrink-0 items-center justify-center rounded-full',
+                    CHANNEL_ICON_TINT.email,
+                  )}
+                >
+                  <EmailChannelIcon className="text-foreground size-6" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-foreground truncate font-medium">Email</p>
+                  <p className="text-foreground text-sm font-normal">
+                    Send date: {formattedDate}
+                  </p>
+                  <p className="text-foreground text-sm font-normal">
+                    Send time: {formattedTime}
+                  </p>
+                </div>
               </div>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="px-4 pb-4">
-            <dl className="space-y-1 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-foreground">Recipients</dt>
-                <dd className="text-foreground">
-                  {audience.count.toLocaleString()}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-foreground">Audience</dt>
-                <dd className="text-foreground">{audience.name}</dd>
-              </div>
-            </dl>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-      <div className="border-border flex items-center justify-between border-t px-4 py-4">
-        <span className="text-foreground font-medium">Total</span>
-        <span className="text-foreground font-semibold">
-          Free ($
-          {formatMoney(0)})
-        </span>
-      </div>
-    </Card>
-  </div>
-)
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4">
+              <dl className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <dt className="text-foreground">Recipients</dt>
+                  <dd className="text-foreground">
+                    {audience.count.toLocaleString()}
+                  </dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-foreground">Audience</dt>
+                  <dd className="text-foreground">{audience.name}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-foreground">Subject</dt>
+                  <dd className="text-foreground max-w-[60%] truncate">
+                    {subject}
+                  </dd>
+                </div>
+              </dl>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+        {cost > 0 && (
+          <div className="border-border flex items-center justify-between border-t px-4 py-4">
+            <span className="text-foreground text-base font-medium">Total</span>
+            <span className="text-foreground text-base font-semibold">
+              ${formatMoney(cost)}
+            </span>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
 
 // ---------- Success ----------
 const SuccessScreen = ({
@@ -1349,7 +1366,7 @@ const SuccessScreen = ({
   onClose,
 }: {
   audience: Audience
-  sendAt: Date | null
+  sendAt: Date | 'now'
   onClose: () => void
 }) => (
   <div className="space-y-6 py-8 text-center">
@@ -1359,11 +1376,19 @@ const SuccessScreen = ({
       </span>
     </div>
     <div className="space-y-2">
-      <h2 className="text-foreground text-2xl font-semibold">Scheduled!</h2>
+      <h2 className="text-foreground text-2xl font-semibold">
+        {sendAt === 'now' ? 'Sending!' : 'Scheduled!'}
+      </h2>
       <p className="text-muted-foreground">
-        Your email campaign has been scheduled and will reach{' '}
-        {audience.count.toLocaleString()} recipients
-        {sendAt ? ` on ${fmtDate(sendAt)}.` : ' shortly.'}
+        Your email campaign will reach {audience.count.toLocaleString()}{' '}
+        recipients
+        {sendAt === 'now'
+          ? ' shortly.'
+          : ` on ${sendAt.toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
+              day: 'numeric',
+            })}.`}
       </p>
     </div>
     <Button size="large" className="w-full" onClick={onClose}>

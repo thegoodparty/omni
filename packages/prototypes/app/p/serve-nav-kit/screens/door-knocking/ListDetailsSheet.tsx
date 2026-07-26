@@ -25,13 +25,13 @@ import { type ComponentType } from 'react'
 import { SectionLabel } from '../../components/SectionLabel'
 import {
   type CutFilters,
+  type Ethnicity,
+  type IncomeRange,
   type List,
   type Party,
   type Voter,
   CUSTOM_VOTER_LISTS,
   EDUCATION_LABEL,
-  ETHNICITY_LABEL,
-  INCOME_LABEL,
   ISSUES,
   MARITAL_LABEL,
   PARTY_LABEL,
@@ -40,6 +40,22 @@ import {
   listMode,
   routeTotalMinutes,
 } from './doorKnockingData'
+
+// The details sheet uses the fuller filter-chip labels (source parity) — distinct
+// from the VoterPanel demographic labels (shorter/spaced).
+const DETAILS_INCOME_LABEL: Record<IncomeRange, string> = {
+  '<50k': 'Under $50k',
+  '50-100k': '$50k–$100k',
+  '100-150k': '$100k–$150k',
+  '150k+': '$150k+',
+}
+const DETAILS_ETHNICITY_LABEL: Record<Ethnicity, string> = {
+  white: 'White',
+  hispanic: 'Hispanic or Latino',
+  black: 'Black or African American',
+  asian: 'Asian',
+  other: 'Other',
+}
 
 type Props = {
   open: boolean
@@ -137,7 +153,7 @@ const appliedFilterGroups = (
   )
   push(
     'Household income',
-    f.incomeRange.map((v) => INCOME_LABEL[v]),
+    f.incomeRange.map((v) => DETAILS_INCOME_LABEL[v]),
   )
   push(
     'Language',
@@ -147,7 +163,7 @@ const appliedFilterGroups = (
   )
   push(
     'Ethnicity',
-    f.ethnicity.map((v) => ETHNICITY_LABEL[v]),
+    f.ethnicity.map((v) => DETAILS_ETHNICITY_LABEL[v]),
   )
   push('Precinct', f.precinct)
   const lifestyle = (
@@ -348,7 +364,7 @@ export const ListDetailsSheet = ({
                 )}
               </dl>
               {kind === 'saved' && (
-                <Card className="flex-row items-start gap-2 p-3 shadow-none">
+                <Card className="flex-row items-start gap-2 p-3">
                   <CheckCircle2 className="text-muted-foreground mt-0.5 size-4 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="text-muted-foreground text-xs">Progress</p>
@@ -377,7 +393,7 @@ export const ListDetailsSheet = ({
               <section className="space-y-4">
                 <div className="space-y-3">
                   <SectionLabel>Audience snapshot</SectionLabel>
-                  <Card className="p-4 shadow-none">
+                  <Card className="p-4">
                     <dl className="grid grid-cols-2 gap-x-4 gap-y-4">
                       <StatCell
                         label="People"
@@ -417,7 +433,7 @@ export const ListDetailsSheet = ({
                 {highlights.length > 0 && (
                   <div className="space-y-3">
                     <SectionLabel>Demographic highlights</SectionLabel>
-                    <Card className="p-4 shadow-none">
+                    <Card className="p-4">
                       <ul className="space-y-2">
                         {highlights.map((h, i) => (
                           <li
@@ -468,7 +484,7 @@ const Metric = ({
   label: string
   value: string
 }) => (
-  <Card className="flex-row items-start gap-2 p-3 shadow-none">
+  <Card className="flex-row items-start gap-2 p-3">
     <Icon className="text-muted-foreground mt-0.5 size-4 shrink-0" />
     <div className="min-w-0">
       <dt className="text-muted-foreground text-xs">{label}</dt>

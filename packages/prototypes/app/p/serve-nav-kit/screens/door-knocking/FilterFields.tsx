@@ -87,7 +87,7 @@ export const FilterFields = ({ filters, setFilters, universe }: Props) => {
                 value={opt.value}
                 disabled={count === 0}
               >
-                {opt.label} ({count})
+                {opt.label}
               </FilterPill>
             )
           })}
@@ -134,7 +134,7 @@ export const FilterFields = ({ filters, setFilters, universe }: Props) => {
                 value={opt.value}
                 disabled={count === 0}
               >
-                {opt.label} ({count})
+                {opt.label}
               </FilterPill>
             )
           })}

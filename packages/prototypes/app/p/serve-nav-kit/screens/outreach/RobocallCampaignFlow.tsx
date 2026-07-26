@@ -192,7 +192,6 @@ export const RobocallCampaignFlow = ({
       setLoadingScript(false)
     }, 650)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step])
 
   const regenerate = () => {
@@ -243,7 +242,6 @@ export const RobocallCampaignFlow = ({
     if (open) return
     const t = setTimeout(reset, 200)
     return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const canContinue = (): boolean => {
@@ -408,7 +406,6 @@ export const RobocallCampaignFlow = ({
                 setBuilderName={setBuilderName}
                 builderFilters={builderFilters}
                 setBuilderFilters={setBuilderFilters}
-                builderCount={builderCount}
               />
             ) : step === 3 ? (
               <StepWhen
@@ -537,8 +534,8 @@ const StepPurpose = ({
               }
             }}
             className={cn(
-              'flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              active ? 'border-primary bg-muted' : 'hover:border-primary/50',
+              'flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              active ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <span className="text-foreground font-medium">{p.label}</span>
@@ -562,7 +559,6 @@ const StepWho = ({
   setBuilderName,
   builderFilters,
   setBuilderFilters,
-  builderCount,
 }: {
   audiences: Audience[]
   selectedId: string
@@ -574,7 +570,6 @@ const StepWho = ({
   setBuilderName: (v: string) => void
   builderFilters: string[]
   setBuilderFilters: (v: string[]) => void
-  builderCount: number
 }) => {
   const [open, setOpen] = useState(false)
   const active = audiences.find((a) => a.id === selectedId) ?? DEFAULT_AUDIENCE
@@ -649,9 +644,6 @@ const StepWho = ({
             </div>
           ))}
         </div>
-        <p className="text-muted-foreground text-sm">
-          Estimated reach: {builderCount.toLocaleString()} voters
-        </p>
       </div>
     )
   }
@@ -680,10 +672,8 @@ const StepWho = ({
               }
             }}
             className={cn(
-              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none transition-colors',
-              recSelected
-                ? 'border-primary bg-muted'
-                : 'hover:border-primary/50',
+              'cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 transition-colors',
+              recSelected ? 'border-primary' : 'hover:border-primary/50',
             )}
           >
             <div className="min-w-0">
@@ -706,7 +696,7 @@ const StepWho = ({
             <Card
               role="button"
               tabIndex={0}
-              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4 shadow-none"
+              className="cursor-pointer flex-row items-center justify-between gap-3 rounded-lg p-4"
             >
               <div className="min-w-0">
                 <p className="text-foreground truncate font-medium">
@@ -864,8 +854,8 @@ const StepWhen = ({
                 className={cn(
                   'border-components-input-border bg-components-input-base hover:bg-muted text-foreground w-full justify-start rounded-md px-3 text-base font-normal md:text-sm',
                   !date && 'text-muted-foreground',
-                  violates48h && 'border-destructive text-destructive',
                 )}
+                aria-invalid={violates48h}
               >
                 <CalendarIcon className="text-muted-foreground size-4" />
                 {date ? fmtDate(date) : 'Pick a date'}
@@ -902,12 +892,7 @@ const StepWhen = ({
         <div className="space-y-2">
           <Label>Send time</Label>
           <Select value={timeSlot} onValueChange={setTimeSlot}>
-            <SelectTrigger
-              className={cn(
-                'w-full',
-                violates48h && 'border-destructive text-destructive',
-              )}
-            >
+            <SelectTrigger className={cn('w-full')} aria-invalid={violates48h}>
               <Clock className="text-muted-foreground size-4" />
               <SelectValue placeholder="Select time" />
             </SelectTrigger>
@@ -958,7 +943,7 @@ const StepReview = ({
       body="Review your details and complete your payment. You can record your message after payment."
     />
 
-    <Card className="gap-0 overflow-hidden p-0 shadow-none">
+    <Card className="gap-0 overflow-hidden p-0">
       <Accordion type="single" collapsible defaultValue="details">
         <AccordionItem value="details" className="border-none">
           <AccordionTrigger className="px-4 py-4 hover:no-underline">
@@ -974,7 +959,7 @@ const StepReview = ({
               <div>
                 <p className="text-foreground font-medium">Robocall</p>
                 <p className="text-foreground text-sm font-normal">
-                  Send date: {scheduledAt ? fmtDate(scheduledAt) : '—'}
+                  Send date: {scheduledAt ? fmtDate(scheduledAt) : 'Send now'}
                 </p>
                 <p className="text-foreground text-sm font-normal">
                   Send time:{' '}
@@ -1018,7 +1003,7 @@ const StepReview = ({
       </div>
     </Card>
 
-    <Card className="gap-3 p-4 shadow-none">
+    <Card className="gap-3 p-4">
       <p className="text-foreground font-semibold">Payment details</p>
       <div className="space-y-1.5">
         <Label>Card number</Label>
@@ -1211,14 +1196,14 @@ const StepRecord = ({
           </div>
         )}
 
-        <Card className="gap-2 p-4 shadow-none">
+        <Card className="gap-2 p-4">
           <SectionLabel>Read this on your recording</SectionLabel>
           {isCustom ? (
             <Textarea
               value={script}
               onChange={(e) => setScript(e.target.value)}
               placeholder="Write your script…"
-              className="min-h-[160px] resize-none border-0 p-0 shadow-none focus-visible:ring-0 [field-sizing:content]"
+              className="min-h-[160px] resize-none border-0 p-0 focus-visible:ring-0 [field-sizing:content]"
             />
           ) : loadingScript && !script ? (
             <div className="text-muted-foreground flex items-center gap-2 py-6 text-sm">
