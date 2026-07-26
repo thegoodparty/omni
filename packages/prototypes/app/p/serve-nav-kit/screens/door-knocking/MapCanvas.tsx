@@ -134,19 +134,13 @@ export const MapCanvas = ({
     onPolygonChange?.(next)
   }
 
-  // Source model: tapping accumulates boundary points (no selection yet); the
-  // shape is finalized only on "Close shape", which commits the polygon.
-  const closePolygon = () => {
-    if (draft.length >= 3) onPolygonChange?.(draft)
-  }
-
   const handleSvgClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (mode !== 'draw' || dragIdx.current !== null) return
     if (!drawHintDismissed) {
       drawHintDismissed = true
       setShowHint(false)
     }
-    setDraft([...draft, toWorld(e)])
+    commit([...draft, toWorld(e)])
   }
 
   const startDrag = (i: number) => (e: React.MouseEvent) => {
@@ -407,16 +401,21 @@ export const MapCanvas = ({
               </span>
             </div>
           )}
-          {/* Close shape — finalizes the drawn polygon (source parity). */}
-          <div className="absolute right-3 bottom-3">
-            <Button
-              size="small"
-              onClick={closePolygon}
-              disabled={draft.length < 3}
-            >
-              Close shape
-            </Button>
-          </div>
+          {/* Undo / Clear — shown once there are points (source: GoogleMapCanvas). */}
+          {draft.length > 0 && (
+            <div className="absolute right-3 bottom-3 flex gap-2">
+              <Button
+                size="small"
+                variant="outline"
+                onClick={() => commit(draft.slice(0, -1))}
+              >
+                Undo
+              </Button>
+              <Button size="small" variant="outline" onClick={() => commit([])}>
+                Clear
+              </Button>
+            </div>
+          )}
         </>
       )}
     </div>
