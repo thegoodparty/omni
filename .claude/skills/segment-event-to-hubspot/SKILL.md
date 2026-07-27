@@ -118,11 +118,31 @@ Event-based enrollment shape (verified working, HTTP 201):
 }
 ```
 
-Actions must be `type: SINGLE_CONNECTION` with `actionTypeId`.
-<!-- TODO(DATA-2149): copy-event-property action JSON — build one such action
-in the sandbox UI on a test flow, GET it back with get-flow, and paste the
-exact action object here. actionTypeId 0-5 with guessed field shapes returns
-HTTP 500. -->
+Copy-event-property action shape (verified end to end 2026-07-27: an
+API-created flow with this action stamped a test event's property onto the
+contact). One action per field; chain them via `connection.nextActionId`:
+
+```json
+{
+  "actionId": "1",
+  "type": "SINGLE_CONNECTION",
+  "actionTypeVersion": 0,
+  "actionTypeId": "0-5",
+  "fields": {
+    "property_name": "<target contact property>",
+    "value": {
+      "type": "STATIC_VALUE",
+      "staticValue": "{{ enrollment_events.enrollment_event_6_66540117.<event property name> }}"
+    }
+  }
+}
+```
+
+The token namespace is `enrollment_events.enrollment_event_<objectTypeId
+with the dash as an underscore>` — e.g. definition objectTypeId `6-66540117`
+becomes `enrollment_event_6_66540117`. The field encoding is strict: it must
+be `property_name` plus a `value` object; other spellings return an opaque
+HTTP 500.
 
 ## Phase 5 — verify end to end
 
@@ -137,6 +157,9 @@ hour in the Segment debugger).
 
 ## Known quirks
 
+- **First-send race:** an event occurrence sent immediately after enabling a
+  flow may not enroll anyone. Wait a minute, send again, then poll the
+  contact (the stamp typically lands within ~30s of the second send).
 - Fields not mapped in a Segment subscription are **silently dropped** — the
   destination never errors. Phase 2's diff is what protects against this.
 - The catch-all `Firehose Event V2` subscription delivers every track to
