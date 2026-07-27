@@ -13,11 +13,17 @@ export const ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL =
   "I'm here to help you develop this bill — please ask me something " +
   'about the policy, the current law, comparable legislation, or the draft.'
 
-// A state (or federal) legislator drafts a bill under the state's own
-// authority, not a municipal ordinance under home rule: the vocabulary, the
-// authority test, the research target, and the peer set all change. Every
+// A state legislator drafts a bill under the state's own authority, not a
+// municipal ordinance under home rule: the vocabulary, the authority test,
+// the research target, and the peer set all change. Every
 // municipal/legislative block pair below must keep the municipal text
 // byte-identical to what shipped before level awareness.
+//
+// FEDERAL deliberately rides the state variant: Congress-style offices are
+// outside Serve's ICP so no federal-specific blocks exist, and
+// bill/legislature framing is far less wrong for them than council/municipal
+// framing. If Serve ever onboards federal officeholders, give FEDERAL its own
+// blocks (U.S. Code, enumerated powers) instead of widening these.
 const isLegislative = (level: BallotReadyPositionLevel | null): boolean =>
   level === 'STATE' || level === 'FEDERAL'
 

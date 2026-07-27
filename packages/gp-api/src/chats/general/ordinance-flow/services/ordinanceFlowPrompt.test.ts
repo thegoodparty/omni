@@ -686,5 +686,19 @@ describe('buildOrdinanceFlowSystemPrompt', () => {
         expect(prompt).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE)
       }
     })
+
+    // Deliberate lesser-wrong mapping: FEDERAL has no blocks of its own
+    // (outside Serve's ICP), and bill/legislature framing beats
+    // council/municipal framing for a Congress-style office. Pinned so a
+    // future refactor doesn't silently drop FEDERAL back to municipal.
+    it('gives FEDERAL offices the legislative framing, never municipal', () => {
+      const prompt = buildOrdinanceFlowSystemPrompt({
+        ctx: stateCtx({ officeLevel: 'FEDERAL' }),
+        toolNames: [],
+      })
+      expect(prompt).toContain('state bill')
+      expect(prompt).not.toContain('municipal ordinance')
+      expect(prompt).toContain(ORDINANCE_FLOW_GUARDRAIL_DECLINE_BILL)
+    })
   })
 })
