@@ -25,7 +25,7 @@ import {
   type OrdinanceSource,
 } from '@goodparty_org/contracts'
 
-import { estimateCostUsd } from './ordinanceCost.util'
+import { estimateCostUsd } from '@/ordinances/services/ordinanceCost.util'
 
 export const ORDINANCE_READ_SECTIONS = [
   'clarify',

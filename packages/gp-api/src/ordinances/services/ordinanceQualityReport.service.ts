@@ -172,18 +172,22 @@ export class OrdinanceQualityReportService {
     report: OrdinanceQualityReport
     degradedCheckIds: string[]
     tokens: number
+    inputTokens: number
+    outputTokens: number
+    model: string
   }> {
-    const { object, tokens } = await this.llm.jsonCompletion({
-      messages: [
-        { role: 'system', content: QC_SYSTEM_PROMPT },
-        { role: 'user', content: buildQcUserPrompt(record) },
-      ],
-      schema: QcGenerationSchema,
-      models: opts?.models ?? QC_MODELS,
-      retries: opts?.retries,
-      abortSignal: opts?.abortSignal,
-      userId: String(userId),
-    })
+    const { object, tokens, inputTokens, outputTokens, model } =
+      await this.llm.jsonCompletion({
+        messages: [
+          { role: 'system', content: QC_SYSTEM_PROMPT },
+          { role: 'user', content: buildQcUserPrompt(record) },
+        ],
+        schema: QcGenerationSchema,
+        models: opts?.models ?? QC_MODELS,
+        retries: opts?.retries,
+        abortSignal: opts?.abortSignal,
+        userId: String(userId),
+      })
 
     const byId = new Map(object.checks.map((c) => [c.id, c]))
     const degradedCheckIds: string[] = []
@@ -213,6 +217,13 @@ export class OrdinanceQualityReportService {
       stale: false,
       ranAgainstBodyHash: qualityReportInputHash(record),
     }
-    return { report, degradedCheckIds, tokens }
+    return {
+      report,
+      degradedCheckIds,
+      tokens,
+      inputTokens,
+      outputTokens,
+      model,
+    }
   }
 }

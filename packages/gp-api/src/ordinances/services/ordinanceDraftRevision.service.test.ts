@@ -72,6 +72,8 @@ const modelOutput = (overrides: object = {}) => ({
     ...overrides,
   },
   tokens: 20,
+  inputTokens: 16,
+  outputTokens: 4,
   model: 'claude-sonnet-4-6',
 })
 
@@ -88,6 +90,9 @@ describe('OrdinanceDraftRevisionService', () => {
     ])
     expect(revision.sourcesToAdd).toEqual([])
     expect(revision.tokens).toBe(20)
+    expect(revision.inputTokens).toBe(16)
+    expect(revision.outputTokens).toBe(4)
+    expect(revision.model).toBe('claude-sonnet-4-6')
   })
 
   it('threads the pinned loop models, retries, budget, and abort signal', async () => {

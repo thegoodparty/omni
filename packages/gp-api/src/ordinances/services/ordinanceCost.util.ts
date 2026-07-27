@@ -34,3 +34,28 @@ export const estimateCostUsd = (
     (outputTokens / 1_000_000) * rate.outputPerM
   )
 }
+
+// The per-draft token columns the ordinance record carries: the interactive
+// flow, the manual QC run, and the improvement loop, each split input/output.
+export interface DraftTokenColumns {
+  flowInputTokens: number
+  flowOutputTokens: number
+  qcInputTokens: number
+  qcOutputTokens: number
+  loopInputTokens: number
+  loopOutputTokens: number
+}
+
+// The canonical per-draft token total, summed from the record's own columns
+// (flow + manual QC + loop). This is the single per-draft rollup: never add
+// OrdinanceQualityIteration.tokens on top — those rows hold the same loop spend
+// as per-pass detail and would double-count. Pair with estimateCostUsd to
+// price it (the flow's models are all sonnet-class today).
+export const draftTokenTotals = (
+  record: DraftTokenColumns,
+): { inputTokens: number; outputTokens: number } => ({
+  inputTokens:
+    record.flowInputTokens + record.qcInputTokens + record.loopInputTokens,
+  outputTokens:
+    record.flowOutputTokens + record.qcOutputTokens + record.loopOutputTokens,
+})

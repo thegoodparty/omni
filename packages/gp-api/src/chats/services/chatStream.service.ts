@@ -57,6 +57,10 @@ export interface StreamArgs {
   // the model that produced it. Optional so only scopes that meter usage (the
   // ordinance flow) pay for it; a throw here is logged, never fails the turn.
   onUsage?: (usage: LlmStreamUsage, model: string) => void | Promise<void>
+  // Braintrust span name for this turn. This service is shared across chat
+  // scopes, so the caller supplies a scope-specific name (e.g.
+  // 'ordinance_flow-chat-stream'); falls back to a generic name if unset.
+  traceName?: string
 }
 
 export const MAX_CHAT_HISTORY_MESSAGES = 40
@@ -494,7 +498,7 @@ export class ChatStreamService {
     }
 
     const streamDone = this.braintrust
-      ? this.braintrust.traced('briefing-chat-stream', driveStream, {
+      ? this.braintrust.traced(args.traceName ?? 'chat-stream', driveStream, {
           input: {
             conversationId: args.conversationId,
             userMessageLength: args.userMessage.length,
