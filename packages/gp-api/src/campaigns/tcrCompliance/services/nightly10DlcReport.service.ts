@@ -378,6 +378,13 @@ export class Nightly10DlcReportService extends createPrismaBase(
         where: {
           ...proOnly,
           peerlyIdentityId: { not: null },
+          // Actively billing-blocked records list under their own section
+          // only (mirrors cases 1 and 3a).
+          NOT: {
+            peerlyBillingBlockedAt: {
+              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+            },
+          },
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },
@@ -392,6 +399,11 @@ export class Nightly10DlcReportService extends createPrismaBase(
         where: {
           ...proOnly,
           peerlyIdentityId: { not: null },
+          NOT: {
+            peerlyBillingBlockedAt: {
+              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+            },
+          },
           status: {
             in: [TcrComplianceStatus.submitted, TcrComplianceStatus.pending],
           },

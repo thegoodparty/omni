@@ -1322,5 +1322,35 @@ describe('Nightly10DlcReportService', () => {
       const text = blocksText(blocks)
       expect(text).toContain('escalation pending')
     })
+
+    it('shows "escalation pending" when the waiting_to_finalize claim is still null', async () => {
+      queueFindManyResults(mockModel.findMany, [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [
+          waitingToFinalizeRecord({
+            peerlyProfileStatusChangedAt: subDays(new Date(), 10),
+          }),
+        ],
+      ])
+      // Keep the claim unclaimed so the mirror line renders the pending state.
+      mockModel.updateMany.mockResolvedValue({ count: 0 })
+
+      await service.handleNightlyReport({ reportDate: '2026-07-10' })
+
+      const [{ blocks }] = mockSlack.message.mock.calls[0] as [
+        { blocks: SlackMessageBlock[] },
+      ]
+      const text = blocksText(blocks)
+      expect(text).toContain('waiting_to_finalize >3 business days')
+      expect(text).toContain('escalation pending')
+    })
   })
 })
