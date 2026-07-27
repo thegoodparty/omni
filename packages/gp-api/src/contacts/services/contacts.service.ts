@@ -381,7 +381,7 @@ export class ContactsService {
   async countContacts(
     filterInput: CountContactsDTO,
     organization: Organization,
-  ): Promise<number> {
+  ): Promise<{ count: number; fenced: boolean }> {
     if (!(await this.isProAccess(organization))) {
       throw new BadRequestException(PRO_FILTERING_REQUIRED_MESSAGE)
     }
@@ -397,7 +397,10 @@ export class ContactsService {
       },
     )
     if (idResolution.kind === 'empty') {
-      return this.withOrgDistrictResolution(organization, async () => 0)
+      return this.withOrgDistrictResolution(organization, async () => ({
+        count: 0,
+        fenced: false,
+      }))
     }
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     // The builder counts the filter set plus any active free-text search so the
@@ -424,7 +427,11 @@ export class ContactsService {
         )
         // People API response is untyped — external API returns unknown shape
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
-        return (response.data as PeopleListResponse).pagination.totalResults
+        const { pagination } = response.data as PeopleListResponse
+        return {
+          count: pagination.totalResults,
+          fenced: pagination.fenced ?? false,
+        }
       } catch (error) {
         this.logger.error({ error }, 'Failed to count from people API')
         throw new BadGatewayException('Failed to count from people API')

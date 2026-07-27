@@ -88,7 +88,10 @@ same pathological `DistrictVoter` → `Voter` nested loop that a rare
 name-search LIKE pattern does. The fenced count is exact when the query
 completes under the timeout and a `FENCE_LIMIT` floor otherwise; the fenced
 aggregates fallback computes AVG age/income over that same capped subquery, so
-they become a sample rather than an exact figure when the fence binds.
+they become a sample rather than an exact figure when the fence binds. Every
+caller of the fence — `getAggregates` and `findPeople`'s `pagination.fenced`
+(ENG-10804, threaded from `rawCountForDistrict`) — carries the boolean out to
+gp-api so a floored count is never presented as exact.
 
 The voter LIST fence stays name-search-only: fencing a broad filter's list
 would silently drop rows from an ordered, paginated page, whereas a count has

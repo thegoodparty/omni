@@ -2,7 +2,7 @@ import {
   ContactStatsCategory,
   ContactsStats,
 } from 'app/dashboard/polls/shared/queries'
-import { numberFormatter } from 'helpers/numberHelper'
+import { formatFencedCount } from '../../../crm/shared/formatFencedCount.util'
 
 export interface ContactStatsRendered {
   totalConstituents: string | null
@@ -54,6 +54,7 @@ const getPercentForYes = (category: ContactStatsCategory): number | null => {
 export const getContactStatsRendered = (
   stats: ContactsStats,
   totalVisibleContacts: number,
+  totalVisibleContactsFenced?: boolean,
 ): ContactStatsRendered => {
   if (!stats || !stats.buckets) {
     return {
@@ -77,7 +78,7 @@ export const getContactStatsRendered = (
     : 0
   return {
     totalConstituents: totalVisibleContacts
-      ? numberFormatter(totalVisibleContacts)
+      ? formatFencedCount(totalVisibleContacts, totalVisibleContactsFenced)
       : '--',
     homeownersPercent: homeownersPercent ? `${homeownersPercent}%` : '--',
     hasChildrenUnder18Percent: hasChildrenUnder18Percent

@@ -136,7 +136,9 @@ describe('crud_saved_filters execute', () => {
   })
 
   it('create counts first, then persists, and returns { id, name, count }', async () => {
-    const countContacts = vi.fn(() => Promise.resolve(321))
+    const countContacts = vi.fn(() =>
+      Promise.resolve({ count: 321, fenced: false }),
+    )
     const create = vi.fn(() =>
       Promise.resolve({ id: 9, name: 'Persisted name' }),
     )

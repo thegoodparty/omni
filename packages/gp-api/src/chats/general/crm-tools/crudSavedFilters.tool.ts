@@ -105,7 +105,7 @@ export const buildCrudSavedFiltersTool = (deps: {
         // list behind; the count is the same live number the route path
         // computes, and voterCount: 0 matches what the wizard persists (the
         // lists index reads live counts, not this column).
-        const count = await contacts.countContacts(filter, organization)
+        const { count } = await contacts.countContacts(filter, organization)
         const created = await voterFileFilters.create(organization.slug, {
           ...filter,
           name,

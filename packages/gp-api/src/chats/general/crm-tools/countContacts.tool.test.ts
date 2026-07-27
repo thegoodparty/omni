@@ -17,16 +17,30 @@ const buildTool = (countContacts: ContactsService['countContacts']) =>
 
 describe('buildCountContactsTool', () => {
   it('counts via the same service method the count route uses', async () => {
-    const countContacts = vi.fn(() => Promise.resolve(1234))
+    const countContacts = vi.fn(() =>
+      Promise.resolve({ count: 1234, fenced: false }),
+    )
     const tool = buildTool(countContacts)
     const input = tool.inputSchema.parse({ hasCellPhone: true })
     const result = await tool.execute(input)
     expect(countContacts).toHaveBeenCalledWith(input, ORGANIZATION)
-    expect(result).toEqual({ count: 1234 })
+    expect(result).toEqual({ count: 1234, fenced: false })
+  })
+
+  it('passes through fenced:true so the model reports a floor, not an exact count', async () => {
+    const countContacts = vi.fn(() =>
+      Promise.resolve({ count: 10000, fenced: true }),
+    )
+    const tool = buildTool(countContacts)
+    const input = tool.inputSchema.parse({ hasCellPhone: true })
+    const result = await tool.execute(input)
+    expect(result).toEqual({ count: 10000, fenced: true })
   })
 
   it('rejects a malformed filter at the input schema', () => {
-    const tool = buildTool(vi.fn(() => Promise.resolve(0)))
+    const tool = buildTool(
+      vi.fn(() => Promise.resolve({ count: 0, fenced: false })),
+    )
     expect(tool.inputSchema.safeParse({ age18_25: 'yes' }).success).toBe(false)
     expect(
       tool.inputSchema.safeParse({
