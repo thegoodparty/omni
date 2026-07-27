@@ -7,6 +7,7 @@ import { CampaignsModule } from 'src/campaigns/campaigns.module'
 import { ElectionsModule } from 'src/elections/elections.module'
 import { OrganizationsModule } from 'src/organizations/organizations.module'
 import { VotersModule } from 'src/voters/voters.module'
+import { PeopleQueryModule } from '@/peopleDb/peopleQuery.module'
 import { ContactInteractionsController } from './contactInteractions.controller'
 import { ContactNotesController } from './contactNotes.controller'
 import { ContactsController } from './contacts.controller'
@@ -24,6 +25,7 @@ import { ContactsService } from './services/contacts.service'
     OrganizationsModule,
     ContactInteractionModule,
     ContactNoteModule,
+    PeopleQueryModule,
   ],
   controllers: [
     ContactsController,

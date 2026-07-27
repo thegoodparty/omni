@@ -27,6 +27,17 @@ import { ElectionsService } from 'src/elections/services/elections.service'
 import { OrganizationsService } from 'src/organizations/services/organizations.service'
 import { VoterFileDownloadAccessService } from '@/shared/services/voterFileDownloadAccess.service'
 import { VoterFileFilterService } from 'src/voters/services/voterFileFilter.service'
+import { VoterQueryService } from '@/peopleDb/services/voterQuery.service'
+import { VoterDownloadService } from '@/peopleDb/services/voterDownload.service'
+import { StatsService } from '@/peopleDb/services/stats.service'
+import {
+  AggregatesDTO,
+  DownloadPeopleDTO,
+  GetPersonQueryDTO,
+  ListPeopleDTO,
+  SamplePeopleDTO,
+  StatsDTO,
+} from '@/peopleDb/schemas/people.schema'
 import {
   PeopleAggregatesResponse,
   StatsResponse,
@@ -107,9 +118,19 @@ export class ContactsService {
     private readonly supportStatusService: SupportStatusService,
     private readonly contactInteractionTextService: ContactInteractionTextService,
     private readonly activityConditionResolution: ActivityConditionResolutionService,
+    private readonly voterQueryService: VoterQueryService,
+    private readonly voterDownloadService: VoterDownloadService,
+    private readonly peopleStatsService: StatsService,
     private readonly logger: PinoLogger,
   ) {
     this.logger.setContext(ContactsService.name)
+  }
+
+  // Read per-call, not cached at module load, so the cutover to the
+  // in-process people-db services (peopleDb/) can be toggled without a
+  // redeploy — see USE_LOCAL_PEOPLE_DB in .env.example.
+  private useLocalPeopleDb(): boolean {
+    return process.env.USE_LOCAL_PEOPLE_DB === 'true'
   }
 
   private hasElectedOfficeAccess(organization: Organization): boolean {
@@ -303,23 +324,25 @@ export class ContactsService {
       filters: FilterObject,
       groupByHousehold: boolean,
       peopleSearch: string | undefined,
-    ) => {
+    ): Promise<PeopleListResponse> => {
+      const body = {
+        ...districtParams,
+        resultsPerPage,
+        page,
+        filters,
+        search: peopleSearch,
+        groupByHousehold,
+      }
+
+      if (this.useLocalPeopleDb()) {
+        return this.voterQueryService.findPeople(ListPeopleDTO.create(body))
+      }
+
       try {
         const response = await lastValueFrom(
-          this.httpService.post(
-            `${PEOPLE_API_URL}/v1/people`,
-            {
-              ...districtParams,
-              resultsPerPage,
-              page,
-              filters,
-              search: peopleSearch,
-              groupByHousehold,
-            },
-            {
-              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            },
-          ),
+          this.httpService.post(`${PEOPLE_API_URL}/v1/people`, body, {
+            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+          }),
         )
         // People API response is untyped — external API returns unknown response shape
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -404,23 +427,30 @@ export class ContactsService {
     // number matches the list it would save (ENG-10517/10518).
     const search = filterInput.search || undefined
 
-    const fetchCount = async (districtParams: { districtId: string }) => {
+    const fetchCount = async (districtParams: {
+      districtId: string
+    }): Promise<number> => {
+      const body = {
+        ...districtParams,
+        resultsPerPage: 1,
+        page: 1,
+        filters,
+        search,
+        groupByHousehold: false,
+      }
+
+      if (this.useLocalPeopleDb()) {
+        const response = await this.voterQueryService.findPeople(
+          ListPeopleDTO.create(body),
+        )
+        return response.pagination.totalResults
+      }
+
       try {
         const response = await lastValueFrom(
-          this.httpService.post(
-            `${PEOPLE_API_URL}/v1/people`,
-            {
-              ...districtParams,
-              resultsPerPage: 1,
-              page: 1,
-              filters,
-              search,
-              groupByHousehold: false,
-            },
-            {
-              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            },
-          ),
+          this.httpService.post(`${PEOPLE_API_URL}/v1/people`, body, {
+            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+          }),
         )
         // People API response is untyped — external API returns unknown shape
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -471,23 +501,27 @@ export class ContactsService {
     const filters = this.mergeIdFilter(baseFilters, idResolution)
     const search = filterInput.search || undefined
 
-    const fetchPeoplePage = async (districtParams: { districtId: string }) => {
+    const fetchPeoplePage = async (districtParams: {
+      districtId: string
+    }): Promise<PeopleListResponse> => {
+      const body = {
+        ...districtParams,
+        resultsPerPage: pagination.resultsPerPage,
+        page: pagination.page,
+        filters,
+        search,
+        groupByHousehold: false,
+      }
+
+      if (this.useLocalPeopleDb()) {
+        return this.voterQueryService.findPeople(ListPeopleDTO.create(body))
+      }
+
       try {
         const response = await lastValueFrom(
-          this.httpService.post(
-            `${PEOPLE_API_URL}/v1/people`,
-            {
-              ...districtParams,
-              resultsPerPage: pagination.resultsPerPage,
-              page: pagination.page,
-              filters,
-              search,
-              groupByHousehold: false,
-            },
-            {
-              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-            },
-          ),
+          this.httpService.post(`${PEOPLE_API_URL}/v1/people`, body, {
+            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+          }),
         )
         // People API response is untyped — external API returns unknown shape
         // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -637,15 +671,17 @@ export class ContactsService {
     districtParams: { districtId: string },
     filters: FilterObject,
   ): Promise<PeopleAggregatesResponse> {
+    const body = { ...districtParams, filters }
+
+    if (this.useLocalPeopleDb()) {
+      return this.voterQueryService.getAggregates(AggregatesDTO.create(body))
+    }
+
     try {
       const response = await lastValueFrom(
-        this.httpService.post(
-          `${PEOPLE_API_URL}/v1/people/aggregates`,
-          { ...districtParams, filters },
-          {
-            headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-          },
-        ),
+        this.httpService.post(`${PEOPLE_API_URL}/v1/people/aggregates`, body, {
+          headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+        }),
       )
       // People API response is untyped — external API returns unknown shape
       // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -665,6 +701,10 @@ export class ContactsService {
         size: String(dto.size ?? 500),
         hasCellPhone: 'true',
         excludeIds: (dto.excludeIds ?? []) as string[],
+      }
+
+      if (this.useLocalPeopleDb()) {
+        return this.voterQueryService.samplePeople(SamplePeopleDTO.create(body))
       }
 
       try {
@@ -727,7 +767,16 @@ export class ContactsService {
       )
     }
 
-    const fetchPerson = async (districtParams: { districtId: string }) => {
+    const fetchPerson = async (districtParams: {
+      districtId: string
+    }): Promise<PersonOutput> => {
+      if (this.useLocalPeopleDb()) {
+        return this.voterQueryService.findPerson(
+          id,
+          GetPersonQueryDTO.create(districtParams),
+        )
+      }
+
       try {
         const response = await lastValueFrom(
           this.httpService.get<PersonOutput>(
@@ -815,6 +864,18 @@ export class ContactsService {
     excludeColumns: string[] | undefined,
     res: FastifyReply,
   ): Promise<void> {
+    if (this.useLocalPeopleDb()) {
+      return this.voterDownloadService.streamPeopleCsv(
+        DownloadPeopleDTO.create({
+          ...districtParams,
+          filters,
+          groupByHousehold,
+          excludeColumns,
+        }),
+        res,
+      )
+    }
+
     let response: { data: Readable }
     try {
       response = await lastValueFrom(
@@ -915,22 +976,27 @@ export class ContactsService {
 
     return this.withOrgDistrictResolution(
       organization,
-      async (districtParams) => {
+      async (districtParams): Promise<number> => {
+        const body = {
+          ...districtParams,
+          resultsPerPage: 1,
+          page: 1,
+          filters,
+          groupByHousehold,
+        }
+
+        if (this.useLocalPeopleDb()) {
+          const response = await this.voterQueryService.findPeople(
+            ListPeopleDTO.create(body),
+          )
+          return response.pagination.totalResults
+        }
+
         try {
           const response = await lastValueFrom(
-            this.httpService.post(
-              `${PEOPLE_API_URL}/v1/people`,
-              {
-                ...districtParams,
-                resultsPerPage: 1,
-                page: 1,
-                filters,
-                groupByHousehold,
-              },
-              {
-                headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
-              },
-            ),
+            this.httpService.post(`${PEOPLE_API_URL}/v1/people`, body, {
+              headers: { Authorization: `Bearer ${this.getValidS2SToken()}` },
+            }),
           )
           // People API response is untyped — external API returns unknown shape
           // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion
@@ -1014,6 +1080,10 @@ export class ContactsService {
   }
 
   async fetchStatsByDistrictId(districtId: string): Promise<StatsResponse> {
+    if (this.useLocalPeopleDb()) {
+      return this.peopleStatsService.getStats(StatsDTO.create({ districtId }))
+    }
+
     const token = this.getValidS2SToken()
 
     try {

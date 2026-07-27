@@ -137,6 +137,9 @@ describe('ContactsService', () => {
         mockSupportStatusService as never,
         mockContactInteractionTextService as never,
         mockActivityConditionResolutionService as never,
+        {} as never,
+        {} as never,
+        {} as never,
         createMockLogger(),
       )
       vi.clearAllMocks()
