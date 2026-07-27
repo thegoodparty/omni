@@ -160,6 +160,34 @@ becomes `enrollment_event_6_66540117`. The field encoding is strict: it must
 be `property_name` plus a `value` object; other spellings return an opaque
 HTTP 500.
 
+Full `create-flow` payload envelope the two shapes above slot into (verified
+HTTP 201, 2026-07-27). The top-level fields are required — a contact workflow
+is `flowType: "WORKFLOW"` + `type: "CONTACT_FLOW"` + `objectTypeId: "0-1"`;
+`startActionId` names the first action. Chain actions with
+`connection: { "edgeType": "STANDARD", "nextActionId": "<id>" }`; the terminal
+action omits `connection`. `create-flow` forces `isEnabled: false` regardless:
+
+```json
+{
+  "isEnabled": false,
+  "flowType": "WORKFLOW",
+  "type": "CONTACT_FLOW",
+  "objectTypeId": "0-1",
+  "name": "<Event> -> stamp contact properties",
+  "startActionId": "1",
+  "enrollmentCriteria": { "...": "the EVENT_BASED shape above" },
+  "actions": [
+    { "actionId": "1", "...": "copy-event-property action",
+      "connection": { "edgeType": "STANDARD", "nextActionId": "2" } },
+    { "actionId": "2", "...": "next field, last action omits connection" }
+  ]
+}
+```
+
+After create, `get-flow <id>` and confirm `enrollmentCriteria.type`,
+`shouldReEnroll`, the `eventTypeId`, and each action's `property_name` +
+`staticValue` survived — HubSpot can silently reshape a malformed flow.
+
 ## Phase 5 — verify end to end
 
 1. `hubspot_event_mapping.py send-test` — synthetic occurrence with realistic
