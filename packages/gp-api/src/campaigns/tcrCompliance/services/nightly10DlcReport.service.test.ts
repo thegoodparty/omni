@@ -712,6 +712,10 @@ describe('Nightly10DlcReportService', () => {
       expect(where.status).toBe(TcrComplianceStatus.submitted)
       expect(where.peerlyIdentityId).toEqual({ not: null })
       expect(where.peerlyCvStatus).toBeNull()
+      // Actively billing-blocked records list under their own section only.
+      expect(where.NOT).toEqual({
+        peerlyBillingBlockedAt: { gte: expect.any(Date) },
+      })
       expect(where.OR).toHaveLength(2)
       const [startedAtBranch] = where.OR as [
         { peerlySubmissionStartedAt: { lt: Date } },

@@ -285,6 +285,14 @@ export class Nightly10DlcReportService extends createPrismaBase(
           status: TcrComplianceStatus.submitted,
           peerlyIdentityId: { not: null },
           peerlyCvStatus: null,
+          // An actively billing-blocked record already appears in the
+          // billingBlocked section — exclude it here to avoid
+          // double-counting it in the stuck total (mirrors case 3a).
+          NOT: {
+            peerlyBillingBlockedAt: {
+              gte: subMinutes(now, PEERLY_BILLING_BLOCK_COOLDOWN_MINUTES),
+            },
+          },
           OR: [
             {
               peerlySubmissionStartedAt: {
